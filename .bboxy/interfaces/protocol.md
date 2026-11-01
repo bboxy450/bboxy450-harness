@@ -2,7 +2,7 @@
 id: "0ERX7PT0Z3S73CS5EFTEHN8VA4"
 number: 6
 type: interface
-title: "ICD: protocol — Op, Event, Envelope, Item lifecycle (v0.1)"
+title: "ICD: protocol — Op, Event, Envelope, Item lifecycle (v0.2)"
 status: baselined
 links:
   - { to: "[[interfaces]]", rel: index }
@@ -19,7 +19,7 @@ updated: "2026-11-01T00:00:00Z"
 | Side A | `engine` + `store` (E1): the only producer of `Envelope`, the only consumer of `Op` |
 | Side B | every face: `gui` (E2), `headless`, `acp`, `seat` line mode; tests and fixtures |
 | Module | `src/protocol/`. Depends on `serde`, `serde_json`, `ulid` only: no tokio, no toolkit |
-| Version | `PROTOCOL: Version { major: 0, minor: 1 }` |
+| Version | `PROTOCOL: Version { major: 0, minor: 2 }` (0.2 adds `ItemStarted.head` and `Terminal.live`) |
 | Change rule | Additive changes are minor: a new variant behind `Unknown`, or a new optional field. Anything else is a major change, which needs both owners and a decision record. A face's question about this boundary is a missing line here |
 
 ## 1. Identity and ordering
@@ -117,7 +117,8 @@ pub enum Event {
     ProfileChanged   { profile: String, model: String },
     TurnQueued       { turn: TurnId },
     TurnStarted      { turn: TurnId },
-    ItemStarted      { turn: Option<TurnId>, item: ItemId, kind: ItemKind, parent: Option<ItemId> },
+    ItemStarted      { turn: Option<TurnId>, item: ItemId, kind: ItemKind, parent: Option<ItemId>,
+                       #[serde(default)] head: Option<ItemHead> },   // identity known at start; see §4
     ItemCompleted    { item: ItemId, status: ItemStatus, body: Item },
     TurnEnded        { turn: TurnId, reason: StopReason, usage: Option<Usage> },
     OpRejected       { op: OpId, reason: Rejection },
@@ -163,7 +164,8 @@ pub enum Item {
                    output: Vec<OutputBlock>, locations: Vec<Location>, spill: Option<BlobRef> },
     FileChange   { path: PathBuf, change: ChangeKind, unified: String },
     TurnDiff     { unified: String },
-    Terminal     { terminal: String, command: String, exit: Option<i32>, signal: Option<i32>, output: Option<BlobRef> },
+    Terminal     { terminal: String, command: String, exit: Option<i32>, signal: Option<i32>, output: Option<BlobRef>,
+                   #[serde(default)] live: Option<String> },   // snapshots only; always None in ItemCompleted
     Plan         { entries: Vec<PlanEntry> },
     Approval     { subject: ApprovalSubject, options: Vec<ApprovalDecisionKind>,
                    decision: Option<ApprovalDecision>, by: Option<Resolver> },  // Resolver = Face(name) | Rule(id) | Unattended
@@ -175,6 +177,12 @@ pub enum Item {
     #[serde(other)] Unknown,
 }
 pub struct BlobRef { pub sha256: String /* hex */, pub len: u64, pub mime: String }  // stored at sessions/<id>/blobs/<sha256>
+#[serde(tag = "kind", rename_all = "snake_case")]          // same strings as ItemKind
+pub enum ItemHead {
+    ToolCall { call_id: String, name: String, tool_kind: ToolKind },
+    Terminal { terminal: String, command: String },
+    #[serde(other)] Unknown,
+}
 pub enum ToolKind { Read, Edit, Delete, Move, Search, Execute, Think, Fetch, Other }  // maps 1:1 to ACP ToolKind
 ```
 
@@ -252,7 +260,13 @@ pub enum ErrorClass {                                          // shared with pr
 2. Zero or more `ItemDelta`, ephemeral.
 3. `ItemCompleted`, durable, exactly once, carrying the *full* body.
 
-The completed body is authoritative, so a face that missed deltas loses nothing. `parent` nests tool output, approvals and subagents under their tool call.
+The completed body is authoritative, so a face that missed deltas loses nothing.
+
+**Head.** `ItemStarted` for a `ToolCall` or a `Terminal` must carry `head`; for other kinds it is `None`. A `ToolCall` item starts when the provider stream has given both `id` and `name` for its index; `ToolInput` deltas that arrive earlier are buffered and emitted after the start. The completed body's `call_id`, `name`, `tool_kind` (or `terminal`, `command`) equal the head.
+
+**Live terminal output.** `Item::apply(Delta::Output)` on a `Terminal` appends `append` to `live` (interleaving stdout and stderr in arrival order) and keeps only the last 64 KiB: it cuts at a char boundary and prefixes `…`. An `ItemSnapshot` of an open `Terminal` therefore carries the same `live` a face would hold had it seen every delta since the cut. `ItemCompleted` carries `live: None`; the full output is in `output`. `parent` nests tool output, approvals and subagents under their tool call.
+
+**Recovery reads only the log.** No runtime projection survives a process restart, so a closure is built the same way whether or not the process restarted. A closed item's body is the kind's empty body (empty strings and vectors, `None` options) with the identity fields taken from `head`.
 
 **Recovery.** A log that ends in `SessionClosed` is loaded read-only and needs no recovery. When the store opens any other log whose tail has items or turns without terminal events, it appends the following in the new epoch:
 1. `ItemCompleted{status: Interrupted}` for each open item, innermost first.
@@ -320,6 +334,7 @@ Phase 1 fork **materializes** the parent prefix into the child's own log. A chil
 | §5 round trip and forward compatibility | `tests/protocol_golden.rs`: every fixture line parses and re-serialises byte-identical; an injected future variant parses as `Unknown` |
 | §4b compaction | `tests/context_compact.rs`: golden digests in `tests/fixtures/compact/*.md`; the same log compacted twice gives the same `sha256`; the request after a compaction contains no item with `ItemStarted` seq ≤ `replaced_through`; a second `Compact` with no new turn gives `NothingToCompact`; the 32 KiB cap drops oldest turns first; a user message containing `\n## Turn 1\n` survives two compactions as one escaped line and the section count is unchanged; a queued-then-cancelled turn adds no section. Pure function: implementation-only coverage, recorded in the formal inventory |
 | §4c fork | `tests/store_fork.rs`: child seq *n* equals parent seq *n* for *n* ≤ `at` (event bytes compared); a non-quiescent `at` gives `BadFork`; the parent's log hash is unchanged; deleting the parent after the fork leaves the child openable; the child's first `ModelRequest` equals the parent's at `at`; a fork taken while the parent appends copies exactly `1..=at`; `check_transcript` passes on the child |
+| §4 head and live output | `check_transcript`: every `ToolCall`/`Terminal` `ItemStarted` has a `head` of matching kind, the completed body's identity equals it, and `ItemCompleted` never has `live: Some`. `tests/store_recovery.rs`: kill the process mid tool call; after reopening, the recovered `ToolCall` keeps its `call_id` and `name`, and the next `ModelRequest` pairs the tool result to it. `tests/gateway_replay.rs`: subscribe during a 200 KiB exec; the snapshot's `live` equals the last 64 KiB of the deltas |
 | §1 epoch and `Reset` | model SubscriberReplay + BrokenSubscriberReplay; `tests/store_recovery.rs` truncates a log tail and asserts `Reset` |
 
 `src/protocol/laws.rs` exports `pub fn check_transcript(&[Envelope]) -> Result<(), LawViolation>`. It is the executable form of laws 1, 2 and 5. Every e2e test and every GUI fixture test calls it, and fixtures are rejected if they fail it.
@@ -332,5 +347,6 @@ Phase 1 fork **materializes** the parent prefix into the child's own log. A chil
 - **2026-11-01, at E1's fourth question** (message 01M6AJMVVHA6DCBHGFXM8BCFHM). Adds §4b (deterministic digest compaction, the replay rule, no automatic ladder in phase 1) and §4c (fork materializes the parent prefix with identical seqs). Alternatives rejected: a model-written summary (non-deterministic, spends inference outside [[budgets]]); a fork that references the parent (cross-session reads in replay and recovery, and a dangling parent on delete). Adds `Refused::BadFork` ([[gateway]]). Version unchanged.
 - **2026-11-01, at E1's fifth question** (message 01M6AJW9H6MSQS31Q2VC9RNSYB). §4b digest: unstarted turns are omitted (rejected alternative: a `TurnQueued` seq header for a turn the model never saw); fields are clipped, then escaped to one line; the `prev` parse is fixed. Version unchanged.
 - **2026-11-01, at the Oracle's question** (message 01M6AMASRXSGVHYFESFGWZVCRK). §1 said seqs are never reused, yet after tail loss the next epoch reassigns them. Corrected: positions are `(Epoch, Seq)`; validity is gateway §2's trusted head. Decision [[d1134-reset-trusted-head]]. Version unchanged.
+- **2026-11-01, v0.2 at E1's E1b question** (message 01M6AMHT3Y47902K55F608ZY3X). Adds `ItemStarted.head` (durable identity for `ToolCall` and `Terminal`; recovery reads only the log) and `Terminal.live` (a 64 KiB tail that snapshots repair). Additive fields, so this is a minor bump. Alternatives rejected: keeping runtime identities with a synthetic fallback (a closure would then depend on whether the process restarted, which breaks [[log-is-truth]]); a separate durable identity event (one more event per item, for data that is known at start).
 
 Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: E2.
