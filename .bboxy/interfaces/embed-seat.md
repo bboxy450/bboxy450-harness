@@ -55,8 +55,8 @@ updated: "2026-11-01T00:00:00Z"
 | Start | Print `session <ulid> · <profile>`, then the prompt; `profile <name> · <model>` follows on its own line when the profile resolves. The bboxy MCP connects asynchronously. If it is unavailable, print a `Notice` and continue (never block) |
 | Restart (generation + 1), **phase 1b** | Bboxy relaunches with `--resume <session>`. Store recovery runs (protocol §4), the screen replays the last 20 completed items, then the prompt |
 | Restart in phase 1a | A fresh `seat` with a new session. The earlier session stays on disk and can be resumed by hand with `--resume` |
-| PTY hangup / seat close | Treated as `Op::Close`: cancel the turn, kill process groups, fsync, and exit 0 within 2 s |
-| SIGTERM | Same as hangup |
+| `Ctrl-D` at the prompt / `Op::Close` | Graceful: cancel the turn, kill process groups, append `SessionClosed`, fsync, and exit 0 within 2 s |
+| PTY hangup / seat close / SIGTERM | **The supervisor's budget applies.** bbt-supervisor sends SIGHUP and escalates to SIGKILL after 250 ms; that is term's policy for every seat, and the harness does not get more. A graceful exit is not required: the exit may be `Killed: 9`. **Side B requirement:** on SIGHUP, SIGTERM or PTY EOF, the harness first sends SIGKILL synchronously to every process group it owns (tools, terminals, MCP servers), within 100 ms of the signal and before any await. Only after that does it try the graceful path. Durability comes from the per-event fsync (protocol §1) and store recovery (protocol §4) on the next open, not from the exit |
 
 ## 4. Changes on Side A (core changes: they need the ICD #348 owner)
 
@@ -78,10 +78,11 @@ There is no new `WakeMethod` and no change to d20 in phase 1a. Phase 1b adds a s
 | Clause | Evidence |
 |---|---|
 | §2 line mode | `tests/seat_golden.rs`: fixtures render to the expected bytes. A byte scan asserts there are no CSI sequences other than SGR (regex `\x1b\[[0-9;]*[^m]` has no match) |
-| §3 hangup → stop within 2 s, no orphan process group | `tests/seat_process.rs` spawns `seat` under a real PTY (the `portable-pty` dev-dependency), starts a `sleep 600` tool through the scripted provider, closes the PTY, and asserts exit within 2 s and `kill(-pgid, 0) == ESRCH` |
+| §3 `Op::Close` → exit 0 within 2 s | `tests/seat_process.rs`: `Ctrl-D` at the prompt exits 0 in ≤ 2 s, the log ends with `SessionClosed`, and no group survives |
+| §3 hangup under the supervisor budget | `tests/seat_process.rs` spawns `seat` under a real PTY (the `portable-pty` dev-dependency) and starts a tool through the scripted provider that ignores SIGHUP (`trap '' HUP; sleep 600`). It then sends SIGHUP and SIGKILL 250 ms later, as the supervisor does. Asserts: `kill(-pgid, 0) == ESRCH` for every tool group within 2 s; the observed exit is recorded and not asserted; and a later `seat --resume <session>` recovers the log (`SessionRecovered`, `check_transcript` passes). Broken control: with the synchronous group kill removed, the SIGHUP-ignoring group survives, so the test must fail |
 | §1 MCP unavailable never blocks | `tests/seat_process.rs::no_bboxy_sock`: the env points at a missing socket, and the first turn still completes |
 | §1 startup context and MCP (Side B) | `tests/seat_process.rs`: with `--append-system-prompt T --mcp-config F`, where F names the `mcp_fixture` in `echo_env` mode, the first scripted request has `T` in `messages[..stable_prefix]`, `mcp__bboxy__*` tools are in its `tools`, the `--mcp-config` server sees `BBOXY_SEAT_ID`, and a profile server in the same session does not see `BBOXY_CAPABILITY` |
-| §4 Side A, phase 1a | bboxy450-term `make test-harness-native` `bboxy450-harness` case (E4): spawn under the supervisor; a line written to the PTY becomes a turn that reaches `TurnEnded`; seat close exits ≤ 2 s with `kill(-pgid, 0) == ESRCH` |
+| §4 Side A, phase 1a | bboxy450-term `make test-harness-native` `bboxy450-harness` case (E4): spawn under the supervisor; a line written to the PTY becomes a turn that reaches `TurnEnded`; seat close gives `kill(-pgid, 0) == ESRCH` for every harness-owned group within 2 s, the observed exit is recorded, and a manual `--resume` of that session recovers with `check_transcript` passing |
 | phase 1b: readiness, session-id persistence, resume | **unproven**; needs its own #348 amendment (logic scope, d20) |
 | EmbedLifecycle | model EmbedLifecycle (reuses LifecycleOwnership's shape) |
 
@@ -98,7 +99,7 @@ These are the exact clauses of `bboxy450-term/.bboxy/interfaces/app-harness.md` 
 | Startup context | add: `bboxy450-harness` receives the same `startup_prompt` text through `--append-system-prompt`. The capability never enters argv |
 | Launch permissions | add: no permission flag is passed to `bboxy450-harness`. Its own `Policy` governs, and approvals are answered in line mode (§2) or fall to `on_unattended` (default deny) |
 | Versioning | add: the app never writes `~/.bboxy450-harness`. The harness writes only its own sessions there |
-| Verified by | add, phase 1a (E4): `make test-harness-native` `bboxy450-harness` case covering spawn, a PTY line that becomes a turn, close, and no orphaned process group. Phase 1b (readiness, session-id persistence, resume) is **unproven** and is not claimed by this row |
+| Verified by | add, phase 1a (E4): `make test-harness-native` `bboxy450-harness` case covering spawn, a PTY line that becomes a turn, and seat close under the supervisor's 250 ms SIGHUP→SIGKILL. On close, every group reaches ESRCH within 2 s, the exit is recorded, and a manual `--resume` recovers. Phase 1b (readiness, session-id persistence, resume) is **unproven** and is not claimed by this row |
 
 ## Change log
 
@@ -109,5 +110,6 @@ These are the exact clauses of `bboxy450-term/.bboxy/interfaces/app-harness.md` 
   - §7 lists the exact #348 clauses that change.
   - Status stays proposed until #348's owner agrees.
 - **2026-11-01, at the Oracle's ruling** (message 01M6BJMEAYYBWMKFWJY9VRDR8K, E4's evidence). Phase 1a is spawn, turn, close and no orphaned process group. I verified both cited facts. `wake-up/src/guard.rs:81-83` returns `OperatorHandoff` for every kind except claude, codex and zsh. `bbt-mux/src/logic.rs:6162` persists `harness_session_id` only for claude and codex. Automatic wake, session-id capture and resume therefore move to phase 1b, under its own #348 amendment. §1, §3, §5, §6 and §7 are split to match. Under d4071 the #348 rows land in E4's PR.
+- **2026-11-01, at the Oracle's ruling** (message 01M6BK3YM95VWV6FJ3KYBYFQNC, E4's evidence). bbt-supervisor escalates SIGHUP to SIGKILL after 250 ms, so "exit 0 within 2 s" on hangup could not hold. Hangup now uses the supervisor's budget, and "exit 0 within 2 s" applies only to `Ctrl-D`/`Op::Close`. Added a Side B requirement: SIGKILL every owned group synchronously within 100 ms of the signal, which leaves 150 ms of margin inside the 250 ms. Without it, a tool group that ignores SIGHUP is orphaned when the harness leader is killed, because tool groups are not in the seat's group. Alternative rejected: asking term for a longer grace period, which would be term's budget for every seat.
 
 Owner: Nyx Copperwing <ARCHITECT> (Side B); Corvin Duskmantle <ARCHITECT> (Side A, ICD #348).
