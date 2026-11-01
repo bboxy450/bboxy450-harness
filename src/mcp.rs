@@ -21,7 +21,7 @@ use rmcp::{
     ClientHandler, Peer, RoleClient, ServiceExt,
     model::*,
     service::{NotificationContext, PeerRequestOptions, RxJsonRpcMessage, TxJsonRpcMessage},
-    transport::{TokioChildProcess, Transport},
+    transport::{Transport, async_rw::AsyncRwTransport},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -446,19 +446,18 @@ impl ClientHandler for Handler {
         self.changed.notify_one();
     }
 }
-type Child = Box<dyn process_wrap::tokio::ChildWrapper>;
-/// Disarm the SDK's detached Drop cleanup. The session supervisor owns the child.
+// The SDK driver owns bytes and a close notification, never a child/reaper.
 struct OwnedTransport {
-    inner: Option<TokioChildProcess>,
-    child: Option<oneshot::Sender<Child>>,
+    inner: Option<
+        AsyncRwTransport<RoleClient, tokio::process::ChildStdout, tokio::process::ChildStdin>,
+    >,
+    closed: Option<oneshot::Sender<()>>,
 }
 impl OwnedTransport {
     fn release(&mut self) {
-        if let Some(inner) = self.inner.take()
-            && let Some(child) = inner.into_inner()
-            && let Some(tx) = self.child.take()
-        {
-            let _ = tx.send(child);
+        self.inner.take();
+        if let Some(tx) = self.closed.take() {
+            let _ = tx.send(());
         }
     }
 }
@@ -483,17 +482,15 @@ impl Transport<RoleClient> for OwnedTransport {
         Ok(())
     }
 }
-async fn finish_child(rx: oneshot::Receiver<Child>, mut group: crate::process::OwnedGroup) {
-    if let Ok(mut child) = rx.await {
-        if child.id().is_some() {
-            // The leader remains unreaped, reserving its pgid until both signals.
-            group.send(libc::SIGTERM);
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            group.send(libc::SIGKILL);
-        }
-        group.reaped();
-        let _ = child.wait().await;
-    }
+async fn finish_child(
+    rx: oneshot::Receiver<()>,
+    mut child: crate::process::OwnedChild,
+) -> Result<(), oneshot::error::RecvError> {
+    let notification = rx.await; // Lost notification has exactly the same cleanup obligation.
+    child.send(libc::SIGTERM);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let _ = child.wait().await; // group KILL + retirement precede the only reap
+    notification
 }
 fn scrub_bboxy_env(command: &mut tokio::process::Command) {
     let mut names = std::env::vars_os()
@@ -571,14 +568,14 @@ async fn supervise(
                 redactor.register(&value);command.env(key,value);
             }
             if slot.origin!=Origin::Launcher {scrub_bboxy_env(&mut command);}
-            let reservation=crate::process::reserve_group().map_err(|_|"process shutting down")?;
-            let (transport,err)=TokioChildProcess::builder(command).stderr(std::process::Stdio::piped()).spawn().map_err(|_|"spawn failed")?;
-            let group=crate::process::OwnedGroup::new(transport.id().expect("spawned MCP child"),reservation);
-            let (tx,rx)=oneshot::channel();
+            command.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+            let mut child=crate::process::OwnedChild::spawn(command).map_err(|_|"spawn failed")?;
+            let err=child.stderr();
+            let (closed,rx)=oneshot::channel();
+            let transport=OwnedTransport {inner:Some(AsyncRwTransport::<RoleClient,_,_>::new(child.stdout().expect("MCP stdout"),child.stdin().expect("MCP stdin"))),closed:Some(closed)};
             let mut pipes=TaskGroup::new(cancel.child_token());
             if let Some(mut err)=err {let ring=stderr.clone();let stop=pipes.cancel.clone();pipes.spawn(async move {let mut buf=[0u8;4096];loop {let n=tokio::select!{biased;_=stop.cancelled()=>break,n=err.read(&mut buf)=>n};let Ok(n)=n else {break;};if n==0{break;}let mut ring=ring.lock().unwrap();ring.extend_from_slice(&buf[..n]);let excess=ring.len().saturating_sub(64*1024);ring.drain(..excess);}});}
             let changed=Arc::new(Notify::new());
-            let transport=OwnedTransport {inner:Some(transport),child:Some(tx)};
             let run=async {
                 let deadline=tokio::time::Instant::now()+Duration::from_secs(10);
                 let handshake=tokio::time::timeout_at(deadline,Handler {changed:changed.clone()}.serve(transport));
@@ -601,7 +598,7 @@ async fn supervise(
                 stop_service.cancel();if !finished {let _=completion.await;}Err("server exited")
             };
             let outcome:Result<(),&str>=run.await;
-            slot.ready.store(Arc::new(None));finish_child(rx,group).await;let _=pipes.cancel_and_join().await;outcome
+            slot.ready.store(Arc::new(None));let _=finish_child(rx,child).await;let _=pipes.cancel_and_join().await;outcome
         }.await;
         slot.ready.store(Arc::new(None));
         if cancel.is_cancelled() {
@@ -636,3 +633,36 @@ async fn supervise(
     }
 }
 use futures_util::FutureExt;
+
+#[cfg(feature = "test-fixtures")]
+pub mod fixtures {
+    use super::*;
+    /// Force the two former cleanup conditions with a real stubborn server.
+    pub async fn finish_with_missing_id_or_failed_handoff(
+        program: &std::path::Path,
+        root: &std::path::Path,
+        missing_id: bool,
+    ) -> crate::process::fixtures::Observation {
+        let mut fixture = crate::process::fixtures::Fixture::start(program, root).await;
+        let mut child = fixture.child.take().unwrap();
+        let (stdout, stdin) = fixture.pipes.take().unwrap();
+        let (tx, rx) = oneshot::channel();
+        let mut transport = OwnedTransport {
+            inner: Some(AsyncRwTransport::new(stdout, stdin)),
+            closed: Some(tx),
+        };
+        let absent = if missing_id {
+            child.wait().await.unwrap();
+            let absent = crate::process::fixtures::missing_id(&child);
+            transport.close().await.unwrap();
+            absent
+        } else {
+            // A sender lost before release forces the actual receiver Err.
+            drop(transport.closed.take());
+            drop(transport);
+            false
+        };
+        let failed_handoff = finish_child(rx, child).await.is_err();
+        fixture.observe(absent, failed_handoff).await
+    }
+}

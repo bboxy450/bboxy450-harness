@@ -871,7 +871,7 @@ fn replay_tail(mode: u8) -> Model {
     m
 }
 fn process_lifecycle(mode: u8) -> Model {
-    let mut m = base::<9>(
+    let mut m = base::<10>(
         "ProcessLifecycle",
         false,
         &[
@@ -884,6 +884,7 @@ fn process_lifecycle(mode: u8) -> Model {
             ("signal_to_empty", 1, 0),
             ("seat_alive", 1, 1),
             ("hangup", 1, 0),
+            ("registered", 1, 1),
         ],
     );
     let exit = m.actions.len();
@@ -916,7 +917,7 @@ fn process_lifecycle(mode: u8) -> Model {
                 all([eq(3, 1), eq(1, 0)])
             },
         ]),
-        &[(0, Int(2))],
+        &[(0, Int(2)), (9, if mode == 5 { Var(9) } else { Int(0) })],
     );
     let drain = m.actions.len();
     act(
@@ -992,6 +993,11 @@ fn process_lifecycle(mode: u8) -> Model {
         eq(2, 2).negate().or(eq(1, 0)),
     );
     safe(&mut m, "NoSignalToEmptyGroup", eq(6, 0));
+    safe(
+        &mut m,
+        "NoRegistrationAfterReap",
+        eq(0, 2).negate().or(eq(9, 0)),
+    );
     safe(&mut m, "NoPipeWaitAfterEnd", eq(5, 0).or(eq(4, 0)));
     progress(
         &mut m,
@@ -1005,6 +1011,7 @@ fn process_lifecycle(mode: u8) -> Model {
         2 => m.name = "BrokenHarnessProcessOwnership".into(),
         3 => m.name = "BrokenHarnessProcessReapedMembers".into(),
         4 => m.name = "BrokenHarnessProcessHangup".into(),
+        5 => m.name = "BrokenHarnessProcessReapLease".into(),
         _ => {}
     }
     m
@@ -1679,9 +1686,12 @@ fn mcp_server(mode: u8) -> Model {
     m
 }
 fn mcp_group_close(leader_only: bool) -> Model {
+    mcp_group_close_mode(leader_only, false)
+}
+fn mcp_group_close_mode(leader_only: bool, skip_lost: bool) -> Model {
     // Close owns a leader and two members. SIGTERM is ignored; the grace
     // expires before SIGKILL, and leader wait completes only after that signal.
-    let mut m = base::<5>(
+    let mut m = base::<7>(
         "McpGroupClose",
         leader_only,
         &[
@@ -1690,12 +1700,18 @@ fn mcp_group_close(leader_only: bool) -> Model {
             ("close", 3, 0),
             ("term_sent", 1, 0),
             ("leader_reaped", 1, 0),
+            ("notification", 2, 0), // pending, delivered, sender lost
+            ("registered", 1, 1),
         ],
     );
     act(
         &mut m,
         "CloseSendsIgnoredTerm",
-        eq(2, 0),
+        all([
+            eq(2, 0),
+            eq(5, 0).negate(),
+            if skip_lost { eq(5, 1) } else { Bool(true) },
+        ]),
         &[(2, Int(1)), (3, Int(1))],
     );
     act(
@@ -1706,6 +1722,7 @@ fn mcp_group_close(leader_only: bool) -> Model {
             (0, Int(0)),
             (1, if leader_only { Var(1) } else { Int(0) }),
             (2, Int(2)),
+            (6, Int(0)),
         ],
     );
     act(
@@ -1720,6 +1737,25 @@ fn mcp_group_close(leader_only: bool) -> Model {
         all([Var(2).lt(Int(3)), Int(0).lt(Var(1))]),
         &[(1, Var(1).minus(Int(1)))],
     );
+    act(&mut m, "TransportClosed", eq(5, 0), &[(5, Int(1))]);
+    act(&mut m, "SenderLost", eq(5, 0), &[(5, Int(2))]);
+    // The typed owner can have an already-reaped child only after this fence.
+    act(
+        &mut m,
+        "FencedWaitBeforeFinish",
+        all([eq(2, 0), eq(4, 0)]),
+        &[(0, Int(0)), (1, Int(0)), (4, Int(1)), (6, Int(0))],
+    );
+    if skip_lost {
+        m.name = "BrokenHarnessMcpLostChild".into();
+        act(
+            &mut m,
+            "SkipCleanupOnReceiverError",
+            all([eq(2, 0), eq(5, 2)]),
+            &[(2, Int(3))],
+        );
+    }
+    safe(&mut m, "NoRegistrationAfterReap", eq(4, 0).or(eq(6, 0)));
     safe(
         &mut m,
         "NoMemberAfterClose",
@@ -1728,7 +1764,7 @@ fn mcp_group_close(leader_only: bool) -> Model {
     safe(
         &mut m,
         "ReapAfterKill",
-        eq(4, 0).or(all([eq(0, 0), eq(2, 3)])),
+        eq(4, 0).or(all([eq(0, 0), eq(6, 0)])),
     );
     progress(
         &mut m,
@@ -1950,6 +1986,8 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
     out.push((process_lifecycle(2), "safety"));
     out.push((process_lifecycle(3), "safety"));
     out.push((process_lifecycle(4), "safety"));
+    out.push((process_lifecycle(5), "safety"));
+    out.push((mcp_group_close_mode(false, true), "safety"));
     use bbt_yarn::reactor_model;
     let mut projected = bboxy450_harness::harness_turn_topology!(
         reactor_model,
