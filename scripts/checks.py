@@ -27,16 +27,28 @@ def headers():
         expected=HEADER if path.suffix=='.rs' else [l.replace('//','#',1) for l in HEADER]
         if lines[:6]!=expected:raise ValueError('source header differs: '+str(path.relative_to(ROOT)))
     print('headers: PASS')
+# Published identifiers, not credentials: the machine's public GPG signing fingerprint (~/.agents/AGENTS.md IDENTITY).
+PUBLIC_FINGERPRINTS={'9B07E849480C68328CA20684844ECC0587DE7AB0'}
+SECRET_PATTERNS=[re.compile(r'sk-(?:or-v1-)?[A-Za-z0-9]{20,}'),re.compile(r'(?i)(?:api_key|key)\s*[:=]\s*[\x22\x27]?([0-9a-f]{32,})')]
+def credential_shape(content):
+    """A key-shaped value, unless the whole hex run is exactly a published fingerprint."""
+    return any(m.lastindex is None or m.group(1).upper() not in PUBLIC_FINGERPRINTS for p in SECRET_PATTERNS for m in p.finditer(content))
 def secrets():
-    patterns=[re.compile(r'sk-(?:or-v1-)?[A-Za-z0-9]{20,}'),re.compile(r'(?i)(?:api_key|key)\s*[:=]\s*[\x22\x27]?[0-9a-f]{32,}')]
     tracked=subprocess.check_output(['git','ls-files','-z'],cwd=ROOT).split(b'\0')
     for name in tracked:
         if not name:continue
         path=ROOT/os.fsdecode(name)
         if not path.exists() and not path.is_symlink():raise ValueError('tracked file missing: '+str(path.relative_to(ROOT)))
         content=os.readlink(path) if path.is_symlink() else path.read_bytes().decode('latin-1')
-        if any(p.search(content) for p in patterns):raise ValueError('credential shape in '+str(path.relative_to(ROOT))+' (value suppressed)')
+        if credential_shape(content):raise ValueError('credential shape in '+str(path.relative_to(ROOT))+' (value suppressed)')
     print('secret scan: PASS')
+def secrets_control():
+    """The published fingerprint passes; a 32-hex api_key, another 40-hex signing key and an extended fingerprint must fail."""
+    fingerprint=next(iter(PUBLIC_FINGERPRINTS))
+    if credential_shape('Signing key: '+fingerprint) or credential_shape('signing key: '+fingerprint.lower()):raise ValueError('secrets control: the published fingerprint was rejected')
+    for bad in ['api_key = "'+'ab'*16+'"','Signing key: '+'C'*40,'Signing key: '+fingerprint+'0']:
+        if not credential_shape(bad):raise ValueError('secrets control: a key-shaped value was accepted')
+    print('secrets control: PASS (rejected 3)')
 def kb_records(root=ROOT/'.bboxy'):
     """Every .bboxy/**/*.md is an index record: frontmatter with a unique id and a positive integer number."""
     ids,numbers={},{}
@@ -91,5 +103,5 @@ def inventory_shape_control():
         raise ValueError('inventory shape control: a malformed array was accepted')
     print('inventory shape control: PASS (rejected 2)')
 if __name__=='__main__':
-    try:{'headers':headers,'secrets':secrets,'kb-records':kb_records,'kb-records-control':kb_records_control,'inventory-shape':inventory_shape,'inventory-shape-control':inventory_shape_control}[sys.argv[1]]()
+    try:{'headers':headers,'secrets':secrets,'secrets-control':secrets_control,'kb-records':kb_records,'kb-records-control':kb_records_control,'inventory-shape':inventory_shape,'inventory-shape-control':inventory_shape_control}[sys.argv[1]]()
     except (ValueError,KeyError) as error:print(error,file=sys.stderr);sys.exit(1)
