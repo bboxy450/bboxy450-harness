@@ -2,8 +2,8 @@
 id: "0PJA9WT3M12T7XGKMFWDPAD442"
 number: 3
 type: interface
-title: "ICD: bboxy450-term ↔ harness — phase 1 process seat (proposed)"
-status: proposed
+title: "ICD: bboxy450-term ↔ harness — phase 1 process seat (1a baselined, 1b proposed)"
+status: baselined
 links:
   - { to: "[[interfaces]]", rel: index }
   - { to: "bboxy450-term:[[app-harness]]", rel: amends }
@@ -14,7 +14,7 @@ updated: "2026-11-01T00:00:00Z"
 ---
 # ICD: bboxy450-term ↔ harness, phase 1 process seat
 
-**Status: proposed.** This amends bboxy450-term ICD #348 (app ↔ harness), which needs its owner, Corvin Duskmantle <ARCHITECT>, to agree. It is not baselined until then. The harness work on phase 1 does not wait for that agreement: the `seat` face and its tests run standalone against a stub wake. See [[architect-review-v0]] §5.
+**Status: phase 1a baselined; phase 1b proposed.** This amends bboxy450-term ICD #348 (app ↔ harness). The phase 1a rows of §7 landed in #348 at bboxy450-term `a5f4840d` and shipped on bboxy450-term main at `d6fa3fd5` (E4, via `land.sh`), signed off by the Oracle under ruling d4071 (message 01M6BGN6VCDYR1FQ53ZCWZWC1J). Changing a 1a clause now needs both owners and a recorded reason. Phase 1b (readiness, session-id persistence, resume) stays proposed and needs its own #348 amendment. See [[architect-review-v0]] §5.
 
 | | |
 |---|---|
@@ -86,9 +86,9 @@ There is no new `WakeMethod` and no change to d20 in phase 1a. Phase 1b adds a s
 | phase 1b: readiness, session-id persistence, resume | **unproven**; needs its own #348 amendment (logic scope, d20) |
 | EmbedLifecycle | model EmbedLifecycle (reuses LifecycleOwnership's shape) |
 
-## 7. Amendment to bboxy450-term ICD #348 (for its owner)
+## 7. Amendment to bboxy450-term ICD #348 (phase 1a, landed)
 
-These are the exact clauses of `bboxy450-term/.bboxy/interfaces/app-harness.md` (#348) that change. Nothing else in #348 changes.
+Landed verbatim in #348 at bboxy450-term `a5f4840d`, on main at `d6fa3fd5`. These are the exact clauses of `bboxy450-term/.bboxy/interfaces/app-harness.md` (#348) that change. Nothing else in #348 changes.
 
 | #348 row | Change |
 |---|---|
@@ -112,5 +112,6 @@ These are the exact clauses of `bboxy450-term/.bboxy/interfaces/app-harness.md` 
 - **2026-11-01, at the Oracle's ruling** (message 01M6BJMEAYYBWMKFWJY9VRDR8K, E4's evidence). Phase 1a is spawn, turn, close and no orphaned process group. I verified both cited facts. `wake-up/src/guard.rs:81-83` returns `OperatorHandoff` for every kind except claude, codex and zsh. `bbt-mux/src/logic.rs:6162` persists `harness_session_id` only for claude and codex. Automatic wake, session-id capture and resume therefore move to phase 1b, under its own #348 amendment. §1, §3, §5, §6 and §7 are split to match. Under d4071 the #348 rows land in E4's PR.
 - **2026-11-01, at the Oracle's ruling** (message 01M6BK3YM95VWV6FJ3KYBYFQNC, E4's evidence). bbt-supervisor escalates SIGHUP to SIGKILL after 250 ms, so "exit 0 within 2 s" on hangup could not hold. Hangup now uses the supervisor's budget, and "exit 0 within 2 s" applies only to `Ctrl-D`/`Op::Close`. Added a Side B requirement: SIGKILL every owned group synchronously within 100 ms of the signal, which leaves 150 ms of margin inside the 250 ms. Without it, a tool group that ignores SIGHUP is orphaned when the harness leader is killed, because tool groups are not in the seat's group. Alternative rejected: asking term for a longer grace period, which would be term's budget for every seat.
 - **2026-11-01, at the Oracle's ruling** (message 01M6BKNSK7Q6X5R1BP57F7PTC4, E4's evidence). The 1a refusal is `composer-readiness-missing`, not `OperatorHandoff`. I checked the code: the precheck at `bbt-mux/src/logic.rs:8734-8745` fires when there is no composer-ready observation, before `guard.rs` runs. §1, §5, §6 and §7 now name that cause and record the evidence: zero PTY bytes and no retry. `guard.rs:81-83` is still true, but 1a never reaches it. No core change.
+- **2026-11-01, at the Oracle's request** (message 01M6C5Q3M1PERJXAPSJV4PV7Q9). Phase 1a baselined. Evidence: bboxy450-term `.bboxy/interfaces/app-harness.md:33-46` carries the §7 rows, added by signed commit `a5f4840d`, an ancestor of signed `d6fa3fd5` on `origin/main` (`git merge-base --is-ancestor` exit 0). Phase 1b stays proposed.
 
 Owner: Nyx Copperwing <ARCHITECT> (Side B); Corvin Duskmantle <ARCHITECT> (Side A, ICD #348).
