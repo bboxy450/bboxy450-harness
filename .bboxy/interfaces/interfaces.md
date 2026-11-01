@@ -27,8 +27,12 @@ updated: "2026-10-31T00:00:00Z"
 | [[provider]] | engine ↔ OpenAI-compatible endpoint (E1 on both sides) | baselined v0.1 |
 | [[acp]] | engine via `Host`/`InProc` (E1) ↔ ACP v1 clients over stdio | baselined v0.1 |
 | [[mcp]] | engine registry and policy (E1) ↔ user-configured MCP servers (untrusted child processes) | baselined v0.1 |
-| [[embed-seat]] | bboxy450-term (ICD #348 owner) ↔ `seat` face | proposed; Side A needs Corvin Duskmantle |
-| [[seat-capability-delivery]] | bboxy450-term launch kit, bridge and hook (ICD #348) ↔ every seat kind, including `seat` | proposed; the capability moves out of the process environment into a 0600 overlay file. The Oracle signs under d4071 |
+| [[embed-seat]] | bboxy450-term (ICD #348 owner) ↔ `seat` face | phase 1a baselined (bboxy450-term `d6fa3fd5`); 1b proposed |
+| [[seat-capability-delivery]] | bboxy450-term launch kit, bridge and hook (ICD #348) ↔ every seat kind, including `seat` | baselined: Side A bboxy450-term `afda1b63`, Side B harness `4deca92`; the capability is a 0600 overlay file, never in an environment |
+| [[lc-ir]] | log-converter parsers (Claude, Codex, Bboxy) ↔ IR ↔ lowerers; loss table; sanitizer | proposed v0.1 ([[log-converter]]) |
+| [[lc-bxl]] | bxl append writer ↔ tailing readers; binary format | proposed v0.1 |
+| [[lc-watch-sink]] | native Claude/Codex logs ↔ watcher ↔ sink; cursor, delivery | proposed v0.1 |
+| [[session-switch]] | bboxy450-term ↔ log-converter: live harness switch; amends #348 | proposed; #348 rows need the Oracle's signature under d4071 |
 | [[upstream-toolkit]] | harness ↔ bboxy450-term toolkit and formal stack; upstream items U1–U7, each with an interim and an acceptance check | proposed; bboxy450-term owners accept each item |
 | toolkit widgets | E2 upstream in bboxy450-term ↔ the harness `gui` face | no ICD of its own. Each widget's API is part of its upstream task brief, and the face consumes only `protocol` plus `bbt_ui::Element` |
 
