@@ -1,0 +1,161 @@
+{
+  "at": "2026-11-01T11:18:20.575991+00:00",
+  "source": "b4116b3d01302f9a28546c4c750d36d3be264f64",
+  "verify_result": {
+    "command": "make test",
+    "exit_code": 0
+  },
+  "source_inputs_byte_identical": true,
+  "source_input_count": 126,
+  "commands": [
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--check"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--all-targets",
+        "--all-features",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--all-targets",
+        "--features",
+        "acp,test-fixtures"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/test-hardening.py"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "make",
+        "test-formal-native"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "make",
+        "test-formal-parity"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/checks.py",
+        "secrets"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/checks.py",
+        "headers"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/checks.py",
+        "kb-records"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/checks.py",
+        "kb-records-control"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "gui_commands": [
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "--bin",
+        "bboxy450-harness",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--features",
+        "standalone",
+        "--test",
+        "gui_render",
+        "--test",
+        "gui_bridge",
+        "--test",
+        "gui_fixtures",
+        "--test",
+        "gui_budget",
+        "--test",
+        "gui_cli",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "make",
+        "test-gui-smoke"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "controls": {
+    "command": "python3 -I scripts/test-e1c-rework-controls.py --case group-kill --case acp-engine-writer --case mcp-close-model --case admission-lag --case leader-only --out .bboxy/runs/e1c-followups",
+    "exit_code": 0,
+    "cases": 5,
+    "each_red": 101,
+    "each_green": 0
+  },
+  "no_live_provider_requests": true,
+  "operator_input": false
+}

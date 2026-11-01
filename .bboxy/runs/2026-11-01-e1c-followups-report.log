@@ -1,0 +1,150 @@
+E1c follow-ups — ACP readiness, MCP group close and admission lag
+
+Task: .bboxy/tasks/2026-11-01-harness-acp-mcp-followups.md (#3815).
+Executor: E1 harness-core.
+Worktree: /Users/feral/mydev/bboxy450-harness-core
+Branch: e1c-acp-mcp-followups, created from origin/main ccce095.
+PR and final signed head are supplied by task_report. No merge.
+
+FILES AND MECHANISMS
+
+1. EngineNeverWaits
+   tests/formal/models.rs::acp_flow now states enabledness of the actual
+   EngineEmit action whenever an event is due. The invariant copies that
+   action's guard, so a writer-capacity dependency changes the property too.
+   BrokenHarnessAcpFlowC makes the actual guard wait on writer_queue < 2.
+   A full queue is reachable while another engine event is pending: correct
+   states have a real outgoing emit edge; the broken states do not.
+   tests/formal_nonvacuity.rs checks those edges and the named safety failure.
+   There is no independently maintained bad/waiting flag.
+
+2. MCP group close
+   HarnessMcpGroupClose models one leader and zero to two group members.
+   Both ignore SIGTERM. Grace expiry delivers SIGKILL, then reaping completes
+   Close. NoMemberAfterClose reads leader_alive and members_alive at that
+   completed state. BrokenHarnessMcpGroupClose kills only the leader and
+   reaches completed Close with a live member. The native witness also reaches
+   Close after ignored SIGTERM with the leader and both members still alive.
+   verification/contracts.toml maps this model directly to src/mcp.rs::finish_child.
+   verification/corpus.toml and coverage.toml inventory the model and control.
+
+3. Admission lag
+   src/frontends/acp.rs::await_prompt_admission resubscribes from the actual
+   Lagged epoch/resume_after and waits for the prompt's durable caused event.
+   The session worker awaits this helper before its next message. It does not
+   infer admission merely from queue pressure or unrelated events.
+   The unit witness fills the real 4096-slot gateway queue with a valid
+   transcript, beyond which the prompt's TurnQueued is durable but absent
+   from the old subscription. Replay returns precisely that op's TurnQueued.
+   The fixture holds EOF after the actual Lagged frame; without recovery the
+   test reaches its named hang guard. check_transcript passes on the fixture.
+
+   Limit of that witness: current InProc normally closes a lagged subscription,
+   and the old loop could stop on that EOF. The held EOF intentionally proves
+   progress follows Lagged itself and recovery observes the caused event;
+   it is not a claim that every existing InProc overflow hangs in practice.
+   Production cancellation and ordinary EOF remain handled. The test guard
+   bounds a deliberately pending future, not a wall-clock percentile.
+
+4. Leader-only process control and close guard
+   scripts/test-e1c-rework-controls.py now replaces both negative-pgid signals
+   in finish_child with positive-pid signals. The child member has its own
+   stdio handles, so a surviving member cannot mask this failure as a pipe or
+   Close-join timeout. The witness requires Close to join, then polls ESRCH
+   and fails specifically at "MCP server group survived Close: orphaned member".
+   Its failure cleanup kills the group owned by this test.
+   The shared tests/mcp_client.rs::close helper now has a 15-second hang guard.
+   The previous no-signal control is also rerun and fails its Close-join guard,
+   keeping that failure distinct from leader-only cleanup.
+
+   The script accepts --case selectors and --out so these controls can run
+   independently without overwriting earlier E1c evidence. Every mutation is
+   restored in finally before its green run; an exclusive worktree claim
+   prevents overlapping mutation passes.
+
+RED -> GREEN
+
+Command:
+python3 -I scripts/test-e1c-rework-controls.py --case group-kill --case acp-engine-writer --case mcp-close-model --case admission-lag --case leader-only --out .bboxy/runs/e1c-followups
+
+Actual exit: 0.
+e1c-followups/controls.json contains source hashes, exact test commands and
+the required assertion for each result; adjacent red/green logs retain output.
+
+Control                  Red   Restored   Required failure
+acp-engine-writer         101   0          EngineNeverWaits
+mcp-close-model           101   0          NoMemberAfterClose
+admission-lag             101   0          admission-lag hung without replay
+leader-only               101   0          orphaned member (Close had joined)
+group-kill (retained)      101   0          Close join hang guard
+
+After extracting the former admission loop without changing its lag handling,
+the new real-overflow/held-EOF test first exited 101 at its named 10-second
+hang guard. With replay added it exited 0:
+e1c-followups/admission-baseline-red.log and admission-green.log.
+The four new controls then repeated the red/green witnesses against the fixed
+implementation. Control logs normalize trailing whitespace only; final rustfmt
+wrapping does not change model behavior.
+
+COMMANDS AND REAL EXITS
+
+- Targeted library, ACP, MCP and native model/nonvacuity tests:
+  cargo test --offline --locked --quiet --features acp,test-fixtures --lib --test formal_models --test formal_nonvacuity --test acp_face --test mcp_client
+  Exit 0: 7 library, 15 ACP, 2 formal exports, 11 nonvacuity and 15 MCP tests.
+  Evidence: e1c-followups/targeted-green.log.
+- cargo clippy --offline --locked --all-targets --all-features -- -D warnings
+  Exit 0. Evidence: e1c-followups/clippy.log.
+- python3 -I scripts/checks.py secrets: exit 0 after staging the new evidence.
+- python3 -I scripts/checks.py headers: exit 0.
+- The control command above: exit 0; every negative test exits 101, restored 0.
+- make test (exactly, without an environment prefix): exit 0 on signed
+  b4116b3d01302f9a28546c4c750d36d3be264f64, fully unattended.
+  Evidence: e1c-followups/make-test.log, test-current.json and gui-gate.json.
+  Every child command exited 0: fmt, all-target/all-feature Clippy,
+  all-target mock/unit/integration tests, existing hardening checks, native
+  before Java parity, secrets, headers, KB records and the KB negative control,
+  GUI lint, integration and headless smoke.
+  The GUI smoke rendered 22 visible items, 15 kinds, three approval buttons
+  and the scrolled viewport.
+  Generated global receipts were copied into this task's evidence directory;
+  the generic global run records are not changed by the PR.
+
+FORMAL BOUNDS AND LIMITS
+
+Native/TLC parity: 58 models, 23 contracts, one inventoried crate, all complete
+reachable state/transition sets and expected verdicts match. Code-run receipt:
+a2cb9bcc5e919d3a80bc489cac5d798706190c5f3f24cff34e3715cb674ef600.
+Evidence: e1c-followups/formal-code.json and make-test.log.
+
+New controls:
+- BrokenHarnessAcpFlowC: safety / EngineNeverWaits, 1148 states, 2274 edges.
+  The correct model has 1148 states and 2290 edges.
+- BrokenHarnessMcpGroupClose: safety / NoMemberAfterClose, 12 states, 15 edges.
+  The correct model has 8 states and 11 edges.
+AcpFlow retains one prompt/cancel, two engine events, two finite connection
+replies and writer capacity 0..2 standing for 256. EngineNeverWaits is the
+enabledness of that real emit guard, with updates inside their declared bounds;
+nonvacuity checks actual graph edges at full capacity. Existing fairness for
+admission/engine/projection/writer/resume is retained.
+McpGroupClose has 8 correct states and 12 broken states. It abstracts grace
+expiry and group SIGKILL delivery as one transition, followed by leader reap.
+Kernel signal delivery, timing and ESRCH/reaping remain real process witnesses.
+Group ownership and pgid reuse remain in HarnessProcessLifecycle. The MCP
+server's startup/generation/timeout contract remains HarnessMcpServer.
+Durable prompt admission in AcpFlow abstracts the implementation's replay;
+actual queue overflow and held-EOF recovery are the direct unit witness.
+No arbitrary Rust refinement or unrestricted TLC replacement is claimed.
+
+SCOPE AND HANDOFF
+
+All four assigned findings are addressed. No GUI source, wire format, protocol
+schema, policy behavior or credential handling changed. No additional live
+provider requests were made for this follow-up; the canonical mock/integration
+and GUI smoke results are recorded by make test.
+No assigned finding remains open. The model bounds and the held-EOF fixture
+limit above are explicit; they are not broader implementation-proof claims.
+All commits are signed. The full report, four new red/green controls and
+retained no-signal control are committed with the change. After the records
+commit, current-head native/TLC parity and the strict evidence receipt are
+refreshed; task_report names the signed head and that receipt. Prior untracked
+evidence from accepted tasks is preserved.

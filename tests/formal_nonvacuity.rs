@@ -248,6 +248,7 @@ fn acp_fifo_and_paused_writer_are_reachable_and_the_controls_are_real() {
     for (name, property) in [
         ("BrokenHarnessAcpFlowA", "CancelHitsItsPrompt"),
         ("BrokenHarnessAcpFlowB", "CloseOnlyOnEof"),
+        ("BrokenHarnessAcpFlowC", "EngineNeverWaits"),
     ] {
         let report = model(name).check(100_000).unwrap();
         assert!(
@@ -258,6 +259,88 @@ fn acp_fifo_and_paused_writer_are_reachable_and_the_controls_are_real() {
             "{name} did not fail {property}"
         );
     }
+}
+#[test]
+fn acp_engine_emit_stays_enabled_with_a_full_writer() {
+    for (name, blocked) in [("HarnessAcpFlow", false), ("BrokenHarnessAcpFlowC", true)] {
+        let m = model(name);
+        let r = m.check(100_000).unwrap();
+        if !blocked {
+            assert!(
+                r.violations.is_empty(),
+                "EngineNeverWaits: {:#?}",
+                r.violations
+            );
+        } else {
+            assert!(
+                r.violations
+                    .iter()
+                    .any(|v| v.property == "EngineNeverWaits" && v.cycle.is_empty()),
+                "missing EngineNeverWaits safety failure"
+            );
+        }
+        let queue = variable(&m, "writer_queue");
+        let head = variable(&m, "log_head");
+        let turn = variable(&m, "turn");
+        let conn = variable(&m, "conn");
+        let mut checked = 0;
+        for (i, s) in r
+            .states
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s[queue] == 2 && s[turn] == 1 && s[head] < 2 && s[conn] == 1)
+        {
+            let can_emit = r.edges[i]
+                .iter()
+                .any(|e| r.states[e.to][head] == s[head] + 1);
+            assert_eq!(
+                can_emit, !blocked,
+                "EngineNeverWaits: actual EngineEmit transition disagrees"
+            );
+            checked += 1;
+        }
+        assert!(
+            checked > 0,
+            "full writer never coupled to a pending engine event"
+        );
+    }
+}
+#[test]
+fn mcp_close_joins_members_even_when_term_is_ignored() {
+    let m = model("HarnessMcpGroupClose");
+    let r = m.check(100_000).unwrap();
+    assert!(
+        r.violations.is_empty(),
+        "NoMemberAfterClose: {:#?}",
+        r.violations
+    );
+    let phase = variable(&m, "close");
+    let leader = variable(&m, "leader_alive");
+    let members = variable(&m, "members_alive");
+    assert!(
+        r.states
+            .iter()
+            .any(|s| s[phase] == 1 && s[leader] == 1 && s[members] == 2),
+        "ignored SIGTERM not reached"
+    );
+    assert!(
+        r.states.iter().any(|s| s[phase] == 3),
+        "Close never completes"
+    );
+    let broken = model("BrokenHarnessMcpGroupClose");
+    let r = broken.check(100_000).unwrap();
+    assert!(
+        r.violations
+            .iter()
+            .any(|v| v.property == "NoMemberAfterClose" && v.cycle.is_empty()),
+        "leader-only control did not fail NoMemberAfterClose"
+    );
+    assert!(
+        r.states
+            .iter()
+            .any(|s| s[phase] == 3 && s[leader] == 0 && s[members] > 0),
+        "leader-only Close hid the orphan"
+    );
 }
 #[test]
 fn mcp_controls_reach_aba_deadlock_and_silent_inflight() {

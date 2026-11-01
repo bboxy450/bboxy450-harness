@@ -268,3 +268,18 @@ frontend = "project"
 name = "BrokenHarnessAcpFlowB"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "BrokenHarnessAcpFlowC"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessMcpGroupClose"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessMcpGroupClose"
+expected = "safety"
+frontend = "project"

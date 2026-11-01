@@ -208,7 +208,10 @@ async fn turn(h: &mut Harness, approve: bool) -> Vec<Envelope> {
 }
 async fn close(h: Harness) -> Vec<Envelope> {
     h.gateway.send(support::op(&h.gateway, Op::Close)).unwrap();
-    h.host.join().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(15), h.host.join())
+        .await
+        .expect("MCP close() hang guard")
+        .unwrap();
     transcript(&h)
 }
 fn transcript(h: &Harness) -> Vec<Envelope> {
@@ -441,7 +444,7 @@ async fn close_kills_a_server_and_member_that_ignore_eof_and_term() {
         pgid,
         "member must share the server group"
     );
-    let dead = {
+    let (joined, dead) = {
         let closing = h.host.close_all();
         tokio::pin!(closing);
         let joined = tokio::time::timeout(std::time::Duration::from_secs(15), &mut closing).await;
@@ -454,9 +457,13 @@ async fn close_kills_a_server_and_member_that_ignore_eof_and_term() {
                 closing.await;
             }
         }
-        dead
+        (joined.is_ok(), dead)
     };
-    assert!(dead, "MCP server group survived Close (killpg is required)");
+    assert!(
+        joined,
+        "MCP server group survived Close: Close join hang guard"
+    );
+    assert!(dead, "MCP server group survived Close: orphaned member");
     bboxy450_harness::protocol::laws::check_transcript(&transcript(&h)).unwrap();
 }
 #[tokio::test]

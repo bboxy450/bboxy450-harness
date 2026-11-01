@@ -1,0 +1,111 @@
+[
+  {
+    "name": "group-kill",
+    "source": "src/mcp.rs",
+    "source_sha256": "3fce8308adc774cea08e4aca29772389c71627b54bfd266464cc0c0a90aa0c36",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "mcp_client",
+      "close_kills_a_server_and_member_that_ignore_eof_and_term",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "MCP server group survived Close",
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "acp-engine-writer",
+    "source": "tests/formal/models.rs",
+    "source_sha256": "08ad55c32938171ebd0d4bb21473be008792d369f36deff306ed0e36932ebf89",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "formal_nonvacuity",
+      "acp_engine_emit_stays_enabled_with_a_full_writer",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "EngineNeverWaits",
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "mcp-close-model",
+    "source": "tests/formal/models.rs",
+    "source_sha256": "08ad55c32938171ebd0d4bb21473be008792d369f36deff306ed0e36932ebf89",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "formal_nonvacuity",
+      "mcp_close_joins_members_even_when_term_is_ignored",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "NoMemberAfterClose",
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "admission-lag",
+    "source": "src/frontends/acp.rs",
+    "source_sha256": "b3b9415742a0c93d9607de70d59be5e843b3a5f79c54e47fbf3ff7bb0cb55c5e",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--lib",
+      "frontends::acp::tests::admission_lag_replays_the_durable_prompt_before_next_input",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "admission-lag hung without replay",
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "leader-only",
+    "source": "src/mcp.rs",
+    "source_sha256": "3fce8308adc774cea08e4aca29772389c71627b54bfd266464cc0c0a90aa0c36",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "mcp_client",
+      "close_kills_a_server_and_member_that_ignore_eof_and_term",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "MCP server group survived Close: orphaned member",
+    "red_exit": 101,
+    "green_exit": 0
+  }
+]
