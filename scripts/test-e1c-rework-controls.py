@@ -67,6 +67,12 @@ def main(selected=None):
     }
 }
 ''')),
+        ('pty-spawn-fds','tests/seat_process.rs','seat_process','non_pty_spawn_does_not_keep_a_sibling_master_alive','non-PTY child retained a sibling master',
+         lambda s:once(s,'portable_pty::unix::close_random_fds();','/* descriptor fence removed */')),
+        ('pty-hangup-poll','src/frontends/headless.rs','lib','frontends::headless::tty_tests::physical_eof_is_distinct_from_cooked_control_d','physical PTY EOF was classified as cooked Ctrl-D',
+         lambda s:once(s,'events: libc::POLLIN,','events: 0,')),
+        ('pty-writer-drop','tests/support/seat_shutdown.rs','seat_process','seat_shutdown::writer_drop_is_not_cooked_eof','writer drop injected terminal input',
+         lambda s:region(s,'fn terminal_writer(','fn wait_for(','fn terminal_writer(master:&dyn portable_pty::MasterPty)->Box<dyn std::io::Write+Send> {master.take_writer().unwrap()}\n')),
         ('reap-lease','src/process.rs','lib','process::ownership_tests::echild_after_owned_reap_never_leaves_a_signal_target','ECHILD observed a PID released while its group was registered',
          lambda s:owner_wait(s,'/* reap lease removed */')),
         ('mcp-reap-ownership','src/process.rs','mcp_client','mcp_finish_*',['missing-id cleanup signalled a foreign pgid after reap','failed-handoff cleanup signalled a foreign pgid after reap'],
