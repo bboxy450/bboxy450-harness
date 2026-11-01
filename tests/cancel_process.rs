@@ -51,12 +51,14 @@ async fn cancel_kills_group_and_joins_before_ending() {
     ));
     bboxy450_harness::protocol::laws::check_transcript(&transcript).unwrap();
     let log = support::close(s).await;
+    let mut checked = 0;
     for e in log {
         if let Event::ItemCompleted {
             body: Item::Terminal { terminal, .. },
             ..
         } = e.event
         {
+            checked += 1;
             let pgid: i32 = terminal.parse().unwrap();
             assert_eq!(unsafe { libc::kill(-pgid, 0) }, -1);
             assert_eq!(
@@ -65,6 +67,10 @@ async fn cancel_kills_group_and_joins_before_ending() {
             );
         }
     }
+    assert!(
+        checked > 0,
+        "cancellation witness checked no process groups"
+    );
 }
 #[tokio::test]
 async fn real_process_group_witness() {
@@ -133,4 +139,56 @@ async fn a_b_a_is_fenced_by_birth_not_identity() {
         .await;
     assert!(output.failed);
     assert!(!format!("{:?}", output.output).contains("late old result"));
+}
+
+#[tokio::test]
+async fn escaped_pipe_holder_cannot_stall_a_cancelled_turn() {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/setsid.py");
+    let command = format!(
+        "python3 '{}' escaped.pid & echo $$ > group.pid; wait",
+        fixture.display()
+    );
+    let args = serde_json::json!({"command":command});
+    let chunk = serde_json::json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"escaped-call","type":"function","function":{"name":"bash","arguments":args.to_string()}}]},"finish_reason":null}]});
+    let finish = serde_json::json!({"choices":[{"delta":{},"finish_reason":"tool_calls"}]});
+    let s = support::session(
+        vec![format!("data: {chunk}\n\ndata: {finish}\n\ndata: [DONE]\n\n").into_bytes()],
+        true,
+    )
+    .await;
+    let mut sub = support::subscribe(&s.gateway, true);
+    s.gateway
+        .send(support::prompt(&s.gateway, "spawn escaped pipe holder"))
+        .unwrap();
+    let pidfile = s.temp.path().join("escaped.pid");
+    let limit = Instant::now() + Duration::from_secs(4);
+    while !pidfile.exists() {
+        assert!(Instant::now() < limit, "escaped fixture not ready");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let pid: i32 = std::fs::read_to_string(pidfile)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let start = Instant::now();
+    s.gateway
+        .send(support::op(&s.gateway, Op::Interrupt { turn: None }))
+        .unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(2), support::end(&mut sub)).await;
+    let elapsed = start.elapsed();
+    // Test-owned escaped session is deliberately outside product ownership.
+    unsafe {
+        libc::kill(-pid, libc::SIGKILL);
+    }
+    let _ = support::close(s).await;
+    let transcript = result.expect("escaped pipe kept the cancelled turn alive beyond 2 seconds");
+    assert!(elapsed < Duration::from_secs(2));
+    assert!(matches!(
+        transcript.last().unwrap().event,
+        Event::TurnEnded {
+            reason: StopReason::Cancelled,
+            ..
+        }
+    ));
 }

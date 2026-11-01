@@ -1,0 +1,21 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running tests/cancel_process.rs (target/debug/deps/cancel_process-cf23628509f71042)
+
+running 1 test
+test cancel_kills_group_and_joins_before_ending ... FAILED
+
+failures:
+
+---- cancel_kills_group_and_joins_before_ending stdout ----
+
+thread 'cancel_kills_group_and_joins_before_ending' (111791685) panicked at tests/cancel_process.rs:70:5:
+cancellation witness checked no process groups
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    cancel_kills_group_and_joins_before_ending
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.58s
+
+error: test failed, to rerun pass `--test cancel_process`

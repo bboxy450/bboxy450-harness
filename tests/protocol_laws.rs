@@ -20,16 +20,16 @@ fn rejects_double_end_gap_unpaired_and_kind_change() {
     e.seq = Some(Seq(e.seq.unwrap().0 + 1));
     e.at = e.seq.unwrap();
     bad.push(e);
-    assert!(check_transcript(&bad).is_err());
+    assert_eq!(check_transcript(&bad).unwrap_err().law, "one-ending");
     let mut bad = good.clone();
     bad.remove(1);
-    assert!(check_transcript(&bad).is_err());
+    assert_eq!(check_transcript(&bad).unwrap_err().law, "log-is-truth");
     let mut bad = good.clone();
     if let Event::ItemCompleted { body, .. } = &mut bad[4].event {
         *body = Item::Unknown;
     }
     bad.retain(|e|!matches!(e.event,Event::ItemCompleted{ref body,..} if matches!(body,Item::ToolCall{..})));
-    assert!(check_transcript(&bad).is_err());
+    assert_eq!(check_transcript(&bad).unwrap_err().law, "tool-pairing");
     let mut bad = good.clone();
     let e = bad
         .iter_mut()
@@ -38,5 +38,5 @@ fn rejects_double_end_gap_unpaired_and_kind_change() {
     if let Event::ItemCompleted { body, .. } = &mut e.event {
         *body = Item::Plan { entries: vec![] };
     }
-    assert!(check_transcript(&bad).is_err());
+    assert_eq!(check_transcript(&bad).unwrap_err().law, "one-ending");
 }
