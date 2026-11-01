@@ -40,6 +40,7 @@ pub struct Definition {
 #[derive(Clone)]
 pub struct Registry {
     defs: Arc<Vec<Definition>>,
+    mcp: Arc<BTreeMap<String, crate::mcp::Binding>>,
     readers: Arc<Semaphore>,
     exclusive: Arc<RwLock<()>>,
     paths: Arc<Mutex<BTreeMap<PathBuf, Weak<Mutex<()>>>>>,
@@ -160,10 +161,23 @@ impl Registry {
         }
         Self {
             defs: Arc::new(defs),
+            mcp: Arc::default(),
             readers: Arc::new(Semaphore::new(4)),
             exclusive: Arc::new(RwLock::new(())),
             paths: Arc::default(),
         }
+    }
+    pub(crate) fn with_mcp(
+        &self,
+        defs: Vec<Definition>,
+        bindings: BTreeMap<String, crate::mcp::Binding>,
+    ) -> Self {
+        let mut registry = self.clone();
+        let mut all = self.defs.as_ref().clone();
+        all.extend(defs);
+        registry.defs = Arc::new(all);
+        registry.mcp = Arc::new(bindings);
+        registry
     }
     pub fn definitions(&self) -> &[Definition] {
         &self.defs
@@ -261,6 +275,9 @@ impl Registry {
                     };
                     path_guards.push(lock.lock_owned().await);
                 }
+            }
+            if let Some(binding) = self.mcp.get(name) {
+                return binding.call(args, &ctx).await;
             }
             if matches!(name, "exec" | "bash") {
                 return self.exec(name, &args, &ctx, output).await;

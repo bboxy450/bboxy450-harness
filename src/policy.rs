@@ -17,7 +17,7 @@ pub enum EffectClass {
 impl EffectClass {
     pub fn effect(&self) -> Option<Effect> {
         match self {
-            Self::ReadOnly => None,
+            Self::ReadOnly => Some(Effect::Read),
             Self::Write => Some(Effect::Write),
             Self::Exec => Some(Effect::Exec),
             Self::Network => Some(Effect::Network),

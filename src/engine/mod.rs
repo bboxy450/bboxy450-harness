@@ -46,6 +46,17 @@ pub struct Config {
     pub profile_error: Option<String>,
 }
 pub(crate) enum Internal {
+    ServiceNotice {
+        level: Level,
+        text: String,
+    },
+    PrepareRound {
+        generation: u64,
+        turn: TurnId,
+        tools: Vec<crate::provider::ToolDef>,
+        reply: oneshot::Sender<std::io::Result<(Vec<serde_json::Value>, usize)>>,
+    },
+
     ProfileReady {
         op: OpId,
         result: Result<(Profile, Arc<dyn Provider>), Rejection>,
@@ -88,8 +99,8 @@ struct Running {
 pub struct SessionActor {
     store: Store,
     gateway: InProc,
-    work: mpsc::Receiver<OpEnvelope>,
-    control: mpsc::Receiver<OpEnvelope>,
+    work: mpsc::Receiver<crate::gateway::Admitted>,
+    control: mpsc::Receiver<crate::gateway::Admitted>,
     config: Config,
     tools: Registry,
     generation: Arc<AtomicU64>,
@@ -104,6 +115,9 @@ pub struct SessionActor {
     tasks: JoinSet<(TurnId, u64)>,
     services: task_group::TaskGroup,
     profile_pending: Option<OpId>,
+    auto: crate::context::auto::Options,
+    window_warned: bool,
+    mcp: crate::mcp::Manager,
 }
 impl SessionActor {
     pub async fn open(
@@ -117,12 +131,25 @@ impl SessionActor {
         start: OpId,
         notice: Option<String>,
     ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
-        let actor = Self::new(config, start, notice).await?;
+        Self::load_with_mcp(config, start, notice, Default::default()).await
+    }
+    pub(crate) async fn load_with_mcp(
+        config: Config,
+        start: OpId,
+        notice: Option<String>,
+        overrides: crate::mcp::Servers,
+    ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
+        let actor = Self::new(config, start, notice, overrides).await?;
         let gateway = actor.gateway.clone();
         let task = bbt_rt::handle().spawn(actor.run());
         Ok((gateway, task))
     }
-    async fn new(mut config: Config, start: OpId, notice: Option<String>) -> std::io::Result<Self> {
+    async fn new(
+        mut config: Config,
+        start: OpId,
+        notice: Option<String>,
+        overrides: crate::mcp::Servers,
+    ) -> std::io::Result<Self> {
         let mut store = Store::open(
             config.sessions.clone(),
             config.meta.clone(),
@@ -218,7 +245,53 @@ impl SessionActor {
         let (work_tx, work) = mpsc::channel(64);
         let (control_tx, control) = mpsc::channel(256);
         let (output, internal) = mpsc::channel(256);
-        let gateway = InProc::new(hub, work_tx, control_tx, start);
+        let gateway = InProc::new(hub, work_tx, control_tx, start).with_notices(output.clone());
+        let profile = if let Some(name) = &config.meta.profile {
+            match Profile::file_in(&config.profiles, name) {
+                Ok(path) => Profile::load(&path).await.ok(),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+        let auto = crate::context::auto::Options {
+            enabled: profile.as_ref().is_none_or(|p| p.auto_compact),
+            window: profile.as_ref().and_then(|p| p.context_tokens),
+        };
+        let mut servers = profile
+            .as_ref()
+            .map(|p| p.mcp_servers.clone())
+            .unwrap_or_default();
+        let collisions = overrides
+            .keys()
+            .filter(|k| servers.contains_key(*k))
+            .cloned()
+            .collect::<Vec<_>>();
+        servers.extend(overrides);
+        let mut services = task_group::TaskGroup::new(CancellationToken::new());
+        let mcp = crate::mcp::Manager::start(
+            servers,
+            config.redactor.clone(),
+            output.clone(),
+            &mut services,
+        );
+        for name in collisions {
+            let tx = output.clone();
+            let cancel = services.cancel.clone();
+            services.spawn(async move {
+                let _ = task_group::send(
+                    &tx,
+                    Internal::ServiceNotice {
+                        level: Level::Info,
+                        text: format!("mcp {name}: ACP configuration overrides profile"),
+                    },
+                    &cancel,
+                )
+                .await;
+            });
+        }
+        let window_warned=store.events.iter().any(|e|matches!(&e.event,Event::ItemCompleted {status:ItemStatus::Completed,body:Item::Notice {text,..},..} if text=="context window unknown; automatic compaction off"));
+        gateway.set_unattended(config.policy.on_unattended);
         let actor = Self {
             store,
             gateway: gateway.clone(),
@@ -236,8 +309,11 @@ impl SessionActor {
             internal,
             output,
             tasks: JoinSet::new(),
-            services: task_group::TaskGroup::new(CancellationToken::new()),
+            services,
+            mcp,
             profile_pending: None,
+            auto,
+            window_warned,
         };
         Ok(actor)
     }
@@ -277,7 +353,7 @@ impl SessionActor {
        self.gateway.seal();self.work.close();self.control.close();
        let _=self.services.cancel_and_join().await;
        while let Some(env)=self.control.recv().await {self.op(env).await?;}
-       while let Some(env)=self.work.recv().await {self.reject(env.op_id,Rejection::InvalidInput{detail:"session is closing".into()}).await?;}
+       while let Some(env)=self.work.recv().await {self.reject(env.env.op_id,Rejection::InvalidInput{detail:"session is closing".into()}).await?;}
        while let Some(work)=self.queue.pop_front(){match work {Queued::Turn(turn,_)=>self.publish(Event::TurnEnded{turn,reason:StopReason::Cancelled,usage:None},Some(op)).await?,Queued::Compact(id)=>self.reject(id,Rejection::NothingToCompact).await?}}
        self.publish(Event::SessionClosed,Some(op)).await?;break;
      }
@@ -318,8 +394,19 @@ impl SessionActor {
         let cancel = CancellationToken::new();
         let (steer, rx) = mpsc::channel(64);
         self.publish(Event::TurnStarted { turn }, None).await?;
-        let (messages, stable_prefix) =
-            crate::context::replay(&self.store.events, &self.store.blobs).await?;
+        let (messages, _) = crate::context::replay(&self.store.events, &self.store.blobs).await?;
+        let (definitions, bindings, warnings) = self.mcp.snapshot();
+        for text in warnings {
+            self.record_item(
+                Some(turn),
+                Item::Notice {
+                    level: Level::Warn,
+                    text,
+                },
+            )
+            .await?;
+        }
+        let tools = self.tools.with_mcp(definitions, bindings);
         let ctx = turn_loop::Context {
             turn,
             generation,
@@ -328,8 +415,7 @@ impl SessionActor {
             provider: self.config.provider.clone(),
             model: self.config.model.clone(),
             messages,
-            stable_prefix,
-            tools: self.tools.clone(),
+            tools,
             cwd: self.config.meta.cwd.clone(),
             blobs: self.store.blobs.clone(),
             redactor: self.config.redactor.clone(),
@@ -360,7 +446,8 @@ impl SessionActor {
         self.queue.push_back(Queued::Turn(turn, blocks));
         Ok(())
     }
-    async fn op(&mut self, env: OpEnvelope) -> std::io::Result<()> {
+    async fn op(&mut self, admitted: crate::gateway::Admitted) -> std::io::Result<()> {
+        let crate::gateway::Admitted { env, face } = admitted;
         let id = env.op_id;
         match env.op {
             Op::UserTurn { blocks, mode } => {
@@ -455,9 +542,7 @@ impl SessionActor {
                             approval,
                             p,
                             decision,
-                            Resolver::Face {
-                                name: "gateway".into(),
-                            },
+                            Resolver::Face { name: face.into() },
                             Some(id),
                         )
                         .await?;
@@ -513,6 +598,27 @@ impl SessionActor {
     }
     async fn internal(&mut self, msg: Internal) -> std::io::Result<()> {
         match msg {
+            Internal::ServiceNotice { level, text } => {
+                self.record_item(None, Item::Notice { level, text }).await?
+            }
+            Internal::PrepareRound {
+                generation,
+                turn,
+                tools,
+                reply,
+            } => {
+                if self
+                    .running
+                    .as_ref()
+                    .is_some_and(|r| r.generation == generation && !r.cancel.is_cancelled())
+                {
+                    // Store/blob failures are fatal, as in append and manual compaction.
+                    // Recovery closes a ladder item whose blob could not be committed.
+                    let request = self.prepare_round(turn, &tools).await?;
+                    let _ = reply.send(Ok(request));
+                }
+            }
+
             Internal::ProfileReady { op, result } => {
                 if self.profile_pending != Some(op) || self.stopping.is_some() {
                     return Ok(());
@@ -521,9 +627,16 @@ impl SessionActor {
                 match result {
                     Err(reason) => self.reject(op, reason).await?,
                     Ok((profile, provider)) => {
+                        self.auto = crate::context::auto::Options {
+                            enabled: profile.auto_compact,
+                            window: profile.context_tokens,
+                        };
+
                         self.config.profile_error = None;
                         self.config.model = profile.model.clone();
                         self.config.policy = profile.policy();
+                        self.gateway
+                            .set_unattended(self.config.policy.on_unattended);
                         self.config.provider = provider;
                         self.publish(
                             Event::ProfileChanged {
@@ -605,6 +718,24 @@ impl SessionActor {
                     let _ = reply.send(None);
                     return Ok(());
                 }
+                let decision = self.config.policy.decide(&Action {
+                    tool: tool.clone(),
+                    effect: effect.clone(),
+                    generation,
+                });
+                if effect == EffectClass::ReadOnly {
+                    match &decision {
+                        Decision::Allow { .. } => {
+                            let _ = reply.send(Some(Permit::approval(tool, generation)));
+                            return Ok(());
+                        }
+                        Decision::Deny { .. } => {
+                            let _ = reply.send(None);
+                            return Ok(());
+                        }
+                        Decision::Ask => {}
+                    }
+                }
                 self.publish(
                     Event::ItemStarted {
                         turn: Some(turn),
@@ -619,19 +750,16 @@ impl SessionActor {
                     None,
                 )
                 .await?;
-                self.publish(
-                    Event::ItemSnapshot {
-                        item,
-                        partial: body.clone(),
-                    },
-                    None,
-                )
-                .await?;
-                let decision = self.config.policy.decide(&Action {
-                    tool: tool.clone(),
-                    effect: effect.clone(),
-                    generation,
-                });
+                if matches!(decision, Decision::Ask) {
+                    self.publish(
+                        Event::ItemSnapshot {
+                            item,
+                            partial: body.clone(),
+                        },
+                        None,
+                    )
+                    .await?;
+                }
                 let p = Pending {
                     turn,
                     generation,
@@ -683,16 +811,112 @@ impl SessionActor {
         }
         Ok(())
     }
+    async fn record_item(&mut self, turn: Option<TurnId>, body: Item) -> std::io::Result<()> {
+        let item = ItemId::new();
+        self.publish(
+            Event::ItemStarted {
+                turn,
+                item,
+                kind: body.kind(),
+                parent: None,
+                head: body.head(),
+            },
+            None,
+        )
+        .await?;
+        self.publish(
+            Event::ItemCompleted {
+                item,
+                status: ItemStatus::Completed,
+                body,
+            },
+            None,
+        )
+        .await
+    }
+    async fn request_context(&self) -> std::io::Result<(Vec<serde_json::Value>, usize)> {
+        let (tail, prefix) = crate::context::replay(&self.store.events, &self.store.blobs).await?;
+        let mut messages = vec![
+            serde_json::json!({"role":"system","content":format!("You are bboxy450-harness, a coding assistant. Use the provided tools. Working directory: {}",self.config.meta.cwd.display())}),
+        ];
+        messages.extend(tail);
+        Ok((messages, prefix))
+    }
+    async fn prepare_round(
+        &mut self,
+        turn: TurnId,
+        tools: &[crate::provider::ToolDef],
+    ) -> std::io::Result<(Vec<serde_json::Value>, usize)> {
+        use crate::context::{self, auto};
+        let mut request = self.request_context().await?;
+        if !self.auto.enabled {
+            return Ok(request);
+        }
+        let window = self
+            .auto
+            .window
+            .unwrap_or(self.config.provider.caps().context_tokens);
+        if window == 0 {
+            if !self.window_warned {
+                self.window_warned = true;
+                self.record_item(
+                    Some(turn),
+                    Item::Notice {
+                        level: Level::Warn,
+                        text: "context window unknown; automatic compaction off".into(),
+                    },
+                )
+                .await?;
+            }
+            return Ok(request);
+        }
+        let max_tokens = window / 8;
+        if !auto::trigger(
+            auto::estimate(&self.store.events, &request.0, tools),
+            max_tokens,
+            window,
+        ) {
+            return Ok(request);
+        }
+        let r = auto::ended_through(&self.store.events);
+        if r > context::clipped_through(&self.store.events) {
+            self.record_item(Some(turn), Item::ContextTrim { clipped_through: r })
+                .await?;
+            request = self.request_context().await?;
+            if auto::fits(
+                auto::estimate(&self.store.events, &request.0, tools),
+                max_tokens,
+                window,
+            ) {
+                return Ok(request);
+            }
+        }
+        if r > context::latest(&self.store.events)
+            .map(|(_, r)| r)
+            .unwrap_or(Seq(0))
+        {
+            self.summarize(Some(turn), None).await?;
+            request = self.request_context().await?;
+        }
+        Ok(request)
+    }
     async fn compact(&mut self, id: OpId) -> std::io::Result<()> {
+        self.summarize(None, Some(id)).await
+    }
+    async fn summarize(
+        &mut self,
+        turn: Option<TurnId>,
+        cause: Option<OpId>,
+    ) -> std::io::Result<()> {
         let latest = crate::context::latest(&self.store.events);
         let r0 = latest.map(|(_, r)| r).unwrap_or(Seq(0));
-        let r = self.store.events.iter().rev().find_map(|e| {
-            matches!(e.event, Event::TurnEnded { .. })
-                .then_some(e.seq)
-                .flatten()
-        });
-        let Some(replaced_through) = r.filter(|r| *r > r0) else {
-            return self.reject(id, Rejection::NothingToCompact).await;
+        let r = crate::context::auto::ended_through(&self.store.events);
+        let Some(replaced_through) = Some(r).filter(|r| *r > r0) else {
+            return if let Some(id) = cause {
+                self.reject(id, Rejection::NothingToCompact).await
+            } else {
+                Ok(())
+            };
         };
         let prev = if let Some((blob, _)) = latest {
             Some(
@@ -719,13 +943,13 @@ impl SessionActor {
         let item = ItemId::new();
         self.publish(
             Event::ItemStarted {
-                turn: None,
+                turn,
                 item,
                 kind: ItemKind::Compaction,
                 parent: None,
                 head: None,
             },
-            Some(id),
+            cause,
         )
         .await?;
         let summary = self
@@ -742,7 +966,7 @@ impl SessionActor {
                     replaced_through,
                 },
             },
-            Some(id),
+            cause,
         )
         .await
     }
@@ -945,7 +1169,9 @@ mod hardening_tests {
             max_rounds: 1,
             profile_error: None,
         };
-        let mut actor = SessionActor::new(config, OpId::new(), None).await.unwrap();
+        let mut actor = SessionActor::new(config, OpId::new(), None, Default::default())
+            .await
+            .unwrap();
         let turn = TurnId::new();
         let item = ItemId::new();
         let head = ItemHead::ToolCall {
@@ -1043,7 +1269,9 @@ mod hardening_tests {
             max_rounds: 50,
             profile_error: None,
         };
-        let actor = SessionActor::new(config, OpId::new(), None).await.unwrap();
+        let actor = SessionActor::new(config, OpId::new(), None, Default::default())
+            .await
+            .unwrap();
         let output = actor.output.clone();
         let generation = actor.generation.clone();
         let g = actor.gateway.clone();

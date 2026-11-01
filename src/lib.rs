@@ -29,3 +29,5 @@ pub mod engine;
 pub mod frontends;
 
 pub mod context;
+
+pub mod mcp;

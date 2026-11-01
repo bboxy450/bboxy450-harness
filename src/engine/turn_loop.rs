@@ -56,7 +56,6 @@ pub(crate) struct Context {
     pub provider: Arc<dyn Provider>,
     pub model: String,
     pub messages: Vec<WireMessage>,
-    pub stable_prefix: usize,
     pub tools: Registry,
     pub cwd: PathBuf,
     pub blobs: Blobs,
@@ -343,23 +342,37 @@ impl TurnRunner {
         self.finished.lock().unwrap().clear();
         self.text = None;
         self.reasoning = None;
-        let prefix = json!({"role":"system","content":format!("You are bboxy450-harness, a coding assistant. Use the provided tools. Working directory: {}",self.ctx.cwd.display())});
-        let mut messages = vec![prefix];
-        messages.extend(self.ctx.messages.clone());
+        let tools = self
+            .ctx
+            .tools
+            .definitions()
+            .iter()
+            .map(|d| d.wire.clone())
+            .collect::<Vec<_>>();
+        let (reply, rx) = oneshot::channel();
+        if !send(
+            &self.ctx.output,
+            Internal::PrepareRound {
+                generation: self.ctx.generation,
+                turn: self.ctx.turn,
+                tools: tools.clone(),
+                reply,
+            },
+            &self.group.cancel,
+        )
+        .await
+        {
+            return Err("cancelled".into());
+        }
+        let (messages, stable_prefix) = tokio::select! {biased;_=self.group.cancel.cancelled()=>return Err("cancelled".into()),value=rx=>value.map_err(|_|"context actor closed")?.map_err(|_|"context replay failed")?};
         history::check_wire(&messages)?;
         let req = ModelRequest {
             model: self.ctx.model.clone(),
             messages,
-            tools: self
-                .ctx
-                .tools
-                .definitions()
-                .iter()
-                .map(|d| d.wire.clone())
-                .collect(),
+            tools,
             tool_choice: ToolChoice::Auto,
             max_tokens: None,
-            stable_prefix: self.ctx.stable_prefix,
+            stable_prefix,
         };
         let provider = self.ctx.provider.clone();
         let cancel = self.group.cancel.child_token();
@@ -530,7 +543,11 @@ impl TurnRunner {
                     input_raw.clone_from(&c.raw);
                 }
             }
-            Message::Model(ModelEvent::Usage(usage)) => self.usage = Some(usage),
+            Message::Model(ModelEvent::Usage(usage)) => {
+                self.usage = Some(usage.clone());
+                let item = self.started(Item::Usage { usage }, None, None).await;
+                self.completed(item, ItemStatus::Completed).await;
+            }
             Message::Model(ModelEvent::Retrying {
                 attempt,
                 wait_ms,
@@ -638,7 +655,21 @@ impl TurnRunner {
                         item,
                         if output.failed {
                             ItemStatus::Failed {
-                                reason: "tool failed".into(),
+                                reason: if call.name.starts_with("mcp__") {
+                                    output
+                                        .output
+                                        .iter()
+                                        .find_map(|b| match b {
+                                            OutputBlock::Text { text }
+                                            | OutputBlock::Error { text } => {
+                                                text.lines().next().map(str::to_string)
+                                            }
+                                            _ => None,
+                                        })
+                                        .unwrap_or_else(|| "MCP tool failed".into())
+                                } else {
+                                    "tool failed".into()
+                                },
                             }
                         } else {
                             ItemStatus::Completed
@@ -659,7 +690,21 @@ impl TurnRunner {
                     call.item,
                     if output.failed {
                         ItemStatus::Failed {
-                            reason: "tool failed".into(),
+                            reason: if call.name.starts_with("mcp__") {
+                                output
+                                    .output
+                                    .iter()
+                                    .find_map(|b| match b {
+                                        OutputBlock::Text { text }
+                                        | OutputBlock::Error { text } => {
+                                            text.lines().next().map(str::to_string)
+                                        }
+                                        _ => None,
+                                    })
+                                    .unwrap_or_else(|| "MCP tool failed".into())
+                            } else {
+                                "tool failed".into()
+                            },
                         }
                     } else {
                         ItemStatus::Completed

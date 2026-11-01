@@ -8,6 +8,7 @@
 name = "bboxy450-harness"
 version = "0.1.0"
 edition = "2024"
+default-run = "bboxy450-harness"
 rust-version = "1.99"
 authors = ["Boxy <bboxy450@gmail.com>"]
 description = "A GUI-first coding-agent harness with one replayable protocol"
@@ -18,7 +19,8 @@ license-file = "LICENSE"
 default = []
 standalone = ["embedded", "dep:winit", "dep:wgpu"]
 embedded = ["dep:bbt_ui", "dep:bbt_ui_model", "dep:bbt_render", "dep:png"]
-acp = []
+acp = ["dep:agent-client-protocol"]
+test-fixtures = []
 
 [dependencies]
 bbt_ui = { package = "bboxy450-ui", version = "=0.1.1", optional = true }
@@ -50,6 +52,11 @@ arc-swap = "1"
 crossbeam-queue = "0.3"
 im = "15"
 
+agent-client-protocol = {version = "=3.4.0", default-features = false, features = ["stdio"], optional = true}
+rmcp = {version = "=3.5.1", default-features = false, features = ["client", "server", "transport-child-process", "transport-io"]}
+process-wrap = {version = "10", features = ["tokio1"]}
+base64 = "0.22"
+
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }
 bbt_yarn = { package = "bboxy450-yarn", version = "=0.1.1", features = ["model"] }
@@ -63,3 +70,8 @@ name = "bboxy450_harness"
 [[bin]]
 name = "bboxy450-harness"
 path = "src/main.rs"
+
+[[bin]]
+name = "mcp-fixture"
+path = "tests/bin/mcp_fixture.rs"
+required-features = ["test-fixtures"]

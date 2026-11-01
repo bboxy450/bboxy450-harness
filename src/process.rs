@@ -147,6 +147,18 @@ pub async fn run_stream(
     cancel: CancellationToken,
     sink: Option<OutputSink>,
 ) -> io::Result<Output> {
+    run_inner(req, cancel, sink, false).await
+}
+/// Bounded, stdout-only command resolution: never spill credential bytes to disk.
+pub(crate) async fn capture_stdout(req: Request, cancel: CancellationToken) -> io::Result<Output> {
+    run_inner(req, cancel.child_token(), None, true).await
+}
+async fn run_inner(
+    req: Request,
+    cancel: CancellationToken,
+    sink: Option<OutputSink>,
+    capture_only: bool,
+) -> io::Result<Output> {
     if cancel.is_cancelled() {
         return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
     }
@@ -171,7 +183,7 @@ pub async fn run_stream(
     let mut input = child.stdin.take();
     let input_bytes = req.stdin.unwrap_or_default().into_bytes();
     let mut input_offset = 0;
-    let mut bytes = Vec::new();
+    let mut bytes = zeroize::Zeroizing::new(Vec::new());
     let mut spill = None;
     let mut file = None;
     let mut scrubber = crate::redact::StreamScrubber::new(req.redactor.clone());
@@ -212,6 +224,16 @@ pub async fn run_stream(
             n=stderr.read(&mut b),if err_open=>{let n=n?;err_open=n>0;Some((crate::protocol::Stream::Stderr,b[..n].to_vec()))},
         };
         if let Some((stream, raw)) = chunk {
+            if capture_only {
+                if matches!(stream, crate::protocol::Stream::Stdout) {
+                    let keep = (req.cap - bytes.len()).min(raw.len());
+                    bytes.extend_from_slice(&raw[..keep]);
+                    if keep < raw.len() {
+                        cancel.cancel();
+                    }
+                }
+                continue;
+            }
             for (stream, live) in live_scrubber.push(stream, &raw, false) {
                 emit(&sink, &cancel, stream, live).await;
             }
@@ -244,32 +266,34 @@ pub async fn run_stream(
         group.reaped();
         status = Some(waited?);
     }
-    for (stream, live) in live_scrubber.push(crate::protocol::Stream::Stdout, &[], true) {
-        emit(&sink, &cancel, stream, live).await;
+    if !capture_only {
+        for (stream, live) in live_scrubber.push(crate::protocol::Stream::Stdout, &[], true) {
+            emit(&sink, &cancel, stream, live).await;
+        }
+        let tail = scrubber.push(&[], true);
+        if bytes.len() + tail.len() > req.cap && file.is_none() {
+            tokio::fs::create_dir_all(&req.spill_dir).await?;
+            let path = req.spill_dir.join(format!("{}.out", ulid::Ulid::new()));
+            let mut f = tokio::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&path)
+                .await?;
+            f.write_all(&bytes).await?;
+            file = Some(f);
+            spill = Some(path);
+        }
+        if let Some(f) = file.as_mut() {
+            f.write_all(&tail).await?;
+            f.flush().await?;
+        }
+        let keep = (req.cap - bytes.len()).min(tail.len());
+        bytes.extend_from_slice(&tail[..keep]);
     }
-    let tail = scrubber.push(&[], true);
-    if bytes.len() + tail.len() > req.cap && file.is_none() {
-        tokio::fs::create_dir_all(&req.spill_dir).await?;
-        let path = req.spill_dir.join(format!("{}.out", ulid::Ulid::new()));
-        let mut f = tokio::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&path)
-            .await?;
-        f.write_all(&bytes).await?;
-        file = Some(f);
-        spill = Some(path);
-    }
-    if let Some(f) = file.as_mut() {
-        f.write_all(&tail).await?;
-        f.flush().await?;
-    }
-    let keep = (req.cap - bytes.len()).min(tail.len());
-    bytes.extend_from_slice(&tail[..keep]);
     let status = status.expect("child waited");
     Ok(Output {
-        bytes,
+        bytes: std::mem::take(&mut *bytes),
         spill,
         code: status.code(),
         signal: status.signal(),

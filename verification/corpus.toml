@@ -208,3 +208,48 @@ frontend="project"
 name="BrokenHarnessEmbedLifecycle"
 expected="safety"
 frontend="project"
+
+[[model]]
+name = "HarnessAutoCompact"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessAutoCompactA"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessAutoCompactB"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessAutoCompactC"
+expected = "liveness"
+frontend = "project"
+
+[[model]]
+name = "HarnessMcpServer"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessMcpServerA"
+expected = "deadlock"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessMcpServerB"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessMcpServerC"
+expected = "liveness"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessAutoCompactD"
+expected = "safety"
+frontend = "project"

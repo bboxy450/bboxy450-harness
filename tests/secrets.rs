@@ -162,3 +162,27 @@ async fn split_model_key_is_scrubbed_from_snapshots_and_seat_output() {
     g.send(support::op(&g, Op::Close)).unwrap();
     task.await.unwrap().unwrap();
 }
+#[tokio::test]
+async fn command_resolution_bounds_stdout_ignores_stderr_and_registers_repeated_values() {
+    let set = Set::default();
+    let source = "!printf ignored-diagnostic >&2; printf fixture-command-value";
+    let text=format!("---\n{}---\n",serde_yaml::to_string(&serde_json::json!({"name":"test","model":"mock","endpoint":"https://example.invalid/v1","api_key":source})).unwrap());
+    let profile = Profile::parse(&text).unwrap();
+    for _ in 0..2 {
+        let secret = profile
+            .key(&set, tokio_util::sync::CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(format!("{secret:?}"), "<redacted>");
+    }
+    assert_eq!(set.scrub("fixture-command-value"), "<redacted>");
+    assert_eq!(set.scrub("ignored-diagnostic"), "ignored-diagnostic");
+    let text=format!("---\n{}---\n",serde_yaml::to_string(&serde_json::json!({"name":"test","model":"mock","endpoint":"https://example.invalid/v1","api_key":"!printf '%9000s' x"})).unwrap());
+    assert!(
+        Profile::parse(&text)
+            .unwrap()
+            .key(&set, tokio_util::sync::CancellationToken::new())
+            .await
+            .is_err()
+    );
+}

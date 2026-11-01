@@ -169,3 +169,72 @@ fn subscriber_model_can_lose_an_entire_epoch_and_rejects_both_old_rules() {
         );
     }
 }
+#[test]
+fn automatic_compaction_controls_violate_the_named_contracts() {
+    let correct = model("HarnessAutoCompact");
+    let report = correct.check(100_000).unwrap();
+    assert!(report.violations.is_empty());
+    let clipped = variable(&correct, "clipped");
+    let replaced = variable(&correct, "replaced");
+    let latest = variable(&correct, "latest_ending");
+    let frontier = variable(&correct, "ended_through");
+    assert!(
+        report
+            .states
+            .iter()
+            .any(|s| s[clipped] == 1 && s[replaced] == 1)
+    );
+    assert!(
+        report
+            .states
+            .iter()
+            .any(|s| s[latest] == 2 && s[frontier] == 1)
+    );
+    assert!(
+        report
+            .states
+            .iter()
+            .all(|s| s[clipped] <= s[frontier] && s[replaced] <= s[frontier])
+    );
+    for (name, property) in [
+        ("BrokenHarnessAutoCompactA", "NeverReducesOpenTurn"),
+        ("BrokenHarnessAutoCompactB", "BoundariesMonotone"),
+        ("BrokenHarnessAutoCompactC", "BoundaryEventuallySends"),
+        ("BrokenHarnessAutoCompactD", "NeverReducesOpenTurn"),
+    ] {
+        let report = model(name).check(100_000).unwrap();
+        assert!(
+            report.violations.iter().any(|v| v.property == property),
+            "{name}: {:#?}",
+            report.violations
+        );
+    }
+}
+#[test]
+fn mcp_controls_reach_aba_deadlock_and_silent_inflight() {
+    let correct = model("HarnessMcpServer");
+    let report = correct.check(100_000).unwrap();
+    assert!(report.violations.is_empty());
+    let generation = variable(&correct, "gen");
+    let held = variable(&correct, "held");
+    let tag = variable(&correct, "held_generation");
+    assert!(
+        report
+            .states
+            .iter()
+            .any(|s| s[generation] == 2 && s[held] == 1 && s[tag] == 0),
+        "no A-B-A held completion"
+    );
+    for (name, property) in [
+        ("BrokenHarnessMcpServerA", "Deadlock"),
+        ("BrokenHarnessMcpServerB", "NoStaleResult"),
+        ("BrokenHarnessMcpServerC", "CallEventuallyEnds"),
+    ] {
+        let report = model(name).check(100_000).unwrap();
+        assert!(
+            report.violations.iter().any(|v| v.property == property),
+            "{name}: {:#?}",
+            report.violations
+        );
+    }
+}

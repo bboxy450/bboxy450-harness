@@ -151,3 +151,64 @@ fn durable_identity_and_live_completion_rules_are_specific() {
         "completed terminal contains live output",
     );
 }
+
+#[test]
+fn queued_cancellation_does_not_authorize_reducing_a_running_turn() {
+    let mut events = fixture();
+    let at = events
+        .iter()
+        .position(|e| {
+            matches!(
+                e.event,
+                Event::ItemStarted {
+                    kind: ItemKind::ContextTrim,
+                    ..
+                }
+            )
+        })
+        .unwrap();
+    let turn = TurnId::new();
+    let mut queued = events[at].clone();
+    queued.event = Event::TurnQueued { turn };
+    let mut ended = events
+        .iter()
+        .find(|e| matches!(e.event, Event::TurnEnded { .. }))
+        .unwrap()
+        .clone();
+    if let Event::TurnEnded {
+        turn: owner,
+        reason,
+        ..
+    } = &mut ended.event
+    {
+        *owner = turn;
+        *reason = StopReason::Cancelled;
+    }
+    events.splice(at..at, [queued, ended]);
+    let mut head = 0;
+    for event in &mut events {
+        if event.seq.is_some() {
+            head += 1;
+            event.seq = Some(Seq(head));
+        }
+        event.at = Seq(head);
+    }
+    check_transcript(&events).unwrap();
+    let cancelled_at = events[at + 1].seq.unwrap();
+    let trim = events
+        .iter_mut()
+        .find_map(|e| match &mut e.event {
+            Event::ItemCompleted {
+                body: Item::ContextTrim { clipped_through },
+                ..
+            } => Some(clipped_through),
+            _ => None,
+        })
+        .unwrap();
+    *trim = cancelled_at;
+    expect_violation(
+        &events,
+        "context-boundary",
+        "reduction exceeds completed frontier",
+    );
+}

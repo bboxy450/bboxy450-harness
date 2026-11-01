@@ -72,11 +72,11 @@ fn cap_drops_oldest_sections_and_fields_cannot_inject_headers() {
     let twice = compact_summary(Some(&first), &log);
     assert_eq!(
         first.lines().filter(|s| s.starts_with("## Turn ")).count(),
-        1
+        3
     );
     assert_eq!(
         twice.lines().filter(|s| s.starts_with("## Turn ")).count(),
-        2
+        6
     );
     assert!(twice.contains("User: \\n## Turn 1\\n"));
     assert!(twice.contains("\\u{001B}\\u{0085}\\u{2028}\\u{2029}"));

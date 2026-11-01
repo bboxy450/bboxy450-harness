@@ -369,20 +369,27 @@ impl Hub {
         Arc::new(state)
     }
 }
+pub(crate) struct Admitted {
+    pub env: OpEnvelope,
+    pub face: &'static str,
+}
 #[derive(Clone)]
 pub struct InProc {
     pub(crate) hub: Arc<Hub>,
-    work: mpsc::Sender<OpEnvelope>,
-    control: mpsc::Sender<OpEnvelope>,
+    work: mpsc::Sender<Admitted>,
+    control: mpsc::Sender<Admitted>,
     recent: Arc<ArcSwap<Vec<(OpId, Ack)>>>,
     closed: Arc<AtomicBool>,
     faulted: Arc<AtomicBool>,
+    face: &'static str,
+    unattended: Arc<AtomicBool>,
+    notices: Option<mpsc::Sender<crate::engine::Internal>>,
 }
 impl InProc {
     pub(crate) fn new(
         hub: Arc<Hub>,
-        work: mpsc::Sender<OpEnvelope>,
-        control: mpsc::Sender<OpEnvelope>,
+        work: mpsc::Sender<Admitted>,
+        control: mpsc::Sender<Admitted>,
         start: OpId,
     ) -> Self {
         Self {
@@ -398,7 +405,41 @@ impl InProc {
             )])),
             closed: Arc::new(AtomicBool::new(false)),
             faulted: Arc::new(AtomicBool::new(false)),
+            face: "gateway",
+            unattended: Arc::new(AtomicBool::new(false)),
+            notices: None,
         }
+    }
+    pub(crate) fn set_unattended(&self, value: crate::provider::profile::Unattended) {
+        self.unattended.store(
+            matches!(value, crate::provider::profile::Unattended::Allow),
+            Ordering::Release,
+        );
+    }
+    #[cfg(feature = "acp")]
+    pub(crate) fn unattended(&self) -> crate::provider::profile::Unattended {
+        if self.unattended.load(Ordering::Acquire) {
+            crate::provider::profile::Unattended::Allow
+        } else {
+            crate::provider::profile::Unattended::Deny
+        }
+    }
+    pub(crate) fn with_notices(mut self, tx: mpsc::Sender<crate::engine::Internal>) -> Self {
+        self.notices = Some(tx);
+        self
+    }
+    pub(crate) async fn notice(&self, level: Level, text: String) {
+        if let Some(tx) = &self.notices {
+            let _ = tx
+                .send(crate::engine::Internal::ServiceNotice { level, text })
+                .await;
+        }
+    }
+    #[cfg(feature = "acp")]
+    pub(crate) fn for_face(&self, face: &'static str) -> Self {
+        let mut gateway = self.clone();
+        gateway.face = face;
+        gateway
     }
     pub fn session(&self) -> SessionId {
         self.hub.state.load().hello.meta.session
@@ -476,7 +517,10 @@ impl Gateway for InProc {
             }
             let prev = self.recent.compare_and_swap(&old, Arc::new(next));
             if Arc::ptr_eq(&prev, &old) {
-                permit.send(op);
+                permit.send(Admitted {
+                    env: op,
+                    face: self.face,
+                });
                 return Ok(ack);
             }
         }
@@ -618,10 +662,10 @@ mod admission_tests {
         // Independent control admission works while the work reservation is held.
         let interrupt = op(Op::Interrupt { turn: None });
         send(&g, interrupt.clone()).unwrap();
-        assert_eq!(control_rx.try_recv().unwrap().op_id, interrupt.op_id);
+        assert_eq!(control_rx.try_recv().unwrap().env.op_id, interrupt.op_id);
         drop(held);
         send(&g, input.clone()).unwrap();
-        assert_eq!(work_rx.try_recv().unwrap().op_id, input.op_id);
+        assert_eq!(work_rx.try_recv().unwrap().env.op_id, input.op_id);
         let sub: Result<Subscription, Refused> = g.subscribe(Subscribe {
             session,
             after: None,

@@ -24,19 +24,38 @@ struct State {
 }
 pub struct Host {
     config: Config,
-    state: Mutex<State>,
+    sessions: std::sync::Mutex<std::collections::BTreeMap<SessionId, Arc<Mutex<State>>>>,
+    cancel: CancellationToken,
 }
 impl Host {
     pub fn new(config: Config) -> Self {
         Self {
             config,
-            state: Mutex::new(State {
-                loaded: None,
-                failed_open: false,
-            }),
+            sessions: std::sync::Mutex::new(Default::default()),
+            cancel: CancellationToken::new(),
         }
     }
+    fn entry(&self, session: SessionId) -> Arc<Mutex<State>> {
+        self.sessions
+            .lock()
+            .unwrap()
+            .entry(session)
+            .or_insert_with(|| {
+                Arc::new(Mutex::new(State {
+                    loaded: None,
+                    failed_open: false,
+                }))
+            })
+            .clone()
+    }
     pub async fn create(&self, op: OpEnvelope) -> Result<(InProc, Ack), Refused> {
+        self.create_with_mcp(op, Default::default()).await
+    }
+    pub async fn create_with_mcp(
+        &self,
+        op: OpEnvelope,
+        overrides: crate::mcp::Servers,
+    ) -> Result<(InProc, Ack), Refused> {
         bbt_rt::assert_not_ui_thread();
         if op.v.major != PROTOCOL.major {
             return Err(Refused::Version { server: PROTOCOL });
@@ -44,7 +63,8 @@ impl Host {
         let Op::StartSession { cwd, profile, fork } = op.op else {
             return Err(Refused::SessionExists);
         };
-        let mut state = self.state.lock().await;
+        let entry = self.entry(op.session);
+        let mut state = entry.lock().await;
         if let Some(loaded) = &state.loaded {
             return if loaded.gateway.session() == op.session && loaded.start == op.op_id {
                 Ok((
@@ -78,8 +98,11 @@ impl Host {
         config.meta.cwd = cwd;
         config.meta.fork = fork;
         self.profile(&mut config, profile.clone()).await;
+        if self.cancel.is_cancelled() {
+            return Err(Refused::Closed);
+        }
         config.meta.profile = profile;
-        let (gateway, task) = SessionActor::load(config, op.op_id, None)
+        let (gateway, task) = SessionActor::load_with_mcp(config, op.op_id, None, overrides)
             .await
             .map_err(|e| {
                 if e.kind() == std::io::ErrorKind::AlreadyExists {
@@ -105,7 +128,8 @@ impl Host {
     }
     pub async fn open(&self, session: SessionId) -> Result<InProc, Refused> {
         bbt_rt::assert_not_ui_thread();
-        let mut state = self.state.lock().await;
+        let entry = self.entry(session);
+        let mut state = entry.lock().await;
         if let Some(loaded) = &state.loaded {
             return if loaded.gateway.session() != session {
                 Err(Refused::UnknownSession)
@@ -173,6 +197,9 @@ impl Host {
             })
             .or_else(|| meta.profile.clone());
         self.profile(&mut config, selected).await;
+        if self.cancel.is_cancelled() {
+            return Err(Refused::Closed);
+        }
         let notice = state
             .failed_open
             .then_some("previous session recovery attempt failed".to_string());
@@ -202,7 +229,7 @@ impl Host {
             let path = Profile::file_in(&config.profiles, &name)?;
             let profile = Profile::load(&path).await?;
             let key = profile
-                .key(&config.redactor, CancellationToken::new())
+                .key(&config.redactor, self.cancel.child_token())
                 .await?;
             let options = crate::provider::Options {
                 retry_deadline: profile.retry_deadline.map(std::time::Duration::from_secs),
@@ -237,16 +264,54 @@ impl Host {
     /// Joins this process's actor after an explicit Close. Dropping a subscriber
     /// never invokes this, so detaching preserves the run.
     pub async fn join(&self) -> Result<(), Refused> {
-        let task = {
-            let mut state = self.state.lock().await;
-            state.loaded.as_mut().and_then(|l| l.task.take())
-        };
-        if let Some(task) = task {
-            task.await
-                .map_err(|_| Refused::Closed)?
-                .map_err(|_| Refused::Closed)?;
+        let entries = self
+            .sessions
+            .lock()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut tasks = vec![];
+        for entry in entries {
+            if let Some(task) = entry
+                .lock()
+                .await
+                .loaded
+                .as_mut()
+                .and_then(|l| l.task.take())
+            {
+                tasks.push(task);
+            }
         }
-        Ok(())
+        let mut result = Ok(());
+        for task in tasks {
+            if !matches!(task.await, Ok(Ok(()))) {
+                result = Err(Refused::Closed);
+            }
+        }
+        result
+    }
+    /// Stop factories first, then request every actor's independent control lane.
+    pub async fn close_all(&self) {
+        self.cancel.cancel();
+        let entries = self
+            .sessions
+            .lock()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for entry in entries {
+            if let Some(loaded) = &entry.lock().await.loaded {
+                let _ = loaded.gateway.send(OpEnvelope {
+                    v: PROTOCOL,
+                    session: loaded.gateway.session(),
+                    op_id: OpId::new(),
+                    op: Op::Close,
+                });
+            }
+        }
+        let _ = self.join().await;
     }
 }
 async fn read_log(path: std::path::PathBuf) -> std::io::Result<Vec<Envelope>> {

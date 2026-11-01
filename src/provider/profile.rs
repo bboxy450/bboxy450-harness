@@ -27,6 +27,15 @@ pub struct Profile {
     pub on_unattended: Unattended,
     #[serde(default)]
     pub policy: Option<String>,
+    #[serde(default = "enabled")]
+    pub auto_compact: bool,
+    #[serde(default)]
+    pub context_tokens: Option<u64>,
+    #[serde(default, rename = "mcpServers")]
+    pub mcp_servers: crate::mcp::Servers,
+}
+fn enabled() -> bool {
+    true
 }
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -131,13 +140,10 @@ impl Profile {
         }
     }
 }
-struct Wake(tokio::sync::Notify);
-impl bbt_rt::Waker for Wake {
-    fn wake(&self) {
-        self.0.notify_one();
-    }
-}
-async fn resolve_command(cmd: &str, cancel: CancellationToken) -> Result<String, ProviderError> {
+pub(crate) async fn resolve_command(
+    cmd: &str,
+    cancel: CancellationToken,
+) -> Result<String, ProviderError> {
     // Keychain lookup can show a dialog before a timeout. Never launch it in an
     // unattended harness; the same command source is retained in the profile.
     if cmd.contains("security ")
@@ -149,57 +155,28 @@ async fn resolve_command(cmd: &str, cancel: CancellationToken) -> Result<String,
             "key command requires an attended key source",
         ));
     }
-    let wake = Arc::new(Wake(tokio::sync::Notify::new()));
-    let dirty = bbt_rt::DirtySet::new(1, wake.clone());
-    let (ui, rx) = bbt_rt::ui_channel(32, dirty.source(0));
-    let output = bbt_rt::ViewRing::new(32, dirty.source(0));
-    let runner = bbt_rt::CommandRunner::new(ui, output.clone());
-    let task = runner.spawn_command(
-        vec!["sh".into(), "-c".into(), cmd.into()],
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
-        vec![],
-    );
-    let mut bytes = zeroize::Zeroizing::new(Vec::new());
-    let mut overflow = false;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    loop {
-        if output.dropped() > 0 {
-            overflow = true;
-            bbt_rt::cancel(&task);
-        }
-        while let Some(chunk) = output.pop() {
-            if matches!(chunk.stream, bbt_rt::Stream::Stdout) {
-                if bytes.len() + chunk.bytes.len() > 8192 {
-                    overflow = true;
-                    bbt_rt::cancel(&task);
-                } else {
-                    bytes.extend_from_slice(&chunk.bytes);
-                }
-            }
-        }
-        while rx.try_recv().is_some() {}
-        rx.complete_drain();
-        output.complete_drain();
-        if let Some(status) = task.status() {
-            if overflow || status.code != Some(0) || status.cancelled {
-                return Err(ProviderError::new(
-                    ErrorClass::Auth,
-                    format!("key command failed (exit {})", status.code.unwrap_or(-1)),
-                ));
-            }
-            return String::from_utf8(bytes.to_vec())
-                .map_err(|_| ProviderError::new(ErrorClass::Auth, "key command failed (exit -1)"));
-        }
-        if tokio::time::Instant::now() >= deadline || cancel.is_cancelled() {
-            bbt_rt::cancel(&task);
-            while task.status().is_none() {
-                tokio::time::sleep(Duration::from_millis(2)).await;
-            }
-            return Err(ProviderError::new(
-                ErrorClass::Auth,
-                "key command failed (exit -1)",
-            ));
-        }
-        tokio::select! {_=wake.0.notified()=>{},_=tokio::time::sleep(Duration::from_millis(2))=>{}}
+    let output = crate::process::capture_stdout(
+        crate::process::Request {
+            program: "sh".into(),
+            args: vec!["-c".into(), cmd.into()],
+            stdin: None,
+            cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
+            timeout: Duration::from_secs(10),
+            cap: 8192,
+            spill_dir: PathBuf::new(),
+            redactor: Set::default(),
+        },
+        cancel,
+    )
+    .await
+    .map_err(|_| ProviderError::new(ErrorClass::Auth, "key command failed (exit -1)"))?;
+    let bytes = zeroize::Zeroizing::new(output.bytes);
+    if output.cancelled || output.code != Some(0) {
+        return Err(ProviderError::new(
+            ErrorClass::Auth,
+            "key command failed (exit -1)",
+        ));
     }
+    String::from_utf8(bytes.to_vec())
+        .map_err(|_| ProviderError::new(ErrorClass::Auth, "key command failed (exit -1)"))
 }

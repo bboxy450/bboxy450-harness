@@ -23,14 +23,14 @@ fn summary(outcome: &str, reason: &str, requests: u32) -> Value {
     json!({"outcome":outcome,"reason":reason,"requests":requests,"model":"nvidia/nemotron-3.5-super-vl:free","redacted":true})
 }
 pub async fn run() -> i32 {
-    let (record, code) = match smoke().await {
+    let (record, code) = match smoke(false).await {
         Ok(result) => result,
         Err(_) => (summary("FAIL", "smoke runner failed", 0), 1),
     };
     println!("{record}");
     code
 }
-async fn smoke() -> Result<(Value, i32), Box<dyn std::error::Error>> {
+async fn smoke(acp_mode: bool) -> Result<(Value, i32), Box<dyn std::error::Error>> {
     let home = PathBuf::from(std::env::var_os("HOME").ok_or("HOME unavailable")?);
     let old = home.join(".kittens/profiles/nemotron.md");
     let old = match tokio::fs::read_to_string(old).await {
@@ -45,6 +45,9 @@ async fn smoke() -> Result<(Value, i32), Box<dyn std::error::Error>> {
         return Ok((summary("SKIP", "no key command configured", 0), 0));
     };
     let profile = Profile {
+        auto_compact: true,
+        context_tokens: None,
+        mcp_servers: Default::default(),
         name: "nemotron".into(),
         provider: Some("openrouter".into()),
         model: "nvidia/nemotron-3.5-super-vl:free".into(),
@@ -99,7 +102,7 @@ async fn smoke() -> Result<(Value, i32), Box<dyn std::error::Error>> {
     let temp = std::env::temp_dir().join(format!("harness-live-{}", ulid::Ulid::new()));
     tokio::fs::create_dir(&temp).await?;
     tokio::fs::write(temp.join("smoke.txt"), "before\n").await?;
-    let session = SessionId::new();
+    let mut session = SessionId::new();
     let sessions = temp.join("sessions");
     let meta = SessionMeta {
         session,
@@ -144,34 +147,48 @@ async fn smoke() -> Result<(Value, i32), Box<dyn std::error::Error>> {
         profile_error: None,
         max_rounds: 3,
     };
-    let (g, task) = SessionActor::open(config, OpId::new()).await?;
-    let mut sub = g
-        .subscribe(Subscribe {
-            session,
-            after: None,
-            ephemeral: false,
-        })
-        .map_err(|_| "subscribe refused")?;
-    let op = |op| OpEnvelope {
-        v: PROTOCOL,
-        session,
-        op_id: OpId::new(),
-        op,
-    };
-    g.send(op(Op::UserTurn{blocks:vec![InputBlock::Text{text:"Use read to inspect smoke.txt, then use edit exactly once to replace the full string before\n with after\n. Finish with a brief Done. Do not run any other tools. You have at most three model requests.".into()}],mode:TurnMode::Queue})).map_err(|_|"turn refused")?;
-    let ending = tokio::time::timeout(Duration::from_secs(90), async {
-        while let Some(e) = sub.recv().await {
-            if let Event::TurnEnded { reason, .. } = e.event {
-                return Some(reason);
-            }
+    let ending = if acp_mode {
+        #[cfg(feature = "acp")]
+        {
+            let result = acp_turn(config, &temp).await?;
+            session = result.0;
+            result.1
         }
-        None
-    })
-    .await
-    .ok()
-    .flatten();
-    let _ = g.send(op(Op::Close));
-    let _ = tokio::time::timeout(Duration::from_secs(2), task).await;
+        #[cfg(not(feature = "acp"))]
+        {
+            return Ok((summary("FAIL", "ACP feature unavailable", 0), 1));
+        }
+    } else {
+        let (g, task) = SessionActor::open(config, OpId::new()).await?;
+        let mut sub = g
+            .subscribe(Subscribe {
+                session,
+                after: None,
+                ephemeral: false,
+            })
+            .map_err(|_| "subscribe refused")?;
+        let op = |op| OpEnvelope {
+            v: PROTOCOL,
+            session,
+            op_id: OpId::new(),
+            op,
+        };
+        g.send(op(Op::UserTurn{blocks:vec![InputBlock::Text{text:"Use read to inspect smoke.txt, then use edit exactly once to replace the full string before\n with after\n. Finish with a brief Done. Do not run any other tools. You have at most three model requests.".into()}],mode:TurnMode::Queue})).map_err(|_|"turn refused")?;
+        let result = tokio::time::timeout(Duration::from_secs(90), async {
+            while let Some(e) = sub.recv().await {
+                if let Event::TurnEnded { reason, .. } = e.event {
+                    return Some(reason);
+                }
+            }
+            None
+        })
+        .await
+        .ok()
+        .flatten();
+        let _ = g.send(op(Op::Close));
+        let _ = task.await;
+        result
+    };
     let text = tokio::fs::read_to_string(sessions.join(format!("{session}.jsonl"))).await?;
     let transcript = text
         .lines()
@@ -211,7 +228,7 @@ async fn smoke() -> Result<(Value, i32), Box<dyn std::error::Error>> {
             class: ErrorClass::RateLimited,
             ..
         })
-    ) {
+    ) || transcript.iter().any(|e|matches!(&e.event,Event::ItemCompleted {body:Item::Notice {text,..},..} if text.contains("RateLimited"))) {
         ("UNAVAILABLE", "provider quota unavailable", 75)
     } else if ending.is_none() {
         ("UNAVAILABLE", "live deadline expired", 75)
@@ -219,6 +236,7 @@ async fn smoke() -> Result<(Value, i32), Box<dyn std::error::Error>> {
         ("FAIL", "live turn did not satisfy read/edit contract", 1)
     };
     let mut record = summary(outcome, reason, requests);
+    record["face"] = json!(if acp_mode { "acp" } else { "headless" });
     record["ending"] = json!(ending);
     record["check_transcript"] = json!(laws);
     record["read_calls"] = json!(reads);
@@ -226,4 +244,55 @@ async fn smoke() -> Result<(Value, i32), Box<dyn std::error::Error>> {
     record["file_changed"] = json!(changed);
     tokio::fs::remove_dir_all(temp).await?;
     Ok((record, code))
+}
+
+#[cfg(feature = "acp")]
+pub async fn run_acp() -> i32 {
+    let (record, code) = match smoke(true).await {
+        Ok(result) => result,
+        Err(_) => (summary("FAIL", "ACP smoke runner failed", 0), 1),
+    };
+    println!("{record}");
+    code
+}
+#[cfg(feature = "acp")]
+async fn acp_turn(
+    config: Config,
+    cwd: &std::path::Path,
+) -> Result<(SessionId, Option<StopReason>), Box<dyn std::error::Error>> {
+    use tokio::io::AsyncBufReadExt;
+    let stop = CancellationToken::new();
+    let (client, server) = tokio::io::duplex(1024 * 1024);
+    let (read, mut write) = tokio::io::split(client);
+    let (read_server, write_server) = tokio::io::split(server);
+    let token = stop.clone();
+    let task = bbt_rt::handle().spawn(async move {
+        super::acp::serve_cancelled(read_server, write_server, config, token).await
+    });
+    let run=async {
+        let mut lines=tokio::io::BufReader::new(read).lines();
+        async fn send(write:&mut tokio::io::WriteHalf<tokio::io::DuplexStream>,value:Value)->std::io::Result<()> {let mut bytes=serde_json::to_vec(&value)?;bytes.push(b'\n');write.write_all(&bytes).await}
+        send(&mut write,json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}})).await?;
+        let _=lines.next_line().await?;
+        send(&mut write,json!({"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":cwd,"mcpServers":[]}})).await?;
+        let response:Value=serde_json::from_str(&lines.next_line().await?.ok_or("ACP disconnected")?)?;
+        let session=SessionId(response["result"]["sessionId"].as_str().ok_or("ACP new failed")?.parse()?);
+        send(&mut write,json!({"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":session.to_string(),"prompt":[{"type":"text","text":"Use read to inspect smoke.txt, then use edit exactly once to replace before\n with after\n. Finish with a brief Done. Do not run other tools. You have at most three model requests."}]}})).await?;
+        let ending=tokio::time::timeout(Duration::from_secs(90),async {
+            while let Some(line)=lines.next_line().await? {
+                let response:Value=serde_json::from_str(&line)?;
+                if response["method"]=="session/request_permission" {send(&mut write,json!({"jsonrpc":"2.0","id":response["id"],"result":{"outcome":{"outcome":"selected","optionId":"deny"}}})).await?;}
+                if response["id"]==3 {
+                    let reason=if response.get("error").is_some(){StopReason::Error {class:serde_json::from_value(response["error"]["data"]["class"].clone()).unwrap_or(ErrorClass::Internal),message:"ACP live request failed".into()}}else{match response["result"]["stopReason"].as_str(){Some("end_turn")=>StopReason::EndTurn,Some("max_tokens")=>StopReason::MaxTokens,Some("max_turn_requests")=>StopReason::MaxRounds,_=>StopReason::Cancelled}};
+                    return Ok::<_,Box<dyn std::error::Error>>(Some(reason));
+                }
+            }
+            Ok(None)
+        }).await.ok().transpose()?.flatten();
+        Ok::<_,Box<dyn std::error::Error>>((session,ending))
+    }.await;
+    stop.cancel();
+    let joined = task.await?;
+    joined?;
+    run
 }

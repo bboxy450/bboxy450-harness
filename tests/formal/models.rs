@@ -1160,6 +1160,271 @@ fn embed_lifecycle(b: bool) -> Model {
     );
     m
 }
+// Harness-specific models: durable reductions and session-lived, birth-fenced MCP.
+fn auto_compact(mode: u8) -> Model {
+    // phase: idle=0, ladder=1, sending=2; item: none=0, trim=1, summary=2.
+    let mut m = base::<12>(
+        "AutoCompact",
+        false,
+        &[
+            ("est", 4, 4),
+            ("turn_open", 1, 1),
+            ("ended_through", 2, 1),
+            ("clipped", 2, 0),
+            ("replaced", 2, 0),
+            ("phase", 2, 0),
+            ("steps", 2, 0),
+            ("item", 2, 0),
+            ("durable_clipped", 2, 0),
+            ("durable_replaced", 2, 0),
+            ("queued", 1, 0),
+            ("latest_ending", 2, 1),
+        ],
+    );
+    if mode > 0 {
+        m.name = format!(
+            "BrokenHarnessAutoCompact{}",
+            ['A', 'B', 'C', 'D'][(mode - 1) as usize]
+        );
+    }
+    // Slot 1 is the completed prefix; slot 2 covers the still-open turn.
+    // A queued cancellation can end in slot 2 without closing that running turn.
+    act(&mut m, "QueueTurn", eq(10, 0), &[(10, Int(1))]);
+    act(
+        &mut m,
+        "CancelQueuedTurn",
+        eq(10, 1),
+        &[(10, Int(0)), (11, Int(2))],
+    );
+    let frontier = if mode == 4 { Var(11) } else { Var(2) };
+    act(
+        &mut m,
+        "Boundary",
+        eq(5, 0),
+        &[(5, Int(1)), (0, Int(4)), (6, Int(0))],
+    );
+    let mut fair = vec![];
+    fair.push(m.actions.len());
+    act(
+        &mut m,
+        "BeginTrim",
+        all([eq(5, 1), eq(7, 0), eq(6, 0), Var(3).lt(frontier.clone())]),
+        &[(7, Int(1))],
+    );
+    fair.push(m.actions.len());
+    let target = if mode == 1 { Int(2) } else { frontier.clone() };
+    act(
+        &mut m,
+        "CompleteTrim",
+        eq(7, 1),
+        &[
+            (3, target.clone()),
+            (8, target),
+            (7, Int(0)),
+            (6, Int(1)),
+            (0, Int(3)),
+        ],
+    );
+    fair.push(m.actions.len());
+    act(
+        &mut m,
+        "BeginSummary",
+        all([eq(5, 1), eq(7, 0), Var(4).lt(frontier.clone()), eq(6, 1)]),
+        &[(7, Int(2))],
+    );
+    fair.push(m.actions.len());
+    act(
+        &mut m,
+        "CompleteSummary",
+        eq(7, 2),
+        &[
+            (4, frontier.clone()),
+            (9, frontier.clone()),
+            (7, Int(0)),
+            (6, Int(2)),
+            (0, Int(1)),
+        ],
+    );
+    let nothing = Var(2).le(Var(3)).and(Var(2).le(Var(4)));
+    fair.push(m.actions.len());
+    act(
+        &mut m,
+        "Send",
+        all([
+            eq(5, 1),
+            eq(7, 0),
+            Var(0).le(Int(2)).or(if mode == 3 {
+                Bool(false)
+            } else {
+                eq(6, 2).or(nothing)
+            }),
+        ]),
+        &[(5, Int(2))],
+    );
+    act(&mut m, "NextRound", eq(5, 2), &[(5, Int(0))]);
+    act(
+        &mut m,
+        "Restart",
+        all([eq(5, 2), eq(7, 0)]),
+        &[(3, if mode == 2 { Int(0) } else { Var(8) }), (4, Var(9))],
+    );
+    safe(
+        &mut m,
+        "NeverReducesOpenTurn",
+        Var(3).le(Var(2)).and(Var(4).le(Var(2))),
+    );
+    safe(
+        &mut m,
+        "BoundariesMonotone",
+        Var(8).le(Var(3)).and(Var(9).le(Var(4))),
+    );
+    safe(&mut m, "ItemBeforeRequest", eq(5, 2).negate().or(eq(7, 0)));
+    progress(&mut m, "BoundaryEventuallySends", eq(5, 1), eq(5, 2), fair);
+    m
+}
+fn mcp_server(mode: u8) -> Model {
+    // Starting=0, ready=1, failed=2, dead=3; round absent/open/finished.
+    // Three births stand for the five-attempt product bound; identities are gen mod 2.
+    let mut m = base::<11>(
+        "McpServer",
+        false,
+        &[
+            ("state", 3, 0),
+            ("gen", 2, 0),
+            ("failures", 2, 0),
+            ("call", 1, 0),
+            ("round_open", 2, 0),
+            ("held", 1, 0),
+            ("held_generation", 2, 0),
+            ("accepted_tag", 2, 0),
+            ("accepted_birth", 2, 0),
+            ("silent", 1, 0),
+            ("retired", 1, 0),
+        ],
+    );
+    if mode > 0 {
+        m.name = format!(
+            "BrokenHarnessMcpServer{}",
+            ['A', 'B', 'C'][(mode - 1) as usize]
+        );
+    }
+    m.check_deadlock = mode == 1;
+    act(
+        &mut m,
+        "StartRound",
+        if mode == 1 {
+            all([eq(4, 0), eq(0, 1)])
+        } else {
+            eq(4, 0)
+        },
+        &[(4, Int(1))],
+    );
+    act(&mut m, "Ready", eq(0, 0), &[(0, Int(1))]);
+    act(
+        &mut m,
+        "FailedStartOrExit",
+        all([Var(0).le(Int(1)), Var(2).lt(Int(2))]),
+        &[(0, Int(2)), (2, Var(2).plus(Int(1)))],
+    );
+    act(
+        &mut m,
+        "Restart",
+        all([eq(0, 2), Var(1).lt(Int(2))]),
+        &[(0, Int(0)), (1, Var(1).plus(Int(1)))],
+    );
+    act(
+        &mut m,
+        "Exhausted",
+        all([Var(0).le(Int(1)), eq(2, 2)]),
+        &[(0, Int(3)), (10, Int(1))],
+    );
+    let call = m.actions.len();
+    act(
+        &mut m,
+        "Call",
+        all([eq(4, 1), eq(3, 0), eq(0, 1)]),
+        &[(3, Int(1))],
+    );
+    act(
+        &mut m,
+        "ServerHangs",
+        all([eq(3, 1), eq(5, 0)]),
+        &[(9, Int(1))],
+    );
+    act(
+        &mut m,
+        "HoldResult",
+        all([eq(3, 1), eq(5, 0), eq(9, 0)]),
+        &[(5, Int(1)), (6, Var(1))],
+    );
+    let fail = m.actions.len();
+    act(
+        &mut m,
+        "UnavailableFailsImmediately",
+        all([eq(4, 1), eq(3, 0), eq(0, 1).negate()]),
+        &[(4, Int(2))],
+    );
+    let apply = m.actions.len();
+    act(
+        &mut m,
+        "Respond",
+        all([
+            eq(3, 1),
+            eq(5, 1),
+            if mode == 2 {
+                Bool(true)
+            } else {
+                Var(6).eq(Var(1))
+            },
+        ]),
+        &[
+            (3, Int(0)),
+            (5, Int(0)),
+            (4, Int(2)),
+            (7, Var(6)),
+            (8, Var(1)),
+        ],
+    );
+    let discard = m.actions.len();
+    act(
+        &mut m,
+        "DropStale",
+        all([eq(3, 1), eq(5, 1), Var(6).eq(Var(1)).negate()]),
+        &[(3, Int(0)), (5, Int(0)), (4, Int(2))],
+    );
+    let timeout = m.actions.len();
+    act(
+        &mut m,
+        "Timeout",
+        if mode == 3 { Bool(false) } else { eq(3, 1) },
+        &[(3, Int(0)), (5, Int(0)), (4, Int(2))],
+    );
+    act(&mut m, "Finished", eq(4, 2), &[]);
+    safe(&mut m, "NoStaleResult", Var(7).eq(Var(8)));
+    progress(
+        &mut m,
+        "RoundNeverWaits",
+        eq(4, 0),
+        eq(4, 0).negate(),
+        vec![0],
+    );
+    safe(&mut m, "DeadIsFinal", eq(10, 0).or(eq(0, 3)));
+    progress(
+        &mut m,
+        "CallEventuallyEnds",
+        eq(3, 1),
+        eq(3, 0),
+        vec![apply, discard, timeout],
+    );
+    progress(
+        &mut m,
+        "RoundMakesProgress",
+        eq(4, 1).and(eq(3, 0)),
+        eq(4, 2).or(eq(3, 1)),
+        vec![fail, call],
+    );
+    m
+}
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![];
     for b in [false, true] {
@@ -1198,6 +1463,26 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
             out.push((m, expected));
         }
     }
+    for mode in 0..=3 {
+        out.push((
+            auto_compact(mode),
+            match mode {
+                0 => "pass",
+                3 => "liveness",
+                _ => "safety",
+            },
+        ));
+        out.push((
+            mcp_server(mode),
+            match mode {
+                0 => "pass",
+                1 => "deadlock",
+                2 => "safety",
+                _ => "liveness",
+            },
+        ));
+    }
+    out.push((auto_compact(4), "safety"));
     out.push((steer_mode(false, true), "safety"));
     let mut registration = replay_base(false);
     registration.name = "HarnessSubscriberReplayRegistration".into();

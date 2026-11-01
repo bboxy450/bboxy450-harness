@@ -31,7 +31,7 @@ async fn unattended_denies_and_registry_declares_effects() {
     );
     for d in bboxy450_harness::tools::Registry::new().definitions() {
         assert_eq!(
-            d.effect.effect().is_none(),
+            d.effect.effect() == Some(Effect::Read),
             d.concurrency == bboxy450_harness::tools::Concurrency::ReadOnly
         );
     }
