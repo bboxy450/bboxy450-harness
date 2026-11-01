@@ -5,7 +5,7 @@
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 use crate::{
-    engine::Config,
+    engine::{Config, LaunchOptions},
     gateway::{Gateway, Host, Subscribe},
     policy::Policy,
     protocol::*,
@@ -56,6 +56,8 @@ async fn run_cli(
     let mut resume = None;
     let mut yolo = false;
     let mut max_rounds = 50;
+    let mut append_system_prompt = String::new();
+    let mut mcp_config = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "smoke-live" => return Ok(super::smoke::run().await),
@@ -73,6 +75,12 @@ async fn run_cli(
             "--scripted" => scripts.push(PathBuf::from(args.next().ok_or("missing SSE path")?)),
             "--resume" => resume = Some(args.next().ok_or("missing session")?),
             "--yolo" => yolo = true,
+            "--append-system-prompt" => {
+                append_system_prompt = args.next().ok_or("missing system prompt text")?
+            }
+            "--mcp-config" => {
+                mcp_config = Some(PathBuf::from(args.next().ok_or("missing MCP config path")?))
+            }
             "--max-rounds" => {
                 max_rounds = args
                     .next()
@@ -102,7 +110,7 @@ async fn run_cli(
             }
             "--help" | "-h" => {
                 println!(
-                    "bboxy450-harness -p PROMPT --json [--profile NAME] [--cwd DIR]\nbboxy450-harness --json --resume CLOSED_SESSION\nbboxy450-harness seat [--resume SESSION] [--cwd DIR]\n--scripted SSE (repeat for rounds) --sessions DIR --yolo"
+                    "bboxy450-harness -p PROMPT --json [--profile NAME] [--cwd DIR]\nbboxy450-harness --json --resume CLOSED_SESSION\nbboxy450-harness seat [--resume SESSION] [--cwd DIR] [--append-system-prompt TEXT] [--mcp-config PATH]\n--scripted SSE (repeat for rounds) --sessions DIR --yolo"
                 );
                 return Ok(0);
             }
@@ -243,13 +251,16 @@ async fn run_cli(
         redactor,
         max_rounds,
     };
+    let launch = tokio::select! {biased;_=stop.cancelled()=>return Ok(0),launch=read_launch(append_system_prompt,mcp_config)=>launch};
+    let host = Host::new(config.clone()).with_launch(launch);
     if acp {
         #[cfg(feature = "acp")]
         {
-            super::acp::serve_cancelled(
+            super::acp::serve_with_host(
                 tokio::io::stdin(),
                 tokio::io::stdout(),
                 config,
+                host,
                 stop.child_token(),
             )
             .await
@@ -271,7 +282,6 @@ async fn run_cli(
             fork: config.meta.fork,
         },
     };
-    let host = Host::new(config);
     let gateway = if resume.is_some() {
         host.open(session)
             .await
@@ -331,4 +341,31 @@ async fn run_cli(
     socket.close().await.map_err(|_| "socket shutdown failed")?;
     host.join().await.map_err(|_| "session actor failed")?;
     Ok(if failed { 1 } else { 0 })
+}
+async fn read_launch(append_system_prompt: String, path: Option<PathBuf>) -> LaunchOptions {
+    let mut launch = LaunchOptions {
+        append_system_prompt,
+        ..Default::default()
+    };
+    if let Some(path) = path {
+        let result = crate::runtime::blocking(move || {
+            #[derive(serde::Deserialize)]
+            struct File {
+                #[serde(rename = "mcpServers")]
+                servers: crate::mcp::Servers,
+            }
+            let bytes = std::fs::read(path)?;
+            serde_json::from_slice::<File>(&bytes)
+                .map(|file| file.servers)
+                .map_err(std::io::Error::other)
+        })
+        .await;
+        match result {
+            Ok(servers) => launch.mcp_servers = servers,
+            Err(_) => launch
+                .notices
+                .push("launcher MCP configuration unavailable or invalid".into()),
+        }
+    }
+    launch
 }

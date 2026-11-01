@@ -7,7 +7,7 @@
 //! Async loading boundary. No disk read or recovery occurs in Gateway::subscribe.
 use super::*;
 use crate::{
-    engine::{Config, SessionActor},
+    engine::{Config, LaunchOptions, SessionActor},
     protocol::ErrorClass,
     provider::{FailedProvider, ProviderError, profile::Profile},
 };
@@ -26,6 +26,7 @@ pub struct Host {
     config: Config,
     sessions: std::sync::Mutex<std::collections::BTreeMap<SessionId, Arc<Mutex<State>>>>,
     cancel: CancellationToken,
+    launch: LaunchOptions,
 }
 impl Host {
     pub fn new(config: Config) -> Self {
@@ -33,7 +34,12 @@ impl Host {
             config,
             sessions: std::sync::Mutex::new(Default::default()),
             cancel: CancellationToken::new(),
+            launch: LaunchOptions::default(),
         }
+    }
+    pub fn with_launch(mut self, launch: LaunchOptions) -> Self {
+        self.launch = launch;
+        self
     }
     fn entry(&self, session: SessionId) -> Arc<Mutex<State>> {
         self.sessions
@@ -102,17 +108,18 @@ impl Host {
             return Err(Refused::Closed);
         }
         config.meta.profile = profile;
-        let (gateway, task) = SessionActor::load_with_mcp(config, op.op_id, None, overrides)
-            .await
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::AlreadyExists {
-                    Refused::SessionExists
-                } else if e.kind() == std::io::ErrorKind::InvalidInput {
-                    Refused::BadFork
-                } else {
-                    Refused::Closed
-                }
-            })?;
+        let (gateway, task) =
+            SessionActor::load_with_mcp(config, op.op_id, None, overrides, self.launch.clone())
+                .await
+                .map_err(|e| {
+                    if e.kind() == std::io::ErrorKind::AlreadyExists {
+                        Refused::SessionExists
+                    } else if e.kind() == std::io::ErrorKind::InvalidInput {
+                        Refused::BadFork
+                    } else {
+                        Refused::Closed
+                    }
+                })?;
         state.loaded = Some(Loaded {
             gateway: gateway.clone(),
             start: op.op_id,
@@ -203,7 +210,15 @@ impl Host {
         let notice = state
             .failed_open
             .then_some("previous session recovery attempt failed".to_string());
-        let (gateway, task) = match SessionActor::load(config, start, notice).await {
+        let (gateway, task) = match SessionActor::load_with_mcp(
+            config,
+            start,
+            notice,
+            Default::default(),
+            self.launch.clone(),
+        )
+        .await
+        {
             Ok(value) => value,
             Err(_) => {
                 state.failed_open = true;

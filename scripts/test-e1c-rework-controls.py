@@ -72,6 +72,14 @@ def main(selected=None):
 }
 ''')),
         ('leader-only','src/mcp.rs','mcp_client','close_kills_a_server_and_member_that_ignore_eof_and_term','MCP server group survived Close: orphaned member',leader_only),
+        ('bboxy-scrub','src/mcp.rs','seat_process','cannot_inherit_bboxy_environment*',['profile MCP inherited BBOXY variables','ACP MCP inherited BBOXY variables'],
+         lambda s:once(s,'scrub_bboxy_env(&mut command);','/* scrub removed by control */')),
+        ('launcher-inherit','src/mcp.rs','seat_process','seat_launch::launcher_flags_deliver_context_tools_and_only_launcher_environment','launcher MCP lost BBOXY capability',
+         lambda s:once(s,'if slot.origin!=Origin::Launcher {scrub_bboxy_env(&mut command);}','scrub_bboxy_env(&mut command);')),
+        ('append-system','src/engine/mod.rs','lib','engine::hardening_tests::launch_context_is_in_the_first_scripted_request_stable_prefix','appended startup text absent from stable system prefix',
+         lambda s:once(s,'if !self.append_system_prompt.is_empty() {','if false {')),
+        ('missing-mcp-config','src/frontends/headless.rs','seat_process','seat_launch::unavailable_config_is_a_notice_and_the_turn_completes','unavailable MCP config did not produce a Notice',
+         lambda s:once(s,'.push("launcher MCP configuration unavailable or invalid".into())','.extend(std::iter::empty::<String>())')),
     ]
     if selected:
         unknown=set(selected)-{row[0] for row in cases}
@@ -81,14 +89,16 @@ def main(selected=None):
     for name,path,suite,test,expected,mutate in cases:
         file=ROOT/path;source=file.read_text()
         target=['--lib'] if suite=='lib' else ['--test',suite]
-        command=['cargo','test','--offline','--locked','--quiet','--features','acp,test-fixtures',*target,test,'--','--exact']
+        selector=[test[:-1]] if test.endswith('*') else [test,'--','--exact']
+        command=['cargo','test','--offline','--locked','--quiet','--features','acp,test-fixtures',*target,*selector]
         row={'name':name,'source':path,'source_sha256':hashlib.sha256(source.encode()).hexdigest(),'command':command,'red_assertion':expected}
         try:
             file.write_text(mutate(source))
             result=subprocess.run(command,cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=600)
             (OUT/f'{name}-red.log').write_text('\n'.join(l.rstrip() for l in result.stdout.rstrip().splitlines())+'\n')
             row['red_exit']=result.returncode
-            if result.returncode!=101 or expected not in result.stdout:raise ValueError('mutation missed its behavioral witness: '+name)
+            assertions=expected if isinstance(expected,list) else [expected]
+            if result.returncode!=101 or any(assertion not in result.stdout for assertion in assertions):raise ValueError('mutation missed its behavioral witness: '+name)
         finally:file.write_text(source)
         result=subprocess.run(command,cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=600)
         (OUT/f'{name}-green.log').write_text('\n'.join(l.rstrip() for l in result.stdout.rstrip().splitlines())+'\n')

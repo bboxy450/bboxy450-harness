@@ -59,6 +59,82 @@ impl std::fmt::Debug for ServerConfig {
     }
 }
 pub type Servers = BTreeMap<String, ServerConfig>;
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    Profile,
+    Acp,
+    Launcher,
+}
+impl Origin {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Profile => "profile",
+            Self::Acp => "ACP",
+            Self::Launcher => "launcher",
+        }
+    }
+}
+pub(crate) struct SpawnConfig {
+    config: ServerConfig,
+    origin: Origin,
+}
+pub(crate) type SpawnServers = BTreeMap<String, SpawnConfig>;
+/// Provenance is assigned by the host, never deserialized from server data.
+pub(crate) fn select_sources(
+    profile: Servers,
+    acp: Servers,
+    launcher: Servers,
+) -> (SpawnServers, Vec<String>) {
+    let mut selected = SpawnServers::new();
+    let mut notices = BTreeMap::new();
+    for (origin, servers) in [
+        (Origin::Profile, profile),
+        (Origin::Acp, acp),
+        (Origin::Launcher, launcher),
+    ] {
+        for (name, config) in servers {
+            if let Some(prior) = selected.insert(name.clone(), SpawnConfig { config, origin }) {
+                notices.insert(
+                    name.clone(),
+                    format!(
+                        "mcp {name}: {} configuration overrides {}",
+                        origin.label(),
+                        prior.origin.label()
+                    ),
+                );
+            }
+        }
+    }
+    (selected, notices.into_values().collect())
+}
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+    #[test]
+    fn launcher_provenance_cannot_come_from_server_json_and_overrides_once() {
+        let server = |command: &str| {
+            serde_json::from_value::<ServerConfig>(json!({"command":command,"launcher":true}))
+                .unwrap()
+        };
+        let (profile, _) = select_sources(
+            [("bboxy".into(), server("profile"))].into(),
+            Default::default(),
+            Default::default(),
+        );
+        assert!(profile["bboxy"].origin == Origin::Profile);
+        let (selected, notices) = select_sources(
+            [("bboxy".into(), server("profile"))].into(),
+            [("bboxy".into(), server("acp"))].into(),
+            [("bboxy".into(), server("launcher"))].into(),
+        );
+        assert_eq!(selected["bboxy"].config.command, "launcher");
+        assert!(selected["bboxy"].origin == Origin::Launcher);
+        assert_eq!(
+            notices,
+            vec!["mcp bboxy: launcher configuration overrides ACP"]
+        );
+    }
+}
 #[derive(Clone)]
 struct Ready {
     generation: u64,
@@ -68,6 +144,7 @@ struct Ready {
 struct Slot {
     name: String,
     config: ServerConfig,
+    origin: Origin,
     ready: ArcSwap<Option<Ready>>,
     generation: std::sync::atomic::AtomicU64,
     state: std::sync::atomic::AtomicU8,
@@ -88,14 +165,14 @@ pub struct Manager {
 }
 impl Manager {
     pub(crate) fn start(
-        config: Servers,
+        config: SpawnServers,
         redactor: Set,
         output: mpsc::Sender<Internal>,
         services: &mut TaskGroup,
     ) -> Self {
         let root = services.cancel.clone();
         let mut slots = vec![];
-        for (i, (name, config)) in config.into_iter().enumerate() {
+        for (i, (name, selected)) in config.into_iter().enumerate() {
             if i >= 16 {
                 let tx = output.clone();
                 let cancel = root.clone();
@@ -112,7 +189,8 @@ impl Manager {
             }
             let slot = Arc::new(Slot {
                 name,
-                config,
+                config: selected.config,
+                origin: selected.origin,
                 ready: ArcSwap::from_pointee(None),
                 generation: 0.into(),
                 state: 0.into(),
@@ -408,6 +486,17 @@ async fn finish_child(rx: oneshot::Receiver<Child>) {
         let _ = child.wait().await;
     }
 }
+fn scrub_bboxy_env(command: &mut tokio::process::Command) {
+    let mut names = std::env::vars_os()
+        .map(|(name, _)| name)
+        .collect::<Vec<_>>();
+    names.extend(command.as_std().get_envs().map(|(name, _)| name.to_owned()));
+    for name in names {
+        if name.as_encoded_bytes().starts_with(b"BBOXY_") {
+            command.env_remove(name);
+        }
+    }
+}
 async fn supervise(
     slot: Arc<Slot>,
     redactor: Set,
@@ -435,13 +524,15 @@ async fn supervise(
         let stderr = Arc::new(Mutex::new(Vec::<u8>::new()));
         let result=async {
             let mut command=tokio::process::Command::new(&slot.config.command);
-            command.args(&slot.config.args).env_remove("BBOXY_CAPABILITY").process_group(0).kill_on_drop(true);
+            command.args(&slot.config.args).process_group(0).kill_on_drop(true);
+            if let Ok(cap)=std::env::var("BBOXY_CAPABILITY") {redactor.register(&cap);}
             for (key,source) in &slot.config.env {
+                if slot.origin!=Origin::Launcher && key.starts_with("BBOXY_") {continue;}
                 let value=if let Some(cmd)=source.strip_prefix('!') {crate::provider::profile::resolve_command(cmd,cancel.child_token()).await.map_err(|_|"environment command failed")?} else if let Some(name)=source.strip_prefix('$') {std::env::var(name).map_err(|_|"environment variable unavailable")?}else{source.clone()};
-                if std::env::var("BBOXY_CAPABILITY").ok().is_some_and(|cap|!cap.is_empty()&&value.contains(&cap)) {return Err("reserved capability in environment");}
+                if slot.origin!=Origin::Launcher && std::env::var("BBOXY_CAPABILITY").ok().is_some_and(|cap|!cap.is_empty()&&value.contains(&cap)) {return Err("reserved capability in environment");}
                 redactor.register(&value);command.env(key,value);
             }
-            command.env_remove("BBOXY_CAPABILITY");
+            if slot.origin!=Origin::Launcher {scrub_bboxy_env(&mut command);}
             let (transport,err)=TokioChildProcess::builder(command).stderr(std::process::Stdio::piped()).spawn().map_err(|_|"spawn failed")?;
             let (tx,rx)=oneshot::channel();
             let mut pipes=TaskGroup::new(cancel.child_token());
