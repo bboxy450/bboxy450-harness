@@ -57,7 +57,7 @@ pub enum InputBlock { Text { text: String }, Image { blob: BlobRef }, Mention { 
 pub enum ApprovalDecision { Allow, AllowAlways, Deny { reason: Option<String> } }
 ```
 
-For `StartSession`, `OpEnvelope.session` is a new `SessionId` minted by the client. If that id already exists, `send` returns `Refused::SessionExists`, unless the `op_id` is the same, in which case the call is a duplicate `Ack`.
+For `StartSession`, `OpEnvelope.session` is a new `SessionId` minted by the client, and the envelope goes to the async `Host::create` ([[gateway]] §1b), not to `Gateway::send`. If that id already exists, `create` returns `Refused::SessionExists`, unless the `op_id` is the same, in which case the call is a duplicate `Ack`.
 
 - **Lanes.**
   - The *work lane* carries `StartSession`, `UserTurn`, `SetProfile` and `Compact`. It is a FIFO inbox bounded at 64. When the inbox is full, `send` returns `Busy`.
@@ -290,5 +290,6 @@ A `ToolCall` closed this way carries the synthetic output `"tool call was not co
 
 - **2026-10-31, v0.1 completed at E1's question** (message 01M6ADW6HBB0YCX5Z746AJ7WPG). This adds §4a, the outcome table, the control-lane bound and collisions, and `SessionClosed`. `Close` loses its `mode`, because detaching is dropping a subscription. `Phase` becomes struct variants. Nothing had been implemented against the earlier text, so the version is unchanged.
 - **2026-10-31, at E1's second question** (message 01M6AE3W63JVE3QANQ392DN2HH). This adds the tag keys `InputBlock`=`type`, `ItemStatus`=`status`, `StopReason`=`reason` and `Delta`=`type`. It also adds `ErrorClass::Cancelled` to the enum, matching provider ICD §1. Version unchanged.
+- **2026-11-01, at E1's third question** (message 01M6AHRY2RX664DTK1S4NJ0QR8). `StartSession` is admitted by `Host::create` ([[gateway]] §1b). Version unchanged.
 
 Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: E2.
