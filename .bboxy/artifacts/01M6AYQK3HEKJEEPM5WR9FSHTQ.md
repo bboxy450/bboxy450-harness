@@ -10,14 +10,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 13678
+bytes: null
 claimed: false
 created: 2026-11-01T07:03:40.915Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:2fe18421599f9853a11a51d51a12a901fc41739b4785dab5339fb4a6c3d45b52
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -37,22 +37,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793516619485'
+- before_digest: sha256:2fe18421599f9853a11a51d51a12a901fc41739b4785dab5339fb4a6c3d45b52
+  commit: null
+  digest: null
+  event_hash: 1d9acbf1599971a418b5f8beef7cf7d241f6133bca9ef44cb210ba68fb339941
+  generation: '1'
+  grade: inferred
+  id: 01M6B0B411CHRPJZJZM7813PMT
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/tests/fixtures/gui/rich-all-items.jsonl
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '14916'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518305705'
 id: 01M6AYQK3HEKJEEPM5WR9FSHTQ
 kind: file
-last_observation_sequence: '13860'
+last_observation_sequence: '14916'
 number: 2389
 observation_reason: null
 observed: true
 produced_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:da64ab932bd91a690275767383c5bdb05fb6113535a58f51a95e6c0430443d95
-  log: .bboxy/log/2026-11-01.jsonl#13861
-  sig: 1eWaVWAa0HyuZAG/EJ6BhePJqtG+Dyfr6HU8MfqWMoxPtKrweEQmxIY+SeIlFvO0gKRqoILE5lXvpce2KuoYDQ==
+  frontmatter_digest: sha256:4f6e53e13969968dab9144becdca8a0f9736dc972dc25eb29b14ec0d05c71f0e
+  log: .bboxy/log/2026-11-01.jsonl#14917
+  sig: ldh4i0iTnMY1h9ZdHjERQVIQDXi9uj2jm4QsgTVp0C92bAtuHuVJ+ODP/+a3FETz9Gof64mcTpogMU2m5e6NDQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/tests/fixtures/gui/rich-all-items.jsonl
 type: artifact
-updated: 2026-11-01T07:03:40.915Z
+updated: 2026-11-01T07:31:49.417Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

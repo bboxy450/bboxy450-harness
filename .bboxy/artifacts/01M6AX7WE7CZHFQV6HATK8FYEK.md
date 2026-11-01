@@ -10,14 +10,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 18375
+bytes: null
 claimed: false
 created: 2026-11-01T06:37:37.607Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:b83ba9d7d3c720dc9bb04bce768c7cc0661d29a467e58d8cb27b4715ca1f2869
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -53,22 +53,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793516046646'
+- before_digest: sha256:b83ba9d7d3c720dc9bb04bce768c7cc0661d29a467e58d8cb27b4715ca1f2869
+  commit: null
+  digest: null
+  event_hash: b8f962e73c329484a95cf69b3bb583f640138605dd1284e9626c523de7c6d957
+  generation: '1'
+  grade: inferred
+  id: 01M6B06Z62ETFQSWDSJ3969C4N
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/verification/contracts.toml
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '14269'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518171493'
 id: 01M6AX7WE7CZHFQV6HATK8FYEK
 kind: file
-last_observation_sequence: '13518'
+last_observation_sequence: '14269'
 number: 2345
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:dd992d0e04e5ade02638d443c364abd6d3ddc21cef0ea8f8dbe245788b5158d6
-  log: .bboxy/log/2026-11-01.jsonl#13519
-  sig: Ev5VuF8er8ERUGq1atJfQ2IuexrGWs9P9+Hg7ruEmSeZt/siVDGfvOxcgLXdgJe+c7zU5h0boRRfYAb+hOxYCQ==
+  frontmatter_digest: sha256:a6c0311983450eeb097f4b262c24cf0fd883478e33b4deaeb5115c4e4a222e53
+  log: .bboxy/log/2026-11-01.jsonl#14270
+  sig: tJrjZyMHXTFBmGX3UZsCOlf85rUMFReTpRz9vKG4pIECxJnzv/sFFgaahNekHUCHBbGVhrd27sfjUEmdqE7DDQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/verification/contracts.toml
 type: artifact
-updated: 2026-11-01T06:54:08.611Z
+updated: 2026-11-01T07:29:33.379Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

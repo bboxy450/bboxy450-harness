@@ -10,14 +10,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 7938
+bytes: null
 claimed: false
 created: 2026-11-01T04:08:43.499Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:eaa819ff4d07d01427550b18409b4684078e43b151a14599cd6fb81874de37ac
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -213,22 +213,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793516052536'
+- before_digest: sha256:eaa819ff4d07d01427550b18409b4684078e43b151a14599cd6fb81874de37ac
+  commit: null
+  digest: null
+  event_hash: 73a059c9f2e60be2fd75575a3ab265b0ea8af767a2ecf631c8de43a4d447b9c2
+  generation: '1'
+  grade: inferred
+  id: 01M6B072BT9HWV4REMSF6W34HS
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/formal_nonvacuity.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '14278'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518171493'
 id: 01M6AMQ7Q90HDVVY94BXTPW3RJ
 kind: file
-last_observation_sequence: '13591'
+last_observation_sequence: '14278'
 number: 1155
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:bb7f44eb6c354a9d39cd6a9895de8836498c5cc4b0da6f33b29398c9477923c5
-  log: .bboxy/log/2026-11-01.jsonl#13592
-  sig: Fr1bl/9LUmBHYg6bM8P5WUZqnuc7N3G5sAKDnt+9HNJKI4PhtiVKiTFbW0NGqPcgCwj4A4wah2B4FSPKQGfiDw==
+  frontmatter_digest: sha256:e20c9f7ea5215ab25fb1cb4c29afffa433d39f7bd7e8fb00e42a4c77375c6762
+  log: .bboxy/log/2026-11-01.jsonl#14279
+  sig: /RmSrKxuQfUnQSZU8gjmUcNrYoJFlQuLYVkyieOId29HDzIiqLxIYOKik08EHDiighMrWLTbuNWWl/APUuJmDA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/formal_nonvacuity.rs
 type: artifact
-updated: 2026-11-01T06:54:19.379Z
+updated: 2026-11-01T07:29:36.657Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6ADTTF9QWWFZFVZJHJ3DD8E
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 4609
+bytes: null
 claimed: false
 created: 2026-11-01T06:44:17.700Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:9a318b030a4259b1f9f45b6c77db7fbca974aed629ca8d6ee48635d41ff7366f
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -85,22 +84,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793516481002'
+- before_digest: sha256:9a318b030a4259b1f9f45b6c77db7fbca974aed629ca8d6ee48635d41ff7366f
+  commit: null
+  digest: null
+  event_hash: d7d5c69cde38d52866e991cabfbc98b009f8ae7142091460e9f1540875c920cd
+  generation: null
+  grade: inferred
+  id: 01M6B07J1WZ9QK1BRF34Y0TV3G
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/bin/mcp_fixture.rs
+  seat: null
+  sequence: '14332'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518171493'
 id: 01M6AXM353VETRGXY0KEK81SP6
 kind: file
-last_observation_sequence: '13821'
+last_observation_sequence: '14332'
 number: 2371
 observation_reason: null
 observed: true
-produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:b7dfc9c09de8e5b76073f03f9930cdd62d538d67c364071589791c48bb99c05a
-  log: .bboxy/log/2026-11-01.jsonl#13822
-  sig: 3aCkoBu5OlSkHzLM54o2WrAtw3N1pVpQMZDbjEPWorebu0XNhtMGaidLB/V+C8V7903bLKVzaWtzsluF+a0RCw==
+  frontmatter_digest: sha256:4b237e25685a88aa3a15c165870d91f075af01b6d95832810df73be1c078743e
+  log: .bboxy/log/2026-11-01.jsonl#14333
+  sig: W0ZgpIDCQnANj5b3nq7QBho4KpOm6epGnTAaIKMY1zDMBBN1KTLObF9zGHfr03lzTkUINFrWRcvBFSW/94qRBA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/bin/mcp_fixture.rs
 type: artifact
-updated: 2026-11-01T07:01:24.181Z
+updated: 2026-11-01T07:29:52.703Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

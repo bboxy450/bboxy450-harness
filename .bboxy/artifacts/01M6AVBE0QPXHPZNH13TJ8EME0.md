@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 2117
+bytes: null
 claimed: false
 created: 2026-11-01T06:04:36.760Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:e0b7a1bd9f4ae4953a48ffd94785ed6435b94c9b3f523138f1599344afb7ffc7
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -68,22 +68,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793517852509'
+- before_digest: sha256:e0b7a1bd9f4ae4953a48ffd94785ed6435b94c9b3f523138f1599344afb7ffc7
+  commit: null
+  digest: null
+  event_hash: 212319b48d682d0df372d75990f6ebdefb09fb6d7c5be7b120f79c2429574427
+  generation: null
+  grade: inferred
+  id: 01M6B0BN38838WWZGPV93A8NFQ
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/tests/gui_gate.py
+  seat: null
+  sequence: '15033'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518305798'
 id: 01M6AVBE0QPXHPZNH13TJ8EME0
 kind: file
-last_observation_sequence: '14192'
+last_observation_sequence: '15033'
 number: 1960
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:6919d3d957c4ec0279a0abc23a2921114e523f7eeaa90dadc5a76adc83bcdeef
-  log: .bboxy/log/2026-11-01.jsonl#14193
-  sig: fM2LJ3KX/sW7/8Or5WMiXwXThtxprTZqYq4gbZMXmBlxzF2JuMH4YAcBkbtMX0y6jSQIjfHGt3XPAraJ+f6jAQ==
+  frontmatter_digest: sha256:2cbc26e5b8aaf3cfcaa751aca2928848ba7ad18c9f35173a2d593cd41b0bc7ed
+  log: .bboxy/log/2026-11-01.jsonl#15034
+  sig: wUs+6rIroWqMKIJyz/e8w/095zRyTiy3ISbPDKaeRVmjA3mooyRGWeHJbpUFhTu0XrGzjFW9UIdsXweycVWoCw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/tests/gui_gate.py
 type: artifact
-updated: 2026-11-01T07:24:56.214Z
+updated: 2026-11-01T07:32:06.890Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

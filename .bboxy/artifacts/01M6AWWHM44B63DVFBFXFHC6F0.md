@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6AMBPG3XD3CMJWHQCKWAG7M
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 104533
+bytes: null
 claimed: false
 created: 2026-11-01T06:31:26.085Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:a28d60f7544a1ec7dc4a85454bb58e7c9e0306b93b5da83092094a500101bdbc
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -69,22 +68,54 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793514997284'
+- before_digest: sha256:a28d60f7544a1ec7dc4a85454bb58e7c9e0306b93b5da83092094a500101bdbc
+  commit: null
+  digest: sha256:1c55c9fc853d9d5e8bd099eb4b75c2967317daaf41ea85967624fcb33ae8cb84
+  event_hash: 513527989cd604a1bef79dcea8ec2583858156d0cfec5c783bb4dc6a33396201
+  generation: null
+  grade: inferred
+  id: 01M6B09N1G6J9GASAJ920RC1AA
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/Cargo.lock
+  seat: null
+  sequence: '14640'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518177500'
+- before_digest: sha256:1c55c9fc853d9d5e8bd099eb4b75c2967317daaf41ea85967624fcb33ae8cb84
+  commit: null
+  digest: null
+  event_hash: b8f06a4873f32702abd70f94de3a84feaa6f2e1edbe88e4f653a4de1ca94f38f
+  generation: null
+  grade: inferred
+  id: 01M6B0BC73X1Y48RDW70TWXYKA
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/Cargo.lock
+  seat: null
+  sequence: '14973'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518305796'
 id: 01M6AWWHM44B63DVFBFXFHC6F0
 kind: file
-last_observation_sequence: '12663'
+last_observation_sequence: '14973'
 number: 2250
 observation_reason: null
 observed: true
-produced_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:7484fd3e4a61bfb7bc67432c92094f76d85a4ed975e9df84bde71836aa5a378f
-  log: .bboxy/log/2026-11-01.jsonl#12664
-  sig: u6LFbiyu7+wkB+j0d+z6WjOmNqBSR74x3mJm0XCIo2g7Fz2wWFgG7NJrhV5Rj5DrJtVtKYmFGSKuBmkPp53ODA==
+  frontmatter_digest: sha256:e42e0859ffc2eb31e7ae3c64ec6c793c2509d569eec9c235cdecfe97adf5cfc5
+  log: .bboxy/log/2026-11-01.jsonl#14974
+  sig: CG+cdtahsbN187zkf54YPSxAvCJJG2pkQJeNVjrb7WVAwXiYCUaN73kFeqEQmIFeiwBnZw8n7kTZXzfswthMAw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/Cargo.lock
 type: artifact
-updated: 2026-11-01T06:36:37.466Z
+updated: 2026-11-01T07:31:57.798Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

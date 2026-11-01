@@ -15,7 +15,7 @@ created: 2026-11-01T06:15:50.495Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:6e8c8715ab9123e22e4cee101eb4c110dca365c91f0371d3d251cb87767bc498
+digest: sha256:776d33e935d1dba4103ed2e42f64122de6a94434bbfe704404015ccccf5f3fe0
 digest_grade: observed
 for: []
 grade: inferred
@@ -116,22 +116,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/git/ref
   ts: '1793516342812'
+- before_digest: sha256:6e8c8715ab9123e22e4cee101eb4c110dca365c91f0371d3d251cb87767bc498
+  commit: ed9939360a3510eea821461d47f8694ed06d3d95
+  digest: sha256:776d33e935d1dba4103ed2e42f64122de6a94434bbfe704404015ccccf5f3fe0
+  event_hash: 61cac058b4d534b10b534b8ada55c191fb7a6c5c343bd57a9e16812153457336
+  generation: null
+  grade: inferred
+  id: 01M6B07NYBS3HMR48W29DHMM4P
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/refs/heads/e1c-acp-mcp-compaction
+  seat: null
+  sequence: '14344'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793518183258'
 id: 01M6AVZZYYQ2PQH72RY2P44TFV
 kind: other
-last_observation_sequence: '13745'
+last_observation_sequence: '14344'
 number: 1999
 observation_reason: git-ref-value; authorship unverified
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:fe8a5b7ba57bf3c1be96f3907d75d919651acc00b42d474117f73abad5b7a767
-  log: .bboxy/log/2026-11-01.jsonl#13746
-  sig: I1mRPp0kVS1MTUWljWuZkrG9BcwpCh0PV/vnYsM5tOg9XhkevSY/Gty6QWIXjDokDs6QKL9Bkt+p1e4Mf2BFBw==
+  frontmatter_digest: sha256:7bbac9a4531fbc2f0348b1a2de366a324344dc91f2ac13d8821bc35f4b45d2d0
+  log: .bboxy/log/2026-11-01.jsonl#14345
+  sig: npu9h57CFkM3MVHTsMPUVhSQVsmitsv+DtrKP2geLu7wTpjmChuOxqWQzTT8LkYNLGCK6xhOVTfzKp11JPSWBw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: git:worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/refs/heads/e1c-acp-mcp-compaction
 type: artifact
-updated: 2026-11-01T06:59:03.213Z
+updated: 2026-11-01T07:29:56.706Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

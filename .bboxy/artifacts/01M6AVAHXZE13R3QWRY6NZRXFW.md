@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 18529
+bytes: null
 claimed: false
 created: 2026-11-01T06:04:08.028Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:c376e5b3e381c70db05d49dcfb0f1c0c7544d882f6420bcc647d70bf56195d35
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -36,22 +36,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793512871169'
+- before_digest: sha256:c376e5b3e381c70db05d49dcfb0f1c0c7544d882f6420bcc647d70bf56195d35
+  commit: null
+  digest: null
+  event_hash: 4dce623f06f065cc34b35b5c08fff9b44e235066765a6b466c19f03d02eaccaa
+  generation: null
+  grade: inferred
+  id: 01M6B0BBAKXHJWCCB7WEGRKDA2
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/tasks/2026-10-31-toolkit-widgets.md
+  seat: null
+  sequence: '14967'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518305795'
 id: 01M6AVAHXZE13R3QWRY6NZRXFW
 kind: markdown
-last_observation_sequence: '11012'
+last_observation_sequence: '14967'
 number: 1920
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:c1e110a14697df0981fe2e72e489e80f794545f456b952e105b02b74c08bb7e6
-  log: .bboxy/log/2026-11-01.jsonl#11013
-  sig: KEqn2rN5GNfq+ZwKiJc9J2Ri1rAmv6vaSzb6n9fvLR/0D0ukpQI52btvP47WRJ0qHETf+eKnqySRjWMpkMx/Bw==
+  frontmatter_digest: sha256:5d1effb98a2b29dec577258acbe2798d38aea7d61ea6f81c39227f3868da6e37
+  log: .bboxy/log/2026-11-01.jsonl#14968
+  sig: bbGi40QcYAv7iA5FXwsWOKVIH5D0SQUK4iEOKF1N8WDiecV3LUgEaBfBntiOxXI4LByzrMXC33mUlfo97gdOAg==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/tasks/2026-10-31-toolkit-widgets.md
 type: artifact
-updated: 2026-11-01T06:04:08.028Z
+updated: 2026-11-01T07:31:56.885Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

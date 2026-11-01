@@ -10,14 +10,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 12347
+bytes: null
 claimed: false
 created: 2026-11-01T03:41:59.458Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:aed58b6ff2762f7bbc24743f3e9e0143c4281aeee5fcb732775aa4ef550d50e2
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -197,22 +197,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793516377974'
+- before_digest: sha256:aed58b6ff2762f7bbc24743f3e9e0143c4281aeee5fcb732775aa4ef550d50e2
+  commit: null
+  digest: null
+  event_hash: 474ab9e8b3468247b0e00dfa46c8bde2418166c240335d81fb847661c9a7a9d2
+  generation: '1'
+  grade: inferred
+  id: 01M6B070B0FRYHF81KV589Z1PD
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/protocol_golden.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '14272'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518171493'
 id: 01M6AE69Q4N3NYEZERYADYCH1Z
 kind: file
-last_observation_sequence: '13767'
+last_observation_sequence: '14272'
 number: 564
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:c678c3874e3ad01346fbf910bab66a7cf4d8816942889f2757e943b91fc080b2
-  log: .bboxy/log/2026-11-01.jsonl#13768
-  sig: zbjG94CuzWIZlNS6UiHM238sqQzgKpM488RkFWg5cpDVCEVtai2/Xdm1/I6Z1XF38UvnU027Di5abuWZTLE9CA==
+  frontmatter_digest: sha256:fe1362ded90277e397ed5103ca74140bc036d0d245900cd79318adfbda2e571f
+  log: .bboxy/log/2026-11-01.jsonl#14273
+  sig: 3fwE7GCdY37V/pem2nPZ3G4gLuou8hCxpGEI9MnGfXlEA40sG12L917PmXy7fBIoZZLHipoNywKh8ltmK1SxBg==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/protocol_golden.rs
 type: artifact
-updated: 2026-11-01T06:59:38.938Z
+updated: 2026-11-01T07:29:34.561Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

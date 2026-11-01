@@ -10,13 +10,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 13474
+bytes: 13417
 claimed: false
 created: 2026-11-01T03:58:26.586Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:2b3b22957c1cb5798d7b87775cd78210487c6671ac626514680b4e336422a844
+digest: sha256:2d537078a7161957517ee2a31e1e1c110b8b78689aa451c1872332784e7dad37
 digest_grade: observed
 for: []
 grade: inferred
@@ -165,22 +165,54 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793510798896'
+- before_digest: sha256:2b3b22957c1cb5798d7b87775cd78210487c6671ac626514680b4e336422a844
+  commit: null
+  digest: sha256:ba5ca1c7636f083d26b1fbe91649ab6f0f958760d83d72cfb6d0c0bce575f861
+  event_hash: 5a404d15b654b567f6bc96296aa8c473c4196e9d15d6552b048f3122df1b7657
+  generation: '1'
+  grade: inferred
+  id: 01M6B0JMBMZ371VTJNZKV8A3VT
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bboxy450-term/tests/formal_contracts/toolkit_models.rs
+  seat: 01M6ADTVVZS36VS43P2PG15HRQ
+  sequence: '15330'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518555388'
+- before_digest: sha256:ba5ca1c7636f083d26b1fbe91649ab6f0f958760d83d72cfb6d0c0bce575f861
+  commit: null
+  digest: sha256:2d537078a7161957517ee2a31e1e1c110b8b78689aa451c1872332784e7dad37
+  event_hash: 003654d8d68ec9ddffde54f65daff8e23c4734fee5e1988093b5981525fc094b
+  generation: '1'
+  grade: inferred
+  id: 01M6B0JSCSP8YQK4274Y2BP3V9
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bboxy450-term/tests/formal_contracts/toolkit_models.rs
+  seat: 01M6ADTVVZS36VS43P2PG15HRQ
+  sequence: '15345'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518555645'
 id: 01M6AM4D8S9ZC9RGP2QJCD1C13
 kind: file
-last_observation_sequence: '8747'
+last_observation_sequence: '15345'
 number: 916
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTVVZS36VS43P2PG15HRQ
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:b1bb130c1c95e802d6dd845f5bc1442e2cf14ea81171e05a12d372ecdc5cdc49
-  log: .bboxy/log/2026-11-01.jsonl#8748
-  sig: s6R0X3lxi237UjrHpWRc9H8O022QmX4zvw5bgQa3tiVrcJnVD8FmNBsDWAa47wTA9SwPHr6uxxcxyzeDm9KfCA==
+  frontmatter_digest: sha256:c1499758b58fc037e5666db3ef8fb0c3e0a5027492cc35c7dbb8dc5062ad8fb9
+  log: .bboxy/log/2026-11-01.jsonl#15346
+  sig: jTID5kUPifUlOENxwFqSbvWDRkFain2XAFnXcMkk75NCIPZPbIupk+3Qbr26qWJw14PkKSREm3/2/oX5PMnDBQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bboxy450-term/tests/formal_contracts/toolkit_models.rs
 type: artifact
-updated: 2026-11-01T05:26:39.802Z
+updated: 2026-11-01T07:36:00.747Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

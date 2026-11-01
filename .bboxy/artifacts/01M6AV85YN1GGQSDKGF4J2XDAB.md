@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 2423
+bytes: null
 claimed: false
 created: 2026-11-01T06:02:50.198Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:9e04394670874f834cbf47a41181605ea8aa4bbb46765f9c9a7dca274150f7e8
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -36,22 +36,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793512871170'
+- before_digest: sha256:9e04394670874f834cbf47a41181605ea8aa4bbb46765f9c9a7dca274150f7e8
+  commit: null
+  digest: null
+  event_hash: a639779f3915bf180b4130d2e57812a2ea527b2b47a1dc7621498f106726ecce
+  generation: null
+  grade: inferred
+  id: 01M6B0BEFHSEZZQY42G0E2T302
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/scripts/checks.py
+  seat: null
+  sequence: '14988'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518305796'
 id: 01M6AV85YN1GGQSDKGF4J2XDAB
 kind: file
-last_observation_sequence: '10436'
+last_observation_sequence: '14988'
 number: 1776
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:2c0328a454b3dfed61b90ceef92575e06ba93da1c88fd2309da0312e97de71e1
-  log: .bboxy/log/2026-11-01.jsonl#10437
-  sig: zHLvFXS76DtwPvZQpuIqMKLy/Z7yphWdzq5wPBxDKNuvjXkpex+nFL1TRrvWmLbp1Uft+O9C8hiTw6/ciQWpAg==
+  frontmatter_digest: sha256:b14d780b844446b8ce3984789a03adad16767967667157dfb0f450092e4373e3
+  log: .bboxy/log/2026-11-01.jsonl#14989
+  sig: lPL6EyYrqDT2dJ1LKXLV0VXkB2hhhCwqsErYadM6Jmqhs6I8d+hY01pNg60hGlqRSef1lgGthfXmatGgWkDcDQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/scripts/checks.py
 type: artifact
-updated: 2026-11-01T06:02:50.198Z
+updated: 2026-11-01T07:32:00.115Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

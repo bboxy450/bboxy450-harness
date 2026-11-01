@@ -9,13 +9,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 189
+bytes: 191
 claimed: false
 created: 2026-11-01T06:02:08.506Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:e356a274e0abcb89f820c1e14da3e22b1882bddcafebfa9a3163bb575d01a509
+digest: sha256:4a63bb7da1282b1efb0a8fe815a39a43c4b26fe3c5d4c4a86b3d33dbbd3c8e09
 digest_grade: observed
 for: []
 grade: inferred
@@ -52,22 +52,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793513525258'
+- before_digest: sha256:e356a274e0abcb89f820c1e14da3e22b1882bddcafebfa9a3163bb575d01a509
+  commit: null
+  digest: sha256:4a63bb7da1282b1efb0a8fe815a39a43c4b26fe3c5d4c4a86b3d33dbbd3c8e09
+  event_hash: 9f5a151152803a6dd0a5beb537a80c7765df3ea864eb4e9c111a2fd519d1407c
+  generation: null
+  grade: inferred
+  id: 01M6B0QBJRMTSK4YEM8GR9EKBQ
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/bench-budgets-current.json
+  seat: null
+  sequence: '15415'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518674760'
 id: 01M6AV6X7FHMREMJ3DP2274CS2
 kind: file
-last_observation_sequence: '11372'
+last_observation_sequence: '15415'
 number: 1697
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:f7e0cd83238be0c4c2a96cc802ea8cf12ab6f9085d129467845dd5159677ade9
-  log: .bboxy/log/2026-11-01.jsonl#11373
-  sig: R4yCEp8G8ZbRlD1eTrq0pzV/JL7dCQWt2CLwgBEL484jpVxpY2BR0nNH8LFck8qWawRcsp60CQt3o4e0jWsQCw==
+  frontmatter_digest: sha256:132d61235f45b0d9c45d8dae9266fbeda6d7a83bc86a0f92b4e2f9c1fd86bc08
+  log: .bboxy/log/2026-11-01.jsonl#15416
+  sig: UlmckfNQ4ZChO31aBqujAvvpyM/vDWWPXS2TDE/Joh3PG4c8S1C9zflve1scUGlM18uN/Fs/xxf34fcL5HfZAQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/bench-budgets-current.json
 type: artifact
-updated: 2026-11-01T06:13:07.406Z
+updated: 2026-11-01T07:38:30.363Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

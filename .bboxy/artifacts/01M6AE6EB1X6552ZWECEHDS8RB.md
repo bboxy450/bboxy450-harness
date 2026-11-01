@@ -10,14 +10,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 2022
+bytes: null
 claimed: false
 created: 2026-11-01T03:42:00.130Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:48f12457bae7db72aa0c56793e3b4924052ea302693a5f6292d612a9b4d9660c
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -85,22 +85,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793516500344'
+- before_digest: sha256:48f12457bae7db72aa0c56793e3b4924052ea302693a5f6292d612a9b4d9660c
+  commit: null
+  digest: null
+  event_hash: cb537ece85963574a73e4a699a4fb176931ecaaa6911cc2f735791d28767016a
+  generation: '1'
+  grade: inferred
+  id: 01M6B078N006567FWCCY9H7NRH
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/protocol/recovery.jsonl
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '14299'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518171493'
 id: 01M6AE6EB1X6552ZWECEHDS8RB
 kind: file
-last_observation_sequence: '13836'
+last_observation_sequence: '14299'
 number: 568
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:7843f44b3a4cb3bbd8aba4774990e29fd1a98b8cfd0b92d9f20c081b6a81f015
-  log: .bboxy/log/2026-11-01.jsonl#13837
-  sig: Z0XXmeTsAHBi5aac2Jdr0tSiYt0w+imtYb28Px7rjhuOgr1Gh3FvruJoBdsUqWIg/JstMQU/dqCIKl1tv54wDg==
+  frontmatter_digest: sha256:7143b2e2ae7c3177434f6313f3d506c9e1d1ab41c197628fba31aebf5ad6da64
+  log: .bboxy/log/2026-11-01.jsonl#14300
+  sig: wJPV33INfQDdOmjvXJM7HdmopuiBtYflw/J3sS6EyR7RAL/TJgPvoCLxE7pXAh9qEgqoSCNqaweseViwtNLMCw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/protocol/recovery.jsonl
 type: artifact
-updated: 2026-11-01T07:01:41.563Z
+updated: 2026-11-01T07:29:43.084Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

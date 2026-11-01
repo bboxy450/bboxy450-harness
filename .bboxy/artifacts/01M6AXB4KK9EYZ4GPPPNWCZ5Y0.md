@@ -10,14 +10,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 6301
+bytes: null
 claimed: false
 created: 2026-11-01T06:39:24.279Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:1d9971f1d8a2c7c6b252270f524f097250e68bddcb9704f633367da11e0c105d
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -133,22 +133,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793517074611'
+- before_digest: sha256:1d9971f1d8a2c7c6b252270f524f097250e68bddcb9704f633367da11e0c105d
+  commit: null
+  digest: null
+  event_hash: c480f773a8354c19292ed3324e868a814256b3e9c0491cdd0766e4f35eb4d418
+  generation: '1'
+  grade: inferred
+  id: 01M6B0B2W5THJZBJPBQVV7ZSD5
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/src/frontends/gui/rich.rs
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '14907'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518305705'
 id: 01M6AXB4KK9EYZ4GPPPNWCZ5Y0
 kind: file
-last_observation_sequence: '13948'
+last_observation_sequence: '14907'
 number: 2363
 observation_reason: null
 observed: true
 produced_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:5d4fb7d47724e62519312a335b7b5d3ff0dde9f65e4e984a34cf0d5811e04a03
-  log: .bboxy/log/2026-11-01.jsonl#13949
-  sig: aYjDCoVnnIcXbDB/Oa6GGTKClcepmzYWdqMsrdLITGwg3scn79Uphgou6F8009lnKT0euFCIJXAVLwWZtCqsAA==
+  frontmatter_digest: sha256:feea37248628d06ca1f3c88f88da6930bdedfda14a04524f2fee42ddd8aa6cfb
+  log: .bboxy/log/2026-11-01.jsonl#14908
+  sig: cNWmANxE5oLqpBtTvme38ttMlbjLMuy8YbpDKwvRyWuqZo4UnGcOOsyCpv53QQyDewzojELO10/jJ7WhynTPBQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/src/frontends/gui/rich.rs
 type: artifact
-updated: 2026-11-01T07:11:14.749Z
+updated: 2026-11-01T07:31:48.231Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

@@ -10,13 +10,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 118673
+bytes: 118962
 claimed: false
 created: 2026-11-01T03:58:55.300Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:f1c4d3a8cde48420c356fb8ce7e595a0c53f114c6fb312868285284b25f33813
+digest: sha256:250c02d726d9704046ac8c33c74a47b822e1c93d451850c8c49381b210985a35
 digest_grade: observed
 for: []
 grade: inferred
@@ -117,22 +117,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793510903429'
+- before_digest: sha256:f1c4d3a8cde48420c356fb8ce7e595a0c53f114c6fb312868285284b25f33813
+  commit: null
+  digest: sha256:250c02d726d9704046ac8c33c74a47b822e1c93d451850c8c49381b210985a35
+  event_hash: 86b86c937e35089134a40decde1813da6791af70ff3863904827b0e206480cde
+  generation: '1'
+  grade: inferred
+  id: 01M6B0ZKEZS6PEXQW3E081RF4A
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/Makefile
+  seat: 01M6ADTVVZS36VS43P2PG15HRQ
+  sequence: '15524'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518979677'
 id: 01M6AM59A35T5YKQDZ6PZZZFD5
 kind: file
-last_observation_sequence: '8829'
+last_observation_sequence: '15524'
 number: 982
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTVVZS36VS43P2PG15HRQ
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:45394463a8237be6c9e964a4c1ad18d71a448200bdea7b4c30555550915227e9
-  log: .bboxy/log/2026-11-01.jsonl#8830
-  sig: IjI0Xkf48Frcj4t6kRSjDq1fF1EmDge/SASMoVxiuhvdV7SD79Yqub4qfzM21ROoCux0yHEwK3wqBn+pN12wCg==
+  frontmatter_digest: sha256:36842734bc527b47c35d00d723c8a5b8273eb35e0e352feafa6459a3705c3436
+  log: .bboxy/log/2026-11-01.jsonl#15525
+  sig: l1687zXX8RhKif1gc1kd+y+p7sRfyOGIsySwsZu0BJLMt+mkYnMXgxcc95ub9uy3S0jI5vHZ3prMkmdeCWVcBg==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/Makefile
 type: artifact
-updated: 2026-11-01T05:28:23.649Z
+updated: 2026-11-01T07:43:00.595Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

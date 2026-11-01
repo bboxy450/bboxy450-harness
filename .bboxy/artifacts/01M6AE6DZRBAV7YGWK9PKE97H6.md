@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6ADTTF9QWWFZFVZJHJ3DD8E
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 17899
+bytes: null
 claimed: false
 created: 2026-11-01T03:41:59.792Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:ded51ddc5f1819c0d417c9cdd3bdca1da0b60cafe45c1dd9b016539a12a3c91f
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -85,22 +84,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793516500344'
+- before_digest: sha256:ded51ddc5f1819c0d417c9cdd3bdca1da0b60cafe45c1dd9b016539a12a3c91f
+  commit: null
+  digest: null
+  event_hash: 58284b004e968a48406e586353f3f60a210cb5ac9cedfa9884fdcb6a57dbe16f
+  generation: null
+  grade: inferred
+  id: 01M6B07AX3NS8J029BKF96WJYY
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/protocol/all-items.jsonl
+  seat: null
+  sequence: '14308'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518171493'
 id: 01M6AE6DZRBAV7YGWK9PKE97H6
 kind: file
-last_observation_sequence: '13830'
+last_observation_sequence: '14308'
 number: 566
 observation_reason: null
 observed: true
-produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:69530b58ac1d1ae290e28617614d7e834d06128f02585d0602ed4f13918737f1
-  log: .bboxy/log/2026-11-01.jsonl#13831
-  sig: Cqwv4X2BRGOR+q9pNsWPoJitsxYnufaYmHo64+zIhLUroRMiRoCxqKcXUWtKYS1g/lXJwxJglnyQhVe8ueYSBQ==
+  frontmatter_digest: sha256:a0d44931d2f2a9cf84512b4cc2c84aa26906b70dc1bd258c1f80184ee973e6b9
+  log: .bboxy/log/2026-11-01.jsonl#14309
+  sig: hJXiHoWKDt+J4lX41Vo2LAsHAZcO3MKqOllbtoVi3Q4AWHbxdR6DZABdPOzPuMJ/tLZFR88cvpSuHhEquQWJBQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/protocol/all-items.jsonl
 type: artifact
-updated: 2026-11-01T07:01:40.865Z
+updated: 2026-11-01T07:29:45.382Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

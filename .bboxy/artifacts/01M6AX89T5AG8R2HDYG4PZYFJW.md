@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 21296
+bytes: null
 claimed: false
 created: 2026-11-01T06:37:51.302Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:7de4297ad311858cc93ccf11a6e4d12b638f9e0035de007d96ef3041ada1ef55
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -68,22 +68,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793516046909'
+- before_digest: sha256:7de4297ad311858cc93ccf11a6e4d12b638f9e0035de007d96ef3041ada1ef55
+  commit: null
+  digest: null
+  event_hash: b740ac6b29fd8c728826ee010528584255efe553703be1ca8f2ca528c20abbbe
+  generation: null
+  grade: inferred
+  id: 01M6B07QE6GAB1XXT4WMNC0B9M
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/protocol/mod.rs
+  seat: null
+  sequence: '14350'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518171493'
 id: 01M6AX89T5AG8R2HDYG4PZYFJW
 kind: file
-last_observation_sequence: '13561'
+last_observation_sequence: '14350'
 number: 2361
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:a3b34a68cb5e05d762e34e5ad1e821e9b8dcda90c46f0ea3aa99c3b5ff485adb
-  log: .bboxy/log/2026-11-01.jsonl#13562
-  sig: NuFQ3AjZniSWpH51Occ9G04WTA69kup+TH2Rh93yabYPqF5ygBdH7i0MLh8vleDpwO9xpZXbpMf4kMzQaHl5BA==
+  frontmatter_digest: sha256:3e2f9773f35e0e5550b59049047d3715c0ac02afc05869f87cea93b5691fe424
+  log: .bboxy/log/2026-11-01.jsonl#14351
+  sig: uUmK81KC/9UKs3wXIhjx7jAkcFdnKVUcCbDpZnfGl9kTnhrGVv1lvcBK1O/FVqlaEpw4rBC3uy5pgynZ2mBjCA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/protocol/mod.rs
 type: artifact
-updated: 2026-11-01T06:54:14.651Z
+updated: 2026-11-01T07:29:58.216Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

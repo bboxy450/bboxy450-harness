@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 7945
+bytes: null
 claimed: false
 created: 2026-11-01T03:42:05.506Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:d361fb79cd57e75cca2534f81328a64faa9395ec91eb7830a697d9c9ed782388
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -164,22 +164,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793516046915'
+- before_digest: sha256:d361fb79cd57e75cca2534f81328a64faa9395ec91eb7830a697d9c9ed782388
+  commit: null
+  digest: null
+  event_hash: c2cd10b590b79919d918869335d7c794fbaf69a5550e3b17ac0b99cbd15f9df9
+  generation: null
+  grade: inferred
+  id: 01M6B07PSWWK3J722T434HSJ5V
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/provider/profile.rs
+  seat: null
+  sequence: '14347'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518171493'
 id: 01M6AEBCQVZTSCFYF782X279FT
 kind: file
-last_observation_sequence: '13573'
+last_observation_sequence: '14347'
 number: 583
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:73e827cecf500d813f97ed234f515cc20fb340569b2655b202eb17f070b37e97
-  log: .bboxy/log/2026-11-01.jsonl#13574
-  sig: eHn6etqMTNtnUwONjyRiC2FQMPWN9iQYTXXTP0cViChfklE9dxmFQr7UhG2XTwDbza06u2POqZTz9NedyZ0zCQ==
+  frontmatter_digest: sha256:3586c34ba1afd10237a9327bb8549108b1aecf4146ed7bf698daf1e2421f94eb
+  log: .bboxy/log/2026-11-01.jsonl#14348
+  sig: MhLry6j8ku2YxiQ6LAxvprlxJYAZJp0C7GTNb+pMGBYtN76PBklclJ6KSlMxShMGouGufjhLmXiyu1XOYjJPCA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/provider/profile.rs
 type: artifact
-updated: 2026-11-01T06:54:16.745Z
+updated: 2026-11-01T07:29:57.573Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

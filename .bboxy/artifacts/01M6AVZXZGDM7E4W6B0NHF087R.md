@@ -15,7 +15,7 @@ created: 2026-11-01T06:15:48.466Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:6e8c8715ab9123e22e4cee101eb4c110dca365c91f0371d3d251cb87767bc498
+digest: sha256:776d33e935d1dba4103ed2e42f64122de6a94434bbfe704404015ccccf5f3fe0
 digest_grade: observed
 for: []
 grade: inferred
@@ -116,22 +116,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/git/ref
   ts: '1793516341759'
+- before_digest: sha256:6e8c8715ab9123e22e4cee101eb4c110dca365c91f0371d3d251cb87767bc498
+  commit: ed9939360a3510eea821461d47f8694ed06d3d95
+  digest: sha256:776d33e935d1dba4103ed2e42f64122de6a94434bbfe704404015ccccf5f3fe0
+  event_hash: cac68fc2a8b6aade1fe28a26f2d7ef56b1671ad5390859a5554072d8dd7d8c7a
+  generation: null
+  grade: inferred
+  id: 01M6B07H2Z3JZG9M161C61HR7X
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:refs/heads/e1c-acp-mcp-compaction
+  seat: null
+  sequence: '14329'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793518179497'
 id: 01M6AVZXZGDM7E4W6B0NHF087R
 kind: other
-last_observation_sequence: '13739'
+last_observation_sequence: '14329'
 number: 1997
 observation_reason: git-ref-value; authorship unverified
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:e3cc2efbcddf2f3ee03eb7ea204d9353a2c9f3e560b4a14f71f3365e99eaf905
-  log: .bboxy/log/2026-11-01.jsonl#13740
-  sig: /Wuown8ivdfH6+sKDBy1lf3PtscE721/Ktr9jglygFfwo0Wz8EJfY6ZyvTH1iw5LVnm2IYQTO+m4MNUb59h/Aw==
+  frontmatter_digest: sha256:350bd6168b172c579564041cf7c968706d9e8c2af412c0bf03fe68e591d46035
+  log: .bboxy/log/2026-11-01.jsonl#14330
+  sig: 2C5Tyso4ftvUQwRDOJsAfTBgXHeQbxC/bVLYU82Nd+gvFn8e3nCCeWKk25NkETtniQgBJ0hE7oTMAfRXlrcBDA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: git:refs/heads/e1c-acp-mcp-compaction
 type: artifact
-updated: 2026-11-01T06:59:01.839Z
+updated: 2026-11-01T07:29:51.714Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

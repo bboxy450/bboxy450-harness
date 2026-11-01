@@ -10,14 +10,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 18063
+bytes: null
 claimed: false
 created: 2026-11-01T03:42:00.285Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:ba17d695f1044b13440742116ba597192d8c839d09fcd62846f675683e84e77e
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -85,22 +85,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793516500344'
+- before_digest: sha256:ba17d695f1044b13440742116ba597192d8c839d09fcd62846f675683e84e77e
+  commit: null
+  digest: null
+  event_hash: a6808463d0eba65281ac42df3a0578bddb17fb3dc1caf49940d31a3e66d854c8
+  generation: '1'
+  grade: inferred
+  id: 01M6B079B7R9Y9E7S6YQMWQ8PN
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/protocol/lagged.jsonl
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '14302'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518171493'
 id: 01M6AE6EETSKZMMN0ERW4S3Z0P
 kind: file
-last_observation_sequence: '13839'
+last_observation_sequence: '14302'
 number: 569
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:77bdc1809dd2dda3987dd3a93ba3b46f03bfb1581c497794ac118cde40b19c51
-  log: .bboxy/log/2026-11-01.jsonl#13840
-  sig: VSSJbWShaRyOuV1N3usX+mqZgTSanFTOja7iWQOfwVMm+N8FU57z4DGhJ39SMHcw2MKE/hgQ5WBpK9AiOVJ7Bw==
+  frontmatter_digest: sha256:408a454a22fa5d8e1bd944b2ef6011b0842ef9ba5cebe6b75db86da6063c79a7
+  log: .bboxy/log/2026-11-01.jsonl#14303
+  sig: nJHun3jIpr18k5zPFVeRkmXi9MFrrXGrlQDQToK8kZe94R2+eiZRAKYSfMN5nqHiBG2rb9Mue8zh+gOHFeF7DQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/protocol/lagged.jsonl
 type: artifact
-updated: 2026-11-01T07:01:41.897Z
+updated: 2026-11-01T07:29:43.785Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

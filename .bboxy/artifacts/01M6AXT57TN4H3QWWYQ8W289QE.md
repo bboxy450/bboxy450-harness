@@ -10,14 +10,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 15778
+bytes: null
 claimed: false
 created: 2026-11-01T06:47:36.461Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:16353c618e8157668dbb027740f0bdcdd3e3e3ab0cc750ceb2c9f1e010cd27e6
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -181,22 +181,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793516481073'
+- before_digest: sha256:16353c618e8157668dbb027740f0bdcdd3e3e3ab0cc750ceb2c9f1e010cd27e6
+  commit: null
+  digest: null
+  event_hash: 052b4207c8b3d0038a6adc5fe7c058f031b25b31322a8859a4921257e131a6cc
+  generation: '1'
+  grade: inferred
+  id: 01M6B071B9D6JQYXP05K4NJAXM
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/mcp_client.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '14275'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518171493'
 id: 01M6AXT57TN4H3QWWYQ8W289QE
 kind: file
-last_observation_sequence: '13824'
+last_observation_sequence: '14275'
 number: 2375
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:f08e4fb5d3fdf3ed5b123268b35c1e5aef05fd7e3b531b9183a9422697cd441a
-  log: .bboxy/log/2026-11-01.jsonl#13825
-  sig: NL6HhXEHHJ7pa/AiifAZ3529vDh/Nhk+jUi3+M95oWkMbiazLroCVEufELMhcM3yQFj+vHe53u67WjGuHpNLBA==
+  frontmatter_digest: sha256:75fde1377347bccd75186592373d7f45239e096226754aaad50c17955a965c95
+  log: .bboxy/log/2026-11-01.jsonl#14276
+  sig: 7mAP1jxqFmR8LgxfTd3m3Ns0yilMbNRY4ZLcSmpbjhRUQYNjSmIclEACjAaMe9WHb9jbfmWXZ3cSXCQqpWJ8CQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/mcp_client.rs
 type: artifact
-updated: 2026-11-01T07:01:24.537Z
+updated: 2026-11-01T07:29:35.599Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

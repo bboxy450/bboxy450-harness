@@ -10,14 +10,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 1090
+bytes: null
 claimed: false
 created: 2026-11-01T06:04:33.159Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:b506678f2abe92cffc182a413f18491f6cbcf6addabc2349d3fbfe48ba9fc7be
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -85,22 +85,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793517929118'
+- before_digest: sha256:b506678f2abe92cffc182a413f18491f6cbcf6addabc2349d3fbfe48ba9fc7be
+  commit: null
+  digest: null
+  event_hash: f155288fa39c613e18aca72fb42677e99558e35cbe2ab0cc7bfdd5d3fbe87669
+  generation: '1'
+  grade: inferred
+  id: 01M6B0B0K6P8KAKVA56XG5W4QC
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-gate.json
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '14886'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793518305690'
 id: 01M6AVBAG6B7CCPTCQSQ489KS0
 kind: file
-last_observation_sequence: '14216'
+last_observation_sequence: '14886'
 number: 1954
 observation_reason: null
 observed: true
 produced_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:dac55970ff6738664d914134933b619785ba42b1d5e67fcffb04ef1d5d2684f9
-  log: .bboxy/log/2026-11-01.jsonl#14217
-  sig: RolE3tnw3JufiV2SODarjM1HEA8sAobZ5Onx2OI88Xll/W/Km++Jk49iCILspuD3p0JJ3qAtNSaqqsNTQNq5DQ==
+  frontmatter_digest: sha256:e28342426be5461f84e38fce11496a378d220944c22551efe50e20141b8c3660
+  log: .bboxy/log/2026-11-01.jsonl#14887
+  sig: MnEs0B4H0cVDGTO3RxLKwTI690wNdC0IMNwxZv0E7MQlFpgMUxe0NV874mF1g1WDiuxfaAGHmjTroPn3LaRPBQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-gate.json
 type: artifact
-updated: 2026-11-01T07:25:29.787Z
+updated: 2026-11-01T07:31:45.895Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact
