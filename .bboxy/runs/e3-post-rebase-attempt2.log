@@ -1,0 +1,26 @@
+python3 -I scripts/test.py
+test: cargo fmt --check
+test: cargo clippy --offline --locked --all-targets --all-features -- -D warnings
+    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+error: this `if let` can be collapsed into the outer `match`
+   --> tests/gui_render.rs:274:21
+    |
+274 | / ...   if let Some(ItemHead::ToolCall { call_id, name, .. }) = head {
+275 | | ...       saw_tool_head = call_id == "gui-terminal" && name == "bash"
+276 | | ...           && matches!(&projection.items[&item].body, Item::ToolCall { call_id: c, name: n, .. } if c == &call_id && n == &name);
+277 | | ...   }
+    | |_______^
+    |
+help: the outer pattern can be modified to include the inner pattern
+   --> tests/gui_render.rs:273:70
+    |
+273 |                 Event::ItemStarted { item, kind: ItemKind::ToolCall, head, .. } => {
+    |                                                                      ^^^^ replace this binding
+274 |                     if let Some(ItemHead::ToolCall { call_id, name, .. }) = head {
+    |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ with this pattern
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#collapsible_match
+    = note: `-D clippy::collapsible-match` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_match)]`
+
+error: could not compile `bboxy450-harness` (test "gui_render") due to 1 previous error
+make: *** [test] Error 101

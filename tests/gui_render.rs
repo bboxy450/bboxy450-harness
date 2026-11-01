@@ -257,14 +257,22 @@ async fn live_terminal_heads_snapshots_and_completed_blob_reach_the_view() {
     let mut projection = Transcript::default();
     let mut saw_head = false;
     let mut saw_live = false;
+    let mut saw_tool_head = false;
     let mut terminal_id = None;
     tokio::time::timeout(Duration::from_secs(15), async {
         while let Some(e) = observer.recv().await {
             projection.apply(&e);
             match e.event {
-                Event::ItemStarted { item, kind: ItemKind::Terminal, .. } => {
+                Event::ItemStarted { item, kind: ItemKind::Terminal, head, .. } => {
                     terminal_id = Some(item);
-                    saw_head = matches!(&projection.items[&item].body, Item::Terminal { command: c, .. } if c == command);
+                    if let Some(ItemHead::Terminal { terminal, command: sent_command }) = head {
+                        saw_head = !terminal.is_empty() && sent_command.contains(command)
+                            && matches!(&projection.items[&item].body, Item::Terminal { terminal: t, command: c, .. } if t == &terminal && c == &sent_command);
+                    }
+                }
+                Event::ItemStarted { item, kind: ItemKind::ToolCall, head: Some(ItemHead::ToolCall { call_id, name, .. }), .. } => {
+                    saw_tool_head = call_id == "gui-terminal" && name == "bash"
+                        && matches!(&projection.items[&item].body, Item::ToolCall { call_id: c, name: n, .. } if c == &call_id && n == &name);
                 }
                 Event::ItemSnapshot { item, partial: Item::Terminal { .. } } => {
                     let live = serde_json::to_value(&e.event).unwrap();
@@ -307,11 +315,15 @@ async fn live_terminal_heads_snapshots_and_completed_blob_reach_the_view() {
     bridge.detach().unwrap().await.unwrap();
     support::close(session).await;
     println!(
-        "gui-live: completed blob content rendered; typed head={saw_head}, live snapshot={saw_live}"
+        "gui-live: completed blob content rendered; typed terminal head={saw_head}, tool head={saw_tool_head}, live snapshot={saw_live}"
     );
     assert!(
         saw_head,
         "live Envelope head must name the command before completion"
+    );
+    assert!(
+        saw_tool_head,
+        "live gateway must project durable tool identity before deltas"
     );
     assert!(
         saw_live,
