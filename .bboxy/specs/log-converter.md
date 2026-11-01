@@ -90,7 +90,7 @@ Each one is a gate once its phase lands. The command is named, and exit 0 means 
 |---|---|---|
 | `LcAppendLog` | [[lc-bxl]] §6: writer, crash anywhere, recovery, index sidecar, 2 tailing readers, rotation | (a) yield before checksum; (b) index before data sync; (c) in-place seek-table overwrite |
 | `LcWatcher` | [[lc-watch-sink]] §4: partial lines, truncate, replace, crash/restart, sink ack, in-flight bound | (a) cursor before ack; (b) partial line consumed; (c) inode ignored |
-| `LcSessionSwitch` | [[session-switch]] §5: quiesce, stop, convert, launch, rollback, A→B→A | (a) open turn; (b) B before A exits; (c) append to source; (d) queued input to B |
+| `LcSessionSwitch` | [[session-switch]] §5: quiesce, stop, convert, launch, rollback, A→B→A | (a) open turn; (b) B before A exits; (c) append to source; (d) queued input to B; (e) overwrite an existing native file (d4972) |
 
 - **Not modelled:** parsing, lowering, CBOR and zstd byte layout. These are covered by golden, round-trip and torn-byte tests.
 - **Gaps:** any construct bboxy450-tlc cannot check is a tracked gap. It gets a bboxy450-tlc task in bboxy450-term (where the crate lives), and the model is never left Java-only silently. Each model's coverage entry names its assumptions and bounds.

@@ -83,6 +83,7 @@ The result is a **new** native id for A, never an append to the original file. R
 - (b) B launched before A exits → `OneHarness` fails;
 - (c) lowering appends to A's existing file → `SourceUntouched` fails;
 - (d) input queued during the switch and delivered to B → `NoMisdelivery` fails.
+- (e) placement overwrites an existing native file → `SourceUntouched` fails. The same control exists as a test: a placement without `O_EXCL` over an existing path must make `make test-session-switch` fail (d4972).
 
 ## 6. #348 rows that change (for the ICD #348 owner; the Oracle signs under d4071)
 
@@ -90,7 +91,7 @@ The result is a **new** native id for A, never an append to the original file. R
 |---|---|
 | Amended by | add: `bboxy450-harness:[[session-switch]]` |
 | States and lifecycle | add: a seat may change `harness_kind` at `generation + 1` through `ctl seat switch`, only at a turn boundary. Seat input is refused with `seat_switching` while the switch runs. Failure rolls back to the source harness resuming its untouched native session |
-| Versioning | **change**: "the app never writes the user's `~/.claude` or `~/.codex`" gains one listed, caused exception. On `ctl seat switch` into Claude or Codex, the converter creates one **new** session file (create-exclusive, fresh id) at the client's session path, plus nothing else. It never modifies or deletes an existing file and never writes `state_5.sqlite`. If P0 shows the client's own importer works non-interactively, that is used instead and this exception is withdrawn for that client |
+| Versioning | **change**: "the app never writes the user's `~/.claude` or `~/.codex`" gains one listed, caused exception. On `ctl seat switch` into Claude or Codex, the converter creates one **new** session file (create-exclusive, fresh id) at the client's session path, plus nothing else. It never modifies or deletes an existing file and never writes `state_5.sqlite`. If P0 shows the client's own importer or file-path route works non-interactively, that route is used instead and this exception is withdrawn for that client. Signed by the Oracle as [[d4972-session-switch-native-write-exception]]; the row is added to #348 when P8 lands |
 | Verified by | add: `make test-session-switch` (bboxy450-term), which runs claude→codex→claude and either→Bboxy→either against mock model endpoints in a throwaway HOME/CODEX_HOME, plus the `LcSessionSwitch` model |
 
 ## 7. Verified by
@@ -102,5 +103,9 @@ The result is a **new** native id for A, never an append to the original file. R
 | §3 placement | P0, then `make test-session-switch`: each direction resumes in the real CLI against a mock endpoint, and the mock checks that the request carries the prior turns' text |
 | §4 A→B→A | the A-native lines of the final A file are byte-identical to the original lines |
 | §5 | `make test-formal` with `LcSessionSwitch` and controls (a)–(d) |
+
+## Change log
+
+- **2026-11-01.** Accepted by the Oracle as the build basis (message 01M6CKHR65S4AQB5744JAV2GG9). The §6 Versioning exception is signed as d4972. Broken control (e), overwrite, is added. The repo is `bboxy450/bboxy450-log-converter` at `f509e8e`.
 
 Owner: Nyx Copperwing <ARCHITECT> (Side B and the protocol). Side A: bboxy450-term, ICD #348.
