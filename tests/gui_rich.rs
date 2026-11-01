@@ -850,3 +850,57 @@ async fn definition_lines_in_containers_repair_previously_formatted_blocks() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn context_trim_is_a_prepared_rich_callout_with_its_actual_frontier() {
+    use bboxy450_harness::frontends::gui::{
+        rich::Toggle,
+        view::{Action, find, layout_text},
+    };
+    let events = include_str!("fixtures/gui/rich-all-items.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str::<Envelope>(line).unwrap())
+        .collect::<Vec<_>>();
+    bboxy450_harness::protocol::laws::check_transcript(&events).unwrap();
+    let mut bridge = Bridge::new(Arc::new(Wake));
+    bridge.replay("tests/fixtures/gui/rich-all-items.jsonl".into());
+    ready(&mut bridge).await;
+    let row = bridge
+        .state
+        .transcript
+        .items
+        .values()
+        .find(|row| row.kind == ItemKind::ContextTrim)
+        .expect("fixture must exercise the new kind");
+    let Item::ContextTrim { clipped_through } = &row.body else {
+        panic!("typed trim body missing")
+    };
+    let id = row.id;
+    let frontier = clipped_through.0;
+    let mut view = HarnessView::default();
+    let frame = view.render(&bridge.state, [1120., 7000.]).unwrap();
+    let body = find(frame.layout.as_ref().unwrap(), &format!("body/{id}")).unwrap();
+    let text = layout_text(body);
+    assert!(text.contains(&format!("Context trimmed through event {frontier}")));
+    assert!(text.contains("2 KiB") && text.contains("model context"));
+    fn emphasized(node: &bbt_ui::components::Layout) -> bool {
+        if let bbt_ui::components::LayoutKind::Text { runs, .. } = &node.kind
+            && runs.iter().any(|r| r.style.weight >= 600)
+        {
+            return true;
+        }
+        node.children.iter().any(emphasized)
+    }
+    assert!(
+        emphasized(body),
+        "the trim callout must have a styled heading/emphasis"
+    );
+    assert!(
+        !frame
+            .actions
+            .iter()
+            .any(|(_, a)| matches!(a,Action::Toggle(item,Toggle::Source) if *item==id)),
+        "generated status copy has no source disclosure"
+    );
+    bridge.detach().unwrap().await.unwrap();
+}

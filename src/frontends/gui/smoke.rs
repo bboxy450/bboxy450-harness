@@ -71,14 +71,23 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         }
         use crate::protocol::ItemKind;
         for row in state.transcript.items.values() {
-            let compaction_expected=if let crate::protocol::Item::Compaction {replaced_through,..}=&row.body {Some(format!("Compacted through event {}",replaced_through.0))}else{None};
+            let compaction_expected = match &row.body {
+                crate::protocol::Item::Compaction { replaced_through, .. } =>
+                    Some(format!("Compacted through event {}", replaced_through.0)),
+                _ => None,
+            };
+            let trim_expected = match &row.body {
+                crate::protocol::Item::ContextTrim { clipped_through } =>
+                    Some(format!("Context trimmed through event {}", clipped_through.0)),
+                _ => None,
+            };
             let expected = match row.kind {
                 ItemKind::UserMessage => "Read two files", ItemKind::AgentMessage => "I’ll read both files.",
                 ItemKind::Reasoning => "Compare the current contents.", ItemKind::ToolCall => "Arguments: path: hello.txt",
                 ItemKind::FileChange => "+ hello world", ItemKind::TurnDiff => "+++ b/hello.txt",
                 ItemKind::Terminal => "printf ok", ItemKind::Plan => "In progress: Update greeting",
                 ItemKind::Approval => "Edit hello.txt", ItemKind::Image => "Image: image/png",
-                ItemKind::ContextTrim => "Context trimmed through event ",
+                ItemKind::ContextTrim => trim_expected.as_deref().expect("context trim fixture body"),
                 ItemKind::Usage => "Input: 0 tokens", ItemKind::Compaction => compaction_expected.as_deref().expect("compaction fixture body"),
                 ItemKind::Notice => "fixture complete", ItemKind::Subagent => "Session: 00000000000000000000000009",
                 ItemKind::Unknown => return Err("unexpected unknown fixture item".into()),
@@ -146,6 +155,14 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
                 if super::view::find(layout,&format!("tool/{}/{part}/head/count",row.id)).is_some() {return Err("tool accordion exposes a meaningless count".into());}
             }
         }
+        let trim=state.transcript.items.values().find(|r|r.kind==ItemKind::ContextTrim).ok_or("fixture lacks ContextTrim")?;
+        let trim_body=super::view::find(layout,&format!("body/{}",trim.id)).ok_or("trim callout missing")?;
+        if !layout_text(trim_body).contains("2 KiB") || !layout_text(trim_body).contains("model context") {return Err("trim callout lacks its effect".into());}
+        fn emphasized(node:&bbt_ui::components::Layout)->bool {
+            if let bbt_ui::components::LayoutKind::Text {runs,..}=&node.kind && runs.iter().any(|r| r.style.weight>=600) {return true;}
+            node.children.iter().any(emphasized)
+        }
+        if !emphasized(trim_body) {return Err("trim callout has no rich heading/emphasis".into());}
         let mut bottom = 0.;
         for (id, kind, r) in &frame.visible {
             if r.y < bottom - 0.5 {
@@ -181,6 +198,7 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
             "Approval",
             "Image",
             "Compaction",
+            "ContextTrim",
             "Usage",
             "Notice",
             "Subagent",

@@ -1096,9 +1096,19 @@ impl Preparer {
                 total_height += h;
                 continue;
             }
+            let trim_callout = if let Item::ContextTrim { clipped_through } = &row.body {
+                Some(format!(
+                    "### Context trimmed through event {}\n\nTool and terminal output limited to **2 KiB**; reasoning and images omitted from model context.",
+                    clipped_through.0
+                ))
+            } else {
+                None
+            };
+            let sourceable = matches!(row.kind, ItemKind::AgentMessage | ItemKind::Reasoning);
             let markdown = match &row.body {
                 Item::AgentMessage { markdown } => Some(markdown.as_str()),
                 Item::Reasoning { summary, .. } => Some(summary.as_str()),
+                Item::ContextTrim { .. } => trim_callout.as_deref(),
                 _ => None,
             };
             let message = Message {
@@ -1166,32 +1176,36 @@ impl Preparer {
                 );
             }
             if let Some(rich) = &rich {
-                toggles.push(
-                    inline_control(
-                        format!("source/{id}/toggle"),
-                        if face.source {
-                            "View formatted"
-                        } else {
-                            "View source"
-                        },
-                        ctx,
-                    )
-                    .into(),
-                );
-                body.push(inline_row(std::mem::take(&mut toggles)).into());
-                if !face.reasoning_closed {
-                    if face.source {
-                        let mut text = c::Text::new(
-                            markdown.unwrap_or_default(),
-                            ui::Text {
-                                mono: true,
-                                ..Default::default()
+                if !sourceable {
+                    body.push(rich.element.clone().into());
+                } else {
+                    toggles.push(
+                        inline_control(
+                            format!("source/{id}/toggle"),
+                            if face.source {
+                                "View formatted"
+                            } else {
+                                "View source"
                             },
-                        );
-                        text.preserve_whitespace = true;
-                        body.push(c::Element::Text(text).into());
-                    } else {
-                        body.push(rich.element.clone().into());
+                            ctx,
+                        )
+                        .into(),
+                    );
+                    body.push(inline_row(std::mem::take(&mut toggles)).into());
+                    if !face.reasoning_closed {
+                        if face.source {
+                            let mut text = c::Text::new(
+                                markdown.unwrap_or_default(),
+                                ui::Text {
+                                    mono: true,
+                                    ..Default::default()
+                                },
+                            );
+                            text.preserve_whitespace = true;
+                            body.push(c::Element::Text(text).into());
+                        } else {
+                            body.push(rich.element.clone().into());
+                        }
                     }
                 }
             }

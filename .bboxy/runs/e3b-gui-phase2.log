@@ -1,123 +1,19 @@
-E3b / PR #5 — phase 2 and focused rework verified at toolkit 4889321f
+E3b / PR #5 — E1c integration verification in progress
 Task: tasks/2026-10-31-harness-gui-phase2.md (#2202)
-Executor: E3 harness-gui / seat 01M6AMBPG3XD3CMJWHQCKWAG7M
-Worktree: /Users/feral/mydev/bboxy450-harness-gui
-Branch: e3b-gui-rich; PR https://github.com/bboxy450/bboxy450-harness/pull/5
-Verified source commit: fa7a4cfcec03a5a843ef00dcbdc9a86c041fe4d4 (signed Boxy).
-The task_report carries the final signed report-only head. It preserves the
-verified source inputs. No core source edits; no merge.
+Branch: e3b-gui-rich. Rebased onto origin/main ccce095 (E1c merge eef1153).
+The prior f42bbfa gate is historical; full verification of this integration runs next.
 
-CURRENT RESULT AND PIN
-ui/doc/render now pin 4889321f13e509dc7ca18ce7ed3f0217e76cdd1b through the git-rev
-patch. Cargo.lock changes only the four git toolkit source identities. Published
-rt/UI-core 0.1.1 remain shared through the git-source patch; the R15 metadata gate
-confirms one copy of each toolkit package and one UI-thread registry.
+Review: e3b-e1c-review.log records the merged E1c GUI hunks and conflict handling.
+Both source sets are preserved. Inventories keep their exact union: 61 models /
+24 contracts. ACP/test-fixtures features remain alongside rich GUI dependencies.
+ContextTrim now uses the worker-prepared rich Markdown body with a styled heading,
+actual frontier and clipping explanation, inside the inset StreamDock card.
+No generated-status source toggle. Compaction smoke expectations use each item's
+replaced_through; its one-liner is reformatted. New all-items fixture derives
+from protocol v0.4, passes transcript laws and includes 22 items / 15 kinds.
+All 15 rich tests and headless smoke pass; see e3b-e1c-gui-tests.log and
+ e3b-e1c-smoke.log. Source, native Escape, long-readability, incremental parse,
+card/approval meaning checks and prior negative controls are retained.
 
-Full UNFILTERED make test: exit 0 on the second attempt, unattended/private HOME,
-no operator input, no RUST_TEST_THREADS override and no test exclusion. All 10
-core stages and 4 GUI stages exit 0. All 14 rich tests pass, including the former
-upstream regression. Raw log: e3b-pin-488-make-test-retry.log. Command exits and
-input hashes: e3b-pin-488-verification.json, test-current.json and gui-gate.json.
-The first attempt failed in an unchanged core test; see FAILURE AND LIMITS.
-
-The streamed definition-prefix render test was red on 18ff123 and is green on
-4889321f: e3b-definition-18ff-red.log -> e3b-definition-488-green.log. It compares
-rendered streamed content with a fresh parse after blockquote, list, multiline
-and footnote definitions, catching stale formatted-prefix retention in rich.rs.
-
-REJECTION ITEMS / FILES AND MECHANISMS
-1. tests/gui_rich.rs:341 crashes and reopens the SAME session directory, verifies
-   its new epoch, sends Close on the retired InProc gateway (Closed), and then
-   delivers an old rendered Stop after attaching to the recovered actor. InProc
-   handles retain their original channels; the rendered Stop separately captures
-   its epoch in Action::StopAt. view.rs rejects a replacement birth before send.
-   Removing that production guard cancels the recovered turn and fails its
-   required EndTurn result. The restored witness completes another new turn.
-2. tests/gui_rich.rs:656 streams exactly 65536 bytes containing paragraphs, lists
-   and Rust fences in 64 batches. Every batch reaches StreamingMarkdown.append;
-   reparsed_range counts 69315 actual parsed bytes, with ZERO credit deferrals
-   and 1346 prepared block layouts on this pin. Full-source parsing per batch
-   triggers the test (11 appends instead of 64), so throttling cannot mask it.
-   The separate unfinished-paragraph test covers the <=4x parse-credit bound.
-   Deferred suffixes intentionally render as literal preview; :687 asserts the
-   raw Markdown markers are visible during deferral and formatted at completion.
-3. gui_budget's off-UI self-placement assertions are removed; it tests actual
-   Bridge injected-clock drain and completed layout reuse. The >64KiB gate at
-   gui_rich.rs:73 uses real Bridge::replay/publish_frame and MarkdownPrepare
-   permit calls. It also explicitly catches the registered UI-thread panic.
-   It does not read the test-build-unreachable prepared_on_ui flag.
-4. HarnessGuiMarkdownBudget has a guarded dirty-row render action. Completion
-   introduces a final byte that cannot already have been visible, and requires
-   its eventual visibility. BrokenHarnessGuiMarkdownSuppressedRender disables
-   the step after completion and fails LIVENESS: 1162 states / 2410 edges match
-   native and TLC. Restoring unconditional rendering makes this control pass
-   incorrectly; the native expected-verdict gate catches that mutation.
-5. Current formal evidence is COMMITTED: e3b-pin-488-formal-summary.json includes
-   source/model/tool hashes and all 49 state/edge/verdict results. The raw parity
-   log is e3b-pin-488-make-test-retry.log; check-formal-evidence exits 0 in
-   e3b-pin-488-formal-checked.log. Local graph archives remain retained review
-   outputs; this report does not claim those directories are committed.
-6. window.rs:409 exposes the same route_key used by native App::key. Tests drive
-   Escape through that route for approval cancellation (including an open
-   completion), completion-only dismissal, and interruption of a suspended
-   provider. Actual durable approval decisions/TurnEnded are asserted.
-7. Rich bodies now live inside StreamDock's inset body, and Markdown/tool/diff
-   preparation uses its solved content width. The smoke asserts every body's
-   rect is inset within its card's rect. Full and scrolled screenshots inspected.
-8. Tool accordion bands use subdued Surface2/Line tokens. The meaningless count
-   node is removed; status chips preserve their actual running/completed state.
-9. Approval uses compact inline primary Allow, secondary Always and danger Deny
-   buttons, with no empty key badges. Smoke asserts THREE distinct fills, exact
-   labels and each button width below 30% of the body width.
-10. Source and reasoning disclosures are inline ghost controls inside the card.
-    Rendered disclosure tests verify visibility changes without reparsing or
-    core operations. Smoke still checks highlighted glyph colours, diff add/
-    remove lines, tool status, three approval actions and all 14 item kinds.
-
-RETAINED PHASE-2 OUTCOMES
-rich.rs uses bbt-doc streaming append/highlighting on bounded blocking workers;
-completed layouts and stable blocks are reused. view.rs uses the diff, tool-call
-and approval widgets. Terminal shows live snapshots while running and loads the
-entire completed blob off the UI thread (the API witness checks all 10000 payload
-words and BLOB-END). AgentMessage/Reasoning remain readable over 64KiB through
-viewport filtering and source disclosure; reasoning is collapsible.
-editor.rs supplies first-line history plus / and @ hooks, with only /interrupt
-and /stop completion choices. Stale completion tokens cannot replace new typing.
-README distinguishes 100k worker deltas from UI publication/notification charges.
-Plan/Image/Usage/Subagent remain readable plain text. No operator/display/model
-is required for the replay smoke.
-
-RED -> GREEN FOR THIS REWORK
-Exact commands, mutation diffs, exit codes and restoration hashes are committed
-in e3b-round2-red-controls.json. Each negative control exits 101 at runtime:
-  1: remove the captured-birth Stop guard -> recovered turn is cancelled.
-  2: replace incremental append with full-source parsing -> only 11/64 appends.
-  4: restore unconditional RenderPreparedRow -> expected liveness control passes.
-Logs: e3b-round2-red-1.log, e3b-round2-red-2.log, e3b-round2-red-4.log.
-All restored tests and 49 native/TLC variants pass in the unfiltered gate above.
-The earlier accepted long-reply cap control remains in e3b-red-controls.json.
-
-SCREENSHOTS
-.bboxy/runs/gui-smoke.png — 1120x7000; 17 items / 14 kinds, nonblank card regions.
-  SHA256 032ce3d8504366da05cf79fbac2959086b0e256309fac60be38cda7dd0c96ea2
-.bboxy/runs/gui-smoke-scrolled.png — 1120x860; visible-row clipping and meaning.
-  SHA256 5ce27cf56a88f4d0edabee0ef8dd1b68beed69499963e9e5625e4871ed496660
-
-FAILURE AND LIMITS
-The FIRST unfiltered make test exited 2: tests/store_recovery.rs:233 parsed an
-empty group.pid. Lines 221-228 wait for existence, while the child shell opens
-then writes the file. This is an unchanged core test outside allowed_paths.
-No source or test filters were changed; the full unfiltered retry exited 0.
-Both complete logs are committed. The core publication race is NOT fixed here.
-
-make bench-budgets exits 0, but BOTH entries are UNMEASURED at load 30.68 > 10 CPUs
-(e3b-pin-488-bench.log). No p99 claim; structural budgets pass in make test.
-The 49 finite models / 21 contracts / one crate are bounded abstractions, not
-arbitrary Rust refinement or complete TLC replacement. Native surface/physical
-IME remain untested; CoreText/Metal were exercised offscreen. E1c ContextTrim
-arms must be preserved when its forthcoming protocol changes integrate.
-
-The Oracle requested this intermediate 4889321f pin. E2 still needs to merge
-bboxy450-term main into its branch. The Oracle will provide the FINAL merged
-revision for another pin and verification before PR #5 merges. No toolkit 0.1.2
-publication signal has arrived. This report does not authorize a merge.
+Pin remains 4889321f13e509dc7ca18ce7ed3f0217e76cdd1b. No core edits or merge.
+The Oracle will supply the final toolkit main revision separately.
