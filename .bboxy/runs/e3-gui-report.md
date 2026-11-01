@@ -1,4 +1,7 @@
 ---
+id: "0A9RAHACA8WF2JX53Z582WKFJP"
+number: 2100
+type: note
 title: "E3 GUI face — verified rework handoff"
 task: "[[2026-10-31-harness-gui]]"
 status: handoff-ready
