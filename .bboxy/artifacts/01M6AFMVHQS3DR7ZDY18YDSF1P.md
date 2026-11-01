@@ -10,13 +10,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 2185
+bytes: 2724
 claimed: false
 created: 2026-11-01T03:43:27.388Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:6dbc09776a645b510b4580bf778aa679b1aca82bf6d03c6e53ff6faeda08cef6
+digest: sha256:688396f814ce8bf1c8ccf0cd1bd241a6af451707636d5989561067767b798eea
 digest_grade: observed
 for: []
 grade: inferred
@@ -85,22 +85,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793501394466'
+- before_digest: sha256:6dbc09776a645b510b4580bf778aa679b1aca82bf6d03c6e53ff6faeda08cef6
+  commit: null
+  digest: sha256:688396f814ce8bf1c8ccf0cd1bd241a6af451707636d5989561067767b798eea
+  event_hash: 98867dd45ffbef4b194d2e5e0836b22eb0992f8589e5e25b9643f3edabbbf66a
+  generation: '1'
+  grade: inferred
+  id: 01M6AYG6FR9SA0ZGN42NYXAH7G
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/scripts/smoke-live.py
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '13764'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793516377502'
 id: 01M6AFMVHQS3DR7ZDY18YDSF1P
 kind: file
-last_observation_sequence: '1068'
+last_observation_sequence: '13764'
 number: 772
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:b7a584c65451629fa1fbf6355a885fc23b8bfbbacbaca97df3e2db6c9947884c
-  log: .bboxy/log/2026-11-01.jsonl#2984
-  sig: F27tX6JT/tZh80MWHmVWjNiZCSIpK1IA32SpeX4P4ePfTrSS53TXhPgQBStzV/5HmDeKCpN4axEl8YqRA6PSAw==
+  frontmatter_digest: sha256:1d2b5d64e5e8d68789ada45b6a6a413de85c05b0d667964d90b042bbdbe5ffed
+  log: .bboxy/log/2026-11-01.jsonl#13765
+  sig: iajcsC9lIYmKMrKz7AwYyPehMLgmP9Vspxn7PbHeSbCxJCyvl7/rXw0luOWGMVHetCl+c5aJv/5BKQySnQLVAA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/scripts/smoke-live.py
 type: artifact
-updated: 2026-11-01T03:43:39.983Z
+updated: 2026-11-01T06:59:38.617Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

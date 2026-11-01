@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 29298
+bytes: null
 claimed: false
 created: 2026-11-01T03:41:28.253Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:c7af94942c058658d4e50da3de100ea133c44ba88d597348c3ad0a1f9bef25cc
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -436,22 +436,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793511192370'
+- before_digest: sha256:c7af94942c058658d4e50da3de100ea133c44ba88d597348c3ad0a1f9bef25cc
+  commit: null
+  digest: null
+  event_hash: 1277b8abd958bac0636bd502c23c8dc83b7a533b57e8076c543dde6695abcdb1
+  generation: null
+  grade: inferred
+  id: 01M6AX7RM49EXRXDFM9XMB1QRG
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/formal/models.rs
+  seat: null
+  sequence: '12975'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793515022457'
 id: 01M6ADZY706CN96SXW2JMZ4ER0
 kind: file
-last_observation_sequence: '9079'
+last_observation_sequence: '12975'
 number: 426
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:8332eec5b8ed45a5019e6d81fc5e868a7efaf24b57c92fba667765959a76f9b2
-  log: .bboxy/log/2026-11-01.jsonl#9080
-  sig: O/774ImEgai0VpvTcMR9N2jYXtrQJnm4+bFLfOtRLkegtFwQAluVRGPrVgpmqIpRusm80ahC5r/xfws9Lao5CQ==
+  frontmatter_digest: sha256:cc78a191066ab6285ef12262af7ecafa71f331d9cdfad622c29536b208b281fe
+  log: .bboxy/log/2026-11-01.jsonl#12976
+  sig: InphoL9VkjfgdjO+YcgGLUvf3Pr1aK167adht3LT34HxAe/pIn3mCm31ZwMyS3FODGJP2p00fKb7LbBJRFeSAQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/formal/models.rs
 type: artifact
-updated: 2026-11-01T05:33:29.523Z
+updated: 2026-11-01T06:37:33.702Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

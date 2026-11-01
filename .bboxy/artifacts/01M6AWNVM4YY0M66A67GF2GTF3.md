@@ -13,10 +13,10 @@ bytes: null
 claimed: false
 created: 2026-11-01T06:27:46.965Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:ab852c46c91d0a7866bc0855297a0641d34368a02accc15c522ce2f7d8f218ec
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -36,22 +36,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/git/ref
   ts: '1793514465884'
+- before_digest: sha256:ab852c46c91d0a7866bc0855297a0641d34368a02accc15c522ce2f7d8f218ec
+  commit: null
+  digest: null
+  event_hash: db3239bf14980222c76132eddf05d7a5b37aa2313def0f2768a5f92036b0a12d
+  generation: null
+  grade: inferred
+  id: 01M6AWQPJ7MVMZRXMM24W261VQ
+  kind: deleted
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/refs/stash
+  seat: null
+  sequence: '12285'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793514520897'
 id: 01M6AWNVM4YY0M66A67GF2GTF3
 kind: other
-last_observation_sequence: '12219'
+last_observation_sequence: '12285'
 number: 2206
 observation_reason: git-ref-value; authorship unverified
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:72bfc697ddf7e727e132fac7c7960893da01a0900aeab7bdb95762790260b258
-  log: .bboxy/log/2026-11-01.jsonl#12220
-  sig: 7a3dL8cfIvspZvh5Jgh46NXC4GjXV+pMirUQqzRFnPjR7TOvHhMnDkALvxxYxjTt8KjR1biUCu9SrPBaZRilAA==
+  frontmatter_digest: sha256:4339dfec77a62a8d9cc66ecfa81decc6a28bd57bd6d5de699d8de0381de0fcd3
+  log: .bboxy/log/2026-11-01.jsonl#12286
+  sig: 7e6fq/dfXGahtLTSWYWdwN/3WjcWYVIzoEm7d3FQS1B07QnK36Jy7Ac1nm1ONcGd3u0FPaAPt7r3RRex04eqAw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: git:worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/refs/stash
 type: artifact
-updated: 2026-11-01T06:27:46.965Z
+updated: 2026-11-01T06:28:47.305Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

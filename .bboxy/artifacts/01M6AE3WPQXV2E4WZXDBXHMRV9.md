@@ -10,14 +10,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 21156
+bytes: null
 claimed: false
 created: 2026-11-01T03:41:54.235Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:31a4fdce8a11c524398635b3e6889ccd0bc8e38e7814feb2c98f0abb40314a80
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -165,22 +165,54 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793514435306'
+- before_digest: sha256:31a4fdce8a11c524398635b3e6889ccd0bc8e38e7814feb2c98f0abb40314a80
+  commit: null
+  digest: sha256:c98578dc3d8b3012f03d7cbf6fcd6d28d5b56bb555644fce44d3253f0ca356f9
+  event_hash: 949160e5f58a138ecd6d4f1c7f8068853d70bed4aefa17433c8cea07a3b6282e
+  generation: '1'
+  grade: inferred
+  id: 01M6AWS8F7XNVW4ND2XPWCB0EN
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/protocol/mod.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '12455'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793514576659'
+- before_digest: sha256:c98578dc3d8b3012f03d7cbf6fcd6d28d5b56bb555644fce44d3253f0ca356f9
+  commit: null
+  digest: null
+  event_hash: 325771a397f3eae9ddca9e56af49250e07682f8594c077163922d37058753023
+  generation: '1'
+  grade: inferred
+  id: 01M6AX6SXNCX13QBR6G2DNP7NJ
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/protocol/mod.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '12672'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793515022114'
 id: 01M6AE3WPQXV2E4WZXDBXHMRV9
 kind: file
-last_observation_sequence: '12146'
+last_observation_sequence: '12672'
 number: 555
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:19af6583820b04f9173c62865323ecbfb9e546d19e594cdf5d7f0de69c9468ad
-  log: .bboxy/log/2026-11-01.jsonl#12179
-  sig: mBUQepHSS1azOC5VpiWvGIooBSvxXhUFJ+2kDOAMnz/Y0opWj/Gg6X/cdk5i+E58MKuSealegDTNcHTFFR1jDg==
+  frontmatter_digest: sha256:d0ef36c1f7bd2eb2f351beb9613415ca3004f7f063461e2d68464674ab227086
+  log: .bboxy/log/2026-11-01.jsonl#12673
+  sig: YoS4M7Gl+KbsB7c10ui0U72Iy4AQoH5ku2JKMWBoDLQW7HdQrr4B/OyULB6YGL7IM2m7coU8+hRQCmr/k99EBg==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/protocol/mod.rs
 type: artifact
-updated: 2026-11-01T06:27:20.837Z
+updated: 2026-11-01T06:37:02.269Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

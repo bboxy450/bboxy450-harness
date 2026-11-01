@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 13688
+bytes: null
 claimed: false
 created: 2026-11-01T03:43:26.109Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:42802ebcdf1b9250d8f52fa4262d62ad41e830f5664530fc2e63e5d4bc94a126
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -164,22 +164,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793511192101'
+- before_digest: sha256:42802ebcdf1b9250d8f52fa4262d62ad41e830f5664530fc2e63e5d4bc94a126
+  commit: null
+  digest: null
+  event_hash: fb1bb0f854c47537410bc8dc800a6882865696d3d6c390b45b28412914e5403d
+  generation: null
+  grade: inferred
+  id: 01M6AX7TYZ28K31S12B58DVH7W
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/verification/contracts.toml
+  seat: null
+  sequence: '12999'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793515022459'
 id: 01M6AFJQPQVH1MVAMA7VNJZ1R3
 kind: file
-last_observation_sequence: '9067'
+last_observation_sequence: '12999'
 number: 767
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:cbf4679ca1f450c534f06eebfeafcb4f750da9cc6f2a0ceb5f11353f8e516bd8
-  log: .bboxy/log/2026-11-01.jsonl#9068
-  sig: SQESDataXj7H18d90zCtnGmoFIbNW29u+T6elPnyIsA5+SSCPrvtIZU3VgmDcGqhkBSBVjRJ5hcW8dyFGXpaDw==
+  frontmatter_digest: sha256:cecee19fb27ed86ea3eae902d35e5982d504dcf2c73d9bc4464e71fe8c0d78d2
+  log: .bboxy/log/2026-11-01.jsonl#13000
+  sig: uKKzsWeX57jYJlv/2bcaGCIkNJTKnpW6wokGf9vh899+/CY9zdCCw1T+wQvm4Su2nEE9baAXBkFvKqRn7UArCA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/verification/contracts.toml
 type: artifact
-updated: 2026-11-01T05:33:28.209Z
+updated: 2026-11-01T06:37:36.101Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

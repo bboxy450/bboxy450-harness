@@ -1,0 +1,59 @@
+---
+aliases: []
+attribution_candidates: []
+attribution_reason: no-active-seat
+authorship:
+  custody: dev custody
+  device_id: 01M6490ZTZMBBC0EPWJVH83796
+  kind: local-dev
+  public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  root_fingerprint: null
+  signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+bytes: 4196
+claimed: false
+created: 2026-11-01T06:37:26.062Z
+created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+deleted: false
+derived_from: []
+digest: sha256:a4dad992cf27764c164e7b906cb98be0d332c102d8a85e2529eeab145bb76b51
+digest_grade: observed
+for: []
+grade: inferred
+history:
+- before_digest: null
+  commit: null
+  digest: sha256:a4dad992cf27764c164e7b906cb98be0d332c102d8a85e2529eeab145bb76b51
+  event_hash: da578504a2fe62c2b515af633faa64882165e5b81ac4179a726ca3ccfbf80cc2
+  generation: null
+  grade: inferred
+  id: 01M6AX7H5DKBE9ZZ9MBJDX3QE0
+  kind: created
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/tasks/2026-10-31-harness-gui-phase2.md
+  seat: null
+  sequence: '12900'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793515022448'
+id: 01M6AX7H5DYNWCDN9XXEXE4QRD
+kind: markdown
+last_observation_sequence: '12900'
+number: 2321
+observation_reason: null
+observed: true
+produced_by: null
+provenance:
+  digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
+  frontmatter_digest: sha256:e69dcbf7dfe9dfc9a4e02fcbc5bbb1d4f614be0251552c384eb11ce0bb604d37
+  log: .bboxy/log/2026-11-01.jsonl#12901
+  sig: 2WS65AGiKt78MF2qeNNCxr+fZg1F9TJqrsfYnwlF3RXPdvTKz8YG4RaeAayt1SdxEYTcyVz75FHdUyXZDiYCDQ==
+  signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/tasks/2026-10-31-harness-gui-phase2.md
+type: artifact
+updated: 2026-11-01T06:37:26.062Z
+updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+---
+# Observed artifact
+
+Responsibility and observation evidence are recorded in the frontmatter.

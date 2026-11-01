@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 15496
+bytes: null
 claimed: false
 created: 2026-11-01T05:57:26.097Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:c53822b9b2451d021e28ec72d9b6a207de4b9d6a413ea13534da30abdab9612a
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -36,22 +36,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793512553938'
+- before_digest: sha256:c53822b9b2451d021e28ec72d9b6a207de4b9d6a413ea13534da30abdab9612a
+  commit: null
+  digest: null
+  event_hash: 0095fcb2a606c10fb0802a37cc5608ee5322ae4f02a5ef5226445b0bc5b817fa
+  generation: null
+  grade: inferred
+  id: 01M6AX7BSEQNYAEC68XP1G4SA0
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/formal-native.json
+  seat: null
+  sequence: '12846'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793515022444'
 id: 01M6ATY9EHDRPPDJET5JXZ3PEX
 kind: file
-last_observation_sequence: '9482'
+last_observation_sequence: '12846'
 number: 1591
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:44661fcb54136978ed723565a1ed64547765d06b933f691d50f9f2e3764c30fb
-  log: .bboxy/log/2026-11-01.jsonl#9483
-  sig: gBtEkWd+mlXLKFXvy2/74Z8j4+sbOjsbg0uBAE6/HgTSVjXXyzasmDv5kHj4O1p9R2N9LhmwDvQuGziZwvb9AQ==
+  frontmatter_digest: sha256:03bcf05c65013cebda53e82939c1932baf54b021fb8d6aeb3f9b080426691daa
+  log: .bboxy/log/2026-11-01.jsonl#12847
+  sig: NFT+YgXcH6aqXEph2VKoslED6rWVKuGguBpOHSWfzxvXOBtgXco46kn8zjJhQeW8ilH14xiOfSqYZXg2pFU1Dw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/formal-native.json
 type: artifact
-updated: 2026-11-01T05:57:26.097Z
+updated: 2026-11-01T06:37:20.559Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

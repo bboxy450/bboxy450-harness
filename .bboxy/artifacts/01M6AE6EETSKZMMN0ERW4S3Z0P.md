@@ -10,13 +10,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 13781
+bytes: 18063
 claimed: false
 created: 2026-11-01T03:42:00.285Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:cf8557edc50d00d329deca877346b1195fed29810de2a06b8f107fd89ddc1c83
+digest: sha256:ba17d695f1044b13440742116ba597192d8c839d09fcd62846f675683e84e77e
 digest_grade: observed
 for: []
 grade: inferred
@@ -69,22 +69,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793508201533'
+- before_digest: sha256:cf8557edc50d00d329deca877346b1195fed29810de2a06b8f107fd89ddc1c83
+  commit: null
+  digest: sha256:ba17d695f1044b13440742116ba597192d8c839d09fcd62846f675683e84e77e
+  event_hash: e8d13e061b19c2500710f9076336d1eeb39f3edd172f3c20e80bae100fb0c41e
+  generation: '1'
+  grade: inferred
+  id: 01M6AYKYW8YKKPRMJWP63FMPKB
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/protocol/lagged.jsonl
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '13839'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793516500344'
 id: 01M6AE6EETSKZMMN0ERW4S3Z0P
 kind: file
-last_observation_sequence: '7258'
+last_observation_sequence: '13839'
 number: 569
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:b007d24a0b150803a39cfba32e828e342c6a2961057499b50398f74cb916f9aa
-  log: .bboxy/log/2026-11-01.jsonl#7259
-  sig: tSJs0tW1DO8Z2e1zPo0qq/LMy03yUTQObgDVI72oqsE19hq/nwmEQOKMCMSPy8DbiN35UpOYji1G9FwE0SAIDQ==
+  frontmatter_digest: sha256:77bdc1809dd2dda3987dd3a93ba3b46f03bfb1581c497794ac118cde40b19c51
+  log: .bboxy/log/2026-11-01.jsonl#13840
+  sig: VSSJbWShaRyOuV1N3usX+mqZgTSanFTOja7iWQOfwVMm+N8FU57z4DGhJ39SMHcw2MKE/hgQ5WBpK9AiOVJ7Bw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/protocol/lagged.jsonl
 type: artifact
-updated: 2026-11-01T04:43:22.560Z
+updated: 2026-11-01T07:01:41.897Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

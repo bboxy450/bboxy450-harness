@@ -10,13 +10,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 3718
+bytes: 3732
 claimed: false
 created: 2026-11-01T03:42:15.408Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:eed176667f5bab797add4e89441988ce277d00637d1cafa15d8905bbbc815eda
+digest: sha256:4a88c7dd75ed079340d74cbc70fb7f5ffef871f9dffb51c004fdd9d61e16cae7
 digest_grade: observed
 for: []
 grade: inferred
@@ -85,22 +85,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793499594767'
+- before_digest: sha256:eed176667f5bab797add4e89441988ce277d00637d1cafa15d8905bbbc815eda
+  commit: null
+  digest: sha256:4a88c7dd75ed079340d74cbc70fb7f5ffef871f9dffb51c004fdd9d61e16cae7
+  event_hash: 225f86ecfede6930ebe462c4256c04496982dc287fb69183b9884b50c964a2e1
+  generation: '1'
+  grade: inferred
+  id: 01M6AY20B5PQ876386N0NXH3VM
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/policy.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '13463'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793515910802'
 id: 01M6AEDDPBMEXQMA1SKX4T10QX
 kind: file
-last_observation_sequence: '580'
+last_observation_sequence: '13463'
 number: 588
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:395c3e81ee9d17e462e6320ec429b6164cffe78c8878ed9a3e46b506055a083e
-  log: .bboxy/log/2026-11-01.jsonl#2039
-  sig: 2ykG6UyeiwCitLwcR8NpnMptH5y3fRLSLi7aAvDinQoa97oI0W0+fTU4NOff1zt+nqfORNv/0RCAWVeIDMuNDQ==
+  frontmatter_digest: sha256:2a27cfd0ddd348138c10e6acdcd49943696c673796648d8286faf654c8edb2e2
+  log: .bboxy/log/2026-11-01.jsonl#13464
+  sig: Pd5WqxWVwrR7wla6iUXSeGZVl2IfcCROPfLqTysMLsH/KbpDu5Q4Qu3L7RaOc35o6Kw5p05GtPrswJ7SJMbAAw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/policy.rs
 type: artifact
-updated: 2026-11-01T03:42:17.887Z
+updated: 2026-11-01T06:51:53.585Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

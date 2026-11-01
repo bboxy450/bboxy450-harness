@@ -10,193 +10,17 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 42230
+bytes: 50304
 claimed: false
 created: 2026-11-01T03:42:23.710Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:21b0383794b59e83c18a505235808c6aad6e378121ef1d85f204077d5835cb62
+digest: sha256:89bd80ef8b7b03c47fb3c6be33f21872712f7d7016774dbb9362b6e5c01d52c3
 digest_grade: observed
 for: []
 grade: inferred
 history:
-- before_digest: sha256:ab4d88cb4dfbf59e69cc39fcf946facbadb8177a6248a79ae41fe0a79f76a527
-  commit: null
-  digest: sha256:88dbe15f0dcf10aeaaef6967acf6313bbd144e9ac5fdf64ea80c4ab8736f17db
-  event_hash: d8b3a2cf535d5d94ad01716746a5c7a313cfee2a4098f9baa5b305edacfe389e
-  generation: '1'
-  grade: inferred
-  id: 01M6AG19QJH04KZ6GC4YXVSDRE
-  kind: modified
-  previous_ref: null
-  reason: null
-  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
-  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
-  sequence: '1047'
-  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-  source: provenance/filesystem
-  ts: '1793501209807'
-- before_digest: sha256:88dbe15f0dcf10aeaaef6967acf6313bbd144e9ac5fdf64ea80c4ab8736f17db
-  commit: null
-  digest: sha256:1091f3ff2c0c1e7f04642fd8d204f35ed92dc2bcec9289c4e5b8ac0992d80323
-  event_hash: bcbcb07d6de7a983cb016915cd6fb4bd6c85e3f220c9dc30fea41e7b0f91b2ca
-  generation: '1'
-  grade: inferred
-  id: 01M6AG1A6TZPGW7171TR3JQDRE
-  kind: modified
-  previous_ref: null
-  reason: null
-  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
-  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
-  sequence: '1051'
-  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-  source: provenance/filesystem
-  ts: '1793501209906'
-- before_digest: sha256:1091f3ff2c0c1e7f04642fd8d204f35ed92dc2bcec9289c4e5b8ac0992d80323
-  commit: null
-  digest: sha256:7a3b0ae070ec36a74d655d0dadc41eab6ff6ff343f44e8c731bec59274547b98
-  event_hash: db0ff5d003cfd9bea49d3f6074716ad6371bd5b3246cc66c8216815eeff870f8
-  generation: '1'
-  grade: inferred
-  id: 01M6AG3PVVEF8KY35FD9D1CC8G
-  kind: modified
-  previous_ref: null
-  reason: null
-  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
-  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
-  sequence: '1057'
-  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-  source: provenance/filesystem
-  ts: '1793501288856'
-- before_digest: sha256:7a3b0ae070ec36a74d655d0dadc41eab6ff6ff343f44e8c731bec59274547b98
-  commit: null
-  digest: sha256:04771dec99a4e2fc330a82fbf08bdc00dc1333e49b84d466a3a30ce5ca6dfe96
-  event_hash: d756df9a6ecb3d26b971f5499c98e80fe529e51430519d5529cc047b87fab8df
-  generation: '1'
-  grade: inferred
-  id: 01M6AGT00H3SEGTACG84S7257T
-  kind: modified
-  previous_ref: null
-  reason: null
-  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
-  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
-  sequence: '1092'
-  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-  source: provenance/filesystem
-  ts: '1793502019173'
-- before_digest: sha256:04771dec99a4e2fc330a82fbf08bdc00dc1333e49b84d466a3a30ce5ca6dfe96
-  commit: null
-  digest: sha256:9ebfee0a74dccf502871563ea645fb819ee083b8cf936f197faeef18f015b6d0
-  event_hash: 97c2d0dcbbfe94d36418136961a53fe3d9d0254f54955bee354ce08100ff4304
-  generation: '1'
-  grade: inferred
-  id: 01M6AGT04QK26CM43G6BC7XVYP
-  kind: modified
-  previous_ref: null
-  reason: null
-  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
-  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
-  sequence: '1093'
-  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-  source: provenance/filesystem
-  ts: '1793502019313'
-- before_digest: sha256:9ebfee0a74dccf502871563ea645fb819ee083b8cf936f197faeef18f015b6d0
-  commit: null
-  digest: sha256:6df38ec9c57ffe5e666a640583dbbca6e40c029de067a7c5586b93012a31273b
-  event_hash: 1b6648bc77a838717aef881c9ab7f0a7424817e0f94eb19786bb8ea53e38cfad
-  generation: '1'
-  grade: inferred
-  id: 01M6AHZZJQ5F9GD5Y69BZMMZCY
-  kind: modified
-  previous_ref: null
-  reason: null
-  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
-  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
-  sequence: '1176'
-  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-  source: provenance/filesystem
-  ts: '1793503263975'
-- before_digest: sha256:6df38ec9c57ffe5e666a640583dbbca6e40c029de067a7c5586b93012a31273b
-  commit: null
-  digest: sha256:21b17dd06635aec1a1506dcf27eab72597d0361d06463a014f54321183ff2083
-  event_hash: 6d7a19e9ff22b482d489ab1452be97ab166e02c254121dd64b3aa554ddfba88c
-  generation: '1'
-  grade: inferred
-  id: 01M6AHZZT6Y417MSHQYNVYB1JC
-  kind: modified
-  previous_ref: null
-  reason: null
-  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
-  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
-  sequence: '1178'
-  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-  source: provenance/filesystem
-  ts: '1793503264068'
-- before_digest: sha256:21b17dd06635aec1a1506dcf27eab72597d0361d06463a014f54321183ff2083
-  commit: null
-  digest: sha256:222961ff53d9b477365fd8b719c791e61ae7115bf61dd9fdf308015397fa4f5a
-  event_hash: 22bcee9015f0d99c060110750ee3dd74818c56b812eeb3c844933974df4330a6
-  generation: '1'
-  grade: inferred
-  id: 01M6AJC4Y0XE1T0B3NP9C3V7HG
-  kind: modified
-  previous_ref: null
-  reason: null
-  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
-  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
-  sequence: '1213'
-  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-  source: provenance/filesystem
-  ts: '1793503662486'
-- before_digest: sha256:222961ff53d9b477365fd8b719c791e61ae7115bf61dd9fdf308015397fa4f5a
-  commit: null
-  digest: sha256:a3eea71d10c873387d0391255721223cab21e7bf5fda6739eddf0cf8e3ba05d1
-  event_hash: ad75c1884fa314a1ceeea2d0bad5e1bd7343c044ec9264ba3492cc9706a2a323
-  generation: '1'
-  grade: inferred
-  id: 01M6AJC5D2SCMV4W9V7ETT6WRS
-  kind: modified
-  previous_ref: null
-  reason: null
-  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
-  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
-  sequence: '1217'
-  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-  source: provenance/filesystem
-  ts: '1793503662609'
-- before_digest: sha256:a3eea71d10c873387d0391255721223cab21e7bf5fda6739eddf0cf8e3ba05d1
-  commit: null
-  digest: sha256:b631bf9d50c8c3521645bb1104eb4f7fc20e3bd34b0196f21e6bc6735a4d6c8e
-  event_hash: 106e8ad2c846692e0579b5b960959f7d20eac47eadb5b0691458f98006874b9b
-  generation: '1'
-  grade: inferred
-  id: 01M6AJMW3TYRZ1KEXR2R4NFWX2
-  kind: modified
-  previous_ref: null
-  reason: null
-  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
-  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
-  sequence: '1237'
-  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-  source: provenance/filesystem
-  ts: '1793503948725'
-- before_digest: sha256:b631bf9d50c8c3521645bb1104eb4f7fc20e3bd34b0196f21e6bc6735a4d6c8e
-  commit: null
-  digest: sha256:1cbbab45e54f42ba54287a7569d012767923314a616da2e9d919481743ba1eb1
-  event_hash: f7137925fd8b2ddd3a3dd92d16d470dafedfce021f0fe89b9ddb05a15ab06dc9
-  generation: '1'
-  grade: inferred
-  id: 01M6AJN9QSDB7V2MZQJ3RGPJM0
-  kind: modified
-  previous_ref: null
-  reason: null
-  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
-  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
-  sequence: '1246'
-  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-  source: provenance/filesystem
-  ts: '1793503962701'
 - before_digest: sha256:1cbbab45e54f42ba54287a7569d012767923314a616da2e9d919481743ba1eb1
   commit: null
   digest: sha256:dbe1135e9eafd13d69e553b545f74657c08412de5a3d3dd3766c9cc30186e103
@@ -533,22 +357,198 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793508018002'
+- before_digest: sha256:21b0383794b59e83c18a505235808c6aad6e378121ef1d85f204077d5835cb62
+  commit: null
+  digest: sha256:fa690b0a46db3dc0b425c39bd00eabf2f8b4ab6048a38eb2df3696ad11adabe3
+  event_hash: cb116730b42214dba115e98658412a0dd7f9b6d417f05616c5934e1406436a85
+  generation: '1'
+  grade: inferred
+  id: 01M6AX8N6WD3QPKVYBP2AZJJVJ
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '13089'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793515081930'
+- before_digest: sha256:fa690b0a46db3dc0b425c39bd00eabf2f8b4ab6048a38eb2df3696ad11adabe3
+  commit: null
+  digest: sha256:f49e09fb011f38441d927d507be552a54b1b09909281c8adae50538e0bd80384
+  event_hash: 0ec25aa3af735f0d5941c9c630f3629da8ee1459081e4c6eefb4f560c2134ccf
+  generation: '1'
+  grade: inferred
+  id: 01M6AX9FBYA0TB9HEXAV23KE8V
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '13110'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793515108238'
+- before_digest: sha256:f49e09fb011f38441d927d507be552a54b1b09909281c8adae50538e0bd80384
+  commit: null
+  digest: sha256:743f21104b2b3ab271114bcc2a9ee73dbdd9370ae84816cd3f1c92b5d7e43e11
+  event_hash: 10880aac529397d77f4fd952b95d5779b20f81219ec8a5aa68fd307c15c91c7f
+  generation: '1'
+  grade: inferred
+  id: 01M6AXCWFP08R88PZ1447WJ4WF
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '13155'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793515220403'
+- before_digest: sha256:743f21104b2b3ab271114bcc2a9ee73dbdd9370ae84816cd3f1c92b5d7e43e11
+  commit: null
+  digest: sha256:0389a42cb8aaa9514452bf0b3bed564e6b0579eb8172bba327522d64091aff9d
+  event_hash: dd07bce26bb38ec0b16deb84f59df6791b6c173edb787cd6088f67a0d9e30552
+  generation: '1'
+  grade: inferred
+  id: 01M6AXFJYND78HB1E6GK1NS552
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '13207'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793515308514'
+- before_digest: sha256:0389a42cb8aaa9514452bf0b3bed564e6b0579eb8172bba327522d64091aff9d
+  commit: null
+  digest: sha256:a64afd69af0a48522882a31755e65df0185bf0ae2101841870d10ceab776c19f
+  event_hash: 04f6210d3825ca064a23924b6706bc27c473e6f951b9db937716265a40a83d2e
+  generation: '1'
+  grade: inferred
+  id: 01M6AY20RA1667F9F3PT7VG0S8
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '13466'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793515910802'
+- before_digest: sha256:a64afd69af0a48522882a31755e65df0185bf0ae2101841870d10ceab776c19f
+  commit: null
+  digest: sha256:51684d6b96d3ae6c9cc1921c90fd60f5e1d1209dbdc3d50d7b0b574ed293994c
+  event_hash: b0c96fa3e2033c238c08304c4acd239391636c436a29a560db3b2c2ed71e44fc
+  generation: '1'
+  grade: inferred
+  id: 01M6AY66412WTYKZ2HQ7DSKFH3
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '13530'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793516046837'
+- before_digest: sha256:51684d6b96d3ae6c9cc1921c90fd60f5e1d1209dbdc3d50d7b0b574ed293994c
+  commit: null
+  digest: sha256:a59437d379d2fdbfb1452a4991c01bc0332f21cc2fbdc7168f30d4f71e7d92a8
+  event_hash: ab2fba87a6b2461561c0c12c377b0b5fd404cc2284848e75b50a3892b062d3cf
+  generation: '1'
+  grade: inferred
+  id: 01M6AY7SJ40ZRC3JE1H2NZT64E
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '13633'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793516102303'
+- before_digest: sha256:a59437d379d2fdbfb1452a4991c01bc0332f21cc2fbdc7168f30d4f71e7d92a8
+  commit: null
+  digest: sha256:b329a5fc8d9330f50a85cf00916e35efecce397920587ee0d11fa12a08abe768
+  event_hash: 170df2141dd7bf5ca705002d9789656ef077a52f28eb659b4864636c3e90df22
+  generation: '1'
+  grade: inferred
+  id: 01M6AY7SZXYBFTXTXVC4YM3WEB
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '13636'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793516102462'
+- before_digest: sha256:b329a5fc8d9330f50a85cf00916e35efecce397920587ee0d11fa12a08abe768
+  commit: null
+  digest: sha256:fdc2324521d3d568c4800b18724129d5ef4ceec4744c6fcdaa090c0dc51a99ec
+  event_hash: ee02acb720a2a3fe5bf8936188fe2710a5aedd86a5698c33fea72b5534c270f8
+  generation: '1'
+  grade: inferred
+  id: 01M6AY9SK9YAZV0ABSSNBDDCXW
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '13651'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793516167545'
+- before_digest: sha256:fdc2324521d3d568c4800b18724129d5ef4ceec4744c6fcdaa090c0dc51a99ec
+  commit: null
+  digest: sha256:3b4c334981b19dd7e9619ec414445419e5468a3a51d945c2613d28074c11bc7c
+  event_hash: 6051bcf4ed60f6f4bcde9080c2c740a49105687cd6931e57878b42a05e9ed203
+  generation: '1'
+  grade: inferred
+  id: 01M6AYKBZ00Q2GJ74KJYBW8P8S
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '13809'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793516480708'
+- before_digest: sha256:3b4c334981b19dd7e9619ec414445419e5468a3a51d945c2613d28074c11bc7c
+  commit: null
+  digest: sha256:89bd80ef8b7b03c47fb3c6be33f21872712f7d7016774dbb9362b6e5c01d52c3
+  event_hash: 1e0cbe3772a7f1218b0075027e33db56d61253545ca017b0fd6ee9e5aaa290f3
+  generation: '1'
+  grade: inferred
+  id: 01M6AYKCTACF5MWXNP37YC6X7B
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '13815'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793516480895'
 id: 01M6AEPFZQ73JDGGWBWFBMAGBW
 kind: file
-last_observation_sequence: '7159'
+last_observation_sequence: '13815'
 number: 597
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:751e2ed157441a265ec607d51d6e1ab410a99586331ba1a0b1ab94e2d91a9a2f
-  log: .bboxy/log/2026-11-01.jsonl#7160
-  sig: aRV3Xj/5u8g40moyORnBOkZLZPI/pqs6l4E79OErCs6UuBWZrOpqQq7c2t0EtjLUiJz/3YdldGsO4dWBcSDnBg==
+  frontmatter_digest: sha256:93eb4a207bed1dc2994041c527e3f0a00acd91a4bbf4e9ba5a070ef5ae70846a
+  log: .bboxy/log/2026-11-01.jsonl#13816
+  sig: h46L7A/vTWEUskFeGltRBZMUg6dBNBMs2nEVl6juyPp06pB/MtN/1YQINOf/AkSp1Pct04x22jzJxznToNFVAQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/engine/mod.rs
 type: artifact
-updated: 2026-11-01T04:40:19.846Z
+updated: 2026-11-01T07:01:23.418Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

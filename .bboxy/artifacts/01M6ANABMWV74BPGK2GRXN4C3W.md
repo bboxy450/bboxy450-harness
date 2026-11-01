@@ -15,7 +15,7 @@ created: 2026-11-01T04:19:10.109Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:3d2de5e01c3ebdafb4fc9589f1ca498fa142dc4da3dff2c3cf36d291b3d0dbfd
+digest: sha256:dd58028c06bd74760e510084253c056b36e905a3fba1b7abdfc6caaddae02b00
 digest_grade: observed
 for: []
 grade: inferred
@@ -116,22 +116,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/git/ref
   ts: '1793510759302'
+- before_digest: sha256:3d2de5e01c3ebdafb4fc9589f1ca498fa142dc4da3dff2c3cf36d291b3d0dbfd
+  commit: b899d8947630bd244a1a56e02db7020d5422fed2
+  digest: sha256:dd58028c06bd74760e510084253c056b36e905a3fba1b7abdfc6caaddae02b00
+  event_hash: fb975d61e59d8737b14327b73c4ef484b934fd15e69a99654fc4a4428d6dda42
+  generation: null
+  grade: inferred
+  id: 01M6AXE72CJEB8V0X9G631FRNM
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/refs/heads/cx/ingest4
+  seat: null
+  sequence: '13189'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793515264909'
 id: 01M6ANABMWV74BPGK2GRXN4C3W
 kind: other
-last_observation_sequence: '8696'
+last_observation_sequence: '13189'
 number: 1211
 observation_reason: git-ref-value; authorship unverified
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:6828420c37317a3d4ca4df922efa7ec87f79ce53ed48a20640885f9494f4f2d9
-  log: .bboxy/log/2026-11-01.jsonl#8697
-  sig: cfWoCx9rOCmO9FdlJfTc8204GZZHbunaFecsK9Ykn8FmNKj1HzacQqM8xZKGsnTmXlvGsqMm6S5HYkKeUCmdAw==
+  frontmatter_digest: sha256:4c6ffb95114b11487f168a99f2868c3020813ab73615d144f3e259fd67656461
+  log: .bboxy/log/2026-11-01.jsonl#13190
+  sig: XgbEHO63/QAFu82NYI9Z3FqRc4+kNKYuQR4HCgaE2D8y6d6oz66AwvvIPMvGx5G1JgRUdV4D1nEC5xHo8L2rAA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: git:worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/refs/heads/cx/ingest4
 type: artifact
-updated: 2026-11-01T05:25:59.400Z
+updated: 2026-11-01T06:41:05.102Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

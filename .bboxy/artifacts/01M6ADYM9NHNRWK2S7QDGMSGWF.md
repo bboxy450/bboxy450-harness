@@ -16,7 +16,7 @@ created: 2026-11-01T03:41:25.245Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:427562597fe611664ace19e8a7d2d2d3fe382e01b1ae65d3b9486271dbc91cdd
+digest: sha256:8ab287a9d74e58b5bf3533ff5097896e3ed4c5e021fe9202cd16b5b982b0fd81
 digest_grade: observed
 for: []
 grade: inferred
@@ -53,22 +53,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793499240023'
+- before_digest: sha256:427562597fe611664ace19e8a7d2d2d3fe382e01b1ae65d3b9486271dbc91cdd
+  commit: null
+  digest: sha256:8ab287a9d74e58b5bf3533ff5097896e3ed4c5e021fe9202cd16b5b982b0fd81
+  event_hash: e00445d78b02b080c7ae09c004d031d252ec4ad20383a7efaa8ad0869a853808
+  generation: '1'
+  grade: inferred
+  id: 01M6AY1ZK4QZN2BX8M6832HFA4
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/formal/export.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '13457'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793515910802'
 id: 01M6ADYM9NHNRWK2S7QDGMSGWF
 kind: file
-last_observation_sequence: '459'
+last_observation_sequence: '13457'
 number: 416
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:2dd11f7855caecfd9c6042df38fc661058fdf5ed3a17ea0345db8b4cc0eab344
-  log: .bboxy/log/2026-11-01.jsonl#1797
-  sig: 6d5xSPxWvBvVzBqVq0BEfXeMfB1ToCY8lW8V+HisabKuplfMatOGSqZRYuW8bc+UGYnR4W88rgW72mB23KscBQ==
+  frontmatter_digest: sha256:c241c809d7130690f62e60b69711a972758c1494c62070fbca0cbca9b806c32b
+  log: .bboxy/log/2026-11-01.jsonl#13458
+  sig: EEpCVH5YX9CQRoWisPLCt/1m/NIwQriTbzz5W7yKcBGsZEuDUfgGxYurISry6eAflNXsSC4e5ZKNk/SGqobCAQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/formal/export.rs
 type: artifact
-updated: 2026-11-01T03:41:57.993Z
+updated: 2026-11-01T06:51:52.807Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

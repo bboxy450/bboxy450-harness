@@ -16,7 +16,7 @@ created: 2026-11-01T03:44:26.618Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:603bae9e4064d88a230cce34fd70a2bad4f10d83c9c55d6ee1701a8463d099ce
+digest: sha256:4ff53a6bd1dee33102a2db4b4de5e395459ca85d2906b413f0db3314e4a3bbed
 digest_grade: observed
 for: []
 grade: inferred
@@ -85,22 +85,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793504444277'
+- before_digest: sha256:603bae9e4064d88a230cce34fd70a2bad4f10d83c9c55d6ee1701a8463d099ce
+  commit: null
+  digest: sha256:4ff53a6bd1dee33102a2db4b4de5e395459ca85d2906b413f0db3314e4a3bbed
+  event_hash: 61d040128f43eeaad4f922a2d7da92a686e2ba5407bd5122a1e8a2b08d8c6403
+  generation: '1'
+  grade: inferred
+  id: 01M6AYG5HH1WY7X9X884BVNBXV
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/context_compact.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '13755'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793516377502'
 id: 01M6AK3J712FCZNWSE6ZS6NGAV
 kind: file
-last_observation_sequence: '1329'
+last_observation_sequence: '13755'
 number: 819
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:1f95fc6308cd87a17424210c0185c64bb95f79b1b2fbb4f16caf7b42580b09c4
-  log: .bboxy/log/2026-11-01.jsonl#3478
-  sig: 9NDzU520QinUfm93/Koum9d/L/MwmUYloGPDXIaomQ98FRLbtrOXdF7pLpjxqBfMy4POcgAfEos37xw0XPFpBg==
+  frontmatter_digest: sha256:dea63f08845a37f977b7ac7cc98fd116565f33953f79c095034e0745dad8df6a
+  log: .bboxy/log/2026-11-01.jsonl#13756
+  sig: HwtSMGJHhvHTBhb26JqYK+cHGXfDP3c2rYiPLtmTsh+96TvjqNdl9F7UGUzA8WEzrTf24WSp3tDR+NJLwabpCA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/context_compact.rs
 type: artifact
-updated: 2026-11-01T03:44:27.629Z
+updated: 2026-11-01T06:59:37.650Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

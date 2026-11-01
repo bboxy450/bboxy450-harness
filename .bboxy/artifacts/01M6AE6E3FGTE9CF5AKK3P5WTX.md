@@ -16,7 +16,7 @@ created: 2026-11-01T03:41:59.959Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:840789101112c622a6cadd3d8df96aa53145fc02a8b8b95ee1c4cefc11b81994
+digest: sha256:39d59901196880fcd319b1b1ad614ecbf2a5eb010da9d39202019bcf54084c70
 digest_grade: observed
 for: []
 grade: inferred
@@ -69,22 +69,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793508201533'
+- before_digest: sha256:840789101112c622a6cadd3d8df96aa53145fc02a8b8b95ee1c4cefc11b81994
+  commit: null
+  digest: sha256:39d59901196880fcd319b1b1ad614ecbf2a5eb010da9d39202019bcf54084c70
+  event_hash: 836d295500ce62d57bc979b6210e487afc2103049ce302533e26dd76aadbb202
+  generation: '1'
+  grade: inferred
+  id: 01M6AYKXH7CDV82FCBDR4N95S3
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/protocol/interrupt-mid-tool.jsonl
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '13827'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793516500344'
 id: 01M6AE6E3FGTE9CF5AKK3P5WTX
 kind: file
-last_observation_sequence: '7249'
+last_observation_sequence: '13827'
 number: 567
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:05ff4fe24e10f30b4c6d0d23aeaa196acb86ae8d44de631678d3424c3ea2a5d2
-  log: .bboxy/log/2026-11-01.jsonl#7250
-  sig: h1DSEjrGrK3RIjB9onXv3eZVrGLVWZZ0icC3y2spJ5AZSh0zEeI5hp6ORCfL3ZIpo5X/24jFLsEScfDytPz/DQ==
+  frontmatter_digest: sha256:1dba69df4d85bc4b4c42509e8e3ce957357ca092863e48e1d2b81d3986d89f07
+  log: .bboxy/log/2026-11-01.jsonl#13828
+  sig: 7ttZRdk5OXhZBLel5Mvw+Y7osny6KYF20MDwkP8LfzygxNobYKafbOs4RdQ6TOTqYXJ43PEEFAU7ivYO26fPDw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/protocol/interrupt-mid-tool.jsonl
 type: artifact
-updated: 2026-11-01T04:43:21.811Z
+updated: 2026-11-01T07:01:40.521Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

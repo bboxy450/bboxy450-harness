@@ -10,13 +10,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 13737
+bytes: 14463
 claimed: false
 created: 2026-11-01T03:58:35.350Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:8cf9b42da39f94b784b0543f0f8d11118210693ca15c704bc879a4cf9c96423f
+digest: sha256:b787575611f04389c92ff78ac32b03859ae8c753bcf088ff03a3c4d82bcd7575
 digest_grade: observed
 for: []
 grade: inferred
@@ -69,22 +69,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793511304222'
+- before_digest: sha256:8cf9b42da39f94b784b0543f0f8d11118210693ca15c704bc879a4cf9c96423f
+  commit: null
+  digest: sha256:b787575611f04389c92ff78ac32b03859ae8c753bcf088ff03a3c4d82bcd7575
+  event_hash: 4bca767dd2e94a172924277bd90fe40bf8a03647941732b47df1548d9e674441
+  generation: '1'
+  grade: inferred
+  id: 01M6AX8TJBG312J6DZ9BB341Y0
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bbt-ui/reports/toolkit-widgets-report.md
+  seat: 01M6ADTVVZS36VS43P2PG15HRQ
+  sequence: '13095'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793515088044'
 id: 01M6AM4NTD1WMJE5FBVSGJKBGY
 kind: markdown
-last_observation_sequence: '9127'
+last_observation_sequence: '13095'
 number: 940
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTVVZS36VS43P2PG15HRQ
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:67dd61dbaa17a86d46b9f6adba46da12a51056f6115f18bac15321c0143a1155
-  log: .bboxy/log/2026-11-01.jsonl#9128
-  sig: NzhOPmyC6/9TOnP6jfBvaj98bwsaPssdg1dbOpLmdOC2fqlXtTE0ieq/Sbncv7o0ppS+tGjTjXuWEKeSz2mmAQ==
+  frontmatter_digest: sha256:03ba0a6687deada40a24f1f9f9aa51849fd01ddf5b2ebb5551f4076270e65cd2
+  log: .bboxy/log/2026-11-01.jsonl#13096
+  sig: tmzIF8PUFY01MhL/8mMUe2mrIj5Y6uaAiei0vfP8zLrHUwROaGWvmwrk9Do0egMXFmpENC1zNq5VC+KSXmBOCw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bbt-ui/reports/toolkit-widgets-report.md
 type: artifact
-updated: 2026-11-01T05:35:04.673Z
+updated: 2026-11-01T06:38:08.466Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact
