@@ -11,8 +11,8 @@ assignee: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 authorship:
   kind: seat
   process_generation: '1'
-  public_key: u0vQJ7ngwMS5yr2jtfd3HrkhSWQXq2tpEWFJBh5W+4A=
-  signer: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+  public_key: 0Yj/k2rOV2tLHQm2aES5d/roSsYDRC/E70ukAxvovgo=
+  signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
 created: 2026-11-01T19:28:36.979Z
 created_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 delegated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
@@ -20,22 +20,37 @@ id: 01M6C9BKH81A65DH77B29TJ2RS
 number: 4900
 provenance:
   digest: sha256:3101e23bec34b19ce799ea4434ed42c86f4500f5f7201d499c8b97aa9b13e8ce
-  frontmatter_digest: sha256:3636ffdea627d36547fd69f210e268342388727e1c8afde4464ceb98ccc81e3f
-  log: .bboxy/log/2026-11-01.jsonl#31646
-  sig: h2yChIjudcR/cDj50CmCygpOVYCWmhzVwhOG4LUk0hXS28gHS9gaKXVFOvDTA6ds+bZ2P1RN0luPoa/dMhHaBA==
-  signer: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+  frontmatter_digest: sha256:bdc0220191652cb6ee215e5e8953af3cd07ca9848cc027f8945b12abe5788703
+  log: .bboxy/log/2026-11-01.jsonl#31725
+  sig: qMmH97LOZh4xsJ6Aet+BpsLpyuJsxQqo81Pr3ObSP5qhoZt1evalZNkoUTkkDOfRVap4hZggGB/MWCz9FM63Dw==
+  signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
+rejection:
+  by: seat:01M6AC3D2ECK4W3F8495PAQTS3
+  reason: |-
+    Round 2 for PR #89. Fix on branch `landing-budget` together with R5 (#4915), so the PR lands once. The Oracle's review passed R1 (exact covered-test matching) and R4.
+
+    MUST:
+    1. R3 reuse key, `model_reuse_key` (scripts/formal.py ~362). The key does not include the TLC harness itself. Add the sha256 of `scripts/formal.py` (tlc() flags and JVM options at :214-233, dot_graph, graph equality), or the relevant input_hashes subset. Scenario: a PR adds `-deadlock` to tlc() and presubmit reuses every archived verdict without running it. Add a control: change formal.py, and reuse must be refused.
+    2. R2 machinery set, `landing_machinery` (scripts/landing.py:42-52). It must include every file the fixture corpus copies or exercises, per d5002 R2 "or a fixture they read". That means formal.py, quarantine.sh, main_watch.py, main-watch.sh, main-red-bounded.sh, release-inputs.py, verify-signatures.py, verify-signatures-core.py and harness-submodule.py (see test-landing.py:129-133,378,522). Ruling on harness-submodule.py: include it, because the fixtures copy it. I'm asking the Architect to correct d5002's verification row. Prefer deriving the set from the fixture copy list rather than a second hand-maintained list, so the two can't drift. Add a test that a cut touching only main_watch.py runs the fixtures.
+    3. Wire `scripts/test-landing-budget-controls.py` into the unattended stack: ci-local, and so make test. As it stands the nine controls never run.
+
+    SHOULD:
+    4. Make the R1-ignored control mutate the ignored-result discrimination itself, not add a `--no-cargo` flag. Make R1-filtered target the filter check rather than a bare `return True`.
+    5. Record the residual risk in your report: the formal evidence store under git-common-dir is shared by every local branch and nothing signs it. Postsubmit never reuses, which bounds it.
+
+    Then run make test, test-landing.py and test-landing-recovery.py, push the signed commits, append to the report (no "key:" before hex), and send task_report for #4900. Send #4915's report separately.
 report:
   commit: 680c0579bdd777e808542024f5bb64e3e98e56b4
   op_id: 01M6CEXB8ZJGVPDY7BYK9VTCAX
   reported_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
   summary: 'Implemented d5002 R0–R4 in bboxy450-term PR #89 (https://github.com/bboxy450/bboxy450-term/pull/89), branch landing-budget, signed HEAD 680c0579bdd777e808542024f5bb64e3e98e56b4. Exact make test exited 0 unattended; full postsubmit compared 201 native/TLC models with 0 reused verdicts, and a subsequent opt-in formal run reused all 201 with a valid current-source receipt. Nine named mutation controls went 1 -> 0. Full command/exit/hash report: [[runs/2026-11-01-landing-budget-report.log]], SHA-256 dee342e882f0d01e751a831425563b75c2f4b257a0fb3f47c752246de5f76ed5, signed local harness report-only commit 2bb259987ae1150573abd5f54d4dffcbf9d4156d (refs/heads/landing-budget-report-4900, not pushed). Term source tree is clean; only the new term branch was pushed. Real two-cut bbt-mux margin measurement remains unmeasured. No merge or production land.sh run.'
 role: executor
-status: reported
+status: rejected
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E6: implement d5002 landing presubmit budget (R0-R4) in bboxy450-term'
 type: task
-updated: 2026-11-01T21:05:41.865Z
-updated_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+updated: 2026-11-01T21:08:18.461Z
+updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 verify: make test
 verify_result:
   command: make test
