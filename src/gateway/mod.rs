@@ -428,6 +428,7 @@ impl InProc {
         self.notices = Some(tx);
         self
     }
+    #[cfg(feature = "acp")]
     pub(crate) async fn notice(&self, level: Level, text: String) {
         if let Some(tx) = &self.notices {
             let _ = tx

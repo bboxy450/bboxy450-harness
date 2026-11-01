@@ -102,7 +102,7 @@ async fn smoke(acp_mode: bool) -> Result<(Value, i32), Box<dyn std::error::Error
     let temp = std::env::temp_dir().join(format!("harness-live-{}", ulid::Ulid::new()));
     tokio::fs::create_dir(&temp).await?;
     tokio::fs::write(temp.join("smoke.txt"), "before\n").await?;
-    let mut session = SessionId::new();
+    let session = SessionId::new();
     let sessions = temp.join("sessions");
     let meta = SessionMeta {
         session,
@@ -147,12 +147,10 @@ async fn smoke(acp_mode: bool) -> Result<(Value, i32), Box<dyn std::error::Error
         profile_error: None,
         max_rounds: 3,
     };
-    let ending = if acp_mode {
+    let (session, ending) = if acp_mode {
         #[cfg(feature = "acp")]
         {
-            let result = acp_turn(config, &temp).await?;
-            session = result.0;
-            result.1
+            acp_turn(config, &temp).await?
         }
         #[cfg(not(feature = "acp"))]
         {
@@ -187,7 +185,7 @@ async fn smoke(acp_mode: bool) -> Result<(Value, i32), Box<dyn std::error::Error
         .flatten();
         let _ = g.send(op(Op::Close));
         let _ = task.await;
-        result
+        (session, result)
     };
     let text = tokio::fs::read_to_string(sessions.join(format!("{session}.jsonl"))).await?;
     let transcript = text
