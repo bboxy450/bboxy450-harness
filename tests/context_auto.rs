@@ -162,17 +162,111 @@ async fn thirty_turns_trim_then_summarize_and_share_the_stable_prefix() {
         assert!(estimate <= 3200, "request estimate {estimate}");
         bboxy450_harness::engine::history::check_wire(&request.messages).unwrap();
     }
-    let mut shared = 0;
-    for pair in requests.windows(2) {
-        let a = &pair[0];
-        let b = &pair[1];
-        if a.stable_prefix == b.stable_prefix
-            && a.messages[..a.stable_prefix] == b.messages[..b.stable_prefix]
-        {
-            shared += 1;
+    // Each request in this provider starts one Reasoning or AgentMessage item.
+    // Its preceding durable history identifies the reduction frontier at that
+    // exact request, rather than inferring a frontier from coincidentally equal
+    // prefixes (including the trivially stable one-message system prompt).
+    let starts = log
+        .iter()
+        .filter_map(|e| {
+            matches!(
+                e.event,
+                Event::ItemStarted {
+                    kind: ItemKind::Reasoning | ItemKind::AgentMessage,
+                    ..
+                }
+            )
+            .then_some(e.seq.unwrap())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(starts.len(), requests.len());
+    let mut baseline = None;
+    let mut compared = 0;
+    for (request, start) in requests.iter().zip(starts) {
+        let prefix_log = log
+            .iter()
+            .filter(|e| e.seq.is_some_and(|s| s < start))
+            .cloned()
+            .collect::<Vec<_>>();
+        let frontier = (
+            context::clipped_through(&prefix_log),
+            context::latest(&prefix_log)
+                .map(|(_, s)| s)
+                .unwrap_or(Seq(0)),
+        );
+        if frontier == (Seq(0), Seq(0)) {
+            continue;
         }
+        assert!(
+            request.stable_prefix > 1,
+            "reduced cache prefix contains only the system prompt"
+        );
+        let bytes = serde_json::to_vec(&request.messages[..request.stable_prefix]).unwrap();
+        if let Some((old_frontier, old_len, old_bytes)) = &baseline
+            && *old_frontier == frontier
+        {
+            assert_eq!(
+                request.stable_prefix, *old_len,
+                "cache prefix length changed without a reduction"
+            );
+            assert_eq!(
+                &bytes, old_bytes,
+                "cache prefix changed without a reduction"
+            );
+            compared += 1;
+        }
+        baseline = Some((frontier, request.stable_prefix, bytes));
     }
-    assert!(shared > 0, "no stable frontier was reused");
+    assert!(
+        compared > 0,
+        "no non-system prefix was compared between reductions"
+    );
+}
+#[tokio::test]
+async fn trimming_alone_fits_without_a_following_summary() {
+    let (s, requests, _) = setup(Some(10000), false).await;
+    std::fs::write(s.temp.path().join("input.txt"), "x".repeat(30000)).unwrap();
+    let mut sub = support::subscribe(&s.gateway, false);
+    s.gateway
+        .send(support::prompt(&s.gateway, "first large read"))
+        .unwrap();
+    support::end(&mut sub).await;
+    std::fs::write(s.temp.path().join("input.txt"), "small").unwrap();
+    s.gateway
+        .send(support::prompt(&s.gateway, "read the now-small file"))
+        .unwrap();
+    let events = support::end(&mut sub).await;
+    assert!(
+        events.iter().any(|e| matches!(
+            e.event,
+            Event::ItemCompleted {
+                body: Item::ContextTrim { .. },
+                ..
+            }
+        )),
+        "trim-only path was never reached"
+    );
+    assert!(
+        !events.iter().any(|e| matches!(
+            e.event,
+            Event::ItemStarted {
+                kind: ItemKind::Compaction,
+                ..
+            }
+        )),
+        "summary followed a sufficient trim"
+    );
+    {
+        let requests = requests.lock().unwrap();
+        let after = &requests[2];
+        assert!(after.stable_prefix > 1);
+        assert!(auto::fits(
+            auto::estimate(&[], &after.messages, &after.tools),
+            1250,
+            10000
+        ));
+    }
+    support::close(s).await;
 }
 #[tokio::test]
 async fn oversized_open_turn_sends_once_and_unknown_window_warns_once() {

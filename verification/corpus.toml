@@ -253,3 +253,18 @@ frontend = "project"
 name = "BrokenHarnessAutoCompactD"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessAcpFlow"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessAcpFlowA"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessAcpFlowB"
+expected = "safety"
+frontend = "project"

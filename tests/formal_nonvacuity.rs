@@ -188,13 +188,31 @@ fn automatic_compaction_controls_violate_the_named_contracts() {
         report
             .states
             .iter()
-            .any(|s| s[latest] == 2 && s[frontier] == 1)
+            .any(|s| s[latest] == 3 && s[frontier] == 1)
     );
     assert!(
         report
             .states
             .iter()
             .all(|s| s[clipped] <= s[frontier] && s[replaced] <= s[frontier])
+    );
+    let phase = variable(&correct, "phase");
+    let steps = variable(&correct, "steps");
+    let item = variable(&correct, "item");
+    assert!(
+        report.states.iter().any(|s| s[frontier] == 2),
+        "completed frontier never advances"
+    );
+    assert!(
+        report
+            .states
+            .iter()
+            .any(|s| s[phase] == 2 && s[steps] == 1 && s[replaced] == 0),
+        "trim-only request is unreachable"
+    );
+    assert!(
+        report.states.iter().any(|s| s[item] == 2 && s[steps] == 0),
+        "summary without a new trim is unreachable"
     );
     for (name, property) in [
         ("BrokenHarnessAutoCompactA", "NeverReducesOpenTurn"),
@@ -207,6 +225,37 @@ fn automatic_compaction_controls_violate_the_named_contracts() {
             report.violations.iter().any(|v| v.property == property),
             "{name}: {:#?}",
             report.violations
+        );
+    }
+}
+#[test]
+fn acp_fifo_and_paused_writer_are_reachable_and_the_controls_are_real() {
+    let m = model("HarnessAcpFlow");
+    let r = m.check(100_000).unwrap();
+    assert!(r.violations.is_empty(), "{:#?}", r.violations);
+    let queue = variable(&m, "writer_queue");
+    let head = variable(&m, "log_head");
+    let turn = variable(&m, "turn");
+    assert!(
+        r.states.iter().enumerate().any(|(i, s)| s[queue] == 2
+            && s[turn] == 1
+            && s[head] < 2
+            && r.edges[i]
+                .iter()
+                .any(|e| r.states[e.to][head] == s[head] + 1)),
+        "engine cannot emit while the writer queue is full"
+    );
+    for (name, property) in [
+        ("BrokenHarnessAcpFlowA", "CancelHitsItsPrompt"),
+        ("BrokenHarnessAcpFlowB", "CloseOnlyOnEof"),
+    ] {
+        let report = model(name).check(100_000).unwrap();
+        assert!(
+            report
+                .violations
+                .iter()
+                .any(|v| v.property == property && v.cycle.is_empty()),
+            "{name} did not fail {property}"
         );
     }
 }

@@ -32,6 +32,9 @@ impl TaskGroup {
         if let Some(e) = error { Err(e) } else { Ok(()) }
     }
     pub async fn reap(&mut self) {
+        self.reap_ready();
+    }
+    pub fn reap_ready(&mut self) {
         while self.tasks.try_join_next().is_some() {}
     }
 }

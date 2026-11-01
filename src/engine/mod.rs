@@ -73,7 +73,7 @@ pub(crate) enum Internal {
         tool: String,
         effect: EffectClass,
         body: Item,
-        reply: oneshot::Sender<Option<Permit>>,
+        reply: oneshot::Sender<Result<Permit, String>>,
     },
 }
 struct Pending {
@@ -82,7 +82,7 @@ struct Pending {
     tool: String,
     effect: EffectClass,
     body: Item,
-    reply: oneshot::Sender<Option<Permit>>,
+    reply: oneshot::Sender<Result<Permit, String>>,
 }
 enum Queued {
     Turn(TurnId, Vec<InputBlock>),
@@ -715,7 +715,7 @@ impl SessionActor {
                     .as_ref()
                     .is_none_or(|r| r.generation != generation || r.cancel.is_cancelled())
                 {
-                    let _ = reply.send(None);
+                    let _ = reply.send(Err("cancelled".into()));
                     return Ok(());
                 }
                 let decision = self.config.policy.decide(&Action {
@@ -726,11 +726,11 @@ impl SessionActor {
                 if effect == EffectClass::ReadOnly {
                     match &decision {
                         Decision::Allow { .. } => {
-                            let _ = reply.send(Some(Permit::approval(tool, generation)));
+                            let _ = reply.send(Ok(Permit::approval(tool, generation)));
                             return Ok(());
                         }
-                        Decision::Deny { .. } => {
-                            let _ = reply.send(None);
+                        Decision::Deny { reason } => {
+                            let _ = reply.send(Err(reason.clone()));
                             return Ok(());
                         }
                         Decision::Ask => {}
@@ -1012,6 +1012,12 @@ impl SessionActor {
         if matches!(decision, ApprovalDecision::AllowAlways) && allowed {
             self.config.policy.always_allow(&p.tool, p.effect.clone());
         }
+        let denied = match &decision {
+            ApprovalDecision::Deny { reason } => {
+                reason.clone().unwrap_or_else(|| "tool denied".into())
+            }
+            _ => "cancelled".into(),
+        };
         if let Item::Approval {
             decision: d, by: b, ..
         } = &mut p.body
@@ -1029,9 +1035,11 @@ impl SessionActor {
         )
         .await?;
         self.resolved.insert(item, ());
-        let _ = p
-            .reply
-            .send(allowed.then(|| Permit::approval(p.tool, p.generation)));
+        let _ = p.reply.send(if allowed {
+            Ok(Permit::approval(p.tool, p.generation))
+        } else {
+            Err(denied)
+        });
         Ok(())
     }
     async fn cancel_approvals(&mut self, turn: TurnId) -> std::io::Result<()> {

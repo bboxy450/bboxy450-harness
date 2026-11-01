@@ -42,41 +42,81 @@ struct Permission {
     item: ItemId,
     options: Vec<ApprovalDecisionKind>,
 }
+enum ConnectionInput {
+    Message(Value),
+    ParseError,
+}
 struct Face {
     host: Host,
     config: Config,
     sessions: Mutex<BTreeMap<SessionId, Arc<Session>>>,
     permissions: Mutex<BTreeMap<String, Permission>>,
     output: mpsc::Sender<Value>,
+    drivers: Mutex<TaskGroup>,
+    inputs: Mutex<BTreeMap<SessionId, mpsc::UnboundedSender<Value>>>,
+    connection: mpsc::UnboundedSender<ConnectionInput>,
     cancel: CancellationToken,
     next: AtomicU64,
     unknown: AtomicU64,
 }
 impl Face {
-    fn emit(&self, value: Value) {
+    fn spawn(&self, future: impl std::future::Future<Output = ()> + Send + 'static) {
+        let mut group = self.drivers.lock().unwrap();
+        group.reap_ready();
+        group.spawn(future);
+    }
+    /// Admission is FIFO within a session, independent of output backpressure.
+    /// Loading and other sessions have their own workers; pending prompts park
+    /// only their replies in the projection, never this input queue.
+    fn route(self: &Arc<Self>, request: Value) {
+        let sid = request["params"]["sessionId"]
+            .as_str()
+            .and_then(|s| s.parse().ok())
+            .map(SessionId);
+        if let Some(sid) = sid {
+            let known = self.sessions.lock().unwrap().contains_key(&sid);
+            let mut inputs = self.inputs.lock().unwrap();
+            if known || inputs.contains_key(&sid) || request["method"] == "session/load" {
+                let tx=inputs.entry(sid).or_insert_with(|| {
+                    let (tx,mut rx)=mpsc::unbounded_channel();
+                    let face=self.clone();
+                    self.spawn(async move {loop {
+                        let request=tokio::select!{biased;_=face.cancel.cancelled()=>break,r=rx.recv()=>r};
+                        let Some(request)=request else {break;};
+                        face.clone().dispatch(request).await;
+                    }});
+                    tx
+                });
+                let _ = tx.send(request);
+                return;
+            }
+        }
+        let _ = self.connection.send(ConnectionInput::Message(request));
+    }
+    async fn emit(&self, value: Value) {
         let value = self.config.redactor.value(value);
         let Some(value) = bound(value) else {
-            self.cancel.cancel();
             return;
         };
-        if self.output.try_send(value).is_err() {
-            self.cancel.cancel();
-        }
+        // Only admission/subscription tasks wait for bounded capacity. Queue
+        // fullness has no expiry and never closes a connected peer's session.
+        tokio::select! {biased;_=self.cancel.cancelled()=>{},r=self.output.send(value)=>if r.is_err(){self.cancel.cancel();}}
     }
-    fn response(&self, id: Value, result: Value) {
-        self.emit(json!({"jsonrpc":"2.0","id":id,"result":result}));
+    async fn response(&self, id: Value, result: Value) {
+        self.emit(json!({"jsonrpc":"2.0","id":id,"result":result}))
+            .await;
     }
-    fn error(&self, id: Value, code: i32, message: &str, data: Option<Value>) {
+    async fn error(&self, id: Value, code: i32, message: &str, data: Option<Value>) {
         let mut error = json!({"code":code,"message":message});
         if let Some(data) = data {
             error["data"] = data;
         }
-        self.emit(json!({"jsonrpc":"2.0","id":id,"error":error}));
+        self.emit(json!({"jsonrpc":"2.0","id":id,"error":error}))
+            .await;
     }
     async fn update(&self, session: SessionId, update: Value) {
         let value = json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session.to_string(),"update":update}});
         let Some(value) = bound(self.config.redactor.value(value)) else {
-            self.cancel.cancel();
             return;
         };
         tokio::select! {biased;_=self.cancel.cancelled()=>{},result=self.output.send(value)=>if result.is_err(){self.cancel.cancel();}}
@@ -99,7 +139,8 @@ impl Face {
     }
     async fn dispatch(self: Arc<Self>, request: Value) {
         if request["jsonrpc"] != "2.0" || !request.is_object() {
-            self.error(request["id"].clone(), -32600, "Invalid Request", None);
+            self.error(request["id"].clone(), -32600, "Invalid Request", None)
+                .await;
             return;
         }
         let Some(method) = request["method"].as_str() else {
@@ -122,10 +163,10 @@ impl Face {
         match method {
             "initialize" => {
                 if serde_json::from_value::<schema::InitializeRequest>(params).is_err() {
-                    self.error(id, -32602, "Invalid params", None);
+                    self.error(id, -32602, "Invalid params", None).await;
                     return;
                 }
-                self.response(id,json!({"protocolVersion":1,"authMethods":[],"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":self.config.provider.caps().images,"audio":false,"embeddedContext":true},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"close":{}}},"agentInfo":{"name":"bboxy450-harness","version":env!("CARGO_PKG_VERSION")}}));
+                self.response(id,json!({"protocolVersion":1,"authMethods":[],"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":self.config.provider.caps().images,"audio":false,"embeddedContext":true},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"close":{}}},"agentInfo":{"name":"bboxy450-harness","version":env!("CARGO_PKG_VERSION")}})).await;
             }
             "session/new" | "session/load" => self.load(method == "session/load", id, params).await,
             "session/prompt" => {
@@ -137,16 +178,27 @@ impl Face {
                     })
                     .is_err()
                 {
-                    self.error(id, -32602, "Invalid params", None);
+                    self.error(id, -32602, "Invalid params", None).await;
                     return;
                 }
                 let Some(session) = self.session(&params) else {
-                    self.error(id, -32002, "Unknown session", None);
+                    self.error(id, -32002, "Unknown session", None).await;
                     return;
                 };
                 match self.input(&session, &params["prompt"]).await {
                     Ok(blocks) => {
                         let op_id = OpId::new();
+                        let mut admission = session
+                            .gateway
+                            .subscribe(Subscribe {
+                                session: session.gateway.session(),
+                                after: Some((
+                                    session.gateway.hello().epoch,
+                                    session.gateway.hello().head,
+                                )),
+                                ephemeral: false,
+                            })
+                            .expect("loaded session");
                         session
                             .pending
                             .lock()
@@ -168,21 +220,35 @@ impl Face {
                                 -32603,
                                 "Prompt admission refused",
                                 Some(json!({"reason":reason})),
-                            );
+                            )
+                            .await;
+                        } else {
+                            // Ack is lane admission, not durable consumption. The
+                            // control lane drains first, so a following cancel
+                            // must wait for this prompt's first durable outcome.
+                            loop {
+                                let e = tokio::select! {biased;_=self.cancel.cancelled()=>break,e=admission.recv()=>e};
+                                let Some(e) = e else {
+                                    break;
+                                };
+                                if e.cause == Some(op_id) {
+                                    break;
+                                }
+                            }
                         }
                     }
-                    Err(message) => self.error(id, -32602, &message, None),
+                    Err(message) => self.error(id, -32602, &message, None).await,
                 }
             }
             "session/close" => {
                 if let Some(session) = self.session(&params) {
                     let _ = self.send(&session, Op::Close);
-                    self.response(id, json!({}));
+                    self.response(id, json!({})).await;
                 } else {
-                    self.error(id, -32002, "Unknown session", None);
+                    self.error(id, -32002, "Unknown session", None).await;
                 }
             }
-            _ => self.error(id, -32601, "Method not found", None),
+            _ => self.error(id, -32601, "Method not found", None).await,
         }
     }
     async fn load(self: &Arc<Self>, load: bool, id: Value, params: Value) {
@@ -192,7 +258,7 @@ impl Face {
             serde_json::from_value::<schema::NewSessionRequest>(params.clone()).is_ok()
         };
         if !valid {
-            self.error(id, -32602, "Invalid params", None);
+            self.error(id, -32602, "Invalid params", None).await;
             return;
         }
         let cwd = PathBuf::from(params["cwd"].as_str().unwrap_or(""));
@@ -200,7 +266,7 @@ impl Face {
             match params["sessionId"].as_str().and_then(|s| s.parse().ok()) {
                 Some(id) => SessionId(id),
                 None => {
-                    self.error(id, -32602, "Invalid session id", None);
+                    self.error(id, -32602, "Invalid session id", None).await;
                     return;
                 }
             }
@@ -208,7 +274,8 @@ impl Face {
             SessionId::new()
         };
         if self.sessions.lock().unwrap().contains_key(&session_id) {
-            self.error(id, -32602, "Session already attached", None);
+            self.error(id, -32602, "Session already attached", None)
+                .await;
             return;
         }
         let result = if load {
@@ -270,12 +337,19 @@ impl Face {
                     -32002,
                     "Session unavailable",
                     Some(json!({"reason":reason})),
-                );
+                )
+                .await;
                 return;
             }
         };
         if gateway.hello().meta.cwd != cwd {
-            self.error(id, -32602, "Session cwd differs", None);
+            let _ = gateway.send(OpEnvelope {
+                v: PROTOCOL,
+                session: session_id,
+                op_id: OpId::new(),
+                op: Op::Close,
+            });
+            self.error(id, -32602, "Session cwd differs", None).await;
             return;
         }
         let mut subscription = match gateway.subscribe(Subscribe {
@@ -285,7 +359,7 @@ impl Face {
         }) {
             Ok(s) => s,
             Err(_) => {
-                self.error(id, -32002, "Session unavailable", None);
+                self.error(id, -32002, "Session unavailable", None).await;
                 return;
             }
         };
@@ -346,11 +420,23 @@ impl Face {
             } else {
                 json!({"sessionId":session_id.to_string()})
             },
-        );
+        )
+        .await;
         if let Some(live) = live {
             subscription = live;
         }
-
+        let face = self.clone();
+        self.spawn(async move {
+            face.observe(session, subscription, mapper).await;
+        });
+    }
+    async fn observe(
+        self: Arc<Self>,
+        session: Arc<Session>,
+        mut subscription: crate::gateway::Subscription,
+        mut mapper: Mapper,
+    ) {
+        let session_id = session.gateway.session();
         loop {
             let event =
                 tokio::select! {biased;_=self.cancel.cancelled()=>break,e=subscription.recv()=>e};
@@ -540,17 +626,20 @@ impl Face {
                 }
             }
             Event::OpRejected { reason, .. } => {
-                if let Some(op) = e.cause
-                    && let Some(id) = session.pending.lock().unwrap().ops.remove(&op)
-                {
-                    self.error(id, -32603, "Operation rejected", Some(json!(reason)));
+                let id = e
+                    .cause
+                    .and_then(|op| session.pending.lock().unwrap().ops.remove(&op));
+                if let Some(id) = id {
+                    self.error(id, -32603, "Operation rejected", Some(json!(reason)))
+                        .await;
                 }
             }
             Event::TurnEnded { turn, reason, .. } => {
-                if let Some(id) = session.pending.lock().unwrap().turns.remove(turn) {
+                let id = session.pending.lock().unwrap().turns.remove(turn);
+                if let Some(id) = id {
                     match reason {
-                        StopReason::Error {class,message}=>self.error(id,-32603,message,Some(json!({"class":class,"message":message}))),
-                        _=>self.response(id,json!({"stopReason":match reason {StopReason::EndTurn=>"end_turn",StopReason::MaxTokens=>"max_tokens",StopReason::MaxRounds=>"max_turn_requests",_=>"cancelled"}})),
+                        StopReason::Error {class,message}=>self.error(id,-32603,message,Some(json!({"class":class,"message":message}))).await,
+                        _=>self.response(id,json!({"stopReason":match reason {StopReason::EndTurn=>"end_turn",StopReason::MaxTokens=>"max_tokens",StopReason::MaxRounds=>"max_turn_requests",_=>"cancelled"}})).await,
                     }
                 }
             }
@@ -615,26 +704,27 @@ impl Face {
             Item::ToolCall {input_raw,output,locations,..}=> {
                 let mut update=json!({"sessionUpdate":"tool_call_update","toolCallId":item.to_string()});
                 if let Ok(input)=serde_json::from_str::<Value>(&input_raw) {update["rawInput"]=input;}
-                if completed {update["status"]=json!(if matches!(e.event,Event::ItemCompleted {status:ItemStatus::Completed,..}){"completed"}else{"failed"});update["content"]=content(clip(&crate::engine::history::output_text(&output),64*1024));update["locations"]=json!(locations.iter().map(|l|{let mut v=json!({"path":l.path});if let Some(line)=l.line{v["line"]=json!(line);}v}).collect::<Vec<_>>());}
+                if completed {update["status"]=json!(if matches!(e.event,Event::ItemCompleted {status:ItemStatus::Completed,..}){"completed"}else{"failed"});update["content"]=mapper.content(item,item,content(clip(&crate::engine::history::output_text(&output),64*1024)));update["locations"]=json!(locations.iter().map(|l|{let mut v=json!({"path":l.path});if let Some(line)=l.line{v["line"]=json!(line);}v}).collect::<Vec<_>>());}
                 if update.as_object().unwrap().len()>2 {self.update(sid,update).await;}
             }
-            Item::FileChange {unified,..} if completed=> {if let Some(parent)=parent {self.update(sid,json!({"sessionUpdate":"tool_call_update","toolCallId":parent.to_string(),"content":content(format!("```diff\n{}\n```",clip(&unified,64*1024-16)))})).await;}}
+            Item::FileChange {unified,..} if completed=> {if let Some(parent)=parent {let merged=mapper.content(parent,item,content(format!("```diff\n{}\n```",clip(&unified,64*1024-16))));self.update(sid,json!({"sessionUpdate":"tool_call_update","toolCallId":parent.to_string(),"content":merged})).await;}}
             Item::Terminal {command,exit,live,output,..}=> {
                 let mut text=live.unwrap_or_default();
                 if completed && let Some(blob)=output {text=session.blobs.get(&blob).await.map(|b|String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();}
                 let command=clip(&command,4096);
                 let text=format!("$ {command}\n{}{}",clip(&text,64*1024-command.len()-64),exit.map(|n|format!("\nexit {n}")).unwrap_or_default());
-                let mut update=json!({"sessionUpdate":"tool_call_update","toolCallId":parent.unwrap_or(item).to_string(),"content":content(text)});
+                let target=parent.unwrap_or(item);let merged=mapper.content(target,item,content(text));
+                let mut update=json!({"sessionUpdate":"tool_call_update","toolCallId":target.to_string(),"content":merged});
                 if completed && parent.is_none(){update["status"]=json!(if matches!(e.event,Event::ItemCompleted {status:ItemStatus::Completed,..}){"completed"}else{"failed"});}
                 if !matches!(e.event,Event::ItemStarted {..}){self.update(sid,update).await;}
             }
             Item::Plan {entries}=>self.update(sid,json!({"sessionUpdate":"plan","entries":entries.iter().map(|entry|json!({"content":if entry.status==PlanStatus::Cancelled {format!("(cancelled) {}",entry.text)}else{entry.text.clone()},"priority":entry.priority.filter(|p|!matches!(p,Priority::Unknown)).unwrap_or(Priority::Medium),"status":match entry.status {PlanStatus::InProgress=>"in_progress",PlanStatus::Completed|PlanStatus::Cancelled=>"completed",_=>"pending"}})).collect::<Vec<_>>()})).await,
             Item::Approval {subject,options,decision,..} if !completed && decision.is_none() && !options.is_empty()=> {
-                let mut permissions=self.permissions.lock().unwrap();
+                let id={let mut permissions=self.permissions.lock().unwrap();
                 if permissions.values().any(|p|p.session==sid&&p.item==item){return;}
                 let id=format!("permission-{}",self.next.fetch_add(1,Ordering::Relaxed));
-                permissions.insert(id.clone(),Permission {session:sid,item,options:options.clone()});drop(permissions);
-                self.emit(json!({"jsonrpc":"2.0","id":id,"method":"session/request_permission","params":{"sessionId":sid.to_string(),"toolCall":{"toolCallId":subject.tool_call.to_string(),"title":subject.summary,"status":"pending"},"options":options.iter().filter_map(|option|match option {ApprovalDecisionKind::Allow=>Some(json!({"optionId":"allow","name":"Allow","kind":"allow_once"})),ApprovalDecisionKind::AllowAlways=>Some(json!({"optionId":"allow_always","name":"Always allow","kind":"allow_always"})),ApprovalDecisionKind::Deny=>Some(json!({"optionId":"deny","name":"Deny","kind":"reject_once"})),_=>None}).collect::<Vec<_>>()}}));
+                permissions.insert(id.clone(),Permission {session:sid,item,options:options.clone()});id};
+                self.emit(json!({"jsonrpc":"2.0","id":id,"method":"session/request_permission","params":{"sessionId":sid.to_string(),"toolCall":{"toolCallId":subject.tool_call.to_string(),"title":subject.summary,"status":"pending"},"options":options.iter().filter_map(|option|match option {ApprovalDecisionKind::Allow=>Some(json!({"optionId":"allow","name":"Allow","kind":"allow_once"})),ApprovalDecisionKind::AllowAlways=>Some(json!({"optionId":"allow_always","name":"Always allow","kind":"allow_always"})),ApprovalDecisionKind::Deny=>Some(json!({"optionId":"deny","name":"Deny","kind":"reject_once"})),_=>None}).collect::<Vec<_>>()}})).await;
             }
             Item::Approval {..} if completed=>self.permissions.lock().unwrap().retain(|_,p|p.session!=sid||p.item!=item),
             Item::Notice {level:Level::Error,text}=>eprintln!("{}",self.config.redactor.scrub(&text)),
@@ -643,6 +733,7 @@ impl Face {
         if completed {
             mapper.items.remove(&item);
             mapper.sent.remove(&item);
+            mapper.contents.remove(&item);
         }
     }
 }
@@ -651,8 +742,25 @@ struct Mapper {
     items: BTreeMap<ItemId, (Option<ItemId>, Item)>,
     sent: BTreeMap<ItemId, String>,
     divergence: u64,
+    contents: BTreeMap<ItemId, Vec<(ItemId, Value)>>,
 }
 impl Mapper {
+    /// ACP updates replace content. Retain every child segment in arrival order;
+    /// snapshots replace a segment, and parent completion adds its own result.
+    fn content(&mut self, parent: ItemId, item: ItemId, content: Value) -> Value {
+        let segments = self.contents.entry(parent).or_default();
+        if let Some((_, stored)) = segments.iter_mut().find(|(id, _)| *id == item) {
+            *stored = content;
+        } else {
+            segments.push((item, content));
+        }
+        Value::Array(
+            segments
+                .iter()
+                .flat_map(|(_, value)| value.as_array().into_iter().flatten().cloned())
+                .collect(),
+        )
+    }
     fn suffix(&mut self, item: ItemId, text: &str) -> Option<String> {
         let previous = self.sent.entry(item).or_default();
         if !text.starts_with(previous.as_str()) {
@@ -746,15 +854,35 @@ pub async fn serve_cancelled<
     cancel: CancellationToken,
 ) -> std::io::Result<()> {
     let (tx, mut rx) = mpsc::channel::<Value>(256);
+    let (connection, mut requests) = mpsc::unbounded_channel();
     let face = Arc::new(Face {
         host: Host::new(config.clone()),
         config,
         sessions: Mutex::default(),
         permissions: Mutex::default(),
         output: tx,
+        drivers: Mutex::new(TaskGroup::new(cancel.clone())),
+        inputs: Mutex::default(),
+        connection,
         cancel: cancel.clone(),
         next: 0.into(),
         unknown: 0.into(),
+    });
+    let handler = face.clone();
+    face.spawn(async move {
+        loop {
+            let request =
+                tokio::select! {biased;_=handler.cancel.cancelled()=>break,r=requests.recv()=>r};
+            match request {
+                Some(ConnectionInput::Message(request)) => handler.clone().dispatch(request).await,
+                Some(ConnectionInput::ParseError) => {
+                    handler
+                        .error(Value::Null, -32700, "Parse error", None)
+                        .await
+                }
+                None => break,
+            }
+        }
     });
     let mut tasks = TaskGroup::new(cancel.clone());
     let stop = cancel.clone();
@@ -779,13 +907,10 @@ pub async fn serve_cancelled<
         let line = tokio::select! {biased;_=cancel.cancelled()=>break,line=lines.next_line()=>line};
         match line {
             Ok(Some(line)) => match serde_json::from_str::<Value>(&line) {
-                Ok(request) => {
-                    let face = face.clone();
-                    tasks.spawn(async move {
-                        face.dispatch(request).await;
-                    });
+                Ok(request) => face.route(request),
+                Err(_) => {
+                    let _ = face.connection.send(ConnectionInput::ParseError);
                 }
-                Err(_) => face.error(Value::Null, -32700, "Parse error", None),
             },
             _ => break,
         }
@@ -794,6 +919,11 @@ pub async fn serve_cancelled<
     face.disconnected();
     cancel.cancel();
     face.host.close_all().await;
+    let mut drivers = std::mem::replace(
+        &mut *face.drivers.lock().unwrap(),
+        TaskGroup::new(cancel.clone()),
+    );
+    let _ = drivers.cancel_and_join().await;
     let _ = tasks.cancel_and_join().await;
     Ok(())
 }
@@ -919,6 +1049,8 @@ mod tests {
         let mut runs = vec![];
         for _ in 0..3 {
             let (output, rx) = mpsc::channel(64);
+            let (connection, _requests) = mpsc::unbounded_channel();
+            let cancel = CancellationToken::new();
             runs.push((
                 Face {
                     host: Host::new(config.clone()),
@@ -926,7 +1058,10 @@ mod tests {
                     sessions: Mutex::default(),
                     permissions: Mutex::default(),
                     output,
-                    cancel: CancellationToken::new(),
+                    drivers: Mutex::new(TaskGroup::new(cancel.clone())),
+                    inputs: Mutex::default(),
+                    connection,
+                    cancel,
                     next: 0.into(),
                     unknown: 0.into(),
                 },

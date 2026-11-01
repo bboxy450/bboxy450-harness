@@ -30,10 +30,10 @@ pub fn export(
         "pass"
     } else if r.violations.iter().any(|v| v.property == "Deadlock") {
         "deadlock"
-    } else if r.violations.iter().any(|v| !v.cycle.is_empty()) {
-        "liveness"
-    } else {
+    } else if r.violations.iter().any(|v| v.cycle.is_empty()) {
         "safety"
+    } else {
+        "liveness"
     };
     if actual != expected {
         return Err(format!("{}: native expected {expected}, got {actual}", m.name).into());

@@ -655,21 +655,17 @@ impl TurnRunner {
                         item,
                         if output.failed {
                             ItemStatus::Failed {
-                                reason: if call.name.starts_with("mcp__") {
-                                    output
-                                        .output
-                                        .iter()
-                                        .find_map(|b| match b {
-                                            OutputBlock::Text { text }
-                                            | OutputBlock::Error { text } => {
-                                                text.lines().next().map(str::to_string)
-                                            }
-                                            _ => None,
-                                        })
-                                        .unwrap_or_else(|| "MCP tool failed".into())
-                                } else {
-                                    "tool failed".into()
-                                },
+                                reason: output
+                                    .output
+                                    .iter()
+                                    .find_map(|b| match b {
+                                        OutputBlock::Text { text }
+                                        | OutputBlock::Error { text } => {
+                                            text.lines().next().map(str::to_string)
+                                        }
+                                        _ => None,
+                                    })
+                                    .unwrap_or_else(|| "tool failed".into()),
                             }
                         } else {
                             ItemStatus::Completed
@@ -690,21 +686,16 @@ impl TurnRunner {
                     call.item,
                     if output.failed {
                         ItemStatus::Failed {
-                            reason: if call.name.starts_with("mcp__") {
-                                output
-                                    .output
-                                    .iter()
-                                    .find_map(|b| match b {
-                                        OutputBlock::Text { text }
-                                        | OutputBlock::Error { text } => {
-                                            text.lines().next().map(str::to_string)
-                                        }
-                                        _ => None,
-                                    })
-                                    .unwrap_or_else(|| "MCP tool failed".into())
-                            } else {
-                                "tool failed".into()
-                            },
+                            reason: output
+                                .output
+                                .iter()
+                                .find_map(|b| match b {
+                                    OutputBlock::Text { text } | OutputBlock::Error { text } => {
+                                        text.lines().next().map(str::to_string)
+                                    }
+                                    _ => None,
+                                })
+                                .unwrap_or_else(|| "tool failed".into()),
                         }
                     } else {
                         ItemStatus::Completed
@@ -837,7 +828,7 @@ impl TurnRunner {
     let args=match call.args{Ok(v)=>v,Err(e)=>return ToolOutput::error(e)};let Some(def)=registry.get(&call.name)else{return ToolOutput::error("unknown tool");};
     let permit=if let Some(effect)=def.effect.effect(){let item=ItemId::new();let (reply,wait)=oneshot::channel();let paths=args["path"].as_str().map(|p|vec![PathBuf::from(p)]).unwrap_or_default();let body=Item::Approval{subject:ApprovalSubject{tool_call:call.item,effect,summary:format!("{} {}",call.name,call.raw),paths,command:args["command"].as_str().map(str::to_owned)},options:vec![ApprovalDecisionKind::Allow,ApprovalDecisionKind::AllowAlways,ApprovalDecisionKind::Deny],decision:None,by:None};
       let request=Internal::Approval{generation,turn,item,tool:call.name.clone(),effect:def.effect.clone(),body,reply};if !send(&actor,request,&cancel).await{return ToolOutput::error("cancelled");}
-      tokio::select!{biased;_=cancel.cancelled()=>return ToolOutput::error("cancelled"),r=wait=>match r{Ok(Some(p))=>Some(p),_=>return ToolOutput::error("policy denied this tool")}}
+      tokio::select!{biased;_=cancel.cancelled()=>return ToolOutput::error("cancelled"),r=wait=>match r{Ok(Ok(p))=>Some(p),Ok(Err(reason))=>return ToolOutput::error(reason),Err(_)=>return ToolOutput::error("cancelled")}}
     }else{None};
     let (out,mut chunks)=mpsc::channel(32);
     let execution=registry.run_stream(&call.name,args,context,permit,terminal.map(|_|out));tokio::pin!(execution);let mut open=terminal.is_some();

@@ -224,15 +224,14 @@ impl Binding {
     pub async fn call(&self, args: Value, ctx: &crate::tools::Context) -> ToolOutput {
         use std::sync::atomic::Ordering;
         let view = self.slot.ready.load_full();
-        let Some(ready) = view
-            .as_ref()
-            .as_ref()
-            .filter(|r| r.generation == self.generation)
-        else {
+        let Some(ready) = view.as_ref().as_ref() else {
             let state = ["starting", "ready", "failed", "dead"]
                 [usize::from(self.slot.state.load(Ordering::Acquire))];
             return ToolOutput::error(format!("mcp {}: {state}", self.slot.name));
         };
+        if ready.generation != self.generation {
+            return ToolOutput::error(format!("mcp {}: stale generation", self.slot.name));
+        }
         let args = ctx.redactor.value(args);
         let mut params = CallToolRequestParams::new(self.tool.clone());
         params.arguments = args.as_object().cloned();
@@ -248,7 +247,10 @@ impl Binding {
         if ctx.current_generation.load(Ordering::Acquire) != ctx.generation
             || self.slot.generation.load(Ordering::Acquire) != self.generation
         {
-            return ToolOutput::error("cancelled or stale MCP generation");
+            return ToolOutput::error(format!(
+                "mcp {}: cancelled or stale generation",
+                self.slot.name
+            ));
         }
         let result = match result {
             Ok(ServerResult::CallToolResult(result)) => result,
@@ -454,16 +456,18 @@ async fn supervise(
                 let tools=match first {Ok(Ok(tools))=>tools,_=>{let _=service.cancel().await;return Err("tools/list failed");}};
                 slot.ready.store(Arc::new(Some(Ready {generation,peer:service.peer().clone(),tools})));slot.state.store(1,Ordering::Release);
                 notice(&output,&cancel,Level::Info,format!("mcp {}: ready",slot.name)).await;
-                let mut watch=tokio::time::interval(Duration::from_millis(50));
+                let peer=service.peer().clone();let stop_service=service.cancellation_token();
+                let mut completion=Box::pin(service.waiting());let mut finished=false;
                 loop {
-                    tokio::select! {biased;_=cancel.cancelled()=>break,_=watch.tick()=>{if service.is_closed(){break;}},_=changed.notified()=> {
-                        tokio::select!{biased;_=cancel.cancelled()=>break,_=tokio::time::sleep(Duration::from_secs(1))=>{}}
+                    tokio::select! {biased;_=cancel.cancelled()=>break,_=&mut completion=>{finished=true;break;},_=changed.notified()=> {
+                        tokio::select!{biased;_=cancel.cancelled()=>break,_=&mut completion=>{finished=true;break;},_=tokio::time::sleep(Duration::from_secs(1))=>{}}
                         while changed.notified().now_or_never().is_some() {}
-                        let listed=tokio::select!{biased;_=cancel.cancelled()=>break,r=tokio::time::timeout(Duration::from_secs(10),service.peer().list_all_tools())=>r};
-                        if let Ok(Ok(tools))=listed {slot.ready.store(Arc::new(Some(Ready {generation,peer:service.peer().clone(),tools})));}
+                        let listed=tokio::select!{biased;_=cancel.cancelled()=>break,_=&mut completion=>{finished=true;break;},r=tokio::time::timeout(Duration::from_secs(10),peer.list_all_tools())=>r};
+                        if let Ok(Ok(tools))=listed {slot.ready.store(Arc::new(Some(Ready {generation,peer:peer.clone(),tools})));}
                     }}
                 }
-                slot.ready.store(Arc::new(None));let _=service.cancel().await;Err("server exited")
+                slot.ready.store(Arc::new(None));slot.state.store(2,Ordering::Release);
+                stop_service.cancel();if !finished {let _=completion.await;}Err("server exited")
             };
             let outcome:Result<(),&str>=run.await;
             slot.ready.store(Arc::new(None));finish_child(rx).await;let _=pipes.cancel_and_join().await;outcome

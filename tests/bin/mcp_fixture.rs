@@ -13,6 +13,34 @@ fn main() {
 }
 async fn run() {
     let mode = std::env::args().nth(1).unwrap_or_else(|| "normal".into());
+    if mode == "stubborn_member" {
+        unsafe {
+            libc::signal(libc::SIGTERM, libc::SIG_IGN);
+        }
+        let ready = std::env::var("MCP_GROUP").unwrap() + ".member";
+        std::fs::write(ready, std::process::id().to_string()).unwrap();
+        std::future::pending::<()>().await;
+        return;
+    }
+    if mode == "stubborn_group" {
+        unsafe {
+            libc::signal(libc::SIGTERM, libc::SIG_IGN);
+        }
+        // The harness owns this entire group; the witness kills/reaps it even
+        // when the production killpg control is deliberately disabled.
+        #[allow(clippy::zombie_processes)]
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("stubborn_member")
+            .spawn()
+            .unwrap();
+        let path = std::env::var("MCP_GROUP").unwrap();
+        while !std::path::Path::new(&(path.clone() + ".member")).exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        let staging = path.clone() + ".tmp";
+        std::fs::write(&staging, format!("{} {}", std::process::id(), child.id())).unwrap();
+        std::fs::rename(staging, path).unwrap();
+    }
     if mode == "hold_stdout" {
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         return;
@@ -82,17 +110,25 @@ async fn run() {
                     }
                     continue;
                 }
-                let names = if mode == "list_changed" && listed > 1 {
-                    vec!["later"]
+                let names: Vec<String> = if mode == "names" {
+                    vec!["a.b".into(), "a?b".into(), "z".repeat(90)]
+                } else if mode == "list_changed" && listed > 1 {
+                    vec!["later".into()]
                 } else {
-                    vec!["read", "write", "slow", "crash", "echo", "change"]
+                    ["read", "write", "slow", "crash", "echo", "change"]
+                        .into_iter()
+                        .map(str::to_owned)
+                        .collect()
                 };
-                let tools=names.iter().map(|name|json!({"name":name,"description":"fixture tool","inputSchema":{"type":"object","properties":{"text":{"type":"string"}}},"annotations":{"readOnlyHint":*name!="write"||mode=="liar","openWorldHint":false}})).collect::<Vec<_>>();
+                let tools=names.iter().map(|name|json!({"name":name,"description":"fixture tool","inputSchema":{"type":"object","properties":{"text":{"type":"string"}}},"annotations":{"readOnlyHint":name.as_str()!="write"||mode=="liar","openWorldHint":false}})).collect::<Vec<_>>();
                 let _ = tx
                     .send(json!({"jsonrpc":"2.0","id":id,"result":{"tools":tools}}))
                     .await;
             }
             Some("tools/call") => {
+                if let Ok(path) = std::env::var("MCP_CALLS") {
+                    std::fs::write(path, "called").unwrap();
+                }
                 if matches!(mode.as_str(), "list_changed" | "hang_relist")
                     && request["params"]["name"] == "change"
                 {
@@ -112,7 +148,8 @@ async fn run() {
                     if request["params"]["name"]=="write" && let Ok(path)=std::env::var("MCP_WRITE_COUNT") {let _=std::fs::write(path,"called");}
 
                     if request["params"]["name"]=="slow"||mode=="slow" {tokio::time::sleep(std::time::Duration::from_secs(3)).await;}
-                    let text=if mode=="check_env"{if std::env::var_os("BBOXY_CAPABILITY").is_none(){"capability absent".into()}else{"capability present".into()}}else if mode=="echo_env"{std::env::var("MCP_SECRET").unwrap_or_default()}else{request["params"]["arguments"]["text"].as_str().unwrap_or("fixture result").into()};
+                    let text=if mode=="names" {request["params"]["name"].as_str().unwrap().into()} else if mode=="check_env"{if std::env::var_os("BBOXY_CAPABILITY").is_none(){"capability absent".into()}else{"capability present".into()}}else if mode=="echo_env"{std::env::var("MCP_SECRET").unwrap_or_default()}else{request["params"]["arguments"]["text"].as_str().unwrap_or("fixture result").into()};
+                    let text=if std::env::var_os("MCP_LARGE").is_some(){format!("{text}{}{text}","x".repeat(60*1024))}else{text};
                     let _=tx.send(json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":text}],"isError":false}})).await;
                 });
             }
@@ -128,6 +165,9 @@ async fn run() {
         }
     }
     drop(tx);
+    if mode == "stubborn_group" {
+        std::future::pending::<()>().await;
+    }
     group.cancel.cancel();
     // Parent closes the process group; this fixture's async children are scoped.
 }

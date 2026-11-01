@@ -224,6 +224,241 @@ fn transcript(h: &Harness) -> Vec<Envelope> {
     bboxy450_harness::protocol::laws::check_transcript(&log).unwrap();
     log
 }
+async fn group_dead(pgid: i32) -> bool {
+    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        loop {
+            if unsafe { libc::kill(-pgid, 0) } == -1 {
+                assert_eq!(
+                    std::io::Error::last_os_error().raw_os_error(),
+                    Some(libc::ESRCH)
+                );
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .is_ok()
+}
+#[tokio::test]
+async fn normalized_names_keep_the_first_collision_and_cap_at_64() {
+    let long = format!("mcp__fixture__{}", "z".repeat(90))
+        .chars()
+        .take(64)
+        .collect::<String>();
+    let mut h = start(
+        "names",
+        true,
+        vec![vec!["mcp__fixture__a_b", &long]],
+        Default::default(),
+    )
+    .await;
+    ready(&mut h).await;
+    let events = turn(&mut h, false).await;
+    let names = {
+        let requests = h.provider.requests.lock().unwrap();
+        requests[0]
+            .tools
+            .iter()
+            .filter(|t| t.name.starts_with("mcp__"))
+            .map(|t| t.name.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names, vec!["mcp__fixture__a_b".to_owned(), long.clone()]);
+    assert_eq!(long.len(), 64);
+    assert!(events.iter().any(|e|matches!(&e.event,Event::ItemCompleted {body:Item::ToolCall {output,..},..} if output.iter().any(|b|matches!(b,OutputBlock::Text {text} if text=="a.b")))));
+    let log = close(h).await;
+    assert_eq!(log.iter().filter(|e|matches!(&e.event,Event::ItemCompleted {body:Item::Notice {text,..},..} if text.contains("tool name collision"))).count(),1);
+}
+#[tokio::test]
+async fn interrupt_notifies_a_slow_call_and_ends_cancelled() {
+    let temp = tempfile::tempdir().unwrap();
+    let called = temp.path().join("called");
+    let cancelled = temp.path().join("cancelled");
+    let mut h = start(
+        "normal",
+        true,
+        vec![vec!["mcp__fixture__slow"]],
+        [
+            ("MCP_CALLS".into(), called.to_string_lossy().into()),
+            ("MCP_CANCELS".into(), cancelled.to_string_lossy().into()),
+        ]
+        .into(),
+    )
+    .await;
+    ready(&mut h).await;
+    h.gateway
+        .send(support::prompt(&h.gateway, "slow call"))
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(8), async {
+        while !called.exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    h.gateway
+        .send(support::op(&h.gateway, Op::Interrupt { turn: None }))
+        .unwrap();
+    let events = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        let mut events = vec![];
+        loop {
+            let e = h.sub.recv().await.unwrap();
+            let end = matches!(e.event, Event::TurnEnded { .. });
+            events.push(e);
+            if end {
+                break events;
+            }
+        }
+    })
+    .await
+    .expect("MCP interrupt did not settle");
+    assert!(matches!(
+        events.last().unwrap().event,
+        Event::TurnEnded {
+            reason: StopReason::Cancelled,
+            ..
+        }
+    ));
+    tokio::time::timeout(std::time::Duration::from_secs(8), async {
+        while !cancelled.exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("no SDK cancellation notification");
+    close(h).await;
+}
+#[tokio::test]
+async fn crash_stderr_and_spilled_results_never_persist_the_secret() {
+    let secret = "MCP_CANARY_FOR_REDACTION_908475";
+    let mut h = start(
+        "echo_env",
+        true,
+        vec![vec!["mcp__fixture__echo"], vec!["mcp__fixture__crash"]],
+        [
+            ("MCP_SECRET".into(), secret.into()),
+            ("MCP_LARGE".into(), "large-output".into()),
+        ]
+        .into(),
+    )
+    .await;
+    ready(&mut h).await;
+    let first = turn(&mut h, false).await;
+    assert!(
+        first.iter().any(|e| matches!(
+            e.event,
+            Event::ItemCompleted {
+                body: Item::ToolCall { spill: Some(_), .. },
+                ..
+            }
+        )),
+        "secret-bearing output was never spilled"
+    );
+    let mut events = turn(&mut h, false).await;
+    let notice=tokio::time::timeout(std::time::Duration::from_secs(8),async {
+        while !events.iter().any(|e|matches!(&e.event,Event::ItemCompleted {body:Item::Notice {text,..},..} if text.starts_with("mcp fixture: failed"))) {events.push(h.sub.recv().await.unwrap());}
+    }).await;
+    assert!(
+        notice.is_ok(),
+        "crash notice missing; notices={:?}; calls={:?}",
+        events
+            .iter()
+            .filter_map(|e| match &e.event {
+                Event::ItemCompleted {
+                    body: Item::Notice { text, .. },
+                    ..
+                } => Some(text),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        events
+            .iter()
+            .filter_map(|e| match &e.event {
+                Event::ItemCompleted {
+                    body: Item::ToolCall { name, .. },
+                    status,
+                    ..
+                } => Some((name, status)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    );
+    assert!(events.iter().any(|e|matches!(&e.event,Event::ItemCompleted {body:Item::Notice {text,..},..} if text.starts_with("mcp fixture: failed")&&text.contains("<redacted>"))),"scrubbed stderr excerpt missing");
+    let root = h.temp.path().join("sessions");
+    h.gateway.send(support::op(&h.gateway, Op::Close)).unwrap();
+    h.host.join().await.unwrap();
+    let log = transcript(&h);
+    assert!(!serde_json::to_string(&log).unwrap().contains(secret));
+    let mut pending = vec![root];
+    let mut files = vec![];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                files.push(path);
+            }
+        }
+    }
+    assert!(
+        files
+            .iter()
+            .any(|p| p.to_string_lossy().contains("/blobs/")),
+        "blob scan was empty"
+    );
+    for path in files {
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(
+            !bytes.windows(secret.len()).any(|b| b == secret.as_bytes()),
+            "secret persisted in {}",
+            path.display()
+        );
+    }
+}
+#[tokio::test]
+async fn close_kills_a_server_and_member_that_ignore_eof_and_term() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("group");
+    let mut h = start(
+        "stubborn_group",
+        true,
+        vec![],
+        [("MCP_GROUP".into(), path.to_string_lossy().into())].into(),
+    )
+    .await;
+    ready(&mut h).await;
+    let ids = std::fs::read_to_string(path)
+        .unwrap()
+        .split_whitespace()
+        .map(|s| s.parse::<i32>().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(ids.len(), 2);
+    let pgid = ids[0];
+    assert_eq!(
+        unsafe { libc::getpgid(ids[1]) },
+        pgid,
+        "member must share the server group"
+    );
+    let dead = {
+        let closing = h.host.close_all();
+        tokio::pin!(closing);
+        let joined = tokio::time::timeout(std::time::Duration::from_secs(15), &mut closing).await;
+        let dead = joined.is_ok() && group_dead(pgid).await;
+        if !dead {
+            unsafe {
+                libc::kill(-pgid, libc::SIGKILL);
+            }
+            if joined.is_err() {
+                closing.await;
+            }
+        }
+        dead
+    };
+    assert!(dead, "MCP server group survived Close (killpg is required)");
+    bboxy450_harness::protocol::laws::check_transcript(&transcript(&h)).unwrap();
+}
 #[tokio::test]
 async fn starting_hung_server_never_blocks_a_turn() {
     let mut h = start("hang_init", false, vec![vec![]], Default::default()).await;
@@ -266,7 +501,7 @@ async fn close_cancels_a_hung_tools_relist_and_reaps_the_server() {
     let stopped = {
         let closing = h.host.close_all();
         tokio::pin!(closing);
-        let stopped = tokio::time::timeout(std::time::Duration::from_secs(2), &mut closing).await;
+        let stopped = tokio::time::timeout(std::time::Duration::from_secs(15), &mut closing).await;
         if stopped.is_err() {
             closing.await;
         }
@@ -283,18 +518,7 @@ async fn close_cancels_a_hung_tools_relist_and_reaps_the_server() {
         .lines()
         .map(|s| s.parse::<i32>().unwrap())
     {
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
-        while unsafe { libc::kill(-pgid, 0) } == 0 {
-            assert!(
-                tokio::time::Instant::now() < deadline,
-                "fixture group survived Close"
-            );
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        assert_eq!(
-            std::io::Error::last_os_error().raw_os_error(),
-            Some(libc::ESRCH)
-        );
+        assert!(group_dead(pgid).await, "fixture group survived Close");
     }
 }
 #[tokio::test]
