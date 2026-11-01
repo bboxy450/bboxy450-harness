@@ -72,6 +72,13 @@ async fn ready(bridge: &mut Bridge) {
 #[tokio::test]
 async fn large_markdown_uses_the_production_replay_preparation_worker() {
     bbt_rt::register_ui_thread();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        bboxy450_harness::frontends::gui::view::Preparer::default().prepare(Arc::default(), 1120.)
+    }));
+    assert!(
+        result.is_err(),
+        "UI ownership assertion must reject preparation"
+    );
     let temp = tempfile::tempdir().unwrap();
     let text = format!(
         "{}\n\n```rust\nfn main() {{ println!(\"ready\"); }}\n```\n",
@@ -82,7 +89,6 @@ async fn large_markdown_uses_the_production_replay_preparation_worker() {
     bridge.replay(replay_file(temp.path(), &text));
     ready(&mut bridge).await;
     let prepared = bridge.state.prepared.as_ref().unwrap();
-    assert!(!prepared.prepared_on_ui);
     assert!(prepared.parsed_markdown_bytes >= text.len());
     assert!(
         runtime::blocking_stats().calls(runtime::BlockingWork::MarkdownPrepare) > before,
@@ -332,64 +338,73 @@ async fn the_view_shows_live_tool_role_and_tail_then_the_full_terminal_blob() {
     );
 }
 #[tokio::test]
-async fn closing_an_old_gateway_does_not_close_a_new_actor_with_the_same_label() {
+async fn closing_an_old_gateway_does_not_close_a_reopened_actor_in_the_same_store() {
     use bboxy450_harness::{
         engine::{Config, SessionActor},
-        gateway::Gateway,
+        frontends::gui::view::Action,
+        gateway::{Gateway, Refused},
         policy::Policy,
         provider::{ScriptedProvider, profile::Unattended},
     };
-    let label = SessionId::new();
-    let a = tempfile::tempdir().unwrap();
-    let b = tempfile::tempdir().unwrap();
-    async fn actor(
-        root: &std::path::Path,
-        label: SessionId,
-    ) -> (
-        bboxy450_harness::gateway::InProc,
-        tokio::task::JoinHandle<std::io::Result<()>>,
-    ) {
-        let mut meta = support::meta(root.into());
-        meta.session = label;
-        let mut provider = ScriptedProvider::new(vec![support::sse("text"), support::sse("text")]);
-        provider.delay = Duration::from_millis(10);
-        SessionActor::open(
-            Config {
-                meta,
-                profiles: root.join("profiles"),
-                sessions: root.join("sessions"),
-                provider: Arc::new(provider),
-                model: "scripted".into(),
-                policy: Policy::allow_all(Unattended::Deny),
-                redactor: Default::default(),
-                profile_error: None,
-                max_rounds: 50,
-            },
-            OpId::new(),
-        )
-        .await
+    let root = tempfile::tempdir().unwrap();
+    let meta = support::meta(root.path().into());
+    let config = Config {
+        meta,
+        profiles: root.path().join("profiles"),
+        sessions: root.path().join("sessions"),
+        provider: Arc::new(ScriptedProvider::new(vec![
+            support::sse("text"),
+            support::sse("text"),
+        ])),
+        model: "scripted".into(),
+        policy: Policy::allow_all(Unattended::Deny),
+        redactor: Default::default(),
+        profile_error: None,
+        max_rounds: 50,
+    };
+    let start = OpId::new();
+    let (old, old_task) = SessionActor::open(config.clone(), start).await.unwrap();
+    let mut attached = Bridge::new(Arc::new(Wake));
+    attached.attach(old.clone());
+    ready(&mut attached).await;
+    let old_birth = old.hello().epoch;
+    let mut view = HarnessView::default();
+    let captured = view
+        .render(&attached.state, [1120., 860.])
         .unwrap()
-    }
-    let (old, old_task) = actor(a.path(), label).await;
-    let (new, new_task) = actor(b.path(), label).await;
-    let mut old_events = support::subscribe(&old, false);
-    let mut new_events = support::subscribe(&new, false);
+        .actions
+        .iter()
+        .find_map(|(_, a)| matches!(a, Action::StopAt(_)).then(|| a.clone()))
+        .expect("rendered Stop captures its actor birth");
+    attached.detach().unwrap().await.unwrap();
+    // Crash/recovery of the SAME session directory, not two disjoint identities.
+    old_task.abort();
+    assert!(old_task.await.unwrap_err().is_cancelled());
+    let (new, new_task) = SessionActor::open(config, start).await.unwrap();
+    assert_eq!(old.session(), new.session());
+    assert_ne!(old_birth, new.hello().epoch);
+    let mut attached = Bridge::new(Arc::new(Wake));
+    attached.attach(new.clone());
+    ready(&mut attached).await;
+    let mut events = support::subscribe(&new, false);
     new.send(support::prompt(&new, "keep running")).unwrap();
     tokio::time::timeout(Duration::from_secs(8), async {
         while !matches!(
-            new_events.recv().await.unwrap().event,
+            events.recv().await.unwrap().event,
             Event::TurnStarted { .. }
         ) {}
     })
     .await
     .unwrap();
-    old.send(support::op(&old, Op::Close)).unwrap();
-    tokio::time::timeout(Duration::from_secs(8), async {
-        while !matches!(old_events.recv().await.unwrap().event, Event::SessionClosed) {}
-    })
-    .await
-    .unwrap();
-    let done = support::end(&mut new_events).await;
+    assert!(matches!(
+        old.send(support::op(&old, Op::Close)),
+        Err(Refused::Closed)
+    ));
+    // A delayed rendered Close admitted by the old attachment must not be
+    // delivered to the replacement merely because the public session matches.
+    view.activate(captured, &attached);
+    let stale_notice = view.notice.clone();
+    let done = support::end(&mut events).await;
     assert!(!done.iter().any(|e| matches!(e.event, Event::SessionClosed)));
     assert!(done.iter().any(|e| matches!(
         e.event,
@@ -399,13 +414,17 @@ async fn closing_an_old_gateway_does_not_close_a_new_actor_with_the_same_label()
         }
     )));
     new.send(support::prompt(&new, "still alive")).unwrap();
-    support::end(&mut new_events).await;
+    let again = support::end(&mut events).await;
+    assert!(again.iter().any(|e| matches!(
+        e.event,
+        Event::TurnEnded {
+            reason: StopReason::EndTurn,
+            ..
+        }
+    )));
+    assert_eq!(stale_notice.as_deref(), Some("Session replaced"));
+    attached.detach().unwrap().await.unwrap();
     new.send(support::op(&new, Op::Close)).unwrap();
-    tokio::time::timeout(Duration::from_secs(8), old_task)
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
     tokio::time::timeout(Duration::from_secs(8), new_task)
         .await
         .unwrap()
@@ -579,6 +598,15 @@ async fn approval_keyboard_and_escape_resolve_the_actual_prompt() {
         } else {
             view.edit(bbt_ui::text_edit::Command::Insert("/int".into()));
             assert!(view.completion_open());
+            #[cfg(feature = "standalone")]
+            bboxy450_harness::frontends::gui::window::route_key(
+                &mut view,
+                &bridge,
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape),
+                None,
+                winit::keyboard::ModifiersState::empty(),
+            );
+            #[cfg(not(feature = "standalone"))]
             assert!(view.cancel_prompt(&bridge));
             assert_eq!(view.composer.view.text, "/int");
         }
@@ -600,4 +628,225 @@ fn a_completion_from_a_retired_token_does_not_replace_new_typing() {
     view.edit(Edit::Insert("/co".into()));
     view.composer.handle(Command::Edit(stale));
     assert_eq!(view.composer.view.text, "/co");
+}
+
+async fn streaming_model() -> (bboxy450_harness::frontends::gui::model::Transcript, ItemId) {
+    let mut model = bboxy450_harness::frontends::gui::bridge::read_replay(
+        "tests/fixtures/protocol/all-items.jsonl".into(),
+    )
+    .await
+    .unwrap();
+    let id = model
+        .items
+        .values()
+        .find(|r| r.kind == ItemKind::AgentMessage)
+        .unwrap()
+        .id;
+    let mut row = model.items[&id].clone();
+    row.completed = None;
+    row.status = None;
+    row.body = Item::AgentMessage {
+        markdown: String::new(),
+    };
+    model.items = im::OrdMap::unit(id, row);
+    model.order = im::Vector::unit(id);
+    (model, id)
+}
+#[tokio::test]
+async fn structured_64k_markdown_measures_toolkit_incrementality_without_throttling() {
+    let (mut model, id) = streaming_model().await;
+    let (parsed, received, appends, deferred, blocks) = runtime::blocking(move || {
+        let unit = "A paragraph with **bold**, a [link](https://example.invalid) and words.\n\n- first list entry\n- second list entry\n\n```rust\nfn example() { let value = 7; }\n```\n\n";
+        let mut text = unit.repeat(65536 / unit.len() + 1); text.truncate(65536);
+        let mut p = bboxy450_harness::frontends::gui::view::Preparer::default(); let mut result = None;
+        for end in (1024..=65536).step_by(1024) {
+            model.items.get_mut(&id).unwrap().body = Item::AgentMessage { markdown: text[..end].into() };
+            result = Some(p.prepare(Arc::new(model.clone()), 1060.).unwrap());
+        }
+        let r = result.unwrap(); (r.parsed_markdown_bytes, r.received_markdown_bytes, r.markdown_appends, r.deferred_markdown_batches, r.markdown_block_layouts)
+    }).await;
+    assert_eq!(received, 65536);
+    assert_eq!(
+        appends, 64,
+        "every batch must reach StreamingMarkdown.append"
+    );
+    assert_eq!(deferred, 0, "credit must not mask non-incremental parsing");
+    assert!(
+        parsed <= received * 4,
+        "toolkit reparsed {parsed} bytes for {received}"
+    );
+    assert!(
+        blocks < 4096,
+        "stable blocks must be reused, built {blocks}"
+    );
+    println!(
+        "structured Markdown: {parsed} parsed / {received} received, {appends} appends, {deferred} deferred, {blocks} block layouts"
+    );
+}
+#[tokio::test]
+async fn deferred_tail_is_literal_preview_then_formatted_on_completion() {
+    let (mut model, id) = streaming_model().await;
+    runtime::blocking(move || {
+        let mut p = bboxy450_harness::frontends::gui::view::Preparer::default();
+        let mut preview = None;
+        let mut text = String::new();
+        for i in 1..32 {
+            text.push_str(&format!("{}**PREVIEW_{i}**", "unfinished ".repeat(40)));
+            model.items.get_mut(&id).unwrap().body = Item::AgentMessage {
+                markdown: text.clone(),
+            };
+            let r = p.prepare(Arc::new(model.clone()), 1060.).unwrap();
+            if r.deferred_markdown_batches > 0 {
+                preview = Some((i, r));
+                break;
+            }
+        }
+        let (i, prepared) = preview.expect("unfinished block must exhaust its parse credit");
+        let mut state = bboxy450_harness::frontends::gui::bridge::FrameState {
+            transcript: prepared.source.clone(),
+            ready: true,
+            replay: true,
+            prepared: Some(Arc::new(prepared)),
+            ..Default::default()
+        };
+        let mut view = HarnessView::default();
+        assert!(
+            view.render(&state, [1120., 7000.])
+                .unwrap()
+                .item_text(id)
+                .unwrap()
+                .contains(&format!("**PREVIEW_{i}**")),
+            "deferred suffix must be an honest literal preview"
+        );
+        model.items.get_mut(&id).unwrap().completed = Some(Seq(999));
+        model.items.get_mut(&id).unwrap().status = Some(ItemStatus::Completed);
+        state.prepared = Some(Arc::new(p.prepare(Arc::new(model.clone()), 1060.).unwrap()));
+        state.transcript = state.prepared.as_ref().unwrap().source.clone();
+        let frame = view.render(&state, [1120., 7000.]).unwrap();
+        let rendered = frame.item_text(id).unwrap();
+        assert!(rendered.contains(&format!("PREVIEW_{i}")));
+        assert!(
+            !rendered.contains("**"),
+            "completion must flush Markdown formatting"
+        );
+    })
+    .await;
+}
+#[cfg(feature = "standalone")]
+#[tokio::test]
+async fn escape_key_routing_closes_completion_before_interrupting_the_live_turn() {
+    use bboxy450_harness::frontends::gui::{view::Action, window::route_key};
+    use winit::keyboard::{Key, ModifiersState, NamedKey};
+    let mut provider =
+        bboxy450_harness::provider::ScriptedProvider::new(vec![support::sse("text")]);
+    provider.delay = Duration::from_secs(3600);
+    let session = support::with_provider(Arc::new(provider), true).await;
+    let mut events = support::subscribe(&session.gateway, false);
+    let mut bridge = Bridge::new(Arc::new(Wake));
+    bridge.attach(session.gateway.clone());
+    ready(&mut bridge).await;
+    let mut view = HarnessView::default();
+    view.edit(bbt_ui::text_edit::Command::Insert("/int".into()));
+    assert!(view.completion_open());
+    route_key(
+        &mut view,
+        &bridge,
+        Key::Named(NamedKey::Escape),
+        None,
+        ModifiersState::empty(),
+    );
+    assert!(!view.completion_open());
+    assert_eq!(view.composer.view.text, "/int");
+    assert!(view.notice.is_none());
+    view.edit(bbt_ui::text_edit::Command::SelectAll);
+    view.edit(bbt_ui::text_edit::Command::Insert("work".into()));
+    view.activate(Action::Send, &bridge);
+    tokio::time::timeout(Duration::from_secs(8), async {
+        while !matches!(
+            events.recv().await.unwrap().event,
+            Event::TurnStarted { .. }
+        ) {}
+    })
+    .await
+    .unwrap();
+    route_key(
+        &mut view,
+        &bridge,
+        Key::Named(NamedKey::Escape),
+        None,
+        ModifiersState::empty(),
+    );
+    let done = support::end(&mut events).await;
+    assert!(done.iter().any(|e| matches!(
+        e.event,
+        Event::TurnEnded {
+            reason: StopReason::Cancelled,
+            ..
+        }
+    )));
+    bridge.detach().unwrap().await.unwrap();
+    support::close(session).await;
+}
+
+#[tokio::test]
+async fn definition_lines_in_containers_repair_previously_formatted_blocks() {
+    let (mut model, id) = streaming_model().await;
+    runtime::blocking(move || {
+        for (prefix, definition) in [
+            (
+                "[reference][r]\n\nA stable paragraph.\n\nA trailing paragraph.\n\n",
+                "> [r]: https://example.invalid\n\n",
+            ),
+            (
+                "[reference][r]\n\nA stable paragraph.\n\nA trailing paragraph.\n\n",
+                "- [r]: https://example.invalid\n\n",
+            ),
+            (
+                "[reference][foo bar]\n\nA stable paragraph.\n\nA trailing paragraph.\n\n",
+                "[foo\nbar]: https://example.invalid\n\n",
+            ),
+            (
+                "A note[^f].\n\nA stable paragraph.\n\nA trailing paragraph.\n\n",
+                "- [^f]: A footnote.\n\n",
+            ),
+        ] {
+            model.items.get_mut(&id).unwrap().body = Item::AgentMessage {
+                markdown: prefix.into(),
+            };
+            let mut stream = bboxy450_harness::frontends::gui::view::Preparer::default();
+            stream.prepare(Arc::new(model.clone()), 1120.).unwrap();
+            model.items.get_mut(&id).unwrap().body = Item::AgentMessage {
+                markdown: format!("{prefix}{definition}"),
+            };
+            let source = Arc::new(model.clone());
+            let live = stream.prepare(source.clone(), 1120.).unwrap();
+            let full = bboxy450_harness::frontends::gui::view::Preparer::default()
+                .prepare(source.clone(), 1120.)
+                .unwrap();
+            let render = |prepared| {
+                let state = bboxy450_harness::frontends::gui::bridge::FrameState {
+                    transcript: source.clone(),
+                    ready: true,
+                    replay: true,
+                    prepared: Some(Arc::new(prepared)),
+                    ..Default::default()
+                };
+                let mut view = HarnessView::default();
+                let frame = view.render(&state, [1120., 7000.]).unwrap();
+                bboxy450_harness::frontends::gui::view::layout_text(
+                    bboxy450_harness::frontends::gui::view::find(
+                        frame.layout.as_ref().unwrap(),
+                        &format!("body/{id}"),
+                    )
+                    .unwrap(),
+                )
+            };
+            assert_eq!(
+                render(live),
+                render(full),
+                "definition {definition:?} must invalidate the earlier formatted prefix"
+            );
+        }
+    })
+    .await;
 }

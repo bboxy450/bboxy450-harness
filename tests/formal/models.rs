@@ -1716,15 +1716,17 @@ fn gui_markdown(mode: u8) -> Model {
     if mode != 0 {
         m.name = if mode == 1 {
             "BrokenHarnessGuiMarkdownQuadratic"
-        } else {
+        } else if mode == 2 {
             "BrokenHarnessGuiMarkdownHiddenTail"
+        } else {
+            "BrokenHarnessGuiMarkdownSuppressedRender"
         }
         .into();
     }
     act(
         &mut m,
         "Append",
-        all([eq(3, 0), Var(0).lt(Int(8))]),
+        all([eq(3, 0), Var(0).lt(Int(7))]),
         &[(0, Var(0).plus(Int(1))), (4, Int(0))],
     );
     let credit = Var(0).plus(Var(0)).plus(Var(0));
@@ -1742,23 +1744,25 @@ fn gui_markdown(mode: u8) -> Model {
         ]),
         &[(1, Var(0)), (2, Var(2).plus(Var(0)))],
     );
+    // Completion introduces the final byte. A pre-completion render cannot
+    // already satisfy the visibility response just by setting a mode flag.
     act(
         &mut m,
-        "CompleteAlreadyParsed",
-        all([eq(3, 0), eq(0, 8), Var(1).eq(Var(0))]),
-        &[(3, Int(1))],
-    );
-    act(
-        &mut m,
-        "CompleteFlush",
-        all([eq(3, 0), eq(0, 8), Var(1).lt(Var(0))]),
-        &[(1, Var(0)), (2, Var(2).plus(Var(0))), (3, Int(1))],
+        "CompletionDeliversFinalByte",
+        all([eq(3, 0), eq(0, 7)]),
+        &[
+            (0, Int(8)),
+            (1, Int(8)),
+            (2, Var(2).plus(Int(8))),
+            (3, Int(1)),
+            (4, Int(0)),
+        ],
     );
     let render = m.actions.len();
     act(
         &mut m,
         "RenderPreparedRow",
-        Bool(true),
+        all([eq(4, 0), if mode == 3 { eq(3, 0) } else { Bool(true) }]),
         &[(4, Int(1)), (5, if mode == 2 { Var(1) } else { Var(0) })],
     );
     safe(
@@ -1771,7 +1775,7 @@ fn gui_markdown(mode: u8) -> Model {
         &mut m,
         "CompletedReplyEventuallyVisible",
         eq(3, 1),
-        all([eq(4, 1), eq(5, 8)]),
+        eq(5, 8),
         vec![render],
     );
     m
@@ -1826,6 +1830,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (gui_markdown(0), "pass"),
         (gui_markdown(1), "safety"),
         (gui_markdown(2), "safety"),
+        (gui_markdown(3), "liveness"),
         (gui_choice(false), "pass"),
         (gui_choice(true), "safety"),
     ];

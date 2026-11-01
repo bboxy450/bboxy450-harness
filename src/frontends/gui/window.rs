@@ -222,84 +222,7 @@ impl App {
         self.view.invalidate();
     }
     fn key(&mut self, key: Key, text: Option<&str>) {
-        let control = self.modifiers.control_key();
-        let shortcut = control || self.modifiers.super_key();
-        let shift = self.modifiers.shift_key();
-        if key == Key::Named(NamedKey::Escape) && self.view.cancel_prompt(&self.bridge) {
-            return;
-        }
-        let choice = match key {
-            Key::Named(NamedKey::ArrowUp) => Some(bbt_ui::modules::approval::Key::Up),
-            Key::Named(NamedKey::ArrowDown) => Some(bbt_ui::modules::approval::Key::Down),
-            Key::Named(NamedKey::Home) => Some(bbt_ui::modules::approval::Key::Home),
-            Key::Named(NamedKey::End) => Some(bbt_ui::modules::approval::Key::End),
-            Key::Named(NamedKey::Enter) => Some(bbt_ui::modules::approval::Key::Enter),
-            _ => None,
-        };
-        if let Some(choice) = choice {
-            if self.view.approval_key(choice, &self.bridge) {
-                return;
-            }
-            if matches!(key, Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown))
-                && self.view.complete(choice)
-            {
-                return;
-            }
-        }
-        if key == Key::Named(NamedKey::Enter)
-            && self.view.completion_open()
-            && self.view.complete(bbt_ui::modules::approval::Key::Enter)
-        {
-            return;
-        }
-        if is_interrupt(&key, self.modifiers) {
-            self.view.activate(Action::Interrupt, &self.bridge);
-            return;
-        }
-        match key {
-            Key::Named(NamedKey::Tab) => {
-                self.view.complete(bbt_ui::modules::approval::Key::Enter);
-            }
-            Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown) => {
-                self.view
-                    .composer
-                    .vertical(key == Key::Named(NamedKey::ArrowUp));
-                self.view.invalidate();
-            }
-            Key::Named(NamedKey::Enter) if !shift && !self.view.composer.composing() => {
-                self.view.activate(Action::Send, &self.bridge)
-            }
-            Key::Named(NamedKey::Enter) if !self.view.composer.composing() => {
-                self.edit(Edit::Insert("\n".into()))
-            }
-            Key::Named(NamedKey::Backspace) => self.edit(Edit::Delete { backwards: true }),
-            Key::Named(NamedKey::Delete) => self.edit(Edit::Delete { backwards: false }),
-            Key::Named(
-                k @ (NamedKey::ArrowLeft | NamedKey::ArrowRight | NamedKey::Home | NamedKey::End),
-            ) => {
-                let motion = match k {
-                    NamedKey::ArrowLeft => Motion::Left,
-                    NamedKey::ArrowRight => Motion::Right,
-                    NamedKey::Home => Motion::Start,
-                    _ => Motion::End,
-                };
-                self.edit(Edit::Move {
-                    motion,
-                    extend: shift,
-                });
-            }
-            Key::Character(ref s) if shortcut && s.eq_ignore_ascii_case("a") => {
-                self.edit(Edit::SelectAll)
-            }
-            Key::Character(_) if !shortcut && !self.view.composer.composing() => {
-                if let Some(text) = text
-                    && !text.chars().any(char::is_control)
-                {
-                    self.edit(Edit::Insert(text.into()));
-                }
-            }
-            _ => {}
-        }
+        route_key(&mut self.view, &self.bridge, key, text, self.modifiers);
     }
 }
 impl ApplicationHandler<Wake> for App {
@@ -480,4 +403,90 @@ pub fn is_interrupt(key: &Key, modifiers: ModifiersState) -> bool {
     *key == Key::Named(NamedKey::Escape)
         || (modifiers.control_key()
             && matches!(key, Key::Character(s) if s.eq_ignore_ascii_case("c")))
+}
+
+/// The same key routing used by the native event handler, independently of window creation.
+pub fn route_key(
+    view: &mut HarnessView,
+    bridge: &Bridge,
+    key: Key,
+    text: Option<&str>,
+    modifiers: ModifiersState,
+) {
+    let control = modifiers.control_key();
+    let shortcut = control || modifiers.super_key();
+    let shift = modifiers.shift_key();
+    if key == Key::Named(NamedKey::Escape) && view.cancel_prompt(bridge) {
+        return;
+    }
+    let choice = match key {
+        Key::Named(NamedKey::ArrowUp) => Some(bbt_ui::modules::approval::Key::Up),
+        Key::Named(NamedKey::ArrowDown) => Some(bbt_ui::modules::approval::Key::Down),
+        Key::Named(NamedKey::Home) => Some(bbt_ui::modules::approval::Key::Home),
+        Key::Named(NamedKey::End) => Some(bbt_ui::modules::approval::Key::End),
+        Key::Named(NamedKey::Enter) => Some(bbt_ui::modules::approval::Key::Enter),
+        _ => None,
+    };
+    if let Some(choice) = choice {
+        if view.approval_key(choice, bridge) {
+            return;
+        }
+        if matches!(key, Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown))
+            && view.complete(choice)
+        {
+            return;
+        }
+    }
+    if key == Key::Named(NamedKey::Enter)
+        && view.completion_open()
+        && view.complete(bbt_ui::modules::approval::Key::Enter)
+    {
+        return;
+    }
+    if is_interrupt(&key, modifiers) {
+        view.activate(Action::Interrupt, bridge);
+        return;
+    }
+    match key {
+        Key::Named(NamedKey::Tab) => {
+            view.complete(bbt_ui::modules::approval::Key::Enter);
+        }
+        Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown) => {
+            view.composer.vertical(key == Key::Named(NamedKey::ArrowUp));
+            view.invalidate();
+        }
+        Key::Named(NamedKey::Enter) if !shift && !view.composer.composing() => {
+            view.activate(Action::Send, bridge)
+        }
+        Key::Named(NamedKey::Enter) if !view.composer.composing() => {
+            view.edit(Edit::Insert("\n".into()))
+        }
+        Key::Named(NamedKey::Backspace) => view.edit(Edit::Delete { backwards: true }),
+        Key::Named(NamedKey::Delete) => view.edit(Edit::Delete { backwards: false }),
+        Key::Named(
+            k @ (NamedKey::ArrowLeft | NamedKey::ArrowRight | NamedKey::Home | NamedKey::End),
+        ) => {
+            let motion = match k {
+                NamedKey::ArrowLeft => Motion::Left,
+                NamedKey::ArrowRight => Motion::Right,
+                NamedKey::Home => Motion::Start,
+                _ => Motion::End,
+            };
+            view.edit(Edit::Move {
+                motion,
+                extend: shift,
+            });
+        }
+        Key::Character(ref s) if shortcut && s.eq_ignore_ascii_case("a") => {
+            view.edit(Edit::SelectAll)
+        }
+        Key::Character(_) if !shortcut && !view.composer.composing() => {
+            if let Some(text) = text
+                && !text.chars().any(char::is_control)
+            {
+                view.edit(Edit::Insert(text.into()));
+            }
+        }
+        _ => {}
+    }
 }

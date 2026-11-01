@@ -100,6 +100,14 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         let approval_count = frame.actions.iter().filter(|(_, a)| matches!(a, Action::Approval(_, _))).count();
         if approval_count != 3 || !["Allow", "Always", "Deny"].iter().all(|s| text.contains(s)) { return Err("approval buttons missing".into()); }
         let layout=frame.layout.as_ref().ok_or("smoke layout missing")?;
+        for (index, id) in state.transcript.order.iter().enumerate() {
+            let card=super::view::find(layout,&format!("e{index}")).ok_or("missing StreamDock card")?.rect;
+            let body=super::view::find(layout,&format!("body/{id}")).ok_or("missing inset item body")?.rect;
+            if body.x < card.x + 4. || body.right() > card.right() - 4. || body.y < card.y || body.bottom() > card.bottom()+0.5 {
+                return Err(format!("body {id} is outside its inset card: body={body:?}, card={card:?}"));
+            }
+        }
+
         fn colours(node: &bbt_ui::components::Layout)->BTreeSet<[u32;4]> {
             let mut out=BTreeSet::new();if let bbt_ui::components::LayoutKind::Text{runs,..}=&node.kind {out.extend(runs.iter().map(|r|r.style.color.map(f32::to_bits)));}
             for child in &node.children {out.extend(colours(child));}out
@@ -125,7 +133,19 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         let approval=state.transcript.items.values().find(|r|r.kind==crate::protocol::ItemKind::Approval).ok_or("missing approval")?;
         let allow=super::view::find(layout,&format!("approval/{}/Allow",approval.id)).and_then(fill).ok_or("allow surface missing")?;
         let deny=super::view::find(layout,&format!("approval/{}/Deny",approval.id)).and_then(fill).ok_or("deny surface missing")?;
-        if allow==deny {return Err("Allow and Deny have indistinguishable surfaces".into());}
+        let always=super::view::find(layout,&format!("approval/{}/Always",approval.id)).and_then(fill).ok_or("always surface missing")?;
+        if allow==deny || allow==always || always==deny {return Err("approval choices need three distinct surfaces".into());}
+        let body=super::view::find(layout,&format!("body/{}",approval.id)).ok_or("approval body missing")?.rect;
+        for name in ["Allow","Always","Deny"] {
+            let button=super::view::find(layout,&format!("approval/{}/{name}",approval.id)).ok_or("approval button missing")?;
+            if button.rect.w >= body.w * 0.3 {return Err(format!("approval {name} is not compact: {} of {}",button.rect.w,body.w));}
+            if layout_text(button).trim()!=name {return Err(format!("approval {name} has unexpected key/badge content"));}
+        }
+        for row in state.transcript.items.values().filter(|r|r.kind==ItemKind::ToolCall) {
+            for part in ["arguments","output"] {
+                if super::view::find(layout,&format!("tool/{}/{part}/head/count",row.id)).is_some() {return Err("tool accordion exposes a meaningless count".into());}
+            }
+        }
         let mut bottom = 0.;
         for (id, kind, r) in &frame.visible {
             if r.y < bottom - 0.5 {

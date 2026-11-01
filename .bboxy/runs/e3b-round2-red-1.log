@@ -1,0 +1,23 @@
+COMMAND: cargo test --offline --locked --features standalone --test gui_rich closing_an_old_gateway_does_not_close_a_reopened_actor_in_the_same_store -- --exact --nocapture
+    Blocking waiting for file lock on package cache
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 30.02s
+     Running tests/gui_rich.rs (target/debug/deps/gui_rich-3a19d25ba2150d0e)
+
+running 1 test
+
+thread 'closing_an_old_gateway_does_not_close_a_reopened_actor_in_the_same_store' (116046823) panicked at tests/gui_rich.rs:409:5:
+assertion failed: done.iter().any(|e|
+        matches!(e.event, Event::TurnEnded
+            { reason: StopReason::EndTurn, .. }))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test closing_an_old_gateway_does_not_close_a_reopened_actor_in_the_same_store ... FAILED
+
+failures:
+
+failures:
+    closing_an_old_gateway_does_not_close_a_reopened_actor_in_the_same_store
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.09s
+
+error: test failed, to rerun pass `--test gui_rich`

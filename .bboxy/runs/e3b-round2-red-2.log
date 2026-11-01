@@ -1,0 +1,22 @@
+COMMAND: cargo test --offline --locked --features standalone --test gui_rich structured_64k_markdown_measures_toolkit_incrementality_without_throttling -- --exact --nocapture
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 25.79s
+     Running tests/gui_rich.rs (target/debug/deps/gui_rich-3a19d25ba2150d0e)
+
+running 1 test
+
+thread 'structured_64k_markdown_measures_toolkit_incrementality_without_throttling' (116050907) panicked at tests/gui_rich.rs:669:5:
+assertion `left == right` failed: every batch must reach StreamingMarkdown.append
+  left: 11
+ right: 64
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test structured_64k_markdown_measures_toolkit_incrementality_without_throttling ... FAILED
+
+failures:
+
+failures:
+    structured_64k_markdown_measures_toolkit_incrementality_without_throttling
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 12 filtered out; finished in 6.17s
+
+error: test failed, to rerun pass `--test gui_rich`

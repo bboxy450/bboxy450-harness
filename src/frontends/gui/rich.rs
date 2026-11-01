@@ -72,6 +72,8 @@ pub struct Documents {
     pub parsed_bytes: usize,
     pub received_bytes: usize,
     pub block_layouts: usize,
+    pub appends: usize,
+    pub deferred_batches: usize,
 }
 pub struct Body {
     pub element: c::Element,
@@ -98,7 +100,11 @@ impl Documents {
                 || prior == 0
                 || doc.parsed.saturating_add(text.len()) <= text.len().saturating_mul(3));
         let mut changed = None;
+        if prior < text.len() && !parse {
+            self.deferred_batches += 1;
+        }
         if parse {
+            self.appends += 1;
             blocking_hook(BlockingWork::MarkdownPrepare);
             doc.stream.append(&text[prior..]);
             let range = doc.stream.reparsed_range();

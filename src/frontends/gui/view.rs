@@ -121,6 +121,7 @@ pub enum Action {
     Send,
     Interrupt,
     Stop,
+    StopAt(Epoch),
     Approval(ItemId, ApprovalDecision),
     Jump,
     Toggle(ItemId, super::rich::Toggle),
@@ -453,7 +454,7 @@ impl HarnessView {
         for (key, action) in [
             ("jump", Action::Jump),
             ("interrupt", Action::Interrupt),
-            ("stop", Action::Stop),
+            ("stop", Action::StopAt(state.transcript.epoch)),
         ] {
             if let Some(node) = find(&layout, key) {
                 frame.actions.push((node.rect, action));
@@ -621,6 +622,14 @@ impl HarnessView {
                 let op = match action {
                     Action::Interrupt => Op::Interrupt { turn: None },
                     Action::Stop => Op::Close,
+                    Action::StopAt(birth) => {
+                        if bridge.state.transcript.epoch != birth {
+                            self.notice = Some("Session replaced".into());
+                            self.invalidate();
+                            return;
+                        }
+                        Op::Close
+                    }
                     Action::Approval(approval, decision) => {
                         if !bridge
                             .state
@@ -1024,6 +1033,8 @@ pub struct PreparedRows {
     pub parsed_markdown_bytes: usize,
     pub received_markdown_bytes: usize,
     pub markdown_block_layouts: usize,
+    pub markdown_appends: usize,
+    pub deferred_markdown_batches: usize,
 }
 #[derive(Default)]
 pub struct Preparer {
@@ -1090,16 +1101,10 @@ impl Preparer {
                 Item::Reasoning { summary, .. } => Some(summary.as_str()),
                 _ => None,
             };
-            let rich = markdown
-                .map(|text| {
-                    self.documents
-                        .prepare(*id, text, row.completed.is_some(), width, &self.metrics)
-                })
-                .transpose()?;
             let message = Message {
                 from: kind_label(row.kind).into(),
                 role: role(row.kind).into(),
-                text: if rich.is_some()
+                text: if markdown.is_some()
                     || matches!(
                         row.kind,
                         ItemKind::ToolCall
@@ -1123,32 +1128,57 @@ impl Preparer {
                     show_channel: Some(false),
                 }],
             };
-            let mut body = dock.items_at(ctx, index, &self.metrics);
+            let mut cards = dock.items_at(ctx, index, &self.metrics);
+            let skeleton =
+                cards[0]
+                    .element
+                    .layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?;
+            let content_key = format!("e{index}/body");
+            let content_width = find(&skeleton, &content_key)
+                .ok_or("missing StreamDock body")?
+                .rect
+                .w;
+            let rich = markdown
+                .map(|text| {
+                    self.documents.prepare(
+                        *id,
+                        text,
+                        row.completed.is_some(),
+                        content_width,
+                        &self.metrics,
+                    )
+                })
+                .transpose()?;
+            let mut body = vec![];
+            let mut toggles = vec![];
             if row.kind == ItemKind::Reasoning {
-                body.push(
-                    named(
+                toggles.push(
+                    inline_control(
                         format!("reasoning/{id}/toggle"),
-                        label(if face.reasoning_closed {
+                        if face.reasoning_closed {
                             "Show reasoning"
                         } else {
                             "Hide reasoning"
-                        }),
+                        },
+                        ctx,
                     )
                     .into(),
                 );
             }
             if let Some(rich) = &rich {
-                body.push(
-                    named(
+                toggles.push(
+                    inline_control(
                         format!("source/{id}/toggle"),
-                        label(if face.source {
+                        if face.source {
                             "View formatted"
                         } else {
                             "View source"
-                        }),
+                        },
+                        ctx,
                     )
                     .into(),
                 );
+                body.push(inline_row(std::mem::take(&mut toggles)).into());
                 if !face.reasoning_closed {
                     if face.source {
                         let mut text = c::Text::new(
@@ -1194,19 +1224,18 @@ impl Preparer {
                         })
                         .collect::<Vec<_>>()
                         .join("\n");
-                    body.push(
-                        ToolCall {
-                            key: format!("tool/{id}"),
-                            title: name.clone(),
-                            status,
-                            arguments: format!("Arguments: {}", arguments(input_raw)),
-                            output,
-                            arguments_open: !face.arguments_closed,
-                            output_open: !face.output_closed,
-                        }
-                        .element(ctx, width, &self.metrics)
-                        .into(),
-                    );
+                    let mut tool = ToolCall {
+                        key: format!("tool/{id}"),
+                        title: name.clone(),
+                        status,
+                        arguments: format!("Arguments: {}", arguments(input_raw)),
+                        output,
+                        arguments_open: !face.arguments_closed,
+                        output_open: !face.output_closed,
+                    }
+                    .element(ctx, content_width, &self.metrics);
+                    subdued_tool_parts(&mut tool, false);
+                    body.push(tool.into());
                 }
                 Item::FileChange { unified, .. } | Item::TurnDiff { unified } => {
                     use ui::modules::diff::{Diff, DiffView, Folds};
@@ -1222,7 +1251,7 @@ impl Preparer {
                             diff: &diff,
                             folds: &folds,
                         }
-                        .element(ctx, width, &self.metrics)
+                        .element(ctx, content_width, &self.metrics)
                         .into(),
                     );
                 }
@@ -1239,14 +1268,26 @@ impl Preparer {
                         for _ in 0..face.approval_selected {
                             prompt.handle(ui::modules::approval::Key::Down);
                         }
-                        let mut element = approval_element(&prompt, ctx);
-                        approval_colors(&mut element);
-                        body.push(element.into());
+                        body.push(approval_element(&prompt, ctx).into());
                     }
                 }
                 _ => {}
             }
-            let mut element = named(format!("item/{id}"), column(body, None));
+            let content = find_element_mut(&mut cards[0].element, &content_key)
+                .ok_or("missing StreamDock content")?;
+            let c::Element::Box(content) = content else {
+                return Err("unexpected StreamDock body".into());
+            };
+            let mut inside = content.children.split_off(1);
+            inside.extend(body);
+            let mut inset = column(inside, None);
+            if let c::Element::Box(b) = &mut inset {
+                b.gap = ui::Length::Px(6.);
+            }
+            content
+                .children
+                .push(named(format!("body/{id}"), inset).into());
+            let mut element = named(format!("item/{id}"), column(cards, None));
             flat(&mut element);
             let mut layout = element.layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?;
             if let Some(rich) = &rich {
@@ -1283,6 +1324,8 @@ impl Preparer {
             parsed_markdown_bytes: self.documents.parsed_bytes,
             received_markdown_bytes: self.documents.received_bytes,
             markdown_block_layouts: self.documents.block_layouts,
+            markdown_appends: self.documents.appends,
+            deferred_markdown_batches: self.documents.deferred_batches,
         })
     }
 }
@@ -1344,71 +1387,121 @@ fn approval_atom(
     );
     prompt
 }
+fn inline_row(children: Vec<c::Item>) -> c::Element {
+    c::Element::Stack(c::Stack {
+        direction: Axis::Row,
+        gap: ui::Length::Px(8.),
+        align: c::Alignment::Start,
+        children,
+    })
+}
+fn inline_control(key: String, text: &str, ctx: ui::Context) -> c::Element {
+    named(
+        key,
+        Button {
+            label: text.into(),
+            kind: ButtonKind::Ghost,
+            state: ButtonState::Idle,
+            icon: None,
+            key: None,
+        }
+        .element(ctx)
+        .expect("inline control style"),
+    )
+}
 fn approval_element(prompt: &ui::modules::approval::Approval, ctx: ui::Context) -> c::Element {
-    let mut element = prompt.element(ctx);
-    // Toolkit keys identify host choices. Attach stable hit regions and keep
-    // host-internal action keys out of the button's visible shortcut label.
-    if let c::Element::Named { content, .. } = &mut element
+    let mut atom = prompt.element(ctx);
+    if let c::Element::Named { content, .. } = &mut atom
         && let c::Element::Stack(stack) = content.as_mut()
     {
-        for (item, option) in stack.children.iter_mut().skip(1).zip(&prompt.options) {
-            let key = format!("{}/{}", prompt.key, option.key);
-            strip_shortcut(&mut item.element, &key);
-            item.element = named(key, item.element.clone());
-        }
+        stack.children.truncate(1);
+        let buttons = prompt
+            .options
+            .iter()
+            .enumerate()
+            .map(|(i, option)| {
+                let kind = match option.key.as_str() {
+                    "Allow" => ButtonKind::Primary,
+                    "Deny" => ButtonKind::Danger,
+                    _ => ButtonKind::Ghost,
+                };
+                let state = if !option.enabled {
+                    ButtonState::Disabled
+                } else if prompt.selected() == Some(i) {
+                    ButtonState::Focus
+                } else {
+                    ButtonState::Idle
+                };
+                let mut button = Button {
+                    label: option.label.clone(),
+                    kind,
+                    state,
+                    icon: None,
+                    key: None,
+                }
+                .element(ctx)
+                .expect("approval button style");
+                if kind == ButtonKind::Ghost
+                    && let c::Element::Box(b) = &mut button
+                {
+                    b.style.overrides.fill = Some(ui::Paint::solid(ui::Color::Surface2));
+                }
+                named(format!("{}/{}", prompt.key, option.key), button).into()
+            })
+            .collect();
+        stack.children.push(inline_row(buttons).into());
     }
-    element
+    atom
 }
-fn strip_shortcut(element: &mut c::Element, key: &str) {
+// The toolkit tool card owns disclosure geometry. Status colour belongs to the
+// status chip; argument/output bands use the host's subdued theme surfaces.
+fn subdued_tool_parts(element: &mut c::Element, active: bool) {
     match element {
-        c::Element::Text(t)
-            if t.runs.iter().map(|r| r.value.as_str()).collect::<String>() == key =>
-        {
-            t.runs.clear()
-        }
+        c::Element::Named { name, content } => subdued_tool_parts(
+            content,
+            active || name.ends_with("/arguments") || name.ends_with("/output"),
+        ),
         c::Element::Box(b) => {
-            for i in &mut b.children {
-                strip_shortcut(&mut i.element, key);
+            if active {
+                b.style.overrides.fill = Some(ui::Paint::solid(ui::Color::Surface2));
+                b.style.overrides.border = Some(ui::Border {
+                    width: ui::Length::Px(1.),
+                    paint: ui::Paint::solid(ui::Color::Line),
+                    outside: false,
+                });
+            }
+            b.children.retain(|item| !matches!(&item.element, c::Element::Named { name, .. } if active && name.ends_with("/head/count")));
+            for item in &mut b.children {
+                subdued_tool_parts(&mut item.element, active);
             }
         }
-        c::Element::Stack(s) => {
-            for i in &mut s.children {
-                strip_shortcut(&mut i.element, key);
+        c::Element::Stack(stack) => {
+            stack.children.retain(|item| !matches!(&item.element, c::Element::Named { name, .. } if active && name.ends_with("/head/count")));
+            for item in &mut stack.children {
+                subdued_tool_parts(&mut item.element, active);
             }
         }
-        c::Element::Named { content, .. } => strip_shortcut(content, key),
         _ => {}
     }
 }
-fn approval_colors(element: &mut c::Element) {
-    if let c::Element::Named { name, content } = element {
-        let status = if name.ends_with("/Allow") || name.ends_with("/Always") {
-            Some(ui::modules::tool_call::Status::Succeeded)
-        } else if name.ends_with("/Deny") {
-            Some(ui::modules::tool_call::Status::Failed)
-        } else {
-            None
-        };
-        if let Some(status) = status
-            && let c::Element::Box(frame) = content.as_mut()
-        {
-            frame.style.overrides.fill = Some(ui::Paint::solid(ui::Color::Rgba(status.color())));
-        }
-        approval_colors(content);
-    } else {
-        match element {
-            c::Element::Box(b) => {
-                for i in &mut b.children {
-                    approval_colors(&mut i.element);
-                }
+fn find_element_mut<'a>(element: &'a mut c::Element, key: &str) -> Option<&'a mut c::Element> {
+    match element {
+        c::Element::Named { name, content } => {
+            if name == key {
+                Some(content)
+            } else {
+                find_element_mut(content, key)
             }
-            c::Element::Stack(s) => {
-                for i in &mut s.children {
-                    approval_colors(&mut i.element);
-                }
-            }
-            _ => {}
         }
+        c::Element::Box(b) => b
+            .children
+            .iter_mut()
+            .find_map(|i| find_element_mut(&mut i.element, key)),
+        c::Element::Stack(s) => s
+            .children
+            .iter_mut()
+            .find_map(|i| find_element_mut(&mut i.element, key)),
+        _ => None,
     }
 }
 

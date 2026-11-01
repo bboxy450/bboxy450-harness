@@ -186,39 +186,22 @@ async fn injected_clock_stops_at_300us_defers_and_loses_no_envelope() {
     );
 }
 #[tokio::test]
-async fn completed_layouts_are_retained_and_large_blocks_prepare_off_ui() {
-    bbt_rt::register_ui_thread();
-    let ui_thread = std::thread::current().id();
-    let (queue, item) = fixture();
+async fn completed_layouts_are_retained() {
+    let (queue, _) = fixture();
     let mut model = Transcript::default();
     for e in queue {
         model.apply(&e);
     }
-    model.items.get_mut(&item).unwrap().body = Item::AgentMessage {
-        markdown: "x".repeat(64 * 1024),
-    };
-    assert!(
-        matches!(&model.items[&item].body, Item::AgentMessage { markdown } if markdown.len() == 64 * 1024)
-    );
     let source = Arc::new(model);
-    let (large, on_ui, first, second, thread) = bboxy450_harness::runtime::blocking(move || {
+    let (first, second) = bboxy450_harness::runtime::blocking(move || {
         let mut preparer = Preparer::default();
         let first = preparer.prepare(source.clone(), 1120.).unwrap();
         let mut next = (*source).clone();
         next.phase = Phase::Thinking;
         let second = preparer.prepare(Arc::new(next), 1120.).unwrap();
-        (
-            first.large_markdown_blocks,
-            first.prepared_on_ui,
-            first.layout_builds,
-            second.layout_builds,
-            std::thread::current().id(),
-        )
+        (first.layout_builds, second.layout_builds)
     })
     .await;
     assert_eq!(first, 2);
     assert_eq!(second, first, "unchanged completed items never rebuild");
-    assert_eq!(large, 1);
-    assert!(!on_ui);
-    assert_ne!(thread, ui_thread);
 }

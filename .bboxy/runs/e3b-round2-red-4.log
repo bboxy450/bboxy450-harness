@@ -1,0 +1,21 @@
+COMMAND: cargo test --offline --locked --test formal_models native_contracts_and_broken_controls -- --exact --nocapture
+    Blocking waiting for file lock on package cache
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.38s
+     Running tests/formal_models.rs (target/debug/deps/formal_models-d55003898c94690a)
+
+running 1 test
+
+thread 'native_contracts_and_broken_controls' (116133539) panicked at tests/formal_models.rs:19:58:
+called `Result::unwrap()` on an `Err` value: "BrokenHarnessGuiMarkdownSuppressedRender: native expected liveness, got pass"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test native_contracts_and_broken_controls ... FAILED
+
+failures:
+
+failures:
+    native_contracts_and_broken_controls
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.08s
+
+error: test failed, to rerun pass `--test formal_models`

@@ -1,123 +1,66 @@
-E3b GUI phase 2 — final implementation and verification report
+E3b / PR #5 — focused rework in progress
 Task: tasks/2026-10-31-harness-gui-phase2.md (#2202)
-Executor: E3 harness-gui / seat 01M6AMBPG3XD3CMJWHQCKWAG7M
-Worktree: /Users/feral/mydev/bboxy450-harness-gui
-Branch: e3b-gui-rich; rebased onto origin/main cc7cab1.
-Full-gate source commit: 004c2c30952840c183e57a82f06538238056f438 (signed Boxy).
-The task_report carries the final signed report-only head and its refreshed formal receipt.
-No merge. Core source was not edited.
+Worktree: /Users/feral/mydev/bboxy450-harness-gui; branch e3b-gui-rich.
+No core source changes; no merge. The 60cb6c8 report was rejected and is superseded here.
 
-FILES AND MECHANISM / ACCEPTANCE EVIDENCE
-1. Transcript: src/frontends/gui/rich.rs:81 calls bbt-doc StreamingMarkdown.append,
-   counts its actual reparsed range and prepares syntax highlights/layouts on the
-   runtime blocking worker. Stable blocks are retained. view.rs:1085 selects
-   AgentMessage and Reasoning; reasoning has a disclosure control. GUI test
-   disclosure_controls_change_the_view_without_reparsing_or_core_operations
-   exercises the rendered action, changes visibility and preserves parse counts.
-   The headless smoke checks multiple resolved glyph colours in a Rust code block.
-2. Changes: view.rs:1204 uses Diff::parse and DiffView for FileChange/TurnDiff,
-   with fold actions. smoke.rs:113 checks actual add/remove text and distinct
-   line colours, not merely the presence of cards.
-3. Tools/terminal: view.rs:1171 uses the toolkit ToolCall/status/disclosures;
-   bridge.rs:462 loads the entire completed terminal blob and decodes it on a
-   blocking worker. tests/gui_rich.rs:221 pauses a real shell at a file barrier,
-   asserts rendered TOOL role, LIVE-TAIL and Running status mid-stream, then
-   asserts all 10000 payload words plus BLOB-END after completion.
-4. Approval: view.rs:1296 uses the approval atom, with stable rendered actions,
-   keyboard selection and distinct green Allow/red Deny surfaces. window.rs:228
-   routes navigation and Escape; cancel resolves Deny with reason Cancelled.
-   tests/gui_rich.rs:536 uses actual gateway prompts and keyboard/Escape actions,
-   including cancellation while a slash popup is open. gui_bridge's rendered
-   Allow/Always/Deny actions still send ResolveApproval on the control lane.
-   A retired rendered approval is rejected locally before dispatch; the API
-   witness asserts no stale operation reached the durable gateway log.
-   Plan, Image, Usage and Subagent retain readable plain text.
-5. Composer: editor.rs owns the upgraded toolkit Editor while retaining composer
-   presentation/submission. History Up at the first logical line and draft
-   restoration are tested at tests/gui_rich.rs:175. Both / and @ request hooks
-   are exposed; offered completions are /interrupt and /stop only. No file search.
-   Completion actions retain their request token; a stale popup cannot replace
-   newer typing (tests/gui_rich.rs:593).
-6a. The real Bridge::replay -> publish_frame -> state.prepared path is tested at
-   tests/gui_rich.rs:73 with >64 KiB and real MarkdownPrepare permit calls.
-   It reads prepared_on_ui == false; R15 checks one shared rt/UI-core registry.
-6b. No 4 KiB cap: retained full rows and visible glyph filtering (view.rs:932)
-   allow the long reply's END-OF-LONG-REPLY to be read at the bottom of an 860px
-   viewport (gui_rich.rs:94). A separate long single-line code case activates
-   the source disclosure and reads its ending through vertical scrolling (:504).
-6c. verification/README.md:68 and :88 correctly distinguish 100k worker protocol
-   deltas from the actual UI publications/notifications charged by the clock.
-6d. The real mid-stream rendered role/live-tail witness is listed under item 3.
-6e. gui_rich.rs:335 opens two real actors sharing the public session label in
-   isolated roots, starts the new actor, closes the old gateway and proves the
-   new actor completes normally and accepts another turn. Both tasks are joined.
-7. gui_budget still drives Bridge::drain_with_clock: 300us stop, deferred wake,
-   no loss and unchanged completed layouts retained. gui_rich.rs:118 streams an
-   exact 65536-byte unfinished paragraph in 256-byte increments through the real
-   worker preparer. It counts actual parser ranges, asserts <=4x received bytes
-   and verifies an unchanged completed layout is reused. Parse credit limits
-   pathological unfinished blocks; deferred bytes stay visible as literal text,
-   and completion flushes through streaming append. Width/disclosure changes
-   deliberately require a different layout; unchanged completed inputs do not.
-8. Makefile smoke now replays tests/fixtures/gui/rich-all-items.jsonl offscreen.
-   smoke.rs checks per-card meaning, highlighted glyph spans, add/remove lines,
-   tool status chips, three approval actions and distinct Allow/Deny surfaces.
-   It writes full and scrolled Metal screenshots without a display or operator.
+Rejection 1: The API witness now crashes/reopens the SAME session directory,
+checks the recovery epoch changes, sends Close on the retired gateway, and
+activates an old rendered Stop after attaching to the recovered actor. Native
+InProc handles retain their original channels; rendered Stop now also captures
+its epoch and refuses a replacement birth. Disabling the production view guard
+cancels the recovered turn and fails its required EndTurn result (exit 101).
+The restored same-store witness passes. No disjoint-root stand-in remains.
 
-DEPENDENCIES AND FORMAL CONTRACTS
-Cargo.toml/lock pin ui/doc/render to toolkit harness-widgets commit
-18ff123b6dc68d2a4f578417359c910a3ce933b3 (PR #86 remains open; no 0.1.2 signal).
-Published rt/ui-core 0.1.1 are shared via the git-source patch. gui_dependencies.py
-checks one copy of every toolkit package; no duplicate UI-thread registry.
+2: A separate 65536-byte stream contains paragraphs, lists and Rust fences.
+All 64 batches reach StreamingMarkdown.append, with 69315 actual reparsed bytes,
+zero credit deferrals and 1346 prepared block layouts on toolkit 18ff123.
+Resetting the parser to full-source parsing per batch reduces appends to 11,
+so the no-throttling assertion fails (exit 101). The unfinished-paragraph case
+remains a separate parse-credit bound. Deferred suffixes intentionally render
+as literal preview text; a new rendered test sees the Markdown markers while
+credit is exhausted and verifies formatting after completion.
 
-tests/formal/models.rs:1165 and verification/*.toml add Markdown parse/visibility
-and retired-approval contracts, with three deliberately broken controls.
-All 48 variants / 21 contracts / one crate match native and pinned Java TLC
-reachable states, labelled edges and expected safety/liveness verdicts.
-New variants (states / edges):
-  HarnessGuiMarkdownBudget: pass, 1823 / 4458
-  BrokenHarnessGuiMarkdownQuadratic: safety violation, 2185 / 5357
-  BrokenHarnessGuiMarkdownHiddenTail: safety violation, 1515 / 3455
-  HarnessGuiApprovalChoice: pass, 14 / 22
-  BrokenHarnessGuiApprovalChoice: safety violation, 17 / 33
-Clean-source gate archive: verification/evidence/aa745b02d97512fddb386cd7fec8dc870a03c8fa339a4eed41f9183fc4827930/evidence.json
-Formal abstraction bounds/assumptions and implementation-only coverage are in
-contracts.toml/coverage.toml; no claim of arbitrary Rust refinement or complete
-TLC replacement. Markdown language correctness, pixels, IME and OS effects remain
-implementation witnesses. Native window surface/physical IME were not exercised;
-CoreText and Metal rendering were exercised headlessly. E1c's ContextTrim arms
-were not yet in main or an open PR when checked; d2400 requires preserving both
-sets of display changes when those branches integrate.
+3: The phase-1 blocking-thread self-placement assertions are removed; gui_budget
+now tests only completed layout reuse. The real Bridge::replay gate checks the
+MarkdownPrepare permit hook, and explicitly catches the registered UI-thread
+assertion. It does not read the unreachable prepared_on_ui flag in a test.
 
-COMMANDS AND ACTUAL RESULTS
-make test — exit 0, unattended, private HOME, no operator input:
-  e3b-make-test-final.log; test-current.json; gui-gate.json.
-  All 10 core stages and 4 GUI stages exited 0; all 10 new rich tests passed.
-  Includes fmt, all-feature/all-target clippy, core tests/hardening, native/TLC
-  parity, secret/header/KB checks and KB broken control, GUI R15/lint/API/smoke.
-make check-formal-evidence — valid clean-source receipt in e3b-formal-checked.log.
-make bench-budgets — exit 0; BOTH entries UNMEASURED at load 51.04 > 10 CPUs,
-  e3b-bench-budgets.log. No p99 claim; wall-clock benchmarks are outside make test.
-The first full make test exited 2 solely because the new contract declarations
-used test-formal-parity instead of the inventory's mandatory test-formal field.
-Both declarations were corrected, native inventory passed and the full unfiltered
-make test above was rerun. That failed attempt is retained in e3b-make-test.log.
+4: RenderPreparedRow is enabled only for a dirty row. Completion introduces a
+new final byte, invalidates the old row, and requires eventual visibility of
+that byte. The suppressed-render control disables rendering after completion
+and must fail liveness. Restoring the old unconditional render guard makes that
+control incorrectly pass; the native harness detects this (exit 101). The
+corpus now has 49 variants / 21 contracts. Full parity is being refreshed.
 
-RED -> GREEN (real test failures, not compilation failures)
-Exact cargo commands, mutation diffs, exit codes and byte-for-byte restoration
-hashes: e3b-red-controls.json. Each negative control exited 101:
-  6a: move production preparation into real UI drain -> UI-thread panic.
-  6b: cap production Markdown input at 4096 -> reply ending missing.
-  7: disable parse credit -> 8421376 parsed bytes / 65536 received, >4x bound.
-Logs: e3b-red-6a.log, e3b-red-6b.log, e3b-red-7.log.
-Restored production tests all pass in e3b-make-test-final.log (exit 0).
+5: The prior report's local archive and uncommitted head-log claims are removed.
+This round will commit the new formal log and a source/model/tool hash summary.
+Local graph archives are retained review outputs, not claimed as committed files.
 
-SCREENSHOTS
-.bboxy/runs/gui-smoke.png — 1120x7000; 17 items / 14 kinds / nonblank regions.
-  SHA256 51e935b5eb8e6747d01c86f873a8c4d8d37d2a2d334c5d6d37bf714d3d1df71e
-.bboxy/runs/gui-smoke-scrolled.png — 1120x860; scrolled viewport meaning/clip checks.
-  SHA256 8d5ce609b6746e17b059d5c9e4206451413723c2d6e13ff428d7fdb93036e008
-Both images were visually inspected. e3b-verification.json binds gate input hashes,
-command exits, formal results and screenshots; final record-only commit preserves
-those exact source inputs. Final-head formal evidence is refreshed before handoff
-and retained under verification/evidence/ and .bboxy/runs/e3b-head-formal.log.
+6: The native App::key delegates to the exported route_key function. Tests drive
+that same route for Escape: pending approval (including an open completion),
+completion-only cancellation, and interruption of a deliberately suspended
+provider. No window, input device or operator is involved.
+
+7-10: Rich content is inserted in StreamDock's inset card body, using the solved
+body width for Markdown and tool/diff preparation. Tool accordion bands use
+Surface2/Line tokens and omit the meaningless count. Approval choices are compact
+inline primary/secondary/danger buttons with no empty key badges. Source and
+reasoning disclosures are inline ghost controls inside the body. Smoke checks
+body/card containment, three distinct approval fills and width <30% of the body.
+Both updated screenshots were inspected; all meaning checks still pass.
+
+Current commands (actual exits):
+- cargo clippy --offline --locked --all-features --all-targets -- -D warnings: 0.
+- focused GUI budget gate: 0 (e3b-rework-focused2.log, before later rich-only tests).
+- focused rich gate: 0, 13 tests (e3b-rework-rich3.log).
+- make test-gui-smoke: 0 (e3b-rework-smoke.log).
+- exact negative commands/diffs/restoration hashes: e3b-round2-red-controls.json.
+  Negative controls 1, 2 and 4 each exit 101; source restored byte-for-byte.
+- definition_lines_in_containers_repair_previously_formatted_blocks: 101 on
+  18ff123 (e3b-definition-18ff-red.log). It compares the rendered streamed prefix
+  with a fresh parse after blockquote/list/multiline/footnote definitions.
+  Current failure: '[reference][r]' stays literal after '> [r]: ...'. This is
+  toolkit PR #86's round-3 defect, and the pin will follow its next head.
+
+Full unfiltered make test and final formal evidence remain pending for this
+rework. The previous full-gate success is historical, not a claim for this tree.
