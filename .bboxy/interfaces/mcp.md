@@ -21,15 +21,15 @@ links:
   to: '[[never-block]]'
 number: 1988
 provenance:
-  digest: sha256:6200ad9197598f78144a820ee024814f9dd6492b6f443adf53492a52c2a39a61
-  frontmatter_digest: sha256:7b266392e31b25c6401f9133167f19cf1acb070dd39a1691d5ce321619e14299
-  log: .bboxy/log/2026-11-01.jsonl#12514
-  sig: X+aqJpfox2ywSCK69Nc4ufqsi9SbfoFHR4EyutJSoUktLET3grumZLLlqJc50vbFy9TvTxbrqh+bOOOpLSuxBw==
+  digest: sha256:b6920ad88c2d1297ff194bc7b78204c15da7fa69338c94510f86be758a74092f
+  frontmatter_digest: sha256:eb94f3493fdcf742a80cbd794dcad0c5b0b9479c398b72c863a004fcb4353119
+  log: .bboxy/log/2026-11-01.jsonl#25250
+  sig: ctt5My2q3H9pJhkDhZC9mVObEZdzCxrNypmubLmJYslqNBpgoOh6VE3nZt69oIOCRttQ66Tbtp/d8Ebpoj9EAA==
   signer: seat:01M6AC7H87H9S94Y1D45PSQVH6
 status: baselined
 title: 'ICD: MCP client — session-lived servers, registry, policy, degradation (v0.1)'
 type: interface
-updated: 2026-11-01T06:31:02.901Z
+updated: 2026-11-01T12:15:33.479Z
 updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 ---
 # ICD: MCP client
@@ -45,7 +45,8 @@ updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 - **Sources.**
   - The profile's `mcpServers: {<name>: {command, args, env, timeout_s, trust_hints}}` (kittens keys, plus the two harness keys).
   - ACP `session/new` stdio `mcpServers` ([[acp]] §1).
-  - Same name in both: the ACP entry wins, with one `Notice{Info}`.
+  - `seat --mcp-config <path>`: a JSON file `{"mcpServers": {...}}` with the same keys, written by the bboxy450-term launch kit ([[embed-seat]] §1). These are *launcher servers*.
+  - Same name in more than one source: launcher wins over ACP, and ACP wins over the profile, with one `Notice{Info}`.
   - At most 16 servers per session; the rest are ignored with a `Notice{Warn}`.
 - **Lifetime = the session.** Servers are spawned when `Host::create` or `Host::open` returns, on the session's `TaskGroup` (law [[cancel-is-cancel]]). Each runs in its own process group.
   - `Op::Close` stops every server: the process group gets SIGTERM, then SIGKILL after 1 s.
@@ -105,6 +106,7 @@ updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 ## 5. Secrets
 
 - **Env values.** Each `env` value is a literal, `$VAR`, or a kittens `!cmd` (10 s timeout, 8 KiB cap, [[provider]] §4).
+- **Inherited environment.** A server inherits the harness process environment, then its configured `env` is applied over it. **Every `BBOXY_*` variable is removed before spawn, except for launcher servers** (§1 sources). `BBOXY_CAPABILITY` is a seat credential, and a profile or ACP server is untrusted code.
 - **Registration.** Every resolved value is registered with the redactor `Set` (`src/redact.rs:36`) **before** the child is spawned.
 - **Scrubbing.** Tool arguments are scrubbed before they are written; results, `Notice` text and stderr excerpts are scrubbed before they enter any item (law [[secrets-never-persist]]).
 - **Profiles.** The profile file stores the reference (`$VAR`, `!cmd`), never the resolved value.
@@ -119,6 +121,7 @@ updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 | §3 calls | `slow` gives `Failed` with the timeout reason within `timeout_s` + 1 s, and the turn continues; an `Interrupt` during `slow` gives `TurnEnded{Cancelled}` in ≤ 2 s; a response from the previous generation after a crash is dropped |
 | §4 labels | the notice count equals the number of state changes in each mode |
 | §5 secrets | `echo_env` returns its secret env value; the log, the notices and the stderr excerpt contain no copy (`grep -c` = 0 over the session directory) |
+| §5 inherited environment | with `BBOXY_CAPABILITY=x` and `BBOXY_SOCK=y` set on the harness, `echo_env` as a profile server sees neither, and the same fixture as a launcher server sees both |
 | model | **HarnessMcpServer**, below |
 
 **HarnessMcpServer**, adapted from PluginConnection (generations A→B→A, as in HarnessCancelTree).
@@ -142,5 +145,6 @@ updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
   - HTTP and SSE transports in v0.1: they need auth and OAuth, which is a separate secret path;
   - waiting for servers at session start: one hung server would block every turn.
 - **2026-11-01, at E1's question** (message 01M6AWED4QVM27ZVE6ZHP7WY5D). §1 and §6 disagreed on the failure count. Binding: 5 failed attempts (the initial one plus 4 restarts), then `dead`. §6 now asserts 5 spawns and no sixth. Version unchanged.
+- **2026-11-01, at the Oracle's embed-seat request** (message 01M6BGD5FMZ55AJ4V6SS4Q11KK). §1 adds launcher servers from `seat --mcp-config`. §5 states environment inheritance, which the ICD had not specified: servers inherit the process environment, but `BBOXY_*` is removed except for launcher servers. `src/mcp.rs` at cdde43d inherits everything, so a profile server could read the seat capability; that is a defect against this line. Alternative rejected: clearing the whole environment, which breaks `PATH`/`HOME` for ordinary servers. Version unchanged.
 
 Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: configured MCP servers (E1c implements the client).
