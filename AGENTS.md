@@ -50,4 +50,4 @@ What it does not authorize:
 - `make test` runs fully unattended.
 - Every source file carries the header from `ATTRIBUTION.md`.
 - Keys are never written to the repository or to logs.
-- Every Markdown file under `.bboxy/` that has YAML frontmatter must carry an `id` and a `number`, otherwise the knowledge index refuses every write. Run reports in `.bboxy/runs/` are written without frontmatter.
+- Every `.md` file under `.bboxy/` is an indexed record. It needs frontmatter with an `id` and a `number`, or the knowledge index refuses every write. Put run reports and logs in `.bboxy/runs/` as `.log` or `.json`, never as `.md`.
