@@ -72,3 +72,11 @@ exits 0: e3b-rework-gui-except-upstream.log. The exclusion is explicit; this is
 not an unfiltered make test success. All 13 other rich tests run and pass.
 The same-store Stop, linear structured parse and final-byte liveness controls
 have red→green evidence. Final completion waits on the known upstream fix.
+
+Oracle-directed pin update, 2026-11-01:
+ui/doc/render now pin 4889321f13e509dc7ca18ce7ed3f0217e76cdd1b.
+The previously failing rendered definition-prefix regression exits 0 on this
+revision (e3b-definition-488-green.log), including all four definition forms.
+R15 dependency metadata passes. The full unfiltered make test is running next.
+E2 still needs to merge toolkit main; the Oracle will supply the final revision
+for another pin update before PR #5 merges. No 0.1.2 publication signal received.
