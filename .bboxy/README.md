@@ -1,4 +1,6 @@
 ---
+id: "0RGWY2T5YQ2EX40CHDYKY17F7V"
+number: 1
 type: note
 title: .bboxy — bboxy450-harness knowledge base
 ---

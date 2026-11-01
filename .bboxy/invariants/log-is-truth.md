@@ -1,4 +1,6 @@
 ---
+id: "0K1W00QKBC7MXPXZYDEWVF2Y13"
+number: 9
 type: invariant
 title: "every view is a projection of the event log; a reconnect at (epoch, seq) yields no durable gap and no duplicate"
 status: active

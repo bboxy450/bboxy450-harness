@@ -1,4 +1,6 @@
 ---
+id: "0Z1Z16AM4TTH79NKECY7GW7GG6"
+number: 13
 type: invariant
 title: "keys and seat capabilities are resolved at use and never appear in the log, events, blobs, errors, Debug output or the screen"
 status: active

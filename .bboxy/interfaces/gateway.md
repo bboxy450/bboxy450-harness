@@ -1,4 +1,6 @@
 ---
+id: "0JSWP3Y5BHPEN0Z1ENP01J2TEB"
+number: 4
 type: interface
 title: "ICD: gateway — send, subscribe, lag, replay (v0.1)"
 status: baselined

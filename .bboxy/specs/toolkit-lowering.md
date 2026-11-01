@@ -1,4 +1,6 @@
 ---
+id: "02GK66JGYT5A8W07CXK1JFVQT9"
+number: 20
 type: spec
 title: "Lowering bboxy450-harness onto the bboxy450-term toolkit"
 status: draft

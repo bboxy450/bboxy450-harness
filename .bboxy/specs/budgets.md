@@ -1,4 +1,6 @@
 ---
+id: "0C8JGJM2593703E6D1254YDPN0"
+number: 18
 type: spec
 title: "budgets: shared resources the harness spends, allocated with margins"
 status: draft

@@ -1,4 +1,6 @@
 ---
+id: "0EEZTE6013TV57EBER08DQZDZ4"
+number: 8
 type: invariant
 title: "cancelling a turn kills its process groups within 2 s and no late result is applied to a newer generation (A → B → A)"
 status: active

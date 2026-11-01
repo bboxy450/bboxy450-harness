@@ -1,4 +1,6 @@
 ---
+id: "09KQJ12TDVPZXFA0SJDDQGR0GD"
+number: 12
 type: invariant
 title: "no write, exec or network-capable tool runs without a current-generation policy decision"
 status: active

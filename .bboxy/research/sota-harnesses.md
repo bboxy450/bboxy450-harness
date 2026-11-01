@@ -1,4 +1,6 @@
 ---
+id: "0WW297TPTWCSS0JMPEWWV8HS5G"
+number: 17
 type: research
 title: "State of the art: open-source coding-agent harnesses (2026-10-31)"
 created: 2026-10-31

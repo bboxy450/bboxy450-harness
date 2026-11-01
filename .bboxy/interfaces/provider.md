@@ -1,4 +1,6 @@
 ---
+id: "0BQF1650V8GV5FYZHFMEPRVCYY"
+number: 7
 type: interface
 title: "ICD: provider stream — engine ↔ model endpoint (v0.1)"
 status: baselined

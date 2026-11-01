@@ -1,4 +1,6 @@
 ---
+id: "01BPEQYJJMDWB644MESM3S4T1J"
+number: 10
 type: invariant
 title: "send never awaits; the engine never waits on a face; control ops are never refused Busy"
 status: active

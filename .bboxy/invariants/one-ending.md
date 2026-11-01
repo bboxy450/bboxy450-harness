@@ -1,4 +1,6 @@
 ---
+id: "0WQWPW9KVBY5APAFZF5BN6WMKS"
+number: 11
 type: invariant
 title: "every accepted turn ends exactly once; every started item reaches a terminal state, including after cancel and crash recovery"
 status: active

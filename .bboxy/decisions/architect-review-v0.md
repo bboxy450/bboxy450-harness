@@ -1,4 +1,6 @@
 ---
+id: "091XAEFN2502WJG03QC5VK80NT"
+number: 2
 type: decision
 title: "Architect review of the v0 specs: nine amendments, five decisions upheld"
 status: decided

@@ -1,4 +1,6 @@
 ---
+id: "08D625V1E7JNPS29P0P4Y4YZKN"
+number: 19
 type: spec
 title: "bboxy450-harness — zoomed-out spec"
 status: draft

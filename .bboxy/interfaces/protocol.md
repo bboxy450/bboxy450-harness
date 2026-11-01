@@ -1,4 +1,6 @@
 ---
+id: "0ERX7PT0Z3S73CS5EFTEHN8VA4"
+number: 6
 type: interface
 title: "ICD: protocol — Op, Event, Envelope, Item lifecycle (v0.1)"
 status: baselined

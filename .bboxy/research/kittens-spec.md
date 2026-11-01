@@ -1,4 +1,6 @@
 ---
+id: "0YMED29KM9PAPZ4BS5E5GMW8FE"
+number: 16
 type: research
 title: "Kittens — design spec of prior work (research input for bboxy450-harness)"
 created: 2026-10-31

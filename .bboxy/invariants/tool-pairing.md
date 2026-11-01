@@ -1,4 +1,6 @@
 ---
+id: "0JTW8XYW1ZCZ725NH3YJ1AMJP5"
+number: 14
 type: invariant
 title: "every tool call in saved history has exactly one result; cancelled or interrupted calls get a synthetic one"
 status: active
