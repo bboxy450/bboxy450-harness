@@ -1,0 +1,18 @@
+E3b GUI phase 2 — implementation record
+Task: tasks/2026-10-31-harness-gui-phase2.md (#2202)
+Branch: e3b-gui-rich; based on origin/main at or after 637b10c.
+
+Worker-owned bbt-doc streaming append/highlighting, retained block layouts and parse credit;
+rich diff/tool/approval widgets, upgraded editor history/completion, literal deferred tails,
+full completed terminal blobs, source disclosure and viewport glyph clipping.
+
+Negative controls (real cargo test runtime failures, restored exact source hashes):
+6a: production publish_frame preparation moved into real UI drain — exit 101, UI-thread panic.
+6b: production Markdown input capped at 4096 bytes — exit 101, long-reply ending missing.
+7: parse credit disabled — exit 101, 8421376 parsed / 65536 received bytes.
+Commands, mutation diffs and restoration hashes: e3b-red-controls.json; e3b-red-{6a,6b,7}.log.
+
+Toolkit ui/doc/render pinned to harness-widgets 18ff123b6dc68d2a4f578417359c910a3ce933b3.
+Published rt/ui-core remain shared via a second patch; R15 metadata check passes.
+make test-gui exit 0 before this latest toolkit pin (e3b-gui-gate-attempt1.log).
+Full canonical verification and final handoff are pending; this is not a completion claim.

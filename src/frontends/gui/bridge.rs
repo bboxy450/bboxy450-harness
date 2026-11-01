@@ -34,6 +34,8 @@ pub struct FrameState {
     pub ready: bool,
     #[cfg(feature = "embedded")]
     pub prepared: Option<Arc<super::view::PreparedRows>>,
+    #[cfg(feature = "embedded")]
+    pub faces: Arc<super::rich::Faces>,
 }
 struct Mailbox {
     latest: Latest<FrameState>,
@@ -43,6 +45,8 @@ struct Mailbox {
     resized: tokio::sync::Notify,
     published: AtomicU64,
     blobs: arc_swap::ArcSwapOption<crate::store::Blobs>,
+    #[cfg(feature = "embedded")]
+    faces: arc_swap::ArcSwap<super::rich::Faces>,
 }
 impl Mailbox {
     fn pending(&self, op: OpId, insert: bool) {
@@ -87,6 +91,8 @@ impl Bridge {
                 resized: tokio::sync::Notify::new(),
                 published: AtomicU64::new(0),
                 blobs: arc_swap::ArcSwapOption::empty(),
+                #[cfg(feature = "embedded")]
+                faces: arc_swap::ArcSwap::from_pointee(Default::default()),
             }),
             messages,
             dirty,
@@ -129,6 +135,17 @@ impl Bridge {
                 self.mailbox.resized.notify_one();
             }
         }
+    }
+    #[cfg(feature = "embedded")]
+    pub fn toggle(&self, item: ItemId, toggle: super::rich::Toggle) {
+        self.mailbox.faces.rcu(|current| {
+            let mut next = current.as_ref().clone();
+            let mut face = next.get(&item).cloned().unwrap_or_default();
+            face.apply(toggle.clone());
+            next.insert(item, face);
+            Arc::new(next)
+        });
+        self.mailbox.resized.notify_one();
     }
     pub fn create(&mut self, config: Config) {
         let mailbox = self.mailbox.clone();
@@ -253,32 +270,36 @@ type Preparer = super::view::Preparer;
 #[cfg(not(feature = "embedded"))]
 #[derive(Default)]
 struct Preparer;
-async fn publish_frame(mut state: FrameState, mailbox: &Mailbox, preparer: &mut Preparer) {
+async fn publish_frame(mut state: FrameState, mailbox: &Arc<Mailbox>, preparer: &mut Preparer) {
     #[cfg(feature = "embedded")]
     {
         if let Some(blobs) = mailbox.blobs.load_full() {
             load_terminal_outputs(&state.transcript, &blobs, preparer).await;
         }
+        state.faces = mailbox.faces.load_full();
+        let faces = state.faces.clone();
         let mut owned = std::mem::take(preparer);
         let source = state.transcript.clone();
         let width = f32::from_bits(mailbox.width.load(Ordering::Acquire));
-        let (next, result) = crate::runtime::blocking(move || {
-            let result = owned.prepare(source, width);
-            (owned, result)
+        let publisher = mailbox.clone();
+        *preparer = crate::runtime::blocking(move || {
+            match owned.prepare_with_faces(source, width, &faces) {
+                Ok(prepared) => state.prepared = Some(Arc::new(prepared)),
+                Err(error) => state.error = Some(error),
+            }
+            // Replacing Latest can retire a large old layout. Retire it on the
+            // preparation worker as well, never on either shared IO worker.
+            publisher.publish(state);
+            owned
         })
         .await;
-        *preparer = next;
-        match result {
-            Ok(prepared) => state.prepared = Some(Arc::new(prepared)),
-            Err(error) => state.error = Some(error),
-        }
     }
     #[cfg(not(feature = "embedded"))]
     {
         let _ = preparer;
         let _ = &mut state;
+        mailbox.publish(state);
     }
-    mailbox.publish(state);
 }
 fn apply_event(
     model: &mut Transcript,
@@ -443,7 +464,15 @@ pub async fn load_terminal_outputs(
     blobs: &crate::store::Blobs,
     preparer: &mut super::view::Preparer,
 ) {
-    preparer.scope(model);
+    if !preparer.same_scope(model) {
+        let mut owned = std::mem::take(preparer);
+        let source = model.clone();
+        *preparer = crate::runtime::blocking(move || {
+            owned.scope(&source);
+            owned
+        })
+        .await;
+    }
     for row in model.items.values() {
         if row.completed.is_some()
             && !preparer.has_terminal_output(&row.id)
@@ -456,12 +485,10 @@ pub async fn load_terminal_outputs(
             } else {
                 match blobs.get(blob).await {
                     Ok(bytes) => {
-                        let text = String::from_utf8_lossy(&bytes);
-                        let mut start = text.len().saturating_sub(4096);
-                        while !text.is_char_boundary(start) {
-                            start += 1;
-                        }
-                        text[start..].to_owned()
+                        crate::runtime::blocking(move || {
+                            String::from_utf8_lossy(&bytes).into_owned()
+                        })
+                        .await
                     }
                     Err(_) => "Output unavailable: blob could not be read".into(),
                 }

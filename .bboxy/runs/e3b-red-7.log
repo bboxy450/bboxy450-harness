@@ -1,0 +1,29 @@
+COMMAND: cargo test --offline --locked --features standalone --test gui_rich streamed_64k_markdown_has_linear_parse_work_and_reuses_completed_layout -- --exact --nocapture
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+warning: unused variable: `complete`
+  --> src/frontends/gui/rich.rs:85:9
+   |
+85 |         complete: bool,
+   |         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_complete`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `bboxy450-harness` (lib) generated 1 warning (run `cargo fix --lib -p bboxy450-harness` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.29s
+     Running tests/gui_rich.rs (target/debug/deps/gui_rich-3a19d25ba2150d0e)
+
+running 1 test
+
+thread 'streamed_64k_markdown_has_linear_parse_work_and_reuses_completed_layout' (115559857) panicked at tests/gui_rich.rs:168:5:
+quadratic reparsing: 8421376 parsed bytes for 65536 received bytes
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test streamed_64k_markdown_has_linear_parse_work_and_reuses_completed_layout ... FAILED
+
+failures:
+
+failures:
+    streamed_64k_markdown_has_linear_parse_work_and_reuses_completed_layout
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 11.55s
+
+error: test failed, to rerun pass `--test gui_rich`

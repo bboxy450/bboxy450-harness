@@ -20,6 +20,20 @@ struct Wake;
 impl bbt_rt::Waker for Wake {
     fn wake(&self) {}
 }
+async fn prepare(
+    preparer: &mut Preparer,
+    source: Arc<Transcript>,
+    width: f32,
+) -> bboxy450_harness::frontends::gui::view::PreparedRows {
+    let mut owned = std::mem::take(preparer);
+    let (next, result) = bboxy450_harness::runtime::blocking(move || {
+        let result = owned.prepare(source, width);
+        (owned, result)
+    })
+    .await;
+    *preparer = next;
+    result.unwrap()
+}
 #[tokio::test]
 async fn actual_layout_sticks_releases_and_renders_approval_actions() {
     let mut model = read_replay("tests/fixtures/protocol/all-items.jsonl".into())
@@ -53,7 +67,7 @@ async fn actual_layout_sticks_releases_and_renders_approval_actions() {
     };
     let mut preparer = Preparer::default();
     state.prepared = Some(Arc::new(
-        preparer.prepare(state.transcript.clone(), 1120.).unwrap(),
+        prepare(&mut preparer, state.transcript.clone(), 1120.).await,
     ));
     let mut view = HarnessView::default();
     let frame = view.render(&state, [1120., 860.]).unwrap();
@@ -81,7 +95,7 @@ async fn actual_layout_sticks_releases_and_renders_approval_actions() {
         ..state.clone()
     };
     grown.prepared = Some(Arc::new(
-        preparer.prepare(grown.transcript.clone(), 1120.).unwrap(),
+        prepare(&mut preparer, grown.transcript.clone(), 1120.).await,
     ));
     assert_eq!(
         grown.prepared.as_ref().unwrap().layout_builds,
@@ -214,9 +228,7 @@ async fn cards_show_readable_content_instead_of_serialized_payloads() {
         ..Default::default()
     };
     state.prepared = Some(Arc::new(
-        Preparer::default()
-            .prepare(state.transcript.clone(), 1120.)
-            .unwrap(),
+        prepare(&mut Preparer::default(), state.transcript.clone(), 1120.).await,
     ));
     let mut view = HarnessView::default();
     let frame = view.render(&state, [1120., 7000.]).unwrap();

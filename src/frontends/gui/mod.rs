@@ -19,3 +19,9 @@ pub mod smoke;
 pub mod view;
 #[cfg(feature = "standalone")]
 pub mod window;
+
+#[cfg(feature = "embedded")]
+pub mod rich;
+
+#[cfg(feature = "embedded")]
+pub mod editor;

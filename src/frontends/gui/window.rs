@@ -218,18 +218,54 @@ impl App {
         Ok(())
     }
     fn edit(&mut self, command: Edit) {
-        self.view.composer.handle(composer::Command::Edit(command));
+        self.view.edit(command);
         self.view.invalidate();
     }
     fn key(&mut self, key: Key, text: Option<&str>) {
         let control = self.modifiers.control_key();
         let shortcut = control || self.modifiers.super_key();
         let shift = self.modifiers.shift_key();
+        if key == Key::Named(NamedKey::Escape) && self.view.cancel_prompt(&self.bridge) {
+            return;
+        }
+        let choice = match key {
+            Key::Named(NamedKey::ArrowUp) => Some(bbt_ui::modules::approval::Key::Up),
+            Key::Named(NamedKey::ArrowDown) => Some(bbt_ui::modules::approval::Key::Down),
+            Key::Named(NamedKey::Home) => Some(bbt_ui::modules::approval::Key::Home),
+            Key::Named(NamedKey::End) => Some(bbt_ui::modules::approval::Key::End),
+            Key::Named(NamedKey::Enter) => Some(bbt_ui::modules::approval::Key::Enter),
+            _ => None,
+        };
+        if let Some(choice) = choice {
+            if self.view.approval_key(choice, &self.bridge) {
+                return;
+            }
+            if matches!(key, Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown))
+                && self.view.complete(choice)
+            {
+                return;
+            }
+        }
+        if key == Key::Named(NamedKey::Enter)
+            && self.view.completion_open()
+            && self.view.complete(bbt_ui::modules::approval::Key::Enter)
+        {
+            return;
+        }
         if is_interrupt(&key, self.modifiers) {
             self.view.activate(Action::Interrupt, &self.bridge);
             return;
         }
         match key {
+            Key::Named(NamedKey::Tab) => {
+                self.view.complete(bbt_ui::modules::approval::Key::Enter);
+            }
+            Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown) => {
+                self.view
+                    .composer
+                    .vertical(key == Key::Named(NamedKey::ArrowUp));
+                self.view.invalidate();
+            }
             Key::Named(NamedKey::Enter) if !shift && !self.view.composer.composing() => {
                 self.view.activate(Action::Send, &self.bridge)
             }

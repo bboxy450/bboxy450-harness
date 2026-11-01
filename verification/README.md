@@ -4,7 +4,7 @@ The native backend is crates.io `bboxy450-tlc =0.1.1`, using its finite integer
 and Boolean Model/Variable/Action API. Yarn 0.1.1 projects the production
 `harness_turn_topology!` declaration. This repository contains no checker fork.
 
-The corpus has 43 model variants mapped to 19 contracts, including the shared
+The corpus has 48 model variants mapped to 21 contracts, including the shared
 Yarn scheduling projection.
 It explores two queued turns, two tools/rounds, three birth generations (A-B-A),
 a two-slot stand-in for the bounded work lane, and a three-entry replay log.
@@ -65,8 +65,9 @@ ScrollStick (tail/offset 0..3) and EmbedLifecycle (three births) families and th
 safety controls. The existing DirtyWake StreamToView pair is retained. These
 models are abstractions, with no claim that the checker proves delta content or
 pixels: `gui_fixtures` checks ordered projection, generation fencing and random
-delta loss/coalescing against completion; `gui_budget` measures a 100k-delta
-frame driver with an injected clock (300us drain, deferral, no loss); `gui_render` and `test-gui-smoke` witness the real retained tree,
+delta loss/coalescing against completion; `gui_budget` reduces 100k protocol
+deltas on the replay worker, then charges the actual UI drain's publications
+and notifications with an injected clock (300us drain, deferral, no loss); `gui_render` and `test-gui-smoke` witness the real retained tree,
 CoreText and offscreen Metal frame. Native surface presentation/physical IME
 and embedding into the separate term workspace remain implementation-only.
 
@@ -85,7 +86,7 @@ No core/protocol source is forked by this frontend.
 
 Budget amendment 82f2edd: `make test` uses deterministic structural GUI gates.
 The shared production drain accepts an injected clock; the 100k-delta witness
-charges 50us per receive and projection and asserts a 300us drain with no loss.
+charges 50us per received UI publication/notification and state replacement, and asserts a 300us drain with no loss. The 100k protocol deltas are reduced on the replay worker; they are not 100k UI drain charges.
 A real worker witness checks retained completed layouts and >4KiB preparation
 away from the UI thread. `make bench-budgets` includes `bench-gui-budget`; its
 real-clock p99 is observational and prints UNMEASURED when load exceeds ncpu.

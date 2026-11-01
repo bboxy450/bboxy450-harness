@@ -75,7 +75,7 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
             let expected = match row.kind {
                 ItemKind::UserMessage => "Read two files", ItemKind::AgentMessage => "I’ll read both files.",
                 ItemKind::Reasoning => "Compare the current contents.", ItemKind::ToolCall => "Arguments: path: hello.txt",
-                ItemKind::FileChange => "+hello world", ItemKind::TurnDiff => "+++ b/hello.txt",
+                ItemKind::FileChange => "+ hello world", ItemKind::TurnDiff => "+++ b/hello.txt",
                 ItemKind::Terminal => "printf ok", ItemKind::Plan => "In progress: Update greeting",
                 ItemKind::Approval => "Edit hello.txt", ItemKind::Image => "Image: image/png",
                 ItemKind::ContextTrim => "Context trimmed through event ",
@@ -91,7 +91,7 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         let required = [
             "Read two files and update hello.txt", "I’ll read both files.",
             "Compare the current contents.", "Arguments: path: hello.txt", "printf ok", "Exit code: 0",
-            "--- a/hello.txt", "+hello world", "In progress: Update greeting", "Edit hello.txt",
+            "--- a/hello.txt", "+ hello world", "In progress: Update greeting", "Edit hello.txt",
             "Image: image/png", "0 bytes", "Input: 0 tokens", "Output: 0 tokens",
             "Session: 00000000000000000000000009", "Context trimmed through event ", "fixture complete",
         ];
@@ -99,6 +99,33 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         if text.contains("\"kind\":") || text.contains("Some(") { return Err("serialized payload reached a card".into()); }
         let approval_count = frame.actions.iter().filter(|(_, a)| matches!(a, Action::Approval(_, _))).count();
         if approval_count != 3 || !["Allow", "Always", "Deny"].iter().all(|s| text.contains(s)) { return Err("approval buttons missing".into()); }
+        let layout=frame.layout.as_ref().ok_or("smoke layout missing")?;
+        fn colours(node: &bbt_ui::components::Layout)->BTreeSet<[u32;4]> {
+            let mut out=BTreeSet::new();if let bbt_ui::components::LayoutKind::Text{runs,..}=&node.kind {out.extend(runs.iter().map(|r|r.style.color.map(f32::to_bits)));}
+            for child in &node.children {out.extend(colours(child));}out
+        }
+        fn highlighted(node:&bbt_ui::components::Layout)->bool {
+            if let bbt_ui::components::LayoutKind::Text {..}=&node.kind
+                && layout_text(node).contains("highlight_witness") && colours(node).len()>1 {return true;}
+            node.children.iter().any(highlighted)
+        }
+        if !highlighted(layout) {return Err("code block has no syntax-highlighted colour spans".into());}
+        let change=state.transcript.items.values().find(|r|r.kind==crate::protocol::ItemKind::FileChange).ok_or("missing diff")?;
+        let removed=super::view::find(layout,&format!("diff/{}/hunk/0/line/0",change.id)).ok_or("diff remove line missing")?;
+        let added=super::view::find(layout,&format!("diff/{}/hunk/0/line/1",change.id)).ok_or("diff add line missing")?;
+        if !layout_text(removed).contains("- hello")||!layout_text(added).contains("+ hello world")||colours(removed)==colours(added) {return Err("diff add/remove meaning or colours missing".into());}
+        for row in state.transcript.items.values().filter(|r|r.kind==crate::protocol::ItemKind::ToolCall) {
+            let node=super::view::find(layout,&format!("tool/{}/status",row.id)).ok_or("tool status chip missing")?;
+            if !layout_text(node).contains("Succeeded") {return Err("tool status chip lacks completed status".into());}
+        }
+        fn fill(node:&bbt_ui::components::Layout)->Option<[u32;4]> {
+            if let bbt_ui::components::LayoutKind::Box{style,..}=&node.kind && style.fill[3]>0. {return Some(style.fill.map(f32::to_bits));}
+            node.children.iter().find_map(fill)
+        }
+        let approval=state.transcript.items.values().find(|r|r.kind==crate::protocol::ItemKind::Approval).ok_or("missing approval")?;
+        let allow=super::view::find(layout,&format!("approval/{}/Allow",approval.id)).and_then(fill).ok_or("allow surface missing")?;
+        let deny=super::view::find(layout,&format!("approval/{}/Deny",approval.id)).and_then(fill).ok_or("deny surface missing")?;
+        if allow==deny {return Err("Allow and Deny have indistinguishable surfaces".into());}
         let mut bottom = 0.;
         for (id, kind, r) in &frame.visible {
             if r.y < bottom - 0.5 {
