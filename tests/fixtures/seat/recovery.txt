@@ -1,0 +1,5 @@
+session 00000000000000000000000001 · scripted
+› ▸ interrupted {}
+✗ tool call was not completed (1 lines)
+— Interrupted
+› recovered 1 items, 1 turns

@@ -1,0 +1,21 @@
+{
+  "project": "bboxy450-term",
+  "canonical": "https://github.com/bboxy450/bboxy450-term",
+  "pins": [
+    {
+      "source": "scripts/formal.py",
+      "snapshot": "verification/upstream/scripts-formal.py",
+      "sha256": "7ac68f32996c5a3ec051dce6886a2419431a264f763924d36796d3d2b401100d"
+    },
+    {
+      "source": "scripts/test-formal.py",
+      "snapshot": "verification/upstream/scripts-test-formal.py",
+      "sha256": "808ceaff7994903925defd8b08ac45eaeecec7d46d7d6ee7d711901d6571a7b3"
+    },
+    {
+      "source": "crates/bboxy450-tlc/examples/verify.rs",
+      "snapshot": "verification/upstream/crates-bboxy450-tlc-examples-verify.rs",
+      "sha256": "88b6400d6a883b25f2eca777cb936ba568f9e9ef702f51aef4f7b83e022c8fb8"
+    }
+  ]
+}

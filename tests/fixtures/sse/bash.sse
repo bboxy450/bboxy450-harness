@@ -1,0 +1,6 @@
+data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"x1","type":"function","function":{"name":"bash","arguments":"{\"command\":\"sleep 600 & sleep 600; wait\"}"}}]},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+

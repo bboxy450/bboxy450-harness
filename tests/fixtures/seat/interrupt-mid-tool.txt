@@ -1,0 +1,5 @@
+session 00000000000000000000000001 · scripted
+› ▸ bash {"path":"hello.txt"}
+✗ hello (1 lines)
+— Cancelled
+› 

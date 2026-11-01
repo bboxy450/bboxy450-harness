@@ -1,0 +1,23 @@
+session 00000000000000000000000001 · scripted
+› I’ll read both files.
+thinking: Compare the current contents.
+▸ read {"path":"hello.txt"}
+✓ hello (1 lines)
+▸ read {"path":"hello.txt"}
+✓ hello (1 lines)
+[InProgress] Update greeting
+approval: Edit hello.txt · [Allow, Deny] · Some(Allow)
+hello.txt
+--- a/hello.txt
++++ b/hello.txt
+@@ -1 +1 @@
+-hello
++hello world
+
+▸ edit {"path":"hello.txt"}
+✓ hello (1 lines)
+▸ bash {"path":"hello.txt"}
+✓ hello (1 lines)
+Info: fixture complete
+— EndTurn
+› transcript reset to 38
