@@ -87,7 +87,13 @@ pub struct Raw { pub provider: Provider, pub bytes: Vec<u8> /* one native line, 
 
 ## 2. Identity, order and turns
 
-- **EventId** = `blake3(provider ‖ native_id ‖ native_key)[..16]`. `native_key` is the record's own id where one exists (Claude `uuid`, Codex `call_id`/`rs_…`/`ordinal`, Bboxy `seq`). Otherwise it is the native line ordinal. An Inferred event uses its anchor's key plus a role tag (`#turn-start`). The same input therefore always gives the same ids. This is the watcher's idempotency key ([[lc-watch-sink]] §3).
+- **EventId** = the first 16 bytes of `blake3(frame("bxl.event.v1") ‖ frame(provider) ‖ frame(native_id) ‖ frame(native_key) ‖ frame(role_tag))`.
+  - `frame(x)` is `u32` big-endian `len(x)` followed by the UTF-8 bytes of `x`. This rules out boundary collisions such as `("s1","23")` against `("s12","3")`.
+  - `provider` is the lowercase name (`claude`, `codex`, `bboxy`).
+  - `native_key` is the record's own id where one exists (Claude `uuid`; Codex `call_id`, `rs_…` or `ordinal`; Bboxy `seq` in decimal). Otherwise it is the native line ordinal in decimal.
+  - `role_tag` is empty, except on Inferred events, where it names the role (`turn-start`, `turn-end`) and the anchor's key is used as `native_key`.
+  - The same input therefore always gives the same id. This is the watcher's idempotency key ([[lc-watch-sink]] §3).
+  - Changing the domain tag or the field list is a major version change, and it re-ids every event.
 - **Order.** `seq` is native file order. `parent` carries the Claude DAG: streamed blocks chain by `parentUuid`, a sidechain is a branch, and `last-prompt.leafUuid` names the live leaf. For Codex and Bboxy, `parent` is the previous event.
 - **Turns.**
   - Codex: explicit, from `event_msg` `task_started` and `task_complete`/`turn_aborted`.
@@ -161,7 +167,7 @@ E3's #4935 `import::claude` (harness) is the first implementation of the Claude 
 
 ## 7. Versioning
 
-- The IR is versioned with `bxl` ([[lc-bxl]] §5). The CBOR encoding uses integer keys per field (the table lives in `src/ir/keys.rs` and is golden-tested), unknown keys are preserved, and every enum ends in `Unknown`.
+- The IR is versioned with `bxl` ([[lc-bxl]] §5). The CBOR encoding is the canonical one of [[lc-bxl]] §5. It uses integer keys per field (the table lives in `src/ir/keys.rs` and is golden-tested), unknown keys are preserved, and every enum ends in `Unknown`.
 - `parser_revision` bumps on any mapping change. A consumer may re-parse from `raw` when it sees an older revision.
 
 ## 8. Verified by
@@ -172,9 +178,14 @@ E3's #4935 `import::claude` (harness) is the first implementation of the Claude 
 | IR fixpoint (casr-style) | `parse::P(lower::P(ir)) == ir`, ignoring `raw` and fidelity, for IR built from each other provider |
 | §5 no silent loss | for every direction, `kept + transformed + dropped == events`, and each `dropped` reason is one row of the table. Broken control: a lowerer that skips an event without counting it fails |
 | §5 target acceptance | phase 0 and phase 6: the lowered session resumes in the real CLI against a mock endpoint ([[log-converter]] §7 P0) |
+| §2 EventId framing | a test vector golden for `(claude, s1, 23)` and `(claude, s12, 3)` gives different ids, and fixed vectors pin the bytes. Broken control: unframed concatenation makes the two collide |
 | §2 determinism | two runs on the same input give byte-identical `bxl` |
 | §4 robustness | malformed lines, a truncated last line and unknown types give Notice/Native, never a panic. Broken control: an unknown type that panics fails the test |
 | §5 reasoning | for each direction, a fixture with readable and sealed reasoning gives exactly the table's outcome. Bboxy targets keep both; cross-provider targets count `sealed_reasoning_foreign`. Broken control: a lowerer that folds reasoning into assistant text fails |
 | §6 sanitizer | planted secrets in all three fixtures; the output contains none, and `checks.py secrets` passes. Broken control: skipping the pass fails |
+
+## Change log
+
+- **2026-11-01, at the Oracle's P1 review** (message 01M6CME9FPSKY4PJNC2A0BAJNQ). EventId fields are length-prefixed (u32 BE) under the domain tag `bxl.event.v1`. The unframed concatenation collided across field boundaries.
 
 Owner: Nyx Copperwing <ARCHITECT>. Implementation: Executors under the phases of [[log-converter]].

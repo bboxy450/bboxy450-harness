@@ -74,7 +74,16 @@ A segment is a sequence of zstd frames, so `zstd -d 000001.bxl` decompresses the
 - A reader holds at most one decompressed frame in memory (≤ 1 MiB plus the dictionary).
 - **Delivery to a reader**: every event appears exactly once, in `seq` order, for a cursor that moves forward. Resuming from a saved cursor continues with no gap and no duplicate.
 
-## 5. Versioning and dictionaries
+## 5. Versioning, encoding and dictionaries
+
+- **Canonical CBOR** (Oracle ruling, message 01M6CME9FPSKY4PJNC2A0BAJNQ). Every CBOR item bxl writes uses RFC 8949 §4.2.1 core deterministic encoding:
+  - preferred (shortest) integer and length encodings;
+  - definite lengths only;
+  - map keys sorted **bytewise lexicographically by their encoded bytes**. This is not RFC 7049's length-first order. The two agree when every key encodes in one byte, but differ once some key needs more;
+  - no duplicate keys;
+  - floats in their shortest exact form.
+
+  Readers accept any valid CBOR. Writers produce only the canonical form, so the same IR always gives the same bytes (the determinism invariant).
 
 - **Version.** A reader refuses a different major version with `bxl_version{found, supported}`. A minor version may add CBOR keys and record kinds; a reader keeps unknown keys and returns unknown kinds as IR `Unknown`.
 - **Dictionaries**:
@@ -113,7 +122,12 @@ A segment is a sequence of zstd frames, so `zstd -d 000001.bxl` decompresses the
 | §3 recovery | `tests/torn.rs`: truncate a written log at every byte offset of the last two frames; reopen; the result is the longest valid frame prefix, and appending continues with the next `frame_seq` |
 | §3 single writer | a second `Writer::open` returns `writer_busy` without blocking (with a 1 s timeout as a test guard only) |
 | §4 tail | `tests/tail.rs`: a writer process appends while 2 reader processes tail; the events each reader gets equal the written sequence exactly; a reader restarted from a saved cursor continues with no gap or duplicate |
+| §5 canonical CBOR | a golden with a map holding keys 10, 23, 24, 100, -1 and `"a"` encodes as 10, 23, 24, 100, -1, "a" (length-first would give 10, 23, -1, 24, 100, "a"); re-encoding a decoded non-canonical input gives the canonical bytes. Broken control: length-first ordering fails the golden |
 | §5 dictionaries | the dictionary training input is listed in `dicts/SOURCES.md` and contains only `fixtures/synthetic/**` or reviewed sanitized bundles; a check refuses any other path |
 | §6 model | `make test-formal` with `LcAppendLog` and its three controls, native + Java parity |
+
+## Change log
+
+- **2026-11-01, at the Oracle's P1 review** (message 01M6CME9FPSKY4PJNC2A0BAJNQ). §5 names the canonical CBOR encoding: RFC 8949 §4.2.1 core deterministic encoding, keys sorted bytewise by their encoded form.
 
 Owner: Nyx Copperwing <ARCHITECT>.
