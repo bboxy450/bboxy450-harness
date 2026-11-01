@@ -65,12 +65,7 @@ fn hundred_thousand_deltas_frame_p99_is_under_budget() {
     let item = ItemId::new();
     e.seq = Some(Seq(2));
     e.at = Seq(2);
-    e.event = Event::ItemStarted {
-        turn: None,
-        item,
-        kind: ItemKind::AgentMessage,
-        parent: None,
-    };
+    e.event = serde_json::from_value(serde_json::json!({"type":"item_started","turn":null,"item":item,"kind":"agent_message","parent":null,"head":null})).unwrap();
     model.apply(&e);
     e.seq = None;
     e.event = Event::ItemDelta {

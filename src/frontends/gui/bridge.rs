@@ -349,25 +349,33 @@ async fn consume(gateway: InProc, mailbox: Arc<Mailbox>, detach: CancellationTok
 pub async fn read_replay(path: PathBuf) -> Result<Transcript, String> {
     crate::runtime::blocking(move || {
         let bytes = std::fs::read(path).map_err(|_| "Replay file unavailable".to_string())?;
-        let events = bytes
+        let wire = bytes
             .split(|c| *c == b'\n')
             .filter(|line| !line.is_empty())
             .map(serde_json::from_slice)
-            .collect::<Result<Vec<Envelope>, _>>()
+            .collect::<Result<Vec<serde_json::Value>, _>>()
             .map_err(|_| "Invalid replay JSONL".to_string())?;
+        let events: Vec<Envelope> = wire
+            .iter()
+            .map(|v| serde_json::from_value(v.clone()))
+            .collect::<Result<_, _>>()
+            .map_err(|_| "Invalid replay envelope".to_string())?;
         crate::protocol::laws::check_transcript(&events).map_err(|e| e.to_string())?;
         let mut model = Transcript::default();
-        for e in &events {
-            if let Effect::Resubscribe { after: None } = model.apply(e) {
+        for (e, value) in events.iter().zip(&wire) {
+            if let Effect::Resubscribe { after: None } =
+                model.apply_wire(value).map_err(|e| e.to_string())?
+            {
                 // Offline Reset rebuilds from the surviving durable prefix.
                 let Event::Reset { head, .. } = e.event else {
                     unreachable!()
                 };
-                for kept in events
+                for (_, kept) in events
                     .iter()
-                    .filter(|v| v.seq.is_some_and(|seq| seq <= head))
+                    .zip(&wire)
+                    .filter(|(v, _)| v.seq.is_some_and(|seq| seq <= head))
                 {
-                    model.apply(kept);
+                    model.apply_wire(kept).map_err(|e| e.to_string())?;
                 }
             }
         }

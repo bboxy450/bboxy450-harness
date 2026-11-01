@@ -21,6 +21,18 @@ fn fixture(name: &str) -> Vec<Envelope> {
         .map(|s| serde_json::from_str(s).unwrap())
         .collect()
 }
+fn started(item: ItemId, kind: ItemKind) -> Event {
+    let head = match kind {
+        ItemKind::ToolCall => {
+            serde_json::json!({"kind":"tool_call","call_id":item.to_string(),"name":"fixture","tool_kind":"other"})
+        }
+        ItemKind::Terminal => {
+            serde_json::json!({"kind":"terminal","terminal":item.to_string(),"command":"fixture"})
+        }
+        _ => serde_json::Value::Null,
+    };
+    serde_json::from_value(serde_json::json!({"type":"item_started","item":item,"turn":null,"parent":null,"kind":kind,"head":head})).unwrap()
+}
 fn envelope(event: Event, seq: Option<u64>, epoch: u32, at: u64) -> Envelope {
     static BASE: std::sync::OnceLock<Envelope> = std::sync::OnceLock::new();
     let mut e = BASE
@@ -84,12 +96,7 @@ fn snapshots_replace_ordered_tail_late_chunks_and_aba_epochs_are_retired() {
     let item = ItemId::new();
     let mut m = Transcript::default();
     m.apply(&envelope(
-        Event::ItemStarted {
-            item,
-            turn: None,
-            parent: None,
-            kind: ItemKind::AgentMessage,
-        },
+        started(item, ItemKind::AgentMessage),
         Some(1),
         1,
         1,
@@ -179,12 +186,7 @@ fn snapshots_replace_ordered_tail_late_chunks_and_aba_epochs_are_retired() {
     assert_eq!(m.cursor, Seq(0));
     // An old A stream cannot deliver into a new A view after A -> B -> A.
     m.apply(&envelope(
-        Event::ItemStarted {
-            item,
-            turn: None,
-            parent: None,
-            kind: ItemKind::AgentMessage,
-        },
+        started(item, ItemKind::AgentMessage),
         Some(1),
         2,
         1,
@@ -230,7 +232,7 @@ proptest! {
     fn live_equals_replay(chunks in prop::collection::vec("[^\\p{C}]{0,32}", 1..80), choices in prop::collection::vec(any::<u8>(), 1..80), kind in 0u8..5) {
         let item = ItemId::new();
         let k = match kind { 0 => ItemKind::AgentMessage, 1 => ItemKind::Reasoning, 2 | 3 => ItemKind::ToolCall, _ => ItemKind::Terminal };
-        let start = envelope(Event::ItemStarted { item, turn: None, parent: None, kind: k }, Some(1), 1, 1);
+        let start = envelope(started(item, k), Some(1), 1, 1);
         let mut full = Transcript::default(); let mut lossy = Transcript::default(); full.apply(&start); lossy.apply(&start);
         let delta = |append: String| match kind { 0 => Delta::Text { append }, 1 => Delta::Reasoning { append }, 2 => Delta::ToolInput { append }, _ => Delta::Output { append, stream: Stream::Stdout } };
         let mut batch = String::new(); let mut expected_partial = String::new();
@@ -268,4 +270,53 @@ fn stick_and_release() {
     scroll.follow_latest();
     assert!(scroll.following());
     assert_eq!(scroll.layout_offset().min(400.), 400.);
+}
+
+#[tokio::test]
+async fn v0_2_heads_and_terminal_snapshot_repair() {
+    let raw: Vec<serde_json::Value> = include_str!("fixtures/gui/v0_2-identity-terminal.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let typed: Vec<Envelope> = raw
+        .iter()
+        .map(|v| serde_json::from_value(v.clone()).unwrap())
+        .collect();
+    bboxy450_harness::protocol::laws::check_transcript(&typed).unwrap();
+    let call = ItemId("00000000000000000000000071".parse().unwrap());
+    let terminal = ItemId("00000000000000000000000072".parse().unwrap());
+    let mut model = Transcript::default();
+    for (i, value) in raw.iter().enumerate().take(9) {
+        // Drop the terminal's first delta: the snapshot must repair it.
+        if i != 6 {
+            model.apply_wire(value).unwrap();
+        }
+        if i == 3 {
+            assert!(
+                matches!(&model.items[&call].body, Item::ToolCall { call_id, name, tool_kind: ToolKind::Execute, .. } if call_id == "exec-7" && name == "bash")
+            );
+        }
+        if i == 5 {
+            assert!(
+                matches!(&model.items[&terminal].body, Item::Terminal { terminal, command, .. } if terminal == "term-7" && command == "printf hello")
+            );
+        }
+    }
+    assert_eq!(model.items[&terminal].terminal_tail, "hello!");
+    // Bound and Unicode safety of a live tail, without inventing a blob fetch.
+    let mut delta = raw[8].clone();
+    delta["event"]["delta"]["append"] = serde_json::json!("🦊".repeat(20_000));
+    model.apply_wire(&delta).unwrap();
+    let tail = &model.items[&terminal].terminal_tail;
+    assert!(tail.starts_with('…'));
+    assert!(tail.len() <= 64 * 1024);
+    assert!(tail.ends_with('🦊'));
+    for value in &raw[9..] {
+        model.apply_wire(value).unwrap();
+    }
+    assert!(model.items[&terminal].terminal_tail.is_empty());
+    let replay = read_replay("tests/fixtures/gui/v0_2-identity-terminal.jsonl".into())
+        .await
+        .unwrap();
+    assert_eq!(replay.items, model.items);
 }

@@ -84,6 +84,26 @@ impl Transcript {
         self.epoch = epoch;
     }
     pub fn apply(&mut self, e: &Envelope) -> Effect {
+        // v0.2 is additive. Read its optional head/live fields through the wire
+        // representation so this consumer builds both before and after the core
+        // v0.2 enum change, without defining a second protocol or changing it.
+        let extension = match &e.event {
+            Event::ItemStarted { .. }
+            | Event::ItemSnapshot {
+                partial: Item::Terminal { .. },
+                ..
+            } => serde_json::to_value(&e.event).ok(),
+            _ => None,
+        };
+        self.reduce(e, extension.as_ref())
+    }
+    /// Preserve additive v0.2 fields during fixture replay, including when the
+    /// linked core's older decoder does not yet retain those fields itself.
+    pub fn apply_wire(&mut self, wire: &serde_json::Value) -> Result<Effect, serde_json::Error> {
+        let envelope: Envelope = serde_json::from_value(wire.clone())?;
+        Ok(self.reduce(&envelope, wire.get("event")))
+    }
+    fn reduce(&mut self, e: &Envelope, wire: Option<&serde_json::Value>) -> Effect {
         if e.v.major != PROTOCOL.major || self.session.is_some_and(|s| s != e.session) {
             return Effect::None;
         }
@@ -138,10 +158,15 @@ impl Transcript {
                 item,
                 kind,
                 parent,
+                ..
             } => {
                 // IDs are never reused. A reconnect cannot reopen a completed item.
                 if !self.items.contains_key(item) {
                     self.order.push_back(*item);
+                    let mut body = empty_body(*kind, *item);
+                    if let Some(head) = wire.and_then(|v| v.get("head")) {
+                        apply_head(&mut body, head);
+                    }
                     self.items.insert(
                         *item,
                         ViewItem {
@@ -151,7 +176,7 @@ impl Transcript {
                             started: e.seq.unwrap_or(e.at),
                             completed: None,
                             kind: *kind,
-                            body: empty_body(*kind, *item),
+                            body,
                             status: None,
                             terminal_tail: String::new(),
                         },
@@ -171,7 +196,8 @@ impl Transcript {
                     if let (Item::Terminal { .. }, Delta::Output { append, .. }) =
                         (&row.body, delta)
                     {
-                        row.terminal_tail.push_str(append);
+                        append_tail(&mut row.terminal_tail, append);
+                        row.body.apply(delta);
                     } else {
                         row.body.apply(delta);
                     }
@@ -183,6 +209,13 @@ impl Transcript {
                 {
                     row.body = partial.clone();
                     row.terminal_tail.clear();
+                    if matches!(partial, Item::Terminal { .. })
+                        && let Some(live) = wire
+                            .and_then(|v| v.pointer("/partial/live"))
+                            .and_then(serde_json::Value::as_str)
+                    {
+                        append_tail(&mut row.terminal_tail, live);
+                    }
                 }
             }
             Event::Status { phase } => self.phase = phase.clone(),
@@ -237,4 +270,55 @@ fn empty_body(kind: ItemKind, id: ItemId) -> Item {
         _ => {}
     }
     body
+}
+
+fn apply_head(body: &mut Item, head: &serde_json::Value) {
+    let text = |field: &str| {
+        head.get(field)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    };
+    match body {
+        Item::ToolCall {
+            call_id,
+            name,
+            tool_kind,
+            ..
+        } if head.get("kind").and_then(serde_json::Value::as_str) == Some("tool_call") => {
+            if let Some(id) = text("call_id") {
+                *call_id = id;
+            }
+            if let Some(value) = text("name") {
+                *name = value;
+            }
+            if let Some(kind) = head
+                .get("tool_kind")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+            {
+                *tool_kind = kind;
+            }
+        }
+        Item::Terminal {
+            terminal, command, ..
+        } if head.get("kind").and_then(serde_json::Value::as_str) == Some("terminal") => {
+            if let Some(value) = text("terminal") {
+                *terminal = value;
+            }
+            if let Some(value) = text("command") {
+                *command = value;
+            }
+        }
+        _ => {}
+    }
+}
+fn append_tail(tail: &mut String, append: &str) {
+    const LIMIT: usize = 64 * 1024;
+    tail.push_str(append);
+    if tail.len() > LIMIT {
+        let mut start = tail.len() - (LIMIT - '…'.len_utf8());
+        while !tail.is_char_boundary(start) {
+            start += 1;
+        }
+        *tail = format!("…{}", &tail[start..]);
+    }
 }

@@ -74,3 +74,11 @@ and embedding into the separate term workspace remain implementation-only.
 checks the exact upstream disallowed-method catalogue at UI module boundaries,
 runs the feature tests and asserts every all-items kind has a nonblank,
 nonoverlapping framebuffer region. Screenshot: `.bboxy/runs/gui-smoke.png`.
+
+Protocol v0.2's optional ItemStarted.head and Terminal.live are projected from
+wire values as additive fields, so the frontend can build while E1b's typed
+core changes land independently. The in-process path reads the same fields
+from serialized typed events once that core is linked. The v0.2 GUI fixture
+witnesses durable identity before deltas, snapshot repair after a dropped
+terminal delta, Unicode-safe 64KiB tail retention, and authoritative completion.
+No core/protocol source is forked by this frontend.
