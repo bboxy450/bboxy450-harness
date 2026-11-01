@@ -12,6 +12,7 @@ allowed_paths:
 - Cargo.lock
 - Makefile
 - .bboxy/runs/
+assignee: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
 authorship:
   kind: seat
   process_generation: '1'
@@ -24,16 +25,16 @@ id: 01M6AMBMZY3B9SDXBN6ZEKA8D1
 number: 1121
 provenance:
   digest: sha256:017dd9defe699069f6a94095439ac3298675daced655cbc4a09f5d0c39ecd987
-  frontmatter_digest: sha256:968111ac7be1f0133b078dc547b01d142f97bb00e28f684294b04d813c578c9e
-  log: .bboxy/log/2026-11-01.jsonl#4962
-  sig: jQGzn5FMzmFNR6jfNof7ZZNipLniKyZYh3C21Y3l+TqTWpDjy8eg1TLX+Qp/YXtsn0Z5jmAhIQDHjMulsszXAA==
+  frontmatter_digest: sha256:c56f9be8d99c9babde5df93acf3988a71ac7f9048a7ea34c17805121c0aab669
+  log: .bboxy/log/2026-11-01.jsonl#5034
+  sig: SOKgutsL1gF3bLmVxLuzL8f86J4s6jzuPuy8y7M8nO580fL8ILz9BXQOjmWwL4Wit7FQg7hut2HbHHWxRlQ3BA==
   signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
 role: executor
-status: open
+status: claimed
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E3: bboxy450-harness GUI face — view-model projection, fixture replay, standalone window, headless frame smoke'
 type: task
-updated: 2026-11-01T04:02:23.938Z
+updated: 2026-11-01T04:02:39.928Z
 updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 verify: make test
 ---
