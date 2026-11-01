@@ -370,6 +370,16 @@ async fn mixed_user_result_and_text_pairs_before_starting_the_new_turn() {
     assert_eq!(calls.len(), 1);
     assert!(matches!(&calls[0][0],OutputBlock::Text {text} if text=="synthetic paired result"));
     assert!(!canonical(&events).contains("Orphan Claude tool result"));
+    // A partial archive can begin with the mixed record: its synthesized
+    // orphan turn and the new request still need distinct deterministic IDs.
+    let first_mixed = imported((records[1].to_string() + "\n").into_bytes()).await;
+    assert_eq!(
+        first_mixed
+            .iter()
+            .filter(|e| matches!(e.event, Event::TurnStarted { .. }))
+            .count(),
+        2
+    );
 }
 #[test]
 fn cli_reads_only_private_files_resolves_command_keys_and_writes_replayable_jsonl() {

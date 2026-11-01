@@ -47,6 +47,7 @@ pub(super) struct Engine<R> {
     usage: Option<Usage>,
     seq: u64,
     ordinal: u64,
+    line_turns: u64,
     ts: u64,
     frontier: Seq,
     done: bool,
@@ -65,6 +66,7 @@ impl<R: BufRead> Engine<R> {
             usage: None,
             seq: 0,
             ordinal: 0,
+            line_turns: 0,
             ts: 0,
             frontier: Seq(0),
             done: false,
@@ -176,7 +178,12 @@ impl<R: BufRead> Engine<R> {
     }
     fn begin_turn(&mut self) {
         if self.turn.is_none() {
-            let turn = TurnId(self.stable("turn", &self.metrics.lines.to_be_bytes()));
+            self.line_turns += 1;
+            let mut identity = self.metrics.lines.to_be_bytes().to_vec();
+            if self.line_turns > 1 {
+                identity.extend_from_slice(&self.line_turns.to_be_bytes());
+            }
+            let turn = TurnId(self.stable("turn", &identity));
             self.turn = Some(turn);
             self.usage = None;
             self.emit(Event::TurnQueued { turn });
@@ -867,6 +874,7 @@ impl<R: BufRead> Iterator for Engine<R> {
             match self.read_line() {
                 Ok(Some((line, oversized, truncated))) => {
                     self.metrics.lines += 1;
+                    self.line_turns = 0;
                     if oversized {
                         self.metrics.oversized += 1;
                         self.initialize(&Value::Null);
