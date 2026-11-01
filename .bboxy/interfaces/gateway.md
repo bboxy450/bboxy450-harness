@@ -8,7 +8,7 @@ links:
   - { to: "[[interfaces]]", rel: index }
   - { to: "[[protocol]]", rel: carries }
 created: "2026-10-31T00:00:00Z"
-updated: "2026-10-31T00:00:00Z"
+updated: "2026-11-01T00:00:00Z"
 ---
 # ICD: gateway
 
@@ -64,7 +64,31 @@ Rules:
 - **Deadline.** `send` waits at most 5 s for its frame, then returns `Timeout{op_id}`. The outcome is then **unknown**: the caller may resend the *same* `op_id`, which idempotence makes safe (protocol §2), and must never mint a new id for the same intent.
 - **Disconnect.** If the connection drops, every pending `send` returns `Disconnected`, with the same unknown-outcome rule. The `Subscription` ends, and the client reconnects with `after = (epoch, last_seq)`.
 
+## 1b. Loading: an async factory, and a Gateway over loaded sessions only
 
+Opening a log runs recovery (protocol §4), which reads and fsyncs the disk, so it cannot happen inside a non-awaiting call. Loading is therefore a separate `async` step, and a `Gateway` only ever serves a session that is already loaded. Phase 1 has one session per process; there is no multi-session daemon.
+
+```rust
+pub struct Host { /* store root, profiles, runtime handles */ }
+impl Host {
+    /// Mints the log and the actor for a StartSession envelope, then returns the bound gateway.
+    pub async fn create(&self, op: OpEnvelope) -> Result<(InProc, Ack), Refused>;
+    /// Loads an existing log, runs recovery (Epoch + 1), then returns the bound gateway.
+    pub async fn open(&self, session: SessionId) -> Result<InProc, Refused>;
+}
+impl Gateway for InProc { /* bound to exactly one loaded session */ }
+impl InProc { pub fn session(&self) -> SessionId; }
+impl Subscription { pub fn hello(&self) -> &Hello; } // always present: the session is loaded
+```
+
+Rules:
+- **No pending Hello.** `subscribe` succeeds only on a loaded session, so `hello()` is available at once. `subscribe` or `send` naming another session returns `UnknownSession`; it never loads.
+- **`StartSession`.** `create` is its only path. Its errors are `SessionExists` (unless the same `op_id`, which returns the duplicate `Ack` and the existing `InProc`) and `Version`. `StartSession` sent through `Gateway::send` returns `SessionExists`. The outcome rule is unchanged: `SessionStarted` with `cause = op_id`, seq 1.
+- **`open`.** Its errors are `UnknownSession` (no log) and `Closed` (the log ends in `SessionClosed`; read-only replay of a closed log is the `headless --json` path through the store, not a gateway). A store failure during recovery is `Closed` too, with the error as a `Notice` in the next open; nothing half-loaded is ever served.
+- **Unix.** The server calls `Host::create` or `Host::open` first and binds `run/<session>.sock` only after it returns, so a client never connects to an unloaded session. The `UnixClient` sends `StartSession` only as the first frame to a create socket; that is the seat's and headless's start path.
+- **Who awaits.** The GUI awaits `create`/`open` from a background task and shows a loading state; the frame loop never awaits it. Law 1 is unchanged: once loaded, admission never awaits.
+
+## 2. Delivery order
 
 1. **`Hello`.** The stream's first frame is `Hello{ v, epoch, head: Seq, meta }`. On the Unix transport it is a frame of its own; in-process it is the `Subscription::hello()` accessor.
 2. **`Reset`, if needed.** If `after.epoch != epoch` and `after.seq > head`, the subscription delivers `Reset{epoch, head}` and closes. The face drops everything above `head` and resubscribes.
@@ -90,7 +114,7 @@ Replay and live are joined without a gap or a duplicate. The subscriber is regis
 
 ## 5. Lifecycle
 
-- **Start.** `StartSession` creates the actor and the log. A subscribe to a session that exists on disk but is not loaded loads it, which runs recovery (protocol §4), and then serves.
+- **Start.** `Host::create` creates the log and the actor; `Host::open` loads one and runs recovery (protocol §4). Both are `async` and finish before any `Gateway` call (§1b). Subscribe never loads.
 - **Detach.** Dropping a `Subscription` is detaching; it is not an op. When the last face detaches, the actor keeps running until its turn ends. It then stays idle and resumable.
 - **Stop.** `Op::Close` cancels the running turn and the queued turns, appends `SessionClosed`, fsyncs, closes subscriptions after delivering `SessionClosed`, and drops the actor.
 - **Restart** of the process is the same as load: `Epoch + 1`.
@@ -112,6 +136,11 @@ Replay and live are joined without a gap or a duplicate. The subscriber is regis
 | §2 no gap, no duplicate | model SubscriberReplay + Broken (the broken control registers *after* the store read); `tests/gateway_replay.rs` subscribes at every seq of a fixture session and asserts the concatenated durable seq list equals `1..=head` |
 | §3 lag | `tests/gateway_lag.rs`: a never-reading subscriber under a 100k-delta firehose gets `Lagged` while a second subscriber and the engine finish the turn |
 | §4 transports equal | the same `gateway_*` suite runs against `InProc` and `Unix` (one `#[rstest]` matrix); for `Unix` the `UnixClient` result is compared to the `InProc` `Ack`/`Refused` |
+| §1b loading | `tests/gateway_host.rs`: (a) `subscribe` on a fresh `open` returns at once with `hello().head` equal to the recovered head; (b) `send(StartSession)` on a bound `InProc` returns `SessionExists`; (c) a `create` replayed with the same `op_id` returns `Ack{duplicate: true}` and one `SessionStarted`; (d) `open` on a closed log returns `Closed`; (e) a Unix client connecting before `open` returns sees no socket, then connects once it is bound |
 | §1a client rules | `tests/gateway_unix.rs`: (a) a server that withholds the ack frame gives `Timeout` in ≤ 5.1 s while envelopes keep arriving on the same connection; (b) resending the same `op_id` after a timeout gives `Ack{duplicate: true}` and one effect; (c) killing the server gives `Disconnected` to every pending send |
 
 Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: E2 (the GUI uses `InProc`).
+
+## Change log
+
+- **2026-11-01, at E1's question** (message 01M6AHRY2RX664DTK1S4NJ0QR8). A non-awaiting `subscribe` with an immediate `hello()` cannot load and recover a log from disk. Adds §1b: an async `Host::create`/`Host::open` factory, a `Gateway` over loaded sessions only, no pending `Hello`, and `StartSession` through `create` only. Restores the missing §2 heading. Alternative rejected: a pending-`Hello` subscription, which adds a state to every face for a case phase 1 does not have (one session per process). Version unchanged; nothing in §5's implicit load had been built.
