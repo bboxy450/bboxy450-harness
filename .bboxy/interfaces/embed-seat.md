@@ -14,7 +14,7 @@ updated: "2026-11-01T00:00:00Z"
 ---
 # ICD: bboxy450-term ↔ harness, phase 1 process seat
 
-**Status: phase 1a baselined; phase 1b proposed.** This amends bboxy450-term ICD #348 (app ↔ harness). The phase 1a rows of §7 landed in #348 at bboxy450-term `a5f4840d` and shipped on bboxy450-term main at `d6fa3fd5` (E4, via `land.sh`), signed off by the Oracle under ruling d4071 (message 01M6BGN6VCDYR1FQ53ZCWZWC1J). Changing a 1a clause now needs both owners and a recorded reason. Phase 1b (readiness, session-id persistence, resume) stays proposed and needs its own #348 amendment. See [[architect-review-v0]] §5.
+**Status: phase 1a baselined; phase 1b proposed.** This amends bboxy450-term ICD #348 (app ↔ harness). The phase 1a rows of §7 landed in #348 at bboxy450-term `a5f4840d` and shipped on bboxy450-term main at `d6fa3fd5` (E4, via `land.sh`), signed off by the Oracle under [[d4071-icd-348-amendment-signoff]]. Changing a 1a clause now needs both owners and a recorded reason. Phase 1b (readiness, session-id persistence, resume) stays proposed and needs its own #348 amendment. See [[architect-review-v0]] §5.
 
 | | |
 |---|---|
