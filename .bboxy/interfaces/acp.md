@@ -138,7 +138,7 @@ ACP chunks only append, so the face keeps `sent[item]`, the count of characters 
 | §1, §1a methods and capabilities | `tests/acp_face.rs`, using a scripted ACP client over a pipe and the scripted provider: the `initialize` capabilities equal §1a byte for byte; every unsupported method in §1 returns `-32601`; an unknown notification is ignored |
 | §1c dispatcher | `session/cancel` sent 100 ms after `session/prompt` gives `stopReason: cancelled` in ≤ 2 s; two sessions prompt concurrently and both finish |
 | §2 stop reasons | one scripted turn per row; `Error` gives `-32603` with `data.class` |
-| §3 mapping and suffix repair | golden transcripts `tests/fixtures/acp/*.jsonl` (text, reasoning, tool call, file change, terminal, plan); a lag-injected run (ephemeral drops forced) produces the same concatenated text as an undropped run; `divergence = 0` |
+| §3 mapping and suffix repair | golden transcripts `tests/fixtures/acp/*.jsonl`. Text, reasoning, tool call, file change and terminal come from **real scripted-provider turns**. `Plan`, and any other item kind that no engine path produces yet, comes from the existing all-items protocol fixture, loaded with `session/load` and mapped by the same face code. No plan-producing tool or event is added for the test; a lag-injected run (ephemeral drops forced) produces the same concatenated text as an undropped run; `divergence = 0` |
 | §3 load | `session/load` of a recorded session sends every replayed update **before** its response, and the replay equals the golden |
 | §4 approvals | selected/cancelled/error/disconnect each give the stated decision; a late response after `Interrupt` is dropped |
 | §5 lifecycle | closing stdin mid-turn: the process exits in ≤ 2 s, no child is alive, and `check_transcript` passes on the log |
@@ -150,5 +150,6 @@ ACP chunks only append, so the face keeps `sent[item]`, the count of characters 
   - client fs/terminal delegation: two execution paths, and a policy bypass;
   - unstable ACP features: they track a moving draft;
   - a full ACP `diff`: it needs old and new text in `FileChange`. That would be an additive field later, if a client needs it.
+- **2026-11-01, at E1's question** (message 01M6AWED4QVM27ZVE6ZHP7WY5D). §6: `Plan` is witnessed through the all-items fixture via `session/load`, because no engine path produces a plan in v0.3. A plan-producing tool is a separate design decision, not a test fixture.
 
 Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: ACP clients (E1c implements the face).

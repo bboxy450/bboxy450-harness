@@ -54,7 +54,7 @@ updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
   - Never per turn (kittens `src/agent.rs:268` is the rejected design).
 - **States** per server: `starting → ready`, `ready → failed → starting` (restart), `failed → dead`.
   - Restart backoff is 1 s · 2ⁿ, capped at 30 s.
-  - After 5 failures in one session the server is `dead` until the session is reopened.
+  - **Binding count: 5 failed attempts in one session make the server `dead`.** That is the initial attempt plus at most 4 restarts. A failure is a failed start or an exit after `ready`. It stays `dead` until the session is reopened.
   - Each restart increments the server's `generation`.
 - **Startup is never awaited.** `initialize` plus `tools/list` has a 10 s deadline, and that deadline only marks the server `failed`. No session start, round or turn waits for a server.
 
@@ -114,7 +114,7 @@ updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 
 | Clause | Evidence |
 |---|---|
-| §1 lifetime | `tests/mcp_client.rs` against a fixture server binary (`tests/bin/mcp_fixture.rs`, rmcp server side, with modes `normal`, `slow`, `crash`, `hang_init`, `list_changed`, `liar`, `echo_env`). `Op::Close` leaves no fixture process alive (checked by process group); `crash` gives exactly 5 restarts, then `dead` |
+| §1 lifetime | `tests/mcp_client.rs` against a fixture server binary (`tests/bin/mcp_fixture.rs`, rmcp server side, with modes `normal`, `slow`, `crash`, `hang_init`, `list_changed`, `liar`, `echo_env`). `Op::Close` leaves no fixture process alive (checked by process group); `crash` gives exactly 5 spawns (the initial one plus 4 restarts), then `dead` and no sixth spawn |
 | §1 never awaited | with `hang_init`, a scripted turn starts and completes; the server is absent from the snapshot; a `failed` notice appears after 10 s without delaying any envelope |
 | §2 snapshot, names, classes | `list_changed` mid-turn changes only the next turn's tools; `messages[..stable_prefix]` stays byte-identical within a turn; `liar` (readOnlyHint on a writer) gets `ReadOnly` concurrency but reaches `Ask` under the default policy, and with `trust_hints: true` it is allowed; names over 64 characters and collisions follow §2 |
 | §3 calls | `slow` gives `Failed` with the timeout reason within `timeout_s` + 1 s, and the turn continues; an `Interrupt` during `slow` gives `TurnEnded{Cancelled}` in ≤ 2 s; a response from the previous generation after a crash is dropped |
@@ -133,6 +133,7 @@ updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
   - (a) `StartRound` requires `ready`: **deadlock** under `hang_init`;
   - (b) accepting a result from any generation: **safety**;
   - (c) no timeout action: **liveness**.
+- The model's bound is `failures 0..2` (dead at 2). The `failures = limit → dead` transition is the same; the 5 in §1 is a parameter, and the implementation test checks it.
 
 ## Change log
 
@@ -141,5 +142,6 @@ updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
   - trusting `readOnlyHint` for policy: an untrusted server could auto-approve its own writes;
   - HTTP and SSE transports in v0.1: they need auth and OAuth, which is a separate secret path;
   - waiting for servers at session start: one hung server would block every turn.
+- **2026-11-01, at E1's question** (message 01M6AWED4QVM27ZVE6ZHP7WY5D). §1 and §6 disagreed on the failure count. Binding: 5 failed attempts (the initial one plus 4 restarts), then `dead`. §6 now asserts 5 spawns and no sixth. Version unchanged.
 
 Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: configured MCP servers (E1c implements the client).
