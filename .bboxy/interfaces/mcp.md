@@ -108,12 +108,11 @@ updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 ## 5. Secrets
 
 - **Env values.** Each `env` value is a literal, `$VAR`, or a kittens `!cmd` (10 s timeout, 8 KiB cap, [[provider]] §4).
-- **No `BBOXY_*` delivery to profile or ACP servers.** A profile or ACP server never receives a `BBOXY_*` value through any of three paths:
-  - **inheritance:** every `BBOXY_*` variable is removed from the inherited environment before spawn;
-  - **config:** a configured `env` key named `BBOXY_*` is dropped, with one `Notice{Warn}`;
-  - **the resolver:** a `$VAR` reference to `BBOXY_*`, or a `!cmd` whose output equals a registered `BBOXY_*` value, is dropped, with one `Notice{Warn}`.
-
-  The server still spawns without that key. Launcher servers (§1 sources) are the only exception: they inherit `BBOXY_*`. `BBOXY_CAPABILITY` is a seat credential, and a profile or ACP server is untrusted code.
+- **No `BBOXY_*` delivery to profile or ACP servers.** A profile or ACP server never receives a `BBOXY_*` value. Launcher servers (§1 sources) are the only exception: they inherit `BBOXY_*` and may reference it. `BBOXY_CAPABILITY` is a seat credential, and a profile or ACP server is untrusted code. Each path is closed as follows (`src/mcp.rs` at eb384ac):
+  - **Inheritance.** Every `BBOXY_*` variable is removed before spawn (`scrub_bboxy_env`, `:501-511`).
+  - **A configured key named `BBOXY_*`.** The key is not set and the server spawns without it (`:571`).
+  - **A `$BBOXY_*` or `${BBOXY_*}` reference in any `env` value.** **The whole server is refused**, with `ErrorClass::Config` `"reserved environment reference"` and one `Notice` (`validate_environment`, `:512-526`). The turn continues. Refusing is safer than spawning with a silently altered environment (Oracle ruling, message 01M6BNKJW0082VPSJ4YZF6HYAX).
+  - **A `!cmd`.** The command runs with `BBOXY_*` removed from its environment. So `!printenv BBOXY_SOCK` fails with `"environment command failed"`, and the server is refused. If a resolved value contains the capability, the server is refused with `"reserved capability in environment"` (`:573`).
 - **Same-uid exception (what this does not claim).** On macOS, any process running under the same uid can read another process's exec-time environment with `ps -Eww -p <pid>`. This still works after the process has unset the variable; it was verified on 2026-11-01. So the rule above guarantees non-delivery, not secrecy. A profile server, or any tool any seat runs, can still find the capability in the environment of the harness or of its parent seat. Until [[seat-capability-delivery]] takes the capability out of the environment, this ICD does not claim that the capability is hidden from same-uid code. That proposal also does not defend against an active same-uid attacker who reads files.
 - **Registration.** Every resolved value is registered with the redactor `Set` (`src/redact.rs:36`) **before** the child is spawned.
 - **Scrubbing.** Tool arguments are scrubbed before they are written; results, `Notice` text and stderr excerpts are scrubbed before they enter any item (law [[secrets-never-persist]]).
@@ -129,7 +128,7 @@ updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 | §3 calls | `slow` gives `Failed` with the timeout reason within `timeout_s` + 1 s, and the turn continues; an `Interrupt` during `slow` gives `TurnEnded{Cancelled}` in ≤ 2 s; a response from the previous generation after a crash is dropped |
 | §4 labels | the notice count equals the number of state changes in each mode |
 | §5 secrets | `echo_env` returns its secret env value; the log, the notices and the stderr excerpt contain no copy (`grep -c` = 0 over the session directory) |
-| §5 no `BBOXY_*` delivery | The harness runs with `BBOXY_CAPABILITY=x` and `BBOXY_SOCK=y`. `echo_env` as a profile server is configured three ways, each in its own case: with no env, with `env: {BBOXY_CAPABILITY: "lit"}`, and with `env: {K: "$BBOXY_CAPABILITY"}`. In every case it sees no `BBOXY_*` key and no value `x`, and each dropped key yields one `Notice{Warn}`. The same fixture as a launcher server sees both values |
+| §5 no `BBOXY_*` delivery | existing tests in `tests/support/seat_launch.rs` (PR #8, #11). Inheritance: `profile_server_cannot_inherit_bboxy_environment`, `acp_server_cannot_inherit_bboxy_environment`. The launcher exception, and a configured `BBOXY_TEST_CONFIGURED` key that reaches only the launcher server: `launcher_flags_deliver_context_tools_and_only_launcher_environment`. `$`/`${}` references refused with a typed configuration refusal, for profile and ACP servers: `profile_and_acp_refuse_bboxy_environment_indirection`. The `!cmd` resolver scrub: `command_resolver_cannot_copy_seat_environment_into_mcp_aliases` |
 | §5 same-uid exception | not verified here: it is a stated non-claim. The removal check is [[seat-capability-delivery]] §4 |
 | model | **HarnessMcpServer**, below |
 
@@ -160,5 +159,7 @@ updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
   - The same-uid exception is stated, so the ICD claims nothing it cannot enforce. I re-verified it on this machine: `ps -Eww` shows a child's exec-time environment even after the child unsets the variable.
 
   The removal is proposed in [[seat-capability-delivery]]. Version unchanged.
+
+- **2026-11-01, at the Oracle's ruling** (message 01M6BNKJW0082VPSJ4YZF6HYAX). The previous entry said a dropped `$BBOXY_*` reference produces a `Notice` and the server still spawns. That was wrong: the accepted code at eb384ac (PR #11, task #4344) refuses the whole server with `ErrorClass::Config`, and the code is right. §5 now describes the four paths exactly as eb384ac implements them, with line references. The `!cmd` path is closed by running the resolver with `BBOXY_*` scrubbed, not by matching the output. §6 cites the existing `seat_launch.rs` tests instead of proposing new ones. Version unchanged. (Edited directly while the knowledge transport was unavailable; the record's signature is renewed through `knowledge_write`.)
 
 Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: configured MCP servers (E1c implements the client).
