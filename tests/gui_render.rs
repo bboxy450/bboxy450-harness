@@ -264,8 +264,7 @@ async fn live_terminal_heads_snapshots_and_completed_blob_reach_the_view() {
             match e.event {
                 Event::ItemStarted { item, kind: ItemKind::Terminal, .. } => {
                     terminal_id = Some(item);
-                    assert!(matches!(&projection.items[&item].body, Item::Terminal { command: c, .. } if c == command), "live Envelope head must name the command before completion");
-                    saw_head = true;
+                    saw_head = matches!(&projection.items[&item].body, Item::Terminal { command: c, .. } if c == command);
                 }
                 Event::ItemSnapshot { item, partial: Item::Terminal { .. } } => {
                     let live = serde_json::to_value(&e.event).unwrap();
@@ -305,10 +304,17 @@ async fn live_terminal_heads_snapshots_and_completed_blob_reach_the_view() {
         text.contains("stream-headstream-tail"),
         "completed blob must supply output, not just the command: {text}"
     );
-    assert!(
-        saw_head && saw_live,
-        "live gateway must deliver v0.2 identity and coalesced output snapshots"
-    );
     bridge.detach().unwrap().await.unwrap();
     support::close(session).await;
+    println!(
+        "gui-live: completed blob content rendered; typed head={saw_head}, live snapshot={saw_live}"
+    );
+    assert!(
+        saw_head,
+        "live Envelope head must name the command before completion"
+    );
+    assert!(
+        saw_live,
+        "live gateway must deliver coalesced v0.2 output snapshots"
+    );
 }

@@ -1,13 +1,10 @@
-Adds the standalone `gui` command, offline fixture replay, and a pure ItemId transcript projection with additive protocol v0.2 identity heads and terminal snapshot repair. Gateway work and transcript preparation run on bbt-rt; the UI receives immutable state through Latest/UiSender and retains completed layouts. Prepared snapshot identity is retained through frame replacement to avoid A → B → A cache reuse. The native host uses StreamDock, the toolkit composer, approval controls, scoped scrolling, and explicit interrupt/stop actions.
+Adds the standalone and embedded GUI consumer on toolkit 0.1.1: retained Envelope projection, background gateway/preparation workers, StreamDock transcript, composer and approval/control actions, offline replay, and headless Metal smoke.
 
-Verification:
+The Oracle rework now models delayed stale Stop delivery through A→B→A, limits StreamToView coverage to DirtyWake, tests the real bridge drain with an injected 0.3ms clock, repairs dropped deltas with a snapshot before completion, and activates rendered approval buttons against the live gateway. Cards show readable typed content and completed terminal blobs load on workers. The smoke checks per-card content, approval controls and a scrolled viewport.
 
-- `make test-gui`: exit 0, including the injected-clock 100k-delta gate and offscreen Metal smoke (17 visible items, all 14 kinds).
-- `make test-formal`: exit 0; all 33 native/Java reachable-state, transition, and verdict comparisons match, including broken controls.
-- All-target/all-feature clippy: exit 0. Core tests excluding the Oracle-owned ticker case: exit 0.
-- The final `make test` run hit the unchanged ticker timing case (9.215ms; previous failures 8.38ms and 7.51ms). Oracle disposition: **rt_budget wall-clock, E1b #1117 item 15**, recorded in budget spec 82f2edd and decision 8de0476. No other failure is waived.
-- `make bench-budgets`: UNMEASURED at load 19.01 on 10 CPUs, as required by the updated spec.
+Validation on the rework: focused GUI regressions and semantic headless smoke exit 0; 33 native/TLC models and broken controls match; both clippy configurations exit 0. Mutation controls for ignored budget, ignored snapshot and redirected approval each exit 101 as intended. `make bench-budgets` reports UNMEASURED under load.
 
-Plain previews use the published toolkit 0.1.1; rich widget replacement follows the Oracle's phase 2 merge signal. Native window presentation and physical IME are not exercised by the headless tests.
+Pending final integration: Oracle's PR #3 merge signal, rebase onto main, then unfiltered `make test` exit 0. The live v0.2 test is currently red at the old core's missing terminal head; no final gate is waived. Phase 2 widget adoption awaits its explicit merge signal.
 
-[Report](https://github.com/bboxy450/bboxy450-harness/blob/e3-gui/.bboxy/runs/e3-gui-report.md) · [Headless screenshot](https://github.com/bboxy450/bboxy450-harness/blob/e3-gui/.bboxy/runs/gui-smoke.png)
+Report: [.bboxy/runs/e3-gui-report.md](.bboxy/runs/e3-gui-report.md)
+Screenshots: [.bboxy/runs/gui-smoke.png](.bboxy/runs/gui-smoke.png), [.bboxy/runs/gui-smoke-scrolled.png](.bboxy/runs/gui-smoke-scrolled.png)
