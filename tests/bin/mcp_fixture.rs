@@ -26,7 +26,10 @@ async fn run() {
             .process_group(0)
             .spawn()
             .unwrap();
-        std::fs::write(std::env::args().nth(2).unwrap(), child.id().to_string()).unwrap();
+        let path = std::path::PathBuf::from(std::env::args().nth(2).unwrap());
+        let staging = path.with_extension("tmp");
+        std::fs::write(&staging, child.id().to_string()).unwrap();
+        std::fs::rename(staging, path).unwrap();
         return;
     }
     if let Ok(path) = std::env::var("MCP_SPAWNS") {

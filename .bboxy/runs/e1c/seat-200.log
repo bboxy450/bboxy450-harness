@@ -1,0 +1,2024 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.81s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test hangup_stops_without_an_operator ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.64s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test hangup_stops_without_an_operator ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.63s
+
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.37s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.73s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.42s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.29s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.64s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.86s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test hangup_stops_without_an_operator ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.65s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.39s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test hangup_stops_without_an_operator ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.69s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test hangup_stops_without_an_operator ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.65s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test hangup_stops_without_an_operator ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.62s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test hangup_stops_without_an_operator ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.62s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.27s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.17s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.31s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.39s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.45s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.71s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.68s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.57s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.53s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.50s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.38s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.76s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.64s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.52s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.37s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.17s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.31s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.33s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.64s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.29s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.27s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.36s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.17s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.45s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.31s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.78s
+
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.33s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.29s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test hangup_stops_without_an_operator ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.65s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.44s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.35s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.27s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.31s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.27s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.38s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.39s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.29s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.34s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.37s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.32s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.35s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.42s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.33s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.38s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.36s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.70s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.37s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.52s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.93s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.42s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.35s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.46s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.34s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-03aa37e21d656db0)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s

@@ -195,7 +195,7 @@ fn killed_harness_recovers_the_original_tool_identity() {
     use std::time::{Duration, Instant};
     let t = tempfile::tempdir_in("/tmp").unwrap();
     let root = t.path().join("sessions");
-    let args = serde_json::json!({"command":"echo $$ > group.pid; sleep 30 & wait"});
+    let args = serde_json::json!({"command":"echo $$ > group.pid.tmp; mv group.pid.tmp group.pid; sleep 30 & wait"});
     let chunk = serde_json::json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"recovery-original-id","type":"function","function":{"name":"bash","arguments":args.to_string()}}]},"finish_reason":null}]});
     let finish = serde_json::json!({"choices":[{"delta":{},"finish_reason":"tool_calls"}]});
     let script = t.path().join("tool.sse");
