@@ -61,6 +61,7 @@ def main(selected=None):
     env['CARGO_HOME'] = env.get('CARGO_HOME', str(original_home / '.cargo'))
     env['RUSTUP_HOME'] = env.get('RUSTUP_HOME', str(original_home / '.rustup'))
     env.pop('BBOXY_CAPABILITY', None)
+    env.pop('BBOXY_CAPABILITY_FILE', None)
     with tempfile.TemporaryDirectory(prefix='gui-polish-controls-', dir='/tmp') as own:
         env['HOME'] = own
         env['TMPDIR'] = own

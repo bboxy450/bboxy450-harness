@@ -229,6 +229,13 @@ impl SessionActor {
             .into_iter()
             .map(|text| (Level::Error, text))
             .chain(launch.notices.into_iter().map(|text| (Level::Warn, text)))
+            .chain(
+                config
+                    .redactor
+                    .capability_notice()
+                    .into_iter()
+                    .map(|text| (Level::Warn, text)),
+            )
         {
             let item = ItemId::new();
             store

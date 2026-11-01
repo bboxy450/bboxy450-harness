@@ -19,6 +19,7 @@ env['CARGO_HOME'] = env.get('CARGO_HOME', str(original / '.cargo'))
 env['RUSTUP_HOME'] = env.get('RUSTUP_HOME', str(original / '.rustup'))
 env['CLIPPY_CONF_DIR'] = str(ROOT / 'src/frontends/gui/lint')
 env.pop('BBOXY_CAPABILITY', None)
+env.pop('BBOXY_CAPABILITY_FILE', None)
 rows = []
 with tempfile.TemporaryDirectory(prefix='harness-gui-tests-', dir='/tmp') as own:
     env['HOME'] = own
@@ -26,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix='harness-gui-tests-', dir='/tmp') as own
     for command in [
         ['python3', '-I', 'tests/gui_dependencies.py'],
         ['cargo', 'clippy', '--offline', '--locked', '--all-features', '--lib', '--bin', 'bboxy450-harness', '--', '-D', 'warnings'],
-        ['cargo', 'test', '--offline', '--locked', '--features', 'standalone', '--test', 'gui_rich', '--test', 'gui_render', '--test', 'gui_bridge', '--test', 'gui_fixtures', '--test', 'gui_budget', '--test', 'gui_cli', '--', '--nocapture'],
+        ['cargo', 'test', '--offline', '--locked', '--features', 'standalone', '--test', 'gui_rich', '--test', 'gui_render', '--test', 'gui_bridge', '--test', 'gui_fixtures', '--test', 'gui_budget', '--test', 'gui_cli', '--test', 'capability_delivery', '--', '--nocapture'],
         ['make', 'test-gui-smoke'],
     ]:
         print('gui-test: ' + ' '.join(command), flush=True)

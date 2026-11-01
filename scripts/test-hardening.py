@@ -44,4 +44,5 @@ class TestStack(unittest.TestCase):
             if isinstance(node,ast.For) and isinstance(node.target,ast.Name) and node.target.id=='command':commands=ast.literal_eval(node.iter)
         native=['make','test-formal-native'];parity=['make','test-formal-parity']
         self.assertIn(native,commands);self.assertIn(parity,commands);self.assertLess(commands.index(native),commands.index(parity));self.assertIn(['python3','-I','scripts/test-hardening.py'],commands)
+        control=['python3','-I','scripts/test-capability-control.py'];self.assertIn(control,commands);self.assertLess(commands.index(control),commands.index(native))
 if __name__=='__main__':unittest.main()

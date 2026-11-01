@@ -24,6 +24,7 @@ def main():
     env['CARGO_HOME']=env.get('CARGO_HOME',str(original/'.cargo'))
     env['RUSTUP_HOME']=env.get('RUSTUP_HOME',str(original/'.rustup'))
     env.pop('BBOXY_CAPABILITY',None)
+    env.pop('BBOXY_CAPABILITY_FILE',None)
     inputs=source_hashes()
     rows=[]
     with tempfile.TemporaryDirectory(prefix='harness-tests-',dir='/tmp') as own:
@@ -42,6 +43,7 @@ def main():
             # no concurrent test that could fork while the master is exposed.
             ['cargo','test','--offline','--locked','--features','acp,test-fixtures','--test','seat_process','non_pty_spawn_does_not_keep_a_sibling_master_alive','--','--exact'],
             ['python3','-I','scripts/test-hardening.py'],
+            ['python3','-I','scripts/test-capability-control.py'],
             ['make','test-formal-native'],
             ['make','test-formal-parity'],
             ['python3','-I','scripts/checks.py','secrets'],

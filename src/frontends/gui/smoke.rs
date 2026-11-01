@@ -7,14 +7,20 @@
 
 //! Offscreen Metal frame witness. No window, display permission or model.
 use super::{
-    bridge::{FrameState, read_replay},
+    bridge::{FrameState, read_replay_with_redactor},
     view::{Action, HarnessView, layout_text},
 };
 use bbt_render::{chrome::ChromeRenderer, device::DeviceContext};
 use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
 pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
-    let mut model = read_replay(replay).await?;
+    let redactor = crate::redact::Set::default();
+    crate::capability::register(&redactor).await;
+    let notice = redactor.capability_notice();
+    if let Some(text) = &notice {
+        println!("gui-smoke Notice: {text}");
+    }
+    let mut model = read_replay_with_redactor(replay, redactor).await?;
     // The completed replay proves all kinds; an open copy also proves the
     // actionable approval state in the same offscreen frame.
     for id in model.order.clone() {
@@ -37,6 +43,7 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
     crate::runtime::blocking(move || {
         let mut state = FrameState {
             transcript: Arc::new(model),
+            notice,
             ready: true,
             replay: true,
             ..Default::default()

@@ -20,7 +20,13 @@ async fn run() {
             .collect::<std::collections::BTreeSet<_>>();
         // The test parent supplies only throwaway values. Persist observations,
         // never environment values (especially never the seat capability).
-        let report = json!({"names":names,"seat_matches":std::env::var("BBOXY_SEAT_ID").as_deref()==Ok("throwaway-seat"),"capability_matches":std::env::var("BBOXY_CAPABILITY").as_deref()==Ok("throwaway-capability"),
+        let capability_matches = std::env::var_os("BBOXY_CAPABILITY_FILE").is_some_and(|path| {
+            std::path::Path::new(&path)
+                == std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join("capability")
+                && std::fs::read(path).is_ok_and(|bytes| bytes.len() == 65 && bytes[64] == b'\n')
+        });
+        let report = json!({"names":names,"seat_matches":std::env::var("BBOXY_SEAT_ID").as_deref()==Ok("throwaway-seat"),"capability_matches":capability_matches,
+            "legacy_capability_present":std::env::var_os("BBOXY_CAPABILITY").is_some(),
             "alias_sock_matches":std::env::var_os("S").is_some_and(|s| std::path::Path::new(&s)==std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join("missing.sock")),
             "alias_seat_matches":std::env::var("I").as_deref()==Ok("throwaway-seat"),
             "alias_role_matches":std::env::var("R").as_deref()==Ok("executor"),

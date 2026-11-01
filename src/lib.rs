@@ -11,6 +11,7 @@
 
 pub mod protocol;
 
+pub mod capability;
 pub mod process;
 pub mod redact;
 pub mod runtime;

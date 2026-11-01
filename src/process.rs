@@ -463,7 +463,6 @@ async fn run_inner(
     command
         .args(req.args)
         .current_dir(req.cwd)
-        .env_remove("BBOXY_CAPABILITY")
         .stdin(if req.stdin.is_some() {
             Stdio::piped()
         } else {
@@ -473,13 +472,11 @@ async fn run_inner(
         .stderr(Stdio::piped())
         .process_group(0)
         .kill_on_drop(true);
-    if capture_only {
-        // A !cmd resolver is untrusted regardless of the eventual key/server
-        // consumer. Preserve PATH/HOME but never hand seat identity to its shell.
-        for (name, _) in std::env::vars_os() {
-            if name.as_encoded_bytes().starts_with(b"BBOXY_") {
-                command.env_remove(name);
-            }
+    // Tools, terminals and !cmd resolvers have no seat-identity exception.
+    // Launcher MCP children use their separate, origin-checked spawn path.
+    for (name, _) in std::env::vars_os() {
+        if name.as_encoded_bytes().starts_with(b"BBOXY_") {
+            command.env_remove(name);
         }
     }
     let mut child = OwnedChild::spawn(command)?;

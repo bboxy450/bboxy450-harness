@@ -25,22 +25,67 @@ impl fmt::Debug for Secret {
         f.write_str("<redacted>")
     }
 }
+#[derive(Default)]
+struct Admission {
+    initialized: bool,
+    value: Option<Zeroizing<String>>,
+    refusal: Option<crate::capability::Refusal>,
+}
 #[derive(Clone, Default)]
-pub struct Set(Arc<RwLock<Vec<Zeroizing<String>>>>);
+pub struct Set {
+    values: Arc<RwLock<Vec<Zeroizing<String>>>>,
+    admission: Arc<RwLock<Admission>>,
+}
 impl fmt::Debug for Set {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Set(<redacted>)")
     }
 }
 impl Set {
+    pub(crate) fn capability_initialized(&self) -> bool {
+        self.admission.read().unwrap().initialized
+    }
+    pub(crate) fn register_capability(&self, value: &str) {
+        self.register(value);
+        *self.admission.write().unwrap() = Admission {
+            initialized: true,
+            value: Some(Zeroizing::new(value.into())),
+            refusal: None,
+        };
+    }
+    pub(crate) fn refuse_capability(&self, reason: crate::capability::Refusal) {
+        *self.admission.write().unwrap() = Admission {
+            initialized: true,
+            value: None,
+            refusal: Some(reason),
+        };
+    }
+    pub fn capability_notice(&self) -> Option<String> {
+        self.admission
+            .read()
+            .unwrap()
+            .refusal
+            .map(|reason| format!("seat capability unavailable: {reason}"))
+    }
+    pub(crate) fn contains_capability(&self, value: &str) -> bool {
+        self.admission
+            .read()
+            .unwrap()
+            .value
+            .as_ref()
+            .is_some_and(|capability| value.contains(capability.as_str()))
+    }
     pub fn register(&self, value: &str) {
         if !value.is_empty() {
-            self.0.write().unwrap().push(Zeroizing::new(value.into()));
+            self.values
+                .write()
+                .unwrap()
+                .push(Zeroizing::new(value.into()));
         }
     }
     pub fn scrub(&self, text: &str) -> String {
         let mut out = text.to_owned();
-        for s in self.0.read().unwrap().iter() {
+        for s in self.values.read().unwrap().iter() {
             out = out.replace(s.as_str(), "<redacted>");
         }
         out
@@ -67,7 +112,7 @@ impl Set {
         &self,
         v: &T,
     ) -> Result<T, serde_json::Error> {
-        if self.0.read().unwrap().is_empty() {
+        if self.values.read().unwrap().is_empty() {
             return Ok(v.clone());
         }
         serde_json::from_value(self.value(serde_json::to_value(v)?))
@@ -76,7 +121,7 @@ impl Set {
 impl Set {
     pub fn bytes(&self, bytes: &[u8]) -> Vec<u8> {
         let mut out = bytes.to_vec();
-        for secret in self.0.read().unwrap().iter() {
+        for secret in self.values.read().unwrap().iter() {
             let needle = secret.as_bytes();
             let mut i = 0;
             while i + needle.len() <= out.len() {
@@ -105,7 +150,7 @@ impl StreamScrubber {
     }
     pub fn push(&mut self, bytes: &[u8], finish: bool) -> Vec<u8> {
         self.pending.extend_from_slice(bytes);
-        let secrets = self.set.0.read().unwrap();
+        let secrets = self.set.values.read().unwrap();
         let max = secrets.iter().map(|s| s.len()).max().unwrap_or(1);
         let mut cut = if finish {
             self.pending.len()
@@ -150,7 +195,7 @@ impl OrderedScrubber {
         finish: bool,
     ) -> Vec<(crate::protocol::Stream, Vec<u8>)> {
         self.pending.extend(bytes.iter().map(|b| (stream, *b)));
-        let secrets = self.set.0.read().unwrap();
+        let secrets = self.set.values.read().unwrap();
         for key in secrets.iter() {
             let needle = key.as_bytes();
             let mut i = 0;

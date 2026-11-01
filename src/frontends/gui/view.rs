@@ -212,7 +212,10 @@ impl HarnessView {
     /// The same Element is used by a standalone surface and the offscreen driver.
     pub fn render(&mut self, state: &FrameState, size: [f32; 2]) -> Result<&Frame, String> {
         let offset = self.scroll.layout_offset();
-        let draft = format!("{:?}{:?}{:?}", self.composer.view, self.notice, state.error);
+        let draft = format!(
+            "{:?}{:?}{:?}{:?}",
+            self.composer.view, self.notice, state.error, state.notice
+        );
         if self
             .cached
             .as_ref()
@@ -276,6 +279,7 @@ impl HarnessView {
             .notice
             .as_ref()
             .or(state.error.as_ref())
+            .or(state.notice.as_ref())
             .cloned()
             .unwrap_or_else(|| {
                 if state.replay {

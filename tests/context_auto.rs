@@ -438,6 +438,7 @@ async fn sigkill_between_rounds_rebuilds_the_identical_model_request() {
         .args(["--ignored", "--exact", "context_crash_child"])
         .env("HARNESS_CONTEXT_CHILD_ROOT", root.path())
         .env_remove("BBOXY_CAPABILITY")
+        .env_remove("BBOXY_CAPABILITY_FILE")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()

@@ -574,11 +574,10 @@ async fn supervise(
         let result=async {
             let mut command=tokio::process::Command::new(&slot.config.command);
             command.args(&slot.config.args).process_group(0).kill_on_drop(true);
-            if let Ok(cap)=std::env::var("BBOXY_CAPABILITY") {redactor.register(&cap);}
             for (key,source) in &slot.config.env {
                 if slot.origin!=Origin::Launcher && key.starts_with("BBOXY_") {continue;}
                 let value=if let Some(cmd)=source.strip_prefix('!') {crate::provider::profile::resolve_command(cmd,cancel.child_token()).await.map_err(|_|"environment command failed")?} else if let Some(name)=source.strip_prefix('$') {std::env::var(name).map_err(|_|"environment variable unavailable")?}else{source.clone()};
-                if slot.origin!=Origin::Launcher && std::env::var("BBOXY_CAPABILITY").ok().is_some_and(|cap|!cap.is_empty()&&value.contains(&cap)) {return Err("reserved capability in environment");}
+                if slot.origin!=Origin::Launcher && redactor.contains_capability(&value) {return Err("reserved capability in environment");}
                 redactor.register(&value);command.env(key,value);
             }
             if slot.origin!=Origin::Launcher {scrub_bboxy_env(&mut command);}

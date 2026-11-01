@@ -250,6 +250,11 @@ expected = "liveness"
 frontend = "project"
 
 [[model]]
+name = "BrokenHarnessMcpServerD"
+expected = "safety"
+frontend = "project"
+
+[[model]]
 name = "BrokenHarnessAutoCompactD"
 expected = "safety"
 frontend = "project"

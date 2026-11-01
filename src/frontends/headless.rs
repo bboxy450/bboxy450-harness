@@ -128,7 +128,12 @@ async fn run_cli(
     let root = PathBuf::from(std::env::var_os("HOME").ok_or("HOME unavailable")?)
         .join(".bboxy450-harness");
     let sessions = sessions.unwrap_or_else(|| root.join("sessions"));
+    let redactor = Set::default();
+    crate::capability::register(&redactor).await;
     if !acp && !seat && prompt.is_none() {
+        if let Some(notice) = redactor.capability_notice() {
+            eprintln!("Notice: {notice}");
+        }
         let session = SessionId(
             resume
                 .as_ref()
@@ -141,6 +146,9 @@ async fn run_cli(
             .map_err(|_| "closed session replay unavailable")?;
         let mut stdout = tokio::io::stdout();
         for event in events {
+            let event = redactor
+                .sanitize(&event)
+                .map_err(|_| "event sanitization failed")?;
             let mut bytes = serde_json::to_vec(&event).map_err(|_| "event serialization failed")?;
             bytes.push(b'\n');
             stdout
@@ -150,10 +158,6 @@ async fn run_cli(
         }
         stdout.flush().await.map_err(|_| "output unavailable")?;
         return Ok(0);
-    }
-    let redactor = Set::default();
-    if let Ok(value) = std::env::var("BBOXY_CAPABILITY") {
-        redactor.register(&value);
     }
     let defer_acp_profile = acp && scripts.is_empty();
     let (provider, model, mut policy): (Arc<dyn Provider>, String, Policy) = if !scripts.is_empty()

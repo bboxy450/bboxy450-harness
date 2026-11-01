@@ -1540,7 +1540,7 @@ fn auto_compact(mode: u8) -> Model {
 fn mcp_server(mode: u8) -> Model {
     // Starting=0, ready=1, failed=2, dead=3; round absent/open/finished.
     // Three births stand for the five-attempt product bound; identities are gen mod 2.
-    let mut m = base::<11>(
+    let mut m = base::<15>(
         "McpServer",
         false,
         &[
@@ -1555,12 +1555,17 @@ fn mcp_server(mode: u8) -> Model {
             ("accepted_birth", 2, 0),
             ("silent", 1, 0),
             ("retired", 1, 0),
+            ("file_available", 1, 1),
+            ("capability_registered", 1, 0),
+            // 0=pending, 1=registered, 2=degraded with a Notice.
+            ("face_prepared", 2, 0),
+            ("output_projected", 1, 0),
         ],
     );
     if mode > 0 {
         m.name = format!(
             "BrokenHarnessMcpServer{}",
-            ['A', 'B', 'C'][(mode - 1) as usize]
+            ['A', 'B', 'C', 'D'][(mode - 1) as usize]
         );
     }
     m.check_deadlock = mode == 1;
@@ -1574,7 +1579,12 @@ fn mcp_server(mode: u8) -> Model {
         },
         &[(4, Int(1))],
     );
-    act(&mut m, "Ready", eq(0, 0), &[(0, Int(1))]);
+    act(
+        &mut m,
+        "Ready",
+        all([eq(0, 0), eq(13, 0).negate()]),
+        &[(0, Int(1))],
+    );
     act(
         &mut m,
         "FailedStartOrExit",
@@ -1655,6 +1665,39 @@ fn mcp_server(mode: u8) -> Model {
         &[(3, Int(0)), (5, Int(0)), (4, Int(2))],
     );
     act(&mut m, "Finished", eq(4, 2), &[]);
+    // File validity is an input abstraction. The broken reader consults only
+    // the absent legacy environment, reports degradation and misses a valid file.
+    act(
+        &mut m,
+        "ReadCapabilityFile",
+        eq(13, 0),
+        &[
+            (12, Int(if mode == 4 { 0 } else { 1 })),
+            (13, Int(if mode == 4 { 2 } else { 1 })),
+        ],
+    );
+    act(
+        &mut m,
+        "UnavailableFileNotice",
+        eq(13, 0),
+        &[(11, Int(0)), (13, Int(2))],
+    );
+    act(
+        &mut m,
+        "ProjectToolOrProviderOutput",
+        all([eq(13, 0).negate(), eq(14, 0)]),
+        &[(14, Int(1))],
+    );
+    safe(
+        &mut m,
+        "NoUnredactedCapability",
+        all([eq(11, 1), eq(14, 1)]).negate().or(eq(12, 1)),
+    );
+    safe(
+        &mut m,
+        "ReadyAfterCapabilityAttempt",
+        eq(0, 1).negate().or(eq(13, 0).negate()),
+    );
     safe(&mut m, "NoStaleResult", Var(7).eq(Var(8)));
     progress(
         &mut m,
@@ -1962,6 +2005,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         ));
     }
     out.push((auto_compact(4), "safety"));
+    out.push((mcp_server(4), "safety"));
     out.push((acp_flow(0), "pass"));
     out.push((acp_flow(1), "safety"));
     out.push((acp_flow(2), "safety"));
