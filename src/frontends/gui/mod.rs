@@ -9,6 +9,7 @@
 #[cfg(feature = "embedded")]
 pub mod assets;
 pub mod bridge;
+pub mod budget;
 pub mod chat_scroll;
 pub mod model;
 pub mod options;

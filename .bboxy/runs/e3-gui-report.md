@@ -28,3 +28,6 @@ Earlier failures and fixes: a non-flat container material, missing SVG icon regi
 Remaining: refresh make test after the v0.2 addition, then signed branch push and PR. Phase 2 rich toolkit widgets await the Oracle's explicit merge signal. Native window presentation and physical IME have not been exercised; the framebuffer, toolkit layout and gateway effects are tested headlessly. Plain previews are capped at 4096 UTF-8 bytes, with the full typed body retained in the transcript/log.
 
 The current main core still exposes protocol v0.1 while E1b implements v0.2. The GUI keeps additive wire fields during replay and reads those same fields from in-process typed envelopes once the new core is linked. It does not fork or modify protocol/core files.
+
+
+Budget ruling received and applied: main 82f2edd, Oracle messages 01M6APCKNF6VE7D8YB5YG6TWCW and 01M6APE34CF9EZB48XPP89PFMX. The current ticker failure is recorded as **rt_budget wall-clock, E1b #1117 item 15**. E1b owns its deterministic replacement; no E3 source outside the assignment was edited. The GUI gate now uses the shared injected-clock drain, proves 100005 envelopes across 33335 frames at a 300us quantum without loss, retains completed layouts, and prepares the >4KiB block off the registered UI thread. Measurement moved to bench-gui-budget, attached to bench-budgets, with UNMEASURED above ncpu.

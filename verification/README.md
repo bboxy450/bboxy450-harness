@@ -66,7 +66,7 @@ safety controls. The existing DirtyWake StreamToView pair is retained. These
 models are abstractions, with no claim that the checker proves delta content or
 pixels: `gui_fixtures` checks ordered projection, generation fencing and random
 delta loss/coalescing against completion; `gui_budget` measures a 100k-delta
-frame driver (thread CPU p99 ≤ 0.9ms, and separately retained wall-time p99); `gui_render` and `test-gui-smoke` witness the real retained tree,
+frame driver with an injected clock (300us drain, deferral, no loss); `gui_render` and `test-gui-smoke` witness the real retained tree,
 CoreText and offscreen Metal frame. Native surface presentation/physical IME
 and embedding into the separate term workspace remain implementation-only.
 
@@ -82,3 +82,10 @@ from serialized typed events once that core is linked. The v0.2 GUI fixture
 witnesses durable identity before deltas, snapshot repair after a dropped
 terminal delta, Unicode-safe 64KiB tail retention, and authoritative completion.
 No core/protocol source is forked by this frontend.
+
+Budget amendment 82f2edd: `make test` uses deterministic structural GUI gates.
+The shared production drain accepts an injected clock; the 100k-delta witness
+charges 50us per receive and projection and asserts a 300us drain with no loss.
+A real worker witness checks retained completed layouts and >4KiB preparation
+away from the UI thread. `make bench-budgets` includes `bench-gui-budget`; its
+real-clock p99 is observational and prints UNMEASURED when load exceeds ncpu.

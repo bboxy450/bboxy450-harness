@@ -45,3 +45,9 @@ test-gui-lint:
 
 test-gui-smoke:
 	cargo run --offline --locked --features standalone -- gui --replay tests/fixtures/protocol/all-items.jsonl --headless --screenshot .bboxy/runs/gui-smoke.png
+
+.PHONY: bench-budgets bench-gui-budget
+bench-budgets: bench-gui-budget
+
+bench-gui-budget:
+	cargo test --offline --locked --features standalone --test gui_bench -- --ignored --nocapture

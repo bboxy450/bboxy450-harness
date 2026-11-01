@@ -600,6 +600,8 @@ pub struct PreparedRows {
     rows: im::HashMap<ItemId, Arc<CachedRow>>,
     height: f32,
     pub layout_builds: usize,
+    pub large_markdown_blocks: usize,
+    pub prepared_on_ui: bool,
 }
 #[derive(Default)]
 pub struct Preparer {
@@ -690,12 +692,21 @@ impl Preparer {
             self.layout_builds += 1;
             total_height += height;
         }
+        let large_markdown_blocks = source
+            .items
+            .values()
+            .filter(
+                |row| matches!(&row.body, Item::AgentMessage { markdown } if markdown.len() > 4096),
+            )
+            .count();
         Ok(PreparedRows {
             source,
             width,
             rows: self.rows.clone(),
             height: total_height,
             layout_builds: self.layout_builds,
+            large_markdown_blocks,
+            prepared_on_ui: bbt_rt::is_ui_thread(),
         })
     }
 }

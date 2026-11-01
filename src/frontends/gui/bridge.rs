@@ -155,14 +155,39 @@ impl Bridge {
     /// A real frame drains under 0.3ms. complete_drain re-marks any remainder,
     /// including a publication racing the just-completed frame.
     pub fn drain(&mut self, budget: Duration) -> bool {
-        self.dirty.drain();
-        let start = Instant::now();
-        let mut changed = false;
-        if let Some(state) = self.mailbox.latest.take() {
-            self.state = state;
-            changed = true;
+        self.drain_with_clock(budget, &super::budget::RealClock::default())
+    }
+    pub fn drain_with_clock(
+        &mut self,
+        budget: Duration,
+        clock: &impl super::budget::Clock,
+    ) -> bool {
+        enum Update {
+            State(FrameState),
+            Notice,
         }
-        while start.elapsed() < budget && self.messages.try_recv().is_some() {}
+        self.dirty.drain();
+        let mailbox = &self.mailbox;
+        let messages = &self.messages;
+        let state = &mut self.state;
+        let mut changed = false;
+        super::budget::drain(
+            clock,
+            budget,
+            || {
+                mailbox
+                    .latest
+                    .take()
+                    .map(Update::State)
+                    .or_else(|| messages.try_recv().map(|_| Update::Notice))
+            },
+            |update| {
+                if let Update::State(next) = update {
+                    *state = next;
+                    changed = true;
+                }
+            },
+        );
         self.messages.complete_drain();
         self.mailbox.latest.complete_drain();
         changed

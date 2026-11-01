@@ -8,9 +8,9 @@
 #![cfg(feature = "embedded")]
 use bboxy450_harness::{
     frontends::gui::{
-        bridge::{Bridge, FrameState},
+        budget::{self, Clock, Work},
         model::Transcript,
-        view::{HarnessView, Preparer},
+        view::Preparer,
     },
     protocol::*,
 };
@@ -19,7 +19,7 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 #[derive(Default)]
 struct Wake(AtomicUsize);
@@ -51,82 +51,141 @@ fn budgeted_remainder_keeps_its_wake() {
     dirty.drain();
     assert!(dirty.drain().is_empty());
 }
-#[test]
-fn hundred_thousand_deltas_frame_p99_is_under_budget() {
-    let mut e: Envelope = serde_json::from_str(
+
+#[derive(Default)]
+struct InjectedClock(std::cell::Cell<Duration>);
+impl Clock for InjectedClock {
+    fn now(&self) -> Duration {
+        self.0.get()
+    }
+    fn charge(&self, _work: Work) {
+        self.0.set(self.0.get() + Duration::from_micros(50));
+    }
+}
+fn fixture() -> (std::collections::VecDeque<Envelope>, ItemId) {
+    let base: Envelope = serde_json::from_str(
         include_str!("fixtures/protocol/all-items.jsonl")
             .lines()
             .next()
             .unwrap(),
     )
     .unwrap();
-    let mut model = Transcript::default();
-    model.apply(&e);
+    let completed = ItemId::new();
     let item = ItemId::new();
-    e.seq = Some(Seq(2));
-    e.at = Seq(2);
-    e.event = serde_json::from_value(serde_json::json!({"type":"item_started","turn":null,"item":item,"kind":"agent_message","parent":null,"head":null})).unwrap();
-    model.apply(&e);
-    e.seq = None;
-    e.event = Event::ItemDelta {
+    let mut queue = std::collections::VecDeque::from([base.clone()]);
+    let mut push = |event: serde_json::Value, seq: Option<u64>, at: u64| {
+        let mut e = base.clone();
+        e.event = serde_json::from_value(event).unwrap();
+        e.seq = seq.map(Seq);
+        e.at = Seq(at);
+        queue.push_back(e);
+    };
+    push(
+        serde_json::json!({"type":"item_started","item":completed,"turn":null,"parent":null,"kind":"user_message","head":null}),
+        Some(2),
+        2,
+    );
+    push(
+        serde_json::json!({"type":"item_completed","item":completed,"status":{"status":"completed"},"body":{"kind":"user_message","blocks":[{"type":"text","text":"retained history"}]}}),
+        Some(3),
+        3,
+    );
+    push(
+        serde_json::json!({"type":"item_started","item":item,"turn":null,"parent":null,"kind":"agent_message","head":null}),
+        Some(4),
+        4,
+    );
+    let mut delta = base.clone();
+    delta.seq = None;
+    delta.at = Seq(4);
+    delta.event = Event::ItemDelta {
         item,
         delta: Delta::Text { append: "x".into() },
     };
-    let mut view = HarnessView::default();
-    let mut bridge = Bridge::new(Arc::new(Wake::default()));
-    let mut samples = vec![];
-    let mut preparer = Preparer::default();
-    let mut max_stages = [0f64; 5];
-    let mut wall_samples = vec![];
-    for i in 0..100_000 {
-        model.apply(&e);
-        if i % 500 == 499 {
-            // Projection is performed by the preparation worker/consumer. The
-            // measured UI interval starts with an immutable complete snapshot.
-            let mut state = FrameState {
-                transcript: Arc::new(model.clone()),
-                ready: true,
-                replay: true,
-                ..Default::default()
-            };
-            state.prepared = Some(Arc::new(
-                preparer.prepare(state.transcript.clone(), 1120.).unwrap(),
-            ));
-            let start = Instant::now();
-            let cpu = thread_cpu();
-            bridge.drain(Duration::from_micros(300));
-            let frame = view.render(&state, [1120., 860.]).unwrap();
-            for (i, t) in frame.timings.iter().enumerate() {
-                max_stages[i] = max_stages[i].max(t.as_secs_f64() * 1000.);
-            }
-            samples.push((thread_cpu() - cpu).as_secs_f64() * 1000.);
-            wall_samples.push(start.elapsed().as_secs_f64() * 1000.);
-        }
+    for _ in 0..100_000 {
+        queue.push_back(delta.clone());
     }
-    wall_samples.sort_by(f64::total_cmp);
-    println!(
-        "gui-budget wall p99 including scheduling: {:.3}ms",
-        wall_samples[wall_samples.len() * 99 / 100]
-    );
-    samples.sort_by(f64::total_cmp);
-    let p99 = samples[samples.len() * 99 / 100];
-    println!(
-        "gui-budget: {} frames / 100000 deltas, p99 drain+projection CPU {p99:.3}ms (limit 0.9ms)",
-        samples.len()
-    );
-    println!("gui-budget stage maxima: {max_stages:?}ms");
-    assert!(p99 <= 0.9, "p99={p99:.3}ms");
+    let mut complete = base;
+    complete.seq = Some(Seq(5));
+    complete.at = Seq(5);
+    complete.event = Event::ItemCompleted {
+        item,
+        status: ItemStatus::Completed,
+        body: Item::AgentMessage {
+            markdown: "x".repeat(100_000),
+        },
+    };
+    queue.push_back(complete);
+    (queue, item)
 }
-
-// The budget allocates CPU, not time descheduled by concurrent builds. Retain
-// wall-clock p99 alongside it so scheduler delay is visible in the gate log.
-fn thread_cpu() -> Duration {
-    let mut value = std::mem::MaybeUninit::<libc::timespec>::uninit();
-    // SAFETY: clock_gettime initializes this correctly aligned output on success.
+#[test]
+fn injected_clock_stops_at_300us_defers_and_loses_no_envelope() {
+    let (mut queue, item) = fixture();
+    let expected = queue.len();
+    let clock = InjectedClock::default();
+    let mut model = Transcript::default();
+    let mut applied = 0;
+    let mut frames = 0;
+    while !queue.is_empty() {
+        let before = queue.len();
+        let drained = budget::drain(
+            &clock,
+            Duration::from_micros(300),
+            || queue.pop_front(),
+            |e| {
+                model.apply(&e);
+                applied += 1;
+            },
+        );
+        assert!(drained.spent <= Duration::from_micros(300));
+        assert_eq!(before - queue.len(), drained.received);
+        if !queue.is_empty() {
+            assert_eq!(drained.received, 3);
+            assert_eq!(drained.spent, Duration::from_micros(300));
+        }
+        frames += 1;
+    }
+    assert_eq!(applied, expected);
+    assert_eq!(model.duplicate_durable, 0);
+    assert_eq!(model.cursor, Seq(5));
     assert_eq!(
-        unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, value.as_mut_ptr()) },
-        0
+        model.items[&item].body,
+        Item::AgentMessage {
+            markdown: "x".repeat(100_000)
+        }
     );
-    let value = unsafe { value.assume_init() };
-    Duration::new(value.tv_sec as u64, value.tv_nsec as u32)
+    println!(
+        "gui-budget: 100000 deltas, {frames} deterministic frames, 300us limit, {applied} envelopes applied exactly once, zero loss"
+    );
+}
+#[tokio::test]
+async fn completed_layouts_are_retained_and_large_blocks_prepare_off_ui() {
+    bbt_rt::register_ui_thread();
+    let ui_thread = std::thread::current().id();
+    let (queue, _) = fixture();
+    let mut model = Transcript::default();
+    for e in queue {
+        model.apply(&e);
+    }
+    let source = Arc::new(model);
+    let (large, on_ui, first, second, thread) = bboxy450_harness::runtime::blocking(move || {
+        let mut preparer = Preparer::default();
+        let first = preparer.prepare(source.clone(), 1120.).unwrap();
+        let mut next = (*source).clone();
+        next.phase = Phase::Thinking;
+        let second = preparer.prepare(Arc::new(next), 1120.).unwrap();
+        (
+            first.large_markdown_blocks,
+            first.prepared_on_ui,
+            first.layout_builds,
+            second.layout_builds,
+            std::thread::current().id(),
+        )
+    })
+    .await;
+    assert_eq!(first, 2);
+    assert_eq!(second, first, "unchanged completed items never rebuild");
+    assert_eq!(large, 1);
+    assert!(!on_ui);
+    assert_ne!(thread, ui_thread);
 }
