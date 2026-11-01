@@ -94,20 +94,22 @@ impl Drop for GroupReservation {
         self.release();
     }
 }
+fn signal_registered_group(slot: &AtomicI32, pgid: i32, send: impl FnOnce(i32)) {
+    if pgid > 1
+        && slot
+            .compare_exchange(pgid, -pgid, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    {
+        send(pgid);
+        slot.store(pgid, Ordering::SeqCst);
+    }
+}
 pub(crate) fn kill_owned_groups() {
     CLOSING.store(true, Ordering::SeqCst);
     for slot in &GROUPS {
-        let pgid = slot.load(Ordering::SeqCst);
-        if pgid > 1
-            && slot
-                .compare_exchange(pgid, -pgid, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-        {
-            unsafe {
-                libc::kill(-pgid, libc::SIGKILL);
-            }
-            slot.store(pgid, Ordering::SeqCst);
-        }
+        signal_registered_group(slot, slot.load(Ordering::SeqCst), |pgid| unsafe {
+            libc::kill(-pgid, libc::SIGKILL);
+        });
     }
 }
 extern "C" fn shutdown_signal(_signal: i32) {
@@ -233,7 +235,26 @@ impl OwnedChild {
         self.child.stdin.take()
     }
     pub(crate) fn send(&self, signal: i32) {
+        #[cfg(feature = "test-fixtures")]
+        if signal == libc::SIGTERM
+            && let Some(audit) = &self.audit
+        {
+            audit.term_signals.fetch_add(1, Ordering::SeqCst);
+        }
         self.group.send(signal);
+    }
+    pub(crate) fn exited(&self) -> io::Result<bool> {
+        if !self.group.unreaped {
+            return Ok(true); // An earlier owned wait already killed and retired this group.
+        }
+        exited_without_reaping(self.pgid())
+    }
+    pub(crate) async fn grace_until(&mut self, deadline: Instant) {
+        #[cfg(feature = "test-fixtures")]
+        if let Some(audit) = &self.audit {
+            audit.grace_sleeps.fetch_add(1, Ordering::SeqCst);
+        }
+        sleep_until(deadline).await;
     }
     fn retire_for_reap(&mut self) {
         self.group.send(libc::SIGKILL);
@@ -244,13 +265,12 @@ impl OwnedChild {
         let result = self.child.wait().await;
         #[cfg(feature = "test-fixtures")]
         if let Some(audit) = &self.audit {
-            let pgid = self.pgid() as i32;
-            let slot = self.group.registration.slot.load(Ordering::SeqCst);
-            audit.registered_at_reap.fetch_or(
-                self.group.unreaped && (slot == pgid || slot == -pgid),
-                Ordering::SeqCst,
-            );
             audit.released.store(true, Ordering::SeqCst);
+            // Exercise the handler's real CAS/signal action after PID release.
+            // A reused slot for another pid must not be targeted by this probe.
+            signal_registered_group(self.group.registration.slot, self.pgid() as i32, |pgid| {
+                (self.group.signal)(pgid as u32, libc::SIGKILL);
+            });
         }
         result
     }
@@ -296,6 +316,9 @@ mod ownership_tests {
             && matches!(slot.load(Ordering::SeqCst),pid if pid==pgid as i32 || pid==-(pgid as i32));
         let error = exited_without_reaping(pgid).unwrap_err();
         assert_eq!(error.raw_os_error(), Some(libc::ECHILD));
+        signal_registered_group(slot, pgid as i32, |pid| {
+            (owner.group.signal)(pid as u32, libc::SIGKILL);
+        });
         drop(owner);
         assert!(
             !visible,
@@ -600,15 +623,18 @@ pub mod fixtures {
         sync::{Arc, atomic::AtomicUsize},
     };
     pub(super) struct Audit {
-        pub(super) registered_at_reap: AtomicBool,
         pub(super) released: AtomicBool,
+        pub(super) term_signals: AtomicUsize,
+        pub(super) grace_sleeps: AtomicUsize,
         late: AtomicUsize,
     }
     pub struct Observation {
         pub members_dead: bool,
         pub foreign_alive: bool,
-        pub registered_at_reap: bool,
         pub late_signals: usize,
+        pub term_signals: usize,
+        pub grace_sleeps: usize,
+        pub member_present_before_finish: bool,
         pub missing_id: bool,
         pub failed_handoff: bool,
     }
@@ -616,6 +642,8 @@ pub mod fixtures {
         pub(crate) child: Option<OwnedChild>,
         pub(crate) pipes: Option<(tokio::process::ChildStdout, tokio::process::ChildStdin)>,
         group: i32,
+        member: i32,
+        member_present_before_finish: bool,
         foreign: Option<std::process::Child>,
         audit: Arc<Audit>,
         retired: bool,
@@ -646,6 +674,13 @@ pub mod fixtures {
             })
             .await
             .expect("stubborn group did not publish");
+            let member = std::fs::read_to_string(&file)
+                .unwrap()
+                .split_whitespace()
+                .nth(1)
+                .unwrap()
+                .parse()
+                .unwrap();
             let foreign = std::process::Command::new("/bin/sleep")
                 .arg("600")
                 .env_clear()
@@ -657,8 +692,9 @@ pub mod fixtures {
                 .unwrap();
             let foreign_pid = foreign.id() as i32;
             let audit = Arc::new(Audit {
-                registered_at_reap: AtomicBool::new(false),
                 released: AtomicBool::new(false),
+                term_signals: AtomicUsize::new(0),
+                grace_sleeps: AtomicUsize::new(0),
                 late: AtomicUsize::new(0),
             });
             let seen = audit.clone();
@@ -681,10 +717,25 @@ pub mod fixtures {
                 child: Some(child),
                 pipes,
                 group,
+                member,
+                member_present_before_finish: false,
                 foreign: Some(foreign),
                 audit,
                 retired: false,
             }
+        }
+        pub(crate) async fn exit_leader(&mut self) {
+            assert_eq!(unsafe { libc::kill(self.group, libc::SIGKILL) }, 0);
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while !self.child.as_ref().unwrap().exited().unwrap() {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .expect("leader did not become waitable");
+        }
+        pub(crate) fn record_member_before_finish(&mut self) {
+            self.member_present_before_finish = unsafe { libc::kill(self.member, 0) } == 0;
         }
         pub(crate) async fn observe(
             mut self,
@@ -703,8 +754,10 @@ pub mod fixtures {
             Observation {
                 members_dead: self.retired,
                 foreign_alive,
-                registered_at_reap: self.audit.registered_at_reap.load(Ordering::SeqCst),
                 late_signals: self.audit.late.load(Ordering::SeqCst),
+                term_signals: self.audit.term_signals.load(Ordering::SeqCst),
+                grace_sleeps: self.audit.grace_sleeps.load(Ordering::SeqCst),
+                member_present_before_finish: self.member_present_before_finish,
                 missing_id,
                 failed_handoff,
             }

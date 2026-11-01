@@ -188,6 +188,7 @@ fn terminate_during_key_resolution_joins_the_key_process() {
 }
 
 #[test]
+// scripts/test.py runs this case alone: it deliberately exposes a master fd.
 fn non_pty_spawn_does_not_keep_a_sibling_master_alive() {
     use std::os::{fd::AsRawFd, unix::fs::OpenOptionsExt};
     let pty = native_pty_system()

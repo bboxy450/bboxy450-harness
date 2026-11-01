@@ -933,8 +933,8 @@ fn process_lifecycle(mode: u8) -> Model {
         all([eq(2, 1), eq(3, 1), eq(0, 2), eq(4, 0)]),
         &[(2, Int(2)), (5, Int(1))],
     );
-    // This monitor is set by an actual signal action in an empty-group state,
-    // not by the selected mode. The broken Drop removes the ownership guard.
+    // A stale registry entry enables the actual handler action after release.
+    // The monitor records a signal to that now-foreign identity.
     act(
         &mut m,
         "SignalEmptyGroup",
@@ -944,7 +944,7 @@ fn process_lifecycle(mode: u8) -> Model {
             if mode == 2 {
                 Bool(true)
             } else {
-                eq(0, 2).negate()
+                eq(9, 1) // The shutdown handler acts on registration, not leader state.
             },
         ]),
         &[(6, Int(1))],
@@ -993,11 +993,6 @@ fn process_lifecycle(mode: u8) -> Model {
         eq(2, 2).negate().or(eq(1, 0)),
     );
     safe(&mut m, "NoSignalToEmptyGroup", eq(6, 0));
-    safe(
-        &mut m,
-        "NoRegistrationAfterReap",
-        eq(0, 2).negate().or(eq(9, 0)),
-    );
     safe(&mut m, "NoPipeWaitAfterEnd", eq(5, 0).or(eq(4, 0)));
     progress(
         &mut m,

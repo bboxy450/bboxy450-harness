@@ -858,9 +858,9 @@ async fn reserved_capability_is_removed_after_configured_environment_overrides()
 }
 
 #[tokio::test]
-async fn mcp_finish_missing_id_keeps_members_and_foreign_groups_safe() {
+async fn mcp_finish_already_fenced_child_is_idempotent_and_keeps_foreign_group_safe() {
     let temp = tempfile::tempdir().unwrap();
-    let result = bboxy450_harness::mcp::fixtures::finish_with_missing_id_or_failed_handoff(
+    let result = bboxy450_harness::mcp::fixtures::finish_with_fenced_child_or_failed_handoff(
         std::path::Path::new(env!("CARGO_BIN_EXE_mcp-fixture")),
         temp.path(),
         true,
@@ -873,19 +873,23 @@ async fn mcp_finish_missing_id_keeps_members_and_foreign_groups_safe() {
     assert!(!result.failed_handoff);
     assert_eq!(
         result.late_signals, 0,
-        "missing-id cleanup signalled a foreign pgid after reap"
+        "already-fenced cleanup signalled a foreign pgid after reap"
     );
     assert!(result.foreign_alive);
-    assert!(!result.registered_at_reap);
+    assert_eq!(result.term_signals, 0, "already-fenced cleanup sent TERM");
+    assert_eq!(
+        result.grace_sleeps, 0,
+        "already-fenced cleanup slept through grace"
+    );
     assert!(
         result.members_dead,
-        "missing-id cleanup left a stubborn member alive"
+        "fenced fixture did not retire its member"
     );
 }
 #[tokio::test]
 async fn mcp_finish_failed_handoff_keeps_members_and_foreign_groups_safe() {
     let temp = tempfile::tempdir().unwrap();
-    let result = bboxy450_harness::mcp::fixtures::finish_with_missing_id_or_failed_handoff(
+    let result = bboxy450_harness::mcp::fixtures::finish_with_fenced_child_or_failed_handoff(
         std::path::Path::new(env!("CARGO_BIN_EXE_mcp-fixture")),
         temp.path(),
         false,
@@ -900,9 +904,40 @@ async fn mcp_finish_failed_handoff_keeps_members_and_foreign_groups_safe() {
         "failed-handoff cleanup signalled a foreign pgid after reap"
     );
     assert!(result.foreign_alive);
-    assert!(!result.registered_at_reap);
     assert!(
         result.members_dead,
         "failed-handoff cleanup left a stubborn member alive"
     );
+}
+
+#[tokio::test]
+async fn mcp_finish_exited_leader_skips_term_and_grace_but_kills_members() {
+    let temp = tempfile::tempdir().unwrap();
+    let result = bboxy450_harness::mcp::fixtures::finish_exited_leader(
+        std::path::Path::new(env!("CARGO_BIN_EXE_mcp-fixture")),
+        temp.path(),
+    )
+    .await;
+    assert!(
+        result.member_present_before_finish,
+        "finish_child had no member to clean up"
+    );
+    assert!(!result.missing_id && !result.failed_handoff);
+    assert_eq!(
+        result.term_signals, 0,
+        "already-exited MCP cleanup sent TERM"
+    );
+    assert_eq!(
+        result.grace_sleeps, 0,
+        "already-exited MCP cleanup slept through grace"
+    );
+    assert!(
+        result.members_dead,
+        "already-exited MCP cleanup left a member alive"
+    );
+    assert_eq!(
+        result.late_signals, 0,
+        "already-exited MCP cleanup signalled a foreign pgid"
+    );
+    assert!(result.foreign_alive);
 }

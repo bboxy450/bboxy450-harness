@@ -1,0 +1,19 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--offline",
+    "--locked",
+    "--quiet",
+    "--features",
+    "acp,test-fixtures",
+    "--test",
+    "mcp_client",
+    "mcp_finish_exited_leader_skips_term_and_grace_but_kills_members",
+    "--",
+    "--exact"
+  ],
+  "exit_code": 101,
+  "assertion": "already-exited MCP cleanup sent TERM",
+  "baseline": "Previous unconditional TERM + one-second grace, with new observation counters only; before WNOWAIT branch fix."
+}

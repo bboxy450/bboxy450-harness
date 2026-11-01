@@ -487,8 +487,22 @@ async fn finish_child(
     mut child: crate::process::OwnedChild,
 ) -> Result<(), oneshot::error::RecvError> {
     let notification = rx.await; // Lost notification has exactly the same cleanup obligation.
-    child.send(libc::SIGTERM);
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    // WNOWAIT retains the leader's identity until the group fence. An exited
+    // leader (including an already fenced wait) needs no TERM or grace.
+    // Observation errors also go directly to the owned kill/wait cleanup.
+    if matches!(child.exited(), Ok(false)) {
+        child.send(libc::SIGTERM);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+        while matches!(child.exited(), Ok(false)) {
+            let now = tokio::time::Instant::now();
+            if now >= deadline {
+                break;
+            }
+            child
+                .grace_until((now + Duration::from_millis(5)).min(deadline))
+                .await;
+        }
+    }
     let _ = child.wait().await; // group KILL + retirement precede the only reap
     notification
 }
@@ -637,8 +651,8 @@ use futures_util::FutureExt;
 #[cfg(feature = "test-fixtures")]
 pub mod fixtures {
     use super::*;
-    /// Force the two former cleanup conditions with a real stubborn server.
-    pub async fn finish_with_missing_id_or_failed_handoff(
+    /// An already fenced child tests idempotence; a lost sender tests cleanup.
+    pub async fn finish_with_fenced_child_or_failed_handoff(
         program: &std::path::Path,
         root: &std::path::Path,
         missing_id: bool,
@@ -662,7 +676,28 @@ pub mod fixtures {
             drop(transport);
             false
         };
+        fixture.record_member_before_finish();
         let failed_handoff = finish_child(rx, child).await.is_err();
         fixture.observe(absent, failed_handoff).await
+    }
+    /// The leader has exited but remains unreaped; finish_child owns the live member.
+    pub async fn finish_exited_leader(
+        program: &std::path::Path,
+        root: &std::path::Path,
+    ) -> crate::process::fixtures::Observation {
+        let mut fixture = crate::process::fixtures::Fixture::start(program, root).await;
+        fixture.exit_leader().await;
+        fixture.record_member_before_finish();
+        let child = fixture.child.take().unwrap();
+        drop(fixture.pipes.take());
+        let (tx, rx) = oneshot::channel();
+        tx.send(()).unwrap();
+        // With a waitable leader and a delivered notification, cleanup must
+        // complete in one poll. This catches even an uninstrumented sleep.
+        let failed = tokio::task::unconstrained(finish_child(rx, child))
+            .now_or_never()
+            .expect("already-exited MCP cleanup slept through grace")
+            .is_err();
+        fixture.observe(false, failed).await
     }
 }
