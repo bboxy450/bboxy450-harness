@@ -1,0 +1,24 @@
+[
+  {
+    "name": "pty-writer-drop",
+    "source": "tests/support/seat_shutdown.rs",
+    "source_sha256": "338350b2c2a9fc9c70902f83590aff2e0befc77084bf3627f3c9c6850d80aff9",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "seat_process",
+      "seat_shutdown::writer_drop_is_not_cooked_eof",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "writer drop injected terminal input",
+    "red_exit": 101,
+    "green_exit": 0
+  }
+]

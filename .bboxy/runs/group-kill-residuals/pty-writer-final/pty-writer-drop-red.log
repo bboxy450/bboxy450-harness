@@ -1,0 +1,19 @@
+
+running 1 test
+seat_shutdown::writer_drop_is_not_cooked_eof --- FAILED
+
+failures:
+
+---- seat_shutdown::writer_drop_is_not_cooked_eof stdout ----
+
+thread 'seat_shutdown::writer_drop_is_not_cooked_eof' (122801474) panicked at tests/support/seat_shutdown.rs:317:5:
+writer drop injected terminal input: Ok(1)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    seat_shutdown::writer_drop_is_not_cooked_eof
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 15 filtered out; finished in 0.60s
+
+error: test failed, to rerun pass `--test seat_process`

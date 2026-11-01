@@ -105,6 +105,25 @@ impl Seat {
         input.write_all(bytes).unwrap();
         input.flush().unwrap();
     }
+    fn wait_prompt(&self) {
+        let fd = self.master.as_ref().unwrap().as_raw_fd().unwrap();
+        let end = Instant::now() + Duration::from_secs(10);
+        let mut output = Vec::new();
+        while !String::from_utf8_lossy(&output).contains("› ") {
+            assert!(Instant::now() < end, "seat prompt did not become ready");
+            let mut poll = libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            if unsafe { libc::poll(&mut poll, 1, 20) } > 0 && poll.revents & libc::POLLIN != 0 {
+                let mut bytes = [0u8; 4096];
+                let n = unsafe { libc::read(fd, bytes.as_mut_ptr().cast(), bytes.len()) };
+                assert!(n > 0, "PTY ended before prompt");
+                output.extend_from_slice(&bytes[..n as usize]);
+            }
+        }
+    }
     fn exit(&mut self, budget: Duration) -> portable_pty::ExitStatus {
         let mut observed = None;
         wait_for(
@@ -269,6 +288,7 @@ fn control_d_at_the_prompt_closes_and_fsyncs_gracefully() {
         "MCP group did not start",
     );
     let pgid = group_pid(root, "mcp-group.pid").unwrap();
+    seat.wait_prompt();
     seat.write(b"\x04");
     assert!(seat.exit(Duration::from_secs(2)).success());
     wait_for(
