@@ -14,6 +14,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 spec=importlib.util.spec_from_file_location('formal',Path(__file__).with_name('formal.py'))
 formal=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(formal)
@@ -38,5 +39,15 @@ class Gate(unittest.TestCase):
             with self.assertRaises(ValueError):formal.dot_graph(root/'bad.dot',1)
             (root/'X.metadata.json').write_text(json.dumps({'variables':[{'min':0,'max':1,'initial':0}],'actions':['A'],'invariants':['I'],'implementation_refinement_proven':True}))
             with self.assertRaises(ValueError):formal.contract_metadata(root,'X')
+    def test_tlc_temporary_directories_are_isolated(self):
+        with tempfile.TemporaryDirectory() as own:
+            root=Path(own)
+            with patch.object(formal.subprocess,'run',return_value=subprocess.CompletedProcess([],0,'ok')) as run:
+                formal.tlc(Path('/java'),Path('/tlc.jar'),root,'ModelA',True)
+                a=run.call_args.args[0][1]
+                formal.tlc(Path('/java'),Path('/tlc.jar'),root,'ModelB',True)
+                b=run.call_args.args[0][1]
+                self.assertTrue(a.startswith('-Djava.io.tmpdir='))
+                self.assertNotEqual(a,b)
     def test_source_snapshots(self):formal.source_pins()
 if __name__=='__main__':unittest.main()

@@ -173,7 +173,11 @@ def native_graph(root, name):
 
 def tlc(java, jar, root, name, graph):
     suffix = "Graph" if graph else ""
-    command = [str(java), "-XX:ActiveProcessorCount=2", "-Xmx256m", "-XX:+UseSerialGC", "-cp", str(jar),
+    # TLC unpacks standard modules into java.io.tmpdir. Each invocation owns
+    # its directory so concurrent graph/property runs cannot rewrite one another.
+    temporary = root / f"{name}{suffix}-java-tmp"
+    temporary.mkdir(parents=True, exist_ok=True)
+    command = [str(java), "-Djava.io.tmpdir="+str(temporary), "-XX:ActiveProcessorCount=2", "-Xmx256m", "-XX:+UseSerialGC", "-cp", str(jar),
                "tlc2.TLC", "-workers", "1", "-cleanup", "-config", f"{name}{suffix}.cfg",
                "-metadir", str(root / f"{name}{suffix}-metadata")]
     if graph:
