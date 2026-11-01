@@ -43,7 +43,7 @@ updated: "2026-10-31T00:00:00Z"
   - A `ToolCall` is one header line `▸ name args…` and one result line `✓|✗ summary (n lines, spill path)`.
   - `Approval` prints its options and reads one key line.
   - `TurnEnded` prints `— reason` followed by the prompt `› `.
-- Input is cooked line mode. `Ctrl-C` sends `Op::Interrupt` while a turn runs and does nothing at the prompt. `Ctrl-D` at an empty prompt sends `Close{Stop}`.
+- Input is cooked line mode. `Ctrl-C` sends `Op::Interrupt` while a turn runs and does nothing at the prompt. `Ctrl-D` at an empty prompt sends `Op::Close`.
 - The renderer is `src/frontends/seat.rs`, about 300 lines, and is a pure function `Envelope → Vec<u8>`. It is golden-tested against the protocol fixtures. It has no event loop of its own.
 
 ## 3. Lifecycle
@@ -52,7 +52,7 @@ updated: "2026-10-31T00:00:00Z"
 |---|---|
 | Start | Print `session <ulid> · profile · model`, then the prompt. The bboxy MCP connects asynchronously. If it is unavailable, print a `Notice` and continue (never block) |
 | Restart (generation + 1) | Bboxy relaunches with `--resume <session>`. Store recovery runs (protocol §4), the screen replays the last 20 completed items, then the prompt |
-| PTY hangup / seat close | Treated as `Close{Stop}`: cancel the turn, kill process groups, fsync, and exit 0 within 2 s |
+| PTY hangup / seat close | Treated as `Op::Close`: cancel the turn, kill process groups, fsync, and exit 0 within 2 s |
 | SIGTERM | Same as hangup |
 
 ## 4. Changes on Side A (core changes: they need the ICD #348 owner)

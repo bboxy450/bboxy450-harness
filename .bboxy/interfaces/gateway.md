@@ -28,7 +28,7 @@ pub trait Gateway: Send + Sync {
     fn subscribe(&self, req: Subscribe) -> Result<Subscription, Refused>;
 }
 pub struct Ack { pub op_id: OpId, pub duplicate: bool }
-pub enum Refused { Busy, UnknownSession, Version { server: Version }, Closed }
+pub enum Refused { Busy, UnknownSession, SessionExists, Version { server: Version }, Closed }
 pub struct Subscribe {
     pub session: SessionId,
     pub after: Option<(Epoch, Seq)>,   // None = from seq 1
@@ -69,8 +69,8 @@ Replay and live are joined without a gap or a duplicate. The subscriber is regis
 ## 5. Lifecycle
 
 - **Start.** `StartSession` creates the actor and the log. A subscribe to a session that exists on disk but is not loaded loads it, which runs recovery (protocol §4), and then serves.
-- **Detach.** `Close{Detach}` from the last face leaves the actor running until its turn ends. It then stays idle and resumable.
-- **Stop.** `Close{Stop}` cancels the running turn, fsyncs, closes subscriptions with no further frames, and drops the actor.
+- **Detach.** Dropping a `Subscription` is detaching; it is not an op. When the last face detaches, the actor keeps running until its turn ends. It then stays idle and resumable.
+- **Stop.** `Op::Close` cancels the running turn and the queued turns, appends `SessionClosed`, fsyncs, closes subscriptions after delivering `SessionClosed`, and drops the actor.
 - **Restart** of the process is the same as load: `Epoch + 1`.
 
 ## 6. Failure
