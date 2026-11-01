@@ -1,0 +1,38 @@
+warning: function `scrub_bboxy_env` is never used
+   --> src/mcp.rs:489:4
+    |
+489 | fn scrub_bboxy_env(command: &mut tokio::process::Command) {
+    |    ^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+
+running 2 tests
+seat_launch::acp_server_cannot_inherit_bboxy_environment --- FAILED
+seat_launch::profile_server_cannot_inherit_bboxy_environment --- FAILED
+
+failures:
+
+---- seat_launch::acp_server_cannot_inherit_bboxy_environment stdout ----
+
+thread 'seat_launch::acp_server_cannot_inherit_bboxy_environment' (120473071) panicked at tests/support/seat_launch.rs:369:5:
+assertion `left == right` failed: ACP MCP inherited BBOXY variables
+  left: Array [String("BBOXY_CAPABILITY"), String("BBOXY_GENERATION"), String("BBOXY_ROLE"), String("BBOXY_SEAT_ID"), String("BBOXY_SOCK"), String("BBOXY_TEST_CUSTOM")]
+ right: Array []
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- seat_launch::profile_server_cannot_inherit_bboxy_environment stdout ----
+
+thread 'seat_launch::profile_server_cannot_inherit_bboxy_environment' (120473072) panicked at tests/support/seat_launch.rs:312:5:
+assertion `left == right` failed: profile MCP inherited BBOXY variables
+  left: Array [String("BBOXY_CAPABILITY"), String("BBOXY_GENERATION"), String("BBOXY_ROLE"), String("BBOXY_SEAT_ID"), String("BBOXY_SOCK"), String("BBOXY_TEST_CUSTOM")]
+ right: Array []
+
+
+failures:
+    seat_launch::acp_server_cannot_inherit_bboxy_environment
+    seat_launch::profile_server_cannot_inherit_bboxy_environment
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 6 filtered out; finished in 1.89s
+
+error: test failed, to rerun pass `--test seat_process`

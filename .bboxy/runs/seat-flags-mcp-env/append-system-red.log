@@ -1,0 +1,19 @@
+
+running 1 test
+engine::hardening_tests::launch_context_is_in_the_first_scripted_request_stable_prefix --- FAILED
+
+failures:
+
+---- engine::hardening_tests::launch_context_is_in_the_first_scripted_request_stable_prefix stdout ----
+
+thread 'engine::hardening_tests::launch_context_is_in_the_first_scripted_request_stable_prefix' (120484957) panicked at src/engine/mod.rs:1248:9:
+appended startup text absent from stable system prefix
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    engine::hardening_tests::launch_context_is_in_the_first_scripted_request_stable_prefix
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--lib`

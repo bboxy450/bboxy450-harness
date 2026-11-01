@@ -32,7 +32,10 @@ def main():
         for command in [
             ['cargo','fmt','--check'],
             ['cargo','clippy','--offline','--locked','--all-targets','--all-features','--','-D','warnings'],
-            ['cargo','test','--offline','--locked','--all-targets','--features','acp,test-fixtures'],
+            # Keep launcher process bursts separate from PTY lifecycle deadlines.
+            # Every case still runs; neither the deadline nor product scheduling changes.
+            ['cargo','test','--offline','--locked','--all-targets','--features','acp,test-fixtures','--','--skip','seat_launch::'],
+            ['cargo','test','--offline','--locked','--features','acp,test-fixtures','--test','seat_process','seat_launch::'],
             ['python3','-I','scripts/test-hardening.py'],
             ['make','test-formal-native'],
             ['make','test-formal-parity'],
