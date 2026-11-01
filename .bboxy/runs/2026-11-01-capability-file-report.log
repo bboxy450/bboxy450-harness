@@ -1,0 +1,81 @@
+E5 capability-file implementation handoff
+Task: .bboxy/tasks/2026-11-01-term-capability-file.md (#4505, 01M6BNKVCH0RM4EP2Q50FTYTJC)
+Binding: harness ICD seat-capability-delivery #4503, sections 1-5.
+Recorded: 2026-11-01T15:59:13.073898+00:00
+Repository: bboxy450/bboxy450-term
+Worktree: /Users/feral/mydev/bboxy450-term-capability-file
+Branch: capability-file, rebased onto origin/main b9015a40.
+Signed source head: 69fc2a010c2a1730a800f414ed78736cf84dcb2b
+PR: https://github.com/bboxy450/bboxy450-term/pull/87 (OPEN)
+No merge or author landing performed. All five source commits are signed by Boxy <bboxy450@gmail.com>, key 9B07E849480C68328CA20684844ECC0587DE7AB0, with no Report trailer.
+
+Mechanism and acceptance evidence
+- crates/bboxy450-harness-wake-up/src/capability.rs:73: O_EXCL/O_NOFOLLOW creation, exact 0600 descriptor permissions, 64 hexadecimal bytes plus newline. launch.rs:498 creates the file in the existing fresh 0700 launch overlay before any seat exec; launch.rs:593 and :625 pass the path through the Codex wrapper and env_vars.
+- crates/bbt-supervisor/src/supervisor.rs:2408: remove inherited legacy admission before exec and ignore explicit legacy values. supervisor/companion.rs:52 removes it after service environment maps too. The isolated runtime removes legacy admission from inherited parent context.
+- capability.rs:52, :98 and :136: shared regular-file/euid/mode/content validator, no-follow open, descriptor recheck and bounded 66-byte read; never unlinks on read. Typed Refusal codes are seat_admission_file_* so the existing secret scrubber preserves the reason without logging contents.
+- crates/bbt-mux/src/mcp/bridge.rs:48 and adapters/hook.rs:67/:87 reopen on every start. Hook preflight precedes input parsing/OSC; failure stays quiet-success but is witnessed by its typed journal row, not exit status alone.
+- crates/bboxy450-term/tests/capability_file.rs:61 proves shape, repeated reads, exclusive creation and refusal to overwrite a symlink target. :89 runs real bridge and hook processes for symlink, non-regular, wrong-owner, wrong-mode and malformed refusals: five reasons in each consumer. Wrong-owner uses metadata only for a foreign-owned file, or an owned chown fixture when privileged.
+- capability_file.rs:170/:439 drives actual Supervisor, Logic, launch kit and app MCP/hook processes in an env-cleared private helper. Four initial kinds (claude, codex, zsh, bboxy450-harness), three generations per case: 12 cases, 36 child ps/env scans, zero capability-value copies, zero BBOXY_CAPABILITY= keys, 24 authenticated fresh MCP starts and 12 authenticated HookObserved replies. Scans stop at the owned supervisor, never the operator/real seat environment.
+- capability_file.rs:459 onward checks distinct generation file paths and values, old path removal, refusal of copied old content by a new-generation endpoint after initialize, and final close removal. No raw value is printed.
+- scripts/test-capability-control.py plus Makefile:1835 inject the actual value into the real exec path. Named assertion SeatAndAncestorEnvironmentIsCapabilityFree: red 101, restored green 0. Restored supervisor SHA256: ab9cd871db32e0073b4d0a6de38f0559fd38854977b296becc261fa26339bc37.
+- Makefile:799 includes these fixtures in test-harness-native, followed by the real installed Codex direct and cold/forwarding-shim witnesses. Both resume after seat restart, preserve the borrowed daemon after seat/app close, make zero external model calls and require zero operator input.
+- .bboxy/interfaces/app-harness.md:19-30 updates #348's crossing, startup, lifetime and verification rows for Oracle signature under d4071. No Side B/core harness files were changed.
+- formal_contracts/capability_models.rs and verification inventories define separate environment/cleanup good-control pairs. Bounds are three fresh births, idle/live/stopping, current file birth and old-file/value markers; publish, repeated reads, stop and reap are atomic. No fairness/liveness claim is made. OS permissions, exclusive/no-follow creation, parser limits, real ancestry and authentication are implementation witnesses, not arbitrary Rust refinement.
+
+Commands and actual results
+- make fmt-capability-file: 0.
+- make test-formal-contracts: 0 (12 tests plus clippy; initial decoder clippy warning fixed).
+- make test-boundaries: 0 (seat wiring, ctl, private signing fixtures, login shell, shell path, refresh and seven cockpit process witnesses; run before rebase, with those source paths unchanged by the rebase).
+- make test-formal: 0 on pre-rebase 24cc347f; the required full run below refreshed all evidence after rebase.
+- make test: 0, plain command, default concurrency, unattended, exact source 69fc2a010c2a1730a800f414ed78736cf84dcb2b. Workspace build/clippy/tests/doc tests, 138 native/TLC variants, headless smoke with zero windows and orderly child cleanup, 27 invariant checks with 0 failures. The canonical default stack skipped its 11 slow invariants; no new exclusion/override was added.
+- make test-capability-control: 0 on final head; actual child scan 101 -> 0 and exact source restoration.
+- make test-harness-native: 0 on final head; native/process results above.
+- make check-formal-evidence: 0 on final clean source.
+- make push-branch: 0; approved GitHub identity bboxy450, signature and exact-source receipt gates, branch pushed. PR creation/readback: 0; head matches the signed source SHA above.
+
+Formal receipt
+Source: 69fc2a010c2a1730a800f414ed78736cf84dcb2b; dirty: false; 138 variants; 31 crates; 59 contracts.
+Evidence SHA256: c7bf45e2b0a3001614d575dbde4dc7bf6f1d862d2b349740775e19b475c7f35f
+Retained beyond target cleanup: /Users/feral/mydev/bboxy450-term/.git/bboxy-formal-evidence/c7bf45e2b0a3001614d575dbde4dc7bf6f1d862d2b349740775e19b475c7f35f/evidence.json
+Pinned reference tools: verification/tools.lock.json; model TLA hashes, source input hashes and exact native/TLC graphs/verdicts are in that receipt.
+SeatCapabilityEnvironment: pass; 10 states; 15 edges; TLC exit 0; graph_equal=true.
+BrokenSeatCapabilityEnvironment: safety; 10 states; 15 edges; TLC exit 12; graph_equal=true.
+SeatCapabilityCleanup: pass; 10 states; 15 edges; TLC exit 0; graph_equal=true.
+BrokenSeatCapabilityCleanup: safety; 10 states; 15 edges; TLC exit 12; graph_equal=true.
+
+Material failures resolved
+Initial gates found decoder/nested-format clippy issues and missing frontend/paired-contract metadata; signed fixes are in the branch. The first rebased full run failed the unchanged recovery guard at 4,962,238,464 free bytes and the unchanged plugin hook ceiling at 3.508762833s versus 1.6s. Observed free space recovered to 37 GiB; the complete default-concurrency rerun passed both unchanged assertions and all subsequent gates. No waiver, quarantine or threshold change was used.
+Raw command logs remain under /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/ and target/ci-local.log; they are not committed. The formal archive above survives owned target cleanup.
+
+Scope and limits
+The four-kind process fixture uses controlled commands. Without a native session, generic restart intentionally uses zsh recovery; real installed Codex restart/direct/cold/shim behavior is checked separately. This does not claim a real Claude model run. Active same-uid reads of a known file path remain outside ICD #4503's passive-environment boundary. Slow/night gates outside the requested canonical default stack were not added to this task.
+The report is committed on the canonical harness main as explicitly requested. Its unrelated dirty KB records and existing main history are left untouched; no harness-main synchronization or push is performed. The source worktree is clean after controls; the feature branch is published. The Oracle lands the PR.
+
+Changed files (final diff)
+.bboxy/interfaces/app-harness.md
+Makefile
+crates/bboxy450-harness-wake-up/src/capability.rs
+crates/bboxy450-harness-wake-up/src/launch.rs
+crates/bboxy450-harness-wake-up/src/lib.rs
+crates/bboxy450-harness-wake-up/tests/fixtures/seat_wiring.py
+crates/bboxy450-harness-wake-up/tests/ready_exec.rs
+crates/bboxy450-harness-wake-up/tests/seat_wiring.rs
+crates/bboxy450-term/tests/capability_file.rs
+crates/bboxy450-term/tests/diagnostics.rs
+crates/bboxy450-term/tests/formal_contracts/capability_models.rs
+crates/bboxy450-term/tests/formal_contracts/models.rs
+crates/bboxy450-term/tests/swarm_workdir.rs
+crates/bbt-mux/src/adapters/hook.rs
+crates/bbt-mux/src/adapters/mod.rs
+crates/bbt-mux/src/adapters/skills/bboxy450/SKILL.md
+crates/bbt-mux/src/mcp/bridge.rs
+crates/bbt-mux/tests/hook_gate.rs
+crates/bbt-mux/tests/mcp.rs
+crates/bbt-supervisor/src/supervisor.rs
+crates/bbt-supervisor/src/supervisor/companion.rs
+scripts/e2e/capability_probe.py
+scripts/e2e/launch_probe.py
+scripts/test-capability-control.py
+verification/contracts.toml
+verification/corpus.toml
+verification/coverage.toml
