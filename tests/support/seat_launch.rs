@@ -373,3 +373,150 @@ async fn acp_server_cannot_inherit_bboxy_environment() {
     );
     assert_eq!(observed["capability_matches"], false);
 }
+
+// Each child has a private environment and reports booleans, never identity values.
+fn session_text(root: &Path) -> String {
+    std::fs::read_dir(root.join("sessions"))
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "jsonl"))
+        .filter_map(|p| std::fs::read_to_string(p).ok())
+        .collect()
+}
+async fn env_attempt(acp: bool, env: Value) -> (Option<Value>, String) {
+    let temp = tempfile::tempdir_in("/tmp").unwrap();
+    let report = temp.path().join("env.json");
+    let mut config = server(&report);
+    config["env"]
+        .as_object_mut()
+        .unwrap()
+        .extend(env.as_object().unwrap().clone());
+    if !acp {
+        profile(temp.path(), json!({"bboxy":config}));
+    }
+    let mut child = command(temp.path(), if acp { "acp" } else { "seat" })
+        .spawn()
+        .unwrap();
+    let mut input = None;
+    let mut lines = None;
+    let mut session = Value::Null;
+    if acp {
+        let mut writer = child.stdin.take().unwrap();
+        let mut reader = BufReader::new(child.stdout.take().unwrap()).lines();
+        let env = config["env"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(name, value)| json!({"name":name,"value":value}))
+            .collect::<Vec<_>>();
+        let new = json!({"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":temp.path(),"mcpServers":[{"name":"bboxy","command":config["command"],"args":config["args"],"env":env}]}});
+        writer
+            .write_all((new.to_string() + "\n").as_bytes())
+            .await
+            .unwrap();
+        let reply: Value = serde_json::from_str(
+            &tokio::time::timeout(Duration::from_secs(15), reader.next_line())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        session = reply["result"]["sessionId"].clone();
+        assert!(session.is_string());
+        input = Some(writer);
+        lines = Some(reader);
+    }
+    tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let log = session_text(temp.path());
+            if log.contains("mcp bboxy: ready")
+                || log.contains("mcp bboxy: failed")
+                || log.contains("mcp bboxy: config")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("MCP environment attempt never resolved");
+    if acp {
+        let mut input = input.unwrap();
+        let mut lines = lines.unwrap();
+        let prompt = json!({"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":session,"prompt":[{"type":"text","text":"hello"}]}});
+        input
+            .write_all((prompt.to_string() + "\n").as_bytes())
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                let reply: Value =
+                    serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+                if reply["id"] == 2 {
+                    assert_eq!(reply["result"]["stopReason"], "end_turn");
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("ACP environment turn hang guard");
+        drop(input);
+        assert!(
+            tokio::time::timeout(Duration::from_secs(15), child.wait())
+                .await
+                .unwrap()
+                .unwrap()
+                .success()
+        );
+        check_log(temp.path());
+    } else {
+        finish_seat(child, temp.path()).await;
+    }
+    let observed = std::fs::read(report)
+        .ok()
+        .map(|b| serde_json::from_slice(&b).unwrap());
+    (observed, session_text(temp.path()))
+}
+#[cfg(feature = "acp")]
+#[tokio::test]
+async fn profile_and_acp_refuse_bboxy_environment_indirection() {
+    for acp in [false, true] {
+        for braced in [false, true] {
+            let env = json!({"S":if braced {"${BBOXY_SOCK}"} else {"$BBOXY_SOCK"},"I":"$BBOXY_SEAT_ID","R":"!printenv BBOXY_ROLE"});
+            let (observed, log) = env_attempt(acp, env).await;
+            assert!(
+                log.contains("configuration error: reserved environment reference"),
+                "BBOXY reference lacked typed configuration refusal (ACP={acp}, braced={braced})"
+            );
+            assert!(
+                observed.is_none(),
+                "untrusted MCP started with a BBOXY alias (ACP={acp})"
+            );
+            assert!(log.contains("turn_ended"));
+        }
+    }
+}
+#[cfg(feature = "acp")]
+#[tokio::test]
+async fn command_resolver_cannot_copy_seat_environment_into_mcp_aliases() {
+    for acp in [false, true] {
+        // No dollar reference: this must be protected by the resolver's own scrub.
+        let (observed, log) = env_attempt(acp, json!({"S":"!printenv BBOXY_SOCK"})).await;
+        assert!(
+            observed.is_none(),
+            "command resolver leaked BBOXY_SOCK into an MCP alias (ACP={acp})"
+        );
+        assert!(log.contains("environment command failed"));
+        let (observed, _) = env_attempt(acp, json!({"S":"!printenv BBOXY_SOCK || true"})).await;
+        let observed = observed.expect("an empty successful resolver value is allowed");
+        assert_eq!(
+            observed["alias_empty"], true,
+            "command resolver did not remove the BBOXY namespace (ACP={acp})"
+        );
+        assert_eq!(observed["names"], json!([]));
+        assert_eq!(observed["alias_sock_matches"], false);
+    }
+}

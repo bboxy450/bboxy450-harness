@@ -20,7 +20,11 @@ async fn run() {
             .collect::<std::collections::BTreeSet<_>>();
         // The test parent supplies only throwaway values. Persist observations,
         // never environment values (especially never the seat capability).
-        let report = json!({"names":names,"seat_matches":std::env::var("BBOXY_SEAT_ID").as_deref()==Ok("throwaway-seat"),"capability_matches":std::env::var("BBOXY_CAPABILITY").as_deref()==Ok("throwaway-capability")});
+        let report = json!({"names":names,"seat_matches":std::env::var("BBOXY_SEAT_ID").as_deref()==Ok("throwaway-seat"),"capability_matches":std::env::var("BBOXY_CAPABILITY").as_deref()==Ok("throwaway-capability"),
+            "alias_sock_matches":std::env::var_os("S").is_some_and(|s| std::path::PathBuf::from(s)==std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join("missing.sock")),
+            "alias_seat_matches":std::env::var("I").as_deref()==Ok("throwaway-seat"),
+            "alias_role_matches":std::env::var("R").as_deref()==Ok("executor"),
+            "alias_empty":std::env::var("S").as_deref()==Ok("")});
         let temp = path.clone() + ".tmp";
         std::fs::write(&temp, serde_json::to_vec(&report).unwrap()).unwrap();
         std::fs::rename(temp, path).unwrap();
