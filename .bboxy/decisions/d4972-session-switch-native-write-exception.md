@@ -32,3 +32,10 @@ The exception is withdrawn per client as soon as P0 proves that client's own sup
 **Verification.** A switch test asserts that the client directory contains exactly the existing files plus one new file. A broken control lets the switch overwrite an existing file, and it must go red.
 
 **Reason.** Cross-harness switching is an operator requirement. A create-only write of a fresh file can't corrupt the user's existing sessions.
+
+**Amendment, 2026-11-01** (Architect, at the Oracle's request in message 01M6CMNMTH3NV2PAY970J8NSXD, on P0 evidence from log-converter PR #2 `7945ad92`, facts F2 and F7).
+- **Withdrawn for Claude.** The converter writes the session to a private staging file outside `~/.claude`, and Claude resumes it with `claude --resume <path>` (F2).
+- **Withdrawn for Codex** on the importer route. The converter stages Claude-format text under a disposable HOME, and Codex's app-server importer writes Codex's own files and database (F7). The converter writes nothing in `~/.codex`.
+- **Still in force for one case only**: direct rollout placement (F6) for a Codex-target session that carries Codex-sealed reasoning or compaction. The importer cannot carry those. The exception lapses when that route is proven for same-provider opaque fidelity, or dropped. Until then the importer route is used and the loss is counted ([[session-switch]] §3).
+- **Unchanged**: create-only with `O_EXCL`, never a client database write, every write logged, and the overwrite broken control.
+

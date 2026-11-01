@@ -47,13 +47,16 @@ States: `Running(A)` → `Quiescing` → `Stopped(A)` → `Converting` → `Laun
 
 ## 3. Entry points (placement)
 
-Phase 0 ([[log-converter]] §7 P0) proves or replaces each row. Until then each row is **unproven**.
+P0 settled these routes: log-converter PR #2 at `7945ad92`, report `.bboxy/runs/p0-resume-probe-report.log`, facts F1–F10, Claude Code 2.1.304 and codex-cli 0.164.0, against mock endpoints. The facts are pinned to those client versions. A client upgrade re-runs `make test-probes` before switching is trusted again.
 
-| Target | Placement | Resume |
-|---|---|---|
-| Claude | create-exclusive (`O_EXCL`) new file `~/.claude/projects/<cwd-slug>/<new-uuid>.jsonl`. It never touches an existing file | `claude --resume <new-uuid>` |
-| Codex | preferred: Codex's own importer, if P0 shows a non-interactive entry point; otherwise a new rollout file at `~/.codex/sessions/YYYY/MM/DD/rollout-…-<new-uuid>.jsonl` with `session_meta` first, relying on `codex resume`'s filename-scan backfill. **Never write `state_5.sqlite`** | `codex resume <new-uuid>` |
-| Bboxy | `bboxy450-harness import <bxl>`. The harness writes its own session, and term still never writes `~/.bboxy450-harness` (#348 Versioning) | `bboxy450-harness seat --resume <id>` |
+| Target | Placement | Resume | Evidence |
+|---|---|---|---|
+| Claude | write the lowered session to a **private staging file** `<state>/seats/<seat>/native/claude-<new-uuid>.jsonl`, created with `O_EXCL` and mode 0600. That is outside `~/.claude`, so the converter writes nothing there. Claude appends to this file while the session lives, so it is kept until the seat closes. Node uuids stay unique: duplicate uuids make Claude drop history silently with exit 0 (F4), so lowering is tested on the model input, not the exit code | `claude --resume <staging path>` | F2, F3; F4/F5 controls |
+| Codex, IR with no Codex-sealed events | **Codex's importer**: write the session as Claude-format text into a disposable staging tree `<tmp>/home/.claude/projects/<slug>/<uuid>.jsonl`. Run `codex app-server` with `HOME=<tmp>/home` and the real `CODEX_HOME`, then: initialize with `experimentalApi`, detect, import SESSIONS, wait for the completed import history (an importId alone is not success, F8), and resume the returned id. Codex writes its own rollout and database. `CLAUDE_CONFIG_DIR` does not select the tree (F8) | `codex resume <returned id>` | F7, F8 |
+| Codex, IR with Codex-sealed reasoning or compaction (a session that ends in Codex after A→B→A) | **open**. The importer carries only Claude text, so Codex's own encrypted reasoning would be lost. The fallback is a direct rollout placement (F6: `session_meta` first, then filename lookup backfills `state_5.sqlite`), still under [[d4972-session-switch-native-write-exception]]. That needs proof of same-provider opaque fidelity first. Until then, use the importer route and count the loss as `dropped{sealed_reasoning_route}` | `codex resume <id>` | F6, F10 control |
+| Bboxy | `bboxy450-harness import <bxl>`. The harness writes its own session, and term still never writes `~/.bboxy450-harness` (#348 Versioning) | `bboxy450-harness seat --resume <id>` | P5 |
+
+**Coverage limits** carried to P6: P0 proved two-turn text sessions only. Tools, images, signed thinking, encrypted reasoning and compaction, long cwd slugs and interactive TUI resume are untested. The F9 reasoning summary is accepted by the mock only, not the real Responses service. P6 measures each of these per route and records any loss in the LossReport.
 
 ## 4. A→B→A
 
@@ -83,7 +86,8 @@ The result is a **new** native id for A, never an append to the original file. R
 - (b) B launched before A exits → `OneHarness` fails;
 - (c) lowering appends to A's existing file → `SourceUntouched` fails;
 - (d) input queued during the switch and delivered to B → `NoMisdelivery` fails.
-- (e) placement overwrites an existing native file → `SourceUntouched` fails. The same control exists as a test: a placement without `O_EXCL` over an existing path must make `make test-session-switch` fail (d4972).
+- (e) placement overwrites an existing native file → `SourceUntouched` fails. The same control exists as a test: a staging or rollout placement without `O_EXCL` over an existing path must make `make test-session-switch` fail (d4972).
+- Retained client controls from P0: F4 (duplicate uuids) and F10 (`session_meta` not first) must keep failing on the model input.
 
 ## 6. #348 rows that change (for the ICD #348 owner; the Oracle signs under d4071)
 
@@ -91,7 +95,7 @@ The result is a **new** native id for A, never an append to the original file. R
 |---|---|
 | Amended by | add: `bboxy450-harness:[[session-switch]]` |
 | States and lifecycle | add: a seat may change `harness_kind` at `generation + 1` through `ctl seat switch`, only at a turn boundary. Seat input is refused with `seat_switching` while the switch runs. Failure rolls back to the source harness resuming its untouched native session |
-| Versioning | **change**: "the app never writes the user's `~/.claude` or `~/.codex`" gains one listed, caused exception. On `ctl seat switch` into Claude or Codex, the converter creates one **new** session file (create-exclusive, fresh id) at the client's session path, plus nothing else. It never modifies or deletes an existing file and never writes `state_5.sqlite`. If P0 shows the client's own importer or file-path route works non-interactively, that route is used instead and this exception is withdrawn for that client. Signed by the Oracle as [[d4972-session-switch-native-write-exception]]; the row is added to #348 when P8 lands |
+| Versioning | **unchanged for Claude**: the converter stages Claude sessions outside `~/.claude` (F2). **For Codex**, Codex's own importer writes `~/.codex` (a client write, listed with cause `ctl seat switch`) from a disposable staging HOME (F7). The [[d4972-session-switch-native-write-exception]] create-only exception stays only for the open Codex direct-rollout route (§3), and lapses when that route is either proven or dropped |
 | Verified by | add: `make test-session-switch` (bboxy450-term), which runs claude→codex→claude and either→Bboxy→either against mock model endpoints in a throwaway HOME/CODEX_HOME, plus the `LcSessionSwitch` model |
 
 ## 7. Verified by
@@ -107,5 +111,6 @@ The result is a **new** native id for A, never an append to the original file. R
 ## Change log
 
 - **2026-11-01.** Accepted by the Oracle as the build basis (message 01M6CKHR65S4AQB5744JAV2GG9). The §6 Versioning exception is signed as d4972. Broken control (e), overwrite, is added. The repo is `bboxy450/bboxy450-log-converter` at `f509e8e`.
+- **2026-11-01, P0 facts** (Oracle message 01M6CMNMTH3NV2PAY970J8NSXD; log-converter PR #2 `7945ad92`). §3 now rests on evidence: Claude is staged privately and resumed by path, and Codex goes through its importer from a disposable HOME. The d4972 exception is withdrawn except for the open Codex direct-rollout route, which same-provider sealed fidelity needs. The facts are pinned to the client versions.
 
 Owner: Nyx Copperwing <ARCHITECT> (Side B and the protocol). Side A: bboxy450-term, ICD #348.
