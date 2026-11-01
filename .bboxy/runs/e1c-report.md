@@ -4,212 +4,202 @@ created: "2026-11-01T08:53:16.408Z"
 created_by: "seat:01M6ADTTF9QWWFZFVZJHJ3DD8E"
 id: "01M6B508DHRETFHE9NEXHZS2TW"
 number: 3022
-provenance: {"digest":"sha256:ac7e84a289523d8246bf30a1f3d8bcb209ce3845080264629c74e1ffabe8e751","frontmatter_digest":"sha256:fb1e528a8d704547b3633aec8b3c769e9947fc792bdd15de3bc34a4ecded1545","log":".bboxy/log/2026-11-01.jsonl#19175","sig":"EhGVnPSi8GgRhCZp2mM4CbBC1aEZYcdTETieF75LF5/UjEamdwdI7/p9cwOv3A6cuI7YWcqdYOqGrANpO6BgAg==","signer":"seat:01M6ADTTF9QWWFZFVZJHJ3DD8E"}
+provenance: {"digest":"sha256:98c2fa3ad9b652300ef9695d5a6f2efe1f13f308249e1e1a7774e5abc7a2b9dc","frontmatter_digest":"sha256:62cbb43389c26ded97a903af3ddece7ab14b5adbe593abf1b7fec336f7d5487d","log":".bboxy/log/2026-11-01.jsonl#21158","sig":"YbfhLwSrjc3FOHGTnLCEVnYNjZUVKpON1LtLjQtk8vvX1Zlrsj+DzqUZuxwloPlAhgFD1AFPI9PCCb6FzidMAg==","signer":"seat:01M6ADTTF9QWWFZFVZJHJ3DD8E"}
 type: "note"
-updated: "2026-11-01T09:15:29.619Z"
+updated: "2026-11-01T10:32:22.183Z"
 updated_by: "seat:01M6ADTTF9QWWFZFVZJHJ3DD8E"
 ---
 # E1c handoff — ACP, MCP and automatic compaction
 
 Task: [[2026-10-31-harness-acp-mcp-compaction]] (#1992). Executor: E1 harness-core.
 Worktree: `/Users/feral/mydev/bboxy450-harness-core`.
-Branch: `e1c-acp-mcp-compaction`. No merge performed.
+Branch: `e1c-acp-mcp-compaction`. PR: https://github.com/bboxy450/bboxy450-harness/pull/6.
+No merge performed. The final signed head is supplied by task_report.
 
-The implementation follows the baselined ICDs, including protocol **0.4**
-(`Effect::Read`) and the queued-cancellation frontier clarification in `72d6549`
-(cherry-picked as signed `237f441`). The pin comparison preceded code changes
-in signed `ed99393`. Implementation commits: signed `1e8925e`, `52dd070`, `a757963` and the
-item-7 fixture follow-up `ca59d8e`.
-The full gate and live smoke ran on `a757963a71ed11d93111d3034ed4f7d47a9c960d`.
-The final signed handoff head and PR URL are supplied by `task_report`.
-Item 7 is now complete: 200 consecutive seat-process runs and the full gate
-pass; the audit and new evidence appear at the end of this report.
+## Focused rejection rework
 
-## Files, mechanisms and acceptance evidence
+The branch was rebased onto `origin/main` at `660987f` before changes.
+The Architect's signed ACP FIFO/backpressure/model baseline `8483203`
+was read and cherry-picked as signed `0ece6bc`.
+Previously verified policy, timeout, generation, estimate/frontier and protocol
+behavior is retained. Protocol remains **0.4**. No GUI source changed in this round.
+The Oracle's rejection records E3 approval of the earlier d2400 display hunks.
 
-1. **ACP pin.** [acp-1.12-diff.md](acp-1.12-diff.md) checks every relied-on
-   method, capability, content, permission and framing fact against schema 1.12.0.
-   Valid wire mappings are unchanged. Malformed-array handling is stricter;
-   permission replies retain their outer `outcome` wrapper. SDK 3.4.0 is pinned
-   without unstable features in `Cargo.toml` / `Cargo.lock`.
-2. **ACP face.** `src/frontends/acp.rs` implements stdio JSON-RPC, per-session
-   subscriptions and pending prompt replies, suffix repair, item mappings,
-   permission requests, replay-before-load-response, restricted capabilities,
-   malformed-input recovery and owned shutdown. `src/frontends/headless.rs`
-   dispatches `acp` and defers credentials into the cancellable Host factory.
-   `src/gateway/{host,mod}.rs` supports independent loaded sessions and records
-   ACP approval provenance. `tests/acp_face.rs` drives real scripted-provider
-   turns, a real stdio process, permissions, queued cancellation and concurrent
-   sessions; `tests/fixtures/acp/*.jsonl` covers tool/diff/terminal and loaded
-   Plan output. The internal forced-drop test exercises both completion and
-   snapshot repair and asserts zero divergences. Logs pass `check_transcript`.
-3. **MCP client.** `src/mcp.rs` owns session TaskGroup supervisors and process
-   groups, fixed turn snapshots, normalized names/limits, generation fencing,
-   timeout/cancellation, five-attempt exhaustion, debounced re-listing, scrubbed
-   stderr excerpts and result/blob mapping. `src/tools.rs` and engine policy
-   route every call through `decide`; read concurrency never implies policy
-   trust. `tests/bin/mcp_fixture.rs` is feature-gated test infrastructure.
-   `tests/mcp_client.rs` proves concurrent reads with a two-party barrier,
-   approval for untrusted writes, explicit Ask/Deny for trusted reads, crash,
-   timeout, cancellation notification, changing snapshots, five process births,
-   secret scrubbing, removal of the reserved capability and Close during a
-   hung re-list. The final MCP suite has 11 passing tests.
-   `src/process.rs` / `src/provider/profile.rs` also bound command resolution's
-   stdout and cancellation without spilling credential bytes to disk.
-4. **Automatic compaction.** `src/context/auto.rs`, `src/context/mod.rs`,
-   `src/engine/{history,mod,turn_loop}.rs` count the exact wire JSON / Usage
-   anchor, apply the 80% trigger and 60% ladder target, persist reductions before
-   model requests, clip completed tool output and omit completed reasoning /
-   images before summarizing. Rebuilt history retains tool pairing and the
-   cache prefix. Both reductions use the latest ending below every open turn.
-   `src/protocol/{mod,laws}.rs`, `protocol.schema.json` and regenerated protocol,
-   compact and seat fixtures carry the new item and enforce its boundaries.
-   `tests/context_auto.rs` covers 30 turns, exact thresholds/Unicode/Usage,
-   single-request overflow, unknown-window notice, recovery, real SIGKILL,
-   failed blob durability and queued cancellation. Its ignored child helper is
-   launched explicitly by the passing parent SIGKILL test. No operator input.
-5. **Formal.** `tests/formal/models.rs` adds HarnessAutoCompact and
-   HarnessMcpServer; `tests/formal_nonvacuity.rs` asserts named properties,
-   reachable A→B→A held responses and the queued-cancellation frontier.
-   `verification/{corpus,contracts,coverage}.toml` inventories R22–R24 and the
-   actual sources, bounds and implementation-only witnesses. Models use the
-   existing crates.io bboxy450-tlc/Yarn stack and pinned Java parity gate.
-   [model-controls.json](e1c/model-controls.json) records all seven new broken
-   controls, their actual counterexamples and the passing corresponding model.
-6. **Live smoke.** `scripts/smoke-live.py` and `src/frontends/smoke.rs` add an
-   ACP-driven read/edit turn using the same free nemotron profile. Each face
-   has a hard cap of three provider requests. Only the existing `!cmd` is copied
-   into the profile; credentials and raw transcripts are never committed.
-   Final outcome: **PASS**, exit **0**, on both faces. Each used exactly three
-   requests and recorded one read, one edit, the changed file, EndTurn and
-   `check_transcript: true`. Redacted record:
-   [smoke-live-2026-11-01.json](smoke-live-2026-11-01.json).
+| Required fix | Files and mechanism | Executable evidence |
+| --- | --- | --- |
+| 1. ACP backpressure | `src/frontends/acp.rs:96`: bounded writer queue waits for space in workers/subscriptions; neither reader nor engine awaits stdout. Queue pressure never tears down the connection. | `slow_reader_resumes_without_losing_the_turn`: unread pipe, >256 replies, two engine turns finish before reading resumes, prompt replies/text match durable logs, transcript laws hold. Existing forced-delta/snapshot repair unit test asserts divergence=0. |
+| 2. Per-session order | `acp.rs:71`: reader routes into per-session FIFO workers; a prompt waits for its first durable caused event before following cancel is admitted. Permission replies/connection methods use a separate connection worker. | Back-to-back prompt/cancel in one pipe write ends Cancelled. The durable wait matters because core control admission otherwise precedes queued work. |
+| 3. Content retention/order | `acp.rs:750`: merge segments by child item in arrival order, replacing each child's live snapshot; parent completion retains diff/terminal content. | Final-card projection assertions require diff and terminal after completion. Canonicalization no longer sorts messages; regenerated ACP goldens compare actual order. |
+| 4. d2019 PID producers | `tests/store_recovery.rs:198`, `tests/profile_lifecycle.rs:16`: same-directory temp-file plus rename. Already present in rebased `bdc9d83`; no unrelated producer changes. | 200 consecutive runs of each suite, plus accepted existing 200 seat-process runs. Source hashes, counts and logs linked below. |
+| 5. MCP group kill | `tests/bin/mcp_fixture.rs`: server and forked member both ignore EOF/SIGTERM; member remains in owned group. `mcp.rs:396` retains group SIGKILL before leader reap. | `close_kills_a_server_and_member_that_ignore_eof_and_term` requires ESRCH; removing all group signals fails and the test cleans its owned group. |
+| 6. Stable prefix/trim-only | `tests/context_auto.rs:127`: correlate each request with its durable prefix and reduction boundaries; require prefix > system alone and byte identity until a reduction. `:226`: sufficient trim emits no summary. | System-only prefix, drifting summary bytes and disabled fits early return each fail their precise assertion, then pass restored. |
+| 7. Close margin | `tests/mcp_client.rs`: Close tests use observed ESRCH with a 15 s hang guard. | Hung re-list and stubborn group witnesses pass without a 2 s performance margin against the 1 s TERM grace. |
 
-## Red → green evidence
+The slow-reader test's 100 ms pause is scripted client behavior, not a performance
+threshold. Functional cancel/lifecycle deadlines remain ICD requirements.
 
-`CARGO_BUILD_JOBS=2 python3 -I scripts/test-e1c-controls.py` exited **0**.
-Each control temporarily mutates the named production mechanism, asserts the
-specific behavioral failure, restores the source in `finally`, and runs the
-same test green. Source digests and exact commands are in
-[process-controls.json](e1c/process-controls.json); output is in the adjacent
-`*-red.log` and `*-green.log` files (trailing whitespace normalized only).
+## Additional witnesses and fixes
 
-| Control | Red exit | Restored exit |
+- ACP tests cover MaxTokens, MaxRounds, Error/class, permission cancelled,
+  disconnect during pending permission for Allow and Deny defaults, meaningful
+  late-response-after-Interrupt assertions, EOF mid-turn with transcript laws,
+  and failed load cwd closing the session it opened.
+- MCP tests cover Interrupt during a slow call (cancellation notification),
+  normalized/truncated names and collision winner, crash Notice with scrubbed
+  stderr, and a recursive secret scan over the entire retained session directory,
+  including actual spilled blobs.
+- The new crash Notice assertion found an SDK integration defect:
+  rmcp's `is_closed()` does not observe a finished background task on peer EOF.
+  `src/mcp.rs:411` now selects the actual `service.waiting()` completion during
+  ready/re-list phases, retires that generation, labels failure and restarts.
+  The pre-fix failure is retained in `e1c-rework/secret-diagnostic.log`.
+- Stale MCP binding errors name stale generation; tool/approval Deny status and
+  output carry the deciding rule's reason. `tests/policy_gate.rs` checks that
+  a Deny-all counting tool runs zero times and retains its reason.
+- `TaskGroup::reap_ready` reaps completed face-driver handles without adding
+  await points under the face's mutex.
+
+Remaining SHOULD gaps: no separate real-peer test releases a delayed response
+across a server restart into a new generation (the formal A→B→A control and
+actual slow-call Interrupt witness remain). The seat test still sends explicit
+SIGHUP after readiness; it does not prove PTY-master-close alone. These are
+unproven witnesses, not reported as passed.
+
+## Red → green controls
+
+`CARGO_BUILD_JOBS=2 python3 -I scripts/test-e1c-rework-controls.py` — exit **0**.
+Every mutation is restored in finally; the same exact test is then rerun green.
+The script checks both the nonzero exit and the specific behavioral assertion.
+[controls.json](e1c-rework/controls.json) includes exact commands and source hashes;
+adjacent red/green logs retain the output.
+
+| Production mutation | Red | Restored |
 | --- | ---: | ---: |
-| Disable MCP call timeout | 101 | 0 |
-| Keep a crashed MCP call pending | 101 | 0 |
-| Wait for MCP readiness before starting a turn | 101 | 0 |
-| Ignore cancellation during tools/list re-list | 101 | 0 |
-| Restore the prior unbounded pipe resolver | 101 | 0 |
+| Full writer queue cancels face | 101 | 0 |
+| Task per line permits cancel overtake | 101 | 0 |
+| Completion replaces child content | 101 | 0 |
+| Remove MCP group signals | 101 | 0 |
+| Prefix is system prompt alone | 101 | 0 |
+| Summary bytes drift between reductions | 101 | 0 |
+| Disable sufficient-trim early return | 101 | 0 |
 
-The queued-cancellation process/API witness separately failed with
-`queued cancellation compacted the running turn` (**101**), then passed (**0**)
-after the signed ICD clarification and frontier fix. See
-[queued-cancel-red.log](e1c/queued-cancel-red.log) and
-[queued-cancel-green.log](e1c/queued-cancel-green.log). The green command includes
-`context_auto`, `formal_models`, `formal_nonvacuity` and `protocol_laws`.
-The law witness also rejects the overtaken cut with the exact
-`context-boundary / reduction exceeds completed frontier` detail.
+The first slow-reader mutation initially passed because the client resumed
+before replies filled the queue; this exposed a witness gap. The final scripted
+pause makes that control fail at the teardown assertion. No initial pass is
+counted as red evidence.
 
-Formal red controls are expected checker failures, not failing gate commands:
+## Formal scope and controls
 
-| Model control | Counterexample |
+`HarnessAutoCompact` now advances the completed frontier and explores both
+trim-only success and summary without another trim. Original four named controls
+remain required safety/liveness failures. `HarnessMcpServer` retains its three
+controls. New `HarnessAcpFlow` follows the signed ACP baseline and R23:
+FIFO prompt/cancel admission, engine output independent of writer queue,
+connection closure only on EOF, eventual response under separate weak-fair
+admission/emit/end/projection/reply/writer/resume actions. Queue bound 2 abstracts
+256; finite metadata producers can fill it. The model's reader-pause abstraction
+preserves recurring drain opportunities. Native nonvacuity checks an enabled
+engine transition while the queue is full.
+
+| New control | Required result |
 | --- | --- |
-| BrokenHarnessAutoCompactA | safety: NeverReducesOpenTurn |
-| BrokenHarnessAutoCompactB | safety: BoundariesMonotone |
-| BrokenHarnessAutoCompactC | liveness: BoundaryEventuallySends |
-| BrokenHarnessAutoCompactD | safety: NeverReducesOpenTurn after queued cancellation |
-| BrokenHarnessMcpServerA | deadlock with readiness-gated admission |
-| BrokenHarnessMcpServerB | safety: NoStaleResult |
-| BrokenHarnessMcpServerC | liveness: CallEventuallyEnds |
+| BrokenHarnessAcpFlowA — unordered admission | safety: CancelHitsItsPrompt |
+| BrokenHarnessAcpFlowB — close on full queue | safety: CloseOnlyOnEof |
 
-## Commands and actual exits
+`tests/formal/export.rs` classifies safety before temporal violations (after
+deadlocks), matching TLC, which stops at an invariant before checking liveness.
+The broken-full-queue model violates both; a temporal report cannot hide its
+safety failure. Coverage/contracts inventory actual source/test mappings and
+bounds; MCP ownership is mapped to the existing ProcessLifecycle contract.
 
-| Command | Exit / evidence |
-| --- | --- |
-| Initial `CARGO_BUILD_JOBS=2 make test` | **2**, seat-process test races; retained in `e1c/make-test-initial.log` and `e1c/test-initial.json` |
-| Gate after lifecycle fixes, before KB metadata repair | **2**, all Rust and 52-model native/TLC checks passed; KB rejected the unindexed pin note. `e1c/make-test-kb-failure.log`, `e1c/test-kb-failure.json` |
-| Targeted `cargo test --offline --locked --quiet --features acp,test-fixtures --test mcp_client --test seat_process` | **0**, 11 MCP + 3 seat tests; repeated in the final `e1c/make-test.log` |
-| Final `CARGO_BUILD_JOBS=2 make test` | **0**; `e1c/make-test.log`, `test-current.json`, `gui-gate.json` |
-| `make smoke-live` (one invocation for E1c) | **0**, PASS on both faces; `e1c/smoke-live.log`, `smoke-live-2026-11-01.json` |
-| `python3 -I scripts/checks.py headers` | **0**, PASS |
-| `python3 -I scripts/checks.py secrets` | **0**, PASS |
-| `git verify-commit` for implementation commits | **0**, Boxy / `9B07E849480C68328CA20684844ECC0587DE7AB0` |
+Both `make test-formal-native` and `make test-formal-parity` exited **0**
+inside the final canonical gate. All **55 models / 22 contracts / one crate**
+have identical full reachable state and transition sets and expected verdicts.
+HarnessAcpFlow passes with **1,148 states / 2,290 edges**; controls A and B
+fail safety in both backends. HarnessAutoCompact passes with **320 states /
+908 edges**; its four controls retain their named safety/liveness failures.
+Evidence: [formal-code.json](e1c-rework/formal-code.json), the final
+[make-test.log](e1c-rework/make-test.log), native inventory and
+`tests/formal_nonvacuity.rs`.
 
-The initial gate races were corrected in the test producer/control: publish the
-key PID by atomic rename, and send SIGHUP explicitly after the PTY reader's
-readiness witness rather than relying on the timing of PTY descriptor release.
-Functional shutdown deadlines remain; no performance wall-clock gate was added.
+Finite-corpus parity does not prove arbitrary Rust refinement or a replacement
+for unrestricted Java TLC. Java is only a verification dependency.
 
-## Authorized GUI hunks and limits
+## Repeated PID verification
 
-Decision [[d2400-e1c-scope-gui-display-arms]] widens this task only for plain
-display arms. E3 owner review is required before the Oracle merges:
-
-- `src/frontends/gui/view.rs::kind_label`: ContextTrim label.
-- `src/frontends/gui/view.rs::display_body`: readable ContextTrim boundary.
-- `src/frontends/gui/smoke.rs`: ContextTrim expectation and required text;
-  compaction expectation derives the fixture's actual boundary. The latter was
-  confirmed by the Architect in message `01M6B07DS3AT4CRHF1ZYWKKTC9`.
-
-No other GUI behavior, state or layout changed. The all-items fixture's formerly
-invalid early compaction was corrected under the protocol ruling (`46df005`),
-with derived goldens regenerated. Plan remains witnessed by load replay, as the
-ICD requires; no plan-producing tool was invented.
-
-Native/TLC parity proves the recorded finite graphs and verdicts under their
-listed fairness/bounds. It does not prove arbitrary Rust refinement or full TLC
-replacement. Unsupported ACP methods and HTTP/SSE MCP transports remain the
-ICD's explicit degradation. All 52 formal models (21 contracts, one crate) have identical full reachable
-state/transition sets and expected native/TLC verdicts. The GUI smoke rendered
-22 visible items, all 15 kinds, three approval buttons and the scrolled viewport.
-No known implementation blocker remains. E3 review of the listed GUI hunks is
-still required before merge. Prior untracked E1b artifacts are preserved.
-
-The records commit changes no verification inputs. Current-head formal evidence
-is refreshed after that commit and retained under `verification/evidence/`;
-the final `task_report` supplies its digest and the signed head. Regenerated
-receipts/logs are run outputs, distinct from the clean source tree.
-
-## Item 7 — d2019 PID publication follow-up
-
-The seat fix was already present in signed `52dd070`: `echo $$` writes
-`key.pid.tmp`, then `mv` publishes `key.pid`. The initial empty-file
-failure remains in `e1c/make-test-initial.log`.
-
-Required command:
+Required combined loop, which executes both suites once in each of 200 iterations:
 
 ```sh
-for i in $(seq 200); do CARGO_BUILD_JOBS=2 cargo test --test seat_process || exit 1; done
+for i in $(seq 200); do CARGO_BUILD_JOBS=2 cargo test --offline --locked --test store_recovery --test profile_lifecycle || exit 1; done
 ```
 
-Actual exit: **0**. All **200 consecutive runs** passed all three tests:
-**600 passed, 0 failed, 0 ignored**. The log contains exactly 200 complete
-three-test success summaries and one test-binary path. The seat source matches
-the committed fix byte for byte. [seat-200.json](e1c/seat-200.json) records the
-source and binary SHA256; [seat-200.log](e1c/seat-200.log) retains the output.
+Actual exit **0** on signed source `d96d1288f75cb45a386490bca31af8077433895b`.
+Exactly **200 profile summaries (400 tests)** and **200 recovery summaries
+(800 tests)**, zero failures. [pid-200.json](e1c-rework/pid-200.json) records
+source/log hashes; [pid-200.log](e1c-rework/pid-200.log) is the complete output.
 
-The requested audit found and fixed three other producers in signed
-`ca59d8e`, using a temporary file in the same directory followed by rename:
+The existing accepted [seat-200.json](e1c/seat-200.json) and
+[seat-200.log](e1c/seat-200.log) record **200 runs / 600 passed**, exit **0**.
+The current seat source still has that recorded SHA256. The prior
+[pidfile-audit.json](e1c/pidfile-audit.json) inventories the other waits and
+publication ordering.
 
-| Location | Finding / mechanism |
-| --- | --- |
-| `tests/profile_lifecycle.rs:16` | Key-command PID was created before its bytes were written; publish it by rename. |
-| `tests/store_recovery.rs:198` | Recovery fixture's group PID had the same exists-before-write race; publish it by rename. |
-| `tests/bin/mcp_fixture.rs:29`, consumed by `tests/acp_face.rs:525` | Escaped-child PID marker could become visible before `std::fs::write` completed; write a sibling temporary file and rename it. |
-| `tests/cancel_process.rs:11` | Existing helper retries until the PID parses. Direct reads at :71/:76 follow LEADER_EXITED: both shell writes completed before the leader exited, and only then can the member emit the marker. No change needed. |
-| `tests/mcp_client.rs:281` / :569 | PID lists are read after Close joins the server or after terminal fifth-failure notification. Each append completes before initialization; no writer remains at the read. No change needed. |
-| `tests/seat_process.rs:130` | Already atomic; the 200-run stress provides the requested evidence. |
+## Canonical verification and live smoke
 
-Machine-readable inventory: [pidfile-audit.json](e1c/pidfile-audit.json).
+| Command | Actual exit |
+| --- | ---: |
+| `CARGO_BUILD_JOBS=2 make test` before note deduplication | **2** |
+| `CARGO_BUILD_JOBS=2 make test` on signed `4889c8df51be330a26e2a540cd7defe5b3e9ec38` | **0** |
+| `cargo fmt --check` | **0** |
+| `python3 -I scripts/checks.py headers` | **0** |
+| `python3 -I scripts/checks.py secrets` after staging new source/evidence | **0** |
+| `git verify-commit d96d128` | **0**, Boxy signing key `9B07E849480C68328CA20684844ECC0587DE7AB0` |
 
-`CARGO_BUILD_JOBS=2 make test` on `ca59d8e` exited **0**, unattended.
-The canonical stack includes the affected ACP, profile, recovery and cancellation
-tests, all 52 native/TLC models and the GUI gate. Evidence:
-[item7-make-test.log](e1c/item7-make-test.log), `test-current.json`,
-`gui-gate.json`, [item7-formal-code.json](e1c/item7-formal-code.json).
+The first run passed all Rust and 55-model native/TLC checks, then the KB gate
+found duplicate IDs: `660987f` had imported nested copies of these two owned
+notes under `.bboxy/.bboxy/runs/`. Signed `4889c8d` removes only the
+duplicates and retains canonical `.bboxy/runs/` records. The diagnosed
+failure is retained in [make-test-kb-failure.log](e1c-rework/make-test-kb-failure.log)
+and [test-kb-failure.json](e1c-rework/test-kb-failure.json).
+Final [make-test.log](e1c-rework/make-test.log), `test-current.json` and
+`gui-gate.json` record **0 for every layer**, including all **15 ACP**,
+**15 MCP**, **9 context** witnesses, the existing hardening controls, KB negative
+control and GUI headless smoke (22 visible items / 15 kinds / 3 approval buttons).
 
-This follow-up changes only test fixtures and evidence. The earlier live PASS
-remains the observed smoke result on unchanged product code; no additional live
-requests were made. Current-head formal receipts are refreshed after the records
-commit and named in the task report.
+The canonical stack uses a private HOME, runs unattended, and records every
+command/exit in `test-current.json`. It includes fmt, clippy -D warnings, all
+unit/integration/mock tests, hardening controls, native before pinned Java parity,
+secret/header/KB checks and the GUI gate. No wall-clock performance gate was added.
+
+`make smoke-live` ran **once for this rework**, exit **0** on signed
+`4889c8df51be330a26e2a540cd7defe5b3e9ec38`.
+Both **headless PASS** and **ACP PASS** used exactly **3 requests each**,
+one read, one edit, changed file, EndTurn and `check_transcript: true`.
+The same free nemotron profile and existing credential command were used;
+no credential value was printed or committed. [smoke-live.log](e1c-rework/smoke-live.log)
+and [redacted record](smoke-live-2026-11-01.json) retain the result.
+The date record preserves the earlier smoke as a separate prior attempt
+(total 12 requests across both historical invocations; 6 in this rework).
+
+## Original E1c acceptance retained
+
+- ACP pin/schema comparison: [acp-1.12-diff.md](acp-1.12-diff.md), performed
+  before original implementation; no changed mapping was silently invented.
+- ACP real turns cover text/reasoning/tool/diff/terminal/permission. Plan remains
+  a replay of the all-items fixture through the same mapper, not a new plan tool.
+- MCP remains session-lived stdio, policy-gated, fixed tool snapshots,
+  readOnlyHint concurrency, timeout and five-failure exhaustion, labelled Notice
+  and secret redaction.
+- Automatic compaction remains durable clip/drop/summary, fixed tool-snapshot
+  estimate, Usage-anchor invalidation, frontier below open turns, cache prefix
+  and regenerated protocol 0.4 schema/fixtures.
+- Earlier process-control evidence is retained in
+  [process-controls.json](e1c/process-controls.json), and the seven original
+  named formal controls in [model-controls.json](e1c/model-controls.json).
+  These historical outputs are labelled by their recorded source hashes.
+- d2400 authorizes only the original ContextTrim display arms and fixture-derived
+  compaction expectation. E3 approved those hunks per the rejection brief.
+
+Current-head formal evidence is refreshed after the final records commit;
+task_report carries the signed head and receipt digest. Prior untracked E1b
+artifacts are preserved and are not presented as this rework's evidence.
