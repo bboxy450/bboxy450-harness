@@ -15,7 +15,7 @@ created: 2026-11-01T03:43:17.472Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:50ae79774ff6acedf562c8158fd1a48592ca6e5ea4048b53fd0d6359785ef5bd
+digest: sha256:b684743acb7cd6dba5642f032278980dcfaeb897859369b2368e52a9216607b4
 digest_grade: observed
 for: []
 grade: inferred
@@ -180,22 +180,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/git/ref
   ts: '1793503856410'
+- before_digest: sha256:50ae79774ff6acedf562c8158fd1a48592ca6e5ea4048b53fd0d6359785ef5bd
+  commit: a939a6c313c81d236e1a2089fa6511c3c56a4752
+  digest: sha256:b684743acb7cd6dba5642f032278980dcfaeb897859369b2368e52a9216607b4
+  event_hash: 5d0d263624f5557097a8acf070fc1126e69abd2f7cf13a810d4ed9fc9bf27649
+  generation: null
+  grade: inferred
+  id: 01M6AN6VSXK1EZ1E7W700DTM9G
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/refs/heads/cx/plugfix
+  seat: null
+  sequence: '5729'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793506635293'
 id: 01M6AF65MGBK12NV9TM6TGQMBN
 kind: other
-last_observation_sequence: '1231'
+last_observation_sequence: '5729'
 number: 755
 observation_reason: git-ref-value; authorship unverified
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:4e27f2a2cfb200ae0c78fd18c774e6077057f77ea2f877006b4cc268b1b74556
-  log: .bboxy/log/2026-11-01.jsonl#3283
-  sig: 0weHKKTnphgolpEgYKyjJ+bum4rAds6128wm8qQj/wg98GT6J8L6zGjz4Q0SOtNaFct4sHdkz91OJPY9kowiBg==
+  frontmatter_digest: sha256:569be6a47f9bed77de64d40b1e3d63b5c24a936d9f5cb6e98aae898a82012058
+  log: .bboxy/log/2026-11-01.jsonl#5730
+  sig: 7S+bmBXeR+X1DrZihtKUrMPfnm4gH35Zq+HOZglZ+Vw4N48shUvlkDRJBrDynVulyR0dV+RIS0wjfyPD81z5Dg==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: git:worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/refs/heads/cx/plugfix
 type: artifact
-updated: 2026-11-01T03:44:08.829Z
+updated: 2026-11-01T04:17:15.582Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

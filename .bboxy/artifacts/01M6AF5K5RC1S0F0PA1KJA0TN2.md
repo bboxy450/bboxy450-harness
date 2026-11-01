@@ -10,13 +10,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 2850
+bytes: 7312
 claimed: false
 created: 2026-11-01T03:43:15.538Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:f3bdb80b9ed50d9b5265cf22c51b939fa09569923d7e8c6718e7977d45517d1f
+digest: sha256:f4b5c488f502d229bd33e56b65fbf008c29ecc4e31c80535ddc28e93a52eb288
 digest_grade: observed
 for: []
 grade: inferred
@@ -69,22 +69,54 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793500351774'
+- before_digest: sha256:f3bdb80b9ed50d9b5265cf22c51b939fa09569923d7e8c6718e7977d45517d1f
+  commit: null
+  digest: sha256:e1dd19370e81f6c2f3b5ac2fcecede4ed797fb9470cbee1b593aa5696afe6fd4
+  event_hash: 3de2932ea43f7c80476fd11402fe8b5d0851287df1dc07a2241ebb4327ab875b
+  generation: '1'
+  grade: inferred
+  id: 01M6ANB7KZ1CENAD2GA52QWRN8
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/policy_gate.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '5850'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793506778629'
+- before_digest: sha256:e1dd19370e81f6c2f3b5ac2fcecede4ed797fb9470cbee1b593aa5696afe6fd4
+  commit: null
+  digest: sha256:f4b5c488f502d229bd33e56b65fbf008c29ecc4e31c80535ddc28e93a52eb288
+  event_hash: a027842b5c73ba73462fd21f06f1888f60c608099571adb250eec8e63950f559
+  generation: '1'
+  grade: inferred
+  id: 01M6ANB9ZSVQ3YMR3F14M9WGSR
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/policy_gate.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '5877'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793506779061'
 id: 01M6AF5K5RC1S0F0PA1KJA0TN2
 kind: file
-last_observation_sequence: '943'
+last_observation_sequence: '5877'
 number: 748
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:7753cb16d5d7ee220d5545b3fb8abdad4eb09ab5266d5a9bb9d678856c0323f0
-  log: .bboxy/log/2026-11-01.jsonl#2761
-  sig: OcOk8Eug+UOvRSOcm4g3vZlkzkZ5fDWl4apqAVuwwINCrwNvghBzLu1xY5NU/5OkzdXUUUjqxu4wgryNRSPhAw==
+  frontmatter_digest: sha256:dbfa563b2d4da663d6937ee159acf29abf16b596e6d3795ca5d0dd013ccf0da3
+  log: .bboxy/log/2026-11-01.jsonl#5878
+  sig: VUPWsndsY3yZCpf5//ctZaJjapM/VkyHqnzEsjkKYsnOx+A5rUhT/TC+PBEmyrn3qKz3ZMf40+0ovCokvzrgAA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/policy_gate.rs
 type: artifact
-updated: 2026-11-01T03:43:19.635Z
+updated: 2026-11-01T04:19:41.179Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

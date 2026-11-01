@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6AC7H87H9S94Y1D45PSQVH6
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,13 +9,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 12588
+bytes: 12714
 claimed: false
 created: 2026-11-01T02:07:40.870Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:79fe88482708591e1f990e939d1d0a3ff8db8cd62fe60a82d5fc413559048344
+digest: sha256:b1de1ec0d9c7cace6ad8cfe88e6ffaa0546ab9e8f3c7b194d9475ca8fd55db5e
 digest_grade: observed
 for: []
 grade: inferred
@@ -117,22 +116,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793504056405'
+- before_digest: sha256:79fe88482708591e1f990e939d1d0a3ff8db8cd62fe60a82d5fc413559048344
+  commit: null
+  digest: sha256:b1de1ec0d9c7cace6ad8cfe88e6ffaa0546ab9e8f3c7b194d9475ca8fd55db5e
+  event_hash: 424222ef500e0bd528e989bf2a1d7f21ba6f0e5dac4dea08657998461ce855fe
+  generation: null
+  grade: inferred
+  id: 01M6APF64CWC8705089JRXFTGZ
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/interfaces/interfaces.md
+  seat: null
+  sequence: '6820'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793507906925'
 id: 01M6ADNHAQFY4YRD1F7HVHDHKN
 kind: markdown
-last_observation_sequence: '1259'
+last_observation_sequence: '6820'
 number: 43
 observation_reason: null
 observed: true
-produced_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:5634d2ee9c3cf01f0c6bd8e830b85c11b3346201a9c8b3007f009041fefba03d
-  log: .bboxy/log/2026-11-01.jsonl#3344
-  sig: NoNCP2PijivT9jNjKvwMBUpmjAUrpQb8aXRM2qGUUoRn0oFhvS++zpgGhUJN8p9z/CdAmyxduaAWQ/07EaS+Dw==
+  frontmatter_digest: sha256:1394db4efa64bc3bb59fc7958a7fbe31a90979f63a0c326fff15e5af01dfe7b3
+  log: .bboxy/log/2026-11-01.jsonl#6821
+  sig: fLvFwM8jalw83qusdrwZYcbrtHFAcqBVaBfWp0aVGtPqzW7aNB9TRkThTQD3eZxfgLWmeRhHBDJglW+GjA7JBw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: .bboxy/interfaces/interfaces.md
 type: artifact
-updated: 2026-11-01T03:44:14.314Z
+updated: 2026-11-01T04:39:16.878Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

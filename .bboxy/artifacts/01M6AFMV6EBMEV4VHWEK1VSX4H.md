@@ -10,13 +10,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 2736
+bytes: 2844
 claimed: false
 created: 2026-11-01T03:43:27.211Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:09e1cd25595bd080612fc0f5c6c3e2b7cb26d1942eb813e1bc16e10bf0e1117a
+digest: sha256:a10bcecfc98282634b34ca29d5c2dd1a62c0be549342448e3ec42d9752313440
 digest_grade: observed
 for: []
 grade: inferred
@@ -85,22 +85,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793501897169'
+- before_digest: sha256:09e1cd25595bd080612fc0f5c6c3e2b7cb26d1942eb813e1bc16e10bf0e1117a
+  commit: null
+  digest: sha256:a10bcecfc98282634b34ca29d5c2dd1a62c0be549342448e3ec42d9752313440
+  event_hash: ee7fffda8c057eb0817facf26e5bd1b31ea2aacad33e6a8cf7b96acdd8f26e56
+  generation: '1'
+  grade: inferred
+  id: 01M6AMY3FDHF4C9TEWG1DMGMJE
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/scripts/test.py
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '5600'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793506346839'
 id: 01M6AFMV6EBMEV4VHWEK1VSX4H
 kind: file
-last_observation_sequence: '1082'
+last_observation_sequence: '5600'
 number: 771
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:5cbd836c152a0f25d27f426b9d660517b495a206605b62953b589d4f04f82018
-  log: .bboxy/log/2026-11-01.jsonl#3012
-  sig: vZV8fkY/FAT75dxBUh7HsnHBg7kWaEcNEzloR5PH1zCIiVDlSwSA1wiv6WoM/Y7rs8FCmsq+wYDH5X46JYbYCQ==
+  frontmatter_digest: sha256:308c180939fcebf061413b8e5c9bb189cdd332c1d6703e66bb62bc67be372a78
+  log: .bboxy/log/2026-11-01.jsonl#5601
+  sig: iMJxaJUzX/CmeSPPPFi0JV5P2kU77tk9rYGtXqIxOFiNimzsaWZAMib+sKT4dP8T7HscOiU0zE/0NAJF+ue8BQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/scripts/test.py
 type: artifact
-updated: 2026-11-01T03:43:42.567Z
+updated: 2026-11-01T04:12:28.527Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

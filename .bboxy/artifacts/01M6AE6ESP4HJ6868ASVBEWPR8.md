@@ -10,13 +10,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 13224
+bytes: 13782
 claimed: false
 created: 2026-11-01T03:42:00.466Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:da97db0a853f4ec0f98f5a3d7425ffc38f54d71e14d56f4dc3e8ff336eb30c01
+digest: sha256:ad08fec12fd39cedd0812686de4d0429a946e62448c09333e8cf88865379f1e8
 digest_grade: observed
 for: []
 grade: inferred
@@ -37,22 +37,54 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793499280893'
+- before_digest: sha256:da97db0a853f4ec0f98f5a3d7425ffc38f54d71e14d56f4dc3e8ff336eb30c01
+  commit: null
+  digest: sha256:781f22508d9f88b77a9c063d3810e232e0a285695bca46e991c83a61ec004157
+  event_hash: 929b5aef1b96c8811bd3267871499e19eaa1a82cd7f3e76eb396a535fc710af3
+  generation: '1'
+  grade: inferred
+  id: 01M6ANMK2HY8JV5S913NPZ6SJR
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/protocol/reset.jsonl
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '6097'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793507084314'
+- before_digest: sha256:781f22508d9f88b77a9c063d3810e232e0a285695bca46e991c83a61ec004157
+  commit: null
+  digest: sha256:ad08fec12fd39cedd0812686de4d0429a946e62448c09333e8cf88865379f1e8
+  event_hash: dfe0e195d9e31425ed9d8db7f46abdef039df4e55a886f05a2f6d27b767c5f44
+  generation: '1'
+  grade: inferred
+  id: 01M6APPP8QXKYVPNAJYXB7XE4T
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/protocol/reset.jsonl
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '7261'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793508201533'
 id: 01M6AE6ESP4HJ6868ASVBEWPR8
 kind: file
-last_observation_sequence: '476'
+last_observation_sequence: '7261'
 number: 570
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:7a0462dea93bd84a1c9bb34deab8e8bff9e39d874175455672528a85d444a6a6
-  log: .bboxy/log/2026-11-01.jsonl#1827
-  sig: drGL8Gxw7SxtfdGwamshllA1tLdug30mWgM5mt7N7ii63E6VkA0riVKeqSFruwp/NosoeNdVMYb8ag6m1+KaBA==
+  frontmatter_digest: sha256:11f6da596165cdaa640c0f97a2b1526988d9ff71f5f0e21eb7e772396d1543ee
+  log: .bboxy/log/2026-11-01.jsonl#7262
+  sig: 2kvit+93Dv57T8clV4W3LSG0Yji4ntr3h8nacUTvKAnnZYpIMfGK/NxsNQRCTNOOXipOY0qvN5rLpgesuTtFBg==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/protocol/reset.jsonl
 type: artifact
-updated: 2026-11-01T03:42:00.466Z
+updated: 2026-11-01T04:43:22.776Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

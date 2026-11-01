@@ -1,0 +1,267 @@
+---
+aliases: []
+attribution_candidates: []
+attribution_reason: no-active-seat
+authorship:
+  custody: dev custody
+  device_id: 01M6490ZTZMBBC0EPWJVH83796
+  kind: local-dev
+  public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  root_fingerprint: null
+  signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+bytes: 2363
+claimed: false
+created: 2026-11-01T04:11:20.321Z
+created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+deleted: false
+derived_from: []
+digest: sha256:4af984972980feeb0aca3c16d0679785e432486be4dd969a3b7edb20647c0271
+digest_grade: observed
+for: []
+grade: inferred
+history:
+- before_digest: null
+  commit: null
+  digest: sha256:1895f42936a722fba11c94b958fdcf81dc5f6fdecfe0deb3fb206b5d6f33bc77
+  event_hash: 93abc38ade0f45e023e964f588083bf5e03706efa8b0a6cf640f84ace2f6baf7
+  generation: null
+  grade: inferred
+  id: 01M6AMW0W05VV6HA40JJA14YT7
+  kind: created
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-tests.log
+  seat: null
+  sequence: '5453'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793506275509'
+- before_digest: sha256:1895f42936a722fba11c94b958fdcf81dc5f6fdecfe0deb3fb206b5d6f33bc77
+  commit: null
+  digest: sha256:67e6d52fc1b21eb80c557298d47ebda737c58a276a7aba3cd9bd2dc99d427854
+  event_hash: 75d3021a1c63fcf0b5257ae1a4fe3bc3d1add26fdd53b147e76979afe0619b2c
+  generation: '1'
+  grade: inferred
+  id: 01M6AMYKZY3DZ5WYTBNPTESHSE
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-tests.log
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '5612'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793506365312'
+- before_digest: sha256:67e6d52fc1b21eb80c557298d47ebda737c58a276a7aba3cd9bd2dc99d427854
+  commit: null
+  digest: sha256:4ce13be783c35435eb448b8bc8042d3b2f470e50e3f8bf3efb41f06709975479
+  event_hash: 3a8e86e5edc4b9ed445d33e286031aaeffc9e02513e8dffd5f9cca1e9722ecec
+  generation: '1'
+  grade: inferred
+  id: 01M6AN0FGQDNBW5VSY4EE8P4DG
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-tests.log
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '5657'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793506426260'
+- before_digest: sha256:4ce13be783c35435eb448b8bc8042d3b2f470e50e3f8bf3efb41f06709975479
+  commit: null
+  digest: sha256:999cc7fadf7d52206fcec71560182ecf009b9de121630d84b9f431124a75465e
+  event_hash: fb9ee9f66de12b4694d5eefbf6bee5e321ca52057f4e28a8fe80c3b7150399ae
+  generation: '1'
+  grade: inferred
+  id: 01M6AN3QKDW2F22W4FFTTYJHPJ
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-tests.log
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '5687'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793506532536'
+- before_digest: sha256:999cc7fadf7d52206fcec71560182ecf009b9de121630d84b9f431124a75465e
+  commit: null
+  digest: sha256:cbbe00fe500fa8a725ead8e7acd4b6485597aa9aaf3e222305b26ea12f01df0b
+  event_hash: 7623b5b6e51c3462f8ea7ae07f93d82677f3537559790d31432a058a554a8842
+  generation: '1'
+  grade: inferred
+  id: 01M6AN9BSTHA5S3DPEXR59PVXD
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-tests.log
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '5840'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793506715308'
+- before_digest: sha256:cbbe00fe500fa8a725ead8e7acd4b6485597aa9aaf3e222305b26ea12f01df0b
+  commit: null
+  digest: sha256:86f4608315dd0371979ac4f52398a7cdc54446154b87abca16bd2bbc3159c96d
+  event_hash: 84173cd3998d737e3e31787dec7b3e2b20b50435dff375928ca34fe3632e4170
+  generation: '1'
+  grade: inferred
+  id: 01M6ANA28SMGD05H542KAYPEKN
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-tests.log
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '5843'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793506740401'
+- before_digest: sha256:86f4608315dd0371979ac4f52398a7cdc54446154b87abca16bd2bbc3159c96d
+  commit: null
+  digest: sha256:cbbe00fe500fa8a725ead8e7acd4b6485597aa9aaf3e222305b26ea12f01df0b
+  event_hash: d44f442e4b4260fcb1c10fe24fcaa6e521459bb27c7220e006f141d764302205
+  generation: '1'
+  grade: inferred
+  id: 01M6ANHCKNSM80Z6HQ1AQARK2E
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-tests.log
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '6010'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793506979762'
+- before_digest: sha256:cbbe00fe500fa8a725ead8e7acd4b6485597aa9aaf3e222305b26ea12f01df0b
+  commit: null
+  digest: sha256:66f3de83b1ceb37b94ba1425c52fd896e81420ccaa5df114d975aefcc9b0f74f
+  event_hash: 2dee434d2bfffda5dd8abd794667aabbd60dc2b22c3c48c423141025b5337444
+  generation: '1'
+  grade: inferred
+  id: 01M6ANM8TD6QHQH0G6Y94BWA9Q
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-tests.log
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '6079'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793507074720'
+- before_digest: sha256:66f3de83b1ceb37b94ba1425c52fd896e81420ccaa5df114d975aefcc9b0f74f
+  commit: null
+  digest: sha256:cbbe00fe500fa8a725ead8e7acd4b6485597aa9aaf3e222305b26ea12f01df0b
+  event_hash: a0f06bc90a2c44cf62bf9d03f682a386b155bb14ea7001b5096d6db37c0536d9
+  generation: '1'
+  grade: inferred
+  id: 01M6ANNZ9Y0FBWJMPGYZ6N22Z4
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-tests.log
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '6127'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793507128773'
+- before_digest: sha256:cbbe00fe500fa8a725ead8e7acd4b6485597aa9aaf3e222305b26ea12f01df0b
+  commit: null
+  digest: sha256:a7fdc0e62fe944a81f6551fba73793ee72e8ab27ff2a88be919be12a76f2297e
+  event_hash: a916c9a1366a14b6b6496bd79fd93c67c53b7c04b5c66b06cccd8a2389713cda
+  generation: '1'
+  grade: inferred
+  id: 01M6ANQRDEJC8J5R49ANPA2YTZ
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-tests.log
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '6143'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793507188651'
+- before_digest: sha256:a7fdc0e62fe944a81f6551fba73793ee72e8ab27ff2a88be919be12a76f2297e
+  commit: null
+  digest: sha256:cbbe00fe500fa8a725ead8e7acd4b6485597aa9aaf3e222305b26ea12f01df0b
+  event_hash: aa0dbc44b1311c9e78e71cabca92a5c3f619e762cddc7b8bcb348b4096860767
+  generation: '1'
+  grade: inferred
+  id: 01M6APBY7CEDN7TVVDDN1Z20HS
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-tests.log
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '6711'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793507850280'
+- before_digest: sha256:cbbe00fe500fa8a725ead8e7acd4b6485597aa9aaf3e222305b26ea12f01df0b
+  commit: null
+  digest: sha256:c27658d847d113981fecd7df174ec0bc7e9da1844010f134c37caaabdcafd62e
+  event_hash: b79b7a5bf69341f71e3fd266ab9cb24b2f2897ab4ffdf09885dd0fce3de709a8
+  generation: null
+  grade: inferred
+  id: 01M6APF9H6MZS5FK1WBZNX4WAG
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-tests.log
+  seat: null
+  sequence: '6826'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793507915478'
+- before_digest: sha256:c27658d847d113981fecd7df174ec0bc7e9da1844010f134c37caaabdcafd62e
+  commit: null
+  digest: sha256:14e51ebcceb1cfe94372403d5d1da07482f95832ba31387ffc0682515c55aaef
+  event_hash: 0df428245fe0f5b2ea2bcaac2e322ef2e35d5112f9a9c1c70150fe31321a80cd
+  generation: '1'
+  grade: inferred
+  id: 01M6APMK7K3DAY5986Z92JBJ3N
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-tests.log
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '7231'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793508130279'
+- before_digest: sha256:14e51ebcceb1cfe94372403d5d1da07482f95832ba31387ffc0682515c55aaef
+  commit: null
+  digest: sha256:4af984972980feeb0aca3c16d0679785e432486be4dd969a3b7edb20647c0271
+  event_hash: 0401f0ea7b0e0cccde13aae25b7b56aafd63ad2a813ec5608abb010492c7f48d
+  generation: null
+  grade: inferred
+  id: 01M6APNHZC0XBS0WHYM24FDPN5
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-tests.log
+  seat: null
+  sequence: '7237'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793508156635'
+id: 01M6AMW0W02XRBXJGFPQH83ZJ3
+kind: file
+last_observation_sequence: '7237'
+number: 1185
+observation_reason: null
+observed: true
+produced_by: null
+provenance:
+  digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
+  frontmatter_digest: sha256:6c070870751f348e4f83582b704130356174a1e4d8c3c73bdcf201e5de9cca08
+  log: .bboxy/log/2026-11-01.jsonl#7238
+  sig: 1G6m9mn3eIix8BLl0jpJOabdsYMLfaYXka/TdRpxGVl0ta7J7g1VEPzH1NANS3SnT3nI5bQlccHKlh5019hyAg==
+  signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-tests.log
+type: artifact
+updated: 2026-11-01T04:42:45.614Z
+updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+---
+# Observed artifact
+
+Responsibility and observation evidence are recorded in the frontmatter.

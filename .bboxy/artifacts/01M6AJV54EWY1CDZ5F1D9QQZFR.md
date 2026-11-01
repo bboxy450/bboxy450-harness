@@ -10,14 +10,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 12212
+bytes: null
 claimed: false
 created: 2026-11-01T03:44:18.653Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:f356f8004df4f7e9727730ee26fe5315d0ed1f734dd855529ebcf4f22bf391ab
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -37,22 +37,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793504152973'
+- before_digest: sha256:f356f8004df4f7e9727730ee26fe5315d0ed1f734dd855529ebcf4f22bf391ab
+  commit: null
+  digest: null
+  event_hash: 632c93d5fd2cd3d38d18483230886ae8e75cdfc01b97de46f5214c0b715b4c1c
+  generation: '1'
+  grade: inferred
+  id: 01M6AMW1RK7001Z4M1A4QGR2HT
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/interfaces/gateway.md
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '5459'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793506278587'
 id: 01M6AJV54EWY1CDZ5F1D9QQZFR
 kind: markdown
-last_observation_sequence: '1281'
+last_observation_sequence: '5459'
 number: 810
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:d418bc2d762d535540a21cdb78324b843129ab4dc19d69a0c5da4a2223ebcb36
-  log: .bboxy/log/2026-11-01.jsonl#3388
-  sig: u/H6OEaHARZBibFg5gjSgGIZQjBt1O/lDJI7DEar4X+eTaaG36WfBfNskHIIvHO6I4l4KNve3FwGtob81KqIBw==
+  frontmatter_digest: sha256:178b42f0fdb051a1773e33ca8feae3d1f77c6406b53d74dffb8b14a497585aaa
+  log: .bboxy/log/2026-11-01.jsonl#5460
+  sig: +gqFdooK/D5uRjQXi+FpwlDqrFWjDaitZK57jrUI1bYxNgT8cImbB7ZjGomkYLt5xQHeuVU14mBm9Az2VPH/BA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/interfaces/gateway.md
 type: artifact
-updated: 2026-11-01T03:44:18.653Z
+updated: 2026-11-01T04:11:21.236Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

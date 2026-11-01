@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6ADTTF9QWWFZFVZJHJ3DD8E
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,13 +9,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 6991
+bytes: 6308
 claimed: false
 created: 2026-11-01T03:43:13.761Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:de78ea835197e73f97515f7592df1c648b8d96f45a47bc47f85678cb76dfc4b4
+digest: sha256:85fd4c3c880978f2e8df4235eda79fe60de807f4324500216806a9f6f7b814a4
 digest_grade: observed
 for: []
 grade: inferred
@@ -101,22 +100,70 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793506123474'
+- before_digest: sha256:de78ea835197e73f97515f7592df1c648b8d96f45a47bc47f85678cb76dfc4b4
+  commit: null
+  digest: sha256:bca58c8c7c529f652463ed8a0d4cd0b998238699c655af806a5d2c4f8caf9d46
+  event_hash: 372dd93c864d161d2d2e94b741205944e854488d38d912e590bcf4f3e099ac25
+  generation: '1'
+  grade: inferred
+  id: 01M6AMZ078CARRT6Z8RP8XJN88
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/cancel_process.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '5621'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793506377359'
+- before_digest: sha256:bca58c8c7c529f652463ed8a0d4cd0b998238699c655af806a5d2c4f8caf9d46
+  commit: null
+  digest: sha256:721baee55afbfeb5a32c3c485aede1fd55f2c4b8883666ef2294a50212679bb5
+  event_hash: cf37cfd57f53237df5a3ebab581334eba0f50ab2a48d22ae9c15a3cf99d223dd
+  generation: '1'
+  grade: inferred
+  id: 01M6AMZ0W5ZHEYC22VYA8DASNJ
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/cancel_process.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '5630'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793506377575'
+- before_digest: sha256:721baee55afbfeb5a32c3c485aede1fd55f2c4b8883666ef2294a50212679bb5
+  commit: null
+  digest: sha256:85fd4c3c880978f2e8df4235eda79fe60de807f4324500216806a9f6f7b814a4
+  event_hash: 2152d9b2f2b24f3c7280df3d003ecbab7f51a587131670844d1c3617ff3d61a5
+  generation: null
+  grade: inferred
+  id: 01M6AP0NP1JTN48Q4VZHSY5RQT
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/cancel_process.rs
+  seat: null
+  sequence: '6494'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793507430852'
 id: 01M6AF5HMTQXK42RXE8MZZC9SW
 kind: file
-last_observation_sequence: '5244'
+last_observation_sequence: '6494'
 number: 739
 observation_reason: null
 observed: true
-produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:2443de7e5bb3fa179b3b5c1c3d288cb9d6caa2d588c5afd42edfaba4fd6f2ce6
-  log: .bboxy/log/2026-11-01.jsonl#5245
-  sig: XSy7gIb+wWeEG7iQlyoyfso116vYYdqbhcnkUVM1CYQPctmyDHSx1iyoDuwNbR6Ke3oX/ORiqxusmTwpTh2BAA==
+  frontmatter_digest: sha256:e544a980a4ce7278322691e610e9526d75b75b969bb437190ab17202258d9d02
+  log: .bboxy/log/2026-11-01.jsonl#6495
+  sig: CGqwRab0ePj6Pgl76EDDCDSQJIsROLE0T8GUJ5lHrm16yoQQJ978uqBoUyP15P0VyvItSEmErvThgXvBMeRvDw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/cancel_process.rs
 type: artifact
-updated: 2026-11-01T04:08:44.180Z
+updated: 2026-11-01T04:31:21.282Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

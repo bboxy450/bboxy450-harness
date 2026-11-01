@@ -10,13 +10,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 29084
+bytes: 30282
 claimed: false
 created: 2026-11-01T02:07:38.270Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:1e51766744e1c7cee28cb39fac92c9bb563730fbcef9b21f3ee89fa7bd7e7436
+digest: sha256:a17d45aba6c716703ec0f46aefcc99083e6e54315334c0be0ccf96455e861544
 digest_grade: observed
 for: []
 grade: inferred
@@ -325,22 +325,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793506000998'
+- before_digest: sha256:1e51766744e1c7cee28cb39fac92c9bb563730fbcef9b21f3ee89fa7bd7e7436
+  commit: null
+  digest: sha256:a17d45aba6c716703ec0f46aefcc99083e6e54315334c0be0ccf96455e861544
+  event_hash: c03b8d4ba611f776d0c1757bd0fd08381cbd751ec9a2237ab37cc5acf9b3275a
+  generation: '1'
+  grade: inferred
+  id: 01M6AN4ZVE114EN0J7T3E8KF2J
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/interfaces/protocol.md
+  seat: 01M6AC7H87H9S94Y1D45PSQVH6
+  sequence: '5711'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793506573787'
 id: 01M6ADFMB73BQMNMF0NVT12K34
 kind: markdown
-last_observation_sequence: '5160'
+last_observation_sequence: '5711'
 number: 31
 observation_reason: null
 observed: true
 produced_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:8ee4cccb01f7f0c6c08ca4848e80115339f8a7af1024912026c3414d2b9a570d
-  log: .bboxy/log/2026-11-01.jsonl#5161
-  sig: a25Aq4qnbnqURuEEs8Ugq/8VSDy6H9ucmv7PRn8pMtL9LbFQUQlcD82N4fmukOoMXSt743Wln7+iH7Lp6BTKBg==
+  frontmatter_digest: sha256:1098a9eb5eeec12afccd511e3aa8d191f2aef0534adf1115c0a94ecb0052b716
+  log: .bboxy/log/2026-11-01.jsonl#5712
+  sig: fabNaSzG7oCbapObferA5GESrJtDg3e20IkpHpAK3xnmFLljxzmY6kW/UVVa+4nxyJm8uScNVAB1yWg/SQRGBA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: .bboxy/interfaces/protocol.md
 type: artifact
-updated: 2026-11-01T04:06:41.317Z
+updated: 2026-11-01T04:16:14.192Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact
