@@ -968,6 +968,152 @@ fn process_lifecycle(mode: u8) -> Model {
     }
     m
 }
+// Adapted from bboxy450-term DirtyWake: a budgeted drain retires only one
+// item, then complete_drain rechecks and marks the unconsumed remainder.
+fn dirty_wake_frame(b: bool) -> Model {
+    let mut m = base::<4>(
+        "DirtyWakeFrame",
+        b,
+        &[
+            ("produced", 3, 0),
+            ("consumed", 3, 0),
+            ("wake", 1, 0),
+            ("draining", 1, 0),
+        ],
+    );
+    act(
+        &mut m,
+        "Publish",
+        Var(0).lt(Int(3)),
+        &[(0, Var(0).plus(Int(1))), (2, Int(1))],
+    );
+    act(
+        &mut m,
+        "BudgetOne",
+        all([eq(3, 0), eq(2, 1), Var(1).lt(Var(0))]),
+        &[(1, Var(1).plus(Int(1))), (2, Int(0)), (3, Int(1))],
+    );
+    act(
+        &mut m,
+        "CompleteEmpty",
+        all([eq(3, 1), Var(1).eq(Var(0))]),
+        &[(3, Int(0))],
+    );
+    act(
+        &mut m,
+        "CompleteRemainder",
+        all([eq(3, 1), Var(1).lt(Var(0))]),
+        &[(3, Int(0)), (2, if b { Int(0) } else { Int(1) })],
+    );
+    safe(
+        &mut m,
+        "NoLostRemainder",
+        all([eq(3, 0), Var(1).lt(Var(0))]).negate().or(eq(2, 1)),
+    );
+    if !b {
+        progress(
+            &mut m,
+            "ArrivalYieldsFrame",
+            Var(1).lt(Var(0)),
+            Var(1).eq(Var(0)),
+            vec![1, 2, 3],
+        );
+    } // broken control isolates safety
+    m
+}
+// Adapted from bboxy450-term chat_scroll.rs: layout follows a finite tail
+// sentinel, but never overwrites manual intent; Jump explicitly restores it.
+fn scroll_stick(b: bool) -> Model {
+    let mut m = base::<4>(
+        "ScrollStick",
+        b,
+        &[
+            ("tail", 3, 1),
+            ("following", 1, 1),
+            ("offset", 3, 1),
+            ("requested", 3, 0),
+        ],
+    );
+    act(
+        &mut m,
+        "AppendFollowing",
+        all([eq(1, 1), Var(0).lt(Int(3))]),
+        &[(0, Var(0).plus(Int(1))), (2, Var(0).plus(Int(1)))],
+    );
+    act(
+        &mut m,
+        "ScrollAway",
+        eq(1, 1),
+        &[(1, Int(0)), (2, Int(0)), (3, Int(0))],
+    );
+    act(
+        &mut m,
+        "AppendManual",
+        all([eq(1, 0), Var(0).lt(Int(3))]),
+        &[
+            (0, Var(0).plus(Int(1))),
+            (2, if b { Var(0).plus(Int(1)) } else { Var(2) }),
+        ],
+    );
+    act(
+        &mut m,
+        "JumpToLatest",
+        eq(1, 0),
+        &[(1, Int(1)), (2, Var(0))],
+    );
+    safe(
+        &mut m,
+        "TailShownWhileFollowing",
+        eq(1, 0).or(Var(2).eq(Var(0))),
+    );
+    safe(
+        &mut m,
+        "ManualOffsetPreserved",
+        eq(1, 1).or(Var(2).eq(Var(3))),
+    );
+    m
+}
+// Adapted from bboxy450-term LifecycleOwnership: detaching a face never
+// signals the actor; only an explicit Stop ends its own birth.
+fn embed_lifecycle(b: bool) -> Model {
+    let mut m = base::<5>(
+        "EmbedLifecycle",
+        b,
+        &[
+            ("attached", 1, 1),
+            ("running", 1, 1),
+            ("stopped", 1, 0),
+            ("birth", 2, 0),
+            ("signalled_birth", 2, 0),
+        ],
+    );
+    act(
+        &mut m,
+        "DetachWindowOrView",
+        eq(0, 1),
+        &[(0, Int(0)), (1, if b { Int(0) } else { Var(1) })],
+    );
+    act(&mut m, "Reattach", eq(0, 0), &[(0, Int(1))]);
+    act(
+        &mut m,
+        "ExplicitStop",
+        eq(2, 0),
+        &[(1, Int(0)), (2, Int(1)), (4, Var(3))],
+    );
+    act(
+        &mut m,
+        "NextBirth",
+        all([eq(2, 1), Var(3).lt(Int(2))]),
+        &[(3, Var(3).plus(Int(1))), (1, Int(1)), (2, Int(0))],
+    );
+    safe(&mut m, "DetachPreservesRun", eq(2, 1).or(eq(1, 1)));
+    safe(
+        &mut m,
+        "StopSignalsOwnBirth",
+        eq(2, 0).or(Var(3).eq(Var(4))),
+    );
+    m
+}
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![];
     for b in [false, true] {
@@ -984,6 +1130,9 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
             replay_drop(b),
             replay_healthy(b),
             stream_to_view(b),
+            dirty_wake_frame(b),
+            scroll_stick(b),
+            embed_lifecycle(b),
             profile_load(b),
             fork_materialize(b),
         ] {

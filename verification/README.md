@@ -4,7 +4,7 @@ The native backend is crates.io `bboxy450-tlc =0.1.1`, using its finite integer
 and Boolean Model/Variable/Action API. Yarn 0.1.1 projects the production
 `harness_turn_topology!` declaration. This repository contains no checker fork.
 
-The corpus has 37 model variants mapped to 16 contracts, including the shared
+The corpus has 43 model variants mapped to 19 contracts, including the shared
 Yarn scheduling projection.
 It explores two queued turns, two tools/rounds, three birth generations (A-B-A),
 a two-slot stand-in for the bounded work lane, and a three-entry replay log.
@@ -59,3 +59,18 @@ reproduce early-reap cancellation leakage and signalling an empty group.
 ControlLaneBound models typed producer slots and consumers returning them;
 the duplicate-producer control reaches depth 257. No invariant substitutes a
 Rust constant or a mode-generated failure flag for these reachable states.
+
+The GUI adds finite DirtyWakeFrame (three publications, one drain quantum),
+ScrollStick (tail/offset 0..3) and EmbedLifecycle (three births) families and their
+safety controls. The existing DirtyWake StreamToView pair is retained. These
+models are abstractions, with no claim that the checker proves delta content or
+pixels: `gui_fixtures` checks ordered projection, generation fencing and random
+delta loss/coalescing against completion; `gui_budget` measures a 100k-delta
+frame driver (thread CPU p99 ≤ 0.9ms, and separately retained wall-time p99); `gui_render` and `test-gui-smoke` witness the real retained tree,
+CoreText and offscreen Metal frame. Native surface presentation/physical IME
+and embedding into the separate term workspace remain implementation-only.
+
+`make test` runs `tests/gui_gate.py` after the core gate. It uses its own HOME,
+checks the exact upstream disallowed-method catalogue at UI module boundaries,
+runs the feature tests and asserts every all-items kind has a nonblank,
+nonoverlapping framebuffer region. Screenshot: `.bboxy/runs/gui-smoke.png`.
