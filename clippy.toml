@@ -1,0 +1,10 @@
+# Copyright 2026 Boxy (bboxy450) and contributors.
+# SPDX-License-Identifier: LicenseRef-Respectful-Slop-1.0-Draft
+# Project: bboxy450-harness — https://github.com/bboxy450/bboxy450-harness
+# License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
+# Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
+#
+# Config boundary. Clippy searches upward for clippy.toml; this file stops that
+# search so a parent workspace's policy (bboxy450-term's UI policy, when this
+# repository is its submodule) never applies here. The GUI gate keeps its own
+# policy via CLIPPY_CONF_DIR=src/frontends/gui/lint (Makefile).
