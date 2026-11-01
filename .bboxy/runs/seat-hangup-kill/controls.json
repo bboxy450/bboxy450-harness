@@ -2,7 +2,7 @@
   {
     "name": "group-kill",
     "source": "src/mcp.rs",
-    "source_sha256": "62de91ca3916b7eae92d870feb359664f3ce26c342ad46e11e20d17121ebc03d",
+    "source_sha256": "a194040873de9541838a5e94ff1fe8bd0039bfb225226a6ff08f11e005a86946",
     "command": [
       "cargo",
       "test",
@@ -24,7 +24,7 @@
   {
     "name": "seat-hangup",
     "source": "src/process.rs",
-    "source_sha256": "f0d315e358414e05e87138d21fc687d30a0ddbc4ee5dbac315a6a502e4147737",
+    "source_sha256": "8634f964b91581a25fcfa200b20cb5ffbaf799a8ef6b49c6aedbc7964d0738c7",
     "command": [
       "cargo",
       "test",
@@ -68,7 +68,7 @@
   {
     "name": "leader-only",
     "source": "src/mcp.rs",
-    "source_sha256": "62de91ca3916b7eae92d870feb359664f3ce26c342ad46e11e20d17121ebc03d",
+    "source_sha256": "a194040873de9541838a5e94ff1fe8bd0039bfb225226a6ff08f11e005a86946",
     "command": [
       "cargo",
       "test",

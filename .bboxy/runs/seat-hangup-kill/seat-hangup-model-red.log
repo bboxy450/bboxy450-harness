@@ -6,7 +6,7 @@ failures:
 
 ---- synchronous_hangup_kill_precedes_the_supervisors_unjoinable_exit stdout ----
 
-thread 'synchronous_hangup_kill_precedes_the_supervisors_unjoinable_exit' (121364036) panicked at tests/formal_nonvacuity.rs:381:5:
+thread 'synchronous_hangup_kill_precedes_the_supervisors_unjoinable_exit' (121487478) panicked at tests/formal_nonvacuity.rs:381:5:
 NoOwnedMemberAfterSupervisorKill
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
