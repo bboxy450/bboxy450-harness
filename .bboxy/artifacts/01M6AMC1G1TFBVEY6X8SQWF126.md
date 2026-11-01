@@ -15,7 +15,7 @@ created: 2026-11-01T04:02:36.682Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:e8a6a5b0c9a53dfef2f575ede760e2fb0c94844e589aa6a27c18bbba64e1301c
+digest: sha256:263fad24ca175ae5cb4729e22063f1ec98e30ab3531203fe727bd7f79412999f
 digest_grade: observed
 for: []
 grade: inferred
@@ -452,22 +452,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/git/ref
   ts: '1793517617635'
+- before_digest: sha256:e8a6a5b0c9a53dfef2f575ede760e2fb0c94844e589aa6a27c18bbba64e1301c
+  commit: 1b940ee579d38ffaad46e81e04c3eb56f4f9f1ca
+  digest: sha256:263fad24ca175ae5cb4729e22063f1ec98e30ab3531203fe727bd7f79412999f
+  event_hash: ab90881107daca4a24d8c652e50681213ae78f1c44c6b7559a68bdd236b95847
+  generation: null
+  grade: inferred
+  id: 01M6AZPSEG52E2XQPA9WCB36HK
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/refs/remotes/origin/HEAD
+  seat: null
+  sequence: '14123'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793517643172'
 id: 01M6AMC1G1TFBVEY6X8SQWF126
 kind: other
-last_observation_sequence: '14075'
+last_observation_sequence: '14123'
 number: 1132
 observation_reason: git-ref-value; authorship unverified
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:84c851b4ed8546dd786022da269090584da99096f4d62c877854ee3e3a600d56
-  log: .bboxy/log/2026-11-01.jsonl#14076
-  sig: aLP4GC75N6zRN0ONU1pIKD4JP3o5GXHMF5OooHHH08iUDOOyyaODQ7BXUMWgbu8oxSxShfkMltzqmDtCgvUeBw==
+  frontmatter_digest: sha256:0f03169ff984c7ef1aa68653aadb3283e15263fe80d2ccf90694bcb05dca2fdb
+  log: .bboxy/log/2026-11-01.jsonl#14124
+  sig: BHFDOGPFuPHitUD9phUdQeC21yrFrZIZnxmYRfPqNMXR9QQjf2+JVljxCf48IFzBaMzkTHruWcMQFHoSk89+Cw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: git:worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/refs/remotes/origin/HEAD
 type: artifact
-updated: 2026-11-01T07:20:17.954Z
+updated: 2026-11-01T07:20:43.223Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

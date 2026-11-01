@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6AMBPG3XD3CMJWHQCKWAG7M
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,13 +9,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 18956
+bytes: 19139
 claimed: false
 created: 2026-11-01T06:04:20.384Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:3eeba88d2e45b48a03a9562909983b17447828dfb5ea647ea816a543fac2f6f1
+digest: sha256:a2b216411c80264a82e8cadc08c5dcf7f0ebe74886b90dab14cb6d56974737dc
 digest_grade: observed
 for: []
 grade: inferred
@@ -117,22 +116,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793516087755'
+- before_digest: sha256:3eeba88d2e45b48a03a9562909983b17447828dfb5ea647ea816a543fac2f6f1
+  commit: null
+  digest: sha256:a2b216411c80264a82e8cadc08c5dcf7f0ebe74886b90dab14cb6d56974737dc
+  event_hash: 0c0aee6ca5a3fa2b0cc369db5c531568b4aab4a8dfc9a82af9c7f6f448244d39
+  generation: null
+  grade: inferred
+  id: 01M6AZYFXG82DF954NE24JA19B
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/src/frontends/gui/bridge.rs
+  seat: null
+  sequence: '14189'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793517852654'
 id: 01M6AVAY0K3FGCDFX4FH0R4XPA
 kind: file
-last_observation_sequence: '13615'
+last_observation_sequence: '14189'
 number: 1943
 observation_reason: null
 observed: true
-produced_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:8a79912d94e22b0703ed9b2e69bcf58ac3aa9f0ca5c983ec043fb22c50285d89
-  log: .bboxy/log/2026-11-01.jsonl#13616
-  sig: otUC3/F8XjDSlKhjPqQzC9Mf8bpDTXpeDXBjAbo6sH/AXLnQu1dbmyw6LuD5zV7rrkJ5fCsKJQ4IjGZMGvyIAw==
+  frontmatter_digest: sha256:abae92941072b6ef7ee13a752222ca42283f253e4a0b68c0bbc133a5fb6d0a11
+  log: .bboxy/log/2026-11-01.jsonl#14190
+  sig: KnSgqRsHFwYlCgYGdUz7U7lzvZXM2FfAAIM+la3pdXufCNntp4kTpf2ag2tiML1rTTml/MKO/Nzvs4jbTTohCQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/src/frontends/gui/bridge.rs
 type: artifact
-updated: 2026-11-01T06:54:50.581Z
+updated: 2026-11-01T07:24:55.612Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact
