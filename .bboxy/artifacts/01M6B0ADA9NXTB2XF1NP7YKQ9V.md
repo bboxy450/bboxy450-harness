@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 12401
+bytes: null
 claimed: false
 created: 2026-11-01T07:31:26.154Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:f7c04e7d2d3b2e40c9a5bc4d061ddd80f1951df549a66b268df76234792a579f
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -52,22 +52,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793518284102'
+- before_digest: sha256:f7c04e7d2d3b2e40c9a5bc4d061ddd80f1951df549a66b268df76234792a579f
+  commit: null
+  digest: null
+  event_hash: 3ba773082da1f35bf1bfba64052135fa96dd4a223a45de483ab91e7c9ab6ad46
+  generation: null
+  grade: inferred
+  id: 01M6B6QCASVW5DH2EJW8XC80P9
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/protocol_golden.rs
+  seat: null
+  sequence: '19611'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955447'
 id: 01M6B0ADA9NXTB2XF1NP7YKQ9V
 kind: file
-last_observation_sequence: '14874'
+last_observation_sequence: '19611'
 number: 2492
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:3eba546ae42bae560fed70ce59e9e59f002e7324552514c2dfa5783508670bcb
-  log: .bboxy/log/2026-11-01.jsonl#14875
-  sig: selgD+0BBszXp8V4uipvWcWOCjOgEwWSuB0qRk3mDqnK0up946Tla4velQjP2JaY1QFsESYw7DcLRq/og6KJAw==
+  frontmatter_digest: sha256:45f627b3c26c332de1da831a1bd6a2d6db2dd1f73335add296cd03d0260c628f
+  log: .bboxy/log/2026-11-01.jsonl#19612
+  sig: yHDRa+TIZs0DDhRhsrNvhqV6bjZfIVPsnZZEZAwdEkH1aAat0qdFQiIB/2FC3NGsmMaiH7KqrCadby6x1ZVbCw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/protocol_golden.rs
 type: artifact
-updated: 2026-11-01T07:31:35.136Z
+updated: 2026-11-01T09:23:22.586Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

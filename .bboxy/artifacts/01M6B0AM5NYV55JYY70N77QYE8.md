@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 606
+bytes: null
 claimed: false
 created: 2026-11-01T07:31:33.174Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:e3aa65e8dbcc1102b2fc7d6cb8573e1a543e8bf570461491b58f502da0062aa9
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -52,22 +52,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793520087242'
+- before_digest: sha256:e3aa65e8dbcc1102b2fc7d6cb8573e1a543e8bf570461491b58f502da0062aa9
+  commit: null
+  digest: null
+  event_hash: 5b446d2388ed5fd71ee2b66bed79875dda74ca2c80afd61337f95f13cbe14523
+  generation: null
+  grade: inferred
+  id: 01M6B6Q8Z41NR53TA9KPBJTPYA
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/seat/reset.txt
+  seat: null
+  sequence: '19584'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955445'
 id: 01M6B0AM5NYV55JYY70N77QYE8
 kind: file
-last_observation_sequence: '16637'
+last_observation_sequence: '19584'
 number: 2503
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:ad590ac1a07f096ffd4773dd22f8da6e10075700847c34bcf02d8312881fdd7f
-  log: .bboxy/log/2026-11-01.jsonl#16638
-  sig: oaKbkJqQR5hfBPwI9yiEWFiSfxbzSPOZHnsqfq5caJUM4+99HVyIkeWmfjv6v8DFQ6VRVJnG/HRGgLAUWBxjDg==
+  frontmatter_digest: sha256:a937c3981ef7e4ea4027721c6058e84640c8fe78bd34ca5c976f41eb8556bcae
+  log: .bboxy/log/2026-11-01.jsonl#19585
+  sig: 8G959Ycrgky/nNo59WkQgCALFwcAaU+0t6ZFDWNAsuDIKpuiaCzXdkkw4wueCjYikzxqnXXX+j+E4zZOMWmtDg==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/seat/reset.txt
 type: artifact
-updated: 2026-11-01T08:02:26.183Z
+updated: 2026-11-01T09:23:19.141Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 19630
+bytes: null
 claimed: false
 created: 2026-11-01T07:30:59.363Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:5121894c565b96913953dcd9057500247d1178826bc23d2d778fcf1a77796a69
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -148,22 +148,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793522598942'
+- before_digest: sha256:5121894c565b96913953dcd9057500247d1178826bc23d2d778fcf1a77796a69
+  commit: null
+  digest: null
+  event_hash: 2c3141a0be40591078dd15b127a6c1c99a4b233117f182623928da1e245b91c6
+  generation: null
+  grade: inferred
+  id: 01M6B6PGSJWK0SFVEP6N560PC6
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/mcp_client.rs
+  seat: null
+  sequence: '19390'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955266'
 id: 01M6B09K53ECJJGZP6JQH0MT4C
 kind: file
-last_observation_sequence: '18518'
+last_observation_sequence: '19390'
 number: 2458
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:cd1d4b860f2ba259a4822384503c100bbe08423ab08a12aa562a8a94314bf12e
-  log: .bboxy/log/2026-11-01.jsonl#18519
-  sig: fks/z2M3MFebT0Vm4UztxhsIzQrYrRfK57vlQezTjRrZXk+euZos8nYP0HyCufhrewONS+H4X5iwpdDsrLnuBQ==
+  frontmatter_digest: sha256:c0bb87039e05cd3bf9f04d4f293dcdd6c7c62433f1b4ab96ca40ce6dfcf08c0a
+  log: .bboxy/log/2026-11-01.jsonl#19391
+  sig: IvmHXOtL4Y6dX7Duggkl9fHA1NdLUw5/MQC7rBvd7sb9uUF3LL/lctdDK4h481VE8FYmR+s9yQxbqtexXfFiDg==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/mcp_client.rs
 type: artifact
-updated: 2026-11-01T08:44:23.928Z
+updated: 2026-11-01T09:22:54.387Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

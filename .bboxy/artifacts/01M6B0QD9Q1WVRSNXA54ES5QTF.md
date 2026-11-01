@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6ADTTF9QWWFZFVZJHJ3DD8E
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 113
+bytes: null
 claimed: false
 created: 2026-11-01T07:38:32.120Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:848952f15aa2ce6d6ea174cc86eb7f291b31d4446e50c57acbba3bc20dbd6888
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -181,22 +180,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793522882507'
+- before_digest: sha256:848952f15aa2ce6d6ea174cc86eb7f291b31d4446e50c57acbba3bc20dbd6888
+  commit: null
+  digest: null
+  event_hash: ca42fd9a53a2341edf890918717281d3c491bc0dd11e56437173e6745a9f7e77
+  generation: null
+  grade: inferred
+  id: 01M6B6PBN3E9ZHRCEXFEK7R9MW
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/startup-green.log
+  seat: null
+  sequence: '19348'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955265'
 id: 01M6B0QD9Q1WVRSNXA54ES5QTF
 kind: file
-last_observation_sequence: '18677'
+last_observation_sequence: '19348'
 number: 2588
 observation_reason: null
 observed: true
-produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:d722cae028a71f8cdf2d5fc1726453e43dd21bc855d8026e0a231582d39fb54c
-  log: .bboxy/log/2026-11-01.jsonl#18678
-  sig: qvgP/1VN5/ZLSATBuMZYS5kNHcnyUmwJDbnmwW6RkJpVB+dRYutesgPzt2bAKJ8kNCvHRF1cBR8PtkIDwKezAQ==
+  frontmatter_digest: sha256:de7cd0e39fe882acc7f5569b048f577b8f0213c7dba6ebf8daf09e6dd4ce8611
+  log: .bboxy/log/2026-11-01.jsonl#19349
+  sig: 1FVP4te5Q+hwcuLLrbENb8otPUCtPaTpqc+8h2t2wVx5vIQtIiqZ581Ud8jgSL2ijdWP5b677plp4FiRnwFHBw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/startup-green.log
 type: artifact
-updated: 2026-11-01T08:48:05.515Z
+updated: 2026-11-01T09:22:49.132Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

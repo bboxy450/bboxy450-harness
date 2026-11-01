@@ -9,13 +9,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 10940
+bytes: 13785
 claimed: false
 created: 2026-11-01T08:54:11.974Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:c4a80e446850f8b359d92c920aefa87a293a874640bfa1bded96bf52030584bb
+digest: sha256:10aeb34e14fb33674ced9a726fad60619b8dd3f526341b1b01bee58b1fda7d32
 digest_grade: observed
 for: []
 grade: inferred
@@ -52,22 +52,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793523709346'
+- before_digest: sha256:c4a80e446850f8b359d92c920aefa87a293a874640bfa1bded96bf52030584bb
+  commit: null
+  digest: sha256:10aeb34e14fb33674ced9a726fad60619b8dd3f526341b1b01bee58b1fda7d32
+  event_hash: 0560ca92cd6e5d7811faf62761f795e2948c8edb37432c4b2fbf23d72edffc67
+  generation: null
+  grade: inferred
+  id: 01M6B6B07E85M05APHCHSJRPHS
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/.bboxy/runs/e1c-report.md
+  seat: null
+  sequence: '19205'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524530318'
 id: 01M6B51YR5GW0EAFEFS5BV0NVV
 kind: markdown
-last_observation_sequence: '18976'
+last_observation_sequence: '19205'
 number: 3075
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:27fa0098c7a126114a5e9c42d63782ed7df1805ce10aeba401d74a90ea7fa067
-  log: .bboxy/log/2026-11-01.jsonl#18977
-  sig: RN/9OzyP2w2V/hNg82GL1O11fMKRVwaAtzALHdeIfAD98LPJ9qCOIX8BpXG1K944ei1DfuyiibRKoqdbLd22Cw==
+  frontmatter_digest: sha256:617cc200285d951b28f69243c0ffac50a81bb1cb973fb6f66266787982c4f47c
+  log: .bboxy/log/2026-11-01.jsonl#19206
+  sig: db3u7nyHxXpGW+egu5KTMc/hRpt6t//Fei+SArOffTQiRR8/40yMl8esBmNgXJF1C1N2TAONEVxoUdvTyIGUDQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: .bboxy/.bboxy/runs/e1c-report.md
 type: artifact
-updated: 2026-11-01T09:01:49.633Z
+updated: 2026-11-01T09:16:36.976Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

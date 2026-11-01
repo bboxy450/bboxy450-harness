@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 473
+bytes: null
 claimed: false
 created: 2026-11-01T08:33:22.334Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:7aac24f805d639fe2af2f90d16e235ab377816e1eab21c7d55b1d046840fda22
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -84,22 +84,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793522312741'
+- before_digest: sha256:7aac24f805d639fe2af2f90d16e235ab377816e1eab21c7d55b1d046840fda22
+  commit: null
+  digest: null
+  event_hash: cdce9935eac6097edfbbae68467a8fd76c652d93733fa31053c968919418c611
+  generation: null
+  grade: inferred
+  id: 01M6B6P62K7GTYQCR68BE1N4EK
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/queued-cancel-green.log
+  seat: null
+  sequence: '19303'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955264'
 id: 01M6B3VTCXQ35Q440F8GTAS2C9
 kind: file
-last_observation_sequence: '18445'
+last_observation_sequence: '19303'
 number: 2801
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:f326b42b4efffb7fd2891fb2511ab928a4177818eb39e8d6e7d6349b7f9dfa5c
-  log: .bboxy/log/2026-11-01.jsonl#18446
-  sig: WAGGPhiiubIRN9ym39kfYRp0tJS24Wu1mDyxM9tkd/5lYZJTMLkEZ1JNpbqaTOhK24p4dcBksFl80RDPGTQnDQ==
+  frontmatter_digest: sha256:e0329e77b36d6e1c49396415dae0555b6d1476d04a7956134c1f02a0c59ea892
+  log: .bboxy/log/2026-11-01.jsonl#19304
+  sig: VgAsSWyMhkbvnNaQXN/LqlGBoV5JKTDbq3h9/mgo2c6omc2QrqJKWr+hiMyNPxiAZBO641ah0wdr7n4+8jJXCg==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/queued-cancel-green.log
 type: artifact
-updated: 2026-11-01T08:39:01.252Z
+updated: 2026-11-01T09:22:43.415Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

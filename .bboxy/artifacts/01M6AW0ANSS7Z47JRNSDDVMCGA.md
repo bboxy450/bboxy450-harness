@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6AC3D2ECK4W3F8495PAQTS3
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,13 +9,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 16253
+bytes: 18890
 claimed: false
 created: 2026-11-01T06:16:01.466Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:3980f8770f3794ca61ae7a856d8ba0bf7fcc19b6c034e041063efc864259b1cd
+digest: sha256:c5b1d244815a008ec136b07409b883bc0db9c973f88ec14534f17ebb39498805
 digest_grade: observed
 for: []
 grade: inferred
@@ -69,22 +68,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793524134081'
+- before_digest: sha256:3980f8770f3794ca61ae7a856d8ba0bf7fcc19b6c034e041063efc864259b1cd
+  commit: null
+  digest: sha256:c5b1d244815a008ec136b07409b883bc0db9c973f88ec14534f17ebb39498805
+  event_hash: f94949a69f6c630b5690ed82a0e52ea43d75f3cc5ae21c67263946857c5d0128
+  generation: null
+  grade: inferred
+  id: 01M6B6FBFGEV0RCZHCWSRNZ0CH
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/tasks/2026-10-31-harness-acp-mcp-compaction.md
+  seat: null
+  sequence: '19245'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524696497'
 id: 01M6AW0ANSS7Z47JRNSDDVMCGA
 kind: markdown
-last_observation_sequence: '19091'
+last_observation_sequence: '19245'
 number: 2002
 observation_reason: null
 observed: true
-produced_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:657f6efd77e30291e82a29fa36158a225a5b94d530f0cdb63ddeb82b405bf760
-  log: .bboxy/log/2026-11-01.jsonl#19092
-  sig: C/e/AnOetnK0XYNOx0oOCQzfxP4RhAgoVNYlI0AfGD6fPRCoyz310NPfLdF3e0CsMcAMO3s+B1GBKq1H49rDDA==
+  frontmatter_digest: sha256:5bf409c2a2f6f2c9ddf25a43c349469b081f08c4d1e6451ba107873ab807036a
+  log: .bboxy/log/2026-11-01.jsonl#19246
+  sig: CJKuK52RG3W3+q7Ho5pj/oTJ2m2qDqcTI5MoQyHK0rQu6hHWexh7kQUHOOLzsDV+OP/G16rYQgFTnJqNiqBiCA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: .bboxy/tasks/2026-10-31-harness-acp-mcp-compaction.md
 type: artifact
-updated: 2026-11-01T09:08:54.364Z
+updated: 2026-11-01T09:18:59.569Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

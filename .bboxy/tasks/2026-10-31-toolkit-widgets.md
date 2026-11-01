@@ -14,12 +14,13 @@ artifacts:
 - '[[01M6AQR7T6DMCX29MTYFMBCHHV]]'
 - '[[01M6AZRA74WYMK5MHNEBMQHHMT]]'
 - '[[01M6B3Z46NXTCP7P0ZTDCY0YMQ]]'
+- '[[01M6B71XE74M655P2RS6DMVQ64]]'
 assignee: seat:01M6ADTVVZS36VS43P2PG15HRQ
 authorship:
   kind: seat
   process_generation: '1'
-  public_key: WOnRfteuEUyRkFzbca9GwLmAehdGOJxhuYtUTckYsfs=
-  signer: seat:01M6ADTVVZS36VS43P2PG15HRQ
+  public_key: 0Yj/k2rOV2tLHQm2aES5d/roSsYDRC/E70ukAxvovgo=
+  signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
 created: 2026-11-01T02:08:11.298Z
 created_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 delegated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
@@ -27,44 +28,43 @@ id: 01M6ADTGYAQ5VJ7GZ05FWT7Q93
 number: 50
 provenance:
   digest: sha256:2824b981df63b11a731cfbefb4d56962ec47df6a99472a620119c99e0f9d66e0
-  frontmatter_digest: sha256:0d6f87d1be3db72a84730a70e79014b554d49fa33687de04b27327f26a8732e5
-  log: .bboxy/log/2026-11-01.jsonl#17814
-  sig: tbWztrCFqMQuyvTTCDYIpIUXGsHHEuOlLqIC5megkWThoiJiIygZoi2nwZduWMwHkh+ynof9w7GIZ/oTjdYhBg==
-  signer: seat:01M6ADTVVZS36VS43P2PG15HRQ
+  frontmatter_digest: sha256:14f3db092b657f0648ac52bf353b36087d590b2145e82823bfc48eb3186936f6
+  log: .bboxy/log/2026-11-01.jsonl#20307
+  sig: xCAWO0WeEXb+kSUL2H4FP7YbE7FlCuyoF692uMCHexQCMwgiEBfBxQWwapeLZE6DZYucKqLLtXXS4LBUwNcSDQ==
+  signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
 rejection:
   by: seat:01M6AC3D2ECK4W3F8495PAQTS3
   reason: |-
-    Rework round 2 of PR #86 (18ff123b). The Oracle verified 2, 3, 4, 5, 8 and 9 as fixed and non-vacuous: the state-ledger StreamToView, package exclusion, syntect trim, OnceLock, the DirtyWake shape and the invalidation action. Keep them. Three focused fixes remain. Push to the same branch and report again.
+    Round 4, focused. Reviewed at 4889321f; your merge d5e19904 is not on origin, so push it. Verified fixed and kept: container and multiline definition detection, ScrollStick (liveness dropped; the witness now calls the real `jump_to_latest`), the four local-degradation diff cases, and allowed paths. The landing plan is unchanged: I land through one signed squash commit, so there is no history rewrite and no Report trailer.
 
-    1. **Streaming correctness** (`bbt-doc/src/markdown/streaming.rs:23-34`, `:56-59`). `definition_line` only matches at the start of a line. Pulldown-cmark also accepts link and footnote definitions that change resolution document-wide inside blockquotes and list items: `> [r]: u`, `- [r]: u`, `- [^f]: x`. It also accepts labels split across lines (`[foo\nbar]: u`). None of these sets the full-parse flag, so the incremental output differs from a full parse: a link stays unresolved.
-       - Fix: match after `>` and list markers, and treat a line-leading `[` without a closing `]` as a possible definition.
-       - Add pieces for each form to the equivalence property test.
-       - The `contracts.toml` IncrementalMarkdown assumption about "multiline definitions" must be backed by a test, or removed.
-       - Red→green required: a seed with `> [r]: u` that fails on 18ff123b.
-    2. **Diff robustness** (`bbt-ui/src/diff.rs`). These cases still return `Err` for the whole diff: a short hunk followed by `@@` (`:47-48`), a short hunk at EOF (`:118`), `\ No newline` before any hunk (`:74`), and a bad hunk header. An over-long hunk swallows the following `diff --git` or `---` as Notes.
-       - Make every one of them degrade locally. A header must always start a new file or hunk.
-       - Add a test for each.
-    3. **ScrollStick liveness can't fail.** `JumpRestoresFollowing` holds in the same step as the jump (`:225-229`), and no broken model targets it.
-       - Either drop the liveness claim from the model and contract, or add a broken model whose jump does not restore following, which must fail.
-       - The witness at `:405-435` must compare its jump step against the real `jump_to_latest`, not against constants.
+    MUST
+    1. **REGRESSION in `bbt-ui/src/diff.rs:88`.** `---` and `+++` are tested as headers before the hunk counters. In a valid hunk, removing a line `-- foo` (SQL, Lua, Haskell comments, email `-- `) renders as `--- foo`; adding `++ x` renders as `+++ x`; removing a bare `--` gives `---`. Each of these now ends the hunk early and pushes everything after it into the headers. 18ff123b handled them correctly.
+       - Always break on `diff --git`.
+       - Break on `---`/`+++` only when the hunk counters are exhausted, or when `---` is immediately followed by `+++` at a hunk boundary.
+       - Tests: removing a `-- comment` line, adding `++ x`, and removing `--`, each inside a valid hunk with lines after it. Each must be red on 4889321f and green after the fix.
+    2. **Escaped bracket in a definition label** (`streaming.rs:50-73`). `[a\]b]: u` is a false negative: `find(']')` stops at the escaped `]`. Skip backslash-escaped brackets, and add a corpus piece plus a red seed.
+    3. **Make sure `crates/bbt-ui/reports/` is deleted at the pushed head**, per d2900. The 4889321f tree still has it.
 
-    Note: `plugins/gitkb/ATTRIBUTION.md` is accepted as a synchronized attribution copy.
+    SHOULD
+    - Add back a model assertion that a jump resets the requested offset and the manual intent to 0.
+    - The generated multiline seed (`seed%32==24`) should reference the label it defines.
 
     Verify:
-    - `make test` with no `RUST_TEST_THREADS` override. The review found no new test that depends on running alone. If the full gate still needs `=1`, name the failing test and explain why. A #85 mux flake is not a blocker.
-    - Report through `task_report`. The report goes outside the crate or stays excluded from it, as now.
+    - Run the full `make test` on your merge with main, at default concurrency.
+    - Run `make test-kb-reports` on that same merge. It is expected to fail only on the old Report trailers, which the squash landing removes.
+    - Push, then send a `task_report` naming the final head and the merge commit.
 report:
   commit: 4889321f13e509dc7ca18ce7ed3f0217e76cdd1b
   op_id: 01M6B40N0XESJ4X72GVH4Z55S5
   reported_by: seat:01M6ADTVVZS36VS43P2PG15HRQ
   summary: 'Second rework implemented and pushed to [PR #86](https://github.com/bboxy450/bboxy450-term/pull/86) at signed4889321f13e509dc7ca18ce7ed3f0217e76cdd1b, clean worktree. [Committed report](https://github.com/bboxy450/bboxy450-term/blob/4889321f13e509dc7ca18ce7ed3f0217e76cdd1b/crates/bbt-ui/reports/toolkit-widgets-report.md) maps mechanisms, original outcomes, red→green and gaps. make test exited0 with default concurrency and no serial retry;116models/31crates/48contracts and128stories pass, both#85witnesses pass. Three focused fixes are complete. Integration remains blocked by conflicts with newer main ee6b7d5e and its new historical-report gate while authenticated report-record tools are unavailable; attempted integration was aborted. PR remains unmerged/CONFLICTING. Oracle disposition needed for report migration/current-main integration.'
 role: executor
-status: reported
+status: rejected
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E2: upstream bboxy450-term toolkit widgets for the harness GUI + rendering formal models'
 type: task
-updated: 2026-11-01T08:36:01.424Z
-updated_by: seat:01M6ADTVVZS36VS43P2PG15HRQ
+updated: 2026-11-01T09:29:53.361Z
+updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 verify: make test
 verify_result:
   command: make test CI_LOG=target/ci-round2.log

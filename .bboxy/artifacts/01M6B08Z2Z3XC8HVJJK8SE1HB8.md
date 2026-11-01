@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 4241
+bytes: null
 claimed: false
 created: 2026-11-01T07:30:38.817Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:499bc0294d219045b57b273dc8be60f2e314381d50886484449c0490277cc6ed
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -36,22 +36,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793518171808'
+- before_digest: sha256:499bc0294d219045b57b273dc8be60f2e314381d50886484449c0490277cc6ed
+  commit: null
+  digest: null
+  event_hash: 379dc9d08bf7e5e525ea61c7985ff931e76647e14bffd4362c11aaacb67b1686
+  generation: null
+  grade: inferred
+  id: 01M6B6PNXR6XXDAGS345MB7DX5
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/tasks/2026-10-31-harness-gui-phase2.md
+  seat: null
+  sequence: '19428'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955438'
 id: 01M6B08Z2Z3XC8HVJJK8SE1HB8
 kind: markdown
-last_observation_sequence: '14548'
+last_observation_sequence: '19428'
 number: 2448
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:127d375395a3baf50b9ff3a0c68b0e6efb16405da368f44ca24f4589d4b14311
-  log: .bboxy/log/2026-11-01.jsonl#14549
-  sig: IaL2JA616J/TZ8h8aJaGuXKljoJagKMg7Cu2U+RSw72g40gJUOaOUzvXlaIVM6PlDseQZ38zDnNP1LpYe2edBw==
+  frontmatter_digest: sha256:db0044a48f42c98722b3773befd5198f9432e613a7e197255dc3fd1f1516f90e
+  log: .bboxy/log/2026-11-01.jsonl#19429
+  sig: 9lWDcmCEfptwbVj2/Ufbw26jcU159iQaYKPVoaqBcQrRGg6Jw44FL3VxMMW3sk9/9tI2hm4e7HG08Il4fcWMBQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/tasks/2026-10-31-harness-gui-phase2.md
 type: artifact
-updated: 2026-11-01T07:30:38.817Z
+updated: 2026-11-01T09:22:59.641Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

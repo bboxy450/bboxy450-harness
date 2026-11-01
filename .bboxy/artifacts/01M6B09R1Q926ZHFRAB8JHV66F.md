@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 583
+bytes: null
 claimed: false
 created: 2026-11-01T07:31:04.381Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:9957ee51d90961d75edc329c5765a5450b2ae55649afcfb332de0b998f297746
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -52,22 +52,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793520087242'
+- before_digest: sha256:9957ee51d90961d75edc329c5765a5450b2ae55649afcfb332de0b998f297746
+  commit: null
+  digest: null
+  event_hash: 128ace643eb7cc432300f686dadba2bedba1cbd7d4c37562180b5129ae106e5f
+  generation: null
+  grade: inferred
+  id: 01M6B6Q7VNSY4DYJ4D09AZ317F
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/seat/all-items.txt
+  seat: null
+  sequence: '19575'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955445'
 id: 01M6B09R1Q926ZHFRAB8JHV66F
 kind: file
-last_observation_sequence: '16643'
+last_observation_sequence: '19575'
 number: 2463
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:e2aaab854c0f4f2f18a4d3c67a67f9e97e19fbeb7c64d5711dc65100c00e5287
-  log: .bboxy/log/2026-11-01.jsonl#16644
-  sig: 5/dvsq2HLZMxXhX/ctHMm/wtsc9P4BYCYYIPlS+xTC13a0v+UiY3VDccHphafKQCBTanplSUQMzrZOPJAvbzBg==
+  frontmatter_digest: sha256:af1220ea00b109cec5e7f11d9dda24254fb1964c7968f4cad500abd56a76b036
+  log: .bboxy/log/2026-11-01.jsonl#19576
+  sig: /JOBcHrbF7C6np3pdC30d+sa/vVEfxaUnRqQahbsWmbsjosn0rug5UQh7p3Wrb69cUIc7AIXso3SIZBP/PsBBQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/seat/all-items.txt
 type: artifact
-updated: 2026-11-01T08:02:27.290Z
+updated: 2026-11-01T09:23:18.006Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

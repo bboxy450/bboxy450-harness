@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 33304
+bytes: null
 claimed: false
 created: 2026-11-01T06:37:31.694Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:63266199f96b8bf9d4de703272d5dde407be771fc0db1152c45e0c6bf456ed60
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -52,22 +52,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793518200041'
+- before_digest: sha256:63266199f96b8bf9d4de703272d5dde407be771fc0db1152c45e0c6bf456ed60
+  commit: null
+  digest: null
+  event_hash: a5e2e009385158ffe30adb5eda3f011f0259828f676d77a9672231d32a00d5be
+  generation: null
+  grade: inferred
+  id: 01M6B6PWWZV0FVPK0QFP8QY0Y3
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/frontends/gui/view.rs
+  seat: null
+  sequence: '19485'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955442'
 id: 01M6AX7PNE4SQRQBNJ9B1WAS21
 kind: file
-last_observation_sequence: '14649'
+last_observation_sequence: '19485'
 number: 2334
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:623c1ef33e2833076791aeda85a7b1a2caab6152ea4486188f9ea945e357b5fe
-  log: .bboxy/log/2026-11-01.jsonl#14650
-  sig: jy4l96fXD4NHEIygz0cpAy80Bv8yybpBHDf+W0k20yWVPW8llx153zFRF0qFRpTPIy0ozlSGMe3En5btAVcOBw==
+  frontmatter_digest: sha256:0fbe70d09ae0dd9ab66a268c0bd076cbb40ea01fa80236f5b8cafb51ff42502f
+  log: .bboxy/log/2026-11-01.jsonl#19486
+  sig: rbmFqr8JdhIh1WNTEHk457hz6dmkeGMLpFI6T58Foz1YIb86EqzUhvI1Oswwrystefm77Cl9iYVns4waBAMPDA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/frontends/gui/view.rs
 type: artifact
-updated: 2026-11-01T07:31:02.481Z
+updated: 2026-11-01T09:23:06.785Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

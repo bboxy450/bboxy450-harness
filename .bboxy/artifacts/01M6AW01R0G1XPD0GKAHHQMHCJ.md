@@ -15,7 +15,7 @@ created: 2026-11-01T06:15:52.322Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:5757459922a2201ee76bedcaa33d6e539d8dba9bfe3c18c746950487e000eb10
+digest: sha256:4eb337e73dfebcf6299ffbcd2d9cfc513406d1c3d8219e364e53c775d6d310ea
 digest_grade: observed
 for: []
 grade: inferred
@@ -212,22 +212,70 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/git/ref
   ts: '1793523751736'
+- before_digest: sha256:5757459922a2201ee76bedcaa33d6e539d8dba9bfe3c18c746950487e000eb10
+  commit: ca59d8e5d0ac177b8d2725397c1d44ea20ffda6f
+  digest: sha256:ed74bc831d9286fa0267ed72cbacc3cafa4d0b8b93fce457aae7513f3581f252
+  event_hash: 2a26629496896f994f1827d7d309f62a6b81db85177d6b61d33b82c83f375de2
+  generation: null
+  grade: inferred
+  id: 01M6B63FCADPVT1N0PY7H2SKJX
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/refs/heads/e1c-acp-mcp-compaction
+  seat: null
+  sequence: '19136'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793524349429'
+- before_digest: sha256:ed74bc831d9286fa0267ed72cbacc3cafa4d0b8b93fce457aae7513f3581f252
+  commit: f3aa965abc5a1e04a74c601e1dc3e76dfee0a801
+  digest: sha256:118130d02125357a24c38eb33ced4555749f32ed1001758d4f6b12a77fa87502
+  event_hash: 0931598619927598acc13effdada0be57866c5062c298d6c5afe49435e24eeb9
+  generation: null
+  grade: inferred
+  id: 01M6B6A73MZEED0JPWSYDYDQS3
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/refs/heads/e1c-acp-mcp-compaction
+  seat: null
+  sequence: '19196'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793524569400'
+- before_digest: sha256:118130d02125357a24c38eb33ced4555749f32ed1001758d4f6b12a77fa87502
+  commit: 196282df54dc8a7f62a93f4f2e0edbdd151c284e
+  digest: sha256:4eb337e73dfebcf6299ffbcd2d9cfc513406d1c3d8219e364e53c775d6d310ea
+  event_hash: 9f29b2cb964a900efcce5b9b46130ce5b0dac610cb80f7834ca31ffc7788bfb2
+  generation: null
+  grade: inferred
+  id: 01M6B6P9C56XBHMHW1N47RW6SN
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/refs/heads/e1c-acp-mcp-compaction
+  seat: null
+  sequence: '19330'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793524961939'
 id: 01M6AW01R0G1XPD0GKAHHQMHCJ
 kind: other
-last_observation_sequence: '18991'
+last_observation_sequence: '19330'
 number: 2000
 observation_reason: git-ref-value; authorship unverified
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:b4ea83c34866143a53f39f39716816818ec77d0d7f4e28ae619965ceed1e0af9
-  log: .bboxy/log/2026-11-01.jsonl#18992
-  sig: Wt7T4yBBwrnT/CtzyhXp+i99s+YSDYu26Rxbb8ne5hjDCQnGjpY/H2Th8JKEaC16oh2iiLmkm8Ac1BiciOjHBQ==
+  frontmatter_digest: sha256:950cb0379034b0a8c28666d83c8def3df8214f654513708a5ccce664fb27a426
+  log: .bboxy/log/2026-11-01.jsonl#19331
+  sig: 4sJYNTDIglYRGSWPuNuWQ6RvgQohTpFz2t8XbMZ2E9CnaOJxgKeeSmPxUvIvBxzVi18UEB1yxsET5y74XeyoAA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: git:worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/refs/heads/e1c-acp-mcp-compaction
 type: artifact
-updated: 2026-11-01T09:02:31.998Z
+updated: 2026-11-01T09:22:46.802Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

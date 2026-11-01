@@ -13,10 +13,10 @@ bytes: null
 claimed: false
 created: 2026-11-01T09:05:13.399Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:de4e3483d1754f8c28ee56a88892e96280d2a44921f32fd84bfa0298f39cd799
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -52,22 +52,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/git/ref
   ts: '1793523917229'
+- before_digest: sha256:de4e3483d1754f8c28ee56a88892e96280d2a44921f32fd84bfa0298f39cd799
+  commit: null
+  digest: null
+  event_hash: 9cc191105f4f5bdbf8dca832b535a88a039eb1e7c8b824ef81fb33cfb5642fb1
+  generation: null
+  grade: inferred
+  id: 01M6B6825EBAF70Y8EN06X9DTR
+  kind: deleted
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/refs/heads/oracle-verify-6
+  seat: null
+  sequence: '19172'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793524499066'
 id: 01M6B5P4NNV78PMKFP7NEWMXZZ
 kind: other
-last_observation_sequence: '19068'
+last_observation_sequence: '19172'
 number: 3104
 observation_reason: git-ref-value; authorship unverified
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:3c9dd94f9bc833d537f8245eb59bc7b81507d537e183a8e6e11b56222afe9273
-  log: .bboxy/log/2026-11-01.jsonl#19069
-  sig: hZP7iiFgzaW5SMi8Q6n3K7TzHhLxbj0XvZAG2g4cRNkdox5t6AoOkmukvdiYWsesN9DlxIbbeuvQE/GEJ3sZBQ==
+  frontmatter_digest: sha256:205406f3239d5cb26affbbf6138552740915182a4e7ad39520f9656976eba7a7
+  log: .bboxy/log/2026-11-01.jsonl#19173
+  sig: o1R7uR8VM34yyft2w7rPIre4v4Z1DCM9PD//efliZHBPCvXaJUPlv0ZNjr9t10/pnt1A2etxhflibLJ3RBBEDA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: git:worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/refs/heads/oracle-verify-6
 type: artifact
-updated: 2026-11-01T09:05:18.895Z
+updated: 2026-11-01T09:15:00.656Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

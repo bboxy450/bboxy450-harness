@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 7308
+bytes: null
 claimed: false
 created: 2026-11-01T03:43:15.538Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:961354e46ed2b6e27e9784274b9ffeb10bc2138879aeaf227660b3b628c03c64
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -132,22 +132,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793518200192'
+- before_digest: sha256:961354e46ed2b6e27e9784274b9ffeb10bc2138879aeaf227660b3b628c03c64
+  commit: null
+  digest: null
+  event_hash: 64c3d5b72c3ef4a4608ea76f480ef992b3b6989deddafd87c89c5f9bce8d2c3f
+  generation: null
+  grade: inferred
+  id: 01M6B6QB6SM6RPZJQ5E3JWYRTH
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/policy_gate.rs
+  seat: null
+  sequence: '19602'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955447'
 id: 01M6AF5K5RC1S0F0PA1KJA0TN2
 kind: file
-last_observation_sequence: '14655'
+last_observation_sequence: '19602'
 number: 748
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:77930ced5cb9d09589ae0e4e97013e3822a4f863ed2394bb86683fd53b863ed8
-  log: .bboxy/log/2026-11-01.jsonl#14656
-  sig: f+pLchEU8zc9OqaLkJiGGPDLIwYzpFykMdRCLDtPUsDgqkt9cOiUKhUTf9xOW8YDSUb9NFs42yPfdSkDrjv8Bw==
+  frontmatter_digest: sha256:104823945d6276edf47f09551620babe2dc1e4aa90799646bee76686c7b61224
+  log: .bboxy/log/2026-11-01.jsonl#19603
+  sig: J8qGDjaw3VMADZHDxa0c43DtRrOg9C6maKOOupa/WZ2qoLrlvfkdtLhiImCO1BN7lVJyNEdKB4y6omj+CSSACw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/policy_gate.rs
 type: artifact
-updated: 2026-11-01T07:31:03.331Z
+updated: 2026-11-01T09:23:21.434Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

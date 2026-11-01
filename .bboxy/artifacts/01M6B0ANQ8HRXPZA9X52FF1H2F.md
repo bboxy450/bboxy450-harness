@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 18543
+bytes: null
 claimed: false
 created: 2026-11-01T07:31:34.761Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:e8d3d6f5e179c1ae6805b65048b635757ae84420a834495ff9a8d3e2aa667624
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -52,22 +52,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793521963611'
+- before_digest: sha256:e8d3d6f5e179c1ae6805b65048b635757ae84420a834495ff9a8d3e2aa667624
+  commit: null
+  digest: null
+  event_hash: d238e0478da8efa9c48615abb34f4ae33330aa1dd4179f3a32c46a513e7405a7
+  generation: null
+  grade: inferred
+  id: 01M6B6QFAASXKXRBDSNJXQ5KF1
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/verification/contracts.toml
+  seat: null
+  sequence: '19635'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955448'
 id: 01M6B0ANQ8HRXPZA9X52FF1H2F
 kind: file
-last_observation_sequence: '17281'
+last_observation_sequence: '19635'
 number: 2506
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:79fea8108acc3077e3c77179a94935b15f87ee0765ecaad23fa6beec0c4504ab
-  log: .bboxy/log/2026-11-01.jsonl#17282
-  sig: QyuZc9ArjIOus4CJX6cx7XNS+rpqRma39GpqAwA5GfznrJwYSNt7pGRV5YhW7dCXmJxOX4w5Bp1aw/ThEDRnCw==
+  frontmatter_digest: sha256:fc690447996efcfe82f82a981c5db88169ba5aeb8f0147c2f4ca1ccac0f5abb3
+  log: .bboxy/log/2026-11-01.jsonl#19636
+  sig: A/wWpKMHnjJv90eIGwLKXqZvI95IK6cldTR+Qns7eyL9Iw/VYfwPCNK5nJkSjai35NQ1jhqKA/jbuWEotDL3Ag==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/verification/contracts.toml
 type: artifact
-updated: 2026-11-01T08:33:21.387Z
+updated: 2026-11-01T09:23:25.643Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 10390
+bytes: null
 claimed: false
 created: 2026-11-01T07:31:17.369Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:74ef636edec3e1ae7e2c67dfc4f14d152a0ae0346a4f32e0f0d6ee845a08d47b
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -52,22 +52,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793521963794'
+- before_digest: sha256:74ef636edec3e1ae7e2c67dfc4f14d152a0ae0346a4f32e0f0d6ee845a08d47b
+  commit: null
+  digest: null
+  event_hash: 30fa18d43168d026bbfecb26efa8d7b47702b58061139b6b052041fc577e7906
+  generation: null
+  grade: inferred
+  id: 01M6B6Q18K6P2FGQZ4C0TGRB3G
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/protocol/laws.rs
+  seat: null
+  sequence: '19521'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955444'
 id: 01M6B0A4QRCX8PMY6GX7RR4EDG
 kind: file
-last_observation_sequence: '17272'
+last_observation_sequence: '19521'
 number: 2481
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:57f03610e655d626a5db9b25aff0aed8e8b3a658626a8fdfba1a97ee1cdbea2a
-  log: .bboxy/log/2026-11-01.jsonl#17273
-  sig: QuVERrjh8yS6F5QDoTlkaNn1HUyES+QePTAMp5aZ92Fd3MVVlzBXPfawK7F1p53UvsEy7SWmQY161AeWqjdLBQ==
+  frontmatter_digest: sha256:a78fc259cf5d78f1b5f2dce47f1253f9d7fd26717624dd5d23b417a8bbe9d316
+  log: .bboxy/log/2026-11-01.jsonl#19522
+  sig: yvrm20b+Cq8bZatVNdx9Bz/Gt2/ceMZXh97IsqsZRN6swngFeu8SU8StV0rQ7+KrY/poQGy6gRkwhrG8pnUQCg==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/protocol/laws.rs
 type: artifact
-updated: 2026-11-01T08:33:20.067Z
+updated: 2026-11-01T09:23:11.254Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

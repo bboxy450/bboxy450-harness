@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6ADTTF9QWWFZFVZJHJ3DD8E
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 113
+bytes: null
 claimed: false
 created: 2026-11-01T07:37:56.540Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:5e81aa8f6ccf58312ef014e2e60d39e0951c4c3c1532ba74a9c630872deb3179
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -181,22 +180,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793522882507'
+- before_digest: sha256:5e81aa8f6ccf58312ef014e2e60d39e0951c4c3c1532ba74a9c630872deb3179
+  commit: null
+  digest: null
+  event_hash: b051d443cf21e223fb41b6f56e6d06f12b4d12549c3b3c43b0bd01ebba87dda3
+  generation: null
+  grade: inferred
+  id: 01M6B6PCDBVCPRW5HX3JQ65QGY
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/timeout-green.log
+  seat: null
+  sequence: '19354'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955265'
 id: 01M6B0PAHV456BV1J25G50ZMPB
 kind: file
-last_observation_sequence: '18671'
+last_observation_sequence: '19354'
 number: 2580
 observation_reason: null
 observed: true
-produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:165afd6eefb30105e2ef6dcf0b72d3d53ed4b5762bb337edce05d7abc57b5a6e
-  log: .bboxy/log/2026-11-01.jsonl#18672
-  sig: vm43369qtOUbVl0ZeNu1D368W/499jXiSYVqKdMzsTLEx1tUl26WRDuWXYDccArI5A26zyxyH4tYKDbhZjHaCQ==
+  frontmatter_digest: sha256:3cfb4d60c5851fd469d966cdca246bec506460bf420b1d1032f0d13d1b085ac0
+  log: .bboxy/log/2026-11-01.jsonl#19355
+  sig: XBHG493hBVZcuVUIMUPLFROdtSjH/V53woJWyXEg9nYNL0aZsQJoFvkX7rFPm5Hc1gRfCjTtR4+KqcLeH+/DBg==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/timeout-green.log
 type: artifact
-updated: 2026-11-01T08:48:04.012Z
+updated: 2026-11-01T09:22:49.900Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

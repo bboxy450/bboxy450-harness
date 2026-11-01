@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6ADTTF9QWWFZFVZJHJ3DD8E
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 429
+bytes: null
 claimed: false
 created: 2026-11-01T08:40:56.865Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:6b71f1e04ff02cdaa8628bbd4bf74bef153385e47520ac2894556841c89cea65
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -69,22 +68,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793522882507'
+- before_digest: sha256:6b71f1e04ff02cdaa8628bbd4bf74bef153385e47520ac2894556841c89cea65
+  commit: null
+  digest: null
+  event_hash: e13910a0d58f06a1ade8357e234e119e92181abfec192673ee6021061864ea10
+  generation: null
+  grade: inferred
+  id: 01M6B6P9SSX22MBCSTNKJJGR56
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/seat-process-recheck.log
+  seat: null
+  sequence: '19333'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955264'
 id: 01M6B49P8ZAXY3P9SN5RDS8H76
 kind: file
-last_observation_sequence: '18665'
+last_observation_sequence: '19333'
 number: 2996
 observation_reason: null
 observed: true
-produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:ebef45f46b13959188404c9f9a14d6af485acafdeb222d3548d1d266be30f922
-  log: .bboxy/log/2026-11-01.jsonl#18666
-  sig: 0HGlkSr15FGFnszzyJ+8xcoqpqemj82XokKECsz5GluXQxImGdI1AHMM1Z3Eg48cyql6aIwiTagHb60I1QW8AQ==
+  frontmatter_digest: sha256:4c132867b1eab251b76b9f632171633d59c7aa6fe5500437815815c03a91d2f1
+  log: .bboxy/log/2026-11-01.jsonl#19334
+  sig: AkcshuYrU62840sA6Gms4rOU/bGwKRyjxmWm9FW88RdZVzpMXeZcqa0E4uc2tzcrb7kZwRPFWR3pYbB+5dGfDw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/seat-process-recheck.log
 type: artifact
-updated: 2026-11-01T08:48:03.287Z
+updated: 2026-11-01T09:22:47.227Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

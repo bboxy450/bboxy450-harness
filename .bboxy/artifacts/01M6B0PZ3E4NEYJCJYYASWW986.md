@@ -10,14 +10,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 113
+bytes: null
 claimed: false
 created: 2026-11-01T07:38:17.584Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:09bd6214ed0edb7275a77419ac722cbb61b98dc7d1ceed54dd5449fe2e404f74
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -181,22 +181,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793522882507'
+- before_digest: sha256:09bd6214ed0edb7275a77419ac722cbb61b98dc7d1ceed54dd5449fe2e404f74
+  commit: null
+  digest: null
+  event_hash: b15b32c7a6661446f1620704e1198d7b37bd7eb8267d303237420c56a8519c38
+  generation: '1'
+  grade: inferred
+  id: 01M6B6P165C27WBSPVSM11TKAM
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/crash-green.log
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '19267'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955262'
 id: 01M6B0PZ3E4NEYJCJYYASWW986
 kind: file
-last_observation_sequence: '18668'
+last_observation_sequence: '19267'
 number: 2583
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:c417980dbd1b74170238672e7d8bdde6ae9692fc606290cb0d7c6a018a77e40b
-  log: .bboxy/log/2026-11-01.jsonl#18669
-  sig: zjc5NmVapMjaVurIVjNEZWeTP1tRhICTN4eZnS69xlWMI0JsigVuspVMoNUDLuOUMv/7MKFXp+Q817mtmNaFAQ==
+  frontmatter_digest: sha256:5f489a2063178cab7e7fa1c156f756b619d0cc6ddcca8ea5a7a5776dc3870bb5
+  log: .bboxy/log/2026-11-01.jsonl#19268
+  sig: J6F3jPv4POd+cwoCtJj4yDddKXQjuzWphTCRl9sPL7woyAgjtDQOOlfcJjywEYM420EovA6drN6cpQ4xEY6fCw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/crash-green.log
 type: artifact
-updated: 2026-11-01T08:48:03.646Z
+updated: 2026-11-01T09:22:38.406Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

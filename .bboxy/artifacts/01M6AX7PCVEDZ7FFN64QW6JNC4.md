@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 9507
+bytes: null
 claimed: false
 created: 2026-11-01T06:37:31.419Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:590d4c0d450ac887f358a47046ab2e76ba1f648cce7fa911490212a504ca53a9
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -68,22 +68,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793518284102'
+- before_digest: sha256:590d4c0d450ac887f358a47046ab2e76ba1f648cce7fa911490212a504ca53a9
+  commit: null
+  digest: null
+  event_hash: 6b0b52c2f9490cb4ad64f97c9511739fcb461313a9fcd9c60d1732c7121adade
+  generation: null
+  grade: inferred
+  id: 01M6B6PVRS1W705TJNEHWWPXGA
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/frontends/gui/smoke.rs
+  seat: null
+  sequence: '19476'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955442'
 id: 01M6AX7PCVEDZ7FFN64QW6JNC4
 kind: file
-last_observation_sequence: '14868'
+last_observation_sequence: '19476'
 number: 2333
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:83031323ef4d2a5047a7faa97820bd391d0834572959f69e62d9cc9d1d5f0180
-  log: .bboxy/log/2026-11-01.jsonl#14869
-  sig: H+b/OUk4tWTbEz7lj5sFTiO1/02VBSci1qXsKHrlaoSmbGyJpRQ7G5ksh6lfw4F2Up/QnnY2xg7xbNerJYT7Ag==
+  frontmatter_digest: sha256:ea5a02bdc3308125757961dfc2b60b499e95fa9135ee227f36655b8794c53aea
+  log: .bboxy/log/2026-11-01.jsonl#19477
+  sig: v7+cj6N5TQA24dNhn0MPsa9hQuzU3AvHqTIKJcm8/N0RbuZoRr8YSEQc/3UR2v4k4bjMtZa1yUPXwMZZgVzfBQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/frontends/gui/smoke.rs
 type: artifact
-updated: 2026-11-01T07:31:34.430Z
+updated: 2026-11-01T09:23:05.627Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

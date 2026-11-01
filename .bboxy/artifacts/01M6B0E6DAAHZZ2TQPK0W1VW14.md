@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 846
+bytes: null
 claimed: false
 created: 2026-11-01T07:33:30.156Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:db43b600992c37d4ce217182ce5f6c03b80f3905c6e360c708c1f1d251812f33
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -164,22 +164,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793522668790'
+- before_digest: sha256:db43b600992c37d4ce217182ce5f6c03b80f3905c6e360c708c1f1d251812f33
+  commit: null
+  digest: null
+  event_hash: 81f281ff8487d4d187eee16ac1d660e80dabbbda192fef69e4ff9aa5453feb53
+  generation: null
+  grade: inferred
+  id: 01M6B6PCR2376SM7H2T9H2VY0R
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/timeout-red.log
+  seat: null
+  sequence: '19357'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955265'
 id: 01M6B0E6DAAHZZ2TQPK0W1VW14
 kind: file
-last_observation_sequence: '18551'
+last_observation_sequence: '19357'
 number: 2571
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:fce525da37408fbe117c4ee6f48cefe421b67dbab304ba84cbd4366093ca2769
-  log: .bboxy/log/2026-11-01.jsonl#18552
-  sig: DjADJjAAeRIRRZ41hEdoKtG8P3MwLtppUeIEBtFE/PBLsoRyG22r35VFBmP1OhnzlcjGJact1bBH1wYYohpyAA==
+  frontmatter_digest: sha256:bc2e9a3198f6836d2649203606fa2499d39aa7d5be7c6cb57cd4f9f8ff3af1df
+  log: .bboxy/log/2026-11-01.jsonl#19358
+  sig: cSy+I0SnRkQ07wjtjFT0W0qSJmNYnkEcGfOSIkhyVa+q4QHge6TOwnUflvbwVe7xAbTmpKXS+JB6NQcZstrPAQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/timeout-red.log
 type: artifact
-updated: 2026-11-01T08:44:57.149Z
+updated: 2026-11-01T09:22:50.255Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

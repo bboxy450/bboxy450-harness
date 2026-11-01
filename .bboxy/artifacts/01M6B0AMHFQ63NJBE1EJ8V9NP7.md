@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 42759
+bytes: null
 claimed: false
 created: 2026-11-01T07:31:33.557Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:fe2d5cc44ffebfe89c02080167ee0544a100e0bd28e100c385f8766d1d0e5d0d
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -52,22 +52,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793521963837'
+- before_digest: sha256:fe2d5cc44ffebfe89c02080167ee0544a100e0bd28e100c385f8766d1d0e5d0d
+  commit: null
+  digest: null
+  event_hash: e8643858fcc30d55ca634fbb836ec4f74d6fa5586f29a6aa416babcbc9a5ca1f
+  generation: null
+  grade: inferred
+  id: 01M6B6QA3PMKN024CPRGKH1X9Q
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/formal/models.rs
+  seat: null
+  sequence: '19593'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955446'
 id: 01M6B0AMHFQ63NJBE1EJ8V9NP7
 kind: file
-last_observation_sequence: '17275'
+last_observation_sequence: '19593'
 number: 2504
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:422fdad10dd351315a01c76af035633d4842cdf83bf094c37891eec544b46821
-  log: .bboxy/log/2026-11-01.jsonl#17276
-  sig: aSYoZOxrM+ZsgjwLpLpxRlMyDinsni2ToHXW31Za/xFbBvbPCroaCHmBE6x3nWmSIbo4QS4ZipeFL6ZEtw7KAA==
+  frontmatter_digest: sha256:6dff98127d77fc4d41395e54fd412eaf205743de0c98952945523d4b73ccc76c
+  log: .bboxy/log/2026-11-01.jsonl#19594
+  sig: OxEv10BEIzzl2d77xAqVVtGsy4zxbTHhT3jbOhQ+2uNcY1QpnP05u1kYO56mGHBVSJYLvOx5k3hBvj2kvsoaBw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/formal/models.rs
 type: artifact
-updated: 2026-11-01T08:33:20.486Z
+updated: 2026-11-01T09:23:20.311Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

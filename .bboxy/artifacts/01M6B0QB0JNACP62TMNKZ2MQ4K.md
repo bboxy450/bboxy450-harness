@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6ADTTF9QWWFZFVZJHJ3DD8E
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 568
+bytes: null
 claimed: false
 created: 2026-11-01T07:38:29.780Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:da2349659be24fc17138c8e16c2fba0404d21228a3517c0d380a41a7bcb61631
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -149,22 +148,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793522760079'
+- before_digest: sha256:da2349659be24fc17138c8e16c2fba0404d21228a3517c0d380a41a7bcb61631
+  commit: null
+  digest: null
+  event_hash: 9977e9fe1fb3b8675e8ce648672dafdcad260c7e0cce101606f0a1d603efc1e2
+  generation: null
+  grade: inferred
+  id: 01M6B6PAXBRZ1Y8NDBR0ESXM6H
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/startup-red.log
+  seat: null
+  sequence: '19342'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955265'
 id: 01M6B0QB0JNACP62TMNKZ2MQ4K
 kind: file
-last_observation_sequence: '18596'
+last_observation_sequence: '19342'
 number: 2587
 observation_reason: null
 observed: true
-produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:b2d3e03311210456c7f4f3af78d06df82c29ff93cae6a1ad10933c50f0e6fba4
-  log: .bboxy/log/2026-11-01.jsonl#18597
-  sig: 0gNjjKMfQuO1lahBksjfzqgCLppIOEsm4x6JWAk7QmGRebZ6Nop6ngdBsym9Rxy+EdvmYX3Hhe39FcRr9FwaAQ==
+  frontmatter_digest: sha256:f3066b2d08ef6fa562b14d7426d7b151ce9672bb31b13e37f8f3380628a5fa5e
+  log: .bboxy/log/2026-11-01.jsonl#19343
+  sig: ZAMIcq2gOq7ZZ3cBc1c+LdcoMkNn50AyaiYnj68TrepDsfUBNWyMc21Ei5pXarTC2VZq80wSu1sULWrUnXciBA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/startup-red.log
 type: artifact
-updated: 2026-11-01T08:46:01.037Z
+updated: 2026-11-01T09:22:48.364Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

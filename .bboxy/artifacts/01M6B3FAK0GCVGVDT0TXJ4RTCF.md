@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6ADTTF9QWWFZFVZJHJ3DD8E
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 704
+bytes: null
 claimed: false
 created: 2026-11-01T08:26:32.929Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:9f9eabcc5bf3d9f1de8b98accdcc8a1accbb73c69b2c638933bae0a7d59ad04a
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -53,22 +52,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793521593854'
+- before_digest: sha256:9f9eabcc5bf3d9f1de8b98accdcc8a1accbb73c69b2c638933bae0a7d59ad04a
+  commit: null
+  digest: null
+  event_hash: 2ace13566a3c210350444d0af9305ff869b4a1a0a68e3fb021afe3190080f380
+  generation: null
+  grade: inferred
+  id: 01M6B6P74GSPKS9EXSXJA7V815
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/queued-cancel-red.log
+  seat: null
+  sequence: '19312'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955264'
 id: 01M6B3FAK0GCVGVDT0TXJ4RTCF
 kind: file
-last_observation_sequence: '16841'
+last_observation_sequence: '19312'
 number: 2717
 observation_reason: null
 observed: true
-produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:1008766767411f4af5b5cdd72dcd3acbe8f099992f96e64ccab289011acc9853
-  log: .bboxy/log/2026-11-01.jsonl#16842
-  sig: pX4f5rdh91H+JBEZ4PYoQl+ux9WeAvqlFzH4yTZXyooUUvA7RYEyISUdC5TT8DsOc45G5PWARcIEhxkFWjPBAQ==
+  frontmatter_digest: sha256:f03b4148e771f0a5db2d6089f17d1ea1637860bdd797e910221968a8db7301af
+  log: .bboxy/log/2026-11-01.jsonl#19313
+  sig: IC+tJHUXuBbvHw/ZtQxpVQfh4PN49WciLdOrQQhMYPl7JshM++vyVrURmKFlCzY0fbrOybQLdp1dXOlLLEQ7Dw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/queued-cancel-red.log
 type: artifact
-updated: 2026-11-01T08:26:34.028Z
+updated: 2026-11-01T09:22:44.510Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

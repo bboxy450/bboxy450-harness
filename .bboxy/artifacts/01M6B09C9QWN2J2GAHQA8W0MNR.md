@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 4690
+bytes: null
 claimed: false
 created: 2026-11-01T07:30:52.346Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:571ad78da89581e3058909cf9d865114eab33eaab32f0664cd26784f4b7fe17e
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -116,22 +116,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793522627001'
+- before_digest: sha256:571ad78da89581e3058909cf9d865114eab33eaab32f0664cd26784f4b7fe17e
+  commit: null
+  digest: null
+  event_hash: 711cc6df486a9946633740033c0739a661d8a1f0d5b7ebc1facb4fd389a8f37e
+  generation: null
+  grade: inferred
+  id: 01M6B6PD3F4Y1534AKHK5VK1QZ
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/scripts/test-e1c-controls.py
+  seat: null
+  sequence: '19360'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955265'
 id: 01M6B09C9QWN2J2GAHQA8W0MNR
 kind: file
-last_observation_sequence: '18530'
+last_observation_sequence: '19360'
 number: 2450
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:60b9375d6d8bcaa762c14191d0935392596e77b86cba00a461c455683e5eec1d
-  log: .bboxy/log/2026-11-01.jsonl#18531
-  sig: BrL55d2FzIbebUcSfP4qhNSPw3vM0k/I2CLtkH1CtSkNvjmIxwxtDOldAaRZkRJbuqckZdijefDx2BNxqEkPDA==
+  frontmatter_digest: sha256:4ede57f0a209bfb58bcfd23026293ac9a4d3023b96143d26a73333dd617eadce
+  log: .bboxy/log/2026-11-01.jsonl#19361
+  sig: U2MDrloDXkezc4lyesXSqdNGNwABOnCAyWiBelySz2qBdT48bSY7oVupHqzP2oounlhRCciFsegkX/llmQDUBw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/scripts/test-e1c-controls.py
 type: artifact
-updated: 2026-11-01T08:44:41.261Z
+updated: 2026-11-01T09:22:50.608Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

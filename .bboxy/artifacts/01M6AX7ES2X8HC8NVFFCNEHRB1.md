@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 203822
+bytes: null
 claimed: false
 created: 2026-11-01T06:37:23.624Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:8accc887f2769c965fc81f45525f5afe3460a579b2ea60bc25cb1e38917365c8
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -52,22 +52,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793523665454'
+- before_digest: sha256:8accc887f2769c965fc81f45525f5afe3460a579b2ea60bc25cb1e38917365c8
+  commit: null
+  digest: null
+  event_hash: 58719008f440dc6c360f79a784ae31f2bc665bb0605eeae338b12d97e7eecca0
+  generation: null
+  grade: inferred
+  id: 01M6B6PME26YZ10F9GQHGQFM56
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/gui-smoke.png
+  seat: null
+  sequence: '19416'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955437'
 id: 01M6AX7ES2X8HC8NVFFCNEHRB1
 kind: image
-last_observation_sequence: '18962'
+last_observation_sequence: '19416'
 number: 2316
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:bcd79d2537f271cca7b345db89ebf2f0596ab9cee5d63de967e01e0e290764dc
-  log: .bboxy/log/2026-11-01.jsonl#18963
-  sig: s7uAuNnGQCOXrCiT0iK++FV0Hprmy3z1ot9tDVoryUI+A23+wUZAKAxgB0FB4IjnUdFNHy7ePD2p7IBWsudaBQ==
+  frontmatter_digest: sha256:04135713f7190a1777a35794b81af70f7be91bd1a2af40fb84a68154108d0cfe
+  log: .bboxy/log/2026-11-01.jsonl#19417
+  sig: Fs+sv4mPk94EIndC7eAcKuz9Sp/j9IsXq8jAFGVstaLtcDgt3fk/D5g8DH3JHoW+Qqf0i4yE1IA9GTZWFu0wCA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/gui-smoke.png
 type: artifact
-updated: 2026-11-01T09:01:21.057Z
+updated: 2026-11-01T09:22:58.115Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

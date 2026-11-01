@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 40203
+bytes: null
 claimed: false
 created: 2026-11-01T07:30:54.267Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:a455a92f4184e9c8ea3b30009aebd8bedfd8cd22d46c7907558d43c719699c50
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -84,22 +84,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793520041624'
+- before_digest: sha256:a455a92f4184e9c8ea3b30009aebd8bedfd8cd22d46c7907558d43c719699c50
+  commit: null
+  digest: null
+  event_hash: 23a559afc2a5b96f81db39b9a935b26045561e7b053ba4ec6bc3fbd373e4afe7
+  generation: null
+  grade: inferred
+  id: 01M6B6PEY8VP6QAQ6YSGMYNB2V
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/frontends/acp.rs
+  seat: null
+  sequence: '19375'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955265'
 id: 01M6B09E5TVEHYAAJK3DEHR9E3
 kind: file
-last_observation_sequence: '16619'
+last_observation_sequence: '19375'
 number: 2452
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:37734b3f2286717d113aa71e6fee77e7283c61b97239ed74684531a9c1dec845
-  log: .bboxy/log/2026-11-01.jsonl#16620
-  sig: bvgHhGCyu8rK8+U6L5fVb11tOKR8BhNSqhR+HoBExH6yKYE9WQtwGYFdiykbsgwAEmOai+AsKrHSC3K4zZ1jCQ==
+  frontmatter_digest: sha256:41e645be2306776753277d650a9726d9f03ccfc4ebc000cb1633b052b6402842
+  log: .bboxy/log/2026-11-01.jsonl#19376
+  sig: VO/CX6LhCHD2pDjgoOOc2w7+lvpYxrvxltNkjTC2emydLoesQCY/Dx7kDfszq8i+2Lj+m4l7kMABt2g/6ji9Aw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/src/frontends/acp.rs
 type: artifact
-updated: 2026-11-01T08:01:58.347Z
+updated: 2026-11-01T09:22:52.502Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

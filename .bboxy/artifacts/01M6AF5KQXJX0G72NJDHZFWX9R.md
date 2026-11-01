@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 5995
+bytes: null
 claimed: false
 created: 2026-11-01T03:43:16.247Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:c1be3be776dafbc489cc4daedde8069b46fd4acce75ff2e9a87be43a26fc29a8
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -148,22 +148,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793522598961'
+- before_digest: sha256:c1be3be776dafbc489cc4daedde8069b46fd4acce75ff2e9a87be43a26fc29a8
+  commit: null
+  digest: null
+  event_hash: 8d26d6cac6d9c97ef6f42640cdd59ba2949e00cfc78e6607277ad5a49578dd58
+  generation: null
+  grade: inferred
+  id: 01M6B6QDD8S50M7BQ930GDMQ7W
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/seat_process.rs
+  seat: null
+  sequence: '19620'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955447'
 id: 01M6AF5KQXJX0G72NJDHZFWX9R
 kind: file
-last_observation_sequence: '18521'
+last_observation_sequence: '19620'
 number: 752
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:afe443151e54ba1a6f850decf781ab233d32fe2cff59ab1ea3e16ee82957235a
-  log: .bboxy/log/2026-11-01.jsonl#18522
-  sig: E+mOjMgelMt2L637MCqdgLOI9kq1OZej2k8Xi/labj2N0B0ID8JLRIz9vDMDk1XLht2j2r0FliQcnhpi4PovCQ==
+  frontmatter_digest: sha256:5ddb1e0f17712014a613ac7d6530965f3f641b935efe7b5c0da828b603559d9a
+  log: .bboxy/log/2026-11-01.jsonl#19621
+  sig: S5cyByERUv0Erhpy5+2116Bmy8HqCp7cpj+adwLz2fK3a1mvDmyTOwAeAzcPL9JpAsm0VY/TBuO+rAkeI/ixDw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/seat_process.rs
 type: artifact
-updated: 2026-11-01T08:44:24.274Z
+updated: 2026-11-01T09:23:23.691Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

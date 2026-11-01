@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 621
+bytes: null
 claimed: false
 created: 2026-11-01T07:31:23.488Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:4976e0c3b5cd5f04124a104e2d5798fbd2d56c4031ea02f0a72d2ab5b77f43df
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -52,22 +52,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793520087242'
+- before_digest: sha256:4976e0c3b5cd5f04124a104e2d5798fbd2d56c4031ea02f0a72d2ab5b77f43df
+  commit: null
+  digest: null
+  event_hash: fcb85847611fad6431587e2cdf1683c092e31e4e5a9cabd80485000a265f942f
+  generation: null
+  grade: inferred
+  id: 01M6B6Q8JDZT2VXNBVXTS0FS2V
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/seat/lagged.txt
+  seat: null
+  sequence: '19581'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793524955445'
 id: 01M6B0AAPWP8HVD7B0KQ9BMT00
 kind: file
-last_observation_sequence: '16640'
+last_observation_sequence: '19581'
 number: 2488
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:bbd5b879c3b519127c68ea64a08c6bc42768eae60f69a23a0ffcd5dab3bd6f24
-  log: .bboxy/log/2026-11-01.jsonl#16641
-  sig: HBz++ovH21f9Mu50ObwQb2FqGuLEio6X1MHJO/J2smTOpnt42hPAP/n3w18T83uEuAjKQ7r18pIXmRGmFhwFDg==
+  frontmatter_digest: sha256:ec5b140d39d78ad5551b5c9efbd9d20bc0585e874a6fda6b4a2ce940784c1189
+  log: .bboxy/log/2026-11-01.jsonl#19582
+  sig: rQ+UjmbFgeVRDa8lwSfYCYJeTYMF99qt08m+ON10PZ0dYFC7CtKPMrnhGd21CcC/zO7BT/zYDQyGyu6Y1+VjAA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/fixtures/seat/lagged.txt
 type: artifact
-updated: 2026-11-01T08:02:26.619Z
+updated: 2026-11-01T09:23:18.734Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact
