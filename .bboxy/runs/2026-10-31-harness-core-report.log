@@ -1,131 +1,187 @@
 # E1 harness-core execution report
 
 Task: .bboxy/tasks/2026-10-31-harness-core.md
-Role: Executor. Worktree: /Users/feral/mydev/bboxy450-harness-core; branch e1-core.
-Result: implementation and the unattended verification below are complete for
-handoff. Acceptance belongs to the Oracle; this report is not acceptance.
+Role: Executor. Worktree: /Users/feral/mydev/bboxy450-harness-core.
+Branch: e1-core, bboxy450/bboxy450-harness. No merge performed.
+Result: all numbered E1 outcomes implemented and verified for Oracle review.
+An Executor report is a handoff; acceptance belongs to the Oracle.
 
-The full report is a committed Markdown-formatted run log because this
-repository's current knowledge tool has no report record type. The task report
-links this document. No credentials or real inference transcripts are committed.
+The full report is this committed Markdown-formatted run log. The current
+knowledge tool has no report record type, and this assignment permits runs.
+The task report links here and supplies the final signed head and PR URL.
+No credentials or real inference transcripts are committed.
 
-## Commands and actual results
+## Verified source and commands
 
-Verified code commit: 26c82bf8bbc0451b73adcde6266c5f4258550618 (signed).
-The following report-only commit changes no Rust, tests, models or gate inputs.
-The final signed head is supplied in the task report. Formal evidence is
-refreshed for that head before the handoff.
+Verified code/test commit: e47a3e0d1e4ca35ad9b99389060ad3e2c4d2f59e.
+The final evidence/report commit changes no product, tests, models or gate
+inputs. Formal parity and strict receipt validation are refreshed for that
+final HEAD before task_report; the task report supplies its receipt reference.
 
-| Command | Exit | Evidence |
+| Command | Actual exit | Evidence |
 |---|---:|---|
-| make test | 0 | .bboxy/runs/test-current.json; private HOME/TMPDIR, stable input hashes, all six canonical steps completed |
+| make test | 0 | .bboxy/runs/test-current.json and test-output-current.log; private HOME/TMPDIR, no operator input, stable before/after input hashes |
 | cargo fmt --check | 0 | canonical command record |
 | cargo clippy --offline --locked --all-targets --all-features -- -D warnings | 0 | canonical command record |
-| cargo test --offline --locked --all-targets | 0 | 40 Rust API/integration/process tests; every saved e2e transcript checked |
-| make test-formal (includes native and Java parity) | 0 | 23 models; one crate; eleven positive/broken families; complete state/transition sets and verdicts match |
+| cargo test --offline --locked --all-targets | 0 | 56 Rust API, integration, process and e2e tests |
+| make test-formal | 0 | 27 models, 13 positive/broken families plus shared Yarn projection; complete reachable state/edge sets and property verdicts match Java TLC |
 | python3 -I scripts/test-formal.py | 0 | seven gate negative controls, including isolated Java temporary directories |
 | python3 -I scripts/checks.py secrets | 0 | canonical command record |
 | python3 -I scripts/checks.py headers | 0 | canonical command record |
-| make smoke-live | 0 | .bboxy/runs/smoke-live-2026-10-31.json: PASS; three requests, one read, one edit, changed file, EndTurn, check_transcript=true |
-| git verify-commit HEAD | 0 | Ed25519 Boxy signing key 9B07E849480C68328CA20684844ECC0587DE7AB0; also checked at staged pushes |
-
-The successful live invocation used three HTTP requests. Three earlier failed
-diagnostic invocations used one request each (six requests across development).
-Their FAIL outcomes and request counts remain in prior_attempts; none was
-reported as PASS. They exposed empty/repeated final metadata being rejected.
-The parser now accepts identical finish metadata and still rejects conflicting
-endings. A regression fixture covers that behavior.
-
-The first full canonical invocation exited 2 because Java TLC exited 150 while
-parallel processes unpacked standard modules into a shared temporary directory.
-Commit 26c82bf isolates those directories, adds a negative control, and the full
-canonical rerun exits 0. Tool failure was never counted as a model rejection.
+| make check-formal-evidence | 0 | receipt binds source, every source/model/tool hash, bounds and assumptions; source dirty=false |
+| make smoke-live | 0 | smoke-live-2026-10-31.json: PASS, three requests, one read, one edit, changed file, EndTurn and check_transcript=true |
+| git verify-commit HEAD | 0 | Boxy Ed25519 key 9B07E849480C68328CA20684844ECC0587DE7AB0; also verified at staged pushes |
 
 ## Evidence by numbered outcome
 
-1. Package — Cargo.toml:1 is one explicit edition-2024 package, with no workspace
-   or inherited fields, the requested default/standalone/embedded/acp features,
-   and crates.io bboxy450-rt/yarn 0.1.1 pins. scripts/checks.py enforces the six
-   ATTRIBUTION.md source-header lines. The signed skeleton was pushed first.
-2. Protocol — src/protocol/mod.rs:713 exports the schemars schema;
+1. Package skeleton. Cargo.toml:1 declares one explicit edition-2024 package,
+   bboxy450-harness, with no workspace or inherited fields. It declares
+   default=[], standalone, embedded and acp, and pins crates.io bboxy450-rt
+   and bboxy450-yarn to 0.1.1. Every Rust source has the exact six-line
+   ATTRIBUTION.md header; scripts/checks.py enforces it. The skeleton was signed
+   and pushed first (364b92a after the authorized rebase).
+
+2. Protocol. src/protocol/mod.rs:713 exports the schemars schema;
    protocol.schema.json is checked against it. tests/protocol_golden.rs:295
-   verifies exact JSONL round trips for five fixtures under
-   tests/fixtures/protocol. They cover all item kinds, text/reasoning, parallel
-   reads, FileChange, Terminal, Plan, Approval, interruption, recovery, Lagged
-   and Reset. src/protocol/laws.rs:23 enforces lifecycle/pairing/durable ordering.
-   tests/protocol_laws.rs:15 supplies broken transcripts. The protocol/fixtures
-   were pushed early at e438e2e for the GUI consumer.
-3. Core — src/engine/mod.rs:82 owns the 64-entry work lane, separate 256-entry
-   control FIFO, 1024-op deduplication cache, turn/steer queues and approvals.
-   Bounded work batches preserve control and completion progress; fallback
-   steers retain admission order. src/engine/turn_loop.rs:35 is the shared Yarn
-   topology and :125 joins children and synthesizes unfinished results before
-   the ending. task_group.rs:10 owns cancellation and JoinSet tasks.
-   process.rs:43 kills its own process group, drains pipes and reaps the leader.
-   provider/parser.rs:16 strictly assembles indexed calls; provider/mod.rs:114
-   implements pre-output retry, Retry-After and cancellable HTTP.
-   tools.rs:174 checks permits, concurrency classes and path locks; exact edit
-   misses report suggestions, apply_patch stages all edits, and capped output
-   spills to redacted content-addressed blobs. policy.rs:76 uses data rules and
-   unattended deny. store.rs:172 writes before publish; :223 recovers children
-   first, pairs calls and closes turns. gateway/mod.rs:392/:443 admit and replay
-   without awaiting a face; replay is lazy. gateway/unix.rs:144 demultiplexes
-   correlated replies and envelopes, with a five-second unknown-outcome timeout.
-   headless.rs:43 and seat.rs:9 provide JSONL and append-only line projection.
-4. Formal — tests/formal/models.rs:47 maps turn lifecycle and synthetic pairing;
-   :147 maps A-B-A cancellation; :216 maps control/steer progress; :258 maps
-   approval; :324 maps subscriber replay; :450 reuses DirtyWake. The corpus
-   includes separate omission, leader-only kill, lag-repair and healthy-peer
-   controls. tests/reactor_projection.rs:21 compares all 15 nonempty readiness
-   masks against the production declaration. coverage.toml inventories every
-   Rust source; contracts.toml links bounds, assumptions and real witnesses;
-   corpus.toml independently fixes expected verdicts. scripts/formal.py:234
-   validates HEAD/source/model/tool receipts. Generated evidence is archived in
-   verification/evidence/<digest>/ beyond target cleanup. This is the published
-   finite checker and Yarn API, not a parallel checker or arbitrary Rust proof.
-5. Live — frontends/smoke.rs:25 uses the requested Nemotron model/endpoint and
-   copies only the existing kittens !cmd into the local harness profile. Keys
-   remain in zeroizing storage and are scrubbed before events, blobs and output.
-   Key commands have timeout/output limits and Keychain commands are refused
-   unattended. Requests are limited to three per invocation; the policy allows
-   only read/edit for this smoke. Only a redacted summary is retained.
+   checks exact round trips and forward-compatible unknown variants. Five
+   JSONL fixtures cover text/reasoning, parallel reads, FileChange, Terminal,
+   Plan, Approval, mid-tool interruption, recovery, Lagged and Reset.
+   src/protocol/laws.rs:23 checks durable order, epochs, lifecycle, nested item
+   closure and tool pairing; tests/protocol_laws.rs supplies broken controls.
+   The protocol/fixtures were pushed early at e438e2e for the GUI consumer.
+   The later ICD clarifications were cherry-picked from the Architect's signed
+   commits, including async loading, compaction, forks and escaped digest fields.
 
-The real witnesses include two-second process-group cancellation with ESRCH,
-A-B-A generation retirement, truncation at every durable fixture boundary,
-parallel reads and an edit over mock SSE, approval races/unattended denial,
-FIFO steer fallback, a 100k-delta firehose with a dead subscriber, replay at
-every seq, Unix timeout/retry/disconnect, a real PTY hangup, and a 10k-file grep
-with p99 IO-ticker lateness at most 5 ms.
+3. Engine and other core components.
 
-## Scope, limits and worktree state
+   - src/engine/mod.rs:37 owns configuration and the session actor. Work is
+     bounded at 64; control has its separate 256-entry FIFO; recent op memory is
+     1024. Bounded work batches preserve completion/control progress. Steer
+     fallback retains admission order. src/engine/turn_loop.rs:35 supplies one
+     production Yarn reactor topology, also projected by the formal test.
+     Cancellation, child joins, synthetic tool results and the single ending
+     are in turn_loop.rs:126 and task_group.rs:10. process.rs:43 owns its born
+     process group, TERM/KILL, pipe drains and leader reaping.
+   - src/provider/parser.rs:25 strictly assembles indexed streamed calls and
+     rejects changed identities, duplicate ids, missing/conflicting finish
+     markers and malformed arguments. provider/mod.rs:143 implements cancellable
+     OpenAI-compatible HTTP, pre-output-only retry and Retry-After. Identical
+     empty/repeated final metadata is accepted and covered by a regression.
+     profile.rs resolves !cmd keys with an 8 KiB cap and 10 s timeout via the
+     toolkit CommandRunner; Keychain commands are refused unattended.
+   - src/tools.rs:174 implements read/write/edit/apply_patch/exec/bash/grep/glob,
+     effect permits, four parallel reads, exclusive exec and per-path write
+     locks. Exact edit misses give suggestions; apply_patch stages changes;
+     output caps spill to scrubbed blobs. policy.rs:76 evaluates data rules with
+     unattended deny. Every non-read effect has a recorded Approval resolution.
+   - src/store.rs:210 writes durable JSONL before publication and fsyncs turn,
+     approval and close boundaries. :261 recovers inner items before parents,
+     synthesizes missing tool results and closes turns in a new epoch. The log
+     itself holds the writer lease. Blobs are content-addressed and verified.
+   - src/gateway/host.rs:39/:106 create or load/recover before exposing InProc.
+     Subscribe never loads. Same-op creation is idempotent; a bound gateway
+     refuses StartSession. Tests prove recovery-before-Hello, closed/missing/
+     corrupt refusals, a failure Notice on the next successful open, and socket
+     binding only after loading. gateway/mod.rs:266 coalesces deltas before
+     copying growing bodies; snapshots are scrubbed again after assembly.
+     Registration precedes lazy replay; slow readers get Lagged while healthy
+     peers continue. gateway/unix.rs uses mode 0600, peer uid checks, bounded
+     JSONL frames, correlated replies and a five-second unknown-outcome timeout.
+     Idle clients receive Status every 15 seconds.
+   - frontends/headless.rs:43 emits envelopes for -p/--json, and replays closed
+     logs read-only without credentials or epoch mutation. seat.rs:90 streams
+     append-only prefixes without duplicate final text or terminal controls.
+     Signals are installed before key resolution; EOF/HUP/TERM cancel and join.
+     Idle SetProfile resolves off the actor, so Close can cancel/join it; stale
+     profile completions have no effect.
+   - context/compact.rs:45 implements protocol section 4b's deterministic
+     Markdown digest: clip then escape, omit unstarted turns/private bodies,
+     drop oldest whole turns to 32 KiB, and retain the omission count. The blob
+     is fsynced before completion. context/mod.rs:23 replaces old request items
+     with one summary message and includes it in stable_prefix. The log stays
+     intact. tests/context_compact.rs covers the golden, deterministic hash,
+     prefix exclusion, repeated Compact refusal, cap and header injection.
+   - store/fork.rs:88 materializes a quiescent parent prefix and every typed
+     blob reference. Hash-checked blobs precede a fsynced temporary log and
+     exclusive atomic rename. Child seq/event/timestamp/cause are retained;
+     session/epoch are rewritten. tests/store_fork.rs proves exact copying
+     during parent appends, unchanged parent bytes, BadFork refusals, no child
+     publication on blob corruption, independence after parent deletion and
+     equivalence of actual first ModelRequests.
 
-Deliberately outside this assignment: GUI/window/widgets and upstream workspace
-membership; MCP client (optional); ACP adapter. The feature declarations reserve
-those integration points. R15 embedded toolkit deduplication was not run in the
-other repository. No merge, release or installation was performed.
+4. Formal verification. Uses published bboxy450-tlc =0.1.1 and Yarn 0.1.1;
+   there is no checker fork. AgentTurnLifecycle/ToolPairing map to the
+   HarnessTurnLifecycle and HarnessTurnLifecyclePairing families. Other
+   families cover A-B-A birth fencing/group kill, SteerQueue, approval races/
+   unattended resolution, replay/register/lag/healthy-peer progress, dirty wake,
+   profile retirement and atomic fork publication. All have failing Broken
+   controls. tests/reactor_projection.rs checks every one of 15 nonempty
+   readiness masks against the production declaration.
 
-Finite models abstract contracts. Real HTTP/UTF-8, filesystem durability, kernel
-scheduling, wall-clock limits, scrubbing and terminal bytes remain covered by
-implementation witnesses. Pixel/rendering claims belong to the GUI assignment.
-The API is session-bound: SessionActor::open loads/recoveries a session before
-its InProc handle is exposed. There is no multi-session catalogue/daemon that
-lazily loads arbitrary session IDs on subscribe. Seat projection currently
-prints authoritative completed text; incremental text is available as gateway
-snapshots, not printed incrementally by the line renderer. These gateway/seat
-ICD details remain gaps, not claimed verification. Compact saves a replay blob;
-it does not yet reduce the model context. Fork metadata is retained without
-materializing parent history. Idle SetProfile may await key/profile resolution;
-control send still admits immediately, but idle profile-load/close latency has
-not been proven. These are explicit implementation limits for Oracle review.
+   verification/coverage.toml inventories the sole crate and every Rust source;
+   corpus.toml independently fixes expected verdicts; contracts.toml maps
+   sources, assumptions and real API/process witnesses. R20 compaction and R21
+   fork implementation coverage are explicit. scripts/formal.py:73 rejects
+   omissions, partial exploration, tool failure or disagreement. Java TLC 1.7.4
+   and Temurin 21.0.13+9 are checksum-pinned; Java is never a runtime dependency.
+   Receipt archives under verification/evidence/<digest>/ survive target cleanup.
 
-U1-U7 interim behavior: credited local exporter/metadata writer (U1); copied
-helpers with explicit const variable counts (U2); standalone inventory and hash
-inputs, without embedded sub-inventory integration (U3); local mappings instead
-of importing private upstream models (U4); renamed projection plus separate
-weak-fair semantic model (U5); exported metadata name tables (U6); local scoped
-JoinSet/cancellation group and mpsc completion lane marked for replacement by
-upstream (U7).
+   Bounds include two turns/tools, three birth generations, finite work/replay
+   abstractions, one pending profile and a fixed fork point with two parent
+   heads. Weak fairness applies only to named action groups. Fork crashes may
+   repeat forever, so its model makes a safety claim, not a progress claim.
+   No arbitrary Rust refinement or complete TLC replacement is claimed.
 
-All source and this report are signed and pushed on e1-core. Generated formal
-archives remain local untracked run artifacts; the source tree is clean.
-The Oracle must inspect the tree/diff and re-run the gates before acceptance.
+5. Live smoke. frontends/smoke.rs:25 uses exactly the requested Nemotron free
+   model and OpenRouter endpoint. It copies only the kittens !cmd source into
+   the local mode-0600 harness profile, never its output value. Only read/edit
+   are allowed, and all rounds/retries share a three-request budget. The latest
+   invocation passed with one read and one edit. Only the redacted summary is
+   retained; its temporary real transcript is checked and removed. SKIP (no
+   key) and UNAVAILABLE (quota) remain distinct from PASS.
+
+## Failures and disposition
+
+An early full run failed when parallel Java TLC processes shared temporary
+standard-module files (Java exit 150). 26c82bf isolates them and adds a gate
+negative control; later full parity runs pass. A later firehose run timed out:
+1fffe52 coalesces before cloning partial bodies and skips unnecessary serde
+round trips for an empty redaction set; the unchanged 100k-delta test passes.
+
+One full run at 1fffe52 missed the profile-close two-second bound. Its captured
+output/command results are retained in test-profile-timeout.log/.json. The
+isolated test passed twelve fresh-process repetitions, including a private
+HOME/TMPDIR. No product root cause was established from that older failure.
+e47a3e0 strengthens the witness: the ready file follows child creation, it
+observes SessionClosed directly at the unchanged two-second bound, reports
+live-group/event diagnostics, and cleans its owned group on failure. The final
+canonical run passes. The earlier failure is not relabeled as PASS.
+
+The live summary retains three early failed one-request diagnostic invocations
+and the previous three-request PASS; the latest PASS uses three more requests
+(nine across development, at most three per invocation). Early failures exposed
+the strict final-metadata parser issue; no failed attempt is counted as PASS.
+
+## Deliberate scope and evidence limits
+
+GUI/window/widgets, upstream workspace membership and embedded R15 toolkit
+crate deduplication belong to other assignments. MCP is optional and omitted;
+the ACP adapter is not implemented by this core task. No merge, crate release,
+installation or deployment was performed. Automatic context compaction is
+explicitly deferred by protocol section 4b.
+
+Real HTTP/UTF-8 parsing, filesystem behavior, process groups, wall-clock bounds,
+secret scrubbing and terminal bytes remain implementation witnesses. Finite
+models do not prove those effects or GUI pixels. Tests use mock localhost SSE,
+throwaway identities and real subprocesses/PTYs; none needs operator input.
+
+U1-U7 interim mechanisms follow upstream-toolkit.md: credited local exporter and
+metadata (U1), copied helpers with const variable counts (U2), standalone source
+inventory rather than embedded integration (U3), local model shapes (U4), renamed
+Yarn projection plus a separate fair semantic model (U5), name tables (U6), and
+one local scoped JoinSet/cancellation group marked for upstream replacement (U7).
+
+All product, tests and this report are signed and pushed on e1-core. Generated
+formal archives remain local untracked run artifacts; product/test sources are
+clean. The task report gives the exact final head, PR and refreshed receipt.
+The Oracle must inspect the tree/diff and rerun the gates before accepting.
