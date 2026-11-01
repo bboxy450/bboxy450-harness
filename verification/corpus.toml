@@ -313,3 +313,8 @@ frontend = "project"
 name = "BrokenHarnessGuiMarkdownSuppressedRender"
 expected = "liveness"
 frontend = "project"
+
+[[model]]
+name = "BrokenHarnessProcessHangup"
+expected = "safety"
+frontend = "project"

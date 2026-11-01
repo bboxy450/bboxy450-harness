@@ -32,27 +32,143 @@ pub struct Request {
     pub cap: usize,
     pub redactor: crate::redact::Set,
 }
-struct OwnedGroup {
+// Signal-path registry: no lock, allocation, runtime poll or await. A negative
+// pgid temporarily reserves a slot for the signal handler; retirement cannot
+// release the leader PID until that signal has finished. -1 reserves a spawn.
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+static CLOSING: AtomicBool = AtomicBool::new(false);
+static GROUPS: [AtomicI32; 256] = [const { AtomicI32::new(0) }; 256];
+pub(crate) struct GroupReservation {
+    slot: &'static AtomicI32,
+    pgid: i32,
+}
+pub(crate) fn reserve_group() -> io::Result<GroupReservation> {
+    if CLOSING.load(Ordering::SeqCst) {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "process shutting down",
+        ));
+    }
+    for slot in &GROUPS {
+        if slot
+            .compare_exchange(0, -1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            return Ok(GroupReservation { slot, pgid: 0 });
+        }
+    }
+    // Fail before spawn; an unregistered process is never admitted.
+    Err(io::Error::other("owned process-group registry full"))
+}
+impl GroupReservation {
+    fn bind(&mut self, pgid: u32) {
+        self.pgid = pgid as i32;
+        self.slot.store(self.pgid, Ordering::SeqCst);
+        // Paired SC publication closes the spawn-versus-signal race: either the
+        // handler sees the group, or bind observes closing and kills it itself.
+        if CLOSING.load(Ordering::SeqCst) {
+            unsafe {
+                libc::kill(-self.pgid, libc::SIGKILL);
+            }
+        }
+    }
+    fn release(&mut self) {
+        if self.pgid == -1 {
+            return;
+        }
+        let expected = if self.pgid == 0 { -1 } else { self.pgid };
+        loop {
+            match self
+                .slot
+                .compare_exchange(expected, 0, Ordering::SeqCst, Ordering::SeqCst)
+            {
+                Ok(_) | Err(0) => break,
+                Err(_) => std::hint::spin_loop(), // handler's one kill syscall
+            }
+        }
+        self.pgid = -1;
+    }
+}
+impl Drop for GroupReservation {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+pub(crate) fn kill_owned_groups() {
+    CLOSING.store(true, Ordering::SeqCst);
+    for slot in &GROUPS {
+        let pgid = slot.load(Ordering::SeqCst);
+        if pgid > 1
+            && slot
+                .compare_exchange(pgid, -pgid, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+        {
+            unsafe {
+                libc::kill(-pgid, libc::SIGKILL);
+            }
+            slot.store(pgid, Ordering::SeqCst);
+        }
+    }
+}
+extern "C" fn shutdown_signal(_signal: i32) {
+    #[cfg(target_vendor = "apple")]
+    let errno = unsafe { libc::__error() };
+    #[cfg(target_os = "linux")]
+    let errno = unsafe { libc::__errno_location() };
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+    let saved = unsafe { *errno };
+    kill_owned_groups();
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+    unsafe {
+        *errno = saved;
+    }
+}
+pub(crate) fn install_shutdown_handlers() -> io::Result<()> {
+    // Install before Tokio's signal registration. signal-hook-registry chains
+    // this previous handler before notifying the async signal listener.
+    for signal in [libc::SIGHUP, libc::SIGTERM] {
+        let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+        action.sa_sigaction = shutdown_signal as *const () as usize;
+        action.sa_flags = libc::SA_RESTART;
+        unsafe {
+            libc::sigemptyset(&mut action.sa_mask);
+            libc::sigaddset(&mut action.sa_mask, libc::SIGHUP);
+            libc::sigaddset(&mut action.sa_mask, libc::SIGTERM);
+            if libc::sigaction(signal, &action, std::ptr::null_mut()) == -1 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+    }
+    Ok(())
+}
+pub(crate) struct OwnedGroup {
     pgid: u32,
     unreaped: bool,
+    registration: GroupReservation,
     signal: Box<dyn Fn(u32, i32) + Send + Sync>,
 }
 impl OwnedGroup {
-    fn new(pgid: u32) -> Self {
-        Self {
+    pub(crate) fn new(pgid: u32, registration: GroupReservation) -> Self {
+        let mut group = Self {
             pgid,
             unreaped: true,
+            registration,
             signal: Box::new(|pgid, signal| unsafe {
                 libc::kill(-(pgid as i32), signal);
             }),
-        }
+        };
+        group.registration.bind(pgid);
+        group
     }
-    fn send(&self, signal: i32) {
+    pub(crate) fn send(&self, signal: i32) {
         if self.unreaped {
             (self.signal)(self.pgid, signal);
         }
     }
-    fn reaped(&mut self) {
+    // Remove the signal-path reservation BEFORE the wait that can release/reuse
+    // the PID. Callers have already killed the group, or observed external reap.
+    pub(crate) fn reaped(&mut self) {
+        self.registration.release();
         self.unreaped = false;
     }
 }
@@ -65,10 +181,27 @@ impl Drop for OwnedGroup {
 mod ownership_tests {
     use super::*;
     #[test]
+    fn released_registration_does_not_clear_a_reused_slot() {
+        static SLOT: AtomicI32 = AtomicI32::new(123);
+        let mut reservation = GroupReservation {
+            slot: &SLOT,
+            pgid: 123,
+        };
+        reservation.release();
+        assert_eq!(SLOT.load(Ordering::SeqCst), 0);
+        SLOT.store(456, Ordering::SeqCst);
+        drop(reservation);
+        assert_eq!(
+            SLOT.load(Ordering::SeqCst),
+            456,
+            "retired registration touched its replacement"
+        );
+    }
+    #[test]
     fn reaped_group_drop_never_signals_a_reused_identity() {
         let signals = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
         let seen = signals.clone();
-        let mut group = OwnedGroup::new(123);
+        let mut group = OwnedGroup::new(123, reserve_group().unwrap());
         group.signal = Box::new(move |pid, signal| seen.lock().unwrap().push((pid, signal)));
         group.reaped();
         drop(group);
@@ -162,6 +295,7 @@ async fn run_inner(
     if cancel.is_cancelled() {
         return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
     }
+    let reservation = reserve_group()?;
     let mut command = Command::new(req.program);
     command
         .args(req.args)
@@ -187,7 +321,7 @@ async fn run_inner(
     }
     let mut child = command.spawn()?;
     let pgid = child.id().expect("spawned child PID");
-    let mut group = OwnedGroup::new(pgid);
+    let mut group = OwnedGroup::new(pgid, reservation);
     let mut stdout = child.stdout.take().unwrap();
     let mut stderr = child.stderr.take().unwrap();
     let mut input = child.stdin.take();
@@ -214,8 +348,8 @@ async fn run_inner(
             break;
         }
         let chunk = tokio::select! {biased;
-            _=cancel.cancelled(),if !cancelled=> {cancelled=true;terminate(&group).await;if status.is_none(){let waited=child.wait().await;group.reaped();status=Some(waited?);}drain_deadline=Some(Instant::now()+Duration::from_millis(500));None},
-            _=sleep_until(deadline),if !cancelled=>{cancelled=true;terminate(&group).await;if status.is_none(){let waited=child.wait().await;group.reaped();status=Some(waited?);}drain_deadline=Some(Instant::now()+Duration::from_millis(500));None},
+            _=cancel.cancelled(),if !cancelled=> {cancelled=true;terminate(&group).await;if status.is_none(){group.reaped();let waited=child.wait().await;status=Some(waited?);}drain_deadline=Some(Instant::now()+Duration::from_millis(500));None},
+            _=sleep_until(deadline),if !cancelled=>{cancelled=true;terminate(&group).await;if status.is_none(){group.reaped();let waited=child.wait().await;status=Some(waited?);}drain_deadline=Some(Instant::now()+Duration::from_millis(500));None},
             result=&mut exited,if !leader_done && status.is_none()=>{
                 if let Err(error)=result {
                     // An external reaper has already released the reservation.
@@ -272,8 +406,8 @@ async fn run_inner(
         // Even when the pipes closed normally, retire any background members
         // before releasing the leader's PID. Drop then cannot hit a reused pgid.
         group.send(libc::SIGKILL);
-        let waited = child.wait().await;
         group.reaped();
+        let waited = child.wait().await;
         status = Some(waited?);
     }
     if !capture_only {

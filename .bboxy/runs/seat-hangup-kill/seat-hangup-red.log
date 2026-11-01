@@ -1,0 +1,20 @@
+
+running 1 test
+seat_shutdown::hup_kills_owned_groups_before_supervisor_escalation_and_resume_recovers --- FAILED
+
+failures:
+
+---- seat_shutdown::hup_kills_owned_groups_before_supervisor_escalation_and_resume_recovers stdout ----
+seat supervisor exit pending while groups retire
+
+thread 'seat_shutdown::hup_kills_owned_groups_before_supervisor_escalation_and_resume_recovers' (121486726) panicked at tests/support/seat_shutdown.rs:198:5:
+owned group survived supervisor escalation: [52637, 52635]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    seat_shutdown::hup_kills_owned_groups_before_supervisor_escalation_and_resume_recovers
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 13 filtered out; finished in 3.09s
+
+error: test failed, to rerun pass `--test seat_process`

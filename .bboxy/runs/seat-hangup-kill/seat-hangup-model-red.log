@@ -1,0 +1,19 @@
+
+running 1 test
+synchronous_hangup_kill_precedes_the_supervisors_unjoinable_exit --- FAILED
+
+failures:
+
+---- synchronous_hangup_kill_precedes_the_supervisors_unjoinable_exit stdout ----
+
+thread 'synchronous_hangup_kill_precedes_the_supervisors_unjoinable_exit' (121487478) panicked at tests/formal_nonvacuity.rs:381:5:
+NoOwnedMemberAfterSupervisorKill
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    synchronous_hangup_kill_precedes_the_supervisors_unjoinable_exit
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--test formal_nonvacuity`

@@ -150,12 +150,12 @@ checks=["make test-formal","make test"]
 [[contract]]
 name="HarnessProcessLifecycle"
 title="Cancel kills remaining members before releasing the leader reservation"
-models=["HarnessProcessLifecycle","BrokenHarnessProcessDrain","BrokenHarnessProcessOwnership","BrokenHarnessProcessReapedMembers"]
-controls=[{name="BrokenHarnessProcessDrain",expected="liveness"},{name="BrokenHarnessProcessOwnership",expected="safety"},{name="BrokenHarnessProcessReapedMembers",expected="safety"}]
-sources=["src/process.rs","src/mcp.rs","tests/formal/models.rs"]
-implementation_tests=["src/process.rs","tests/cancel_process.rs","tests/mcp_client.rs"]
-assumptions="One leader (running/exited-waitable/reaped), one independent live member and one possibly escaped pipe holder. Leader exit, member exit, signal, reap, drain and cancel completion are separate actions. Weak fairness on exit/signal/reap/drain/end; OS waitid, real PID reuse and the 500ms grace remain process witnesses."
-property="Cancel completion implies no live member. A signal never targets a group with neither a leader reservation nor a member; bounded drain eventually ends cancellation."
+models=["HarnessProcessLifecycle","BrokenHarnessProcessDrain","BrokenHarnessProcessOwnership","BrokenHarnessProcessReapedMembers","BrokenHarnessProcessHangup"]
+controls=[{name="BrokenHarnessProcessDrain",expected="liveness"},{name="BrokenHarnessProcessOwnership",expected="safety"},{name="BrokenHarnessProcessReapedMembers",expected="safety"},{name="BrokenHarnessProcessHangup",expected="safety"}]
+sources=["src/process.rs","src/mcp.rs","src/frontends/headless.rs","tests/formal/models.rs"]
+implementation_tests=["src/process.rs","tests/cancel_process.rs","tests/mcp_client.rs","tests/seat_process.rs","tests/support/seat_shutdown.rs","tests/formal_nonvacuity.rs"]
+assumptions="One arbitrary owned group stands for any tool, terminal or MCP group. The seat can receive hangup, then be killed by its supervisor before async cleanup. Hangup kills the group atomically before notifying async close; broken Hangup omits that kill. The 100ms/250ms OS deadlines and signal-handler instruction bounds are process/structural witnesses, not modeled real time. One leader (running/exited-waitable/reaped), one independent live member and one possibly escaped pipe holder. Leader exit, member exit, signal, reap, drain and cancel completion are separate actions. Weak fairness on exit/signal/reap/drain/end; OS waitid, real PID reuse and the 500ms grace remain process witnesses."
+property="Cancel completion implies no live member. A signal never targets a group with neither a leader reservation nor a member; bounded drain eventually ends cancellation while the seat lives. After supervisor KILL no group member is alive. Abrupt seat death discharges the local join obligation; durable recovery is witnessed separately."
 checks=["make test-formal","make test"]
 
 [[contract]]
