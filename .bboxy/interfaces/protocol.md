@@ -51,6 +51,7 @@ pub enum Op {
     Close,                                               // stop the session; detaching is dropping a Subscription, not an op
 }
 pub enum TurnMode { Queue, Steer }
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum InputBlock { Text { text: String }, Image { blob: BlobRef }, Mention { path: PathBuf } }
 #[serde(tag = "decision", rename_all = "snake_case")]
 pub enum ApprovalDecision { Allow, AllowAlways, Deny { reason: Option<String> } }
@@ -131,11 +132,14 @@ pub enum Event {
     #[serde(other)] Unknown,
 }
 
+#[serde(tag = "status", rename_all = "snake_case")]
 pub enum ItemStatus { Completed, Failed { reason: String }, Cancelled, Interrupted }
+#[serde(tag = "reason", rename_all = "snake_case")]
 pub enum StopReason {
     EndTurn, Cancelled, MaxTokens, MaxRounds, Interrupted,
     Error { class: ErrorClass, message: String },        // message is redacted
 }
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum Delta {
     Text      { append: String },                        // AgentMessage
     Reasoning { append: String },
@@ -237,11 +241,11 @@ pub enum Rejection {
     #[serde(other)] Unknown,
 }
 pub enum ErrorClass {                                          // shared with provider ICD §1
-    Transient, RateLimited, Auth, BadRequest, Malformed, MidStream, Config, Store, Tool, Internal,
+    Transient, RateLimited, Auth, BadRequest, Malformed, MidStream, Cancelled, Config, Store, Tool, Internal,
 }
 ```
 
-`ErrorClass::Cancelled` from a provider never reaches a `StopReason`: a cancelled turn ends `StopReason::Cancelled`.
+`ErrorClass::Cancelled` exists for `ProviderError` and is serialised as `"cancelled"`. It never appears inside `StopReason::Error`, because a cancelled turn ends `StopReason::Cancelled`. `check_transcript` rejects `Error{class: cancelled}`.
 
 **Lifecycle per item id.**
 1. `ItemStarted`, durable.
@@ -285,5 +289,6 @@ A `ToolCall` closed this way carries the synthetic output `"tool call was not co
 ## Change log
 
 - **2026-10-31, v0.1 completed at E1's question** (message 01M6ADW6HBB0YCX5Z746AJ7WPG). This adds §4a, the outcome table, the control-lane bound and collisions, and `SessionClosed`. `Close` loses its `mode`, because detaching is dropping a subscription. `Phase` becomes struct variants. Nothing had been implemented against the earlier text, so the version is unchanged.
+- **2026-10-31, at E1's second question** (message 01M6AE3W63JVE3QANQ392DN2HH). This adds the tag keys `InputBlock`=`type`, `ItemStatus`=`status`, `StopReason`=`reason` and `Delta`=`type`. It also adds `ErrorClass::Cancelled` to the enum, matching provider ICD §1. Version unchanged.
 
 Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: E2.
