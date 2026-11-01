@@ -2,7 +2,7 @@
 id: "0ERX7PT0Z3S73CS5EFTEHN8VA4"
 number: 6
 type: interface
-title: "ICD: protocol — Op, Event, Envelope, Item lifecycle (v0.3)"
+title: "ICD: protocol — Op, Event, Envelope, Item lifecycle (v0.4)"
 status: baselined
 links:
   - { to: "[[interfaces]]", rel: index }
@@ -19,7 +19,7 @@ updated: "2026-11-01T00:00:00Z"
 | Side A | `engine` + `store` (E1): the only producer of `Envelope`, the only consumer of `Op` |
 | Side B | every face: `gui` (E2), `headless`, `acp`, `seat` line mode; tests and fixtures |
 | Module | `src/protocol/`. Depends on `serde`, `serde_json`, `ulid` only: no tokio, no toolkit |
-| Version | `PROTOCOL: Version { major: 0, minor: 3 }` (0.2 adds `ItemStarted.head` and `Terminal.live`; 0.3 adds `Item::ContextTrim`) |
+| Version | `PROTOCOL: Version { major: 0, minor: 4 }` (0.2 adds `ItemStarted.head` and `Terminal.live`; 0.3 adds `Item::ContextTrim`; 0.4 adds `Effect::Read`) |
 | Change rule | Additive changes are minor: a new variant behind `Unknown`, or a new optional field. Anything else is a major change, which needs both owners and a decision record. A face's question about this boundary is a missing line here |
 
 ## 1. Identity and ordering
@@ -232,12 +232,12 @@ pub enum PlanStatus { Pending, InProgress, Completed, Cancelled }
 pub enum Priority { High, Medium, Low }
 pub struct ApprovalSubject {
     pub tool_call: ItemId,
-    pub effect: Effect,                                        // Write | Exec | Network (law 6)
+    pub effect: Effect,                                        // the decided EffectClass, 1:1 (law 6)
     pub summary: String,                                       // one redacted human line
     pub paths: Vec<PathBuf>,
     pub command: Option<String>,                               // redacted argv for Exec
 }
-pub enum Effect { Write, Exec, Network }
+pub enum Effect { Read, Write, Exec, Network, #[serde(other)] Unknown }  // Read: an explicit Ask rule on a read-only effect
 pub enum ApprovalDecisionKind { Allow, AllowAlways, Deny }     // the options a face may offer
 #[serde(tag = "by", rename_all = "snake_case")]
 pub enum Resolver { Face { name: String }, Rule { id: String }, Unattended, Cancelled }
@@ -380,5 +380,6 @@ Phase 1 fork **materializes** the parent prefix into the child's own log. A chil
 - **2026-11-01, v0.3 at the Oracle's request** (message 01M6AVJ56YFJSKHDJ9Q6Z17QNH). Adds §4d, automatic compaction: an 80 % trigger on a log-only estimate, a trim then summarize ladder over completed turns, and the durable `ContextTrim` item. Alternatives rejected: request-only clipping (the request would depend on state that is not in the log, and every frontier move would miss the cache); a model-written summary (§4b); a reactive retry on overflow (it needs a new `ErrorClass` for a case the 80 % margin already covers). Clip and drop are one step, not two, so the ladder costs one cache miss instead of two.
 - **2026-11-01, at E1's question** (message 01M6AWMVTNJ3W0WSZZ21WFVYK5). §4d estimate: `bytes` is compact `serde_json` of the request-body values; messages always count; tools count only before the first `Usage`; metadata never counts. `E` is a function of the log plus the turn's tool snapshot, not of the log alone. Version unchanged.
 - **2026-11-01, at E1's question** (message 01M6AWS6G0H9448REFFMCDEDEE). §4d: a `ContextTrim` or `Compaction` after the latest `Usage` voids it as the anchor, and the estimate restarts from the rebuilt request. Version unchanged.
+- **2026-11-01, v0.4 at E1's question** (message 01M6AXXPH2FPRY891W0Q5BPXJY). `Effect` gains `Read` (and `Unknown`). `ApprovalSubject.effect` is the decided `EffectClass` mapped 1:1 (`ReadOnly` → `Read`), so an explicit `Ask` rule on a read — builtin or a trusted MCP tool — carries an honest effect. The default policy still allows reads without asking. Alternative rejected: labelling a read approval `Exec`, which would show the user a false effect. Minor bump.
 
 Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: E2.

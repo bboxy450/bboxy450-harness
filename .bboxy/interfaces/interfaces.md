@@ -22,7 +22,7 @@ updated: "2026-10-31T00:00:00Z"
 
 | ICD | Sides | Status |
 |---|---|---|
-| [[protocol]] | engine/store (E1) ↔ every face (E2 GUI, headless, acp, seat) | baselined v0.3, **critical path** |
+| [[protocol]] | engine/store (E1) ↔ every face (E2 GUI, headless, acp, seat) | baselined v0.4, **critical path** |
 | [[gateway]] | engine (E1) ↔ faces; InProc and Unix | baselined v0.1 |
 | [[provider]] | engine ↔ OpenAI-compatible endpoint (E1 on both sides) | baselined v0.1 |
 | [[acp]] | engine via `Host`/`InProc` (E1) ↔ ACP v1 clients over stdio | baselined v0.1 |
