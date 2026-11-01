@@ -25,15 +25,15 @@ provenance:
   log: .bboxy/log/2026-11-01.jsonl#28243
   sig: Cyc83UKYdThdNUrJ8R5Of/o8PQs3quwjdjhfYNFSnDqSHjdiw3VXqzbCw5b1dqsIMSX3FbYecmXuYuYvZwCHDg==
   signer: seat:01M6AC7H87H9S94Y1D45PSQVH6
-status: proposed
-title: 'ICD amendment: seat capability out of the process environment (proposed)'
+status: baselined
+title: 'ICD amendment: seat capability out of the process environment (Side A baselined, Side B open)'
 type: interface
 updated: 2026-11-01T13:42:48.396Z
 updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 ---
 # Proposed amendment: the seat capability leaves the environment
 
-**Status: proposed.** This proposes changes to bboxy450-term ICD #348 (app ↔ harness) and to `wake-up/src/launch.rs` for every seat kind. Under [[d4071]] it lands through a bboxy450-term PR, and the Oracle signs the #348 rows. The harness side is [[embed-seat]] §1 and [[mcp]] §5.
+**Status: Side A baselined; Side B open.** Side A (bboxy450-term launch kit, supervisor, bridge, hook) landed on bboxy450-term main at `afda1b63` via `land --gate-log`, and the #348 rows of §5 are in `app-harness.md:20,23`. Changing a Side A clause now needs both owners and a recorded reason. **Side B (the harness) is not implemented** on harness main: see the §2 Side B bullet and the §4 harness row. The harness side is [[embed-seat]] §1 and [[mcp]] §5.
 
 ## 1. Problem
 
@@ -59,7 +59,8 @@ Consequence: any tool run by any seat, and any MCP server, can read every seat's
   - its mode is not 0600;
   - its content is not 64 hex characters.
 - **Lifetime.** The file lives as long as the overlay. Seat close and generation + 1 remove the overlay (`cleanup_overlay`). A new generation gets a new overlay, a new capability and a new file, so the old path no longer exists.
-- **Harness (Side B).** At start, `seat` reads `BBOXY_CAPABILITY_FILE` once, only to register the value with the redactor. [[mcp]] §5 removes `BBOXY_*` from profile and ACP servers, and that includes `BBOXY_CAPABILITY_FILE`.
+- **Harness (Side B).** At start, every face (`seat`, headless, GUI, smoke) reads `BBOXY_CAPABILITY_FILE` once, through the same refusals as the consumers above, and registers the value with the redactor. The [[mcp]] §5 refusal of a resolved value that contains the capability compares against that value. [[mcp]] §5 removes `BBOXY_*` from profile and ACP servers, and that includes `BBOXY_CAPABILITY_FILE`. Tool processes (`process.rs` spawn) get `BBOXY_CAPABILITY_FILE` removed, as well as `BBOXY_CAPABILITY`.
+  - **Gap at harness main `637cebb`.** Every face still reads only `BBOXY_CAPABILITY` (`src/mcp.rs:577,581`, `src/frontends/headless.rs:155`, `gui/window.rs:343`, `smoke.rs:74`), and Side A no longer sets it. Tools inherit `BBOXY_CAPABILITY_FILE`, because `process.rs:466` removes only `BBOXY_CAPABILITY`. So in a harness seat `cat "$BBOXY_CAPABILITY_FILE"` prints the value unredacted into the transcript and logs, and the §5 value refusal never fires. That breaks [[secrets-never-persist]] for this seat kind until Side B lands.
 
 ## 3. What this claims, and what it does not
 
@@ -80,7 +81,7 @@ Consequence: any tool run by any seat, and any MCP server, can read every seat's
 | file shape and lifetime | the file is regular, mode 0600, owned by the euid, in a 0700 directory. After seat close the file is gone. After generation + 1 the old path is gone, and a bridge started with the old path's content is refused |
 | consumer refusals | the bridge and the hook each refuse a symlink, mode 0644, a file owned by another uid, and malformed content, with typed reasons |
 | broken control | a launch that also sets `BBOXY_CAPABILITY` in the environment makes the first row fail |
-| harness side | `tests/seat_process.rs`: `BBOXY_CAPABILITY_FILE` is registered with the redactor (a tool that prints the value has it redacted), and a profile `echo_env` server sees neither `BBOXY_CAPABILITY_FILE` nor the value ([[mcp]] §6) |
+| harness side (**unproven**) | `tests/seat_process.rs`, with the capability delivered only as `BBOXY_CAPABILITY_FILE`: (a) a tool that runs `cat <path>` has the value redacted in its output and in the session log; (b) a tool's `printenv BBOXY_CAPABILITY_FILE` prints nothing; (c) a profile `echo_env` server sees neither `BBOXY_CAPABILITY_FILE` nor the value ([[mcp]] §6); (d) a profile `!cmd` whose output contains the value refuses the server with `reserved capability in environment`. Broken control: a redactor fed from `BBOXY_CAPABILITY` alone fails (a) |
 
 ## 5. #348 rows that change
 
@@ -94,5 +95,6 @@ Consequence: any tool run by any seat, and any MCP server, can read every seat's
 ## Change log
 
 - **2026-11-01, proposed at the Oracle's request** (message 01M6BN8XAGAW3C6AGHYZY3NWRK, a security finding from the PR #11 review). Of the three options the Oracle listed, the file wins because it works for every seat kind, including the Codex shared daemon. Codex already writes a 0700 file in the overlay (`launch.rs:593-606`). The fd and socket options fail for the reasons in §3.
+- **2026-11-01, at the Oracle's request** (message 01M6CC26D3KMZNQY5GFKC027JR). Side A baselined. Evidence: signed `afda1b63` on bboxy450-term `origin/main`; its gate log ends `ci-local: result afda1b63… normal 0`; `capability_file.rs:363` scans claude, codex, zsh and bboxy450-harness, each launched with a fixture command, not the real binary (an abstraction: the environment comes from launch and supervisor, not from the binary); `every_seat_kind_keeps_capability_out_of_seat_and_ancestor_environments ... ok`; the broken control `test-capability-control.py` returns `red_exit 101` at `SeatAndAncestorEnvironmentIsCapabilityFree` with the source restored. I found the Side B gap while checking: the redactor and the §5 refusal are blind, and tools inherit the path. Side B is stated precisely (all faces, tool scrub), and the §4 harness row is marked unproven, with a broken control.
 
 Owner: Nyx Copperwing <ARCHITECT> (proposal, harness side). Side A: bboxy450-term launch kit and `bbt-mux` (ICD #348; the Oracle signs under [[d4071]]).
