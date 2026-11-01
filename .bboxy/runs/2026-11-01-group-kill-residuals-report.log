@@ -1,0 +1,209 @@
+E1g: group-kill residuals — task #4589 / 01M6BPMGVA3DAJ4SB1XPD02S5Z
+ROLE: EXECUTOR, E1 harness-core
+Repository: https://github.com/bboxy450/bboxy450-harness
+Worktree: /Users/feral/mydev/bboxy450-harness-core
+Branch: e1g-group-kill-residuals
+PR: https://github.com/bboxy450/bboxy450-harness/pull/14
+Base: origin/main f740a428b0313d428e37882808f38b76279eb4d2 (includes adf3e5d).
+No merge. All task commits use Boxy <bboxy450@gmail.com> and the configured
+9B07E849480C68328CA20684844ECC0587DE7AB0 signing key.
+
+1. ECHILD / registration retirement
+
+src/process.rs:190 — OwnedChild exclusively contains the private Tokio Child
+and its group registration. Construction from an arbitrary pid, raw group
+construction, mutable child access and extraction of the Child are private.
+The SDK and pipe readers cannot acquire a child or a wait future.
+src/process.rs:238 — retire_for_reap sends group SIGKILL, then retires the
+signal-handler slot, before the only owned Child::wait. OwnedChild::drop uses
+the same fence before Rust drops the private Child. A signal already holding
+the slot finishes before retirement can release it. Existing slot-reuse tests
+remain in the gate.
+src/process.rs:196 — spawn refuses SIGCHLD=SIG_IGN and SA_NOCLDWAIT, before a
+child exists. Both would invalidate the waitable-leader ownership premise.
+
+Why the reported external-reaper window cannot arise through the supported
+API: WNOWAIT does not reap; only the private wait/Drop can release this Child.
+Pinned Tokio 1.54.1 process/unix/reap.rs polls its owned child; orphan.rs polls
+only children handed to its orphan queue. Our Child reaches that queue only
+after OwnedChild's Drop fence. rmcp 3.5.1 no longer receives a Child at all.
+An unrelated OS process cannot waitpid our direct child. Foreign embedding
+code calling unsafe waitpid on somebody else's child, or changing SIGCHLD to
+automatic reaping after spawn, violates this explicit precondition. Observing
+ECHILD cannot retroactively make such an external reap safe. The defensive
+ECHILD branch disowns immediately; this is not a claim to solve that arbitrary
+foreign-code case. The same assumption is in verification/contracts.toml.
+
+Unit witness: echild_after_owned_reap_never_leaves_a_signal_target performs a
+real owned wait, obtains real ECHILD from waitid afterward, inspects the actual
+registry and records any signal after release. Removing the pre-wait fence
+fails at “ECHILD observed a PID released while its group was registered”.
+The signal-disposition witness also rejects both autoreap configurations.
+
+2. MCP missing-id and failed-handoff cleanup
+
+src/mcp.rs:450 — OwnedTransport wraps AsyncRwTransport with byte pipes and a
+oneshot close notification. The supervisor retains the sole OwnedChild across
+handshake, service completion and cleanup; the SDK cannot reap it.
+src/mcp.rs:485 — finish_child retains rx's success/error result but performs
+the same TERM/grace/owned wait in either case. Owned wait kills and retires
+the group before reaping. There is no id()==None early return or raw-Child
+handoff. A missing id can only follow an already fenced owned wait.
+
+tests/mcp_client.rs:861 and :886 force both actual conditions, rather than
+pretending they occurred: child.id()==None after a real wait, and an actual
+oneshot receiver error after its sender is dropped. Each uses the real
+stubborn_group server/member and asserts all original members reach ESRCH,
+the registration is absent at reap, no late signal is issued, and a disposable
+foreign process group remains alive until explicit fixture cleanup.
+
+Foreign reuse is a deterministic fault injection: the audited group signal
+callback routes a stale signal after the real leader's release to the fixture's
+own disposable foreign group. The negative control actually kills that group
+and trips each named foreign-signal assertion. This does not claim to force
+Darwin's PID allocator to wrap. Group death and missing-id/receiver-error
+observations use real processes and the actual private wait boundary.
+
+3. Models and implementation boundary
+
+HarnessProcessLifecycle now includes registration state and the invariant
+NoRegistrationAfterReap. BrokenHarnessProcessReapLease retains registration
+after release and fails that safety invariant. This is state-derived, not a
+flag written only by broken actions.
+HarnessMcpGroupClose now explores delivered and lost close notifications,
+registration, leader/member state and an already-fenced wait before finish.
+Both notification states reach completed Close; the missing-id state is
+reachable. BrokenHarnessMcpLostChild skips cleanup on lost notification and
+fails NoMemberAfterClose. The existing leader-only control still fails on the
+orphaned-member assertion, rather than the Close hang guard.
+tests/formal_nonvacuity.rs:408 checks these reachability and named violations.
+model-controls/ retains both native named traces and Java counterexamples;
+TLC Inv3 is NoRegistrationAfterReap, and Inv1 is NoMemberAfterClose, per the
+adjacent exported invariant metadata.
+The canonical native/TLC run agrees on full reachable graphs and verdicts:
+HarnessProcessLifecycle 35 states/65 edges, TLC0; broken reap lease 35/65,
+TLC12 safety. HarnessMcpGroupClose 26/47, TLC0; broken lost child 23/39, TLC12
+safety. formal-code.json records all67 variants, 25 contracts, 1 crate and
+clean source54a426a1cfde65908d5d5b271dfc1f3b7d9a7e99, receipt
+ffc0797f3ea434120da0c80a86f4eb9dbac6475ccafb4fbf30e2cf07817915cb.
+verification/{contracts,corpus,coverage}.toml map the implementation and tests.
+SC atomics, OS instructions, signal delivery, foreign unsafe code and real PID
+reuse are explicit implementation boundaries; finite models are not arbitrary
+Rust or real-time proofs.
+
+4. Full-gate PTY findings and corrections
+
+The first exact make test exited 2 (underlying cargo test 101) at the physical
+PTY-master-close orphan assertion. make-test-initial.log and test-initial.json
+preserve the failure. The final fixes keep every case and its 250ms/2s guards:
+
+- tests/support/seat_shutdown.rs uses a descriptor-only writer. portable-pty's
+  normal writer Drop injects newline+VEOF, which previously sent graceful
+  Ctrl-D before the intended physical master close. writer_drop_is_not_cooked_eof
+  observes the real slave read and rejects injected input.
+- headless.rs requests POLLIN when polling for HUP. A native PTY witness reads
+  cooked Ctrl-D as EOF without HUP, then closes the master and requires HUP.
+  On Darwin the old events=0 poll missed HUP while termios still succeeded.
+  The next full gate exposed an immediate-classification race in this new unit
+  witness (exit2/cargo101). make-test-pty-unit-failure.log and its JSON retain it.
+  The final witness first observes real physical EOF under a kernel hang guard,
+  then classifies it. This changes only the test precondition; the production
+  POLLIN fix is unchanged. pty-poll-final contains the refreshed 101 -> 0.
+- tests/seat_process.rs closes unrelated descriptors in the non-PTY key child,
+  matching portable-pty's pre-exec fence. A captured failing run showed sibling
+  key process 40779 still holding master major15/minor25, fd6, while seat40783
+  had slave major16/minor25. Thus the supposed final master close was not EOF.
+  pty-failure-extract.log keeps only the relevant own-fixture records.
+  non_pty_spawn_does_not_keep_a_sibling_master_alive explicitly clears CLOEXEC
+  to force this window, observes an executed child through a byte handshake,
+  then requires slave HUP. Its negative control retains the master in sleep.
+  A first immediate poll in this new witness raced concurrent pre-exec cleanup;
+  pty-isolation-first.* retain that failure. The final bounded poll is a kernel
+  close hang guard, not a percentile benchmark or a relaxed product deadline.
+- The Ctrl-D-at-the-prompt case now observes the rendered prompt before sending
+  Ctrl-D. pty-before-prompt-barrier.* preserve the earlier exit-hang-guard failure.
+  The close budget remains two seconds. No extra product watcher or polling
+  thread was retained from the diagnostic experiments.
+
+5. Commands and observed results
+
+All command records below are real outputs under .bboxy/runs/group-kill-residuals/.
+Each control runner exits 0 only after the named assertion fails with 101 under
+mutation and the restored source exits 0. all-controls.json combines the nine
+current-source records; every source_sha256 was checked against the source.
+
+python3 -I scripts/test-e1c-rework-controls.py --case reap-lease --case mcp-reap-ownership --case sigchld-admission --case reap-lease-model --case group-kill --case leader-only --out .bboxy/runs/group-kill-residuals
+  exit 0; controls.json plus twelve red/green logs:
+  reap-lease: 101 -> 0, ECHILD observed a PID released while its group was registered
+  mcp-reap-ownership: 101 -> 0, BOTH missing-id and failed-handoff foreign-pgid assertions
+  sigchld-admission: 101 -> 0, automatic SIGCHLD reaping was admitted
+  reap-lease-model: 101 -> 0, NoRegistrationAfterReap
+  group-kill: 101 -> 0, MCP server group survived Close
+  leader-only: 101 -> 0, MCP server group survived Close: orphaned member
+
+python3 -I scripts/test-e1c-rework-controls.py --case pty-hangup-poll --case pty-writer-drop --case pty-spawn-fds --out .bboxy/runs/group-kill-residuals/pty-final-controls
+  exit 0; all three 101 -> 0, named EOF-classification / injected-input /
+  non-PTY-child-retained-master assertions. The writer control was refreshed
+  after the prompt-barrier edit with the following command:
+python3 -I scripts/test-e1c-rework-controls.py --case pty-writer-drop --out .bboxy/runs/group-kill-residuals/pty-writer-final
+  exit 0, 101 -> 0; this is the writer entry in all-controls.json.
+python3 -I scripts/test-e1c-rework-controls.py --case pty-hangup-poll --out .bboxy/runs/group-kill-residuals/pty-poll-final
+  exit 0, 101 -> 0; this is the final poll entry in all-controls.json.
+
+Twenty consecutive invocations of:
+cargo test -q --offline --locked --features acp,test-fixtures --test seat_process -- --skip seat_launch::
+  exit 0 each; 20/20 suites, 180/180 cases. pty-20-final.log/.json keep every
+  output, per-run exit and the three relevant source hashes at 3ec647f. The
+  following 54a426a changes only the native unit EOF-readiness precondition and
+  its control anchor; the 9-case integration source/product classification are
+  unchanged. The full final gate checks that added unit precondition. The seven
+  launcher cases run separately in the canonical gate; none is waived.
+
+make test
+  exit 0, unattended, on signed source54a426a1cfde65908d5d5b271dfc1f3b7d9a7e99.
+  make-test.log is the complete captured output. test-current.json records
+  all14 child exits and135 source hashes; gui-gate.json records all4 GUI
+  child exits. Every input hash matches the records commit. Private HOME;
+  operator_input=false. Exact children:
+  cargo fmt --check — exit 0
+  cargo clippy --offline --locked --all-targets -- -D warnings — exit 0
+  cargo clippy --offline --locked --all-targets --all-features -- -D warnings — exit 0
+  cargo test --offline --locked --all-targets --features acp,test-fixtures -- --skip seat_launch:: — exit 0
+  cargo test --offline --locked --features acp,test-fixtures --test seat_process seat_launch:: — exit 0
+  python3 -I scripts/test-hardening.py — exit 0
+  make test-formal-native — exit 0
+  make test-formal-parity — exit 0
+  python3 -I scripts/checks.py secrets — exit 0
+  python3 -I scripts/checks.py headers — exit 0
+  python3 -I scripts/checks.py kb-records — exit 0
+  python3 -I scripts/checks.py kb-records-control — exit 0
+  python3 -I scripts/checks.py inventory-shape — exit 0
+  python3 -I scripts/checks.py inventory-shape-control — exit 0
+  GUI continuation:
+  python3 -I tests/gui_dependencies.py — exit 0
+  cargo clippy --offline --locked --all-features --lib --bin bboxy450-harness -- -D warnings — exit 0
+  cargo test --offline --locked --features standalone --test gui_rich --test gui_render --test gui_bridge --test gui_fixtures --test gui_budget --test gui_cli -- --nocapture — exit 0
+  make test-gui-smoke — exit 0
+  GUI smoke PASS:22 visible items,15 kinds,3 approval buttons, scrolled
+  viewport, Metal1120x7000. The GUI test panic is an expected caught
+  blocking-IO assertion; its test and the entire suite exit0.
+
+6. Handoff / remaining work
+
+Source mechanism commit419abba; PTY corrections0625062,3ec647f,54a426a.
+These are signed rebased commits above f740a42. The final records commit
+contains this full report and changes no gate/model input. The exact pushed
+records head and its refreshed head-bound formal receipt are carried by the
+authenticated task_report. Native/TLC graph and verdict evidence from the full
+gate is committed as formal-code.json; verification/evidence retains the full
+source/model/tool-hash-bound proof archive. No assigned acceptance line is
+waived. Generated records, proof archives and earlier local diagnostics are
+retained; tracked source is clean at handoff.
+No live-provider smoke was assigned or added. No real key or seat capability
+value was printed or committed. Throwaway fixture identities and match booleans
+remain the only environment observations. No GUI source was changed by E1g;
+the rebase includes main's independently reviewed default-Preparer correction.
+The external-unsafe-reaper and deterministic PID-reuse-injection limits above
+are explicit; no broader guarantee is claimed.
+
+Report: [[2026-11-01-group-kill-residuals-report]]
