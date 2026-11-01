@@ -1,0 +1,205 @@
+E1 harness-core / task #4900 / d5002 landing budget
+Task: 01M6C9BKH81A65DH77B29TJ2RS
+Task record: .bboxy/tasks/2026-11-01-term-landing-budget-d5002.md
+Recorded: 2026-11-01T21:04:08.130086+00:00
+Repository: https://github.com/bboxy450/bboxy450-term
+Worktree: /Users/feral/mydev/bboxy450-term-landing-budget
+Base: 289218b68659cfe2c5dc4b6c6bfd760c864be3a3
+Branch: landing-budget
+Signed source HEAD: 680c0579bdd777e808542024f5bb64e3e98e56b4
+PR: https://github.com/bboxy450/bboxy450-term/pull/89
+Author/committer: Boxy <bboxy450@gmail.com>
+Signing key fingerprint 9B07E849480C68328CA20684844ECC0587DE7AB0
+Source tree: clean; remote landing-budget equals HEAD. One new source commit, no Report trailer.
+
+Files and mechanisms / acceptance evidence
+
+R0: Makefile:1530 and scripts/formal-stage.py:16 frame each formal sub-step.
+scripts/landing.py:494 parses those frames; TwoClocks:574 attributes execution
+seconds to four stages and formal sub-steps, excluding visible compilation.
+presubmit_attempt:1003 records stage_seconds, formal_step_seconds, the start/end
+one-minute load, allocation/finding data and a persistent result.json. Landing
+receipts retain/aggregate these fields. A missing formal marker remains
+unclassified and becomes advisory above 15 s.
+
+R1: scripts/quarantine.py:13 records actual libtest outcomes using Cargo target
+metadata. scripts/invariants.sh:164 accepts only an exact passing test from the
+same source SHA, target and attempt; filtered, ignored, ambiguous or explicitly
+reconfigured checks remain executable. The code-tier fixture compiles a real
+Rust ctl integration test. It runs once when covered, twice when filtered or
+ignored. Wrong-attempt and wrong-target receipts also cannot suppress it.
+
+R2: scripts/landing.py:42 scopes the full landing/resource-ledger fixtures to
+d5002 landing machinery and its fixtures; ordinary harness-submodule.py changes
+skip them. The positive witness changes landing.py itself. scripts/ci-local.sh
+still runs landing and resource-ledger fixtures on every full postsubmit.
+
+R3: scripts/formal.py:360 hashes each exported TLA/configuration/native graph,
+expectation, contract metadata and full tool-pin map. A validated green archive
+publishes an atomic per-key pointer. Identical models reuse its reference verdict
+and carry reused_from; changed or missing inputs re-check. Every run still
+exports all models and writes fresh candidate-SHA/input-bound evidence.
+Presubmit and disjoint-source refresh opt in. scripts/ci-local.sh:82 explicitly
+forces FORMAL_REUSE=0. Both the one-byte TLA and changed-pin witnesses re-check;
+postsubmit's witness invokes every model and records no reuse.
+
+Actual reference evidence: make test checked all 201 models, 32 inventoried
+crates and 82 contracts. Expected verdicts: pass 93, safety 84, deadlock 2,
+liveness 22; all native/reference states, transitions and verdicts matched.
+Postsubmit reused 0 models. A subsequent make test-formal FORMAL_REUSE=1 exported
+all models again and reused all 201 verdicts from that postsubmit archive.
+The strict current-source receipt verifier passed afterward.
+Postsubmit evidence SHA-256: 275951b78d9de047b0c09ef051333e0d04807d3ef21a303f1f18a348e3c1dbb3
+Postsubmit archive: /Users/feral/mydev/bboxy450-term/.git/bboxy-formal-evidence/275951b78d9de047b0c09ef051333e0d04807d3ef21a303f1f18a348e3c1dbb3/evidence.json
+Reuse evidence SHA-256: 831269341df5d0813ba64fae4e7094175d2d801791205d00d41269a6ccda6ec5
+Reuse archive: /Users/feral/mydev/bboxy450-term/.git/bboxy-formal-evidence/831269341df5d0813ba64fae4e7094175d2d801791205d00d41269a6ccda6ec5/evidence.json
+Every reused_from equals the postsubmit evidence digest above.
+
+R4: scripts/landing.py:61 records allocations formal=290, tests=400,
+fixtures=60, invariants_misc=60, margin=90. Stage overrun remains advisory;
+TwoClocks.expired retains the 900 s execution cap and existing build cap.
+The deterministic virtual-clock witness keeps a stage-over-budget result at
+exit 0 and makes execution above 900 s yield 124. Findings carry stage, seconds
+and load through result.json and landings.log.
+
+Witnesses: scripts/test-landing.py:2215 (clocks), :2274 (real code-tier
+presubmits), scripts/test-formal.py:304 (per-model reuse) and
+scripts/test-landing-budget-controls.py (named mutations and restoration).
+verification/contracts.toml, verification/coverage.toml and verification/README.md
+map these sources and identify the byte-key, timing and receipt-selection checks
+as implementation-tested. LandingVerification retains its source/evidence
+publication abstraction; this is finite-model evidence, not arbitrary Rust
+refinement or complete TLC conformance.
+
+Commands / final real exit status
+
+make init-submodules -> 0
+python3 -I scripts/test-landing.py -> 0 (152 fast fixture cases; also rerun by make test on signed HEAD)
+python3 -I scripts/test-landing-recovery.py -> 0 (46 tests)
+python3 -I scripts/test-formal.py -> 0 (20 tests; also part of formal Make)
+python3 -I scripts/test-landing-budget-controls.py -> 0 (nine required red/restored-green pairs below)
+python3 -I scripts/test-landing.py BudgetPresubmitTests.test_landing_machinery_cut_runs_fixtures -> 0
+python3 -I scripts/test-landing.py LandTests.test_five_incremental_rechecks_are_79_with_no_candidate_push LandTests.test_a_disjoint_move_after_five_rechecks_still_reuses_the_green LandTests.test_disjoint_main_movement_rebases_but_does_not_repeat_checks LandTests.test_reverse_dependency_overlap_rechecks WatchTests.test_unresolved_failure_reverts_only_the_exact_failed_batch -> 0 (5 extended cases)
+make test -> 0 (exact command, no environment prefix, on signed HEAD above)
+make test-formal FORMAL_REUSE=1 -> 0 (201/201 reused, all exported)
+make check-formal-evidence -> 0
+git diff --check -> 0
+git verify-commit HEAD -> 0
+git push -u origin landing-budget -> 0
+gh pr create --repo bboxy450/bboxy450-term --base main --head landing-budget --title 'Record presubmit stage budgets and remove repeated verification work' --body-file target/landing-budget/pr-body.txt -> 0 (PR #89)
+
+Full gate ends with:
+ci-local: all gates passed
+ci-local: result 680c0579bdd777e808542024f5bb64e3e98e56b4 normal 0
+Final invariant summary: 27 checks, 0 failures, 11 slow checks skipped.
+Canonical headless smoke passed inside this full gate.
+
+Code-tier dry run (existing private fixture harness)
+
+BudgetPresubmitTests.coverage_fixture()/dry_run() -> exit 0, real ctl_runs=["ctl"].
+Its sh scripts/presubmit.sh <fixture-base> run produced these measured fields:
+{
+  "formal_step_seconds": {
+    "export": 0.013834208017215133,
+    "parity": 0.09763983404263854,
+    "self-tests": 0.013739833026193082,
+    "verify": 0.013975917012430727
+  },
+  "load_average_end": 7.3359375,
+  "load_average_start": 7.3359375,
+  "stage_seconds": {
+    "fixtures": 0.0,
+    "formal": 0.13918979209847748,
+    "invariants_misc": 0.07786333304829895,
+    "tests": 0.25614804099313915
+  }
+}
+The result.json equals the recorded presubmit result. The fixture target is
+private and its source is a throwaway code-tier Rust crate, not a production
+landing. The named R1 restored witness reproduces its assertions.
+
+Broken controls (actual command, assertion, red exit -> restored exit)
+
+R0: /opt/homebrew/opt/python@3.15/bin/python3.15 -I /Users/feral/mydev/bboxy450-term-landing-budget/scripts/test-landing.py BudgetClockTests.test_missing_substep_is_unclassified_and_advisory
+  Assertion: missing phase was silently classified
+  Exit: 1 -> 0
+  Signed source: scripts/landing.py sha256:c25bbad5024330be59fc17c9d6b7e31f0ad88ef94ffca902a297b209c687080a
+R1: /opt/homebrew/opt/python@3.15/bin/python3.15 -I /Users/feral/mydev/bboxy450-term-landing-budget/scripts/test-landing.py BudgetPresubmitTests.test_observed_ctl_runs_once
+  Assertion: ctl binary ran twice
+  Exit: 1 -> 0
+  Signed source: scripts/invariants.sh sha256:d5b7464e54d145539e6116e8e11ba14e129c410785822eb0dc218c1bcf7335d1
+R1-filtered: /opt/homebrew/opt/python@3.15/bin/python3.15 -I /Users/feral/mydev/bboxy450-term-landing-budget/scripts/test-landing.py BudgetPresubmitTests.test_filtered_invariant_still_runs
+  Assertion: filtered invariant was skipped
+  Exit: 1 -> 0
+  Signed source: scripts/invariants.sh sha256:d5b7464e54d145539e6116e8e11ba14e129c410785822eb0dc218c1bcf7335d1
+R1-ignored: /opt/homebrew/opt/python@3.15/bin/python3.15 -I /Users/feral/mydev/bboxy450-term-landing-budget/scripts/test-landing.py BudgetPresubmitTests.test_ignored_invariant_still_runs
+  Assertion: ignored invariant was skipped
+  Exit: 1 -> 0
+  Signed source: scripts/landing.py sha256:c25bbad5024330be59fc17c9d6b7e31f0ad88ef94ffca902a297b209c687080a
+R2: /opt/homebrew/opt/python@3.15/bin/python3.15 -I /Users/feral/mydev/bboxy450-term-landing-budget/scripts/test-landing.py BudgetPresubmitTests.test_harness_helper_cut_skips_landing_fixtures
+  Assertion: unrelated script ran landing fixtures
+  Exit: 1 -> 0
+  Signed source: scripts/landing.py sha256:c25bbad5024330be59fc17c9d6b7e31f0ad88ef94ffca902a297b209c687080a
+R3: /opt/homebrew/opt/python@3.15/bin/python3.15 -I /Users/feral/mydev/bboxy450-term-landing-budget/scripts/test-formal.py ModelReuseTests.test_changed_tla_rechecks_only_the_changed_model
+  Assertion: changed TLA reused stale evidence
+  Exit: 1 -> 0
+  Signed source: scripts/formal.py sha256:ce2f2412c0e9b9121b96392e01768553273b5ef2808fc6b94b3c48525cc5ffda
+R3-postsubmit: /opt/homebrew/opt/python@3.15/bin/python3.15 -I /Users/feral/mydev/bboxy450-term-landing-budget/scripts/test-formal.py ModelReuseTests.test_postsubmit_rechecks_and_records_no_reuse
+  Assertion: postsubmit reused a verdict
+  Exit: 1 -> 0
+  Signed source: scripts/formal.py sha256:ce2f2412c0e9b9121b96392e01768553273b5ef2808fc6b94b3c48525cc5ffda
+R4: /opt/homebrew/opt/python@3.15/bin/python3.15 -I /Users/feral/mydev/bboxy450-term-landing-budget/scripts/test-landing.py BudgetPresubmitTests.test_allocation_overrun_is_advisory
+  Assertion: stage advisory blocked presubmit
+  Exit: 1 -> 0
+  Signed source: scripts/landing.py sha256:c25bbad5024330be59fc17c9d6b7e31f0ad88ef94ffca902a297b209c687080a
+R4-total: /opt/homebrew/opt/python@3.15/bin/python3.15 -I /Users/feral/mydev/bboxy450-term-landing-budget/scripts/test-landing.py BudgetClockTests.test_stage_allocation_is_advisory_but_900_seconds_still_blocks
+  Assertion: 900 second run bound was bypassed
+  Exit: 1 -> 0
+  Signed source: scripts/landing.py sha256:c25bbad5024330be59fc17c9d6b7e31f0ad88ef94ffca902a297b209c687080a
+
+Retained local evidence (raw logs remain outside Git)
+
+target/ci-local.log sha256:23052e0f7b519a58a13516aaa8a29775c58efc6186f956ae06b64978db144508
+target/landing-budget/make-test.log sha256:1afb5050163f749a18036d5157d9ffe886c87703bca2ed8b0db2342ca81186f4
+target/landing-budget/test-landing.log sha256:6bfe791f2da95183a129260eb02e2b831e213b253ad7a30a5ac6dddce20e5f55
+target/landing-budget/test-landing-recovery.log sha256:fbc2cd6fd110990fe7355b59085fd9948c9f6e517716d1a6c91c1c08db7344e4
+target/landing-budget/test-formal.log sha256:39dc9f884dbbb35b18f08c73b3dd8d1ee0de2a88f2dbe0ad3badea85d55893ce
+target/landing-budget/extended-landing.log sha256:7812eb9d0b6167427eebdc8c1acbecc1c233fef399c9352020c5345a678a6203
+target/landing-budget/machinery-positive.log sha256:856767e440715e2e7c2e7d952380efa2d8c6cb60d1ea8180a3d42e384c45d781
+target/landing-budget/controls.log sha256:a45db96e52e5b67f7b2fc1b8fcf22d19b82c8d61f56efa5e9f1da1d139efc500
+target/landing-budget-controls/summary.json sha256:5088d9cd33af637e602d5df5ededae2555723c85122853513457b4d54b86918e
+target/landing-budget/dry-run.json sha256:154c677c8742c89473a812a691751be472c733a979d97510eb11412ca4f9c4f2
+target/landing-budget/dry-run.log sha256:9cf7b80cda74fd31f92ef73a81d8ada24a1c5706d207a1ae0cf9eb8738a2ee2e
+target/landing-budget/formal-reuse.log sha256:b32909bdf4f9ea4bab61be457490e81782b094fcc490c1b6657045109d1e16a9
+target/landing-budget/check-formal-evidence.log sha256:4420f42dd6e6f20e8607defd9e797d6a43e9e5d5c227d5d42ce687b6b66fecb2
+target/landing-budget/signature.log sha256:59040ad718703a62bf9cca28b9a8075e2fc3721e38e9acfb1ac3382f69a65664
+target/landing-budget-controls/R0-red.log sha256:587a426b109ad4631ceecf685e3cbb4352da45985b6a58a78531aac21fa3e83b
+target/landing-budget-controls/R0-green.log sha256:d10ffbd9f0faa72cd6837063279524e199b59fbc3d035051302a1e8dbc4b36ad
+target/landing-budget-controls/R1-red.log sha256:feb2587388a3884ad2ec0b15feb181b0f94b9c19af3c9a8a8a6b2192ab931033
+target/landing-budget-controls/R1-green.log sha256:6b09a6a1e21e276da0f3e14161f1b778c1786eb375b5ec1e0221897d7602a60e
+target/landing-budget-controls/R1-filtered-red.log sha256:064fa3f5b044b1f9d5b1a3a031a815485592dd2e56392a6b765e39fa372c1841
+target/landing-budget-controls/R1-filtered-green.log sha256:95f819596021ec861c8259c0f54183b7b0457c3eabbc020c40c19c87cbe289de
+target/landing-budget-controls/R1-ignored-red.log sha256:85ff136353757285f225ef1a1013509ac0874a18c520b321086df86ff026d81e
+target/landing-budget-controls/R1-ignored-green.log sha256:561005fcf931840b142ead7a144338fdfc688ee11bf9e9f9a933733629b6a44a
+target/landing-budget-controls/R2-red.log sha256:59871de428c0683d44fa57bc99f0dc125b06081b416dab5683ee78fb6b6777d7
+target/landing-budget-controls/R2-green.log sha256:eb66cfd32651a6544a41ad062146430126f9d987eb596f0325a743e4f614c444
+target/landing-budget-controls/R3-red.log sha256:18a1eaee58ae92835a766b2b394625567ea1e1efab3ee52e3944a51fbf744142
+target/landing-budget-controls/R3-green.log sha256:a41e08b8782ccff561fc04da1c4aa92b79d00989913c15ae6639e0c2e9b7e03c
+target/landing-budget-controls/R3-postsubmit-red.log sha256:ad47ae44627b3c6db034bae2100865b1129700691c3156d9d27cadd2c57ee5a8
+target/landing-budget-controls/R3-postsubmit-green.log sha256:2299339565fdc7c4fedeb54e99b181ba53b821f77194926422cc7df3301ba0ee
+target/landing-budget-controls/R4-red.log sha256:c672a174e7a5eeafa00e77fbb1af5bbd473156b203849db4c7c35bac6782d5c2
+target/landing-budget-controls/R4-green.log sha256:434e4aebf4120dd6d6276d621d074c19b8eb961690b3bec75033e2532960434a
+target/landing-budget-controls/R4-total-red.log sha256:83c06fa8fc088c953dc4e2efea6bf6debfef3537f3602d0a4afa0b062cd02949
+target/landing-budget-controls/R4-total-green.log sha256:fb184ea57734512b1f088f9181209901b9cd46df3eb7eaa2500ea9e48dde20b5
+
+Gaps and boundaries
+
+The two consecutive real bbt-mux presubmit margin measurements in d5002 remain
+unmeasured; this assignment's requested budget dry run uses the private fixture.
+Existing slow/night/explicit-backend checks retain their canonical exclusions.
+The extended-test probe first used an obsolete selector from the inherited
+fast/extended list (exit 1); the five existing extended cases above pass.
+Production land.sh and merge were left to the Oracle. Only landing-budget was
+pushed; the separate report-only harness commit is retained locally for handoff.
+No unrelated shared-checkout changes were staged or committed. This .log is a
+command/exit/hash summary, without raw transcripts or frontmatter.
