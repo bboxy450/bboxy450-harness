@@ -50,7 +50,7 @@ updated: "2026-10-31T00:00:00Z"
 | R13 | GUI renders every item kind from fixtures | `tests/gui_fixtures.rs`: headless `render_to_rgba` of each fixture. Assertions on the frame: non-blank regions per item, no overlap, tail stuck to the bottom. Goldens are not pixel-exact | `make test` (macOS) |
 | R14 | Seat line mode, hangup → stop | [[embed-seat]] §6 | `make test` |
 | R15 | Embedded build has one copy of each toolkit crate | inside bboxy450-term: `cargo tree -d -p bboxy450-harness \| grep -c bboxy450-` must print `0` | bboxy450-term `make test` (after membership) |
-| R16 | Budgets | `tests/rt_budget.rs`, `tests/gui_budget.rs` ([[budgets]]) | `make test` |
+| R16 | Budgets | structural gates `tests/rt_budget.rs`, `tests/gui_budget.rs` ([[budgets]]); wall-clock p99s in `make bench-budgets` (UNMEASURED when load > ncpu, never PASS) | gates: `make test`; p99: bench, night |
 | R17 | Formal: every model passes, every broken control is rejected, native = Java TLC | `make test-formal-native` (in `cargo test`), `make test-formal` (Java parity), `make check-formal-evidence` | `make test` |
 | R18 | Live provider works | `make smoke-live`: one turn with one `read` tool call against the profile's model. **PASS** needs `TurnEnded{EndTurn}`, a paired tool call and `check_transcript` OK. A missing or timed-out key prints **SKIP**; 429 past the 90 s deadline prints **UNAVAILABLE** | manual and night, **not** `make test` |
 | R19 | No test needs the operator | the harness `make test` runs with `HOME=$(mktemp -d)`, no network (the scripted provider), no Keychain | `make test` |
