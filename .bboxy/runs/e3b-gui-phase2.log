@@ -90,3 +90,9 @@ test passes in the integrated full run. This branch made no core test edit.
 No new wall-clock gate or p99 claim. Benchmarks remain observational targets.
 The Oracle will supply the final toolkit merged-main revision; hold 4889321f until
 that signal, then re-pin and verify before PR #5 merges. No 0.1.2 release signal.
+
+Final-pin directive, 2026-11-01 (01M6BGA6H9V9K4W99ZMXRE7TCN):
+ui/doc/render now pin merged toolkit main 59dedc64861d66650e163bfabab88f5ed67eb810.
+Cargo.lock updates only the four git toolkit identities. The prior held-pin
+statement is superseded. Rebase onto harness main cdde43d / PR7 and fresh plain
+make test follow; crates.io0.1.2 is not a dependency of this handoff.
