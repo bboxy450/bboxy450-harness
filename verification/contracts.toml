@@ -253,7 +253,7 @@ sources = ["src/frontends/gui/rich.rs", "src/frontends/gui/view.rs", "src/fronte
 implementation_tests = ["tests/gui_rich.rs", "tests/gui_budget.rs"]
 assumptions = "Eight byte units, parser cost upper-bounded by source size, retained prefix and literal pending tail. Three-times-input parse credit plus one completion flush bounds total work by four times input. Weak fairness on rendering after completion. Actual Markdown equivalence, highlighting, CPU time and worker/UI ownership remain implementation witnesses, not a Rust refinement proof."
 property = "ParseWorkIsLinear; NoHiddenBytes; completed replies eventually become fully visible."
-checks = ["make test-formal-parity", "make test"]
+checks = ["make test-formal", "make test"]
 
 [[contract]]
 name = "HarnessGuiApprovalChoice"
@@ -263,4 +263,4 @@ sources = ["src/frontends/gui/view.rs", "src/frontends/gui/window.rs", "tests/fo
 implementation_tests = ["tests/gui_bridge.rs", "tests/gui_rich.rs"]
 assumptions = "Three distinct sequential prompt ItemIds; replacement retires the previous prompt. Capture and dispatch are separate actions. Concurrent independent prompts and actual FIFO gateway delivery are implementation witnesses."
 property = "NoRetiredPromptDispatch"
-checks = ["make test-formal-parity", "make test"]
+checks = ["make test-formal", "make test"]

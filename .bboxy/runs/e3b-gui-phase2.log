@@ -16,3 +16,8 @@ Toolkit ui/doc/render pinned to harness-widgets 18ff123b6dc68d2a4f578417359c910a
 Published rt/ui-core remain shared via a second patch; R15 metadata check passes.
 make test-gui exit 0 before this latest toolkit pin (e3b-gui-gate-attempt1.log).
 Full canonical verification and final handoff are pending; this is not a completion claim.
+
+First full make test: exit 2 at formal inventory validation. New contract checks
+used test-formal-parity, but the schema mandates [make test-formal, make test].
+Corrected both declarations; core tests and hardening were green before this stop.
+Failure retained in e3b-make-test.log.
