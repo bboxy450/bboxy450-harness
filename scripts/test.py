@@ -38,6 +38,8 @@ def main():
             ['make','test-formal-parity'],
             ['python3','-I','scripts/checks.py','secrets'],
             ['python3','-I','scripts/checks.py','headers'],
+            ['python3','-I','scripts/checks.py','kb-records'],
+            ['python3','-I','scripts/checks.py','kb-records-control'],
         ]:
             print('test: '+ ' '.join(command),flush=True)
             result=subprocess.run(command,cwd=ROOT,env=env)

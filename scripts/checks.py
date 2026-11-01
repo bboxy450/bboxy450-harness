@@ -37,6 +37,34 @@ def secrets():
         content=os.readlink(path) if path.is_symlink() else path.read_bytes().decode('latin-1')
         if any(p.search(content) for p in patterns):raise ValueError('credential shape in '+str(path.relative_to(ROOT))+' (value suppressed)')
     print('secret scan: PASS')
+def kb_records(root=ROOT/'.bboxy'):
+    """Every .bboxy/**/*.md is an index record: frontmatter with a unique id and a positive integer number."""
+    ids,numbers={},{}
+    for path in sorted(root.rglob('*.md')):
+        name=str(path.relative_to(root.parent))
+        lines=path.read_text(errors='replace').splitlines()
+        if not lines or lines[0]!='---' or '---' not in lines[1:]:raise ValueError('kb record without frontmatter: '+name)
+        front=lines[1:lines.index('---',1)]
+        def field(key):
+            found=[l.split(':',1)[1].strip().strip('"\'') for l in front if re.match(key+r':\s*\S',l)]
+            if not found:raise ValueError('kb record without '+key+': '+name)
+            return found[0]
+        record,number=field('id'),field('number')
+        if not number.isdigit() or int(number)<1:raise ValueError('kb record number is not a positive integer: '+name)
+        for seen,key in ((ids,record),(numbers,number)):
+            if key in seen:raise ValueError('kb record '+('id' if seen is ids else 'number')+' '+key+' repeats: '+seen[key]+', '+name)
+            seen[key]=name
+    print('kb records: PASS ('+str(len(numbers))+')')
+def kb_records_control():
+    """Broken control: a record without a number must fail the check."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        bad=Path(tmp)/'.bboxy'/'runs'
+        bad.mkdir(parents=True)
+        (bad/'report.md').write_text('# a run report with no frontmatter\n')
+        try:kb_records(Path(tmp)/'.bboxy')
+        except ValueError:print('kb records control: PASS (rejected)');return
+    raise ValueError('kb records control: a record without frontmatter was accepted')
 if __name__=='__main__':
-    try:{'headers':headers,'secrets':secrets}[sys.argv[1]]()
+    try:{'headers':headers,'secrets':secrets,'kb-records':kb_records,'kb-records-control':kb_records_control}[sys.argv[1]]()
     except (ValueError,KeyError) as error:print(error,file=sys.stderr);sys.exit(1)
