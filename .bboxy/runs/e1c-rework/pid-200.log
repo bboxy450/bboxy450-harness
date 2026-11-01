@@ -1,0 +1,3805 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.21s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.84s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.95s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.37s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.28s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.29s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.30s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.31s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.28s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.28s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.28s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.29s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.59s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.45s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.37s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.28s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.29s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.31s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.17s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.99s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.96s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.35s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.31s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.65s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.31s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.01s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.30s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.84s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.86s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.44s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.35s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.31s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.68s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.39s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.34s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.35s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.28s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.28s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.59s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.43s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.61s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.54s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.43s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.55s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.45s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.17s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.17s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.45s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.97s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.37s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.35s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.50s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.44s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.41s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.28s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.17s
+
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.38s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.37s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.54s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.57s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.40s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.40s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.96s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.94s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.59s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.47s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-8b6c3ed19d415d34)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0a673bd4aba90d70)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
