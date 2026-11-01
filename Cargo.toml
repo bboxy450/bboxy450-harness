@@ -57,6 +57,7 @@ agent-client-protocol = {version = "=3.4.0", default-features = false, features 
 rmcp = {version = "=3.5.1", default-features = false, features = ["client", "server", "transport-child-process", "transport-io"]}
 process-wrap = {version = "10", features = ["tokio1"]}
 base64 = "0.22"
+time = { version = "=0.3.55", features = ["parsing"] }
 
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }

@@ -1,12 +1,12 @@
 {
-  "at": "2026-11-01T21:31:57.827106+00:00",
-  "source": "1201697f31120f7e5324017b8fb9f88ff3069d0c",
+  "at": "2026-11-01T23:06:17.341311+00:00",
+  "source": "3d0a5881837130ec55d9304c032b10dacbc6b037",
   "input_sha256": {
-    "Cargo.lock": "7a7a5899e0966ff17e5a3b96aeb8fe624c2f6a99f5caa48528bef732fa680611",
-    "Cargo.toml": "9181eb08c0ac5fb1bb62b38b4ed729b0cadb695b9a116866bbe78831fb6d2153",
+    "Cargo.lock": "29921261009b7b2cbfa91a66e3028aa1984c44f96a650f11867bfdfcd77d8c4f",
+    "Cargo.toml": "bf3fb602e1f5b7426cc6ad14fb82732da58858d58763579ef2e7a02885cca386",
     "Makefile": "f799c71d45956b91ec5b15760f599616b0c4e27ac0d56fddcf6047f4a406fe79",
     "scripts/bench-budgets.py": "80b3fa2fc5bedb8d029502c80122f7ad34c2d8f859bfad7c7413b527720339dc",
-    "scripts/checks.py": "17396d94dc515b7915f4a97ee724a2786cd407a9746466357e4ac0beb745b3d3",
+    "scripts/checks.py": "309741d26936988e3a975335ace5be3fc771e51dd602805be2975ea672ecc0ac",
     "scripts/formal.py": "7bd64ace2a79bc92d689ed64480938c2b9882d3dbb6f1c19ef23e0daa56d7cff",
     "scripts/gui-polish-controls.py": "d46b8939a3edd43152be12fdd34ab607a2ae13a2ec2f6029098eef0e9b2793d7",
     "scripts/hardening-controls.py": "ae83ceca439064dec5d07fe3dd8a55f3276d5b6d4cf5a3276294a4498b314c6c",
@@ -15,8 +15,9 @@
     "scripts/test-e1c-controls.py": "6191bb3d57c708243357a2ffa245820e20ddc1867a9bfb78449b1391bfcae67b",
     "scripts/test-e1c-rework-controls.py": "b7f66d2c136f00d0fc9114f115c8920399c19536d80fa99d58271cc7ab0d400c",
     "scripts/test-formal.py": "7d123846f22e30f108175e050a07d9be37c333866932a20488ef7cf4ffb4a1cf",
-    "scripts/test-hardening.py": "edf92fd8f3bafde5066479c47bbb5f291b7c6c26c3b14f9f41fe05fb631af5c4",
-    "scripts/test.py": "b374bbea953464cc5466a227d011a0a810eff378915812de9fa775777d11d47a",
+    "scripts/test-hardening.py": "7598ded7f31fadb0488b00e8e35d66f0e5f06c315ec051b5e52fe559d045c24f",
+    "scripts/test-import-controls.py": "87336630d4021edae22fbef2a073022bf97b1f62260c6a46cf2184936e4b7a7c",
+    "scripts/test.py": "a0f2747aa3efc6987bfd141d0b42dba7fca667cfbde1cb818dffd56084434046",
     "src/capability.rs": "b793d2d9a02d33235e216758b23a03462ccd4c719c464657df5f153be07f7f64",
     "src/context/auto.rs": "a87cdc60a48e8c9199cfe2287288a5094264a9f0c2313f64f5fc2a685445b79f",
     "src/context/compact.rs": "ace4de06457032249dc29afd7c3eeabea45dda8fc2ae13f0560034d4fc698142",
@@ -47,8 +48,11 @@
     "src/gateway/host.rs": "b724a189c50eeed83de8dcb7d9266e72c36a121905da1107adcea8096f6ec725",
     "src/gateway/mod.rs": "e41e8e8cd3e6c8e5de6864412ab76de68a61861c8f5765e3b30bb06f1fbc88a6",
     "src/gateway/unix.rs": "8e8c12406c0eafce23d364e9dfb99df7e5276facb0dd517d7cfa599255b81bac",
-    "src/lib.rs": "976a565e6989ae3459e4f7a978aa4e99b34f9356ab33fecd73c58d7dcb36b002",
-    "src/main.rs": "e8692543448eba7ce925eac72bc7b3f532cc2ba866e511a07d5e6196c5e85247",
+    "src/import/claude/engine.rs": "ab34b6fc573e2b73b852e19009908452ed46ab93110d0b0bf7737d4957191848",
+    "src/import/claude.rs": "029cd56d2dd4425f55d04cd32dc8309a1eeacd3b6fc639e4137dc73850a220bb",
+    "src/import/mod.rs": "b2de3925590fac2c4443c317598a8df67de6464c0c94f9a126699a09fb67cbcd",
+    "src/lib.rs": "c35a01ba8f1ed5b2c7d1c4aca391ad394447f23ed3ccbfc3faab48239ae26fb0",
+    "src/main.rs": "fc7382098d0b6603cef4d72f7ed8f01bec246cf93cbd6eccf26cb29ffdb00b63",
     "src/mcp.rs": "5a47378808e3111db984241eb114556fc35bf86521900c125ae44de1023dacfd",
     "src/policy.rs": "4a88c7dd75ed079340d74cbc70fb7f5ffef871f9dffb51c004fdd9d61e16cae7",
     "src/process.rs": "f949667909428f78aa3ceb26c3dbe5f768ab65b52d32675ceef8717dc02d033f",
@@ -57,7 +61,7 @@
     "src/provider/mod.rs": "6badabab8922e3c4ff8c59be2a46895a79cc43dcf85765693093b2d1fbce0dbc",
     "src/provider/parser.rs": "b140abdaffd0430196293c691f43643587d314c6d14abff48a56a97f3e9fe6f8",
     "src/provider/profile.rs": "2a13ffb5ad1192d196f72f768c8de7e904ee97de828d1f8e6861d909997cf9aa",
-    "src/redact.rs": "8733906a637be4b5517c729a2adf9e1183d67a4c4daa6b933ee0d7a3e20b4d4c",
+    "src/redact.rs": "6a82df748a3032c18c05a5e01d99ddbe36880aa5a2406c19136b60d80e420ab0",
     "src/runtime.rs": "5d07be0ce4800646fb41d8743523cb48a78a93dcb6585d8be63e3c59e9fc47a2",
     "src/store/fork.rs": "778faff5f5302a2597a0ca5a1e29b7a7431efa3a114cba9482c775664f6a575c",
     "src/store.rs": "6cab1a7029c3fd7a95505a24476530fe8378145d69d71baac882f25736983f8d",
@@ -76,6 +80,8 @@
     "tests/fixtures/compact/all-items.md": "747bbc3c10c30ceae7eb077ea626f623ef77411f00ad5f89860b4672af32610d",
     "tests/fixtures/gui/rich-all-items.jsonl": "7101ee048cad27138d4d62dad028e2e36a0a18898fbff999819c667723be55da",
     "tests/fixtures/gui/v0_2-identity-terminal.jsonl": "f4d7fe14ee2dd5c1c87703868c62274f2fc544a9b492f00fb865fd713367f635",
+    "tests/fixtures/import/claude-synthetic.jsonl": "68b50da81b12faa2cb87e65039c50155e0f9432b04019dd49d719f668583ea98",
+    "tests/fixtures/import/claude-synthetic.protocol.jsonl": "6cd1ca65951f3daba2da114f269cbbc56d782e11088bd0008415dc9c5e6a2d98",
     "tests/fixtures/protocol/all-items.jsonl": "3c6931e5791a2d7107e44101b43220f3d084ad961b1ab2d88262109f2374e104",
     "tests/fixtures/protocol/interrupt-mid-tool.jsonl": "c504d1671fbe9fc1a5bf067bdf9f574feb11c7a6218884cf8c1b87266067cc58",
     "tests/fixtures/protocol/lagged.jsonl": "0ee568f5135f4319c604c8dd3b1ca9914883d0c6a246f78c8d321462048c4d0a",
@@ -100,9 +106,9 @@
     "tests/fixtures/sse/tools.sse": "c20ac4fd0863f68faa8cda4018b8ba5afbe96303c1fa8b16cacd232cd4fb0771",
     "tests/fixtures/sse/utf8-split.sse": "df1684e41815d2ffe11033e2ec019de614439dbb1d9bb7ef507a75a1d1e0e073",
     "tests/formal/export.rs": "8c7222a2575965b19f1a7b8add2fa176ef16d2d4033048ce1790125e5935cb95",
-    "tests/formal/models.rs": "e8d835b740742a1d3ff6f58a9ece93557fdd821bdd85e91e9e66bd17ba231163",
+    "tests/formal/models.rs": "ede107c580455d08a1e4b252af4ecc38503072274df910b0c4c0402573207151",
     "tests/formal_models.rs": "ce809fcbe081559a25f046e65e894f24d59bdad654ee95d92604066befe95fd7",
-    "tests/formal_nonvacuity.rs": "cbe7d5a87221973983165d11b7c90abaa5342eec0976f30552a3686bcba4ed94",
+    "tests/formal_nonvacuity.rs": "50acb741bc5aff1a17562dc949c565ef5b6b6ceea4584283b77d2437effbb999",
     "tests/gateway_host.rs": "9a88dbc6e0792f5dd65f318d46bac3f0dc26bacd43f34d6feb49fac4f7b9eab3",
     "tests/gateway_lag.rs": "7483c5a3c013c615e8c885d61ba743ecb48e38bf62b6568d485d4eba6b3981ee",
     "tests/gateway_ops.rs": "0ac333bb286fb98840f9c14ec3f070fb52d7440c9d1879f304ab993b62bb27b7",
@@ -114,9 +120,11 @@
     "tests/gui_cli.rs": "b4fa6378743c0242981bd3e97a63d6188430395caf11f6f7f4bd202cf2972315",
     "tests/gui_dependencies.py": "69e38a397de4a65885a268915451d27e0065f5f8c3ca0ed5a490777211559f53",
     "tests/gui_fixtures.rs": "56072922bc11a25d56dafdedda47168f308b700029487a8305738b48b4db0d7f",
-    "tests/gui_gate.py": "8f9607761cd9bce3f1e46c8ca758c60b2abefffde15fee11ddd77ee79f024e5b",
+    "tests/gui_gate.py": "e7e6987ae51a17a61751ff021133a85d6a85dd2465973289aabfe26a8bf8e54e",
     "tests/gui_render.rs": "2ec079afa3277b105b415d0c669d7df0e32d7594aafc3b2c83a35c59f62acfc4",
     "tests/gui_rich.rs": "c28366dab8b1114c7d65c58bf40ebc21225678df9fede61fd6415191da4a0949",
+    "tests/import_claude.rs": "43bfb746df1d65beeae69cbf35bbd3b4b8805126270921e680e2279019581749",
+    "tests/import_claude_gui.rs": "ff2cad252c27dc77e10e0388d08bcd49a4429c98cc07ddf2dae0a39c6f042491",
     "tests/mcp_client.rs": "8e388ebb82aa5e25bbe8777e008094d2566d02cba973a198f90b693e6f1b9c7f",
     "tests/policy_gate.rs": "700c6fefb150022e1c81c822deb811b2ca7d6710ed2b72e061056cccaa0f6c4e",
     "tests/profile_lifecycle.rs": "b15ce1fac0bf24d4ebeb58e7f22ef48d8dcbe38c8676298ecc52a9789f38ae4b",
@@ -136,9 +144,9 @@
     "tests/support/setsid.py": "494b864d2df3524ce69fdf57f05ce253c46f90a743d8159386ab7a5689d7f040",
     "tests/support/sse_server.rs": "dc7c6e2fc1281af3f93c9a6b511a24b83e29660b0af7d92b5bc53464ddb657ec",
     "tests/tools.rs": "eb3dc1cc3f0ac60ee64bde39d6d330b1efb681b7cbabf5b501ad0752e836dbde",
-    "verification/contracts.toml": "170bc6b596bdacb0533a92f1d95cd9160a175f1489555adfe90b5b6b9064e502",
-    "verification/corpus.toml": "c5e318724bea24410284af0e22b28d939a5db7fdd0cb8a884e67d1eb83928e7b",
-    "verification/coverage.toml": "cf89b1eeedb9dbb30b24fe8d003235eef035068dca121f697a78be8690aad5ec",
+    "verification/contracts.toml": "2e8d9cbbc0e21bd616ef04f3119ae8fdaf05267403dd1ddd0212a795f17af4f7",
+    "verification/corpus.toml": "04b044b297f98d156fd083e56834dc4eac32161780ca7ca41c65214739589350",
+    "verification/coverage.toml": "b3fd86bb386cde1bad4d1679e3b797c10575902a45312556698102c5ee602c62",
     "verification/tools.lock.json": "45d8a35d0b533e53689efc46542315cf91713ee5821a2f002289cc0b8bc7a8dd"
   },
   "private_home": true,
@@ -258,6 +266,14 @@
     },
     {
       "command": [
+        "python3",
+        "-I",
+        "scripts/test-import-controls.py"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
         "make",
         "test-formal-native"
       ],
@@ -276,6 +292,15 @@
         "-I",
         "scripts/checks.py",
         "secrets"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/checks.py",
+        "secrets-control"
       ],
       "exit_code": 0
     },

@@ -1,5 +1,5 @@
 {
-  "source": "1201697f31120f7e5324017b8fb9f88ff3069d0c",
+  "source": "3d0a5881837130ec55d9304c032b10dacbc6b037",
   "private_home": true,
   "operator_input": false,
   "commands": [
@@ -49,6 +49,8 @@
         "gui_cli",
         "--test",
         "capability_delivery",
+        "--test",
+        "import_claude_gui",
         "--",
         "--nocapture"
       ],

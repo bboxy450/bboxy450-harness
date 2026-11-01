@@ -42,6 +42,65 @@ impl fmt::Debug for Set {
     }
 }
 impl Set {
+    /// Archive imports also recognize common credential prefixes, including
+    /// credentials that were never registered by this running harness.
+    pub fn scrub_import(&self, text: &str) -> String {
+        static SHAPES: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        let patterns = SHAPES.get_or_init(|| regex::Regex::new(
+            r"(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[A-Za-z0-9_-]{30,})"
+        ).expect("fixed import credential pattern"));
+        let registered = self.values.read().unwrap();
+        // Find on original bytes, then merge overlapping matches. Replacement
+        // markers are never rescanned by another (possibly short) secret.
+        let mut spans = patterns
+            .find_iter(text)
+            .map(|m| (m.start(), m.end()))
+            .collect::<Vec<_>>();
+        for value in registered.iter().filter(|v| !v.is_empty()) {
+            spans.extend(
+                text.match_indices(value.as_str())
+                    .map(|(at, _)| (at, at + value.len())),
+            );
+        }
+        spans.sort_unstable();
+        let mut merged: Vec<(usize, usize)> = vec![];
+        for (start, end) in spans {
+            if let Some(last) = merged.last_mut()
+                && start <= last.1
+            {
+                last.1 = last.1.max(end);
+            } else {
+                merged.push((start, end));
+            }
+        }
+        let mut result = String::new();
+        let mut end = 0;
+        for (start, next) in merged {
+            result.push_str(&text[end..start]);
+            result.push_str("<redacted>");
+            end = next;
+        }
+        result.push_str(&text[end..]);
+        result
+    }
+    pub fn import_value(&self, mut value: serde_json::Value) -> serde_json::Value {
+        fn walk(set: &Set, value: &mut serde_json::Value) {
+            match value {
+                serde_json::Value::String(text) => *text = set.scrub_import(text),
+                serde_json::Value::Array(values) => values.iter_mut().for_each(|v| walk(set, v)),
+                serde_json::Value::Object(values) => {
+                    let old = std::mem::take(values);
+                    for (key, mut value) in old {
+                        walk(set, &mut value);
+                        values.insert(set.scrub_import(&key), value);
+                    }
+                }
+                _ => {}
+            }
+        }
+        walk(self, &mut value);
+        value
+    }
     pub(crate) fn capability_initialized(&self) -> bool {
         self.admission.read().unwrap().initialized
     }

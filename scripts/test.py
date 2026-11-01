@@ -44,6 +44,7 @@ def main():
             ['cargo','test','--offline','--locked','--features','acp,test-fixtures','--test','seat_process','non_pty_spawn_does_not_keep_a_sibling_master_alive','--','--exact'],
             ['python3','-I','scripts/test-hardening.py'],
             ['python3','-I','scripts/test-capability-control.py'],
+            ['python3','-I','scripts/test-import-controls.py'],
             ['make','test-formal-native'],
             ['make','test-formal-parity'],
             ['python3','-I','scripts/checks.py','secrets'],

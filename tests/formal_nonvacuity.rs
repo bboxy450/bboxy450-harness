@@ -21,6 +21,42 @@ fn variable(m: &bbt_tlc::Model, name: &str) -> usize {
         .unwrap_or_else(|| panic!("missing state variable {name}"))
 }
 #[test]
+fn import_model_reaches_result_eof_repair_unknown_and_consumer_drop() {
+    let m = model("HarnessClaudeImport");
+    let r = m.check(100_000).unwrap();
+    assert!(r.violations.is_empty());
+    let phase = variable(&m, "phase");
+    let tool = variable(&m, "tool");
+    let ended = variable(&m, "ended");
+    let seen = variable(&m, "unknown_seen");
+    let cancel = variable(&m, "cancelled");
+    assert!(
+        r.states
+            .iter()
+            .any(|s| s[phase] == 4 && s[tool] == 2 && s[ended] == 1 && s[seen] == 1)
+    );
+    assert!(
+        r.states
+            .iter()
+            .any(|s| s[phase] == 4 && s[tool] == 2 && s[ended] == 1 && s[seen] == 0)
+    );
+    assert!(r.states.iter().any(|s| s[cancel] == 1));
+    for (control, property) in [
+        ("BrokenHarnessClaudeImportA", "NoOpenToolAtEnd"),
+        ("BrokenHarnessClaudeImportB", "NoSensitiveProjection"),
+        ("BrokenHarnessClaudeImportC", "UnknownNeverPanics"),
+    ] {
+        assert!(
+            model(control)
+                .check(100_000)
+                .unwrap()
+                .violations
+                .iter()
+                .any(|v| v.property == property)
+        );
+    }
+}
+#[test]
 fn capability_bootstrap_covers_valid_and_degraded_faces_and_legacy_read_leaks() {
     let good = model("HarnessMcpServer");
     let registered = variable(&good, "capability_registered");

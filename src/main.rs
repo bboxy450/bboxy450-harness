@@ -7,7 +7,9 @@
 
 #![allow(clippy::disallowed_methods)] // Startup, headless, and post-event-loop join only.
 fn main() {
-    let code = if std::env::args().nth(1).as_deref() == Some("gui") {
+    let code = if std::env::args().nth(1).as_deref() == Some("import") {
+        bbt_rt::handle().block_on(bboxy450_harness::import::cli(std::env::args().skip(2)))
+    } else if std::env::args().nth(1).as_deref() == Some("gui") {
         gui()
     } else {
         bbt_rt::handle().block_on(bboxy450_harness::frontends::headless::cli())

@@ -1,0 +1,44 @@
+[
+  {
+    "name": "redaction",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "import_claude",
+      "planted_shapes_and_registered_values_never_reach_envelopes_or_blobs",
+      "--",
+      "--exact",
+      "--nocapture"
+    ],
+    "assertion": "ImportSecretShapesRedacted",
+    "red_exit": 101,
+    "green_exit": 0,
+    "restored_source_sha256": "ab34b6fc573e2b73b852e19009908452ed46ab93110d0b0bf7737d4957191848",
+    "synthetic_only": true,
+    "operator_input": false
+  },
+  {
+    "name": "unknown",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "import_claude",
+      "unknown_malformed_and_truncated_input_never_panics_and_finishes_lawfully",
+      "--",
+      "--exact",
+      "--nocapture"
+    ],
+    "assertion": "ImportUnknownNeverPanics",
+    "red_exit": 101,
+    "green_exit": 0,
+    "restored_source_sha256": "ab34b6fc573e2b73b852e19009908452ed46ab93110d0b0bf7737d4957191848",
+    "synthetic_only": true,
+    "operator_input": false
+  }
+]
