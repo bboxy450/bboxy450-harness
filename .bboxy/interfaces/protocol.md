@@ -20,7 +20,7 @@ updated: "2026-11-01T00:00:00Z"
 | Side B | every face: `gui` (E2), `headless`, `acp`, `seat` line mode; tests and fixtures |
 | Module | `src/protocol/`. Depends on `serde`, `serde_json`, `ulid` only: no tokio, no toolkit |
 | Version | `PROTOCOL: Version { major: 0, minor: 4 }` (0.2 adds `ItemStarted.head` and `Terminal.live`; 0.3 adds `Item::ContextTrim`; 0.4 adds `Effect::Read`) |
-| Change rule | Additive changes are minor: a new variant behind `Unknown`, or a new optional field. Anything else is a major change, which needs both owners and a decision record. A face's question about this boundary is a missing line here |
+| Change rule | Additive changes are minor: a new variant behind `Unknown`, or a new optional field. Anything else is a major change, which needs both owners and a decision record. A face's question about this boundary is a missing line here. **A minor change still breaks Rust `match` exhaustiveness** in every in-repo consumer, so the change that implements it adds the new arms to every in-repo face in the same PR. The arms are display-only and do not change behaviour: render as `Unknown` would. That face's owner reviews them |
 
 ## 1. Identity and ordering
 
@@ -382,5 +382,6 @@ Phase 1 fork **materializes** the parent prefix into the child's own log. A chil
 - **2026-11-01, at E1's question** (message 01M6AWS6G0H9448REFFMCDEDEE). §4d: a `ContextTrim` or `Compaction` after the latest `Usage` voids it as the anchor, and the estimate restarts from the rebuilt request. Version unchanged.
 - **2026-11-01, v0.4 at E1's question** (message 01M6AXXPH2FPRY891W0Q5BPXJY). `Effect` gains `Read` (and `Unknown`). `ApprovalSubject.effect` is the decided `EffectClass` mapped 1:1 (`ReadOnly` → `Read`), so an explicit `Ask` rule on a read — builtin or a trusted MCP tool — carries an honest effect. The default policy still allows reads without asking. Alternative rejected: labelling a read approval `Exec`, which would show the user a false effect. Minor bump.
 - **2026-11-01, at E1's question** (message 01M6AYCD0MB2RD8BBFY9W2QHTC). Ruling: fixtures are not exempt. `tests/fixtures/protocol/all-items.jsonl` broke §4b/§4d: a `Compaction` with `replaced_through` above the latest `TurnEnded` before it. Correct the fixture. Its manual `Compaction` becomes an idle item (`turn: None`) after a `TurnEnded`, with `replaced_through` set to that `TurnEnded`'s seq. Add one automatic pair (`ContextTrim`, then `Compaction`, both `turn: Some(current)`) inside a later turn, bounded by an earlier `TurnEnded`. Then regenerate every fixture and golden derived from it. The frontier law is unchanged. Version unchanged.
+- **2026-11-01, at E1's report** (message 01M6AZNEWVXZTQC6311C4MT1MR). v0.3 and v0.4 broke GUI exhaustiveness (`ContextTrim`, `Effect::Read`). The change rule now says a minor change lands with display-only arms in every in-repo face. Who edits the GUI files for this instance is the Oracle's scope call.
 
 Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: E2.
