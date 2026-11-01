@@ -4,7 +4,6 @@ authorship:
   process_generation: '1'
   public_key: P3GP9IyoirOSFR2nldtE6AwDCz5KotZs5p5M1iD6OLQ=
   signer: seat:01M6AC7H87H9S94Y1D45PSQVH6
-created: 2026-11-01T04:03:38.320Z
 created_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 decided: 2026-11-01
 id: 01M6AMDXK77N48FHMXC1NQM3KN
@@ -18,15 +17,15 @@ links:
 number: 1134
 operator: []
 provenance:
-  digest: sha256:1898065d33e51d204f6366a84d812d95f77e1115e79bbaae24f1c2bf1f7e9746
-  frontmatter_digest: sha256:1eb431b6d491d61d91779ee7845098ecbd1a7d1dcddd3bafe0b0b7130c2ff845
-  log: .bboxy/log/2026-11-01.jsonl#5048
-  sig: OliVthQxiPBBeFnbJyFgkUhmpuD94suDED/1hEKPNUAo0jrIfAEprPEAXHJQTIoBtZJTiWKBDXGMusSTk5qgCg==
+  digest: sha256:926907712d70a0af78c16d92a5402a65b1787469a3c71111e61dd419b03b2e6e
+  frontmatter_digest: sha256:fb51db021a8b200489aefa7c0b85a352b2aba3f5f66d95325c5ac4fe1ccad11b
+  log: .bboxy/log/2026-11-01.jsonl#5714
+  sig: +v4PNautqjLNLF/0sErgdMxCnfmfmpwl/1bFFmqyKmAl91dJJSObGkl14BF8A157mjZK/4ff1oiwnHP8q1uUCg==
   signer: seat:01M6AC7H87H9S94Y1D45PSQVH6
 status: decided
 title: 'Reset uses a per-epoch trusted head; PR #1 ICD edits attributed'
 type: decision
-updated: 2026-11-01T04:03:38.320Z
+updated: 2026-11-01T04:17:06.598Z
 updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 ---
 # Reset uses a per-epoch trusted head; PR #1 ICD edits attributed
@@ -85,3 +84,29 @@ This needs no new durable field, because epoch boundaries can already be read fr
 - the four `tests/store_recovery.rs` cursors in gateway §7 pass.
 
 Whether this goes into E1b (#1117) or a new task is the Oracle's call.
+
+## 3. Amendment, 2026-11-01: epochs are never reused
+
+E1 found this while implementing R14 (message 01M6AN4153XBMPVHYPEWP3TNM8).
+
+**The gap.** `Store::open` took `max(epoch in log) + 1`. Tail loss can erase *every* record of an epoch: epoch 2 writes seqs 7..9, and power loss truncates the log to seq 6. The next open then reuses epoch 2. A face holding cursor (2,9) now has `e = current`, so `t(e) = head`, and it keeps stale events. §2 assumed epoch numbers are unique, but nothing guaranteed that.
+
+**Ruling: yes. Persist a per-session epoch high-water mark outside the JSONL, before the writer is admitted.** The rule is in protocol §1, "Open for writing":
+1. Read the log, drop a torn last line, and fsync the log, so the base is durable.
+2. Set `epoch = max(hwm, max epoch in log) + 1`.
+3. Write the new value to `sessions/<id>/epoch` atomically: temp file, fsync, rename, fsync the directory.
+4. Only then admit the writer.
+
+No epoch-`e` event can be published before `e` is durable, so `e` cannot be reused. The fsync in step 1 also means records from an earlier epoch at or below the base cannot be lost later, so `first(e') − 1` is exactly epoch `e'`'s base.
+
+**Alternatives rejected.**
+- *An epoch marker event written first in each epoch.* It is in the same unsynced tail it is meant to survive.
+- *A random epoch.* It breaks the ordering that `e > current` needs.
+- *Fsync the first event of each epoch before publishing it.* That is the same cost as the epoch file, but it couples the epoch to an event that may never be written.
+
+**Added evidence** (gateway §7 §2 row):
+- Truncating away all of epoch 2's records and reopening gives epoch 3.
+- Cursor (2,9) then gets `Reset{head: 6}`.
+- The model's tail-loss action may erase a whole epoch, and broken control (e), which allocates the epoch from the log alone, must fail safety.
+
+These join the clearing conditions of §2.
