@@ -16,10 +16,7 @@ use bboxy450_harness::{
     provider::{ScriptedProvider, profile::Unattended},
     redact::Set,
 };
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 fn config(temp: &tempfile::TempDir, session: SessionId) -> Config {
     let mut meta = support::meta(temp.path().into());
     meta.session = session;
@@ -90,15 +87,20 @@ async fn open_recovers_before_hello_and_subscribe_never_loads() {
     let socket = t.path().join("session.sock");
     assert!(!socket.exists());
     let g = host.open(session).await.unwrap();
-    let start = Instant::now();
-    let mut sub = g
-        .subscribe(Subscribe {
+    // Subscription creation is a synchronous result, with no runtime to poll.
+    let subscribe: fn(
+        &bboxy450_harness::gateway::InProc,
+        Subscribe,
+    ) -> Result<bboxy450_harness::gateway::Subscription, Refused> = Gateway::subscribe;
+    let mut sub = subscribe(
+        &g,
+        Subscribe {
             session,
             after: None,
             ephemeral: false,
-        })
-        .unwrap();
-    assert!(start.elapsed() < Duration::from_millis(1));
+        },
+    )
+    .unwrap();
     assert_eq!(sub.hello().epoch, Epoch(2));
     let head = sub.hello().head;
     let bytes = std::fs::read_to_string(root.join(format!("{session}.jsonl"))).unwrap();

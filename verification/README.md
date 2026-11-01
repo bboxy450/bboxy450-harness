@@ -4,7 +4,7 @@ The native backend is crates.io `bboxy450-tlc =0.1.1`, using its finite integer
 and Boolean Model/Variable/Action API. Yarn 0.1.1 projects the production
 `harness_turn_topology!` declaration. This repository contains no checker fork.
 
-The corpus has 36 model variants mapped to 16 contracts, including the shared
+The corpus has 37 model variants mapped to 16 contracts, including the shared
 Yarn scheduling projection.
 It explores two queued turns, two tools/rounds, three birth generations (A-B-A),
 a two-slot stand-in for the bounded work lane, and a three-entry replay log.
@@ -52,3 +52,10 @@ acked-steer routes, reaches the real 256-control bound, and checks pipe-drain
 progress plus ownership after reap. Subscriber models carry content births,
 tail loss, a durable epoch high-water mark and a face-prefix invariant; the old
 Reset rule and log-only epoch allocator are separate failing safety controls.
+
+Focused rework: ProcessLifecycle separates an exited waitable leader from a
+reaped leader and an independently live member. Its two ownership controls
+reproduce early-reap cancellation leakage and signalling an empty group.
+ControlLaneBound models typed producer slots and consumers returning them;
+the duplicate-producer control reaches depth 257. No invariant substitutes a
+Rust constant or a mode-generated failure flag for these reachable states.

@@ -6,7 +6,7 @@
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 mod support;
 use bboxy450_harness::{
-    gateway::{Gateway, Refused},
+    gateway::{Ack, Gateway, Refused},
     protocol::*,
 };
 use std::time::{Duration, Instant};
@@ -55,9 +55,10 @@ async fn busy_not_wait() {
     let (s, mut sub, turn) = running_session().await;
     fill(&s.gateway);
     let op = support::prompt(&s.gateway, "refused work");
-    let start = Instant::now();
-    assert_eq!(s.gateway.send(op), Err(Refused::Busy));
-    assert!(start.elapsed() < Duration::from_millis(1));
+    // The trait returns the result directly; it cannot yield a reservation future.
+    let send: fn(&bboxy450_harness::gateway::InProc, OpEnvelope) -> Result<Ack, Refused> =
+        Gateway::send;
+    assert_eq!(send(&s.gateway, op), Err(Refused::Busy));
     let close = support::op(&s.gateway, Op::Close);
     s.gateway.send(close.clone()).unwrap();
     let events = support::end(&mut sub).await;

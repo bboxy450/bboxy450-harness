@@ -15,3 +15,19 @@ cargo test --offline --locked --test formal_nonvacuity → 101 (missing separate
 leader/member and producer-slot state). Log/record: rework/models-red.*.
 
 The implementation and final verification for this rework are pending.
+
+Implementation checkpoint: observe leader exit using nonblocking
+waitid(WEXITED|WNOWAIT|WNOHANG), retain its PID until group SIGKILL, and reap only
+afterwards. The original after-reap Drop fence remains. Targeted tests exit 0:
+all process, library, formal/nonvacuity, protocol-law and gateway cases passed.
+The new model controls produce named NoMemberAfterCancel and
+NoSignalToEmptyGroup safety traces. Typed producer/consumer slots saturate at
+65+64+1 outstanding ops; the broken duplicate producer reaches depth 257.
+Protocol mutations assert law and detail; PID checks poll; gateway tests use
+synchronous API signatures and a held mpsc reservation without an actor/runtime.
+The epoch-reuse control now asserts EpochNeverReused specifically.
+
+Two intermediate failures are retained: one fixture PID-file publication race
+(exit 101), fixed by waiting for a complete integer, and one missing Ack import
+(compile exit 101). Neither is counted as a deliberate negative control.
+Full unattended canonical and native/Java parity verification remain pending.

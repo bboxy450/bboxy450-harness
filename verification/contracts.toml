@@ -143,19 +143,19 @@ title="A full work lane does not reduce the independent 256-slot control capacit
 models=["HarnessControlLaneBound","BrokenHarnessControlLaneBound"]
 sources=["src/engine/mod.rs","src/gateway/mod.rs","tests/formal/models.rs"]
 implementation_tests=["tests/gateway_ops.rs","tests/formal_nonvacuity.rs"]
-assumptions="One fixed full 64-slot work lane, control depths 0..257, legitimate outstanding controls at most 65+64+1=130. Flood beyond capacity is refused; scheduling is not modeled."
-property="Control admission saturates at 256 and the legitimate bound fits independently of work."
+assumptions="Full 64-slot work lane; producer/consumer populations of 65 interrupt slots, 64 approval slots and one Close slot. Correct producers own and consumers return their type slot. The broken producer loses its reservation at full legitimate population and floods duplicates to depth 257 while consumers are delayed for this finite safety witness. FIFO and arbitrary malicious traffic remain implementation witnesses; no fairness claim."
+property="Per-type slots are conserved, depth equals the outstanding op count, and the dynamically reachable legitimate maximum 130 fits the independent 256 capacity. The duplicate producer breaks slot conservation and overflows capacity."
 checks=["make test-formal","make test"]
 
 [[contract]]
 name="HarnessProcessLifecycle"
-title="Cancellation closes escaped pipes and a reaped group cannot be signalled"
-models=["HarnessProcessLifecycle","BrokenHarnessProcessDrain","BrokenHarnessProcessOwnership"]
-controls=[{name="BrokenHarnessProcessDrain",expected="liveness"},{name="BrokenHarnessProcessOwnership",expected="safety"}]
+title="Cancel kills remaining members before releasing the leader reservation"
+models=["HarnessProcessLifecycle","BrokenHarnessProcessDrain","BrokenHarnessProcessOwnership","BrokenHarnessProcessReapedMembers"]
+controls=[{name="BrokenHarnessProcessDrain",expected="liveness"},{name="BrokenHarnessProcessOwnership",expected="safety"},{name="BrokenHarnessProcessReapedMembers",expected="safety"}]
 sources=["src/process.rs","tests/formal/models.rs"]
 implementation_tests=["src/process.rs","tests/cancel_process.rs"]
-assumptions="One owned leader, one escaped pipe holder, four cancellation phases. Weak fairness on kill/drain/end models eventual progress; the physical 500ms grace and 2s bound are real-process witnesses."
-property="A cancelled run eventually ends after bounded drain; reaped ownership never signals a reused group."
+assumptions="One leader (running/exited-waitable/reaped), one independent live member and one possibly escaped pipe holder. Leader exit, member exit, signal, reap, drain and cancel completion are separate actions. Weak fairness on exit/signal/reap/drain/end; OS waitid, real PID reuse and the 500ms grace remain process witnesses."
+property="Cancel completion implies no live member. A signal never targets a group with neither a leader reservation nor a member; bounded drain eventually ends cancellation."
 checks=["make test-formal","make test"]
 
 [[contract]]

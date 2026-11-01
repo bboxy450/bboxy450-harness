@@ -582,3 +582,51 @@ impl Gateway for InProc {
         })
     }
 }
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+    #[test]
+    fn held_capacity_returns_busy_without_an_actor_or_runtime() {
+        let session = SessionId::new();
+        let meta = SessionMeta {
+            session,
+            cwd: std::path::PathBuf::new(),
+            profile: None,
+            fork: None,
+            protocol: PROTOCOL,
+            harness: env!("CARGO_PKG_VERSION").into(),
+            created_ms: 0,
+        };
+        let hub = Arc::new(Hub::new(meta, Epoch(1), &[], Set::default()));
+        let (work, mut work_rx) = mpsc::channel(1);
+        let (control, mut control_rx) = mpsc::channel(256);
+        let held = work.try_reserve().unwrap();
+        let g = InProc::new(hub, work.clone(), control, OpId::new());
+        let op = |op| OpEnvelope {
+            v: PROTOCOL,
+            session,
+            op_id: OpId::new(),
+            op,
+        };
+        let input = op(Op::UserTurn {
+            blocks: vec![InputBlock::Text { text: "x".into() }],
+            mode: TurnMode::Queue,
+        });
+        let send: fn(&InProc, OpEnvelope) -> Result<Ack, Refused> = Gateway::send;
+        assert_eq!(send(&g, input.clone()), Err(Refused::Busy));
+        // Independent control admission works while the work reservation is held.
+        let interrupt = op(Op::Interrupt { turn: None });
+        send(&g, interrupt.clone()).unwrap();
+        assert_eq!(control_rx.try_recv().unwrap().op_id, interrupt.op_id);
+        drop(held);
+        send(&g, input.clone()).unwrap();
+        assert_eq!(work_rx.try_recv().unwrap().op_id, input.op_id);
+        let sub: Result<Subscription, Refused> = g.subscribe(Subscribe {
+            session,
+            after: None,
+            ephemeral: false,
+        });
+        assert_eq!(sub.unwrap().hello().meta.session, session);
+    }
+}

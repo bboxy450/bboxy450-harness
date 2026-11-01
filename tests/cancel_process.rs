@@ -8,6 +8,18 @@ mod support;
 use bboxy450_harness::{gateway::Gateway, protocol::*};
 use std::time::{Duration, Instant};
 
+async fn fixture_pid(path: &std::path::Path) -> i32 {
+    for _ in 0..600 {
+        if let Ok(text) = std::fs::read_to_string(path)
+            && let Ok(pid) = text.trim().parse()
+        {
+            return pid;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    panic!("fixture did not publish its PID: {}", path.display());
+}
+
 async fn group_dead(pgid: i32) -> bool {
     for _ in 0..100 {
         if unsafe { libc::kill(-pgid, 0) } == -1 {
@@ -130,17 +142,7 @@ async fn cancel_kills_group_and_joins_before_ending() {
             break;
         }
     }
-    let pidfile = s.temp.path().join("group.pid");
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while !pidfile.exists() {
-        assert!(Instant::now() < deadline, "tool process did not start");
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    let pgid: i32 = std::fs::read_to_string(pidfile)
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
+    let pgid = fixture_pid(&s.temp.path().join("group.pid")).await;
     let start = Instant::now();
     s.gateway
         .send(support::op(&s.gateway, Op::Interrupt { turn: None }))
@@ -208,17 +210,7 @@ async fn escaped_pipe_holder_cannot_stall_a_cancelled_turn() {
     s.gateway
         .send(support::prompt(&s.gateway, "spawn escaped pipe holder"))
         .unwrap();
-    let pidfile = s.temp.path().join("escaped.pid");
-    let limit = Instant::now() + Duration::from_secs(4);
-    while !pidfile.exists() {
-        assert!(Instant::now() < limit, "escaped fixture not ready");
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    let pid: i32 = std::fs::read_to_string(pidfile)
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
+    let pid = fixture_pid(&s.temp.path().join("escaped.pid")).await;
     let start = Instant::now();
     s.gateway
         .send(support::op(&s.gateway, Op::Interrupt { turn: None }))

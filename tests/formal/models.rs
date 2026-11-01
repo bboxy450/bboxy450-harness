@@ -298,28 +298,86 @@ fn steer_mode(block_control: bool, duplicate: bool) -> Model {
     m
 }
 fn control_bound(b: bool) -> Model {
-    let mut m = base::<2>(
+    // One slot per outstanding interrupt (64 queued turns + running), approval
+    // (64 tools), and Close. Consumers return the same type's slot.
+    let mut m = base::<9>(
         "ControlLaneBound",
         b,
-        &[("control_depth", 257, 0), ("work_inbox", 64, 64)],
+        &[
+            ("interrupt_slots", 65, 65),
+            ("interrupt_pending", 257, 0),
+            ("approval_slots", 64, 64),
+            ("approval_pending", 64, 0),
+            ("close_slots", 1, 1),
+            ("close_pending", 1, 0),
+            ("control_depth", 257, 0),
+            ("work_inbox", 64, 64),
+            ("duplicate_producer", 1, 0),
+        ],
     );
-    act(
-        &mut m,
-        "AdmitControl",
-        if b {
-            Var(0).le(Int(256))
-        } else {
-            Var(0).lt(Int(256))
-        },
-        &[(0, Var(0).plus(Int(1)))],
-    );
-    safe(&mut m, "ControlLaneBounded", Var(0).le(Int(256)));
-    let legitimate_outstanding = 65 + 64 + 1;
+    for (slot, pending, bound, label) in [
+        (0, 1, 65, "Interrupt"),
+        (2, 3, 64, "Approval"),
+        (4, 5, 1, "Close"),
+    ] {
+        act(
+            &mut m,
+            &format!("Produce{label}"),
+            all([
+                eq(8, 0),
+                Var(slot).eq(Int(0)).negate(),
+                Var(pending).lt(Int(bound)),
+            ]),
+            &[
+                (slot, Var(slot).minus(Int(1))),
+                (pending, Var(pending).plus(Int(1))),
+                (6, Var(6).plus(Int(1))),
+            ],
+        );
+        act(
+            &mut m,
+            &format!("Consume{label}"),
+            all([
+                eq(8, 0),
+                Var(pending).eq(Int(0)).negate(),
+                Var(slot).lt(Int(bound)),
+            ]),
+            &[
+                (slot, Var(slot).plus(Int(1))),
+                (pending, Var(pending).minus(Int(1))),
+                (6, Var(6).minus(Int(1))),
+            ],
+        );
+        safe(
+            &mut m,
+            &format!("{label}SlotsConserved"),
+            Var(slot).plus(Var(pending)).eq(Int(bound)),
+        );
+    }
+    // A producer that enqueues without owning a type slot duplicates an op.
+    // At saturation, a producer that loses its reservation floods duplicates.
+    // Freeze consumers for this finite worst-case schedule, not by fairness.
+    if b {
+        act(
+            &mut m,
+            "LoseProducerReservation",
+            all([eq(8, 0), eq(1, 65), eq(3, 64), eq(5, 1)]),
+            &[(8, Int(1))],
+        );
+        act(
+            &mut m,
+            "DuplicateInterruptWithoutSlot",
+            all([eq(8, 1), Var(6).lt(Int(257))]),
+            &[(1, Var(1).plus(Int(1))), (6, Var(6).plus(Int(1)))],
+        );
+    }
     safe(
         &mut m,
-        "LegitimateOutstandingFits",
-        Bool(legitimate_outstanding <= 256),
+        "DepthMatchesOutstanding",
+        Var(6).eq(Var(1).plus(Var(3)).plus(Var(5))),
     );
+    safe(&mut m, "ControlLaneBounded", Var(6).le(Int(256)));
+    safe(&mut m, "LegitimateOutstandingFits", Var(6).le(Int(130)));
     m
 }
 // Adapted from bboxy450-term AttentionLifecycle, PluginHookGate and HarnessToken.
@@ -813,51 +871,100 @@ fn replay_tail(mode: u8) -> Model {
     m
 }
 fn process_lifecycle(mode: u8) -> Model {
-    let mut m = base::<5>(
+    let mut m = base::<7>(
         "ProcessLifecycle",
         false,
         &[
-            ("phase", 3, 0),
-            ("unreaped", 1, 1),
+            ("leader", 2, 0), // 0 running, 1 exited/waitable, 2 reaped
+            ("member_alive", 1, 1),
+            ("cancel", 2, 0), // 0 none, 1 requested, 2 completed
+            ("kill_attempted", 1, 0),
             ("pipe_open", 1, 1),
             ("ended", 1, 0),
-            ("late_signal", 1, 0),
+            ("signal_to_empty", 1, 0),
         ],
     );
-    act(&mut m, "Cancel", eq(0, 0), &[(0, Int(1))]);
-    let kill = m.actions.len();
-    act(&mut m, "KillAndReap", eq(0, 1), &[(0, Int(2)), (1, Int(0))]);
+    let exit = m.actions.len();
+    act(&mut m, "LeaderExits", eq(0, 0), &[(0, Int(1))]);
+    act(&mut m, "MemberExits", eq(1, 1), &[(1, Int(0))]);
+    act(&mut m, "Cancel", eq(2, 0), &[(2, Int(1))]);
+    let signal = m.actions.len();
+    act(
+        &mut m,
+        "SignalReservedGroup",
+        all([eq(2, 1), eq(3, 0), eq(0, 2).negate()]),
+        &[(1, Int(0)), (3, Int(1))],
+    );
+    let skip = m.actions.len();
+    act(
+        &mut m,
+        "SkipDisownedGroup",
+        all([eq(2, 1), eq(3, 0), eq(0, 2)]),
+        &[(3, Int(1))],
+    );
+    let reap = m.actions.len();
+    act(
+        &mut m,
+        "ReapLeader",
+        all([
+            eq(0, 1),
+            if mode == 3 {
+                Bool(true)
+            } else {
+                all([eq(3, 1), eq(1, 0)])
+            },
+        ]),
+        &[(0, Int(2))],
+    );
     let drain = m.actions.len();
     act(
         &mut m,
-        "GraceClosesEscapedPipe",
-        if mode == 1 { Bool(false) } else { eq(0, 2) },
-        &[(0, Int(3)), (2, Int(0))],
+        "GraceClosesPipe",
+        all([eq(2, 1), eq(3, 1), eq(4, 1), Bool(mode != 1)]),
+        &[(4, Int(0))],
     );
     let end = m.actions.len();
-    act(&mut m, "EndAfterJoin", eq(0, 3), &[(3, Int(1))]);
     act(
         &mut m,
-        "DropReapedGuard",
-        all([eq(0, 2), eq(1, 0)]),
-        &[(4, Int(if mode == 2 { 1 } else { 0 }))],
+        "CompleteCancel",
+        all([eq(2, 1), eq(3, 1), eq(0, 2), eq(4, 0)]),
+        &[(2, Int(2)), (5, Int(1))],
     );
-    safe(&mut m, "NoSignalAfterReap", eq(4, 0));
-    safe(&mut m, "NoPipeWaitAfterEnd", eq(3, 0).or(eq(2, 0)));
+    // This monitor is set by an actual signal action in an empty-group state,
+    // not by the selected mode. The broken Drop removes the ownership guard.
+    act(
+        &mut m,
+        "SignalEmptyGroup",
+        all([
+            eq(0, 2),
+            eq(1, 0),
+            if mode == 2 {
+                Bool(true)
+            } else {
+                eq(0, 2).negate()
+            },
+        ]),
+        &[(6, Int(1))],
+    );
+    safe(
+        &mut m,
+        "NoMemberAfterCancel",
+        eq(2, 2).negate().or(eq(1, 0)),
+    );
+    safe(&mut m, "NoSignalToEmptyGroup", eq(6, 0));
+    safe(&mut m, "NoPipeWaitAfterEnd", eq(5, 0).or(eq(4, 0)));
     progress(
         &mut m,
         "CancelEventuallyEnds",
-        Var(0).le(Int(0)).negate(),
-        eq(3, 1),
-        vec![kill, drain, end],
+        eq(2, 0).negate(),
+        eq(2, 2),
+        vec![exit, signal, skip, reap, drain, end],
     );
-    if mode == 1 {
-        m.name = "BrokenHarnessProcessDrain".into();
-    }
-    if mode == 2 {
-        m.name = "BrokenHarnessProcessOwnership".into();
-        m.responses.clear();
-        m.weak_fair.clear();
+    match mode {
+        1 => m.name = "BrokenHarnessProcessDrain".into(),
+        2 => m.name = "BrokenHarnessProcessOwnership".into(),
+        3 => m.name = "BrokenHarnessProcessReapedMembers".into(),
+        _ => {}
     }
     m
 }
@@ -907,6 +1014,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
     out.push((process_lifecycle(0), "pass"));
     out.push((process_lifecycle(1), "liveness"));
     out.push((process_lifecycle(2), "safety"));
+    out.push((process_lifecycle(3), "safety"));
     use bbt_yarn::reactor_model;
     let mut projected = bboxy450_harness::harness_turn_topology!(
         reactor_model,

@@ -169,3 +169,7 @@ expected="liveness"
 [[model]]
 name="BrokenHarnessProcessOwnership"
 expected="safety"
+
+[[model]]
+name="BrokenHarnessProcessReapedMembers"
+expected="safety"

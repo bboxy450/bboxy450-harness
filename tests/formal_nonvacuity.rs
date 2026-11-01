@@ -79,6 +79,13 @@ fn control_producers_conserve_slots_and_consumers_return_them() {
             .any(|s| s[depth] == 130 && s[interrupt] == 65 && s[approval] == 64 && s[close] == 1)
     );
     assert_eq!(r.states.iter().map(|s| s[depth]).max(), Some(130));
+    let full = r.states.iter().position(|s| s[depth] == 130).unwrap();
+    assert!(
+        r.edges[full]
+            .iter()
+            .any(|edge| r.states[edge.to][depth] == 129),
+        "full lane cannot be consumed"
+    );
     for name in ["ConsumeInterrupt", "ConsumeApproval", "ConsumeClose"] {
         assert!(
             m.actions.iter().any(|a| a.name == name),
@@ -86,13 +93,18 @@ fn control_producers_conserve_slots_and_consumers_return_them() {
         );
     }
     let b = model("BrokenHarnessControlLaneBound");
-    assert!(
-        b.check(100_000)
-            .unwrap()
-            .violations
-            .iter()
-            .any(|v| v.property == "InterruptSlotsConserved")
-    );
+    let broken = b.check(100_000).unwrap();
+    assert!(broken.states.iter().any(|s| s[depth] == 257));
+    for property in [
+        "InterruptSlotsConserved",
+        "LegitimateOutstandingFits",
+        "ControlLaneBounded",
+    ] {
+        assert!(
+            broken.violations.iter().any(|v| v.property == property),
+            "missing {property}"
+        );
+    }
 }
 
 #[test]

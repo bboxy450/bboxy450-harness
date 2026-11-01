@@ -11,6 +11,10 @@ fn fixture() -> Vec<Envelope> {
         .map(|l| serde_json::from_str(l).unwrap())
         .collect()
 }
+fn expect_violation(events: &[Envelope], law: &str, detail: &str) {
+    let violation = check_transcript(events).unwrap_err();
+    assert_eq!((violation.law, violation.detail.as_str()), (law, detail));
+}
 #[test]
 fn rejects_double_end_gap_unpaired_and_kind_change() {
     let good = fixture();
@@ -20,10 +24,10 @@ fn rejects_double_end_gap_unpaired_and_kind_change() {
     e.seq = Some(Seq(e.seq.unwrap().0 + 1));
     e.at = e.seq.unwrap();
     bad.push(e);
-    assert_eq!(check_transcript(&bad).unwrap_err().law, "one-ending");
+    expect_violation(&bad, "one-ending", "orphan or duplicate ending");
     let mut bad = good.clone();
     bad.remove(1);
-    assert_eq!(check_transcript(&bad).unwrap_err().law, "log-is-truth");
+    expect_violation(&bad, "log-is-truth", "durable gap or duplicate");
     let mut bad = good.clone();
     let tool = bad
         .iter_mut()
@@ -44,7 +48,7 @@ fn rejects_double_end_gap_unpaired_and_kind_change() {
     {
         output.clear();
     }
-    assert_eq!(check_transcript(&bad).unwrap_err().law, "tool-pairing");
+    expect_violation(&bad, "tool-pairing", "duplicate call id or absent result");
     let mut bad = good.clone();
     let e = bad
         .iter_mut()
@@ -53,7 +57,7 @@ fn rejects_double_end_gap_unpaired_and_kind_change() {
     if let Event::ItemCompleted { body, .. } = &mut e.event {
         *body = Item::Plan { entries: vec![] };
     }
-    assert_eq!(check_transcript(&bad).unwrap_err().law, "one-ending");
+    expect_violation(&bad, "one-ending", "item kind changed");
 }
 
 #[test]
@@ -75,7 +79,7 @@ fn durable_identity_and_live_completion_rules_are_specific() {
     if let Event::ItemStarted { head, .. } = &mut start.event {
         *head = None;
     }
-    assert_eq!(check_transcript(&bad).unwrap_err().law, "item-identity");
+    expect_violation(&bad, "item-identity", "missing or mismatched durable head");
     let mut bad = good.clone();
     let start = bad
         .iter_mut()
@@ -95,7 +99,7 @@ fn durable_identity_and_live_completion_rules_are_specific() {
             command: "".into(),
         });
     }
-    assert_eq!(check_transcript(&bad).unwrap_err().law, "item-identity");
+    expect_violation(&bad, "item-identity", "missing or mismatched durable head");
     let mut bad = good.clone();
     let complete = bad
         .iter_mut()
@@ -116,7 +120,11 @@ fn durable_identity_and_live_completion_rules_are_specific() {
     {
         *call_id = "changed-identity".into();
     }
-    assert_eq!(check_transcript(&bad).unwrap_err().law, "item-identity");
+    expect_violation(
+        &bad,
+        "item-identity",
+        "body identity differs from durable head",
+    );
     let mut bad = good;
     let complete = bad
         .iter_mut()
@@ -137,5 +145,9 @@ fn durable_identity_and_live_completion_rules_are_specific() {
     {
         *live = Some("illegal completed tail".into());
     }
-    assert_eq!(check_transcript(&bad).unwrap_err().law, "item-identity");
+    expect_violation(
+        &bad,
+        "item-identity",
+        "completed terminal contains live output",
+    );
 }

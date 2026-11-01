@@ -1,0 +1,19 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--offline",
+    "--locked",
+    "--test",
+    "cancel_process",
+    "--test",
+    "formal_nonvacuity",
+    "--test",
+    "formal_models"
+  ],
+  "exit_code": 101,
+  "failure": "cancel_kills_group_and_joins_before_ending parsed an existing but empty PID file",
+  "not_a_negative_control": true,
+  "fix": "wait for a complete integer PID before continuing",
+  "process_source_sha256": "c6b7b121bbb3dc1c0cfc01a5dc7606503437a89b7476827b3d41411948748bc8"
+}
