@@ -1,0 +1,42 @@
+// Copyright 2026 Boxy (bboxy450) and contributors.
+// SPDX-License-Identifier: LicenseRef-Respectful-Slop-1.0-Draft
+// Project: bboxy450-harness — https://github.com/bboxy450/bboxy450-harness
+// License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
+// Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
+// Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+use bboxy450_harness::protocol::{laws::check_transcript, *};
+fn fixture() -> Vec<Envelope> {
+    include_str!("fixtures/protocol/all-items.jsonl")
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+#[test]
+fn rejects_double_end_gap_unpaired_and_kind_change() {
+    let good = fixture();
+    check_transcript(&good).unwrap();
+    let mut bad = good.clone();
+    let mut e = bad.last().unwrap().clone();
+    e.seq = Some(Seq(e.seq.unwrap().0 + 1));
+    e.at = e.seq.unwrap();
+    bad.push(e);
+    assert!(check_transcript(&bad).is_err());
+    let mut bad = good.clone();
+    bad.remove(1);
+    assert!(check_transcript(&bad).is_err());
+    let mut bad = good.clone();
+    if let Event::ItemCompleted { body, .. } = &mut bad[4].event {
+        *body = Item::Unknown;
+    }
+    bad.retain(|e|!matches!(e.event,Event::ItemCompleted{ref body,..} if matches!(body,Item::ToolCall{..})));
+    assert!(check_transcript(&bad).is_err());
+    let mut bad = good.clone();
+    let e = bad
+        .iter_mut()
+        .find(|e| matches!(e.event, Event::ItemCompleted { .. }))
+        .unwrap();
+    if let Event::ItemCompleted { body, .. } = &mut e.event {
+        *body = Item::Plan { entries: vec![] };
+    }
+    assert!(check_transcript(&bad).is_err());
+}

@@ -6,3 +6,5 @@
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 
 //! One core, one event log, and protocol consumers for every face.
+
+pub mod protocol;

@@ -109,6 +109,7 @@ version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76113e19f95610b98e59cbe5dd2497cf2a614f47bf83d4862e876ed652638b6b"
 dependencies = [
+ "bboxy450-tlc",
  "bboxy450-yarn-macros",
  "tokio",
  "tokio-util",
