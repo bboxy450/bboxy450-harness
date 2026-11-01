@@ -91,7 +91,12 @@ pub struct Raw { pub provider: Provider, pub bytes: Vec<u8> /* one native line, 
   - `frame(x)` is `u32` big-endian `len(x)` followed by the UTF-8 bytes of `x`. This rules out boundary collisions such as `("s1","23")` against `("s12","3")`.
   - `provider` is the lowercase name (`claude`, `codex`, `bboxy`).
   - `native_key` is the record's own id where one exists (Claude `uuid`; Codex `call_id`, `rs_…` or `ordinal`; bboxy450-harness `seq` in decimal). Otherwise it is the native line ordinal in decimal.
-  - `role_tag` is empty, except on Inferred events, where it names the role (`turn-start`, `turn-end`) and the anchor's key is used as `native_key`.
+  - `role_tag` is empty when the event **is** the whole native record. When one native record yields several events, every event after the first gets a tag, and all of them keep the record's own `native_key`. The tag grammar is closed: lowercase ASCII, with no `#` or other separator, since framing already separates fields.
+    - `turn-start` / `turn-end`: Inferred turn events anchored on the record.
+    - `block-N`: the event made from the N-th element of the record's content array, when a record yields one event per block. Example: a Claude `user` line carrying several `tool_result` blocks.
+    - `replacement-N`: the N-th message of a Codex `compacted.replacement_history`. The Compaction event itself has an empty tag.
+    - `N` is the zero-based index in decimal, with no leading zeros or sign. It is the element's position in the array as written, which never changes because native records are append-only. The same file therefore always gives the same ids. If a record is rewritten, the watcher sees new content ([[lc-watch-sink]] §1) and dedupes by EventId as usual.
+    - Adding a new tag is a minor version change. Changing an existing tag's spelling or index base is a major version change, because it re-ids events. P4's `#replacement-N` must therefore become `replacement-N`.
   - The same input therefore always gives the same id. This is the watcher's idempotency key ([[lc-watch-sink]] §3).
   - Changing the domain tag or the field list is a major version change, and it re-ids every event.
 - **Order.** `seq` is native file order. `parent` carries the Claude DAG: streamed blocks chain by `parentUuid`, a sidechain is a branch, and `last-prompt.leafUuid` names the live leaf. For Codex and bboxy450-harness, `parent` is the previous event.
@@ -128,6 +133,7 @@ pub struct Raw { pub provider: Provider, pub bytes: Vec<u8> /* one native line, 
 | Codex `compacted{replacement_history, compaction.encrypted_content}` | Compaction{replacement: parsed messages, sealed: EncryptedCompaction}, Fidelity Opaque for the sealed part |
 | Codex `turn_context` | Context |
 | Codex `event_msg` `token_count` | Usage |
+| Codex `event_msg` `user_message` / `agent_message` / `agent_reasoning` | **Native{Codex, `event_msg/<type>`}**, Opaque, kept raw (Oracle ruling, message 01M6CP8GRD8W29GDDGCMFFMJ5J). These duplicate the `response_item` message and reasoning records, which are the IR source of truth, so they never become Message or Reasoning (that would double-count). They are replayed verbatim same-provider, and dropped and counted cross-provider as Native records. Other `event_msg` types that this table doesn't list (`item_completed`, `thread_settings_applied`, …) are also Native |
 | bboxy450-harness Envelope items (protocol v0.4 §4) | 1:1: UserMessage/AgentMessage → Message; Reasoning → Reasoning (`provider_opaque` → `sealed` with its provider); ToolCall → ToolCall + ToolResult; Compaction/ContextTrim → Compaction; Usage, Notice, Subagent 1:1; FileChange/TurnDiff/Terminal/Plan/Approval/Image → Native{bboxy450-harness} with Full fidelity for the bboxy450-harness target, and lowered cross-provider as text (§5) |
 | anything unrecognised | Native{provider, record_type} (Opaque); a line that is not JSON → Notice{Warn}, plus a parse-error count. Never a panic, never a silent drop |
 
@@ -178,6 +184,8 @@ E3's #4935 `import::claude` (harness) is the first implementation of the Claude 
 | IR fixpoint (casr-style) | `parse::P(lower::P(ir)) == ir`, ignoring `raw` and fidelity, for IR built from each other provider |
 | §5 no silent loss | for every direction, `kept + transformed + dropped == events`, and each `dropped` reason is one row of the table. Broken control: a lowerer that skips an event without counting it fails |
 | §5 target acceptance | phase 0 and phase 6: the lowered session resumes in the real CLI against a mock endpoint ([[log-converter]] §7 P0) |
+| §2 multi-event tags | a Claude `user` line with 3 `tool_result` blocks and a Codex `compacted` record with 2 replacement messages give distinct ids that are stable across runs (`block-0..2`, `replacement-0..1`). Broken control: every derived event using an empty tag collides |
+| §4 event_msg duplicates | a Codex fixture with paired `response_item` message + `event_msg` `agent_message` gives exactly one Message event and one Native event |
 | §2 EventId framing | a test vector golden for `(claude, s1, 23)` and `(claude, s12, 3)` gives different ids, and fixed vectors pin the bytes. Broken control: unframed concatenation makes the two collide |
 | §2 determinism | two runs on the same input give byte-identical `bxl` |
 | §4 robustness | malformed lines, a truncated last line and unknown types give Notice/Native, never a panic. Broken control: an unknown type that panics fails the test |
@@ -186,6 +194,7 @@ E3's #4935 `import::claude` (harness) is the first implementation of the Claude 
 
 ## Change log
 
+- **2026-11-01, at the Oracle's P4 review** (message 01M6CP8GRD8W29GDDGCMFFMJ5J). The role_tag grammar is now closed: `turn-start`, `turn-end`, `block-N` and `replacement-N`, zero-based, with no `#`. `block-N` was added because a Claude line with several tool results had the same collision. Codex `event_msg` user_message/agent_message/agent_reasoning map to Native.
 - **2026-11-01, at the Oracle's P1 review** (message 01M6CME9FPSKY4PJNC2A0BAJNQ). EventId fields are length-prefixed (u32 BE) under the domain tag `bxl.event.v1`. The unframed concatenation collided across field boundaries.
 
 Owner: Nyx Copperwing <ARCHITECT>. Implementation: Executors under the phases of [[log-converter]].
