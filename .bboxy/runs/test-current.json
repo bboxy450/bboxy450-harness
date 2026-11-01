@@ -1,0 +1,149 @@
+{
+  "at": "2026-11-01T03:07:48.134728+00:00",
+  "source": "26c82bf8bbc0451b73adcde6266c5f4258550618",
+  "input_sha256": {
+    "Cargo.lock": "fb8140cd28dda4c3c99b64bd74f189be2b3ff23fe5bae46f7a324df58db837f2",
+    "Cargo.toml": "fb881ec59c432f82182d992793c4cd91460030ef79e986123736588621cb853f",
+    "Makefile": "916f9abcfdd1509a7282bf38c13ca8ded143071a593d9703cdb4ad0a6fe2509a",
+    "scripts/checks.py": "0127f5127a7c1a9b4a70eba38f7cc82ba44bfbe285424aa3f250d9290acb0da5",
+    "scripts/formal.py": "7dbe1a1aa48e369f619c7ceb79266f54a40c5a9c612e7ba94ce97f135df44598",
+    "scripts/smoke-live.py": "6dbc09776a645b510b4580bf778aa679b1aca82bf6d03c6e53ff6faeda08cef6",
+    "scripts/test-formal.py": "8abdec3d2e5ea9caf05a7397a976f0c39a9a89a8c05fea4f10f8bed190f7134f",
+    "scripts/test.py": "09e1cd25595bd080612fc0f5c6c3e2b7cb26d1942eb813e1bc16e10bf0e1117a",
+    "src/engine/history.rs": "802b74536e2c084dae1bb108d19534fe0d93d70a405985d6afdec445551e5862",
+    "src/engine/mod.rs": "9ebfee0a74dccf502871563ea645fb819ee083b8cf936f197faeef18f015b6d0",
+    "src/engine/task_group.rs": "d9d9a02ca439e6caa77e17531867b431df61def01cda31fa95bb845fa8d24a98",
+    "src/engine/turn_loop.rs": "bba204df7b2e9678e4a132a5808771ce5016251c9abee3bb2bfe5b593ef841cc",
+    "src/frontends/headless.rs": "79716e95e1e264e8e57c34423bc3ac6bc155328c75d59c72826ef624a514c30d",
+    "src/frontends/mod.rs": "8b2c443ad9df7769927051b72acca33ddebb5c3cb9e113508d1964039411a26e",
+    "src/frontends/seat.rs": "ec895088744903d785e31902bcf415ee16476f98441ce0200e2dfd30e0f14c33",
+    "src/frontends/smoke.rs": "f6f51e1e665dd746af679dd8ef9d850bfef61e553be659e91de4e4b574a34c5c",
+    "src/gateway/mod.rs": "32823692b92924e6380d2a954620640b1cfb002616760527addb433f1b51b359",
+    "src/gateway/unix.rs": "8e8c12406c0eafce23d364e9dfb99df7e5276facb0dd517d7cfa599255b81bac",
+    "src/lib.rs": "31c5035a11c49cce762fea2f335c7f8620ee901af466423154af448ed62ee213",
+    "src/main.rs": "cdac21b1f14c31e4c04a8927d29936967778038c3087074dfcecc63694728c27",
+    "src/policy.rs": "eed176667f5bab797add4e89441988ce277d00637d1cafa15d8905bbbc815eda",
+    "src/process.rs": "08cd34cefdbb71fc4ca70d4f31220e755ff499be116f3a22df1fa0998e024ab5",
+    "src/protocol/laws.rs": "a15a0bd7a0464635016ea0acfe2652c00fe0c8b2543eebb4964f9833a8033e52",
+    "src/protocol/mod.rs": "d1c576b2d707ac98d1d80e99a4e4f48dd8bd539661678523a1cf662700c91556",
+    "src/provider/mod.rs": "30369219ecc4daac6750c57503ef3379d2982bf8e2a560c97119f37fe3abd519",
+    "src/provider/parser.rs": "b140abdaffd0430196293c691f43643587d314c6d14abff48a56a97f3e9fe6f8",
+    "src/provider/profile.rs": "e206e05edfcf82e760f28b4347ea5f18963aaee7d7225afe4b900bdf90a74bd1",
+    "src/redact.rs": "112fda683322cb928d25b8ba90ab7cedcf45b56b15b872524711ee807b3109d1",
+    "src/runtime.rs": "c7fcfc6d8920fbe1ef6f9c950a29a9300d4eebe3ca757a3f7841fd2a10aa1c02",
+    "src/store.rs": "c19fd646f27fc3b1bf1e0079a0ef5ac05e95f6967af195dee0fb7c2bf1a52fba",
+    "src/tools.rs": "82a30b93a26c0c54aa6d1ae7577834f66b8d886ee22518db961268c9e0936769",
+    "tests/cancel_process.rs": "efc07f84da098b5e19051619bf168d6e336c3d30a975c4c05521acd62cb2defd",
+    "tests/cli_headless.rs": "d6e1da40cebfcbe50086cb4c1c58b3fba0b605b8055d56debe01f04f0e0971c1",
+    "tests/e2e_scripted.rs": "e03f186a0983c6a294d5b356fe3dda04fd03911d54e4dd4f22dac8b9011050fb",
+    "tests/fixtures/protocol/all-items.jsonl": "da894e4698ca5050c84582af621e531f2feb6a3322e6b828d4e0292db8baef0b",
+    "tests/fixtures/protocol/interrupt-mid-tool.jsonl": "b512f559efc3412fee204b1c07b6a68364aeeb3f2db5357b187c6f3466d9c846",
+    "tests/fixtures/protocol/lagged.jsonl": "948527dde9f0a8409266cc53d89564be51d8b39d4406753684603a9e5b39d457",
+    "tests/fixtures/protocol/recovery.jsonl": "729cc4b09aa2f8f10a4f95a652b79977aeaf0aa67fbc283ead12704d91fd5d94",
+    "tests/fixtures/protocol/reset.jsonl": "da97db0a853f4ec0f98f5a3d7425ffc38f54d71e14d56f4dc3e8ff336eb30c01",
+    "tests/fixtures/seat/all-items.txt": "1659c7dae9b818ee7b61c726c7d02576184ef59c679de1df447aa1cdbc1babdb",
+    "tests/fixtures/seat/interrupt-mid-tool.txt": "c6e7298792ab5aa4698be7eeca989ed4a951b051d327a0cbb13383ebf5cb390a",
+    "tests/fixtures/seat/lagged.txt": "c1fcdd85a04c2f71601dce231d9555d8b48083d30ae114797169b7a7675eff95",
+    "tests/fixtures/seat/recovery.txt": "2c1368be0efcb7a195e3f90f018e32563af743c88d6668f6a404c6827dbf169b",
+    "tests/fixtures/seat/reset.txt": "2774059475a12881db4920d0700b4c7e21ae5d3e7657a7329c71eccd456c379f",
+    "tests/fixtures/sse/429-then-ok.sse": "453671a2fac9a73b2595b9453e5213e428c3e4b9ba2cf543a7226d90109587c1",
+    "tests/fixtures/sse/500-after-output.sse": "3070192d51f2eea0b93390511faadf6bfc98fc3732a8a454a4f10cfe25772640",
+    "tests/fixtures/sse/bash.sse": "208a19fca98e92b248de330cc791c758224ee6dec34b1f7f65fe6f0124863b4e",
+    "tests/fixtures/sse/cancel.sse": "e5c49cc51712b0d65a956a82cf2f61f1ceb6acc170f4549db593488997598483",
+    "tests/fixtures/sse/duplicate-id.sse": "aa1fe938dfe4e29ec265eefab606d659cbe0574c75b43b8d21829ddf5e7ae984",
+    "tests/fixtures/sse/edit.sse": "f38cb3a2d8380387e3d0bbcb5120b79d5d4fc2f882aff7d22c7ee09544f5a1f5",
+    "tests/fixtures/sse/missing-finish.sse": "731babae49fc487dcd251b4e15c91d0b6dcb876450dc6fb19d6b284a67944461",
+    "tests/fixtures/sse/parallel.sse": "c20ac4fd0863f68faa8cda4018b8ba5afbe96303c1fa8b16cacd232cd4fb0771",
+    "tests/fixtures/sse/stall.sse": "e5c49cc51712b0d65a956a82cf2f61f1ceb6acc170f4549db593488997598483",
+    "tests/fixtures/sse/text-tool.sse": "c20ac4fd0863f68faa8cda4018b8ba5afbe96303c1fa8b16cacd232cd4fb0771",
+    "tests/fixtures/sse/text.sse": "453671a2fac9a73b2595b9453e5213e428c3e4b9ba2cf543a7226d90109587c1",
+    "tests/fixtures/sse/tools.sse": "c20ac4fd0863f68faa8cda4018b8ba5afbe96303c1fa8b16cacd232cd4fb0771",
+    "tests/fixtures/sse/utf8-split.sse": "df1684e41815d2ffe11033e2ec019de614439dbb1d9bb7ef507a75a1d1e0e073",
+    "tests/formal/export.rs": "427562597fe611664ace19e8a7d2d2d3fe382e01b1ae65d3b9486271dbc91cdd",
+    "tests/formal/models.rs": "361235093aa3b6dcc4940a1f2d0da9b5d724ff02075c74e80158c975cc638ff1",
+    "tests/formal_models.rs": "ce809fcbe081559a25f046e65e894f24d59bdad654ee95d92604066befe95fd7",
+    "tests/gateway_lag.rs": "7483c5a3c013c615e8c885d61ba743ecb48e38bf62b6568d485d4eba6b3981ee",
+    "tests/gateway_ops.rs": "20af2a5b0b3e96d01b103654d5a248e9832dfc15f92972601816cf8a1e5ae932",
+    "tests/gateway_replay.rs": "d51eee4a3c98c96132788b879fd7a217eb7059ec2b68d00cd84e88398f498ce3",
+    "tests/gateway_unix.rs": "24f792877c2c3c867071e704d56179e402bb62230b7a8ffd525f29a0a15dfcaf",
+    "tests/policy_gate.rs": "f3bdb80b9ed50d9b5265cf22c51b939fa09569923d7e8c6718e7977d45517d1f",
+    "tests/protocol_golden.rs": "344e29634ca10344104e71ce3a03f3e4cb8bfddc7b5472ee264298aae6789f7d",
+    "tests/protocol_laws.rs": "d6d5ca6e1684ffa156cffed31e8b2a95f41393367c4c466c3bdca2ede09c71f3",
+    "tests/provider_stream.rs": "17071da321247fc7e9d32e4c23a44367ff23fcbad3397221da5a73ad43b051af",
+    "tests/reactor_projection.rs": "8631b450483a054fee0ccefa53cd56e10e552285e603ea3f51382bb0022336fe",
+    "tests/rt_budget.rs": "420eb02ff06971b3394acf0dafa8363bc2ad3ae1ea8d18246634364866d4437a",
+    "tests/seat_golden.rs": "8d422d6bf6b2f714dca9d68da7aeaef6dec5e301872f9900e8bd3374ac77d37a",
+    "tests/seat_process.rs": "9d20c38358d4fde05ba3f0b25012b964b14c1c0880b393dab2b6b91b1b25a11b",
+    "tests/secrets.rs": "7517400514ac5ef91c663cfa09a0fbe52844046cec1910f11d597707dc097af7",
+    "tests/store_recovery.rs": "97cb32c2f6c131e9fee80c7191071f8ce2e17a9c411eb71f570e3faf7c092249",
+    "tests/support/mod.rs": "508cef2fa6ee3b6c92579cb78cb95b30733849abdb8ba858115005a25c59990b",
+    "tests/support/sse_server.rs": "dc7c6e2fc1281af3f93c9a6b511a24b83e29660b0af7d92b5bc53464ddb657ec",
+    "tests/tools.rs": "eb3dc1cc3f0ac60ee64bde39d6d330b1efb681b7cbabf5b501ad0752e836dbde",
+    "verification/contracts.toml": "72f7aa704339533cb8dfb09571ebaa0c4416d437360ebd1d7a43ff420e313192",
+    "verification/corpus.toml": "637cc9425cc2a0f715f3e4b88982a0206f4ecb0b47d514a3f64294ad0059e056",
+    "verification/coverage.toml": "0dcdecd84bce957a6f583e9c0e12cfdea51dd959c7a3272b77770d0320cce947",
+    "verification/tools.lock.json": "45d8a35d0b533e53689efc46542315cf91713ee5821a2f002289cc0b8bc7a8dd"
+  },
+  "private_home": true,
+  "operator_input": false,
+  "outcome": "PASS",
+  "commands": [
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--check"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--all-targets",
+        "--all-features",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--all-targets"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "make",
+        "test-formal"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/checks.py",
+        "secrets"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/checks.py",
+        "headers"
+      ],
+      "exit_code": 0
+    }
+  ]
+}
