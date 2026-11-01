@@ -26,6 +26,7 @@ async fn run() {
                 && std::fs::read(path).is_ok_and(|bytes| bytes.len() == 65 && bytes[64] == b'\n')
         });
         let report = json!({"names":names,"seat_matches":std::env::var("BBOXY_SEAT_ID").as_deref()==Ok("throwaway-seat"),"capability_matches":capability_matches,
+            "capability_file_present":std::env::var_os("BBOXY_CAPABILITY_FILE").is_some(),
             "legacy_capability_present":std::env::var_os("BBOXY_CAPABILITY").is_some(),
             "alias_sock_matches":std::env::var_os("S").is_some_and(|s| std::path::Path::new(&s)==std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join("missing.sock")),
             "alias_seat_matches":std::env::var("I").as_deref()==Ok("throwaway-seat"),

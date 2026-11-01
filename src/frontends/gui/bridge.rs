@@ -71,6 +71,8 @@ impl Mailbox {
         self.published.store(revision, Ordering::Release);
     }
 }
+#[cfg(feature = "test-fixtures")]
+type BeforeHost = Box<dyn FnOnce(&crate::redact::Set) + Send>;
 pub struct Bridge {
     mailbox: Arc<Mailbox>,
     messages: UiReceiver,
@@ -78,6 +80,8 @@ pub struct Bridge {
     pub state: FrameState,
     detach: CancellationToken,
     worker: Option<tokio::task::JoinHandle<()>>,
+    #[cfg(feature = "test-fixtures")]
+    before_host: Option<BeforeHost>,
 }
 impl Bridge {
     pub fn new(waker: Arc<dyn Waker>) -> Self {
@@ -100,6 +104,8 @@ impl Bridge {
             state: FrameState::default(),
             detach: CancellationToken::new(),
             worker: None,
+            #[cfg(feature = "test-fixtures")]
+            before_host: None,
         }
     }
     pub fn published_revision(&self) -> u64 {
@@ -150,9 +156,19 @@ impl Bridge {
         });
         self.mailbox.resized.notify_one();
     }
+    /// Test-only observation at the actual live startup boundary, with no UI.
+    #[cfg(feature = "test-fixtures")]
+    pub fn observe_host_start(
+        &mut self,
+        observe: impl FnOnce(&crate::redact::Set) + Send + 'static,
+    ) {
+        self.before_host = Some(Box::new(observe));
+    }
     pub fn create(&mut self, config: Config) {
         let mailbox = self.mailbox.clone();
         let detach = self.detach.clone();
+        #[cfg(feature = "test-fixtures")]
+        let before_host = self.before_host.take();
         self.worker = Some(bbt_rt::handle().spawn(async move {
             crate::capability::register(&config.redactor).await;
             let session = config.meta.session;
@@ -165,6 +181,10 @@ impl Bridge {
                 profile: config.meta.profile.clone(),
                 fork: None,
             };
+            #[cfg(feature = "test-fixtures")]
+            if let Some(observe) = before_host {
+                observe(&config.redactor);
+            }
             let host = Host::new(config);
             match host
                 .create(OpEnvelope {
