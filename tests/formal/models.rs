@@ -486,6 +486,66 @@ fn stream_to_view(b: bool) -> Model {
     );
     m
 }
+// Pending profile IO is a cancellable session-owned service, not work on the
+// actor's admission path. A completion is only applied to its current slot.
+fn profile_load(b: bool) -> Model {
+    let mut m = base::<6>(
+        "ProfileLoad",
+        b,
+        &[
+            ("job", 4, 0),
+            ("closed", 1, 0),
+            ("generation", 2, 0),
+            ("captured", 2, 0),
+            ("applied", 1, 0),
+            ("held", 1, 1),
+        ],
+    );
+    act(
+        &mut m,
+        "Start",
+        all([eq(0, 0), eq(1, 0)]),
+        &[(0, Int(1)), (3, Var(2))],
+    );
+    act(
+        &mut m,
+        "Resolve",
+        all([eq(0, 1), eq(5, 1)]),
+        &[(0, Int(2)), (5, Int(0))],
+    );
+    act(&mut m, "Close", eq(1, 0), &[(1, Int(1)), (0, Int(3))]);
+    act(&mut m, "Join", eq(0, 3), &[(0, Int(4))]);
+    act(
+        &mut m,
+        "LateCompletion",
+        all([eq(0, 3), eq(5, 1)]),
+        &[(0, Int(2)), (5, Int(0))],
+    );
+    act(
+        &mut m,
+        "ReplaceBirth",
+        all([Var(2).lt(Int(2)), eq(4, 0)]),
+        &[(2, Var(2).plus(Int(1)))],
+    );
+    let current = all([eq(1, 0), Var(2).eq(Var(3))]);
+    act(
+        &mut m,
+        "ApplyCurrent",
+        all([eq(0, 2), if b { Bool(true) } else { current.clone() }]),
+        &[(4, Int(1)), (0, Int(4))],
+    );
+    act(
+        &mut m,
+        "Retire",
+        all([eq(0, 2), current.clone().negate()]),
+        &[(0, Int(4))],
+    );
+    safe(&mut m, "NoLateProfileEffect", eq(4, 0).or(current));
+    // Once a profile is installed, later Close does not retroactively invalidate it.
+    m.actions[2].guard = all([eq(1, 0), eq(4, 0)]);
+    progress(&mut m, "ClosedServicesJoin", eq(1, 1), eq(0, 4), vec![3, 7]);
+    m
+}
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![];
     for b in [false, true] {
@@ -501,6 +561,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
             replay_drop(b),
             replay_healthy(b),
             stream_to_view(b),
+            profile_load(b),
         ] {
             let expected = if !b {
                 "pass"

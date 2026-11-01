@@ -16,6 +16,7 @@ use crate::{
     store::Store,
     tools::Registry,
 };
+use futures_util::FutureExt;
 use std::{
     collections::{BTreeMap, VecDeque},
     path::PathBuf,
@@ -36,6 +37,7 @@ pub mod turn_loop;
 pub struct Config {
     pub meta: SessionMeta,
     pub sessions: PathBuf,
+    pub profiles: PathBuf,
     pub provider: Arc<dyn Provider>,
     pub model: String,
     pub policy: Policy,
@@ -44,6 +46,10 @@ pub struct Config {
     pub profile_error: Option<String>,
 }
 pub(crate) enum Internal {
+    ProfileReady {
+        op: OpId,
+        result: Result<(Profile, Arc<dyn Provider>), Rejection>,
+    },
     Event {
         generation: u64,
         event: Event,
@@ -96,11 +102,20 @@ pub struct SessionActor {
     internal: mpsc::Receiver<Internal>,
     output: mpsc::Sender<Internal>,
     tasks: JoinSet<(TurnId, u64)>,
+    services: task_group::TaskGroup,
+    profile_pending: Option<OpId>,
 }
 impl SessionActor {
     pub async fn open(
         config: Config,
         start: OpId,
+    ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
+        Self::load(config, start, None).await
+    }
+    pub(crate) async fn load(
+        mut config: Config,
+        start: OpId,
+        notice: Option<String>,
     ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
         let mut store = Store::open(
             config.sessions.clone(),
@@ -109,6 +124,13 @@ impl SessionActor {
             config.redactor.clone(),
         )
         .await?;
+        if let Some(Envelope {
+            event: Event::SessionStarted { meta },
+            ..
+        }) = store.events.first()
+        {
+            config.meta = meta.clone();
+        }
         if store.events.len() == 1 {
             if let Some(message) = &config.profile_error {
                 let item = ItemId::new();
@@ -152,6 +174,33 @@ impl SessionActor {
                     .await?;
             }
         }
+        if let Some(text) = notice {
+            let item = ItemId::new();
+            store
+                .append(
+                    Event::ItemStarted {
+                        turn: None,
+                        item,
+                        kind: ItemKind::Notice,
+                        parent: None,
+                    },
+                    None,
+                )
+                .await?;
+            store
+                .append(
+                    Event::ItemCompleted {
+                        item,
+                        status: ItemStatus::Completed,
+                        body: Item::Notice {
+                            level: Level::Error,
+                            text,
+                        },
+                    },
+                    None,
+                )
+                .await?;
+        }
         let hub = Arc::new(Hub::new(
             config.meta.clone(),
             store.epoch,
@@ -179,6 +228,8 @@ impl SessionActor {
             internal,
             output,
             tasks: JoinSet::new(),
+            services: task_group::TaskGroup::new(CancellationToken::new()),
+            profile_pending: None,
         };
         let task = bbt_rt::handle().spawn(actor.run());
         Ok((gateway, task))
@@ -206,12 +257,18 @@ impl SessionActor {
         }
         let mut tick = tokio::time::interval(std::time::Duration::from_millis(25));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut heartbeat = tokio::time::interval_at(
+            tokio::time::Instant::now() + std::time::Duration::from_secs(15),
+            std::time::Duration::from_secs(15),
+        );
+        heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut work_batch = 0usize;
         let result=async {
    loop {
-    if self.running.is_none() {
+    if self.running.is_none()&&self.profile_pending.is_none() {
      if let Some(op)=self.stopping {
        self.gateway.seal();self.work.close();self.control.close();
+       let _=self.services.cancel_and_join().await;
        while let Some(env)=self.control.recv().await {self.op(env).await?;}
        while let Some(env)=self.work.recv().await {self.reject(env.op_id,Rejection::InvalidInput{detail:"session is closing".into()}).await?;}
        while let Some(work)=self.queue.pop_front(){match work {Queued::Turn(turn,_)=>self.publish(Event::TurnEnded{turn,reason:StopReason::Cancelled,usage:None},Some(op)).await?,Queued::Compact(id)=>self.reject(id,Rejection::NothingToCompact).await?}}
@@ -221,16 +278,18 @@ impl SessionActor {
     }
     tokio::select! {biased;
      Some(op)=self.control.recv()=>self.op(op).await?,
-     Some(op)=self.work.recv(),if self.stopping.is_none()&&work_batch<8=>{work_batch+=1;self.op(op).await?;},
+     Some(op)=self.work.recv(),if self.stopping.is_none()&&self.profile_pending.is_none()&&work_batch<8=>{work_batch+=1;self.op(op).await?;},
      Some(message)=self.internal.recv()=>{work_batch=0;self.internal(message).await?;},
      Some(result)=self.tasks.join_next(),if !self.tasks.is_empty()=> {if let Err(e)=result {self.crashed(&format!("runner failed: {}",if e.is_panic(){"panic"}else{"cancelled"})).await?;}},
-     _=tick.tick()=>{work_batch=0;self.gateway.hub.flush_deltas();},
+     _=tick.tick()=>{work_batch=0;self.gateway.hub.flush_deltas();self.services.reap().await;},
+     _=heartbeat.tick(),if self.running.is_none()&&self.profile_pending.is_none()=>self.publish(Event::Status{phase:Phase::Idle},None).await?,
     }
     tokio::task::yield_now().await;
    }Ok(())
   }.await;
         if result.is_err() {
             self.internal.close();
+            let _ = self.services.cancel_and_join().await;
             self.gateway.mark_faulted();
             if let Some(r) = &self.running {
                 r.cancel.cancel();
@@ -410,6 +469,16 @@ impl SessionActor {
                     self.reject(id, Rejection::Coalesced { into }).await?;
                 } else {
                     self.stopping = Some(id);
+                    self.services.cancel.cancel();
+                    if let Some(op) = self.profile_pending.take() {
+                        self.reject(
+                            op,
+                            Rejection::ProfileInvalid {
+                                detail: "profile resolution cancelled by Close".into(),
+                            },
+                        )
+                        .await?;
+                    }
                     if let Some(r) = self.running.as_mut() {
                         r.cause = Some(id);
                         r.cancel.cancel();
@@ -434,6 +503,29 @@ impl SessionActor {
     }
     async fn internal(&mut self, msg: Internal) -> std::io::Result<()> {
         match msg {
+            Internal::ProfileReady { op, result } => {
+                if self.profile_pending != Some(op) || self.stopping.is_some() {
+                    return Ok(());
+                }
+                self.profile_pending = None;
+                match result {
+                    Err(reason) => self.reject(op, reason).await?,
+                    Ok((profile, provider)) => {
+                        self.config.profile_error = None;
+                        self.config.model = profile.model.clone();
+                        self.config.policy = profile.policy();
+                        self.config.provider = provider;
+                        self.publish(
+                            Event::ProfileChanged {
+                                profile: profile.name,
+                                model: profile.model,
+                            },
+                            Some(op),
+                        )
+                        .await?;
+                    }
+                }
+            }
             Internal::Event {
                 generation,
                 event,
@@ -619,55 +711,25 @@ impl SessionActor {
         if self.running.is_some() {
             return self.reject(id, Rejection::NotIdle).await;
         }
-        let path = match Profile::path(&name) {
-            Ok(p) => p,
-            Err(e) => {
-                return self
-                    .reject(id, Rejection::ProfileInvalid { detail: e.message })
-                    .await;
-            }
-        };
-        let p = match Profile::load(&path).await {
-            Ok(p) => p,
-            Err(_) => return self.reject(id, Rejection::UnknownProfile { name }).await,
-        };
-        let key = match p.key(&self.config.redactor, CancellationToken::new()).await {
-            Ok(k) => k,
-            Err(e) => {
-                return self
-                    .reject(id, Rejection::ProfileInvalid { detail: e.message })
-                    .await;
-            }
-        };
-        let options = crate::provider::Options {
-            retry_deadline: p.retry_deadline.map(std::time::Duration::from_secs),
-            ..Default::default()
-        };
-        let provider = match crate::provider::OpenAiCompat::new(
-            &p.endpoint,
-            key,
-            self.config.redactor.clone(),
-            options,
-        ) {
-            Ok(p) => p,
-            Err(e) => {
-                return self
-                    .reject(id, Rejection::ProfileInvalid { detail: e.message })
-                    .await;
-            }
-        };
-        self.config.profile_error = None;
-        self.config.provider = Arc::new(provider);
-        self.config.model = p.model.clone();
-        self.config.policy = p.policy();
-        self.publish(
-            Event::ProfileChanged {
-                profile: name,
-                model: p.model,
-            },
-            Some(id),
-        )
-        .await
+        self.profile_pending = Some(id);
+        let root = self.config.profiles.clone();
+        let redactor = self.config.redactor.clone();
+        let output = self.output.clone();
+        let cancel = self.services.cancel.child_token();
+        self.services.spawn(async move{
+            let resolve=std::panic::AssertUnwindSafe(async{
+                let path=Profile::file_in(&root,&name).map_err(|e|Rejection::ProfileInvalid{detail:e.message})?;
+                let text=tokio::select!{biased;_=cancel.cancelled()=>return Err(Rejection::ProfileInvalid{detail:"cancelled".into()}),text=tokio::fs::read_to_string(path)=>text.map_err(|_|Rejection::UnknownProfile{name:name.clone()})?};
+                let mut profile=Profile::parse(&text).map_err(|e|Rejection::ProfileInvalid{detail:e.message})?;
+                profile.name=name;
+                let key=profile.key(&redactor,cancel.clone()).await.map_err(|e|Rejection::ProfileInvalid{detail:e.message})?;
+                let options=crate::provider::Options{retry_deadline:profile.retry_deadline.map(std::time::Duration::from_secs),..Default::default()};
+                let provider=crate::provider::OpenAiCompat::new(&profile.endpoint,key,redactor,options).map_err(|e|Rejection::ProfileInvalid{detail:e.message})?;
+                Ok((profile,Arc::new(provider) as Arc<dyn Provider>))
+            }).catch_unwind().await.unwrap_or_else(|_|Err(Rejection::ProfileInvalid{detail:"profile worker panicked".into()}));
+            let _=task_group::send(&output,Internal::ProfileReady{op:id,result:resolve},&cancel).await;
+        });
+        Ok(())
     }
     async fn resolve(
         &mut self,

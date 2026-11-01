@@ -108,3 +108,13 @@ assumptions = "Finite integer/Boolean model; two turns and tools, three births/l
 property = "Dirty wake recheck prevents a lost event."
 checks = ["make test-formal", "make test"]
 
+
+[[contract]]
+name="HarnessProfileLoad"
+title="Closing a session joins pending profile IO without a late profile effect"
+models=["HarnessProfileLoad","BrokenHarnessProfileLoad"]
+sources=["src/engine/mod.rs","src/gateway/host.rs","src/provider/profile.rs","tests/formal/models.rs"]
+implementation_tests=["tests/profile_lifecycle.rs","tests/gateway_host.rs"]
+assumptions="One profile operation, three births, one held completion. Named weak fairness on joining/retiring. Filesystem scheduling and kernel process-group timing remain implementation witnesses."
+property="A stale or closed profile slot never changes session configuration; Close eventually joins it."
+checks=["make test-formal","make test"]

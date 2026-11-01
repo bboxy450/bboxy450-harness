@@ -39,6 +39,7 @@ pub async fn with_provider(provider: Arc<dyn Provider>, allow: bool) -> Session 
     std::fs::write(temp.path().join("other.txt"), "other\n").unwrap();
     let config = Config {
         meta: meta(temp.path().into()),
+        profiles: temp.path().join("profiles"),
         sessions: temp.path().join("sessions"),
         provider,
         model: "scripted".into(),

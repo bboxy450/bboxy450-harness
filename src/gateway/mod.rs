@@ -17,7 +17,9 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::{Notify, mpsc};
+pub mod host;
 pub mod unix;
+pub use host::Host;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Ack {
     pub op_id: OpId,
@@ -304,7 +306,7 @@ impl Hub {
                     cause: None,
                     event: Event::ItemSnapshot {
                         item,
-                        partial: body.clone(),
+                        partial: self.redactor.sanitize(body).expect("snapshot redacts"),
                     },
                 };
                 for sub in self
@@ -368,6 +370,12 @@ impl InProc {
             faulted: Arc::new(AtomicBool::new(false)),
         }
     }
+    pub fn session(&self) -> SessionId {
+        self.hub.state.load().hello.meta.session
+    }
+    pub(crate) fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Acquire) || self.hub.state.load().closed
+    }
     pub fn hello(&self) -> Hello {
         self.hub.state.load().hello.clone()
     }
@@ -398,6 +406,9 @@ impl Gateway for InProc {
         }
         if self.closed.load(Ordering::Acquire) || self.hub.state.load().closed {
             return Err(Refused::Closed);
+        }
+        if matches!(op.op, Op::StartSession { .. }) {
+            return Err(Refused::SessionExists);
         }
         loop {
             let old = self.recent.load_full();
@@ -504,7 +515,7 @@ impl Gateway for InProc {
                         cause: None,
                         event: Event::ItemSnapshot {
                             item,
-                            partial: body.clone(),
+                            partial: self.hub.redactor.sanitize(body).expect("snapshot redacts"),
                         },
                     });
                 }

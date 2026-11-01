@@ -8,6 +8,10 @@ use crate::protocol::*;
 /// Append-only projection. Model/tool text cannot inject terminal controls.
 pub fn render(envelope: &Envelope) -> Vec<u8> {
     let text = match &envelope.event {
+        Event::ItemDelta {
+            delta: Delta::Text { append },
+            ..
+        } => append.clone(),
         Event::SessionStarted { meta } => format!(
             "session {} · {}\n› ",
             meta.session,
@@ -78,4 +82,52 @@ pub fn render(envelope: &Envelope) -> Vec<u8> {
         .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
         .collect::<String>()
         .into_bytes()
+}
+
+/// Tracks only emitted prefixes. Rendering each resulting envelope remains a
+/// pure append-only projection, shared by live streams and durable replay.
+#[derive(Default)]
+pub struct LineProjection {
+    prefix: std::collections::BTreeMap<ItemId, String>,
+}
+impl LineProjection {
+    pub fn render(&mut self, envelope: &Envelope) -> Vec<u8> {
+        let (item, text, complete) = match &envelope.event {
+            Event::ItemDelta {
+                item,
+                delta: Delta::Text { append },
+            } => {
+                let mut body = self.prefix.get(item).cloned().unwrap_or_default();
+                body.push_str(append);
+                (*item, body, false)
+            }
+            Event::ItemSnapshot {
+                item,
+                partial: Item::AgentMessage { markdown },
+            } => (*item, markdown.clone(), false),
+            Event::ItemCompleted {
+                item,
+                body: Item::AgentMessage { markdown },
+                ..
+            } => (*item, markdown.clone(), true),
+            _ => return render(envelope),
+        };
+        let old = self.prefix.remove(&item).unwrap_or_default();
+        let mut append = if let Some(rest) = text.strip_prefix(&old) {
+            rest.to_string()
+        } else {
+            format!("\n[stream update] {text}")
+        };
+        if complete {
+            append.push('\n');
+        } else {
+            self.prefix.insert(item, text);
+        }
+        let mut projected = envelope.clone();
+        projected.event = Event::ItemDelta {
+            item,
+            delta: Delta::Text { append },
+        };
+        render(&projected)
+    }
 }

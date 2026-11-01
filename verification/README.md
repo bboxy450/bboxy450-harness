@@ -4,7 +4,7 @@ The native backend is crates.io `bboxy450-tlc =0.1.1`, using its finite integer
 and Boolean Model/Variable/Action API. Yarn 0.1.1 projects the production
 `harness_turn_topology!` declaration. This repository contains no checker fork.
 
-The corpus has eleven positive/broken families and one scheduling projection.
+The corpus has twelve positive/broken families and one scheduling projection.
 It explores two queued turns, two tools/rounds, three birth generations (A-B-A),
 a two-slot stand-in for the bounded work lane, and a three-entry replay log.
 Explicit weak-fair action groups discharge turn, steer, approval and healthy
@@ -13,7 +13,7 @@ subscriber response obligations. No fairness is assumed for arbitrary OS IO.
 Broken controls cover double endings, omitted synthetic results, stale
 completions, leader-only cancellation, a blocked interrupt, stale approvals,
 unattended waiting, late registration, dropped lag repair, a shared subscriber
-queue and lost dirty wakes. A negative passes the gate only when the native and
+queue, lost dirty wakes and late profile effects after Close. A negative passes the gate only when the native and
 Java backends both reject it with the registered safety/liveness verdict.
 
 `coverage.toml` inventories the sole package and every Rust source file.

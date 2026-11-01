@@ -5,12 +5,12 @@
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 use crate::{
-    engine::{Config, SessionActor},
-    gateway::{Gateway, Subscribe},
+    engine::Config,
+    gateway::{Gateway, Host, Subscribe},
     policy::Policy,
     protocol::*,
     provider::{
-        self, ModelEvent, ModelRequest, Provider, ProviderError,
+        self, FailedProvider, Provider, ProviderError,
         profile::{Profile, Unattended},
     },
     redact::Set,
@@ -18,30 +18,21 @@ use crate::{
 use std::{path::PathBuf, sync::Arc};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
-#[derive(Clone)]
-struct Failed(ProviderError);
-impl Provider for Failed {
-    fn caps(&self) -> provider::Caps {
-        provider::Caps {
-            images: false,
-            reasoning: false,
-            tool_choice: false,
-            context_tokens: 0,
-        }
-    }
-    fn stream(
-        &self,
-        _req: ModelRequest,
-        _cancel: CancellationToken,
-    ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = ModelEvent> + Send>> {
-        let e = self.0.clone();
-        Box::pin(futures_util::stream::once(
-            async move { ModelEvent::Failed(e) },
-        ))
-    }
-}
 pub async fn cli() -> i32 {
-    match run_cli().await {
+    let result=async {
+        let stop=CancellationToken::new();let ready=Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut hup=tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()).map_err(|_|"signal handler failed".to_string())?;
+        let mut term=tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).map_err(|_|"signal handler failed".to_string())?;
+        let mut interrupt=tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).map_err(|_|"signal handler failed".to_string())?;
+        let run=run_cli(stop.clone(),ready.clone());tokio::pin!(run);
+        loop {tokio::select!{biased;
+            result=&mut run=>break result,
+            _=hup.recv()=>stop.cancel(),
+            _=term.recv()=>stop.cancel(),
+            _=interrupt.recv(),if !ready.load(std::sync::atomic::Ordering::Acquire)=>stop.cancel(),
+        }}
+    }.await;
+    match result {
         Ok(code) => code,
         Err(message) => {
             eprintln!("bboxy450-harness: {message}");
@@ -49,7 +40,10 @@ pub async fn cli() -> i32 {
         }
     }
 }
-async fn run_cli() -> Result<i32, String> {
+async fn run_cli(
+    stop: CancellationToken,
+    ready: Arc<std::sync::atomic::AtomicBool>,
+) -> Result<i32, String> {
     let mut args = std::env::args().skip(1);
     let mut prompt = None;
     let mut json = false;
@@ -104,19 +98,42 @@ async fn run_cli() -> Result<i32, String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "bboxy450-harness -p PROMPT --json [--profile NAME] [--cwd DIR]\nbboxy450-harness seat [--resume SESSION] [--cwd DIR]\n--scripted SSE (repeat for rounds) --sessions DIR --yolo"
+                    "bboxy450-harness -p PROMPT --json [--profile NAME] [--cwd DIR]\nbboxy450-harness --json --resume CLOSED_SESSION\nbboxy450-harness seat [--resume SESSION] [--cwd DIR]\n--scripted SSE (repeat for rounds) --sessions DIR --yolo"
                 );
                 return Ok(0);
             }
             _ => return Err(format!("unknown option {arg}")),
         }
     }
-    if !seat && prompt.is_none() {
+    if !seat && prompt.is_none() && !(json && resume.is_some()) {
         return Err("provide -p PROMPT --json, or seat".into());
     }
     let root = PathBuf::from(std::env::var_os("HOME").ok_or("HOME unavailable")?)
         .join(".bboxy450-harness");
     let sessions = sessions.unwrap_or_else(|| root.join("sessions"));
+    if !seat && prompt.is_none() {
+        let session = SessionId(
+            resume
+                .as_ref()
+                .ok_or("missing session")?
+                .parse()
+                .map_err(|_| "invalid session id")?,
+        );
+        let events = crate::store::Store::replay_closed(sessions, session)
+            .await
+            .map_err(|_| "closed session replay unavailable")?;
+        let mut stdout = tokio::io::stdout();
+        for event in events {
+            let mut bytes = serde_json::to_vec(&event).map_err(|_| "event serialization failed")?;
+            bytes.push(b'\n');
+            stdout
+                .write_all(&bytes)
+                .await
+                .map_err(|_| "output unavailable")?;
+        }
+        stdout.flush().await.map_err(|_| "output unavailable")?;
+        return Ok(0);
+    }
     let redactor = Set::default();
     if let Ok(value) = std::env::var("BBOXY_CAPABILITY") {
         redactor.register(&value);
@@ -138,8 +155,10 @@ async fn run_cli() -> Result<i32, String> {
         )
     } else {
         let p = Profile::path(&profile).map_err(|e| e.message)?;
-        match Profile::load(&p).await {
-            Ok(p) => match p.key(&redactor, CancellationToken::new()).await {
+        let loaded =
+            tokio::select! {biased;_=stop.cancelled()=>return Ok(0),p=Profile::load(&p)=>p};
+        match loaded {
+            Ok(p) => match p.key(&redactor, stop.child_token()).await {
                 Ok(key) => {
                     let options = provider::Options {
                         retry_deadline: p.retry_deadline.map(std::time::Duration::from_secs),
@@ -151,22 +170,31 @@ async fn run_cli() -> Result<i32, String> {
                     (Arc::new(client), p.model.clone(), p.policy())
                 }
                 Err(e) => (
-                    Arc::new(Failed(ProviderError::new(ErrorClass::Config, e.message))),
+                    Arc::new(FailedProvider(ProviderError::new(
+                        ErrorClass::Config,
+                        e.message,
+                    ))),
                     "unconfigured".into(),
                     Policy::new(Unattended::Deny),
                 ),
             },
             Err(e) => (
-                Arc::new(Failed(ProviderError::new(ErrorClass::Config, e.message))),
+                Arc::new(FailedProvider(ProviderError::new(
+                    ErrorClass::Config,
+                    e.message,
+                ))),
                 "unconfigured".into(),
                 Policy::new(Unattended::Deny),
             ),
         }
     };
+    if stop.is_cancelled() {
+        return Ok(0);
+    }
     if yolo {
         policy = Policy::allow_all(Unattended::Deny);
     }
-    let session = if let Some(id) = resume {
+    let session = if let Some(id) = &resume {
         SessionId(id.parse().map_err(|_| "invalid session id")?)
     } else {
         SessionId::new()
@@ -182,6 +210,7 @@ async fn run_cli() -> Result<i32, String> {
             created_ms: crate::store::now_ms(),
         },
         sessions,
+        profiles: root.join("profiles"),
         provider,
         profile_error: (model == "unconfigured").then_some("profile could not be resolved".into()),
         model,
@@ -189,9 +218,27 @@ async fn run_cli() -> Result<i32, String> {
         redactor,
         max_rounds,
     };
-    let (gateway, task) = SessionActor::open(config, OpId::new())
-        .await
-        .map_err(|_| "session could not be opened")?;
+    let start = OpEnvelope {
+        v: PROTOCOL,
+        session,
+        op_id: OpId::new(),
+        op: Op::StartSession {
+            cwd: config.meta.cwd.clone(),
+            profile: config.meta.profile.clone(),
+            fork: config.meta.fork,
+        },
+    };
+    let host = Host::new(config);
+    let gateway = if resume.is_some() {
+        host.open(session)
+            .await
+            .map_err(|_| "session could not be opened")?
+    } else {
+        host.create(start)
+            .await
+            .map_err(|_| "session could not be created")?
+            .0
+    };
     let socket = crate::gateway::unix::UnixServer::bind(
         root.join("run").join(format!("{session}.sock")),
         gateway.clone(),
@@ -202,15 +249,13 @@ async fn run_cli() -> Result<i32, String> {
         .subscribe(Subscribe {
             session,
             after: None,
-            ephemeral: false,
+            ephemeral: seat && !json,
         })
         .map_err(|_| "subscribe refused")?;
+    let mut line_projection = super::seat::LineProjection::default();
     let mut stdout = tokio::io::stdout();
     let mut input = tokio::io::BufReader::new(tokio::io::stdin()).lines();
-    let mut hup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
-        .map_err(|_| "signal handler failed")?;
-    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-        .map_err(|_| "signal handler failed")?;
+    ready.store(true, std::sync::atomic::Ordering::Release);
     let mut stopping = false;
     let mut running = false;
     let mut failed = false;
@@ -230,20 +275,17 @@ async fn run_cli() -> Result<i32, String> {
     }
     loop {
         tokio::select! {biased;
-         _=hup.recv()=>{let _=gateway.send(op(Op::Close));stopping=true;},
-         _=term.recv()=>{let _=gateway.send(op(Op::Close));stopping=true;},
+         _=stop.cancelled(),if !stopping=>{let _=gateway.send(op(Op::Close));stopping=true;},
          _=tokio::signal::ctrl_c()=>{if running{let _=gateway.send(op(Op::Interrupt{turn:None}));}},
          line=input.next_line(),if seat&&!stopping=>{match line{Ok(Some(text))=>{if !text.is_empty(){let _=gateway.send(op(Op::UserTurn{blocks:vec![InputBlock::Text{text}],mode:TurnMode::Queue}));}},_=>{let _=gateway.send(op(Op::Close));stopping=true;}}},
          event=subscription.recv()=>{let Some(event)=event else{break;};match &event.event{Event::TurnStarted{..}=>running=true,Event::TurnEnded{reason,..}=>{running=false;failed|=matches!(reason,StopReason::Error{..});if !seat&&!stopping{let _=gateway.send(op(Op::Close));stopping=true;}},_=>{}}
-          let bytes=if json {let mut b=serde_json::to_vec(&event).map_err(|_|"event serialization failed")?;b.push(b'\n');b}else{super::seat::render(&event)};
+          let bytes=if json {let mut b=serde_json::to_vec(&event).map_err(|_|"event serialization failed")?;b.push(b'\n');b}else{line_projection.render(&event)};
           if stdout.write_all(&bytes).await.is_err(){let _=gateway.send(op(Op::Close));break;}let _=stdout.flush().await;
           if matches!(event.event,Event::SessionClosed){break;}
          }
         }
     }
     socket.close().await.map_err(|_| "socket shutdown failed")?;
-    task.await
-        .map_err(|_| "actor task failed")?
-        .map_err(|_| "session store failed")?;
+    host.join().await.map_err(|_| "session actor failed")?;
     Ok(if failed { 1 } else { 0 })
 }

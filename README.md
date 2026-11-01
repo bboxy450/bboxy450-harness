@@ -23,7 +23,8 @@ exec pass through policy; without an approver, `on_unattended` defaults to deny.
 For an entirely offline process run, pass `--scripted fixture.sse` once per
 round. `--sessions DIR`, `--cwd DIR` and `--yolo` support isolated e2e runs.
 `--export-schema` emits the checked-in schema; `check-transcript FILE` validates
-a completed JSONL transcript.
+a completed JSONL transcript. `--json --resume SESSION` without a prompt replays a
+closed log read-only, without loading a profile or changing its epoch.
 
 Every face consumes the same envelopes. The work inbox holds 64 operations;
 controls use the separate 256-entry FIFO from the completed protocol ICD.
@@ -31,6 +32,9 @@ Subscription registration precedes replay, which is read lazily from an
 immutable log projection. Slow subscribers receive Lagged and reconnect.
 Unix sockets are mode 0600 and check the peer uid. The GUI uses synchronous
 InProc admission; a UnixClient awaits the server's correlated response.
+`Host::create` and `Host::open` finish disk loading/recovery before exposing a
+gateway or binding the session socket. Idle subscriptions get a 15-second
+heartbeat. Seat text streams as snapshots arrive and prints each prefix once.
 
 `make test` creates a private HOME and runs fmt, strict clippy, unit/process/e2e
 checks, formal verification, a credential-shape scan and source-header checks.

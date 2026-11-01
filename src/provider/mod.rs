@@ -276,3 +276,26 @@ impl Provider for ScriptedProvider {
         })
     }
 }
+
+#[derive(Clone)]
+pub struct FailedProvider(pub ProviderError);
+impl Provider for FailedProvider {
+    fn caps(&self) -> Caps {
+        Caps {
+            images: false,
+            reasoning: false,
+            tool_choice: false,
+            context_tokens: 0,
+        }
+    }
+    fn stream(
+        &self,
+        _: ModelRequest,
+        _: CancellationToken,
+    ) -> Pin<Box<dyn Stream<Item = ModelEvent> + Send>> {
+        let error = self.0.clone();
+        Box::pin(futures_util::stream::once(async move {
+            ModelEvent::Failed(error)
+        }))
+    }
+}

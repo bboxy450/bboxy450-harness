@@ -4,7 +4,7 @@
 // License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
-use bboxy450_harness::{frontends::seat::render, protocol::*};
+use bboxy450_harness::protocol::*;
 #[test]
 fn fixtures_are_append_only_and_escape_safe() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -16,7 +16,11 @@ fn fixtures_are_append_only_and_escape_safe() {
             .map(|l| serde_json::from_str::<Envelope>(l).unwrap())
             .collect::<Vec<_>>();
         laws::check_transcript(&events).unwrap();
-        let bytes = events.iter().flat_map(render).collect::<Vec<_>>();
+        let mut projection = bboxy450_harness::frontends::seat::LineProjection::default();
+        let bytes = events
+            .iter()
+            .flat_map(|e| projection.render(e))
+            .collect::<Vec<_>>();
         assert!(!bytes.contains(&0x1b));
         let path = root
             .join("tests/fixtures/seat")

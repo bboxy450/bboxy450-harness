@@ -43,6 +43,7 @@ async fn key_command_model_tools_and_errors_never_persist_secrets() {
     let meta = support::meta(t.path().into());
     let config = Config {
         meta: meta.clone(),
+        profiles: t.path().join("profiles"),
         sessions: t.path().join("sessions"),
         provider: Arc::new(ScriptedProvider::new(rounds)),
         model: "mock".into(),
@@ -93,4 +94,71 @@ async fn keychain_sources_are_not_launched() {
             .is_err()
     );
     assert!(start.elapsed() < std::time::Duration::from_millis(100));
+}
+#[tokio::test]
+async fn split_model_key_is_scrubbed_from_snapshots_and_seat_output() {
+    use bboxy450_harness::provider::{Caps, Finish, ModelEvent, ModelRequest, Provider};
+    use futures_core::Stream;
+    use std::{pin::Pin, time::Duration};
+    struct Split(String);
+    impl Provider for Split {
+        fn caps(&self) -> Caps {
+            Caps {
+                images: false,
+                reasoning: false,
+                tool_choice: false,
+                context_tokens: 10000,
+            }
+        }
+        fn stream(
+            &self,
+            _: ModelRequest,
+            _: tokio_util::sync::CancellationToken,
+        ) -> Pin<Box<dyn Stream<Item = ModelEvent> + Send>> {
+            let key = self.0.clone();
+            Box::pin(
+                async_stream::stream! {let n=key.len()/2;yield ModelEvent::Text(key[..n].into());tokio::time::sleep(Duration::from_millis(100)).await;yield ModelEvent::Text(key[n..].into());tokio::time::sleep(Duration::from_millis(100)).await;yield ModelEvent::Finish(Finish::Stop);},
+            )
+        }
+    }
+    let t = tempfile::tempdir().unwrap();
+    let sentinel = format!("{}-SPLIT-{}", "sk", ulid::Ulid::new());
+    let set = Set::default();
+    set.register(&sentinel);
+    let meta = support::meta(t.path().into());
+    let config = Config {
+        meta: meta.clone(),
+        profiles: t.path().join("profiles"),
+        sessions: t.path().join("sessions"),
+        provider: Arc::new(Split(sentinel.clone())),
+        model: "split".into(),
+        policy: Policy::new(Unattended::Deny),
+        redactor: set,
+        max_rounds: 2,
+        profile_error: None,
+    };
+    let (g, task) = SessionActor::open(config, OpId::new()).await.unwrap();
+    let mut sub = g
+        .subscribe(Subscribe {
+            session: meta.session,
+            after: None,
+            ephemeral: true,
+        })
+        .unwrap();
+    g.send(support::prompt(&g, "stream")).unwrap();
+    let events = support::end(&mut sub).await;
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e.event, Event::ItemSnapshot { .. }))
+    );
+    assert!(!serde_json::to_string(&events).unwrap().contains(&sentinel));
+    let mut projection = bboxy450_harness::frontends::seat::LineProjection::default();
+    let output = events
+        .iter()
+        .flat_map(|e| projection.render(e))
+        .collect::<Vec<_>>();
+    assert!(!String::from_utf8_lossy(&output).contains(&sentinel));
+    g.send(support::op(&g, Op::Close)).unwrap();
+    task.await.unwrap().unwrap();
 }

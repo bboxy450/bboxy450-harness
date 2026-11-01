@@ -112,3 +112,13 @@ frontend = "project"
 name = "HarnessTurnLoop"
 expected = "pass"
 frontend = "yarn"
+
+[[model]]
+name="HarnessProfileLoad"
+expected="pass"
+frontend="project"
+
+[[model]]
+name="BrokenHarnessProfileLoad"
+expected="safety"
+frontend="project"

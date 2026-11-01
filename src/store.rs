@@ -154,6 +154,32 @@ impl Store {
         }
         Ok(store)
     }
+    /// Read-only replay never takes the writer lease, recovers, or changes epochs.
+    pub async fn replay_closed(root: PathBuf, session: SessionId) -> io::Result<Vec<Envelope>> {
+        blocking(move || {
+            let bytes = std::fs::read(log_path(&root, session))?;
+            if !bytes.ends_with(b"\n") {
+                return Err(io::Error::other("incomplete closed log"));
+            }
+            let events = bytes
+                .split_inclusive(|b| *b == b'\n')
+                .map(serde_json::from_slice)
+                .collect::<Result<Vec<Envelope>, _>>()
+                .map_err(|_| io::Error::other("invalid log record"))?;
+            if events
+                .iter()
+                .any(|e| e.session != session || !e.event.is_durable())
+                || !events
+                    .last()
+                    .is_some_and(|e| matches!(e.event, Event::SessionClosed))
+            {
+                return Err(io::Error::other("log is not closed"));
+            }
+            crate::protocol::laws::check_transcript(&events).map_err(io::Error::other)?;
+            Ok(events)
+        })
+        .await
+    }
     pub fn head(&self) -> Seq {
         Seq(self.events.len() as u64)
     }

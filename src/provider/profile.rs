@@ -83,7 +83,7 @@ impl Profile {
             .map_err(|_| ProviderError::new(ErrorClass::Config, "profile unavailable"))?;
         Self::parse(&text)
     }
-    pub fn path(name: &str) -> Result<PathBuf, ProviderError> {
+    pub fn file_in(root: &Path, name: &str) -> Result<PathBuf, ProviderError> {
         if name.is_empty()
             || !name
                 .bytes()
@@ -94,11 +94,15 @@ impl Profile {
                 "invalid profile name",
             ));
         }
+        Ok(root.join(format!("{name}.md")))
+    }
+    pub fn path(name: &str) -> Result<PathBuf, ProviderError> {
         let home = std::env::var_os("HOME")
             .ok_or_else(|| ProviderError::new(ErrorClass::Config, "HOME unavailable"))?;
-        Ok(PathBuf::from(home)
-            .join(".bboxy450-harness/profiles")
-            .join(format!("{name}.md")))
+        Self::file_in(
+            &PathBuf::from(home).join(".bboxy450-harness/profiles"),
+            name,
+        )
     }
     pub async fn key(&self, set: &Set, cancel: CancellationToken) -> Result<Secret, ProviderError> {
         let value = if let Some(source) = &self.api_key {

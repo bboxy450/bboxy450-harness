@@ -114,3 +114,48 @@ fn no_bboxy_sock_still_finishes_a_turn() {
         std::thread::sleep(Duration::from_millis(5));
     }
 }
+#[test]
+fn terminate_during_key_resolution_joins_the_key_process() {
+    let temp = tempfile::Builder::new()
+        .prefix("harness-key-")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let profiles = temp.path().join(".bboxy450-harness/profiles");
+    std::fs::create_dir_all(&profiles).unwrap();
+    let pid = temp.path().join("key.pid");
+    std::fs::write(profiles.join("slow.md"),format!("---\nname: slow\nmodel: unused\nendpoint: http://127.0.0.1:9/v1\napi_key: '!echo $$ > {}; sleep 600'\n---\n",pid.display())).unwrap();
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
+        .args(["seat", "--profile", "slow", "--cwd"])
+        .arg(temp.path())
+        .env("HOME", temp.path())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !pid.exists() {
+        assert!(Instant::now() < deadline, "key command not started");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let pgid: i32 = std::fs::read_to_string(pid)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let start = Instant::now();
+    assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            assert!(status.success());
+            break;
+        }
+        assert!(start.elapsed() < Duration::from_secs(2));
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(unsafe { libc::kill(-pgid, 0) }, -1);
+    assert_eq!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::ESRCH)
+    );
+}

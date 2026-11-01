@@ -136,6 +136,7 @@ async fn smoke() -> Result<(Value, i32), Box<dyn std::error::Error>> {
     let config = Config {
         meta,
         sessions: sessions.clone(),
+        profiles: home.join(".bboxy450-harness/profiles"),
         provider: client.clone(),
         model: profile.model,
         policy,
