@@ -520,31 +520,61 @@ impl<R: BufRead> Engine<R> {
                     4096,
                 );
                 let mut diffs = String::new();
-                let edits = if p.name.eq_ignore_ascii_case("multiedit") {
-                    input["edits"].as_array().cloned().unwrap_or_default()
-                } else {
-                    vec![input.clone()]
-                };
-                for edit in edits {
-                    let old = edit["old_string"].as_str().unwrap_or("");
-                    let new = edit["new_string"]
-                        .as_str()
-                        .or_else(|| edit["content"].as_str())
-                        .unwrap_or("");
-                    diffs.push_str(&format!(
-                        "--- a/{path}\n+++ b/{path}\n@@ -1,{} +1,{} @@\n",
-                        old.lines().count(),
-                        new.lines().count()
-                    ));
-                    for line in old.lines() {
-                        diffs.push('-');
-                        diffs.push_str(line);
-                        diffs.push('\n');
+                let recorded = meta["structuredPatch"]
+                    .as_array()
+                    .filter(|hunks| !hunks.is_empty());
+                let valid = recorded.is_some_and(|hunks| {
+                    hunks.iter().all(|h| {
+                        ["oldStart", "oldLines", "newStart", "newLines"]
+                            .iter()
+                            .all(|k| h[*k].as_u64().is_some())
+                            && h["lines"]
+                                .as_array()
+                                .is_some_and(|lines| lines.iter().all(Value::is_string))
+                    })
+                });
+                if valid {
+                    diffs.push_str(&format!("--- a/{path}\n+++ b/{path}\n"));
+                    for h in recorded.unwrap() {
+                        diffs.push_str(&format!(
+                            "@@ -{},{} +{},{} @@\n",
+                            h["oldStart"], h["oldLines"], h["newStart"], h["newLines"]
+                        ));
+                        for line in h["lines"].as_array().unwrap() {
+                            diffs.push_str(line.as_str().unwrap());
+                            diffs.push('\n');
+                        }
                     }
-                    for line in new.lines() {
-                        diffs.push('+');
-                        diffs.push_str(line);
-                        diffs.push('\n');
+                } else {
+                    if recorded.is_some() {
+                        self.unknown("diff hunk metadata");
+                    }
+                    let edits = if p.name.eq_ignore_ascii_case("multiedit") {
+                        input["edits"].as_array().cloned().unwrap_or_default()
+                    } else {
+                        vec![input.clone()]
+                    };
+                    for edit in edits {
+                        let old = edit["old_string"].as_str().unwrap_or("");
+                        let new = edit["new_string"]
+                            .as_str()
+                            .or_else(|| edit["content"].as_str())
+                            .unwrap_or("");
+                        diffs.push_str(&format!(
+                            "--- a/{path}\n+++ b/{path}\n@@ -1,{} +1,{} @@\n",
+                            old.lines().count(),
+                            new.lines().count()
+                        ));
+                        for line in old.lines() {
+                            diffs.push('-');
+                            diffs.push_str(line);
+                            diffs.push('\n');
+                        }
+                        for line in new.lines() {
+                            diffs.push('+');
+                            diffs.push_str(line);
+                            diffs.push('\n');
+                        }
                     }
                 }
                 if diffs.len() > TEXT_CHUNK {

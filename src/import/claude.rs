@@ -13,7 +13,7 @@
 //! | thinking / redacted_thinking | Reasoning / safe Notice |
 //! | tool_use + tool_result | paired ToolCall, failed on tool error |
 //! | Bash | Terminal child, command/exit + output blob |
-//! | Edit / Write / MultiEdit | FileChange + TurnDiff, unified remove/add hunks |
+//! | Edit / Write / MultiEdit | FileChange + TurnDiff; recorded hunks, replacement-argument fallback |
 //! | TodoWrite | Plan with entry status |
 //! | image | Image metadata only; no image bytes persisted |
 //! | sidechain / Task / Agent | Subagent with deterministic child session |

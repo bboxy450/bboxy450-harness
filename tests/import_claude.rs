@@ -599,3 +599,20 @@ async fn pending_byte_budget_closes_old_calls_before_retaining_more_arguments() 
     laws::check_transcript(&events).unwrap();
     assert!(events.iter().any(|e|matches!(&e.event,Event::ItemCompleted {body:Item::Notice {text,..},..} if text.contains("Pending Claude tool budget exceeded"))));
 }
+
+#[tokio::test]
+async fn recorded_diff_hunks_preserve_positions_and_context() {
+    let records = [
+        serde_json::json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"hunk","name":"Edit","input":{"file_path":"synthetic.txt","old_string":"old","new_string":"new"}}]}}),
+        serde_json::json!({"type":"user","toolUseResult":{"structuredPatch":[{"oldStart":40,"oldLines":2,"newStart":40,"newLines":2,"lines":[" context","-old","+new"]}]},"message":{"content":[{"type":"tool_result","tool_use_id":"hunk","content":"edited"}]}}),
+    ];
+    let events = imported(
+        records
+            .iter()
+            .map(|v| v.to_string() + "\n")
+            .collect::<String>()
+            .into_bytes(),
+    )
+    .await;
+    assert!(events.iter().any(|e|matches!(&e.event,Event::ItemCompleted {body:Item::FileChange {unified,..},..} if unified.contains("@@ -40,2 +40,2 @@\n context\n-old\n+new\n"))));
+}
