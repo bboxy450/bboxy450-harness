@@ -1,98 +1,15 @@
-E3b / PR #5 — E1c integration and d2400 review
+E3b / PR #5 — final toolkit/main verification in progress
 Task: tasks/2026-10-31-harness-gui-phase2.md (#2202)
-Worktree: /Users/feral/mydev/bboxy450-harness-gui
-Branch: e3b-gui-rich; rebased onto origin/main ccce095, including E1c eef1153.
-Verified source commit: 36a8bb8f785ffa5557ede9af52a639d346ab37e9 (signed Boxy).
-The task_report supplies the signed report-only head, with identical source inputs.
-No core edits. No merge. Toolkit pin is HELD at
-4889321f13e509dc7ca18ce7ed3f0217e76cdd1b per Oracle; final merged revision pending.
+Branch: e3b-gui-rich. Rebased onto harness main cdde43d, including PR7.
+ui/doc/render now pin merged toolkit main
+59dedc64861d66650e163bfabab88f5ed67eb810. Cargo.lock updated. crates.io0.1.2 is
+not required for this handoff. The prior held-pin statements are superseded.
 
-RESULT
-Full unfiltered make test exited 0 on the first integrated run, unattended with
-private HOME and no operator input. All 14 command stages exit 0: fmt, all-feature
-clippy, core tests with acp/test-fixtures, hardening, native/TLC parity, secret/
-header/KB gates and control, GUI R15/lint/tests/offscreen smoke. All 15 rich tests
-pass. No test exclusion or thread-count override. e3b-e1c-make-test.log and
- e3b-e1c-verification.json contain command results and source input hashes.
+Formal merge preservation is recorded in e3b-final-rebase.log: exact union of
+main and prior GUI inventories, 64 variants /25 contracts. Updated ACP/MCP group
+models and all GUI controls are retained. ContextTrim rich rendering and the
+refreshed v0.4 fixture remain intact; no core source edits or merge.
 
-REVIEW AND CONFLICT RESOLUTION
-Reviewed the actual merged GUI diff, eef1153^1..eef1153, under d2400:
-- Retained ContextTrim kind_label and pure display_body projection as fallback.
-- Retained and strengthened the smoke's ContextTrim expectation.
-- Retained the per-item replaced_through Compaction expectation, and reformatted
-  the unformatted one-liner into a readable match.
-- Combined ACP/test-fixtures features/dependencies with rich GUI dependencies.
-- Kept BOTH formal model/inventory sets. An exact-name-union assertion verifies
-  55 main + 49 prior-GUI variants -> 61 unique variants, and 24 contracts.
-  Sources/coverage preserve MCP, ACP, automatic compaction and GUI entries.
-  Generated evidence/image conflicts were regenerated. e3b-e1c-review.log records
-  the reviewed hunks, mechanisms, targeted commands and actual exits.
-
-RICH CONTEXTTRIM AND FRESH FIXTURE
-view.rs now turns ContextTrim into worker-prepared Markdown with a styled heading,
-the actual clipped_through frontier and its clipping effect (2 KiB tool/terminal
-output limit; reasoning/images omitted from model context), inside StreamDock's
-inset card. Generated status text has no source toggle. AgentMessage/Reasoning
-keep their source/collapse controls. No context operation or transcript item is
-removed by the view projection.
-
-The rich all-items fixture is refreshed from protocol v0.4: 59 envelopes, 22 items,
-15 kinds, ContextTrim through event 45 and legal Compaction frontiers 36/45. Only the
-first AgentMessage completion gets the Rust highlighting witness. The new
-context_trim_is_a_prepared_rich_callout_with_its_actual_frontier test runs transcript
-laws, real Bridge replay/preparation and rendering, asserting the exact frontier,
-clipping explanation, styled body and absence of a generated-source action.
-
-smoke.rs asserts per-item reduction frontiers from their bodies, ContextTrim's
-rich emphasis/effect, all 15 kinds, highlighted glyph colours, diff add/remove,
-tool status, three distinct compact approval fills and body/card containment.
-Headless Metal smoke passes with 22 visible items / 15 kinds and a scrolled case.
-Updated screenshots were visually inspected.
-
-PRESERVED PHASE-2 OUTCOMES
-Worker-owned bbt-doc streaming append/highlighting; retained completed layouts;
-diff and tool cards; live terminal tails/full completed blobs; keyboard approval
-atom; upgraded editor history and slash/@ hooks; long-reply scrolling/source
-readability; native Escape routing; same-store stale Stop birth fence; real
-structured 64KiB incremental parse measurement. All remain covered by the full
-GUI gate. Structured parse: 69315 actual bytes  / 65536 received, 64 appends, zero
-credit deferrals. Deferred pathological suffixes intentionally remain literal
-previews until completion formats them. gui_budget drives the real injected-clock
-Bridge drain at 300us, with no loss and unchanged completed-layout reuse.
-
-Prior red->green controls are preserved in e3b-round2-red-controls.json and logs:
-removing the Stop birth fence cancels the recovered actor; full-source reparsing
-fails the no-throttling incremental witness; unconditional rendering defeats the
-expected liveness control. The container-definition rendered regression remains
-green on the held toolkit pin. No new concurrency contract is introduced by the
-pure ContextTrim rendering; existing GUI/core models remain intact.
-
-FORMAL EVIDENCE
-All 61 variants  / 24 contracts  / one crate match native and pinned Java TLC reachable
-states, labelled edges and expected verdicts. Committed summary:
-e3b-e1c-formal-summary.json (source/model/tool hashes and all model results).
-Raw parity output: e3b-e1c-make-test.log. make check-formal-evidence exits 0 in
- e3b-e1c-formal-checked.log. Local graph archives are retained review outputs,
-not claimed as committed directories. Finite models do not prove arbitrary Rust
-refinement or full TLC replacement. Native surface/physical IME remain outside
-headless coverage; CoreText/Metal were exercised offscreen.
-
-SCREENSHOTS
-.bboxy/runs/gui-smoke.png (1120x7000)
-  SHA256 f97b0829ce2d534a8a2477dfe36a5407421d9401c9bbf12e82d01fb7d623a83d
-.bboxy/runs/gui-smoke-scrolled.png (1120x860)
-  SHA256 065f211b8e364e180ec3a253df9a0a2c81db0d04b8a6e5f6c6d16dc90a554815
-
-FOLLOW-UP
-The old empty-PID publication race recorded at the pre-rebase gate is addressed
-by E1c/main's atomic temporary-file/rename publication in store_recovery.rs; that
-test passes in the integrated full run. This branch made no core test edit.
-No new wall-clock gate or p99 claim. Benchmarks remain observational targets.
-The Oracle will supply the final toolkit merged-main revision; hold 4889321f until
-that signal, then re-pin and verify before PR #5 merges. No 0.1.2 release signal.
-
-Final-pin directive, 2026-11-01 (01M6BGA6H9V9K4W99ZMXRE7TCN):
-ui/doc/render now pin merged toolkit main 59dedc64861d66650e163bfabab88f5ed67eb810.
-Cargo.lock updates only the four git toolkit identities. The prior held-pin
-statement is superseded. Rebase onto harness main cdde43d / PR7 and fresh plain
-make test follow; crates.io0.1.2 is not a dependency of this handoff.
+Plain make test runs after this integration commit. Earlier gates are historical,
+not a completion claim for this final pin/rebase. The report is refreshed with
+actual results after that command finishes.
