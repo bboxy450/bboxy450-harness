@@ -1,0 +1,22 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23.39s
+     Running tests/gui_bridge.rs (target/debug/deps/gui_bridge-21cb3a24bfd0331c)
+
+running 2 tests
+test approval_actions_use_control_lane ... ok
+test background_subscription_and_detach_preserves_run ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+
+     Running tests/gui_fixtures.rs (target/debug/deps/gui_fixtures-2e582f02e2e4edab)
+
+running 6 tests
+test stick_and_release ... ok
+test completion_wins_and_durable_replay_cannot_reopen_or_duplicate ... ok
+test snapshots_replace_ordered_tail_late_chunks_and_aba_epochs_are_retired ... ok
+test v0_2_heads_and_terminal_snapshot_repair ... ok
+test every_fixture_passes_laws_and_projects ... ok
+test live_equals_replay ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.66s
+
