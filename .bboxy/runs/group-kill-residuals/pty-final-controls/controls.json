@@ -1,0 +1,67 @@
+[
+  {
+    "name": "pty-spawn-fds",
+    "source": "tests/seat_process.rs",
+    "source_sha256": "c5001838f5b2b5401e4b03f0bdebb6c480f753524489b7728884706e2983381b",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "seat_process",
+      "non_pty_spawn_does_not_keep_a_sibling_master_alive",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "non-PTY child retained a sibling master",
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "pty-hangup-poll",
+    "source": "src/frontends/headless.rs",
+    "source_sha256": "9acc2651888147c4e54fe8f7e9d79ab0a95f4daf4daafe4bf37ea434f21b4a68",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--lib",
+      "frontends::headless::tty_tests::physical_eof_is_distinct_from_cooked_control_d",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "physical PTY EOF was classified as cooked Ctrl-D",
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "pty-writer-drop",
+    "source": "tests/support/seat_shutdown.rs",
+    "source_sha256": "c09e3fb91a949217dfe9ab1b4f3b42089995b24070809d01b5907a808e510786",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "seat_process",
+      "seat_shutdown::writer_drop_is_not_cooked_eof",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "writer drop injected terminal input",
+    "red_exit": 101,
+    "green_exit": 0
+  }
+]

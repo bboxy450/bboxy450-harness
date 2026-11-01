@@ -392,9 +392,13 @@ async fn read_launch(append_system_prompt: String, path: Option<PathBuf>) -> Lau
 // Cooked Ctrl-D returns EOF with a healthy terminal. A revoked/hung-up PTY
 // returns EOF/EIO with HUP or failed termios; it takes the synchronous path.
 fn stdin_hung_up() -> bool {
+    tty_hung_up(libc::STDIN_FILENO)
+}
+fn tty_hung_up(terminal: libc::c_int) -> bool {
     let mut fd = libc::pollfd {
-        fd: libc::STDIN_FILENO,
-        events: 0,
+        fd: terminal,
+        // Darwin omits POLLHUP when no events are requested.
+        events: libc::POLLIN,
         revents: 0,
     };
     let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
@@ -402,5 +406,64 @@ fn stdin_hung_up() -> bool {
         libc::poll(&mut fd, 1, 0);
     }
     fd.revents & (libc::POLLHUP | libc::POLLERR) != 0
-        || unsafe { libc::tcgetattr(libc::STDIN_FILENO, termios.as_mut_ptr()) } != 0
+        || unsafe { libc::tcgetattr(terminal, termios.as_mut_ptr()) } != 0
+}
+
+#[cfg(test)]
+mod tty_tests {
+    use super::*;
+    #[test]
+    fn physical_eof_is_distinct_from_cooked_control_d() {
+        use portable_pty::{PtySize, native_pty_system};
+        use std::{
+            io::Read,
+            os::{fd::AsRawFd, unix::fs::OpenOptionsExt},
+        };
+        let pty = native_pty_system()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+        let mut slave = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(pty.master.tty_name().unwrap())
+            .unwrap();
+        let fd = slave.as_raw_fd();
+        assert!(!tty_hung_up(fd));
+        assert_eq!(
+            unsafe { libc::write(pty.master.as_raw_fd().unwrap(), [4u8].as_ptr().cast(), 1) },
+            1
+        );
+        let mut byte = [0u8; 1];
+        assert_eq!(slave.read(&mut byte).unwrap(), 0);
+        assert!(
+            !tty_hung_up(fd),
+            "cooked Ctrl-D was classified as a physical hangup"
+        );
+        drop(pty.master);
+        // Another concurrently spawning fixture may still be closing an
+        // inherited descriptor. Classify only after physical EOF is observed.
+        let mut poll = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        unsafe {
+            libc::poll(&mut poll, 1, 2000);
+        }
+        assert_eq!(
+            slave.read(&mut byte).unwrap(),
+            0,
+            "physical EOF was not observed"
+        );
+        assert!(
+            tty_hung_up(fd),
+            "physical PTY EOF was classified as cooked Ctrl-D"
+        );
+    }
 }

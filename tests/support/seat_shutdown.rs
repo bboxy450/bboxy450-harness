@@ -19,6 +19,14 @@ struct Seat {
     child: Box<dyn portable_pty::Child + Send + Sync>,
     reaped: bool,
 }
+fn terminal_writer(master: &dyn portable_pty::MasterPty) -> Box<dyn Write + Send> {
+    use std::os::fd::FromRawFd;
+    // portable-pty's writer Drop submits newline + VEOF. A hangup witness must
+    // close descriptors without first sending the graceful Ctrl-D operation.
+    let fd = unsafe { libc::fcntl(master.as_raw_fd().unwrap(), libc::F_DUPFD_CLOEXEC, 3) };
+    assert!(fd >= 0, "PTY writer duplication failed");
+    Box::new(unsafe { std::fs::File::from_raw_fd(fd) })
+}
 fn wait_for(mut test: impl FnMut() -> bool, budget: Duration, message: &str) {
     let end = Instant::now() + budget;
     while !test() {
@@ -83,7 +91,7 @@ impl Seat {
         }
         let child = pty.slave.spawn_command(command).unwrap();
         drop(pty.slave);
-        let input = pty.master.take_writer().unwrap();
+        let input = terminal_writer(pty.master.as_ref());
         Self {
             root: root.into(),
             master: Some(pty.master),
@@ -96,6 +104,25 @@ impl Seat {
         let input = self.input.as_mut().unwrap();
         input.write_all(bytes).unwrap();
         input.flush().unwrap();
+    }
+    fn wait_prompt(&self) {
+        let fd = self.master.as_ref().unwrap().as_raw_fd().unwrap();
+        let end = Instant::now() + Duration::from_secs(10);
+        let mut output = Vec::new();
+        while !String::from_utf8_lossy(&output).contains("› ") {
+            assert!(Instant::now() < end, "seat prompt did not become ready");
+            let mut poll = libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            if unsafe { libc::poll(&mut poll, 1, 20) } > 0 && poll.revents & libc::POLLIN != 0 {
+                let mut bytes = [0u8; 4096];
+                let n = unsafe { libc::read(fd, bytes.as_mut_ptr().cast(), bytes.len()) };
+                assert!(n > 0, "PTY ended before prompt");
+                output.extend_from_slice(&bytes[..n as usize]);
+            }
+        }
     }
     fn exit(&mut self, budget: Duration) -> portable_pty::ExitStatus {
         let mut observed = None;
@@ -261,6 +288,7 @@ fn control_d_at_the_prompt_closes_and_fsyncs_gracefully() {
         "MCP group did not start",
     );
     let pgid = group_pid(root, "mcp-group.pid").unwrap();
+    seat.wait_prompt();
     seat.write(b"\x04");
     assert!(seat.exit(Duration::from_secs(2)).success());
     wait_for(
@@ -271,4 +299,30 @@ fn control_d_at_the_prompt_closes_and_fsyncs_gracefully() {
     let log = events(root);
     assert!(matches!(log.last().unwrap().event, Event::SessionClosed));
     check_transcript(&log).unwrap();
+}
+
+#[test]
+fn writer_drop_is_not_cooked_eof() {
+    use std::{io::Read, os::unix::fs::OpenOptionsExt};
+    let pty = native_pty_system()
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+    let mut slave = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(pty.master.tty_name().unwrap())
+        .unwrap();
+    drop(terminal_writer(pty.master.as_ref()));
+    let mut byte = [0u8; 1];
+    let read = slave.read(&mut byte);
+    assert!(
+        matches!(read,Err(ref error) if error.kind()==std::io::ErrorKind::WouldBlock),
+        "writer drop injected terminal input: {read:?}"
+    );
 }

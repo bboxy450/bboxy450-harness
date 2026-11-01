@@ -21,12 +21,10 @@ def region(source, start, end, replacement):
 def once(source,before,after):
     if source.count(before)!=1:raise ValueError('mutation anchor drift: '+before)
     return source.replace(before,after)
+def owner_wait(source,replacement):
+    return once(source,'self.retire_for_reap();\n        let result = self.child.wait().await;',replacement+'\n        let result = self.child.wait().await;')
 def leader_only(source):
-    start=source.index('async fn finish_child(');end=source.index('fn scrub_bboxy_env(',start)
-    body=source[start:end]
-    for signal in ['SIGTERM','SIGKILL']:
-        body=once(body,'group.send(libc::'+signal+');','unsafe {libc::kill(child.id().unwrap() as i32,libc::'+signal+');}')
-    return source[:start]+body+source[end:]
+    return owner_wait(source,'let _=self.child.start_kill();\n        self.group.reaped();')
 def main(selected=None):
     cases=[
         ('backpressure','src/frontends/acp.rs','acp_face','slow_reader_resumes_without_losing_the_turn','slow reader lost the ACP connection',
@@ -43,11 +41,8 @@ def main(selected=None):
         ('content','src/frontends/acp.rs','acp_face','scripted_client_full_turn_and_permission_keep_the_dispatcher_live','final tool card lost the diff',
          lambda s:region(s,'    fn content(','    fn suffix(','''    fn content(&mut self,_parent:ItemId,_item:ItemId,value:Value)->Value {value}
 ''')),
-        ('group-kill','src/mcp.rs','mcp_client','close_kills_a_server_and_member_that_ignore_eof_and_term','MCP server group survived Close',
-         lambda s:region(s,'async fn finish_child(','fn scrub_bboxy_env(','''async fn finish_child(rx:oneshot::Receiver<Child>,_group:crate::process::OwnedGroup) {
-    if let Ok(mut child)=rx.await {let _=child.wait().await;}
-}
-''')),
+        ('group-kill','src/process.rs','mcp_client','close_kills_a_server_and_member_that_ignore_eof_and_term','MCP server group survived Close',
+         lambda s:owner_wait(s,'/* group fence removed by control */')),
         ('prefix-length','src/context/mod.rs','context_auto','thirty_turns_trim_then_summarize_and_share_the_stable_prefix','reduced cache prefix contains only the system prompt',
          lambda s:once(s,'let prefix = 1 + messages.len() + history::to_wire(&stable).len();','let prefix = 1;')),
         ('prefix-drift','src/context/mod.rs','context_auto','thirty_turns_trim_then_summarize_and_share_the_stable_prefix','cache prefix changed without a reduction',
@@ -72,11 +67,29 @@ def main(selected=None):
     }
 }
 ''')),
+        ('mcp-exited-term','src/mcp.rs','mcp_client','mcp_finish_exited_leader_skips_term_and_grace_but_kills_members','already-exited MCP cleanup sent TERM',
+         lambda s:once(s,'    // WNOWAIT retains the leader', '    child.send(libc::SIGTERM);\n    // WNOWAIT retains the leader')),
+        ('mcp-exited-grace','src/mcp.rs','mcp_client','mcp_finish_exited_leader_skips_term_and_grace_but_kills_members','already-exited MCP cleanup slept through grace',
+         lambda s:once(s,'    // WNOWAIT retains the leader', '    tokio::time::sleep(Duration::from_secs(1)).await;\n    // WNOWAIT retains the leader')),
+        ('pty-spawn-fds','tests/seat_process.rs','seat_process','non_pty_spawn_does_not_keep_a_sibling_master_alive','non-PTY child retained a sibling master',
+         lambda s:once(s,'portable_pty::unix::close_random_fds();','/* descriptor fence removed */')),
+        ('pty-hangup-poll','src/frontends/headless.rs','lib','frontends::headless::tty_tests::physical_eof_is_distinct_from_cooked_control_d','physical PTY EOF was classified as cooked Ctrl-D',
+         lambda s:once(s,'// Darwin omits POLLHUP when no events are requested.\n        events: libc::POLLIN,','// Darwin omits POLLHUP when no events are requested.\n        events: 0,')),
+        ('pty-writer-drop','tests/support/seat_shutdown.rs','seat_process','seat_shutdown::writer_drop_is_not_cooked_eof','writer drop injected terminal input',
+         lambda s:region(s,'fn terminal_writer(','fn wait_for(','fn terminal_writer(master:&dyn portable_pty::MasterPty)->Box<dyn std::io::Write+Send> {master.take_writer().unwrap()}\n')),
+        ('reap-lease','src/process.rs','lib','process::ownership_tests::echild_after_owned_reap_never_leaves_a_signal_target','ECHILD observed a PID released while its group was registered',
+         lambda s:owner_wait(s,'/* reap lease removed */')),
+        ('mcp-reap-ownership','src/process.rs','mcp_client','mcp_finish_*',['already-fenced cleanup signalled a foreign pgid after reap','failed-handoff cleanup signalled a foreign pgid after reap'],
+         lambda s:owner_wait(s,'let _=self.child.start_kill();')),
+        ('sigchld-admission','src/process.rs','lib','process::ownership_tests::automatic_sigchld_reaping_is_refused_before_spawn','automatic SIGCHLD reaping was admitted',
+         lambda s:region(s,'fn check_sigchld(','impl OwnedChild {','fn check_sigchld(_action:&libc::sigaction)->io::Result<()> {Ok(())}\n')),
+        ('reap-lease-model','tests/formal/models.rs','formal_nonvacuity','reap_identity_is_retired_and_both_mcp_notifications_complete','NoSignalToEmptyGroup',
+         lambda s:once(s,'if mode == 5 { Var(9) } else { Int(0) }','if mode == 0 || mode == 5 { Var(9) } else { Int(0) }')),
         ('seat-hangup','src/process.rs','seat_process','seat_shutdown::hup_kills_owned_groups_before_supervisor_escalation_and_resume_recovers','owned group survived supervisor escalation',
          lambda s:region(s,'pub(crate) fn kill_owned_groups()','extern "C" fn shutdown_signal','pub(crate) fn kill_owned_groups() {}\n')),
         ('seat-hangup-model','tests/formal/models.rs','formal_nonvacuity','synchronous_hangup_kill_precedes_the_supervisors_unjoinable_exit','NoOwnedMemberAfterSupervisorKill',
          lambda s:once(s,'if mode == 4 { Var(1) } else { Int(0) }','if mode == 0 || mode == 4 { Var(1) } else { Int(0) }')),
-        ('leader-only','src/mcp.rs','mcp_client','close_kills_a_server_and_member_that_ignore_eof_and_term','MCP server group survived Close: orphaned member',leader_only),
+        ('leader-only','src/process.rs','mcp_client','close_kills_a_server_and_member_that_ignore_eof_and_term','MCP server group survived Close: orphaned member',leader_only),
         ('bboxy-indirection','src/mcp.rs','seat_process','seat_launch::profile_and_acp_refuse_bboxy_environment_indirection','BBOXY reference lacked typed configuration refusal',
          lambda s:once(s,'origin != Origin::Launcher\n        && env','false\n        && env')),
         ('resolver-namespace','src/process.rs','seat_process','seat_launch::command_resolver_cannot_copy_seat_environment_into_mcp_aliases','command resolver leaked BBOXY_SOCK into an MCP alias',

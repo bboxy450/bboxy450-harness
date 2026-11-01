@@ -1,0 +1,120 @@
+run 1: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.56s
+
+run 2: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.47s
+
+run 3: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.54s
+
+run 4: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.53s
+
+run 5: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.43s
+
+run 6: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.63s
+
+run 7: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.57s
+
+run 8: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.50s
+
+run 9: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.41s
+
+run 10: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.50s
+
+run 11: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.51s
+
+run 12: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.45s
+
+run 13: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.57s
+
+run 14: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.49s
+
+run 15: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.46s
+
+run 16: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.53s
+
+run 17: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.49s
+
+run 18: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.57s
+
+run 19: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.54s
+
+run 20: ['cargo', 'test', '-q', '--offline', '--locked', '--features', 'acp,test-fixtures', '--test', 'seat_process', '--', '--skip', 'seat_launch::']
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.58s
+

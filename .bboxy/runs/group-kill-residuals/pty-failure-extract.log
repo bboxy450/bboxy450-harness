@@ -1,0 +1,38 @@
+Own-fixture excerpt from pty-before-kill-lsof.log. Other PTY owners omitted.
+Test process 40778; sibling non-PTY key process 40779; hung-up seat 40783.
+Darwin master major 15 minor 25 was still open as sibling fd 6; seat slave major 16 minor 25.
+running 8 tests
+.seat supervisor exit pending while groups retire
+seat supervisor exit pending while groups retire
+AT KILL trace=Ok("monitor true\n")
+seat supervisor observed exit: ExitStatus { code: 1, signal: Some("Killed: 9") }
+seat supervisor observed exit: ExitStatus { code: 1, signal: Some("Killed: 9") }
+seat supervisor exit pending while groups retire
+......FAILED tty="/dev/ttys025" test_pid=40778 seat_pid=Some(40783) lsof= log=Some(Envelope { v: Version { major: 0, minor: 4 }, session: SessionId(Ulid(2168264840049260744747746425968255681)), epoch: Epoch(1), seq: Some(Seq(14)), at: Seq(14), ts_ms: 1793546638688, cause: None, event: ItemCompleted { item: ItemId(Ulid(2168264840192413425897518367455376144)), status: Completed, body: Notice { level: Info, text: "mcp fixture: ready" } } })
+BEFORE KILL PTYS:
+seat_proc 40778 feral   10u      CHR              15,28          0t1                 605 /dev/ptmx
+seat_proc 40778 feral   14u      CHR              15,28          0t1                 605 /dev/ptmx
+bboxy450- 40779 feral    3u      CHR              15,22          0t0                 605 /dev/ptmx
+bboxy450- 40779 feral    4u      CHR              15,23        0t214                 605 /dev/ptmx
+bboxy450- 40779 feral    6u      CHR              15,25         0t13                 605 /dev/ptmx
+bboxy450- 40779 feral    8u      CHR              15,24        0t118                 605 /dev/ptmx
+bboxy450- 40783 feral    0u      CHR              16,25        0t310             1126911 /dev/ttys025
+bboxy450- 40783 feral    1u      CHR              16,25        0t310             1126911 /dev/ttys025
+bboxy450- 40783 feral    2u      CHR              16,25        0t310             1126911 /dev/ttys025
+bboxy450- 40783 feral    9u      CHR              16,25        0t310             1126911 /dev/ttys025
+bboxy450- 40783 feral   10u      CHR              16,25        0t310             1126911 /dev/ttys025
+
+thread 'seat_shutdown::pty_master_close_kills_owned_groups_before_escalation_and_resume_recovers' (122699745) panicked at tests/support/seat_shutdown.rs:214:5:
+owned group survived supervisor escalation: [40824, 40817]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+ 7/8
+seat_shutdown::pty_master_close_kills_owned_groups_before_escalation_and_resume_recovers --- FAILED
+
+failures:
+
+failures:
+    seat_shutdown::pty_master_close_kills_owned_groups_before_escalation_and_resume_recovers
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 3.17s
+
+error: test failed, to rerun pass `--test seat_process`

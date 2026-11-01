@@ -1,0 +1,133 @@
+[
+  {
+    "name": "group-kill",
+    "source": "src/process.rs",
+    "source_sha256": "18afd4497d1c910a6dea80c843078077a3227c4f66ab73b0bf3d505754d677ec",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "mcp_client",
+      "close_kills_a_server_and_member_that_ignore_eof_and_term",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "MCP server group survived Close",
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "reap-lease",
+    "source": "src/process.rs",
+    "source_sha256": "18afd4497d1c910a6dea80c843078077a3227c4f66ab73b0bf3d505754d677ec",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--lib",
+      "process::ownership_tests::echild_after_owned_reap_never_leaves_a_signal_target",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "ECHILD observed a PID released while its group was registered",
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "mcp-reap-ownership",
+    "source": "src/process.rs",
+    "source_sha256": "18afd4497d1c910a6dea80c843078077a3227c4f66ab73b0bf3d505754d677ec",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "mcp_client",
+      "mcp_finish_"
+    ],
+    "red_assertion": [
+      "missing-id cleanup signalled a foreign pgid after reap",
+      "failed-handoff cleanup signalled a foreign pgid after reap"
+    ],
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "sigchld-admission",
+    "source": "src/process.rs",
+    "source_sha256": "18afd4497d1c910a6dea80c843078077a3227c4f66ab73b0bf3d505754d677ec",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--lib",
+      "process::ownership_tests::automatic_sigchld_reaping_is_refused_before_spawn",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "automatic SIGCHLD reaping was admitted",
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "reap-lease-model",
+    "source": "tests/formal/models.rs",
+    "source_sha256": "c542bc58f7f9f6bbd039a8bbc7923a99d5248d21205a7fefed0def1ea6dcfc5d",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "formal_nonvacuity",
+      "reap_identity_is_retired_and_both_mcp_notifications_complete",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "NoRegistrationAfterReap",
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "leader-only",
+    "source": "src/process.rs",
+    "source_sha256": "18afd4497d1c910a6dea80c843078077a3227c4f66ab73b0bf3d505754d677ec",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "mcp_client",
+      "close_kills_a_server_and_member_that_ignore_eof_and_term",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "MCP server group survived Close: orphaned member",
+    "red_exit": 101,
+    "green_exit": 0
+  }
+]

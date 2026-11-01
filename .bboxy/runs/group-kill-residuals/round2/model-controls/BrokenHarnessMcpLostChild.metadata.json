@@ -1,0 +1,71 @@
+{
+  "variables": [
+    {
+      "name": "leader_alive",
+      "min": 0,
+      "max": 1,
+      "initial": 1
+    },
+    {
+      "name": "members_alive",
+      "min": 0,
+      "max": 2,
+      "initial": 2
+    },
+    {
+      "name": "close",
+      "min": 0,
+      "max": 3,
+      "initial": 0
+    },
+    {
+      "name": "term_sent",
+      "min": 0,
+      "max": 1,
+      "initial": 0
+    },
+    {
+      "name": "leader_reaped",
+      "min": 0,
+      "max": 1,
+      "initial": 0
+    },
+    {
+      "name": "notification",
+      "min": 0,
+      "max": 2,
+      "initial": 0
+    },
+    {
+      "name": "registered",
+      "min": 0,
+      "max": 1,
+      "initial": 1
+    }
+  ],
+  "actions": [
+    "CloseSendsIgnoredTerm",
+    "GraceExpiresAndKill",
+    "ReapAndCompleteClose",
+    "MemberExits",
+    "TransportClosed",
+    "SenderLost",
+    "FencedWaitBeforeFinish",
+    "SkipCleanupOnReceiverError"
+  ],
+  "invariants": [
+    "NoRegistrationAfterReap",
+    "NoMemberAfterClose",
+    "ReapAfterKill"
+  ],
+  "responses": [
+    "CloseEventuallyCompletes"
+  ],
+  "weak_fair": [
+    [
+      1,
+      2
+    ]
+  ],
+  "implementation_refinement_proven": false
+}

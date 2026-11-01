@@ -150,12 +150,12 @@ checks=["make test-formal","make test"]
 [[contract]]
 name="HarnessProcessLifecycle"
 title="Cancel kills remaining members before releasing the leader reservation"
-models=["HarnessProcessLifecycle","BrokenHarnessProcessDrain","BrokenHarnessProcessOwnership","BrokenHarnessProcessReapedMembers","BrokenHarnessProcessHangup"]
-controls=[{name="BrokenHarnessProcessDrain",expected="liveness"},{name="BrokenHarnessProcessOwnership",expected="safety"},{name="BrokenHarnessProcessReapedMembers",expected="safety"},{name="BrokenHarnessProcessHangup",expected="safety"}]
+models=["HarnessProcessLifecycle","BrokenHarnessProcessDrain","BrokenHarnessProcessOwnership","BrokenHarnessProcessReapedMembers","BrokenHarnessProcessHangup","BrokenHarnessProcessReapLease"]
+controls=[{name="BrokenHarnessProcessDrain",expected="liveness"},{name="BrokenHarnessProcessOwnership",expected="safety"},{name="BrokenHarnessProcessReapedMembers",expected="safety"},{name="BrokenHarnessProcessHangup",expected="safety"},{name="BrokenHarnessProcessReapLease",expected="safety"}]
 sources=["src/process.rs","src/mcp.rs","src/frontends/headless.rs","tests/formal/models.rs"]
 implementation_tests=["src/process.rs","tests/cancel_process.rs","tests/mcp_client.rs","tests/seat_process.rs","tests/support/seat_shutdown.rs","tests/formal_nonvacuity.rs"]
-assumptions="One arbitrary owned group stands for any tool, terminal or MCP group. The seat can receive hangup, then be killed by its supervisor before async cleanup. Hangup kills the group atomically before notifying async close; broken Hangup omits that kill. The 100ms/250ms OS deadlines and signal-handler instruction bounds are process/structural witnesses, not modeled real time. One leader (running/exited-waitable/reaped), one independent live member and one possibly escaped pipe holder. Leader exit, member exit, signal, reap, drain and cancel completion are separate actions. Weak fairness on exit/signal/reap/drain/end; OS waitid, real PID reuse and the 500ms grace remain process witnesses."
-property="Cancel completion implies no live member. A signal never targets a group with neither a leader reservation nor a member; bounded drain eventually ends cancellation while the seat lives. After supervisor KILL no group member is alive. Abrupt seat death discharges the local join obligation; durable recovery is witnessed separately."
+assumptions="OwnedChild exclusively owns the waitable leader; SDKs/readers receive only pipes. SIGCHLD auto-reaping is rejected at spawn; foreign unsafe waitpid/disposition changes violate the ownership precondition and are outside this model. The only correct reap action retires registration before releasing identity. A signal action reads registration; the stale-registration control reaches a foreign signal after reap, rather than merely failing an assignment invariant. One arbitrary owned group stands for any tool, terminal or MCP group. The seat can receive hangup, then be killed by its supervisor before async cleanup. Hangup kills the group atomically before notifying async close; broken Hangup omits that kill. The 100ms/250ms OS deadlines and signal-handler instruction bounds are process/structural witnesses, not modeled real time. One leader (running/exited-waitable/reaped), one independent live member and one possibly escaped pipe holder. Leader exit, member exit, signal, reap, drain and cancel completion are separate actions. Weak fairness on exit/signal/reap/drain/end; OS waitid, real PID reuse and the 500ms grace remain process witnesses."
+property="Cancel completion implies no live member. A signal never targets a group with neither a leader reservation nor a member; bounded drain eventually ends cancellation while the seat lives. After release a retained registration must not enable a signal to the now-foreign group (NoSignalToEmptyGroup); the unit witness also checks retirement. After supervisor KILL no group member is alive. Abrupt seat death discharges the local join obligation; durable recovery is witnessed separately."
 checks=["make test-formal","make test"]
 
 [[contract]]
@@ -236,12 +236,12 @@ checks = ["make test-formal", "make test"]
 [[contract]]
 name = "HarnessMcpGroupClose"
 title = "Close joins every member of its process group even when SIGTERM is ignored."
-models = ["HarnessMcpGroupClose", "BrokenHarnessMcpGroupClose"]
-controls = [{name="BrokenHarnessMcpGroupClose",expected="safety"}]
+models = ["HarnessMcpGroupClose", "BrokenHarnessMcpGroupClose", "BrokenHarnessMcpLostChild"]
+controls = [{name="BrokenHarnessMcpGroupClose",expected="safety"},{name="BrokenHarnessMcpLostChild",expected="safety"}]
 sources = ["src/mcp.rs", "tests/formal/models.rs"]
 implementation_tests = ["tests/mcp_client.rs", "tests/bin/mcp_fixture.rs", "tests/formal_nonvacuity.rs"]
-assumptions = "One unreaped leader and zero to two members; SIGTERM is ignored. Grace expiry abstracts the timer and sends SIGKILL, then leader wait completes Close. Members may exit independently before completion. Weak fairness on kill/reap after Close begins. Group ownership and pgid reuse remain HarnessProcessLifecycle; OS signals, EOF and reaping are process witnesses, not arbitrary Rust refinement. Maps to src/mcp.rs::finish_child and the stubborn_group fixture."
-property = "NoMemberAfterClose and ReapAfterKill; CloseEventuallyCompletes. Broken control kills only the leader, leaving a live member at completed Close."
+assumptions = "A close notification is delivered or its sender is lost; either outcome must clean up. A missing child id can exist before finish only after a fenced wait killed members and retired registration. One unreaped leader and zero to two members; SIGTERM is ignored. Grace expiry abstracts the timer and sends SIGKILL, then leader wait completes Close. WNOWAIT exit observation and skipping or polling the one-second grace are structural implementation witnesses, with no wall-clock percentile claim. Members may exit independently before completion. Weak fairness on kill/reap after Close begins. Group ownership and pgid reuse remain HarnessProcessLifecycle; OS signals, EOF and reaping are process witnesses, not arbitrary Rust refinement. Maps to src/mcp.rs::finish_child and the stubborn_group fixture."
+property = "NoMemberAfterClose, ReapAfterKill and NoRegistrationAfterReap; CloseEventuallyCompletes. Broken control kills only the leader, leaving a live member at completed Close."
 checks = ["make test-formal", "make test"]
 
 [[contract]]

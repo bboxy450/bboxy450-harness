@@ -1,0 +1,162 @@
+E1g / task #4589 / 01M6BPMGVA3DAJ4SB1XPD02S5Z — Round 2
+ROLE: EXECUTOR, E1 harness-core
+Repository: https://github.com/bboxy450/bboxy450-harness
+Worktree: /Users/feral/mydev/bboxy450-harness-core
+Branch: e1g-group-kill-residuals
+PR: https://github.com/bboxy450/bboxy450-harness/pull/14 — no merge
+Base: bb5478b58a57d07d514ed0b25e70fb0cab8a6f86, including PR16's default-feature
+tests and schemars preserve_order. Signed source: ae2d7fd04cc81265d14ed9615f29e5e175826fa3.
+This supersedes the first-round report. Historical outputs remain in
+group-kill-residuals/; current outputs are in group-kill-residuals/round2/.
+The Oracle approved the core ownership mechanism in rejection
+31RWN3CSPW42R0ETDEWJZD9PHK. MUST1 and all three SHOULD findings are addressed.
+
+1. Exited MCP leaders incur no TERM or grace
+
+OwnedChild::exited observes waitid(WEXITED|WNOWAIT|WNOHANG), retaining identity.
+An earlier fenced wait also needs no further grace. finish_child skips TERM
+and grace for an exited leader. A running leader receives TERM, then exit is
+polled in requested sleeps of at most 5 ms, up to the 1 s deadline. Exit or an
+observation error proceeds directly to the same fenced group KILL, retirement
+and wait. Lost notifications have the same cleanup obligation.
+
+mcp_finish_exited_leader_skips_term_and_grace_but_kills_members uses a real
+stubborn-group server. Only its leader is killed first and observed with
+WNOWAIT; a member remains present before finish_child. Cleanup must complete
+in one future poll (test-only cooperative budgeting disabled), with zero TERM
+calls and zero grace entries. It must kill the member, leave no late signal,
+and preserve the disposable foreign group. The single-poll assertion catches
+even an uninstrumented tokio::sleep. No stopwatch or percentile is used.
+The instrumented old unconditional TERM/one-second flow fails with exit 101
+at “already-exited MCP cleanup sent TERM” (actual 1, expected 0). Restoring the
+fix passes. Separate TERM and direct-sleep controls each fail their named
+assertion, then pass when restored.
+
+2. Already-fenced idempotence is labelled accurately
+
+The former missing-id witness is renamed
+mcp_finish_already_fenced_child_is_idempotent_and_keeps_foreign_group_safe.
+It forces actual child.id()==None after an owned wait, then proves idempotence,
+zero TERM/sleep attempts and foreign-group safety. It does not attribute the
+fixture's earlier member kill to finish_child. The new exited-but-unreaped
+test proves finish_child's live-member obligation. The failed-handoff test
+still forces a real receiver error and requires cleanup of live members.
+
+3. Registration drives an actual signal
+
+registered_at_reap has been removed. signal_registered_group is the actual
+production handler CAS/dispatch primitive. The fixture invokes that same
+action after the kernel wait releases the leader, using its captured pid so
+a slot reused for another pid is untouched. A stale registration invokes the
+signal callback and signals the fixture's own foreign group. Assertions check
+the signal and foreign process, rather than sampling a flag after retirement.
+
+HarnessProcessLifecycle::SignalEmptyGroup reads registered. The stale-reap
+variant must reach leader=reaped, registered=1, signal_to_empty=1 and violate
+NoSignalToEmptyGroup. The assignment-only NoRegistrationAfterReap invariant
+was removed from this model; correct-state retirement is still checked by the
+unit/nonvacuity witnesses. Java must now reach an actual signal to fail.
+HarnessMcpGroupClose retains cleanup checks for delivered/lost notifications.
+verification/contracts.toml and coverage.toml record the structural timing
+witness and abstraction boundaries.
+
+Native/TLC full graph and verdict parity holds for 67 variants / 25 contracts / 1 crate.
+HarnessProcessLifecycle:35 states/65 edges,TLC0; its reap-lease control:46/92,
+TLC12 safety. Java's Inv2 counterexample ends after SignalEmptyGroup with
+v0=2,v1=0,v6=1,v9=1: reaped leader, no original member, foreign signal, stale
+registration. Native names the violated NoSignalToEmptyGroup invariant.
+HarnessMcpGroupClose:26/47,TLC0; lost-child control:23/39,TLC12 safety.
+formal-code.json records clean source ae2d7fd04cc81265d14ed9615f29e5e175826fa3; receipt
+5edb568a095b56f8ada1872c3a3b0fb322f3ad7c2ee3380d96e11c4d594e2f0f. model-controls/ retains both native named
+traces and Java counterexamples with adjacent invariant/variable metadata.
+
+4. Deliberate CLOEXEC exposure is isolated
+
+scripts/test.py excludes non_pty_spawn_does_not_keep_a_sibling_master_alive
+from both concurrent default/feature suites. It runs exactly that one case
+in a separate test process, with no sibling libtest case that could fork.
+The canonical record contains the single-case invocation. The descriptor-fence
+control still fails at “non-PTY child retained a sibling master”, then passes.
+
+5. Commands and current evidence
+
+Paths below are relative to group-kill-residuals/round2/.
+cargo test --offline --locked --quiet --features acp,test-fixtures --test mcp_client mcp_finish_exited_leader_skips_term_and_grace_but_kills_members -- --exact
+  exit 101 on the instrumented old flow; exited-baseline-red.log/.json.
+cargo test --offline --locked --quiet --features acp,test-fixtures --test mcp_client mcp_finish_
+  exit 0, three cases; exited-green.log.
+cargo test --offline --locked --test formal_nonvacuity reap_identity_is_retired_and_both_mcp_notifications_complete -- --exact
+  exit 0; reap-lease-model-green.log also records its generated quiet invocation.
+python3 -I scripts/test-e1c-rework-controls.py --case mcp-exited-term --case mcp-exited-grace --case reap-lease --case mcp-reap-ownership --case sigchld-admission --case reap-lease-model --case group-kill --case leader-only --case pty-spawn-fds --case pty-hangup-poll --case pty-writer-drop --out .bboxy/runs/group-kill-residuals/round2/controls
+  exit 0. controls/controls.json records all 11 current source hashes, per-case
+  cargo argv, red 101 and restored green 0. Adjacent logs retain actual output.
+  Each source hash was checked before commit. Named failing assertions:
+  mcp-exited-term: already-exited MCP cleanup sent TERM
+  mcp-exited-grace: already-exited MCP cleanup slept through grace
+  reap-lease: ECHILD observed a PID released while its group was registered
+  mcp-reap-ownership: BOTH already-fenced and failed-handoff foreign-pgid assertions
+  sigchld-admission: automatic SIGCHLD reaping was admitted
+  reap-lease-model: NoSignalToEmptyGroup
+  group-kill: MCP server group survived Close
+  leader-only: MCP server group survived Close: orphaned member
+  pty-spawn-fds: non-PTY child retained a sibling master
+  pty-hangup-poll: physical PTY EOF was classified as cooked Ctrl-D
+  pty-writer-drop: writer drop injected terminal input
+
+make test
+  exit 0 unattended, on signed source ae2d7fd04cc81265d14ed9615f29e5e175826fa3.
+  make-test.log is complete captured output (1034 lines). test-current.json
+  records all 16 canonical child exits and all 135 source hashes. GUI continuation
+  records all 4 child exits0. Private HOME; operator_input=false.
+  Every input hash matches the records commit. Exact children:
+  cargo fmt --check — exit 0
+  cargo clippy --offline --locked --all-targets -- -D warnings — exit 0
+  cargo clippy --offline --locked --all-targets --all-features -- -D warnings — exit 0
+  cargo test --offline --locked --all-targets -- --skip non_pty_spawn_does_not_keep_a_sibling_master_alive — exit 0
+  cargo test --offline --locked --all-targets --features acp,test-fixtures -- --skip seat_launch:: --skip non_pty_spawn_does_not_keep_a_sibling_master_alive — exit 0
+  cargo test --offline --locked --features acp,test-fixtures --test seat_process seat_launch:: — exit 0
+  cargo test --offline --locked --features acp,test-fixtures --test seat_process non_pty_spawn_does_not_keep_a_sibling_master_alive -- --exact — exit 0
+  python3 -I scripts/test-hardening.py — exit 0
+  make test-formal-native — exit 0
+  make test-formal-parity — exit 0
+  python3 -I scripts/checks.py secrets — exit 0
+  python3 -I scripts/checks.py headers — exit 0
+  python3 -I scripts/checks.py kb-records — exit 0
+  python3 -I scripts/checks.py kb-records-control — exit 0
+  python3 -I scripts/checks.py inventory-shape — exit 0
+  python3 -I scripts/checks.py inventory-shape-control — exit 0
+  GUI continuation:
+  python3 -I tests/gui_dependencies.py — exit 0
+  cargo clippy --offline --locked --all-features --lib --bin bboxy450-harness -- -D warnings — exit 0
+  cargo test --offline --locked --features standalone --test gui_rich --test gui_render --test gui_bridge --test gui_fixtures --test gui_budget --test gui_cli -- --nocapture — exit 0
+  make test-gui-smoke — exit 0
+  GUI smoke PASS:22 visible items,15 kinds,3 approval buttons, scrolled
+  viewport, Metal1120x7000. The UI-blocking-IO panic is expected and caught
+  by its passing test; every GUI child exits0.
+
+6. Scope, limits and signed handoff
+
+OwnedChild still exclusively owns the private Child and registration. Every
+wait and Drop fences the group before reap. SIGCHLD autoreaping is refused;
+the MCP SDK receives only byte pipes. Foreign unsafe waitpid on another
+owner's child, or installing autoreaping after spawn, violates the explicit
+ownership precondition. ECHILD cannot retrospectively repair that external
+reap. Pinned Tokio 1.54.1 sees this child in its orphan queue only after our
+Drop fence. These are the unchanged, reviewed assumptions.
+Foreign-pgid reuse is deterministic injection after a real leader release,
+using the fixture's own group, rather than forcing Darwin's allocator to wrap.
+Finite-model parity does not prove arbitrary Rust refinement; OS/SC/signal
+instructions have implementation witnesses. Wall-clock benchmarks stay outside
+the canonical gate. No live-provider smoke was assigned or added. No real
+credential value was printed or committed. No assigned finding is waived.
+
+All task commits are signed Boxy <bboxy450@gmail.com>, key
+9B07E849480C68328CA20684844ECC0587DE7AB0. The final records commit contains
+this report and changes no verification input. Its exact pushed signed SHA
+and refreshed head-bound formal receipt are in the authenticated task_report.
+Source/model/tool-hash-bound proof archives remain in verification/evidence/;
+current-head logs remain under round2/. Tracked source is clean at handoff.
+The original reviewed ownership fence is preserved and all four round2
+findings are complete. Historical first-round logs are retained as history,
+not presented as current-source evidence.
+Report: [[2026-11-01-group-kill-residuals-report]]

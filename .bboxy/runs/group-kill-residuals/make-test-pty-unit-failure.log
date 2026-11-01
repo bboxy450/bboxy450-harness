@@ -1,0 +1,52 @@
+python3 -I scripts/test.py
+test: cargo fmt --check
+test: cargo clippy --offline --locked --all-targets -- -D warnings
+    Checking schemars v1.2.3
+    Checking process-wrap v10.0.1
+    Checking tower-http v0.6.11
+    Checking bboxy450-yarn v0.1.1
+    Checking reqwest v0.12.28
+    Checking rmcp v3.5.1
+    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-core)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 24.79s
+test: cargo clippy --offline --locked --all-targets --all-features -- -D warnings
+    Blocking waiting for file lock on package cache
+    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-core)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.98s
+test: cargo test --offline --locked --all-targets --features acp,test-fixtures -- --skip seat_launch::
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.94s
+     Running unittests src/lib.rs (target/debug/deps/bboxy450_harness-b06c501198e934e9)
+
+running 14 tests
+test process::ownership_tests::automatic_sigchld_reaping_is_refused_before_spawn ... ok
+test mcp::source_tests::reserved_reference_is_a_typed_config_error_before_resolution ... ok
+test process::ownership_tests::reaped_group_drop_never_signals_a_reused_identity ... ok
+test process::ownership_tests::released_registration_does_not_clear_a_reused_slot ... ok
+test mcp::source_tests::launcher_provenance_cannot_come_from_server_json_and_overrides_once ... ok
+test frontends::headless::tty_tests::physical_eof_is_distinct_from_cooked_control_d ... FAILED
+test redact::ordered_tests::held_tails_keep_arrival_order_and_cross_stream_secrets_are_scrubbed ... ok
+test gateway::admission_tests::held_capacity_returns_busy_without_an_actor_or_runtime ... ok
+test frontends::acp::tests::admission_lag_replays_the_durable_prompt_before_next_input ... ok
+test engine::hardening_tests::crashed_closes_from_the_durable_head_not_runtime_identity ... ok
+test engine::hardening_tests::launch_context_is_in_the_first_scripted_request_stable_prefix ... ok
+test frontends::acp::tests::real_stream_with_forced_ephemeral_drops_repairs_from_completion_and_snapshot ... ok
+test process::ownership_tests::echild_after_owned_reap_never_leaves_a_signal_target ... ok
+test engine::hardening_tests::a_b_a_is_fenced_by_birth_not_identity ... ok
+
+failures:
+
+---- frontends::headless::tty_tests::physical_eof_is_distinct_from_cooked_control_d stdout ----
+
+thread 'frontends::headless::tty_tests::physical_eof_is_distinct_from_cooked_control_d' (122884266) panicked at src/frontends/headless.rs:449:9:
+physical PTY EOF was classified as cooked Ctrl-D
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    frontends::headless::tty_tests::physical_eof_is_distinct_from_cooked_control_d
+
+test result: FAILED. 13 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.75s
+
+error: test failed, to rerun pass `--lib`
+make: *** [test] Error 101

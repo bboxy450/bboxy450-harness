@@ -38,11 +38,11 @@ pub struct Request {
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 static CLOSING: AtomicBool = AtomicBool::new(false);
 static GROUPS: [AtomicI32; 256] = [const { AtomicI32::new(0) }; 256];
-pub(crate) struct GroupReservation {
+struct GroupReservation {
     slot: &'static AtomicI32,
     pgid: i32,
 }
-pub(crate) fn reserve_group() -> io::Result<GroupReservation> {
+fn reserve_group() -> io::Result<GroupReservation> {
     if CLOSING.load(Ordering::SeqCst) {
         return Err(io::Error::new(
             io::ErrorKind::Interrupted,
@@ -94,20 +94,22 @@ impl Drop for GroupReservation {
         self.release();
     }
 }
+fn signal_registered_group(slot: &AtomicI32, pgid: i32, send: impl FnOnce(i32)) {
+    if pgid > 1
+        && slot
+            .compare_exchange(pgid, -pgid, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    {
+        send(pgid);
+        slot.store(pgid, Ordering::SeqCst);
+    }
+}
 pub(crate) fn kill_owned_groups() {
     CLOSING.store(true, Ordering::SeqCst);
     for slot in &GROUPS {
-        let pgid = slot.load(Ordering::SeqCst);
-        if pgid > 1
-            && slot
-                .compare_exchange(pgid, -pgid, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-        {
-            unsafe {
-                libc::kill(-pgid, libc::SIGKILL);
-            }
-            slot.store(pgid, Ordering::SeqCst);
-        }
+        signal_registered_group(slot, slot.load(Ordering::SeqCst), |pgid| unsafe {
+            libc::kill(-pgid, libc::SIGKILL);
+        });
     }
 }
 extern "C" fn shutdown_signal(_signal: i32) {
@@ -141,14 +143,14 @@ pub(crate) fn install_shutdown_handlers() -> io::Result<()> {
     }
     Ok(())
 }
-pub(crate) struct OwnedGroup {
+struct OwnedGroup {
     pgid: u32,
     unreaped: bool,
     registration: GroupReservation,
     signal: Box<dyn Fn(u32, i32) + Send + Sync>,
 }
 impl OwnedGroup {
-    pub(crate) fn new(pgid: u32, registration: GroupReservation) -> Self {
+    fn new(pgid: u32, registration: GroupReservation) -> Self {
         let mut group = Self {
             pgid,
             unreaped: true,
@@ -160,14 +162,14 @@ impl OwnedGroup {
         group.registration.bind(pgid);
         group
     }
-    pub(crate) fn send(&self, signal: i32) {
+    fn send(&self, signal: i32) {
         if self.unreaped {
             (self.signal)(self.pgid, signal);
         }
     }
     // Remove the signal-path reservation BEFORE the wait that can release/reuse
     // the PID. Callers have already killed the group, or observed external reap.
-    pub(crate) fn reaped(&mut self) {
+    fn reaped(&mut self) {
         self.registration.release();
         self.unreaped = false;
     }
@@ -177,9 +179,171 @@ impl Drop for OwnedGroup {
         self.send(libc::SIGKILL);
     }
 }
+/// The only owner of a waitable leader and its group lease. Neither the SDK
+/// nor pipe readers receive Child/a wait future. All mutable child access stays
+/// in this module; both wait and Drop retire the group before Tokio may reap.
+///
+/// ECHILD cannot precede retirement in the supported process: SIGCHLD automatic
+/// reaping is refused at spawn, WNOWAIT never collects, and Tokio's orphan queue
+/// gets this child only when it is dropped (after this Drop fence). Installing
+/// a reaping SIGCHLD disposition or calling waitpid on another owner's child
+/// from foreign/unsafe embedding code violates this ownership contract.
+/// See Tokio 1.54.1 process/unix/{reap,orphan}.rs: only the owned child is polled.
+pub(crate) struct OwnedChild {
+    group: OwnedGroup,
+    child: tokio::process::Child,
+    #[cfg(feature = "test-fixtures")]
+    audit: Option<std::sync::Arc<fixtures::Audit>>,
+}
+fn check_sigchld(action: &libc::sigaction) -> io::Result<()> {
+    if action.sa_sigaction == libc::SIG_IGN || action.sa_flags & libc::SA_NOCLDWAIT != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "SIGCHLD must retain child status",
+        ));
+    }
+    Ok(())
+}
+impl OwnedChild {
+    pub(crate) fn spawn(mut command: Command) -> io::Result<Self> {
+        let mut action = std::mem::MaybeUninit::<libc::sigaction>::uninit();
+        if unsafe { libc::sigaction(libc::SIGCHLD, std::ptr::null(), action.as_mut_ptr()) } == -1 {
+            return Err(io::Error::last_os_error());
+        }
+        let action = unsafe { action.assume_init() };
+        check_sigchld(&action)?;
+        let reservation = reserve_group()?;
+        let child = command.process_group(0).kill_on_drop(true).spawn()?;
+        let pgid = child.id().expect("new child is waitable");
+        Ok(Self {
+            group: OwnedGroup::new(pgid, reservation),
+            child,
+            #[cfg(feature = "test-fixtures")]
+            audit: None,
+        })
+    }
+    pub(crate) fn pgid(&self) -> u32 {
+        self.group.pgid
+    }
+    pub(crate) fn stdout(&mut self) -> Option<tokio::process::ChildStdout> {
+        self.child.stdout.take()
+    }
+    pub(crate) fn stderr(&mut self) -> Option<tokio::process::ChildStderr> {
+        self.child.stderr.take()
+    }
+    pub(crate) fn stdin(&mut self) -> Option<tokio::process::ChildStdin> {
+        self.child.stdin.take()
+    }
+    pub(crate) fn send(&self, signal: i32) {
+        #[cfg(feature = "test-fixtures")]
+        if signal == libc::SIGTERM
+            && let Some(audit) = &self.audit
+        {
+            audit.term_signals.fetch_add(1, Ordering::SeqCst);
+        }
+        self.group.send(signal);
+    }
+    pub(crate) fn exited(&self) -> io::Result<bool> {
+        if !self.group.unreaped {
+            return Ok(true); // An earlier owned wait already killed and retired this group.
+        }
+        exited_without_reaping(self.pgid())
+    }
+    pub(crate) async fn grace_until(&mut self, deadline: Instant) {
+        #[cfg(feature = "test-fixtures")]
+        if let Some(audit) = &self.audit {
+            audit.grace_sleeps.fetch_add(1, Ordering::SeqCst);
+        }
+        sleep_until(deadline).await;
+    }
+    fn retire_for_reap(&mut self) {
+        self.group.send(libc::SIGKILL);
+        self.group.reaped();
+    }
+    pub(crate) async fn wait(&mut self) -> io::Result<std::process::ExitStatus> {
+        self.retire_for_reap();
+        let result = self.child.wait().await;
+        #[cfg(feature = "test-fixtures")]
+        if let Some(audit) = &self.audit {
+            audit.released.store(true, Ordering::SeqCst);
+            // Exercise the handler's real CAS/signal action after PID release.
+            // A reused slot for another pid must not be targeted by this probe.
+            signal_registered_group(self.group.registration.slot, self.pgid() as i32, |pgid| {
+                (self.group.signal)(pgid as u32, libc::SIGKILL);
+            });
+        }
+        result
+    }
+    fn disown_after_contract_violation(&mut self) {
+        // Defense in depth for foreign code breaking the documented invariant;
+        // observing ECHILD cannot retroactively fence an arbitrary external reap.
+        self.group.reaped();
+    }
+}
+impl Drop for OwnedChild {
+    fn drop(&mut self) {
+        self.retire_for_reap();
+    }
+}
 #[cfg(test)]
 mod ownership_tests {
     use super::*;
+    #[tokio::test]
+    async fn echild_after_owned_reap_never_leaves_a_signal_target() {
+        use std::sync::{Arc, atomic::AtomicUsize};
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "exit 0"])
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut owner = OwnedChild::spawn(command).unwrap();
+        let pgid = owner.pgid();
+        let released = Arc::new(AtomicBool::new(false));
+        let late = Arc::new(AtomicUsize::new(0));
+        let flag = released.clone();
+        let seen = late.clone();
+        owner.group.signal = Box::new(move |_, _| {
+            if flag.load(Ordering::SeqCst) {
+                seen.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        owner.wait().await.unwrap();
+        released.store(true, Ordering::SeqCst);
+        let slot = owner.group.registration.slot;
+        let visible = owner.group.unreaped
+            && matches!(slot.load(Ordering::SeqCst),pid if pid==pgid as i32 || pid==-(pgid as i32));
+        let error = exited_without_reaping(pgid).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::ECHILD));
+        signal_registered_group(slot, pgid as i32, |pid| {
+            (owner.group.signal)(pid as u32, libc::SIGKILL);
+        });
+        drop(owner);
+        assert!(
+            !visible,
+            "ECHILD observed a PID released while its group was registered"
+        );
+        assert_eq!(
+            late.load(Ordering::SeqCst),
+            0,
+            "retired leader generated a foreign-group signal"
+        );
+    }
+    #[test]
+    fn automatic_sigchld_reaping_is_refused_before_spawn() {
+        let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+        action.sa_sigaction = libc::SIG_IGN;
+        assert!(
+            check_sigchld(&action).is_err(),
+            "automatic SIGCHLD reaping was admitted"
+        );
+        action.sa_sigaction = libc::SIG_DFL;
+        action.sa_flags = libc::SA_NOCLDWAIT;
+        assert!(check_sigchld(&action).is_err(), "SA_NOCLDWAIT was admitted");
+        action.sa_flags = 0;
+        assert!(check_sigchld(&action).is_ok());
+    }
     #[test]
     fn released_registration_does_not_clear_a_reused_slot() {
         static SLOT: AtomicI32 = AtomicI32::new(123);
@@ -295,7 +459,6 @@ async fn run_inner(
     if cancel.is_cancelled() {
         return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
     }
-    let reservation = reserve_group()?;
     let mut command = Command::new(req.program);
     command
         .args(req.args)
@@ -319,12 +482,11 @@ async fn run_inner(
             }
         }
     }
-    let mut child = command.spawn()?;
-    let pgid = child.id().expect("spawned child PID");
-    let mut group = OwnedGroup::new(pgid, reservation);
-    let mut stdout = child.stdout.take().unwrap();
-    let mut stderr = child.stderr.take().unwrap();
-    let mut input = child.stdin.take();
+    let mut child = OwnedChild::spawn(command)?;
+    let pgid = child.pgid();
+    let mut stdout = child.stdout().unwrap();
+    let mut stderr = child.stderr().unwrap();
+    let mut input = child.stdin();
     let input_bytes = req.stdin.unwrap_or_default().into_bytes();
     let mut input_offset = 0;
     let mut bytes = zeroize::Zeroizing::new(Vec::new());
@@ -348,12 +510,14 @@ async fn run_inner(
             break;
         }
         let chunk = tokio::select! {biased;
-            _=cancel.cancelled(),if !cancelled=> {cancelled=true;terminate(&group).await;if status.is_none(){group.reaped();let waited=child.wait().await;status=Some(waited?);}drain_deadline=Some(Instant::now()+Duration::from_millis(500));None},
-            _=sleep_until(deadline),if !cancelled=>{cancelled=true;terminate(&group).await;if status.is_none(){group.reaped();let waited=child.wait().await;status=Some(waited?);}drain_deadline=Some(Instant::now()+Duration::from_millis(500));None},
+            _=cancel.cancelled(),if !cancelled=> {cancelled=true;terminate(&child).await;if status.is_none(){let waited=child.wait().await;status=Some(waited?);}drain_deadline=Some(Instant::now()+Duration::from_millis(500));None},
+            _=sleep_until(deadline),if !cancelled=>{cancelled=true;terminate(&child).await;if status.is_none(){let waited=child.wait().await;status=Some(waited?);}drain_deadline=Some(Instant::now()+Duration::from_millis(500));None},
             result=&mut exited,if !leader_done && status.is_none()=>{
                 if let Err(error)=result {
-                    // An external reaper has already released the reservation.
-                    if error.raw_os_error()==Some(libc::ECHILD) { group.reaped(); }
+                    // Private OwnedChild wait/Drop and the SIGCHLD admission
+                    // invariant exclude ECHILD before retirement. This fallback
+                    // disowns immediately if foreign unsafe code violates it.
+                    if error.raw_os_error()==Some(libc::ECHILD) {child.disown_after_contract_violation();}
                     return Err(error);
                 }
                 leader_done=true;
@@ -405,8 +569,6 @@ async fn run_inner(
     if status.is_none() {
         // Even when the pipes closed normally, retire any background members
         // before releasing the leader's PID. Drop then cannot hit a reused pgid.
-        group.send(libc::SIGKILL);
-        group.reaped();
         let waited = child.wait().await;
         status = Some(waited?);
     }
@@ -445,8 +607,178 @@ async fn run_inner(
         cancelled,
     })
 }
-async fn terminate(group: &OwnedGroup) {
+async fn terminate(group: &OwnedChild) {
     group.send(libc::SIGTERM);
     tokio::time::sleep(Duration::from_millis(500)).await;
     group.send(libc::SIGKILL);
+}
+
+// Fault fixtures share the real owner/wait boundary. They run only in the
+// explicit test-fixtures build and use their own disposable foreign group.
+#[cfg(feature = "test-fixtures")]
+pub mod fixtures {
+    use super::*;
+    use std::{
+        path::Path,
+        sync::{Arc, atomic::AtomicUsize},
+    };
+    pub(super) struct Audit {
+        pub(super) released: AtomicBool,
+        pub(super) term_signals: AtomicUsize,
+        pub(super) grace_sleeps: AtomicUsize,
+        late: AtomicUsize,
+    }
+    pub struct Observation {
+        pub members_dead: bool,
+        pub foreign_alive: bool,
+        pub late_signals: usize,
+        pub term_signals: usize,
+        pub grace_sleeps: usize,
+        pub member_present_before_finish: bool,
+        pub missing_id: bool,
+        pub failed_handoff: bool,
+    }
+    pub(crate) struct Fixture {
+        pub(crate) child: Option<OwnedChild>,
+        pub(crate) pipes: Option<(tokio::process::ChildStdout, tokio::process::ChildStdin)>,
+        group: i32,
+        member: i32,
+        member_present_before_finish: bool,
+        foreign: Option<std::process::Child>,
+        audit: Arc<Audit>,
+        retired: bool,
+    }
+    fn gone(pgid: i32) -> bool {
+        (unsafe { libc::kill(-pgid, 0) }) == -1
+            && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+    }
+    impl Fixture {
+        pub(crate) async fn start(program: &Path, root: &Path) -> Self {
+            use std::os::unix::process::CommandExt;
+            let file = root.join("members");
+            let mut command = Command::new(program);
+            command
+                .arg("stubborn_group")
+                .env_clear()
+                .env("MCP_GROUP", &file)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null());
+            let mut child = OwnedChild::spawn(command).unwrap();
+            let group = child.pgid() as i32;
+            let pipes = Some((child.stdout().unwrap(), child.stdin().unwrap()));
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while !file.exists() {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .expect("stubborn group did not publish");
+            let member = std::fs::read_to_string(&file)
+                .unwrap()
+                .split_whitespace()
+                .nth(1)
+                .unwrap()
+                .parse()
+                .unwrap();
+            let foreign = std::process::Command::new("/bin/sleep")
+                .arg("600")
+                .env_clear()
+                .process_group(0)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            let foreign_pid = foreign.id() as i32;
+            let audit = Arc::new(Audit {
+                released: AtomicBool::new(false),
+                term_signals: AtomicUsize::new(0),
+                grace_sleeps: AtomicUsize::new(0),
+                late: AtomicUsize::new(0),
+            });
+            let seen = audit.clone();
+            let original = std::mem::replace(&mut child.group.signal, Box::new(|_, _| {}));
+            child.group.signal = Box::new(move |pgid, signal| {
+                if seen.released.load(Ordering::SeqCst) {
+                    // Deterministic unit-style PID reuse injection: once the
+                    // original leader is released, a stale target is foreign.
+                    // This foreign group is owned solely by this test fixture.
+                    seen.late.fetch_add(1, Ordering::SeqCst);
+                    unsafe {
+                        libc::kill(-foreign_pid, signal);
+                    }
+                } else {
+                    original(pgid, signal);
+                }
+            });
+            child.audit = Some(audit.clone());
+            Self {
+                child: Some(child),
+                pipes,
+                group,
+                member,
+                member_present_before_finish: false,
+                foreign: Some(foreign),
+                audit,
+                retired: false,
+            }
+        }
+        pub(crate) async fn exit_leader(&mut self) {
+            assert_eq!(unsafe { libc::kill(self.group, libc::SIGKILL) }, 0);
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while !self.child.as_ref().unwrap().exited().unwrap() {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .expect("leader did not become waitable");
+        }
+        pub(crate) fn record_member_before_finish(&mut self) {
+            self.member_present_before_finish = unsafe { libc::kill(self.member, 0) } == 0;
+        }
+        pub(crate) async fn observe(
+            mut self,
+            missing_id: bool,
+            failed_handoff: bool,
+        ) -> Observation {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while !gone(self.group) && Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            self.retired = gone(self.group);
+            let foreign_alive = self.foreign.as_mut().unwrap().try_wait().unwrap().is_none();
+            if !foreign_alive {
+                self.foreign.take();
+            }
+            Observation {
+                members_dead: self.retired,
+                foreign_alive,
+                late_signals: self.audit.late.load(Ordering::SeqCst),
+                term_signals: self.audit.term_signals.load(Ordering::SeqCst),
+                grace_sleeps: self.audit.grace_sleeps.load(Ordering::SeqCst),
+                member_present_before_finish: self.member_present_before_finish,
+                missing_id,
+                failed_handoff,
+            }
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            if !self.retired {
+                unsafe {
+                    libc::kill(-self.group, libc::SIGKILL);
+                }
+            }
+            if let Some(mut child) = self.foreign.take() {
+                unsafe {
+                    libc::kill(-(child.id() as i32), libc::SIGKILL);
+                }
+                let _ = child.wait();
+            }
+        }
+    }
+    pub(crate) fn missing_id(child: &OwnedChild) -> bool {
+        child.child.id().is_none()
+    }
 }

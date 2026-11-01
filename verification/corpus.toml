@@ -318,3 +318,13 @@ frontend = "project"
 name = "BrokenHarnessProcessHangup"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "BrokenHarnessProcessReapLease"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessMcpLostChild"
+expected = "safety"
+frontend = "project"

@@ -403,3 +403,57 @@ fn synchronous_hangup_kill_precedes_the_supervisors_unjoinable_exit() {
             .any(|v| v.property == "NoOwnedMemberAfterSupervisorKill" && v.cycle.is_empty())
     );
 }
+
+#[test]
+fn reap_identity_is_retired_and_both_mcp_notifications_complete() {
+    let owner = model("HarnessProcessLifecycle");
+    let leader = variable(&owner, "leader");
+    let registered = variable(&owner, "registered");
+    let good = owner.check(100_000).unwrap();
+    assert!(good.violations.is_empty(), "NoSignalToEmptyGroup");
+    assert!(good.states.iter().any(|s| s[leader] == 2));
+    assert!(
+        good.states
+            .iter()
+            .all(|s| s[leader] != 2 || s[registered] == 0)
+    );
+    let bad_owner = model("BrokenHarnessProcessReapLease");
+    let foreign_signal = variable(&bad_owner, "signal_to_empty");
+    let broken = bad_owner.check(100_000).unwrap();
+    assert!(
+        broken
+            .states
+            .iter()
+            .any(|s| s[leader] == 2 && s[registered] == 1 && s[foreign_signal] == 1),
+        "stale registration never enabled a foreign signal"
+    );
+    assert!(
+        broken
+            .violations
+            .iter()
+            .any(|v| v.property == "NoSignalToEmptyGroup" && v.cycle.is_empty())
+    );
+    let mcp = model("HarnessMcpGroupClose");
+    let notice = variable(&mcp, "notification");
+    let done = variable(&mcp, "close");
+    let reaped = variable(&mcp, "leader_reaped");
+    let good = mcp.check(100_000).unwrap();
+    assert!(good.violations.is_empty());
+    for state in [1, 2] {
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[notice] == state && s[done] == 3)
+        );
+    }
+    assert!(
+        good.states.iter().any(|s| s[reaped] == 1 && s[done] == 0),
+        "missing-id path is unreachable"
+    );
+    let bad = model("BrokenHarnessMcpLostChild").check(100_000).unwrap();
+    assert!(
+        bad.violations
+            .iter()
+            .any(|v| v.property == "NoMemberAfterClose" && v.cycle.is_empty())
+    );
+}

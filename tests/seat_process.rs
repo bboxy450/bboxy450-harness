@@ -15,6 +15,19 @@ mod seat_launch;
 #[cfg(feature = "test-fixtures")]
 #[path = "support/seat_shutdown.rs"]
 mod seat_shutdown;
+// Match portable-pty's pre-exec descriptor fence for the one non-PTY child.
+// openpty publishes descriptors before setting CLOEXEC; concurrent fixtures
+// must never hand a sibling's master to the key-resolution process.
+fn spawn_without_sibling_fds(command: &mut std::process::Command) -> std::process::Child {
+    use std::os::unix::process::CommandExt;
+    unsafe {
+        command.pre_exec(|| {
+            portable_pty::unix::close_random_fds();
+            Ok(())
+        });
+    }
+    command.spawn().unwrap()
+}
 fn launch(
     script: &str,
 ) -> (
@@ -138,15 +151,15 @@ fn terminate_during_key_resolution_joins_the_key_process() {
     std::fs::create_dir_all(&profiles).unwrap();
     let pid = temp.path().join("key.pid");
     std::fs::write(profiles.join("slow.md"),format!("---\nname: slow\nmodel: unused\nendpoint: http://127.0.0.1:9/v1\napi_key: '!echo $$ > {}.tmp; mv {}.tmp {}; sleep 600'\n---\n",pid.display(),pid.display(),pid.display())).unwrap();
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
-        .args(["seat", "--profile", "slow", "--cwd"])
-        .arg(temp.path())
-        .env("HOME", temp.path())
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut child = spawn_without_sibling_fds(
+        std::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
+            .args(["seat", "--profile", "slow", "--cwd"])
+            .arg(temp.path())
+            .env("HOME", temp.path())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped()),
+    );
     let deadline = Instant::now() + Duration::from_secs(3);
     while !pid.exists() {
         assert!(Instant::now() < deadline, "key command not started");
@@ -171,5 +184,59 @@ fn terminate_during_key_resolution_joins_the_key_process() {
     assert_eq!(
         std::io::Error::last_os_error().raw_os_error(),
         Some(libc::ESRCH)
+    );
+}
+
+#[test]
+// scripts/test.py runs this case alone: it deliberately exposes a master fd.
+fn non_pty_spawn_does_not_keep_a_sibling_master_alive() {
+    use std::os::{fd::AsRawFd, unix::fs::OpenOptionsExt};
+    let pty = native_pty_system()
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+    let slave = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(pty.master.tty_name().unwrap())
+        .unwrap();
+    let fd = pty.master.as_raw_fd().unwrap();
+    // Deliberately expose the exact openpty -> CLOEXEC window, without timing.
+    assert_eq!(unsafe { libc::fcntl(fd, libc::F_SETFD, 0) }, 0);
+    let mut child = spawn_without_sibling_fds(
+        std::process::Command::new("/bin/sh")
+            .args(["-c", "printf R; exec sleep 600"])
+            .env_clear()
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null()),
+    );
+    child
+        .stdout
+        .as_mut()
+        .unwrap()
+        .read_exact(&mut [0u8; 1])
+        .unwrap();
+    drop(pty.master);
+    let mut poll = libc::pollfd {
+        fd: slave.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    unsafe {
+        // Hang guard for kernel close and another concurrent pre-exec fence.
+        libc::poll(&mut poll, 1, 2000);
+    }
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert_ne!(
+        poll.revents & libc::POLLHUP,
+        0,
+        "non-PTY child retained a sibling master"
     );
 }
