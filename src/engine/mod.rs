@@ -76,7 +76,7 @@ struct Running {
     generation: u64,
     cancel: CancellationToken,
     steer: mpsc::Sender<(OpId, Vec<InputBlock>)>,
-    pending: BTreeMap<OpId, Vec<InputBlock>>,
+    pending: VecDeque<(OpId, Vec<InputBlock>)>,
     cause: Option<OpId>,
 }
 pub struct SessionActor {
@@ -206,6 +206,7 @@ impl SessionActor {
         }
         let mut tick = tokio::time::interval(std::time::Duration::from_millis(25));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut work_batch = 0usize;
         let result=async {
    loop {
     if self.running.is_none() {
@@ -220,10 +221,10 @@ impl SessionActor {
     }
     tokio::select! {biased;
      Some(op)=self.control.recv()=>self.op(op).await?,
-     Some(message)=self.internal.recv()=>self.internal(message).await?,
+     Some(op)=self.work.recv(),if self.stopping.is_none()&&work_batch<8=>{work_batch+=1;self.op(op).await?;},
+     Some(message)=self.internal.recv()=>{work_batch=0;self.internal(message).await?;},
      Some(result)=self.tasks.join_next(),if !self.tasks.is_empty()=> {if let Err(e)=result {self.crashed(&format!("runner failed: {}",if e.is_panic(){"panic"}else{"cancelled"})).await?;}},
-     Some(op)=self.work.recv(),if self.stopping.is_none()=>self.op(op).await?,
-     _=tick.tick()=>self.gateway.hub.flush_deltas(),
+     _=tick.tick()=>{work_batch=0;self.gateway.hub.flush_deltas();},
     }
     tokio::task::yield_now().await;
    }Ok(())
@@ -271,7 +272,7 @@ impl SessionActor {
             generation,
             cancel,
             steer,
-            pending: BTreeMap::new(),
+            pending: VecDeque::new(),
             cause: None,
         });
         self.tasks.spawn_on(
@@ -307,7 +308,7 @@ impl SessionActor {
                 if matches!(mode, TurnMode::Steer) && self.running.is_some() {
                     let r = self.running.as_mut().unwrap();
                     if r.steer.try_send((id, blocks.clone())).is_ok() {
-                        r.pending.insert(id, blocks);
+                        r.pending.push_back((id, blocks));
                     } else {
                         self.reject(
                             id,
@@ -451,7 +452,11 @@ impl SessionActor {
                 } = event
                     && let Some(op) = cause
                 {
-                    self.running.as_mut().unwrap().pending.remove(&op);
+                    self.running
+                        .as_mut()
+                        .unwrap()
+                        .pending
+                        .retain(|(id, _)| *id != op);
                 }
                 if let Event::TurnEnded {
                     turn,

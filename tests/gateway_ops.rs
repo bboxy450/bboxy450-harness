@@ -10,8 +10,7 @@ use bboxy450_harness::{
     protocol::*,
 };
 use std::time::{Duration, Instant};
-#[tokio::test]
-async fn idempotence_and_interrupt_when_full() {
+async fn full_lane_case() {
     let mut p = bboxy450_harness::provider::ScriptedProvider::new(vec![support::sse("text")]);
     p.delay = Duration::from_millis(2);
     let s = support::with_provider(std::sync::Arc::new(p), false).await;
@@ -49,4 +48,13 @@ async fn version_and_unknown_session_refused() {
     op.session = SessionId::new();
     assert_eq!(s.gateway.send(op), Err(Refused::UnknownSession));
     support::close(s).await;
+}
+
+#[tokio::test]
+async fn busy_not_wait() {
+    full_lane_case().await;
+}
+#[tokio::test]
+async fn interrupt_when_full() {
+    full_lane_case().await;
 }

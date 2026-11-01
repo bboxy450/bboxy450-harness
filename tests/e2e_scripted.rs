@@ -57,3 +57,130 @@ async fn malformed_stream_has_one_ending() {
     ));
     close(s).await;
 }
+#[tokio::test]
+async fn steer_at_round_boundary_appears_once_in_running_turn() {
+    let mut p = bboxy450_harness::provider::ScriptedProvider::new(vec![sse("tools"), sse("text")]);
+    p.delay = std::time::Duration::from_micros(200);
+    let s = with_provider(std::sync::Arc::new(p), false).await;
+    let mut sub = subscribe(&s.gateway, false);
+    s.gateway.send(prompt(&s.gateway, "first")).unwrap();
+    let mut transcript = vec![];
+    loop {
+        let e = sub.recv().await.unwrap();
+        let started = matches!(e.event, Event::TurnStarted { .. });
+        transcript.push(e);
+        if started {
+            break;
+        }
+    }
+    let steer = op(
+        &s.gateway,
+        Op::UserTurn {
+            blocks: vec![InputBlock::Text {
+                text: "steered context".into(),
+            }],
+            mode: TurnMode::Steer,
+        },
+    );
+    s.gateway.send(steer.clone()).unwrap();
+    transcript.extend(end(&mut sub).await);
+    assert_eq!(
+        transcript
+            .iter()
+            .filter(|e| matches!(e.event, Event::TurnQueued { .. }))
+            .count(),
+        1
+    );
+    assert_eq!(
+        transcript
+            .iter()
+            .filter(|e| matches!(
+                e.event,
+                Event::ItemStarted {
+                    kind: ItemKind::UserMessage,
+                    ..
+                }
+            ) && e.cause == Some(steer.op_id))
+            .count(),
+        1
+    );
+    bboxy450_harness::protocol::laws::check_transcript(&transcript).unwrap();
+    close(s).await;
+}
+#[tokio::test]
+async fn steer_fallback_preserves_admission_order() {
+    let mut p = bboxy450_harness::provider::ScriptedProvider::new(vec![
+        sse("text"),
+        sse("text"),
+        sse("text"),
+    ]);
+    p.delay = std::time::Duration::from_micros(200);
+    let s = with_provider(std::sync::Arc::new(p), false).await;
+    let mut sub = subscribe(&s.gateway, false);
+    s.gateway.send(prompt(&s.gateway, "first")).unwrap();
+    let mut events = vec![];
+    loop {
+        let e = sub.recv().await.unwrap();
+        let start = matches!(e.event, Event::TurnStarted { .. });
+        events.push(e);
+        if start {
+            break;
+        }
+    }
+    for (id, text) in [(99u128, "second"), (10u128, "third")] {
+        let mut steer = op(
+            &s.gateway,
+            Op::UserTurn {
+                blocks: vec![InputBlock::Text { text: text.into() }],
+                mode: TurnMode::Steer,
+            },
+        );
+        steer.op_id = OpId(ulid::Ulid::from(id));
+        s.gateway.send(steer).unwrap();
+    }
+    for _ in 0..3 {
+        events.extend(end(&mut sub).await);
+    }
+    let users = events
+        .iter()
+        .filter_map(|e| {
+            if let Event::ItemCompleted {
+                body: Item::UserMessage { blocks },
+                ..
+            } = &e.event
+            {
+                if let InputBlock::Text { text } = &blocks[0] {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(users, ["first", "second", "third"]);
+    bboxy450_harness::protocol::laws::check_transcript(&events).unwrap();
+    close(s).await;
+}
+#[tokio::test]
+async fn bad_argument_object_is_a_paired_model_visible_error() {
+    let raw=br#"data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"bad-args","function":{"name":"read","arguments":"[]"}}]},"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+
+"#.to_vec();
+    let s = session(vec![raw, sse("text")], false).await;
+    let mut sub = subscribe(&s.gateway, false);
+    s.gateway.send(prompt(&s.gateway, "call tools")).unwrap();
+    let t = end(&mut sub).await;
+    assert!(t.iter().any(|e|matches!(&e.event,Event::ItemCompleted{body:Item::ToolCall{output,..},..} if matches!(&output[0],OutputBlock::Error{..}))));
+    assert!(matches!(
+        t.last().unwrap().event,
+        Event::TurnEnded {
+            reason: StopReason::EndTurn,
+            ..
+        }
+    ));
+    close(s).await;
+}
