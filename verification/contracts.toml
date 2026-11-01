@@ -28,8 +28,8 @@ checks = ["make test-formal", "make test"]
 name = "HarnessCancelTree"
 title = "No held completion applies across A-B-A births."
 models = ["HarnessCancelTree", "BrokenHarnessCancelTree"]
-sources = ["src/engine/turn_loop.rs", "tests/formal/models.rs"]
-implementation_tests = ["tests/cancel_process.rs", "tests/formal_nonvacuity.rs"]
+sources = ["src/engine/mod.rs", "src/engine/turn_loop.rs", "src/engine/task_group.rs", "tests/formal/models.rs"]
+implementation_tests = ["src/engine/mod.rs", "tests/cancel_process.rs", "tests/formal_nonvacuity.rs"]
 assumptions = "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof."
 property = "No held completion applies across A-B-A births."
 checks = ["make test-formal", "make test"]
@@ -49,9 +49,9 @@ name = "HarnessSteerQueue"
 title = "Interrupt admitted when work full; a steer is consumed exactly once under weak fairness."
 models = ["HarnessSteerQueue", "BrokenHarnessSteerQueue", "BrokenHarnessSteerQueueDelivery"]
 controls = [{name="BrokenHarnessSteerQueue", expected="liveness"}, {name="BrokenHarnessSteerQueueDelivery", expected="safety"}]
-sources = ["src/gateway/mod.rs", "tests/formal/models.rs"]
-implementation_tests = ["tests/gateway_ops.rs"]
-assumptions = "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof."
+sources = ["src/gateway/mod.rs", "src/engine/mod.rs", "src/engine/turn_loop.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/gateway_ops.rs", "tests/e2e_scripted.rs", "tests/formal_nonvacuity.rs"]
+assumptions = "One acked steer, one running/ended turn, one independent interrupt and a full 64-slot work lane. Weak fairness on delivery/conversion and control admission/consumption. Multi-steer FIFO order is an implementation witness in e2e_scripted; the separate ControlLaneBound model explores depths 0..257. No arbitrary Rust refinement proof."
 property = "Interrupt admitted when work full; a steer is consumed exactly once under weak fairness."
 checks = ["make test-formal", "make test"]
 
@@ -153,7 +153,7 @@ title="Cancellation closes escaped pipes and a reaped group cannot be signalled"
 models=["HarnessProcessLifecycle","BrokenHarnessProcessDrain","BrokenHarnessProcessOwnership"]
 controls=[{name="BrokenHarnessProcessDrain",expected="liveness"},{name="BrokenHarnessProcessOwnership",expected="safety"}]
 sources=["src/process.rs","tests/formal/models.rs"]
-implementation_tests=["tests/cancel_process.rs"]
+implementation_tests=["src/process.rs","tests/cancel_process.rs"]
 assumptions="One owned leader, one escaped pipe holder, four cancellation phases. Weak fairness on kill/drain/end models eventual progress; the physical 500ms grace and 2s bound are real-process witnesses."
 property="A cancelled run eventually ends after bounded drain; reaped ownership never signals a reused group."
 checks=["make test-formal","make test"]

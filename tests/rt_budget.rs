@@ -39,10 +39,11 @@ fn fixture() -> (tempfile::TempDir, Context) {
 }
 
 async fn greps(ctx: Context) {
-    let registry = Registry::new();
     let tasks = (0..16)
         .map(|_| {
-            let (registry, ctx) = (registry.clone(), ctx.clone());
+            // Distinct registries prevent their per-registry read limits from
+            // masking a broken harness-wide blocking semaphore.
+            let (registry, ctx) = (Registry::new(), ctx.clone());
             bbt_rt::handle().spawn(async move {
                 registry
                     .run("grep", serde_json::json!({"pattern":"absent"}), ctx, None)

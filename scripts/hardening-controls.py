@@ -33,6 +33,7 @@ CASES=[
  ('item14-old-reset','src/gateway/mod.rs',lambda s:replace_once(s,'req.after.is_some_and(|(_, s)| s > trusted)','req.after.is_some_and(|(e,s)|e!=hello.epoch&&s>hello.head)'),['cargo','test','--offline','--locked','--test','store_recovery','trusted_head_cursors']),
  ('item14-lost-epoch','src/store.rs',log_only_epoch,['cargo','test','--offline','--locked','--test','store_recovery','trusted_head_cursors']),
  ('item15-worker','src/tools.rs',lambda s:replace_once(s,'let result = blocking(move || file_tool(&name, &a, &c)).await;','let result = file_tool(&name, &a, &c);'),['cargo','test','--offline','--locked','--test','rt_budget','expensive_entries_hold_four_permits_off_the_io_workers']),
+ ('item15-permits','src/runtime.rs',lambda s:replace_once(s,'Semaphore::new(4)','Semaphore::new(8)'),['cargo','test','--offline','--locked','--test','rt_budget','expensive_entries_hold_four_permits_off_the_io_workers']),
 ]
 def run(label,command):
     r=subprocess.run(command,cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=120)

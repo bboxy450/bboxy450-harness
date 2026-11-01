@@ -29,9 +29,23 @@ including 82f2edd and 7bdf826 for budgets. Core owns grep/glob/dir-read/diff/fsy
 the Markdown execution witness belongs to E3 and remains unproven here.
 
 Full gate attempt 1 on 8aaae7e: `make test` exited 2. Fmt, clippy,
-all 70 Rust tests (one timing-only benchmark ignored) and five Python
+all 71 Rust tests (one timing-only benchmark ignored) and five Python
 hardening checks passed. The native inventory gate then rejected contract
 families with multiple controls. Fixed by declaring each additional negative
 control and its expected verdict explicitly, retaining omission/duplicate/
 unexecuted-control rejection. Eight formal gate negative tests and
 `make test-formal-native` then exited 0. A fresh canonical run follows.
+
+Canonical attempt 2 on 5d9f676: `make test` exited 0. All 71 Rust tests,
+five hardening gate tests, eight formal gate negative tests and exact native/
+pinned-Java parity for 36 model variants passed; receipt 2a96aa664ce461e7db23f15a7d333c3b1e328f1862de7bb2d2f5d34a0fc169de.
+`make smoke-live` ran once on the same unchanged product source: PASS, exit 0,
+three requests, one read, one edit, file changed and check_transcript=true.
+`make bench-budgets`: exit 0, UNMEASURED (load 66.11 > 10 CPUs); no timing PASS.
+
+A final witness review found that one shared tool registry could mask a broken
+global blocking limit. The 16 greps now use distinct registries. Both forcing
+grep onto an IO worker and changing the shared semaphore to eight permits
+fail the running test with exit 101; restored source passes with exit 0.
+The product source is unchanged by this strengthening. A canonical run for
+this final witness revision follows.

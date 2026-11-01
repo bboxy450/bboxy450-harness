@@ -213,5 +213,36 @@
       "exit_code": 0,
       "test_assertion_failed": false
     }
+  },
+  {
+    "item": "item15-permits",
+    "source": "src/runtime.rs",
+    "restored_sha256": "5d07be0ce4800646fb41d8743523cb48a78a93dcb6585d8be63e3c59e9fc47a2",
+    "red": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "rt_budget",
+        "expensive_entries_hold_four_permits_off_the_io_workers"
+      ],
+      "exit_code": 101,
+      "test_assertion_failed": true
+    },
+    "green": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "rt_budget",
+        "expensive_entries_hold_four_permits_off_the_io_workers"
+      ],
+      "exit_code": 0,
+      "test_assertion_failed": false
+    }
   }
 ]
