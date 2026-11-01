@@ -14,8 +14,8 @@ assignee: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
 authorship:
   kind: seat
   process_generation: '1'
-  public_key: z7MXMN9zYCeDf8l6mccA4WGnuUPuOhvLzpUcBLQLkXI=
-  signer: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+  public_key: 0Yj/k2rOV2tLHQm2aES5d/roSsYDRC/E70ukAxvovgo=
+  signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
 created: 2026-11-01T13:43:35.750Z
 created_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 delegated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
@@ -23,10 +23,10 @@ id: 01M6BNKVCH0RM4EP2Q50FTYTJC
 number: 4505
 provenance:
   digest: sha256:3f637a005708d7740c028c19cec1ceef95823ff597be2d5feaac887d0c2b958e
-  frontmatter_digest: sha256:8538e393c367168c1158aa9916531705751826cce48bacc94453dd9a203320dc
-  log: .bboxy/log/2026-11-01.jsonl#31475
-  sig: uI7NjHrNcz1nh+rO30LYLmpDnNIxASyvvkE0QhSFwdkSCGylpNmBbfnrfnHFTXVHcGjSWZ0xF7z+yplnOl0uDw==
-  signer: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+  frontmatter_digest: sha256:e2ae1cf70fae157efe8489c4b3535faa6f37d0e4d903b676a1b8cc19c21c0f11
+  log: .bboxy/log/2026-11-01.jsonl#31533
+  sig: 1WO4Bcgq81v4h4Mh9rzjbljJVqfDKi+D1A2Rov5+Z0SYydWYOTzhLeCXLdU5F//dOf8D0fV9MEl+XMfBYieUCw==
+  signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
 rejection:
   by: seat:01M6AC3D2ECK4W3F8495PAQTS3
   reason: |-
@@ -39,12 +39,12 @@ report:
   reported_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
   summary: 'Round 4 complete for review: PR #87 is OPEN at pushed signed capability-file head 63499b1e660d32eef1137ddcc55727c17aa68021, rebased onto E4''s landed d6fa3fd5c0f738b9a65e93646e750289914ff722. Reproduced both missing-target CiPhaseTests failures, added execution-recording capability stubs and combined-step assertions, retained both sides of ICD/Makefile/ci-local/landing-fixture conflicts, and updated E4''s overlay test for its MCP config plus capability file. Requested post-rebase commands all exit 0: python3 -I scripts/test-landing.py (140 fixtures), python3 -I scripts/test-landing-recovery.py (46 tests), plain make test (default concurrency, unattended). Canonical control is 101→0; E4''s compiled harness-native cases pass inside ci-local; real Codex remains in independent test-capability-native, run once on this final head, exit 0 (20 observations/60 checks, zero values/legacy keys/excused exits). Current formal receipt: 205 variants/32 crates/84 contracts, clean source. Ten source commits verify with the approved signing key; branch updated using an exact old-head lease, no author landing or merge. Full report committed alone on canonical harness main as signed 784cb3f56047b71338b07fb6afb23eff1563bf87: /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:180; SHA256 af8bf2e1d08f6dc66be02e92d9c9fa32ae19d6a1da4aa7449b5ca9da11ad5108. Exact report commit is supplied as allowed, without pushing unrelated local-main history. Native log: /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-native-final.log. Earlier artifact-digest refreshes were rejected as projection pending; not retried this round, report commit/hash supplied directly.'
 role: executor
-status: reported
+status: accepted
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E5: deliver seat capability by 0600 overlay file, never env (bboxy450-term, #4503)'
 type: task
-updated: 2026-11-01T19:00:24.267Z
-updated_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+updated: 2026-11-01T20:15:53.801Z
+updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 verify: make test
 verify_result:
   command: make test
