@@ -15,7 +15,7 @@ created: 2026-11-01T03:43:47.766Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:a200e4ee32ffddd0f54b8d89139b601dfe920c32ea85200065592a83e49190d0
+digest: sha256:666a4fd681e7b2f12d990d893896f551bc717f6bc015a50fd3b1fb3e4fe41a33
 digest_grade: observed
 for: []
 grade: inferred
@@ -132,22 +132,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793509477378'
+- before_digest: sha256:a200e4ee32ffddd0f54b8d89139b601dfe920c32ea85200065592a83e49190d0
+  commit: null
+  digest: sha256:666a4fd681e7b2f12d990d893896f551bc717f6bc015a50fd3b1fb3e4fe41a33
+  event_hash: 406fd04d3f68b820a656ccfeddc2952e85dec7003513215cfaa79e46c2fd63ec
+  generation: null
+  grade: inferred
+  id: 01M6AR9352100QNY0VVZH6JG4K
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/test-current.json
+  seat: null
+  sequence: '8297'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793509777337'
 id: 01M6AH20K48AX96TZCRQAXCHWD
 kind: file
-last_observation_sequence: '8136'
+last_observation_sequence: '8297'
 number: 785
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:ac21ac8e1132c2a25188ef86d7f9d857aec6467547920b0df34b910c3f44fa35
-  log: .bboxy/log/2026-11-01.jsonl#8137
-  sig: 5EPjq/L4oRcSmJQTz/SxJUYIdR0ElTWOAmtG0kz1Q68tpDVsU87Wd6G46zG5B78LSJ8+xzGMWZ+tP/Hgep4TBA==
+  frontmatter_digest: sha256:d9997663117fcfa956592be345a3defdc2a3aaa5910a36b71951cbc47c758c49
+  log: .bboxy/log/2026-11-01.jsonl#8298
+  sig: 5X69jQhWouu2pTmuwqBEcWlok/MpxOYymJ893v0pZ25YtX/Y0ablQjxZLVlj2Isvb7dWmxZwxsr+bTPyysSyCA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/test-current.json
 type: artifact
-updated: 2026-11-01T05:06:14.789Z
+updated: 2026-11-01T05:10:54.371Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

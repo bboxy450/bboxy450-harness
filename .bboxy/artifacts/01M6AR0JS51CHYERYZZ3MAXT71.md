@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 120
+bytes: null
 claimed: false
 created: 2026-11-01T05:06:15.463Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:dee24c266ab1022343570ae18335470ff4516473d665da218979e0eabf3973d4
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -36,22 +36,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793509477434'
+- before_digest: sha256:dee24c266ab1022343570ae18335470ff4516473d665da218979e0eabf3973d4
+  commit: null
+  digest: null
+  event_hash: 2f22582def2031f773c139b393665052953da9734ed00c8a40ad5cfc44deaae6
+  generation: null
+  grade: inferred
+  id: 01M6AR4G611HCAYF5MW31J1BCK
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/hardening/make-test-green.json
+  seat: null
+  sequence: '8265'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793509664574'
 id: 01M6AR0JS51CHYERYZZ3MAXT71
 kind: file
-last_observation_sequence: '8142'
+last_observation_sequence: '8265'
 number: 1472
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:69f42319fb86af3ae29dcaf0643207fee045f26472f5c3de3f56ca1c27e718f9
-  log: .bboxy/log/2026-11-01.jsonl#8143
-  sig: JalRpIhxmfEBR/WTBkCJ/M+xRc32otIZo24SmXch9436XAT21Ey7DwNr7DD14FTW3dY2CpXNoOxLcNCE6eNEAw==
+  frontmatter_digest: sha256:f9c32543d58c1a4b7f63d7e3acb8fc18e7a4e30af3053e0c9fcc487fd20abd1c
+  log: .bboxy/log/2026-11-01.jsonl#8266
+  sig: 68SMFBvdTgFl7SoW92wDbejtYXEYcvkE0xCa3N0XuEeLkf1pjJYlDZzgP4mNPq6RcJJUbvyE2aLSObTPJjD2Bg==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/hardening/make-test-green.json
 type: artifact
-updated: 2026-11-01T05:06:15.463Z
+updated: 2026-11-01T05:08:23.885Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

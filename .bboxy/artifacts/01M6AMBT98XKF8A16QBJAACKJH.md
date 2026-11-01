@@ -15,7 +15,7 @@ created: 2026-11-01T04:02:29.290Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:fdfe92a562b9c34ffe9ad535dcdccebb4ca7485895e735ec99ddf8ba12ef26a9
+digest: sha256:846dd1ab39ee20ff6578dc3be70abbd7492396ea6f7441444c665f7f70011c18
 digest_grade: observed
 for: []
 grade: inferred
@@ -148,22 +148,54 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/git/ref
   ts: '1793509358751'
+- before_digest: sha256:fdfe92a562b9c34ffe9ad535dcdccebb4ca7485895e735ec99ddf8ba12ef26a9
+  commit: fe7d82ae24627124aefe1b9cc7db268d978e9770
+  digest: sha256:368e4234c1873583a4b424192162ae5758dea23e940d5c533ec82775dd9ea2c0
+  event_hash: a113610fea2949e25f64ac668fe72d9a341000b3d2fc8f17bd684d78580f1016
+  generation: null
+  grade: inferred
+  id: 01M6AR3F1CQSHYVWVR52G1FTTA
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:refs/heads/e1b-hardening
+  seat: null
+  sequence: '8231'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793509668343'
+- before_digest: sha256:368e4234c1873583a4b424192162ae5758dea23e940d5c533ec82775dd9ea2c0
+  commit: 1d8fa1520709813d74a5e49ed53e85affbbc6a0b
+  digest: sha256:846dd1ab39ee20ff6578dc3be70abbd7492396ea6f7441444c665f7f70011c18
+  event_hash: e9999c5b9a5ab9a5d94086f758eefc877e18ce3224ba391d0bc63ddffa6149dd
+  generation: null
+  grade: inferred
+  id: 01M6AREW9MDPVS6Z58HXJTWE54
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:refs/heads/e1b-hardening
+  seat: null
+  sequence: '8427'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793510043848'
 id: 01M6AMBT98XKF8A16QBJAACKJH
 kind: other
-last_observation_sequence: '8098'
+last_observation_sequence: '8427'
 number: 1127
 observation_reason: git-ref-value; authorship unverified
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:dff8b03e4219b9ede9ae26b6e185a946240b920aec23baf19523e061708ce3b6
-  log: .bboxy/log/2026-11-01.jsonl#8099
-  sig: RpDUDuMRjqkErQVaah44x/P44EiX/BTCk0VcsUjG+xlu/OHozljdcBC99joQHBuOv46+d6yeuHu3KcaRiKK3AQ==
+  frontmatter_digest: sha256:9a274d973ff8b140f55eabab01955520d74ce81c5fa73a168255b9f0d2445978
+  log: .bboxy/log/2026-11-01.jsonl#8428
+  sig: Q4Oaf9823cCgqat6PL69PVRaM4pq8HlZLRtGdKE+G8F3nlRlffXgotu32queez8VYbcLRDXSRO2fOVZVBjtFAw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: git:refs/heads/e1b-hardening
 type: artifact
-updated: 2026-11-01T05:02:38.813Z
+updated: 2026-11-01T05:14:03.968Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

@@ -15,7 +15,7 @@ created: 2026-11-01T02:07:42.090Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:e5c072bb3ad5ccd4d93fa91ff63368f40b3cf8cb519e2df93bf63b5d21483170
+digest: sha256:9f11812d18b32f74073d56a2a8bd24e7ea972d907579b694cd02e4fe25107dcf
 digest_grade: observed
 for: []
 grade: inferred
@@ -420,22 +420,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/git/ref
   ts: '1793508775155'
+- before_digest: sha256:e5c072bb3ad5ccd4d93fa91ff63368f40b3cf8cb519e2df93bf63b5d21483170
+  commit: 525cb167670df808233546af136bfbc6f6d2f853
+  digest: sha256:9f11812d18b32f74073d56a2a8bd24e7ea972d907579b694cd02e4fe25107dcf
+  event_hash: 10eb1a58736ca4dd2e9a35e83afce8866e1bac6dab0639ce48aa834cafe4f243
+  generation: null
+  grade: inferred
+  id: 01M6AR241RK92WW5X35N6HXZ5B
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:refs/heads/main
+  seat: null
+  sequence: '8204'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793509623919'
 id: 01M6ADQZDGRKXVRWTBXCB244VP
 kind: other
-last_observation_sequence: '7811'
+last_observation_sequence: '8204'
 number: 46
 observation_reason: git-ref-value; authorship unverified
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:36b85b5da172f0f5e88d27c3e95d806766d7435e244436ac931949fde8954ab7
-  log: .bboxy/log/2026-11-01.jsonl#7812
-  sig: OfQhmaMjcdiyADhQ9ajFWBQh/XxZ0oxOVAX7245ej2SddRZ1TZwdUUKmjzm7vh9PIQv7pNQ67BBX/j2NhcvVAw==
+  frontmatter_digest: sha256:ff15c26ff791d05fc4d459c3046ca4a2766879a28872b3654fff9581efc33eae
+  log: .bboxy/log/2026-11-01.jsonl#8205
+  sig: 5IQIdBJbd1CgNbPZCE9IM0yz57m1D2L6UISpSnSUHhWc0pnB6HQvoUcw0U5Q/EfOnWpDuB0ajyHH9/J6if1SAw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: git:refs/heads/main
 type: artifact
-updated: 2026-11-01T04:52:55.441Z
+updated: 2026-11-01T05:07:05.914Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

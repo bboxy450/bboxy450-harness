@@ -15,7 +15,7 @@ created: 2026-11-01T03:41:30.399Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:e5c072bb3ad5ccd4d93fa91ff63368f40b3cf8cb519e2df93bf63b5d21483170
+digest: sha256:9f11812d18b32f74073d56a2a8bd24e7ea972d907579b694cd02e4fe25107dcf
 digest_grade: observed
 for: []
 grade: inferred
@@ -356,22 +356,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/git/ref
   ts: '1793508775155'
+- before_digest: sha256:e5c072bb3ad5ccd4d93fa91ff63368f40b3cf8cb519e2df93bf63b5d21483170
+  commit: 525cb167670df808233546af136bfbc6f6d2f853
+  digest: sha256:9f11812d18b32f74073d56a2a8bd24e7ea972d907579b694cd02e4fe25107dcf
+  event_hash: e0726e87624fedd0ee58e5810d79d460398a1380cdb48f3c01442cd47cb9e2ff
+  generation: null
+  grade: inferred
+  id: 01M6AR28X9E5JZ8M91K33J7D0A
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:refs/remotes/origin/HEAD
+  seat: null
+  sequence: '8222'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793509629167'
 id: 01M6AE0ECGKSK43QAQ487515XD
 kind: other
-last_observation_sequence: '7814'
+last_observation_sequence: '8222'
 number: 436
 observation_reason: git-ref-value; authorship unverified
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:c8613a945a086a87cf2d6eda1af9e1d9ac5618cf2d797956acb1438bf1fbfe3f
-  log: .bboxy/log/2026-11-01.jsonl#7815
-  sig: lUZWOMAj4cHtHa/A4LBC0lmy0EOF0MPVErydsVeBO7/DZEsC1iDHmjogdKzoT6NgOb7NpwwUxs8kE0aSDi5jCw==
+  frontmatter_digest: sha256:747a0d0382c58fd1c1e800447712046b8964508195f91f557838a7c689515fc4
+  log: .bboxy/log/2026-11-01.jsonl#8223
+  sig: 77oZdpm5TR0uhXvoYIDvW2Mm2vPDOUgKq537OjZ0FrDRtMPtAx8MLrWP3D6uUkHT59AyhPZVVlIXFK9BFaU3BA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: git:refs/remotes/origin/HEAD
 type: artifact
-updated: 2026-11-01T04:52:55.682Z
+updated: 2026-11-01T05:07:10.891Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact
