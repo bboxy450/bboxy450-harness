@@ -48,7 +48,7 @@ integration/process tests named in the inventory. GUI rendering and embedded
 workspace inventory integration belong to the separate frontend/upstream work.
 
 The hardening corpus tags held completions with actual births, explores both
-acked-steer routes, reaches the real 256-control bound, and checks pipe-drain
+acked-steer routes, derives control capacity from typed producer slots, and checks pipe-drain
 progress plus ownership after reap. Subscriber models carry content births,
 tail loss, a durable epoch high-water mark and a face-prefix invariant; the old
 Reset rule and log-only epoch allocator are separate failing safety controls.
