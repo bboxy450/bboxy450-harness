@@ -1,5 +1,5 @@
 {
-  "source": "b2c078c414a409d033c58431aef022595645cbb2",
+  "source": "1201697f31120f7e5324017b8fb9f88ff3069d0c",
   "private_home": true,
   "operator_input": false,
   "commands": [
@@ -34,7 +34,7 @@
         "--offline",
         "--locked",
         "--features",
-        "standalone",
+        "standalone,test-fixtures",
         "--test",
         "gui_rich",
         "--test",
