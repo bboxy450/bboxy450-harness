@@ -1,12 +1,15 @@
 FORMAL_OUT='/Users/feral/mydev/bboxy450-harness-gui/target/formal/models' cargo test --offline --locked --test formal_models --test reactor_projection
     Blocking waiting for file lock on package cache
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.30s
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.65s
      Running tests/formal_models.rs (target/debug/deps/formal_models-d55003898c94690a)
 
 running 1 test
 test native_contracts_and_broken_controls ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
 
      Running tests/reactor_projection.rs (target/debug/deps/reactor_projection-68007f4a1b7d2952)
 
@@ -20,42 +23,42 @@ formal: native 33 models; 1 crates inventoried
 python3 -I scripts/test-formal.py
 .......
 ----------------------------------------------------------------------
-Ran 7 tests in 0.162s
+Ran 7 tests in 0.173s
 
 OK
 python3 -I scripts/formal.py --target '/Users/feral/mydev/bboxy450-harness-gui/target/formal'
-formal: HarnessCancelTreeGroup: pass, 18 states, 31 edges match
 formal: HarnessCancelTree: pass, 18 states, 31 edges match
-formal: HarnessTurnLifecycle: pass, 504 states, 2592 edges match
+formal: HarnessCancelTreeGroup: pass, 18 states, 31 edges match
 formal: HarnessTurnLifecyclePairing: pass, 504 states, 2592 edges match
-formal: HarnessSteerQueue: pass, 4 states, 4 edges match
+formal: HarnessTurnLifecycle: pass, 504 states, 2592 edges match
 formal: HarnessApprovalLifecycle: pass, 13 states, 28 edges match
+formal: HarnessSteerQueue: pass, 4 states, 4 edges match
 formal: HarnessApprovalUnattended: pass, 6 states, 13 edges match
 formal: HarnessSubscriberReplay: pass, 19 states, 22 edges match
-formal: HarnessSubscriberReplayHealthy: pass, 10 states, 12 edges match
 formal: HarnessSubscriberReplayDrop: pass, 19 states, 22 edges match
-formal: HarnessStreamToView: pass, 20 states, 40 edges match
+formal: HarnessSubscriberReplayHealthy: pass, 10 states, 12 edges match
 formal: HarnessDirtyWakeFrame: pass, 19 states, 25 edges match
-formal: HarnessEmbedLifecycle: pass, 12 states, 22 edges match
+formal: HarnessStreamToView: pass, 20 states, 40 edges match
 formal: HarnessScrollStick: pass, 6 states, 10 edges match
-formal: HarnessProfileLoad: pass, 51 states, 81 edges match
+formal: HarnessEmbedLifecycle: pass, 12 states, 22 edges match
 formal: HarnessForkMaterialize: pass, 8 states, 16 edges match
+formal: HarnessProfileLoad: pass, 51 states, 81 edges match
 formal: BrokenHarnessTurnLifecycle: safety, 738 states, 3708 edges match
 formal: BrokenHarnessTurnLifecyclePairing: safety, 712 states, 3272 edges match
 formal: BrokenHarnessCancelTree: safety, 18 states, 24 edges match
 formal: BrokenHarnessCancelTreeGroup: safety, 18 states, 31 edges match
 formal: BrokenHarnessSteerQueue: liveness, 2 states, 2 edges match
-formal: BrokenHarnessApprovalLifecycle: safety, 15 states, 32 edges match
 formal: BrokenHarnessApprovalUnattended: liveness, 3 states, 5 edges match
+formal: BrokenHarnessApprovalLifecycle: safety, 15 states, 32 edges match
 formal: BrokenHarnessSubscriberReplay: safety, 16 states, 21 edges match
+formal: BrokenHarnessSubscriberReplayHealthy: liveness, 4 states, 3 edges match
 formal: BrokenHarnessSubscriberReplayDrop: safety, 20 states, 31 edges match
 formal: BrokenHarnessStreamToView: safety, 21 states, 42 edges match
-formal: BrokenHarnessSubscriberReplayHealthy: liveness, 4 states, 3 edges match
 formal: BrokenHarnessDirtyWakeFrame: safety, 22 states, 26 edges match
 formal: BrokenHarnessScrollStick: safety, 8 states, 13 edges match
-formal: BrokenHarnessEmbedLifecycle: safety, 17 states, 32 edges match
 formal: BrokenHarnessProfileLoad: safety, 60 states, 90 edges match
+formal: BrokenHarnessEmbedLifecycle: safety, 17 states, 32 edges match
 formal: BrokenHarnessForkMaterialize: safety, 8 states, 16 edges match
 formal: HarnessTurnLoop: pass, 208 states, 575 edges match
-formal: receipt {"checkout": "/Users/feral/mydev/bboxy450-harness-gui", "contracts": 16, "crates": 1, "dirty": false, "evidence": "/Users/feral/mydev/bboxy450-harness-gui/verification/evidence/bf1832931527aec2946a9a018b7014da7886f31135ca97c1073b4d251a4639a7/evidence.json", "evidence_sha256": "bf1832931527aec2946a9a018b7014da7886f31135ca97c1073b4d251a4639a7", "models": 33, "source": "6f8a9ba5a3340b8d9bbb905d88cb312e0919d257"}
+formal: receipt {"checkout": "/Users/feral/mydev/bboxy450-harness-gui", "contracts": 16, "crates": 1, "dirty": false, "evidence": "/Users/feral/mydev/bboxy450-harness-gui/verification/evidence/7aeaa7215605c60b23b3627e3fd109f45c1469da73a915f9553590eeb37837f5/evidence.json", "evidence_sha256": "7aeaa7215605c60b23b3627e3fd109f45c1469da73a915f9553590eeb37837f5", "models": 33, "source": "3821d3a30a29b04f604d2c15ca3a6757dd535bb7"}
 formal: 33 models; 1 crates inventoried; native/TLC parity held

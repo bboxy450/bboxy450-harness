@@ -172,5 +172,18 @@
     "command": "cargo test --offline --locked --features standalone --test gui_render",
     "exit_code": 0,
     "log": "e3-cache-generation.log"
+  },
+  "post_cache_gui_gate": {
+    "source": "3821d3a30a29b04f604d2c15ca3a6757dd535bb7",
+    "command": "make test-gui",
+    "exit_code": 0,
+    "log": "gui-tests.log"
+  },
+  "post_cache_formal": {
+    "source": "3821d3a30a29b04f604d2c15ca3a6757dd535bb7",
+    "command": "make test-formal",
+    "exit_code": 0,
+    "models": 33,
+    "log": "e3-formal-final.log"
   }
 }
