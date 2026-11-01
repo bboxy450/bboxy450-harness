@@ -10,7 +10,7 @@ use serde_json::Value;
 use std::path::PathBuf;
 use ulid::Ulid;
 pub mod laws;
-pub const PROTOCOL: Version = Version { major: 0, minor: 1 };
+pub const PROTOCOL: Version = Version { major: 0, minor: 2 };
 pub const MAX_ENVELOPE_BYTES: usize = 256 * 1024;
 macro_rules! identity {($($name:ident),*)=>{$(
 #[derive(Clone,Copy,Debug,PartialEq,Eq,PartialOrd,Ord,Hash,Serialize,Deserialize,JsonSchema)]
@@ -161,6 +161,8 @@ pub enum Event {
         item: ItemId,
         kind: ItemKind,
         parent: Option<ItemId>,
+        #[serde(default)]
+        head: Option<ItemHead>,
     },
     ItemCompleted {
         item: ItemId,
@@ -288,6 +290,8 @@ pub enum Item {
         exit: Option<i32>,
         signal: Option<i32>,
         output: Option<BlobRef>,
+        #[serde(default)]
+        live: Option<String>,
     },
     Plan {
         entries: Vec<PlanEntry>,
@@ -315,6 +319,21 @@ pub enum Item {
     },
     Subagent {
         session: SessionId,
+    },
+    #[serde(other)]
+    Unknown,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ItemHead {
+    ToolCall {
+        call_id: String,
+        name: String,
+        tool_kind: ToolKind,
+    },
+    Terminal {
+        terminal: String,
+        command: String,
     },
     #[serde(other)]
     Unknown,
@@ -620,9 +639,80 @@ impl Item {
                     text: append.clone(),
                 })
             }
+            (Self::Terminal { live, .. }, Delta::Output { append, .. }) => {
+                let text = live.get_or_insert_with(String::new);
+                text.push_str(append);
+                if text.len() > 64 * 1024 {
+                    let mut cut = text.len() - 64 * 1024;
+                    while !text.is_char_boundary(cut) {
+                        cut += 1;
+                    }
+                    let tail = text[cut..].to_string();
+                    *text = format!("…{tail}");
+                }
+            }
             (Self::Plan { entries }, Delta::Plan { entries: next }) => entries.clone_from(next),
             _ => {}
         }
+    }
+    pub fn head(&self) -> Option<ItemHead> {
+        match self {
+            Self::ToolCall {
+                call_id,
+                name,
+                tool_kind,
+                ..
+            } => Some(ItemHead::ToolCall {
+                call_id: call_id.clone(),
+                name: name.clone(),
+                tool_kind: *tool_kind,
+            }),
+            Self::Terminal {
+                terminal, command, ..
+            } => Some(ItemHead::Terminal {
+                terminal: terminal.clone(),
+                command: command.clone(),
+            }),
+            _ => None,
+        }
+    }
+    pub fn interrupted_from_head(kind: ItemKind, id: ItemId, head: Option<&ItemHead>) -> Self {
+        let mut body = Self::interrupted(kind, id);
+        match (&mut body, head) {
+            (
+                Self::ToolCall {
+                    call_id,
+                    name,
+                    tool_kind,
+                    input_raw,
+                    ..
+                },
+                Some(ItemHead::ToolCall {
+                    call_id: c,
+                    name: n,
+                    tool_kind: k,
+                }),
+            ) => {
+                call_id.clone_from(c);
+                name.clone_from(n);
+                *tool_kind = *k;
+                input_raw.clear();
+            }
+            (
+                Self::Terminal {
+                    terminal, command, ..
+                },
+                Some(ItemHead::Terminal {
+                    terminal: t,
+                    command: c,
+                }),
+            ) => {
+                terminal.clone_from(t);
+                command.clone_from(c);
+            }
+            _ => {}
+        }
+        body
     }
     pub fn interrupted(kind: ItemKind, id: ItemId) -> Self {
         // Durable ItemStarted stores only kind. Recovery must use a synthetic
@@ -662,6 +752,7 @@ impl Item {
                 exit: None,
                 signal: None,
                 output: None,
+                live: None,
             },
             ItemKind::Plan => Self::Plan { entries: vec![] },
             ItemKind::Approval => Self::Approval {

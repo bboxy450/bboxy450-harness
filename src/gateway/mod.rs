@@ -200,6 +200,7 @@ pub(crate) struct Projection {
     pub log: im::Vector<Envelope>,
     pub open: BTreeMap<ItemId, (Option<TurnId>, Option<ItemId>, Item)>,
     pub closed: bool,
+    epochs: im::OrdMap<Epoch, Seq>,
 }
 pub(crate) struct Hub {
     state: ArcSwap<Projection>,
@@ -217,6 +218,7 @@ impl Hub {
                 meta,
             },
             log: im::Vector::new(),
+            epochs: im::OrdMap::new(),
             open: BTreeMap::new(),
             closed: false,
         };
@@ -234,6 +236,7 @@ impl Hub {
         p.hello.epoch = e.epoch;
         if let Some(seq) = e.seq {
             p.hello.head = seq;
+            p.epochs.entry(e.epoch).or_insert(seq);
             p.log.push_back(e.clone());
         }
         match &e.event {
@@ -242,9 +245,13 @@ impl Hub {
                 item,
                 kind,
                 parent,
+                head,
             } => {
-                p.open
-                    .insert(*item, (*turn, *parent, Item::interrupted(*kind, *item)));
+                let mut partial = Item::interrupted_from_head(*kind, *item, head.as_ref());
+                if let Item::ToolCall { output, .. } = &mut partial {
+                    output.clear();
+                }
+                p.open.insert(*item, (*turn, *parent, partial));
             }
             Event::ItemDelta { item, delta } => {
                 if let Some((_, _, body)) = p.open.get_mut(item) {
@@ -505,11 +512,22 @@ impl Gateway for InProc {
         let hello = state.hello.clone();
         let mut replay = VecDeque::new();
         let mut snapshots = VecDeque::new();
-        if self.faulted.load(Ordering::Acquire)
-            || req
-                .after
-                .is_some_and(|(epoch, seq)| epoch != hello.epoch && seq > hello.head)
-        {
+        let trusted = req
+            .after
+            .map(|(e, _)| {
+                if e > hello.epoch {
+                    return Seq(0);
+                }
+                state
+                    .epochs
+                    .range((std::ops::Bound::Excluded(e), std::ops::Bound::Unbounded))
+                    .next()
+                    .map(|(_, seq)| Seq(seq.0.saturating_sub(1)))
+                    .unwrap_or(hello.head)
+                    .min(hello.head)
+            })
+            .unwrap_or(hello.head);
+        if self.faulted.load(Ordering::Acquire) || req.after.is_some_and(|(_, s)| s > trusted) {
             let e = Envelope {
                 v: PROTOCOL,
                 session: req.session,
@@ -520,7 +538,7 @@ impl Gateway for InProc {
                 cause: None,
                 event: Event::Reset {
                     epoch: hello.epoch,
-                    head: hello.head,
+                    head: trusted,
                 },
             };
             replay.push_back(e);

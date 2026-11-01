@@ -1,0 +1,70 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.42s
+     Running tests/rt_budget.rs (target/debug/deps/rt_budget-b7316f8d694d462b)
+
+running 1 test
+test expensive_entries_hold_four_permits_off_the_io_workers ... FAILED
+
+failures:
+
+---- expensive_entries_hold_four_permits_off_the_io_workers stdout ----
+
+thread 'bbt-io' (112677486) panicked at src/runtime.rs:45:14:
+blocking work ran without a harness permit
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'bbt-io' (112677485) panicked at src/runtime.rs:45:14:
+blocking work ran without a harness permit
+
+thread 'bbt-io' (112677486) panicked at src/runtime.rs:45:14:
+blocking work ran without a harness permit
+
+thread 'bbt-io' (112677485) panicked at src/runtime.rs:45:14:
+blocking work ran without a harness permit
+
+thread 'expensive_entries_hold_four_permits_off_the_io_workers' (112677278) panicked at tests/rt_budget.rs:54:29:
+called `Result::unwrap()` on an `Err` value: JoinError::Panic(Id(3), "blocking work ran without a harness permit", ...)
+
+thread 'bbt-io' (112677486) panicked at src/runtime.rs:45:14:
+blocking work ran without a harness permit
+
+thread 'bbt-io' (112677485) panicked at src/runtime.rs:45:14:
+blocking work ran without a harness permit
+
+thread 'bbt-io' (112677486) panicked at src/runtime.rs:45:14:
+blocking work ran without a harness permit
+
+thread 'bbt-io' (112677485) panicked at src/runtime.rs:45:14:
+blocking work ran without a harness permit
+
+thread 'bbt-io' (112677486) panicked at src/runtime.rs:45:14:
+blocking work ran without a harness permit
+
+thread 'bbt-io' (112677485) panicked at src/runtime.rs:45:14:
+blocking work ran without a harness permit
+
+thread 'bbt-io' (112677486) panicked at src/runtime.rs:45:14:
+blocking work ran without a harness permit
+
+thread 'bbt-io' (112677485) panicked at src/runtime.rs:45:14:
+blocking work ran without a harness permit
+
+thread 'bbt-io' (112677486) panicked at src/runtime.rs:45:14:
+blocking work ran without a harness permit
+
+thread 'bbt-io' (112677485) panicked at src/runtime.rs:45:14:
+blocking work ran without a harness permit
+
+thread 'bbt-io' (112677486) panicked at src/runtime.rs:45:14:
+blocking work ran without a harness permit
+
+thread 'bbt-io' (112677485) panicked at src/runtime.rs:45:14:
+blocking work ran without a harness permit
+
+
+failures:
+    expensive_entries_hold_four_permits_off_the_io_workers
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 2.19s
+
+error: test failed, to rerun pass `--test rt_budget`

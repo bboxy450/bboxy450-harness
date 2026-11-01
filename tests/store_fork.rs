@@ -74,6 +74,7 @@ async fn parent(temp: &tempfile::TempDir) -> Store {
             item: user,
             kind: ItemKind::UserMessage,
             parent: None,
+            head: None,
         },
         Event::ItemCompleted {
             item: user,
@@ -92,6 +93,7 @@ async fn parent(temp: &tempfile::TempDir) -> Store {
             item: answer,
             kind: ItemKind::AgentMessage,
             parent: None,
+            head: None,
         },
         Event::ItemCompleted {
             item: answer,
@@ -261,6 +263,7 @@ async fn fork_while_parent_appends_copies_exactly_the_fixed_prefix() {
                         item,
                         kind: ItemKind::Notice,
                         parent: None,
+                        head: None,
                     },
                     None,
                 )

@@ -74,3 +74,30 @@ fn control_capacity_is_reachable_and_its_broken_control_overflows() {
     let b = model("BrokenHarnessControlLaneBound");
     assert!(!b.check(100_000).unwrap().violations.is_empty());
 }
+
+#[test]
+fn subscriber_model_can_lose_an_entire_epoch_and_rejects_both_old_rules() {
+    let m = model("HarnessSubscriberReplay");
+    let head = variable(&m, "head");
+    let hwm = variable(&m, "hwm");
+    let observed = variable(&m, "log_epoch_max");
+    let phase = variable(&m, "phase");
+    let r = m.check(100_000).unwrap();
+    assert!(r.violations.is_empty());
+    assert!(
+        r.states
+            .iter()
+            .any(|s| s[phase] == 2 && s[head] == 0 && s[hwm] == 2 && s[observed] == 0),
+        "whole-epoch loss was unreachable"
+    );
+    for name in [
+        "BrokenHarnessSubscriberReplay",
+        "BrokenHarnessSubscriberReplayEpochReuse",
+    ] {
+        let broken = model(name).check(100_000).unwrap();
+        assert!(
+            broken.violations.iter().any(|v| v.cycle.is_empty()),
+            "broken rule had no safety counterexample"
+        );
+    }
+}

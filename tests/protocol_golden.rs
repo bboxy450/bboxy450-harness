@@ -37,6 +37,15 @@ impl Fixture {
         f
     }
     fn emit(&mut self, event: Event) {
+        if let Event::ItemCompleted { item, body, .. } = &event {
+            for e in &mut self.events {
+                if let Event::ItemStarted { item: id, head, .. } = &mut e.event
+                    && id == item
+                {
+                    *head = body.head();
+                }
+            }
+        }
         let seq = if event.is_durable() {
             self.head += 1;
             Some(Seq(self.head))
@@ -66,6 +75,7 @@ impl Fixture {
             item,
             kind,
             parent,
+            head: Item::interrupted(kind, item).head(),
         });
         item
     }
@@ -216,6 +226,7 @@ fn fixtures() -> Vec<(&'static str, Vec<Envelope>)> {
             exit: Some(0),
             signal: None,
             output: Some(BlobRef::empty()),
+            live: None,
         },
     );
     f.complete(t, tool("bash-1", "bash", ToolKind::Execute));

@@ -1,0 +1,29 @@
+{
+  "item": "item08-fence",
+  "source": "src/engine/mod.rs",
+  "restored_sha256": "01dd42c35bb735780a84e6e64014ac416feda346a2e0fd3f7ef48123243058a4",
+  "red": {
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--lib",
+      "a_b_a_is_fenced_by_birth_not_identity"
+    ],
+    "exit_code": 101,
+    "test_assertion_failed": true
+  },
+  "green": {
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--lib",
+      "a_b_a_is_fenced_by_birth_not_identity"
+    ],
+    "exit_code": 0,
+    "test_assertion_failed": false
+  }
+}

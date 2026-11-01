@@ -35,7 +35,7 @@ impl Blobs {
                     .mode(0o600)
                     .open(path)?;
                 f.write_all(&bytes)?;
-                f.sync_all()?;
+                crate::runtime::sync_all(&f)?;
             }
             Ok(BlobRef {
                 sha256: hash,
@@ -61,6 +61,35 @@ impl Blobs {
         .await
     }
 }
+fn read_epoch(dir: &Path) -> io::Result<u32> {
+    match std::fs::read_to_string(dir.join("epoch")) {
+        Ok(text) => text
+            .trim()
+            .parse::<u32>()
+            .map_err(|_| io::Error::other("invalid epoch high-water mark")),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(0),
+        Err(e) => Err(e),
+    }
+}
+pub(super) fn write_epoch(dir: &Path, epoch: u32) -> io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let temp = dir.join(format!(".epoch-{}.tmp", OpId::new()));
+    let result = (|| {
+        let mut f = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .open(&temp)?;
+        writeln!(f, "{epoch}")?;
+        crate::runtime::sync_all(&f)?;
+        std::fs::rename(&temp, dir.join("epoch"))?;
+        crate::runtime::sync_all(&File::open(dir)?)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(temp);
+    }
+    result
+}
 pub struct Store {
     file: File,
     pub session: SessionId,
@@ -83,7 +112,7 @@ impl Store {
         let r = redactor.clone();
         let fork_root = root.clone();
         let fork_meta = redactor.sanitize(&meta).map_err(io::Error::other)?;
-        let (file, events, created_fork) = blocking(move || -> io::Result<_> {
+        let (file, events, created_fork, epoch) = blocking(move || -> io::Result<_> {
             std::fs::create_dir_all(path.parent().unwrap())?;
             let created_fork = !path.exists() && fork_meta.fork.is_some();
             if created_fork {
@@ -123,28 +152,31 @@ impl Store {
                 f.set_len(valid as u64)?;
                 f.flush()?;
             }
-            Ok((f, events, created_fork))
+            crate::runtime::sync_all(&f)?;
+            let closed = events
+                .last()
+                .is_some_and(|e| matches!(e.event, Event::SessionClosed));
+            let observed = events.iter().map(|e| e.epoch.0).max().unwrap_or(0);
+            let epoch = if closed {
+                observed
+            } else if created_fork {
+                1
+            } else {
+                read_epoch(&fork_root.join(session.to_string()))?
+                    .max(observed)
+                    .checked_add(1)
+                    .ok_or_else(|| io::Error::other("epoch exhausted"))?
+            };
+            if !closed && !created_fork {
+                write_epoch(&fork_root.join(session.to_string()), epoch)?;
+            }
+            Ok((f, events, created_fork, Epoch(epoch)))
         })
         .await?;
         let closed = events
             .last()
             .is_some_and(|e| matches!(e.event, Event::SessionClosed));
         let fresh = events.is_empty() || created_fork;
-        let epoch = if created_fork {
-            Epoch(1)
-        } else if closed {
-            events.last().unwrap().epoch
-        } else {
-            Epoch(
-                events
-                    .iter()
-                    .map(|e| e.epoch.0)
-                    .max()
-                    .unwrap_or(0)
-                    .checked_add(1)
-                    .ok_or_else(|| io::Error::other("epoch exhausted"))?,
-            )
-        };
         let blobs = Blobs {
             dir: root.join(session.to_string()).join("blobs"),
             redactor: r,
@@ -256,7 +288,7 @@ impl Store {
     }
     pub async fn sync(&self) -> io::Result<()> {
         let f = self.file.try_clone()?;
-        blocking(move || f.sync_all()).await
+        blocking(move || crate::runtime::sync_all(&f)).await
     }
     async fn recover(&mut self) -> io::Result<()> {
         let prior_epoch = self.events.last().unwrap().epoch;
@@ -271,9 +303,13 @@ impl Store {
                     turns.remove(turn);
                 }
                 Event::ItemStarted {
-                    item, kind, parent, ..
+                    item,
+                    kind,
+                    parent,
+                    head,
+                    ..
                 } => {
-                    open.insert(*item, (*kind, *parent));
+                    open.insert(*item, (*kind, *parent, head.clone()));
                 }
                 Event::ItemCompleted { item, .. } => {
                     open.remove(item);
@@ -286,14 +322,14 @@ impl Store {
         while !open.is_empty() {
             let id = *open
                 .keys()
-                .find(|id| !open.values().any(|(_, p)| p.as_ref() == Some(id)))
+                .find(|id| !open.values().any(|(_, p, _)| p.as_ref() == Some(id)))
                 .ok_or_else(|| io::Error::other("cyclic item parents"))?;
-            let (kind, _) = open.remove(&id).unwrap();
+            let (kind, _, head) = open.remove(&id).unwrap();
             self.append(
                 Event::ItemCompleted {
                     item: id,
                     status: ItemStatus::Interrupted,
-                    body: Item::interrupted(kind, id),
+                    body: Item::interrupted_from_head(kind, id, head.as_ref()),
                 },
                 None,
             )

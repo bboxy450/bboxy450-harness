@@ -113,10 +113,16 @@ impl SessionActor {
         Self::load(config, start, None).await
     }
     pub(crate) async fn load(
-        mut config: Config,
+        config: Config,
         start: OpId,
         notice: Option<String>,
     ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
+        let actor = Self::new(config, start, notice).await?;
+        let gateway = actor.gateway.clone();
+        let task = bbt_rt::handle().spawn(actor.run());
+        Ok((gateway, task))
+    }
+    async fn new(mut config: Config, start: OpId, notice: Option<String>) -> std::io::Result<Self> {
         let mut store = Store::open(
             config.sessions.clone(),
             config.meta.clone(),
@@ -141,6 +147,7 @@ impl SessionActor {
                             item,
                             kind: ItemKind::Notice,
                             parent: None,
+                            head: None,
                         },
                         Some(start),
                     )
@@ -183,6 +190,7 @@ impl SessionActor {
                         item,
                         kind: ItemKind::Notice,
                         parent: None,
+                        head: None,
                     },
                     None,
                 )
@@ -231,8 +239,7 @@ impl SessionActor {
             services: task_group::TaskGroup::new(CancellationToken::new()),
             profile_pending: None,
         };
-        let task = bbt_rt::handle().spawn(actor.run());
-        Ok((gateway, task))
+        Ok(actor)
     }
     async fn publish(&mut self, event: Event, cause: Option<OpId>) -> std::io::Result<()> {
         let e = if event.is_durable() {
@@ -607,6 +614,7 @@ impl SessionActor {
                             Item::Approval { subject, .. } => Some(subject.tool_call),
                             _ => None,
                         },
+                        head: None,
                     },
                     None,
                 )
@@ -715,6 +723,7 @@ impl SessionActor {
                 item,
                 kind: ItemKind::Compaction,
                 parent: None,
+                head: None,
             },
             Some(id),
         )
@@ -837,11 +846,16 @@ impl SessionActor {
                     Event::ItemCompleted {
                         item: id,
                         status: ItemStatus::Interrupted,
-                        body: if body.kind() == ItemKind::ToolCall {
-                            Item::interrupted(ItemKind::ToolCall, id)
-                        } else {
-                            body
-                        },
+                        body: Item::interrupted_from_head(
+                            body.kind(),
+                            id,
+                            self.store.events.iter().rev().find_map(|e| match &e.event {
+                                Event::ItemStarted { item, head, .. } if *item == id => {
+                                    head.as_ref()
+                                }
+                                _ => None,
+                            }),
+                        ),
                     },
                     None,
                 )
@@ -870,4 +884,281 @@ pub async fn stop(gateway: &InProc) {
         op_id: OpId::new(),
         op: Op::Close,
     });
+}
+
+#[cfg(test)]
+mod hardening_tests {
+    use super::*;
+    use crate::provider::{self, Caps, ModelEvent, ModelRequest};
+    use std::{sync::Mutex, time::Duration};
+    struct Recording {
+        inner: provider::ScriptedProvider,
+        requests: Arc<Mutex<Vec<ModelRequest>>>,
+    }
+    impl Provider for Recording {
+        fn caps(&self) -> Caps {
+            self.inner.caps()
+        }
+        fn stream(
+            &self,
+            r: ModelRequest,
+            c: CancellationToken,
+        ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = ModelEvent> + Send>> {
+            self.requests.lock().unwrap().push(r.clone());
+            self.inner.stream(r, c)
+        }
+    }
+    fn envelope(g: &InProc, op: Op) -> OpEnvelope {
+        OpEnvelope {
+            v: PROTOCOL,
+            session: g.session(),
+            op_id: OpId::new(),
+            op,
+        }
+    }
+    async fn event(sub: &mut crate::gateway::Subscription) -> Envelope {
+        tokio::time::timeout(Duration::from_secs(5), sub.recv())
+            .await
+            .unwrap()
+            .unwrap()
+    }
+    #[tokio::test]
+    async fn crashed_closes_from_the_durable_head_not_runtime_identity() {
+        let temp = tempfile::tempdir().unwrap();
+        let session = SessionId::new();
+        let config = Config {
+            meta: SessionMeta {
+                session,
+                cwd: temp.path().into(),
+                profile: Some("scripted".into()),
+                fork: None,
+                protocol: PROTOCOL,
+                harness: env!("CARGO_PKG_VERSION").into(),
+                created_ms: 0,
+            },
+            sessions: temp.path().join("sessions"),
+            profiles: temp.path().join("profiles"),
+            provider: Arc::new(provider::ScriptedProvider::new(vec![])),
+            model: "scripted".into(),
+            policy: Policy::new(Unattended::Deny),
+            redactor: Set::default(),
+            max_rounds: 1,
+            profile_error: None,
+        };
+        let mut actor = SessionActor::new(config, OpId::new(), None).await.unwrap();
+        let turn = TurnId::new();
+        let item = ItemId::new();
+        let head = ItemHead::ToolCall {
+            call_id: "known-call".into(),
+            name: "read".into(),
+            tool_kind: ToolKind::Read,
+        };
+        actor
+            .publish(Event::TurnQueued { turn }, None)
+            .await
+            .unwrap();
+        actor
+            .publish(Event::TurnStarted { turn }, None)
+            .await
+            .unwrap();
+        actor
+            .publish(
+                Event::ItemStarted {
+                    turn: Some(turn),
+                    item,
+                    kind: ItemKind::ToolCall,
+                    parent: None,
+                    head: Some(head.clone()),
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        let (steer, _) = mpsc::channel(1);
+        actor.running = Some(Running {
+            turn,
+            generation: 1,
+            cancel: CancellationToken::new(),
+            steer,
+            pending: VecDeque::new(),
+            cause: None,
+        });
+        actor.crashed("injected runner failure").await.unwrap();
+        let body = actor
+            .store
+            .events
+            .iter()
+            .find_map(|e| {
+                if let Event::ItemCompleted { item: i, body, .. } = &e.event {
+                    (*i == item).then_some(body)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        assert_eq!(body.head(), Some(head));
+        if let Item::ToolCall {
+            input_raw, output, ..
+        } = body
+        {
+            assert!(input_raw.is_empty());
+            assert!(
+                matches!(&output[0],OutputBlock::Error{text} if text=="tool call was not completed")
+            );
+        } else {
+            panic!("wrong recovery kind");
+        }
+        laws::check_transcript(&actor.store.events).unwrap();
+    }
+    #[tokio::test]
+    async fn a_b_a_is_fenced_by_birth_not_identity() {
+        let temp = tempfile::tempdir_in("/tmp").unwrap();
+        let session = SessionId::new();
+        let requests = Arc::new(Mutex::new(vec![]));
+        let mut provider = provider::ScriptedProvider::new(vec![
+            include_bytes!("../../tests/fixtures/sse/tools.sse").to_vec(),
+            include_bytes!("../../tests/fixtures/sse/text.sse").to_vec(),
+            include_bytes!("../../tests/fixtures/sse/text.sse").to_vec(),
+        ]);
+        provider.delay = Duration::from_millis(1);
+        let config = Config {
+            meta: SessionMeta {
+                session,
+                cwd: temp.path().into(),
+                profile: Some("scripted".into()),
+                fork: None,
+                protocol: PROTOCOL,
+                harness: env!("CARGO_PKG_VERSION").into(),
+                created_ms: 0,
+            },
+            sessions: temp.path().join("sessions"),
+            profiles: temp.path().join("profiles"),
+            provider: Arc::new(Recording {
+                inner: provider,
+                requests: requests.clone(),
+            }),
+            model: "scripted".into(),
+            policy: Policy::new(Unattended::Deny),
+            redactor: Set::default(),
+            max_rounds: 50,
+            profile_error: None,
+        };
+        let actor = SessionActor::new(config, OpId::new(), None).await.unwrap();
+        let output = actor.output.clone();
+        let generation = actor.generation.clone();
+        let g = actor.gateway.clone();
+        let task = bbt_rt::handle().spawn(actor.run());
+        let mut sub = g
+            .subscribe(crate::gateway::Subscribe {
+                session,
+                after: None,
+                ephemeral: false,
+            })
+            .unwrap();
+        g.send(envelope(
+            &g,
+            Op::UserTurn {
+                blocks: vec![InputBlock::Text { text: "A".into() }],
+                mode: TurnMode::Queue,
+            },
+        ))
+        .unwrap();
+        let (item, head) = loop {
+            let e = event(&mut sub).await;
+            if let Event::ItemStarted {
+                item,
+                kind: ItemKind::ToolCall,
+                head,
+                ..
+            } = e.event
+            {
+                break (item, head);
+            }
+        };
+        let old_generation = generation.load(Ordering::Acquire);
+        let (release, held) = oneshot::channel();
+        let held_tool = bbt_rt::handle().spawn(async move {
+            held.await.unwrap();
+            let mut body = Item::interrupted_from_head(ItemKind::ToolCall, item, head.as_ref());
+            if let Item::ToolCall { output, .. } = &mut body {
+                *output = vec![OutputBlock::Text {
+                    text: "LATE_FROM_A".into(),
+                }];
+            }
+            output
+                .send(Internal::Event {
+                    generation: old_generation,
+                    event: Event::ItemCompleted {
+                        item,
+                        status: ItemStatus::Completed,
+                        body,
+                    },
+                    cause: None,
+                })
+                .await
+                .unwrap();
+        });
+        g.send(envelope(&g, Op::Interrupt { turn: None })).unwrap();
+        while !matches!(
+            event(&mut sub).await.event,
+            Event::TurnEnded {
+                reason: StopReason::Cancelled,
+                ..
+            }
+        ) {}
+        g.send(envelope(
+            &g,
+            Op::UserTurn {
+                blocks: vec![InputBlock::Text { text: "B".into() }],
+                mode: TurnMode::Queue,
+            },
+        ))
+        .unwrap();
+        let b = loop {
+            if let Event::TurnStarted { turn } = event(&mut sub).await.event {
+                break turn;
+            }
+        };
+        release.send(()).unwrap();
+        held_tool.await.unwrap();
+        let mut b_events = vec![];
+        loop {
+            let e = event(&mut sub).await;
+            let done = matches!(e.event,Event::TurnEnded{turn,..} if turn==b);
+            b_events.push(e);
+            if done {
+                break;
+            }
+        }
+        assert!(
+            !serde_json::to_string(&b_events)
+                .unwrap()
+                .contains("LATE_FROM_A")
+        );
+        g.send(envelope(
+            &g,
+            Op::UserTurn {
+                blocks: vec![InputBlock::Text { text: "A".into() }],
+                mode: TurnMode::Queue,
+            },
+        ))
+        .unwrap();
+        while !matches!(event(&mut sub).await.event, Event::TurnEnded { .. }) {}
+        assert_eq!(generation.load(Ordering::Acquire), 3);
+        assert!(!format!("{:?}", requests.lock().unwrap()).contains("LATE_FROM_A"));
+        g.send(envelope(&g, Op::Close)).unwrap();
+        task.await.unwrap().unwrap();
+        let log = std::fs::read_to_string(
+            temp.path()
+                .join("sessions")
+                .join(format!("{session}.jsonl")),
+        )
+        .unwrap();
+        assert!(!log.contains("LATE_FROM_A"));
+        let events = log
+            .lines()
+            .map(|l| serde_json::from_str::<Envelope>(l).unwrap())
+            .collect::<Vec<_>>();
+        laws::check_transcript(&events).unwrap();
+    }
 }

@@ -10,33 +10,33 @@ use bboxy450_harness::{
     protocol::*,
 };
 use std::time::{Duration, Instant};
-async fn full_lane_case() {
+async fn running_session() -> (
+    support::Session,
+    bboxy450_harness::gateway::Subscription,
+    TurnId,
+) {
     let mut p = bboxy450_harness::provider::ScriptedProvider::new(vec![support::sse("text")]);
-    p.delay = Duration::from_millis(2);
+    p.delay = Duration::from_millis(3);
     let s = support::with_provider(std::sync::Arc::new(p), false).await;
     let mut sub = support::subscribe(&s.gateway, false);
-    let first = support::prompt(&s.gateway, "first");
-    s.gateway.send(first.clone()).unwrap();
-    assert!(s.gateway.send(first).unwrap().duplicate);
-    let mut busy = false;
+    s.gateway
+        .send(support::prompt(&s.gateway, "first"))
+        .unwrap();
+    let turn = loop {
+        let e = sub.recv().await.unwrap();
+        if let Event::TurnStarted { turn } = e.event {
+            break turn;
+        }
+    };
+    (s, sub, turn)
+}
+fn fill(g: &bboxy450_harness::gateway::InProc) {
     for _ in 0..10000 {
-        let e = s.gateway.send(support::prompt(&s.gateway, "queued"));
-        if e == Err(Refused::Busy) {
-            let start = Instant::now();
-            assert_eq!(
-                s.gateway.send(support::prompt(&s.gateway, "busy")),
-                Err(Refused::Busy)
-            );
-            assert!(start.elapsed() < Duration::from_millis(1));
-            busy = true;
-            break;
+        if g.send(support::prompt(g, "queued")) == Err(Refused::Busy) {
+            return;
         }
     }
-    assert!(busy);
-    let interrupt = support::op(&s.gateway, Op::Interrupt { turn: None });
-    assert!(s.gateway.send(interrupt).is_ok());
-    let _ = support::end(&mut sub).await;
-    support::close(s).await;
+    panic!("work inbox never became full");
 }
 #[tokio::test]
 async fn version_and_unknown_session_refused() {
@@ -52,9 +52,40 @@ async fn version_and_unknown_session_refused() {
 
 #[tokio::test]
 async fn busy_not_wait() {
-    full_lane_case().await;
+    let (s, mut sub, turn) = running_session().await;
+    fill(&s.gateway);
+    let op = support::prompt(&s.gateway, "refused work");
+    let start = Instant::now();
+    assert_eq!(s.gateway.send(op), Err(Refused::Busy));
+    assert!(start.elapsed() < Duration::from_millis(1));
+    let close = support::op(&s.gateway, Op::Close);
+    s.gateway.send(close.clone()).unwrap();
+    let events = support::end(&mut sub).await;
+    assert!(events.iter().any(
+        |e| matches!(e.event,Event::TurnEnded{turn:t,reason:StopReason::Cancelled,..} if t==turn)
+            && e.cause == Some(close.op_id)
+    ));
+    support::close(s).await;
 }
 #[tokio::test]
 async fn interrupt_when_full() {
-    full_lane_case().await;
+    let (s, mut sub, turn) = running_session().await;
+    fill(&s.gateway);
+    let interrupt = support::op(&s.gateway, Op::Interrupt { turn: Some(turn) });
+    let start = Instant::now();
+    assert!(!s.gateway.send(interrupt.clone()).unwrap().duplicate);
+    assert!(s.gateway.send(interrupt.clone()).unwrap().duplicate);
+    let events = support::end(&mut sub).await;
+    assert!(start.elapsed() < Duration::from_secs(2));
+    assert!(events.iter().any(
+        |e| matches!(e.event,Event::TurnEnded{turn:t,reason:StopReason::Cancelled,..} if t==turn)
+            && e.cause == Some(interrupt.op_id)
+    ));
+    let log = support::close(s).await;
+    assert_eq!(
+        log.iter()
+            .filter(|e| matches!(e.event,Event::TurnEnded{turn:t,..} if t==turn))
+            .count(),
+        1
+    );
 }

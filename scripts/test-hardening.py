@@ -16,13 +16,14 @@ class Fixture(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(prefix='harness-check-',dir='/tmp');self.root=Path(self.temp.name)
         (self.root/'scripts').mkdir();shutil.copy(ROOT/'scripts/checks.py',self.root/'scripts/checks.py');shutil.copy(ROOT/'ATTRIBUTION.md',self.root/'ATTRIBUTION.md')
+        (self.root/'Cargo.toml').write_text('\n'.join(l.replace('//','#',1) for l in (ROOT/'src/lib.rs').read_text().splitlines()[:6])+'\n[package]\nname="fixture"\n')
         subprocess.run(['git','init','-q',str(self.root)],check=True)
     def tearDown(self):self.temp.cleanup()
     def gate(self,kind):return subprocess.run(['python3','-I','scripts/checks.py',kind],cwd=self.root,text=True,capture_output=True)
     def test_secret_scan_covers_tracked_root_and_arbitrary_directories(self):
-        for path in ['README.md','Cargo.toml','assets/nested/notes.txt']:
+        for path in ['README.md','Cargo.toml','assets/nested/notes.txt','assets/opaque.bin']:
             with self.subTest(path=path):
-                file=self.root/path;file.parent.mkdir(parents=True,exist_ok=True);file.write_text('api_key: '+ 'sk-'+ 'A'*40+'\n')
+                file=self.root/path;file.parent.mkdir(parents=True,exist_ok=True);file.write_bytes((b'\xff' if file.suffix=='.bin' else b'')+('api_key: '+ 'sk-'+ 'A'*40+'\n').encode())
                 subprocess.run(['git','add','--',path],cwd=self.root,check=True)
                 r=self.gate('secrets');self.assertNotEqual(r.returncode,0,'tracked sentinel was missed');self.assertIn(path,r.stderr);self.assertNotIn('A'*40,r.stdout+r.stderr)
                 file.write_text('safe\n')

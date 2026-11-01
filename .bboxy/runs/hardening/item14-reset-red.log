@@ -1,0 +1,22 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.75s
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-48df13e064282777)
+
+running 1 test
+test trusted_head_cursors_survive_reassigned_sequences ... FAILED
+
+failures:
+
+---- trusted_head_cursors_survive_reassigned_sequences stdout ----
+
+thread 'trusted_head_cursors_survive_reassigned_sequences' (111919242) panicked at tests/store_recovery.rs:157:5:
+old epoch cursor above trusted head was accepted: ProfileChanged { profile: "scripted", model: "new" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    trusted_head_cursors_survive_reassigned_sequences
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--test store_recovery`

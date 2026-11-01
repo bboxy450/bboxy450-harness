@@ -1,0 +1,22 @@
+
+running 1 test
+test subscriber_model_can_lose_an_entire_epoch_and_rejects_both_old_rules ... FAILED
+
+failures:
+
+---- subscriber_model_can_lose_an_entire_epoch_and_rejects_both_old_rules stdout ----
+
+thread 'subscriber_model_can_lose_an_entire_epoch_and_rejects_both_old_rules' (112224781) panicked at tests/formal_nonvacuity.rs:21:28:
+missing state variable hwm
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    subscriber_model_can_lose_an_entire_epoch_and_rejects_both_old_rules
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.44s
+     Running tests/formal_nonvacuity.rs (target/debug/deps/formal_nonvacuity-73212bc4f620123b)
+error: test failed, to rerun pass `--test formal_nonvacuity`

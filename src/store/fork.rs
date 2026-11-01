@@ -141,13 +141,13 @@ pub(super) fn materialize(
                 .mode(0o600)
                 .open(&to)?;
             std::io::copy(&mut source, &mut dest)?;
-            dest.sync_all()?;
+            crate::runtime::sync_all(&dest)?;
         }
         if !valid_blob(&to, b).map_err(|_| invalid())? {
             return Err(invalid());
         }
     }
-    File::open(&directory)?.sync_all()?;
+    crate::runtime::sync_all(&File::open(&directory)?)?;
     let temp = root.join(format!(".fork-{}-{}.tmp", meta.session, OpId::new()));
     let result = (|| {
         let mut file = OpenOptions::new()
@@ -173,9 +173,10 @@ pub(super) fn materialize(
             serde_json::to_writer(&mut file, &e)?;
             file.write_all(b"\n")?;
         }
-        file.sync_all()?;
+        crate::runtime::sync_all(&file)?;
+        write_epoch(&root.join(meta.session.to_string()), 1)?;
         publish(&temp, path)?;
-        File::open(root)?.sync_all()
+        crate::runtime::sync_all(&File::open(root)?)
     })();
     if result.is_err() {
         let _ = std::fs::remove_file(temp);

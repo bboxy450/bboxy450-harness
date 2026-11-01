@@ -7,6 +7,8 @@
 """Local, unattended source-header and credential-shape gates."""
 from pathlib import Path
 import re
+import os
+import subprocess
 import sys
 ROOT=Path(__file__).resolve().parents[1]
 HEADER=(ROOT / 'ATTRIBUTION.md').read_text().split('```\n')[1].split('```')[0].strip().splitlines()
@@ -17,8 +19,9 @@ def paths():
                 yield path
 
 def headers():
-    for path in paths():
-        if path.suffix not in {'.rs','.py','.sh'}:continue
+    for path in list(paths())+[ROOT/'Cargo.toml']:
+        toml=path==ROOT/'Cargo.toml' or path.parent==ROOT/'verification' and path.suffix=='.toml'
+        if not toml and path.suffix not in {'.rs','.py','.sh'}:continue
         lines=path.read_text().splitlines()
         if lines and lines[0].startswith('#!/') :lines=lines[1:]
         expected=HEADER if path.suffix=='.rs' else [l.replace('//','#',1) for l in HEADER]
@@ -26,10 +29,12 @@ def headers():
     print('headers: PASS')
 def secrets():
     patterns=[re.compile(r'sk-(?:or-v1-)?[A-Za-z0-9]{20,}'),re.compile(r'(?i)(?:api_key|key)\s*[:=]\s*[\x22\x27]?[0-9a-f]{32,}')]
-    for path in paths():
-        if path.suffix in {'.png','.jpg','.bin'}:continue
-        try:content=path.read_text()
-        except UnicodeError:continue
+    tracked=subprocess.check_output(['git','ls-files','-z'],cwd=ROOT).split(b'\0')
+    for name in tracked:
+        if not name:continue
+        path=ROOT/os.fsdecode(name)
+        if not path.exists() and not path.is_symlink():raise ValueError('tracked file missing: '+str(path.relative_to(ROOT)))
+        content=os.readlink(path) if path.is_symlink() else path.read_bytes().decode('latin-1')
         if any(p.search(content) for p in patterns):raise ValueError('credential shape in '+str(path.relative_to(ROOT))+' (value suppressed)')
     print('secret scan: PASS')
 if __name__=='__main__':

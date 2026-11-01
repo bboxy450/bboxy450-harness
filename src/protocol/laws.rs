@@ -27,7 +27,8 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
     let mut queued = BTreeSet::new();
     let mut started = BTreeSet::new();
     let mut ended = BTreeSet::new();
-    let mut open: BTreeMap<ItemId, (Option<TurnId>, ItemKind, Option<ItemId>)> = BTreeMap::new();
+    type OpenItem = (Option<TurnId>, ItemKind, Option<ItemId>, Option<ItemHead>);
+    let mut open: BTreeMap<ItemId, OpenItem> = BTreeMap::new();
     let mut items = BTreeSet::new();
     let mut calls = BTreeSet::new();
     let mut closed = false;
@@ -103,7 +104,7 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                 }
                 if open
                     .values()
-                    .any(|(owner, _, _)| owner.as_ref() == Some(turn))
+                    .any(|(owner, _, _, _)| owner.as_ref() == Some(turn))
                 {
                     return Err(fail("tool-pairing", "open item at turn end"));
                 }
@@ -113,6 +114,7 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                 item,
                 kind,
                 parent,
+                head,
             } => {
                 if let Some(t) = turn
                     && (!started.contains(t) || ended.contains(t))
@@ -125,10 +127,23 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                 if parent.is_some_and(|p| !open.contains_key(&p)) {
                     return Err(fail("one-ending", "missing open parent"));
                 }
-                open.insert(*item, (*turn, *kind, *parent));
+                if e.v.minor >= 2 {
+                    let valid = matches!(head, Some(ItemHead::Unknown))
+                        || matches!(
+                            (kind, head),
+                            (ItemKind::ToolCall, Some(ItemHead::ToolCall { .. }))
+                                | (ItemKind::Terminal, Some(ItemHead::Terminal { .. }))
+                        )
+                        || (!matches!(kind, ItemKind::ToolCall | ItemKind::Terminal)
+                            && head.is_none());
+                    if !valid {
+                        return Err(fail("item-identity", "missing or mismatched durable head"));
+                    }
+                }
+                open.insert(*item, (*turn, *kind, *parent, head.clone()));
             }
             Event::ItemCompleted { item, body, .. } => {
-                let Some((_, kind, _)) = open.remove(item) else {
+                let Some((_, kind, _, head)) = open.remove(item) else {
                     return Err(fail("one-ending", "orphan or duplicate item completion"));
                 };
                 if body.kind() != kind
@@ -139,9 +154,25 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                 }
                 if open
                     .values()
-                    .any(|(_, _, parent)| parent.as_ref() == Some(item))
+                    .any(|(_, _, parent, _)| parent.as_ref() == Some(item))
                 {
                     return Err(fail("one-ending", "parent completed before child"));
+                }
+                if head.is_some()
+                    && head != Some(ItemHead::Unknown)
+                    && body.kind() != ItemKind::Unknown
+                    && body.head() != head
+                {
+                    return Err(fail(
+                        "item-identity",
+                        "body identity differs from durable head",
+                    ));
+                }
+                if matches!(body, Item::Terminal { live: Some(_), .. }) {
+                    return Err(fail(
+                        "item-identity",
+                        "completed terminal contains live output",
+                    ));
                 }
                 if let Item::ToolCall {
                     call_id, output, ..

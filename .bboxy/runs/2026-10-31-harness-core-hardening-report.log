@@ -1,0 +1,29 @@
+# E1b harness core hardening — implementation checkpoint
+
+Task: .bboxy/tasks/2026-10-31-harness-core-hardening.md (#1117).
+Branch: e1b-hardening; base: 71a4d95. No merge or release.
+
+This is an implementation checkpoint, not the final verification report. The
+final unattended gate, pinned Java parity, live smoke and benchmark outcome
+have not yet been recorded for this source revision.
+
+Implemented: bounded cancellation drain and reaped group ownership; tagged
+A–B–A cancellation and exactly-once steer/control models; specific protocol
+law assertions; real pgid, stale completion, policy and control-lane witnesses;
+live bounded exec deltas with repair snapshots; durable tool identity recovery;
+whole tracked-tree secret scanning and manifest headers; trusted epoch cursors
+and durable epoch high-water marks; permit-backed off-worker hooks and a
+structural four-permit runtime gate.
+
+The initial failing witnesses are committed in df7e651. Additional red and
+green logs, including seven explicit fault controls, are in
+.bboxy/runs/hardening/. The fault controls restore the exact source bytes and
+reject compiler errors as evidence. Known targeted checks passed: rt_budget,
+clippy with -D warnings, fmt check, and the item15 worker bypass control
+(101 → 0). Existing item08/09/10/14 fault controls also recorded 101 → 0.
+
+Binding amendments: d1174 (schema path), d1372 (items 14/15), d1134
+(trusted-head Reset); protocol v0.2 durable ItemHead/Terminal.live and durable
+epoch high-water mark. Architect-authored amendments were cherry-picked,
+including 82f2edd and 7bdf826 for budgets. Core owns grep/glob/dir-read/diff/fsync;
+the Markdown execution witness belongs to E3 and remains unproven here.
