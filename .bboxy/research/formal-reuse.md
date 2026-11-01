@@ -1,4 +1,6 @@
 ---
+id: "02PF55B2WHTZEBSEJYAVSQN0SZ"
+number: 400
 type: research
 title: "Reusing bboxy450-term's formal stack (Yarn, bboxy450-tlc, Java TLC parity) in bboxy450-harness"
 status: draft

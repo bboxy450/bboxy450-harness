@@ -1,4 +1,6 @@
 ---
+id: "0MDNZ1FSXJDKM8VJWTTZQJFA4X"
+number: 401
 type: interface
 title: "ICD: harness ↔ bboxy450-term toolkit and formal stack — what the harness consumes, and the upstream items U1–U7"
 status: proposed
