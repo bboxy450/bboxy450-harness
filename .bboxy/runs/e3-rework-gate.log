@@ -1,0 +1,69 @@
+python3 -I tests/gui_gate.py
+gui-test: cargo clippy --offline --locked --all-features --lib --bin bboxy450-harness -- -D warnings
+    Blocking waiting for file lock on build directory
+    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.23s
+gui-test: cargo test --offline --locked --features standalone --test gui_render --test gui_bridge --test gui_fixtures --test gui_budget --test gui_cli -- --nocapture
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.04s
+     Running tests/gui_bridge.rs (target/debug/deps/gui_bridge-b05710952002ac5a)
+
+running 2 tests
+test rendered_approval_actions_use_control_lane ... ok
+test background_subscription_and_detach_preserves_run ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+     Running tests/gui_budget.rs (target/debug/deps/gui_budget-8633e697bec94b1c)
+
+running 3 tests
+test budgeted_remainder_keeps_its_wake ... ok
+test completed_layouts_are_retained_and_large_blocks_prepare_off_ui ... ok
+gui-budget: real Bridge, 100000 deltas, 6 injected-clock frames, 300us limit, deferred notifications and zero projection loss
+test injected_clock_stops_at_300us_defers_and_loses_no_envelope ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.09s
+
+     Running tests/gui_cli.rs (target/debug/deps/gui_cli-b558b753773b34b8)
+
+running 2 tests
+test escape_and_control_c_route_interrupt ... ok
+test replay_cli_is_offline_and_invalid_inputs_fail_without_a_window ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+     Running tests/gui_fixtures.rs (target/debug/deps/gui_fixtures-d9dcced719bfdeba)
+
+running 7 tests
+test stick_and_release ... ok
+test snapshots_replace_ordered_tail_late_chunks_and_aba_epochs_are_retired ... ok
+test completion_wins_and_durable_replay_cannot_reopen_or_duplicate ... ok
+test v0_2_heads_and_terminal_snapshot_repair ... ok
+test every_fixture_passes_laws_and_projects ... ok
+test snapshot_repairs_dropped_and_coalesced_deltas_before_completion ... ok
+test live_equals_replay ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+     Running tests/gui_render.rs (target/debug/deps/gui_render-8d7300d3afcb5fcd)
+
+running 5 tests
+test composer_send_and_control_buttons_reach_real_gateway ... ok
+test cards_show_readable_content_instead_of_serialized_payloads ... ok
+test actual_layout_sticks_releases_and_renders_approval_actions ... ok
+test replay_resize_publishes_current_width_and_invalidates_frame_cache ... ok
+
+thread 'live_terminal_heads_snapshots_and_completed_blob_reach_the_view' (113262262) panicked at tests/gui_render.rs:283:21:
+live Envelope head must name the command before completion
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test live_terminal_heads_snapshots_and_completed_blob_reach_the_view ... FAILED
+
+failures:
+
+failures:
+    live_terminal_heads_snapshots_and_completed_blob_reach_the_view
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+
+error: test failed, to rerun pass `--test gui_render`
+make: *** [test-gui] Error 101

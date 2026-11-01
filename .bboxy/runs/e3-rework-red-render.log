@@ -1,0 +1,22 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.56s
+     Running tests/gui_render.rs (target/debug/deps/gui_render-8d7300d3afcb5fcd)
+
+running 1 test
+test cards_show_readable_content_instead_of_serialized_payloads ... FAILED
+
+failures:
+
+---- cards_show_readable_content_instead_of_serialized_payloads stdout ----
+
+thread 'cards_show_readable_content_instead_of_serialized_payloads' (113194222) panicked at tests/gui_render.rs:219:5:
+raw JSON is not a readable card: bboxy450 harness · Offline replay Latest Interrupt Stop EXECUTOR You Completed Read two files and update hello.txt EXECUTOR Agent Completed I’ll read both files. EXECUTOR Reasoning Completed Compare the current contents. EXECUTOR Tool Completed { "kind": "tool_call", "call_id": "read- a", "name": "read", "tool_kind": "read", "input_raw": "{\"path\":\"hello.txt\"}", "output": [ { "type": "text", "text": "hello\n" } ], "locations": [ { "path": "hello.txt", "line": 1, "end_line": 1 } ], "spill": null } EXECUTOR Tool Completed { "kind": "tool_call", "call_id": "read- b", "name": "read", "tool_kind": "read", "input_raw": "{\"path\":\"hello.txt\"}", "output": [ { "type": "text", "text": "hello\n" } ], "locations": [ { "path": "hello.txt", "line": 1, "end_line": 1 } ], "spill": null } EXECUTOR Plan Completed { "kind": "plan", "entries": [ { "text": "Update greeting", "status": "in_progress", "priority": "high" } ] } EXECUTOR Tool Completed { "kind": "tool_call", "call_id": "edit- 1", "name": "edit", "tool_kind": "edit", "input_raw": "{\"path\":\"hello.txt\"}", "output": [ { "type": "text", "text": "hello\n" } ], "locations": [ { "path": "hello.txt", "line": 1, "end_line": 1 } ], "spill": null } EXECUTOR Approval Completed { "kind": "approval", "subject": { "tool_call": "0000000000000000000000003A", "effect": "write", "summary": "Edit hello.txt", "paths": [ "hello.txt" ], "command": null }, "options": [ "allow", "deny" ], "decision": { "decision": "allow" }, "by": { "by": "rule", "id": "fixture- rule" } } EXECUTOR File Completed { "kind": "file_change", "path": "hello.txt", "change": { "op": "modify" }, "unified": "- - - a/hello.txt\n+++ b/hello.txt\n@@ - 1 +1 @@\n- hello\n+hello world\n" } EXECUTOR Tool Completed { "kind": "tool_call", "call_id": "bash- 1", "name": "bash", "tool_kind": "execute", "input_raw": "{\"path\":\"hello.txt\"}", "output": [ { "type": "text", "text": "hello\n" } ], "locations": [ { "path": "hello.txt", "line": 1, "end_line": 1 } ], "spill": null } EXECUTOR Terminal Completed printf ok Exit: Some(0) · Output: Some(BlobRef { sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", len: 0, mime: "application/octet- stream" }) EXECUTOR Turn Completed { "kind": "turn_diff", "unified": "- - - a/hello.txt\n+++ b/hello.txt\n" } EXECUTOR Image Completed { "kind": "image", "mime": "image/png", "blob": { "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "len": 0, "mime": "application/octet- stream" } } EXECUTOR Compaction Completed { "kind": "compaction", "summary": { "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "len": 0, "mime": "application/octet- stream" }, "replaced_through": 1 } EXECUTOR Usage Completed { "kind": "usage", "usage": { "input_tokens": 0, "output_tokens": 0, "cached_input_tokens": null, "reasoning_tokens": null, "cost_micros_usd": null } } EXECUTOR Notice Completed fixture complete EXECUTOR Subagent Completed { "kind": "subagent", "session": "00000000000000000000000009" } To Agent × Message Agent [[ attach · @ # ↳ address TEXT ▾ Priority 0 Send ↵
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    cards_show_readable_content_instead_of_serialized_payloads
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `--test gui_render`

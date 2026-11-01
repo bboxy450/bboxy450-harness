@@ -4,7 +4,7 @@ The native backend is crates.io `bboxy450-tlc =0.1.1`, using its finite integer
 and Boolean Model/Variable/Action API. Yarn 0.1.1 projects the production
 `harness_turn_topology!` declaration. This repository contains no checker fork.
 
-The corpus has 37 model variants mapped to 16 contracts, including the shared
+The corpus has 43 model variants mapped to 19 contracts, including the shared
 Yarn scheduling projection.
 It explores two queued turns, two tools/rounds, three birth generations (A-B-A),
 a two-slot stand-in for the bounded work lane, and a three-entry replay log.
@@ -59,3 +59,33 @@ reproduce early-reap cancellation leakage and signalling an empty group.
 ControlLaneBound models typed producer slots and consumers returning them;
 the duplicate-producer control reaches depth 257. No invariant substitutes a
 Rust constant or a mode-generated failure flag for these reachable states.
+
+The GUI adds finite DirtyWakeFrame (three publications, one drain quantum),
+ScrollStick (tail/offset 0..3) and EmbedLifecycle (three births) families and their
+safety controls. The existing DirtyWake StreamToView pair is retained. These
+models are abstractions, with no claim that the checker proves delta content or
+pixels: `gui_fixtures` checks ordered projection, generation fencing and random
+delta loss/coalescing against completion; `gui_budget` measures a 100k-delta
+frame driver with an injected clock (300us drain, deferral, no loss); `gui_render` and `test-gui-smoke` witness the real retained tree,
+CoreText and offscreen Metal frame. Native surface presentation/physical IME
+and embedding into the separate term workspace remain implementation-only.
+
+`make test` runs `tests/gui_gate.py` after the core gate. It uses its own HOME,
+checks the exact upstream disallowed-method catalogue at UI module boundaries,
+runs the feature tests and asserts every all-items kind has a nonblank,
+nonoverlapping framebuffer region. Screenshot: `.bboxy/runs/gui-smoke.png`.
+
+Protocol v0.2's optional ItemStarted.head and Terminal.live are projected from
+wire values as additive fields, so the frontend can build while E1b's typed
+core changes land independently. The in-process path reads the same fields
+from serialized typed events once that core is linked. The v0.2 GUI fixture
+witnesses durable identity before deltas, snapshot repair after a dropped
+terminal delta, Unicode-safe 64KiB tail retention, and authoritative completion.
+No core/protocol source is forked by this frontend.
+
+Budget amendment 82f2edd: `make test` uses deterministic structural GUI gates.
+The shared production drain accepts an injected clock; the 100k-delta witness
+charges 50us per receive and projection and asserts a 300us drain with no loss.
+A real worker witness checks retained completed layouts and >4KiB preparation
+away from the UI thread. `make bench-budgets` includes `bench-gui-budget`; its
+real-clock p99 is observational and prints UNMEASURED when load exceeds ncpu.

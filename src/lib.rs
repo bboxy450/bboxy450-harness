@@ -5,6 +5,8 @@
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 
+#![allow(clippy::disallowed_methods)] // IO modules; GUI frame modules deny this lint.
+
 //! One core, one event log, and protocol consumers for every face.
 
 pub mod protocol;

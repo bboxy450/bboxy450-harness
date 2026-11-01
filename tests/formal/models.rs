@@ -968,6 +968,198 @@ fn process_lifecycle(mode: u8) -> Model {
     }
     m
 }
+// Adapted from bboxy450-term DirtyWake: a budgeted drain retires only one
+// item, then complete_drain rechecks and marks the unconsumed remainder.
+fn dirty_wake_frame(b: bool) -> Model {
+    let mut m = base::<4>(
+        "DirtyWakeFrame",
+        b,
+        &[
+            ("produced", 3, 0),
+            ("consumed", 3, 0),
+            ("wake", 1, 0),
+            ("draining", 1, 0),
+        ],
+    );
+    act(
+        &mut m,
+        "Publish",
+        Var(0).lt(Int(3)),
+        &[(0, Var(0).plus(Int(1))), (2, Int(1))],
+    );
+    act(
+        &mut m,
+        "BudgetOne",
+        all([eq(3, 0), eq(2, 1), Var(1).lt(Var(0))]),
+        &[(1, Var(1).plus(Int(1))), (2, Int(0)), (3, Int(1))],
+    );
+    act(
+        &mut m,
+        "CompleteEmpty",
+        all([eq(3, 1), Var(1).eq(Var(0))]),
+        &[(3, Int(0))],
+    );
+    act(
+        &mut m,
+        "CompleteRemainder",
+        all([eq(3, 1), Var(1).lt(Var(0))]),
+        &[(3, Int(0)), (2, if b { Int(0) } else { Int(1) })],
+    );
+    safe(
+        &mut m,
+        "NoLostRemainder",
+        all([eq(3, 0), Var(1).lt(Var(0))]).negate().or(eq(2, 1)),
+    );
+    if !b {
+        progress(
+            &mut m,
+            "ArrivalYieldsFrame",
+            Var(1).lt(Var(0)),
+            Var(1).eq(Var(0)),
+            vec![1, 2, 3],
+        );
+    } // broken control isolates safety
+    m
+}
+// Adapted from bboxy450-term chat_scroll.rs: layout follows a finite tail
+// sentinel, but never overwrites manual intent; Jump explicitly restores it.
+fn scroll_stick(b: bool) -> Model {
+    let mut m = base::<4>(
+        "ScrollStick",
+        b,
+        &[
+            ("tail", 3, 1),
+            ("following", 1, 1),
+            ("offset", 3, 1),
+            ("requested", 3, 0),
+        ],
+    );
+    act(
+        &mut m,
+        "AppendFollowing",
+        all([eq(1, 1), Var(0).lt(Int(3))]),
+        &[(0, Var(0).plus(Int(1))), (2, Var(0).plus(Int(1)))],
+    );
+    act(
+        &mut m,
+        "ScrollAway",
+        eq(1, 1),
+        &[(1, Int(0)), (2, Int(0)), (3, Int(0))],
+    );
+    act(
+        &mut m,
+        "AppendManual",
+        all([eq(1, 0), Var(0).lt(Int(3))]),
+        &[
+            (0, Var(0).plus(Int(1))),
+            (2, if b { Var(0).plus(Int(1)) } else { Var(2) }),
+        ],
+    );
+    act(
+        &mut m,
+        "WheelBackToBottom",
+        eq(1, 0),
+        &[(1, Int(1)), (2, Var(0)), (3, Var(0))],
+    );
+    act(
+        &mut m,
+        "JumpToLatest",
+        eq(1, 0),
+        &[(1, Int(1)), (2, Var(0))],
+    );
+    safe(
+        &mut m,
+        "TailShownWhileFollowing",
+        eq(1, 0).or(Var(2).eq(Var(0))),
+    );
+    safe(
+        &mut m,
+        "ManualOffsetPreserved",
+        eq(1, 1).or(Var(2).eq(Var(3))),
+    );
+    m
+}
+// Adapted from bboxy450-term LifecycleOwnership: detaching a face never
+// signals the actor; only an explicit Stop ends its own birth.
+fn embed_lifecycle(b: bool) -> Model {
+    let mut m = base::<10>(
+        "EmbedLifecycle",
+        b,
+        &[
+            ("attached", 1, 1),
+            ("consume", 1, 1),
+            ("host_owned", 1, 1),
+            ("actor_alive", 1, 1),
+            ("birth", 2, 0),
+            ("stop_pending", 2, 0),
+            ("held_stop_birth", 2, 0),
+            ("applied_stop_birth", 2, 0),
+            ("stopped", 1, 0),
+            ("owned_turn", 1, 1),
+        ],
+    );
+    act(
+        &mut m,
+        "AdmitStopForBoundGateway",
+        eq(5, 0),
+        &[(5, Int(1)), (6, Var(4))],
+    );
+    act(&mut m, "DetachFace", eq(0, 1), &[(0, Int(0))]);
+    act(&mut m, "OwnedTurnFinishes", eq(9, 1), &[(9, Int(0))]);
+    act(
+        &mut m,
+        "ConsumeReturnsAndCreateDropsHost",
+        all([eq(0, 0), eq(9, 0), eq(1, 1)]),
+        &[(1, Int(0)), (2, Int(0))],
+    );
+    // Public label A -> B -> A; birth remains monotonic. An old gateway can
+    // stop its old actor, never the actor now displayed by the replacement.
+    act(
+        &mut m,
+        "NewBirthAtoBtoA",
+        all([eq(1, 0), Var(4).lt(Int(2))]),
+        &[
+            (4, Var(4).plus(Int(1))),
+            (0, Int(1)),
+            (1, Int(1)),
+            (2, Int(1)),
+            (3, Int(1)),
+            (8, Int(0)),
+            (9, Int(1)),
+        ],
+    );
+    act(
+        &mut m,
+        "DeliverHeldStop",
+        all([eq(5, 1), if b { Bool(true) } else { Var(6).eq(Var(4)) }]),
+        &[
+            (5, Int(2)),
+            (3, Int(0)),
+            (8, Int(1)),
+            (7, Var(6)),
+            (9, Int(0)),
+        ],
+    );
+    act(
+        &mut m,
+        "OldGatewayDoesNotSignalCurrentActor",
+        all([eq(5, 1), Var(6).eq(Var(4)).negate()]),
+        &[(5, Int(2))],
+    );
+    safe(&mut m, "DetachPreservesRun", eq(8, 1).or(eq(3, 1)));
+    safe(
+        &mut m,
+        "StopSignalsOwnBirth",
+        eq(8, 0).or(Var(7).eq(Var(4))),
+    );
+    safe(&mut m, "HostRetiresWithConsume", Var(1).eq(Var(2)));
+    safe(
+        &mut m,
+        "DetachedConsumeReturnsAfterOwnedWork",
+        eq(1, 1).or(all([eq(0, 0), eq(9, 0)])),
+    );
+    m
+}
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![];
     for b in [false, true] {
@@ -984,6 +1176,9 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
             replay_drop(b),
             replay_healthy(b),
             stream_to_view(b),
+            dirty_wake_frame(b),
+            scroll_stick(b),
+            embed_lifecycle(b),
             profile_load(b),
             fork_materialize(b),
         ] {
@@ -1028,4 +1223,32 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
     projected.name = "HarnessTurnLoop".into();
     out.push((projected, "pass"));
     out
+}
+
+#[test]
+fn embed_stop_control_reaches_a_stale_a_to_b_to_a_delivery() {
+    let good = embed_lifecycle(false);
+    let bad = embed_lifecycle(true);
+    let g = good.check(100_000).unwrap();
+    let b = bad.check(100_000).unwrap();
+    assert!(g.violations.is_empty());
+    assert!(
+        b.violations
+            .iter()
+            .any(|v| v.property == "StopSignalsOwnBirth"),
+        "broken Stop must actually violate its named property"
+    );
+    let index = |name: &str| good.variables.iter().position(|v| v.name == name).unwrap();
+    assert!(
+        b.states.iter().any(|s| s[index("birth")] == 2
+            && s[index("applied_stop_birth")] == 0
+            && s[index("stopped")] == 1),
+        "broken delivery must stop the replacement A with the first A's Stop"
+    );
+    assert!(
+        g.states.iter().any(|s| s[index("birth")] == 2
+            && s[index("held_stop_birth")] == 0
+            && s[index("stop_pending")] == 1),
+        "the stale A Stop must survive through B into a new A birth"
+    );
 }

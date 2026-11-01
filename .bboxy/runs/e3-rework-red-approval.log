@@ -1,0 +1,25 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 47.30s
+     Running tests/gui_bridge.rs (target/debug/deps/gui_bridge-b05710952002ac5a)
+
+running 1 test
+
+thread 'rendered_approval_actions_use_control_lane' (113282415) panicked at tests/gui_bridge.rs:142:9:
+assertion failed: events.iter().any(|e|
+        matches!(&e.event, Event::ItemCompleted
+            { body: Item::Approval { decision: Some(d), .. }, .. } if d ==
+            &decision))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test rendered_approval_actions_use_control_lane ... FAILED
+
+failures:
+
+failures:
+    rendered_approval_actions_use_control_lane
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.07s
+
+error: test failed, to rerun pass `--test gui_bridge`

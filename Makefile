@@ -9,6 +9,7 @@ TARGET_DIR ?= target
 
 test:
 	python3 -I scripts/test.py
+	$(MAKE) test-gui
 
 test-formal-native:
 	FORMAL_OUT='$(abspath $(TARGET_DIR))/formal/models' cargo test --offline --locked --test formal_models --test formal_nonvacuity --test reactor_projection
@@ -34,3 +35,19 @@ test-licenses:
 
 test-secrets:
 	python3 -I scripts/checks.py secrets
+
+.PHONY: test-gui test-gui-smoke test-gui-lint
+test-gui:
+	python3 -I tests/gui_gate.py
+
+test-gui-lint:
+	CLIPPY_CONF_DIR='$(CURDIR)/src/frontends/gui/lint' cargo clippy --offline --locked --all-features --lib --bin bboxy450-harness -- -D warnings
+
+test-gui-smoke:
+	cargo run --offline --locked --features standalone -- gui --replay tests/fixtures/protocol/all-items.jsonl --headless --screenshot .bboxy/runs/gui-smoke.png
+
+.PHONY: bench-budgets bench-gui-budget
+bench-budgets: bench-gui-budget
+
+bench-gui-budget:
+	cargo test --offline --locked --features standalone --test gui_bench -- --ignored --nocapture

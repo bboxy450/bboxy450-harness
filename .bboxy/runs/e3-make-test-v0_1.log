@@ -1,0 +1,423 @@
+python3 -I scripts/test.py
+test: cargo fmt --check
+test: cargo clippy --offline --locked --all-targets --all-features -- -D warnings
+    Checking libc v0.2.191
+    Checking rand_core v0.10.1
+    Checking bboxy450-tlc v0.1.1
+    Checking thiserror v1.0.69
+    Checking anyhow v1.0.104
+    Checking unarray v0.1.4
+    Checking fastrand v2.5.0
+    Checking core_detect v1.0.0
+    Checking shell-words v1.1.1
+    Checking downcast-rs v1.2.1
+    Checking chacha20 v0.10.2
+    Checking rand_xorshift v0.5.0
+    Checking parking_lot_core v0.9.12
+    Checking errno v0.3.14
+    Checking mio v1.2.4
+    Checking socket2 v0.6.5
+    Checking objc2-core-foundation v0.3.2
+    Checking getrandom v0.2.17
+    Checking getrandom v0.3.4
+    Checking core-foundation v0.9.4
+    Checking cpufeatures v0.2.17
+    Checking getrandom v0.4.3
+    Checking ring v0.17.14
+    Checking rand_core v0.9.5
+    Checking serial2 v0.2.39
+    Checking signal-hook-registry v1.4.8
+    Checking rand v0.10.3
+    Checking sha2 v0.10.9
+    Checking rustix v1.1.6
+    Checking nix v0.28.0
+    Checking rand_chacha v0.9.0
+    Checking filedescriptor v0.8.3
+    Checking parking_lot v0.12.5
+    Checking rand v0.9.5
+    Checking rustls-webpki v0.103.16
+    Checking rustls v0.23.46
+    Checking tempfile v3.27.0
+    Checking core-graphics-types v0.1.3
+    Checking tokio v1.54.1
+    Checking core-graphics v0.23.2
+    Checking portable-pty v0.9.0
+    Checking proptest v1.12.0
+    Checking winit v0.30.13
+    Checking ulid v1.2.1
+    Checking objc2-foundation v0.3.2
+    Checking hyper v1.12.0
+    Checking tower v0.5.3
+    Checking tokio-rustls v0.26.6
+    Checking tokio-util v0.7.19
+    Checking bboxy450-rt v0.1.1
+    Checking objc2-metal v0.3.2
+    Checking tower-http v0.6.11
+    Checking bboxy450-yarn v0.1.1
+    Checking hyper-util v0.1.21
+    Checking hyper-rustls v0.27.10
+    Checking reqwest v0.12.28
+    Checking objc2-core-graphics v0.3.2
+    Checking objc2-quartz-core v0.3.2
+    Checking objc2-core-text v0.3.2
+    Checking raw-window-metal v1.1.0
+    Checking wgpu-hal v30.0.1
+    Checking wgpu-core-deps-apple v30.0.1
+    Checking wgpu-core v30.0.1
+    Checking wgpu v30.0.1
+    Checking bboxy450-render v0.1.1
+    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 04s
+test: cargo test --offline --locked --all-targets
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 30.17s
+     Running unittests src/lib.rs (target/debug/deps/bboxy450_harness-3167057baae87c1f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/bboxy450_harness-11ad5ac18382550c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cancel_process.rs (target/debug/deps/cancel_process-8aae2d9421268dd8)
+
+running 3 tests
+test a_b_a_is_fenced_by_birth_not_identity ... ok
+test real_process_group_witness ... ok
+test cancel_kills_group_and_joins_before_ending ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/cli_headless.rs (target/debug/deps/cli_headless-23ae2af3658e109c)
+
+running 2 tests
+test closed_json_replay_does_not_resolve_credentials_or_change_the_log ... ok
+test binary_emits_protocol_and_edits_unattended ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/context_compact.rs (target/debug/deps/context_compact-98fbe5e80eeaef47)
+
+running 3 tests
+test digest_matches_golden_and_omits_private_and_large_bodies ... ok
+test cap_drops_oldest_sections_and_fields_cannot_inject_headers ... ok
+test compact_replays_summary_once_and_rejects_an_unchanged_window ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/e2e_scripted.rs (target/debug/deps/e2e_scripted-fba2d83eff905f04)
+
+running 5 tests
+test malformed_stream_has_one_ending ... ok
+test bad_argument_object_is_a_paired_model_visible_error ... ok
+test parallel_reads_then_edit_then_answer ... ok
+test steer_fallback_preserves_admission_order ... ok
+test steer_at_round_boundary_appears_once_in_running_turn ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.17s
+
+     Running tests/formal_models.rs (target/debug/deps/formal_models-d55003898c94690a)
+
+running 1 test
+test native_contracts_and_broken_controls ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/gateway_host.rs (target/debug/deps/gateway_host-8f430da68bd75d7e)
+
+running 4 tests
+test create_is_idempotent_and_bound_gateway_never_creates ... ok
+test closed_missing_and_corrupt_sessions_are_not_exposed ... ok
+test open_recovers_before_hello_and_subscribe_never_loads ... ok
+test idle_socket_keeps_a_silent_client_and_emits_heartbeat ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.02s
+
+     Running tests/gateway_lag.rs (target/debug/deps/gateway_lag-b0d287424675cdde)
+
+running 1 test
+test firehose_dead_reader ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.29s
+
+     Running tests/gateway_ops.rs (target/debug/deps/gateway_ops-b31da0cdebb84bc1)
+
+running 3 tests
+test version_and_unknown_session_refused ... ok
+test busy_not_wait ... ok
+test interrupt_when_full ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s
+
+     Running tests/gateway_replay.rs (target/debug/deps/gateway_replay-66a52beb538dbcc5)
+
+running 1 test
+test subscribe_at_every_seq_and_reset ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/gateway_unix.rs (target/debug/deps/gateway_unix-d7f5c2ca4de2ada8)
+
+running 3 tests
+test disconnection_resolves_all_pending_sends ... ok
+test transport_replay_and_duplicate_admission_equal_inproc ... ok
+test withheld_ack_times_out_without_blocking_envelopes_and_same_id_is_safe ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.11s
+
+     Running tests/gui_bridge.rs (target/debug/deps/gui_bridge-21cb3a24bfd0331c)
+
+running 2 tests
+test approval_actions_use_control_lane ... ok
+test background_subscription_and_detach_preserves_run ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+
+     Running tests/gui_budget.rs (target/debug/deps/gui_budget-fa0b2f0d54cbc1ff)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/gui_cli.rs (target/debug/deps/gui_cli-ad3f318d0b62519b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/gui_fixtures.rs (target/debug/deps/gui_fixtures-2e582f02e2e4edab)
+
+running 5 tests
+test stick_and_release ... ok
+test completion_wins_and_durable_replay_cannot_reopen_or_duplicate ... ok
+test snapshots_replace_ordered_tail_late_chunks_and_aba_epochs_are_retired ... ok
+test every_fixture_passes_laws_and_projects ... ok
+test live_equals_replay ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.94s
+
+     Running tests/gui_render.rs (target/debug/deps/gui_render-18fd83e529c3be0c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/policy_gate.rs (target/debug/deps/policy_gate-b4b825e914f1657a)
+
+running 2 tests
+test unattended_denies_and_registry_declares_effects ... ok
+test first_resolution_wins_and_stale_is_rejected ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-d8e79b365a5a4ed1)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/protocol_golden.rs (target/debug/deps/protocol_golden-30e69966cf56760a)
+
+running 2 tests
+test future_variants_and_fields ... ok
+test schema_and_golden_transcripts ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/protocol_laws.rs (target/debug/deps/protocol_laws-fc827f17ffd06a57)
+
+running 1 test
+test rejects_double_end_gap_unpaired_and_kind_change ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/provider_stream.rs (target/debug/deps/provider_stream-314501695c98e0af)
+
+running 6 tests
+test cancel_mid_stream ... ok
+test empty_final_delta_after_tool_finish_preserves_ready_calls ... ok
+test midstream_disconnect_never_retries ... ok
+test strict_assembly_and_fragmentation ... ok
+test stall_is_bounded_and_errors_do_not_echo_bodies ... ok
+test real_http_retry_after_then_success ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.01s
+
+     Running tests/reactor_projection.rs (target/debug/deps/reactor_projection-68007f4a1b7d2952)
+
+running 1 test
+test every_readiness_mask_matches_shared_projection ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/rt_budget.rs (target/debug/deps/rt_budget-b1a71b10d3c98e87)
+
+running 1 test
+test ten_thousand_file_grep_leaves_io_ticker_responsive ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.40s
+
+     Running tests/seat_golden.rs (target/debug/deps/seat_golden-8fe2f07649b3e182)
+
+running 1 test
+test fixtures_are_append_only_and_escape_safe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/seat_process.rs (target/debug/deps/seat_process-27fff4d832596793)
+
+running 3 tests
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+
+     Running tests/secrets.rs (target/debug/deps/secrets-fe80f482ca7dcb74)
+
+running 3 tests
+test keychain_sources_are_not_launched ... ok
+test key_command_model_tools_and_errors_never_persist_secrets ... ok
+test split_model_key_is_scrubbed_from_snapshots_and_seat_output ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running tests/store_fork.rs (target/debug/deps/store_fork-770317d087b52e60)
+
+running 4 tests
+test corrupt_parent_blob_never_publishes_a_child_log ... ok
+test invalid_fork_points_are_refused_without_a_child_log ... ok
+test fork_while_parent_appends_copies_exactly_the_fixed_prefix ... ok
+test fork_is_self_contained_and_builds_the_same_first_request ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-3001fe0daef574e8)
+
+running 2 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+     Running tests/tools.rs (target/debug/deps/tools-bf1fbd9a6941c33f)
+
+running 2 tests
+test exact_unique_edit_and_staged_patch ... ok
+test argv_cap_spill_search_and_path_locks ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+test: make test-formal
+FORMAL_OUT='/Users/feral/mydev/bboxy450-harness-gui/target/formal/models' cargo test --offline --locked --test formal_models --test reactor_projection
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.27s
+     Running tests/formal_models.rs (target/debug/deps/formal_models-d55003898c94690a)
+
+running 1 test
+test native_contracts_and_broken_controls ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/reactor_projection.rs (target/debug/deps/reactor_projection-68007f4a1b7d2952)
+
+running 1 test
+test every_readiness_mask_matches_shared_projection ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+python3 -I scripts/formal.py --native --target '/Users/feral/mydev/bboxy450-harness-gui/target/formal'
+formal: native 33 models; 1 crates inventoried
+python3 -I scripts/test-formal.py
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.141s
+
+OK
+python3 -I scripts/formal.py --target '/Users/feral/mydev/bboxy450-harness-gui/target/formal'
+formal: HarnessCancelTreeGroup: pass, 18 states, 31 edges match
+formal: HarnessCancelTree: pass, 18 states, 31 edges match
+formal: HarnessTurnLifecycle: pass, 504 states, 2592 edges match
+formal: HarnessTurnLifecyclePairing: pass, 504 states, 2592 edges match
+formal: HarnessSteerQueue: pass, 4 states, 4 edges match
+formal: HarnessApprovalLifecycle: pass, 13 states, 28 edges match
+formal: HarnessApprovalUnattended: pass, 6 states, 13 edges match
+formal: HarnessSubscriberReplay: pass, 19 states, 22 edges match
+formal: HarnessSubscriberReplayDrop: pass, 19 states, 22 edges match
+formal: HarnessSubscriberReplayHealthy: pass, 10 states, 12 edges match
+formal: HarnessStreamToView: pass, 20 states, 40 edges match
+formal: HarnessDirtyWakeFrame: pass, 19 states, 25 edges match
+formal: HarnessScrollStick: pass, 6 states, 10 edges match
+formal: HarnessEmbedLifecycle: pass, 12 states, 22 edges match
+formal: HarnessProfileLoad: pass, 51 states, 81 edges match
+formal: HarnessForkMaterialize: pass, 8 states, 16 edges match
+formal: BrokenHarnessCancelTree: safety, 18 states, 24 edges match
+formal: BrokenHarnessCancelTreeGroup: safety, 18 states, 31 edges match
+formal: BrokenHarnessTurnLifecycle: safety, 738 states, 3708 edges match
+formal: BrokenHarnessTurnLifecyclePairing: safety, 712 states, 3272 edges match
+formal: BrokenHarnessSteerQueue: liveness, 2 states, 2 edges match
+formal: BrokenHarnessApprovalLifecycle: safety, 15 states, 32 edges match
+formal: BrokenHarnessSubscriberReplay: safety, 16 states, 21 edges match
+formal: BrokenHarnessApprovalUnattended: liveness, 3 states, 5 edges match
+formal: BrokenHarnessSubscriberReplayDrop: safety, 20 states, 31 edges match
+formal: BrokenHarnessSubscriberReplayHealthy: liveness, 4 states, 3 edges match
+formal: BrokenHarnessStreamToView: safety, 21 states, 42 edges match
+formal: BrokenHarnessDirtyWakeFrame: safety, 22 states, 26 edges match
+formal: BrokenHarnessScrollStick: safety, 8 states, 13 edges match
+formal: BrokenHarnessEmbedLifecycle: safety, 17 states, 32 edges match
+formal: BrokenHarnessForkMaterialize: safety, 8 states, 16 edges match
+formal: BrokenHarnessProfileLoad: safety, 60 states, 90 edges match
+formal: HarnessTurnLoop: pass, 208 states, 575 edges match
+formal: receipt {"checkout": "/Users/feral/mydev/bboxy450-harness-gui", "contracts": 16, "crates": 1, "dirty": false, "evidence": "/Users/feral/mydev/bboxy450-harness-gui/verification/evidence/8b02e19c2053132dd2cd2e9818ce527f8c9d018c21c417a78489ad3c56c35c3a/evidence.json", "evidence_sha256": "8b02e19c2053132dd2cd2e9818ce527f8c9d018c21c417a78489ad3c56c35c3a", "models": 33, "source": "5e08a820152288050c783f384f50820c8bd7c78b"}
+formal: 33 models; 1 crates inventoried; native/TLC parity held
+test: python3 -I scripts/checks.py secrets
+secret scan: PASS
+test: python3 -I scripts/checks.py headers
+headers: PASS
+/Applications/Xcode.app/Contents/Developer/usr/bin/make test-gui
+python3 -I tests/gui_gate.py
+gui-test: cargo clippy --offline --locked --all-features --lib --bin bboxy450-harness -- -D warnings
+    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.21s
+gui-test: cargo test --offline --locked --features standalone --test gui_render --test gui_budget --test gui_cli -- --nocapture
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.16s
+     Running tests/gui_budget.rs (target/debug/deps/gui_budget-8633e697bec94b1c)
+
+running 2 tests
+test budgeted_remainder_keeps_its_wake ... ok
+gui-budget wall p99 including scheduling: 12.509ms
+gui-budget: 200 frames / 100000 deltas, p99 drain+projection CPU 0.472ms (limit 0.9ms)
+gui-budget stage maxima: [0.095917, 11.671375, 0.00029099999999999997, 0.133042, 45.420125]ms
+test hundred_thousand_deltas_frame_p99_is_under_budget ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+     Running tests/gui_cli.rs (target/debug/deps/gui_cli-b558b753773b34b8)
+
+running 2 tests
+test escape_and_control_c_route_interrupt ... ok
+test replay_cli_is_offline_and_invalid_inputs_fail_without_a_window ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+
+     Running tests/gui_render.rs (target/debug/deps/gui_render-8d7300d3afcb5fcd)
+
+running 3 tests
+test composer_send_and_control_buttons_reach_real_gateway ... ok
+test actual_layout_sticks_releases_and_renders_approval_actions ... ok
+test replay_resize_publishes_current_width_and_invalidates_frame_cache ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+gui-test: make test-gui-smoke
+cargo run --offline --locked --features standalone -- gui --replay tests/fixtures/protocol/all-items.jsonl --headless --screenshot .bboxy/runs/gui-smoke.png
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.31s
+     Running `target/debug/bboxy450-harness gui --replay tests/fixtures/protocol/all-items.jsonl --headless --screenshot .bboxy/runs/gui-smoke.png`
+gui-smoke: PASS · 17 visible items, 14 kinds, Metal 1120×7000 · .bboxy/runs/gui-smoke.png

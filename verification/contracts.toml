@@ -167,3 +167,35 @@ implementation_tests=["tests/gateway_replay.rs","tests/gateway_lag.rs"]
 assumptions="Three durable entries, one concurrent append, atomic registration and snapshot actions; kernel scheduling and actual socket delivery remain implementation witnesses."
 property="No durable entry can fall between the replay snapshot and live registration."
 checks=["make test-formal","make test"]
+
+[[contract]]
+name = "HarnessDirtyWakeFrame"
+title = "A budgeted frame never strands its remainder; arrival eventually yields a frame."
+models = ["HarnessDirtyWakeFrame", "BrokenHarnessDirtyWakeFrame"]
+sources = ["src/frontends/gui/bridge.rs", "src/frontends/gui/budget.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/gui_budget.rs"]
+assumptions = "Produced/consumed counters 0..3, one wake bit, one drain phase. Weak fairness on frame drain/completion; broken control isolates safety. Real timing and OS wake delivery are API witnesses."
+property = "A budgeted frame never strands its remainder; arrival eventually yields a frame."
+checks = ["make test-formal", "make test"]
+
+
+[[contract]]
+name = "HarnessScrollStick"
+title = "Tail follows append until manual scroll; Jump or wheeling to the bottom restores following."
+models = ["HarnessScrollStick", "BrokenHarnessScrollStick"]
+sources = ["src/frontends/gui/chat_scroll.rs", "src/frontends/gui/view.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/gui_fixtures.rs", "tests/gui_render.rs"]
+assumptions = "Tail/offset/requested 0..3, one following flag, monotonic growth. Jump and wheel-to-bottom are atomic user actions; no user fairness assumed. Real layout clamp, wheel bursts and pixels remain implementation witnesses."
+property = "Tail follows append until manual scroll; Jump or wheeling to the bottom restores following."
+checks = ["make test-formal", "make test"]
+
+
+[[contract]]
+name = "HarnessEmbedLifecycle"
+title = "Detaching a window/view preserves the actor; explicit Stop signals only its own birth."
+models = ["HarnessEmbedLifecycle", "BrokenHarnessEmbedLifecycle"]
+sources = ["src/frontends/gui/bridge.rs", "src/frontends/gui/window.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/gui_bridge.rs", "tests/gui_render.rs"]
+assumptions = "Three monotonic births with public A-B-A labels; delayed Stop captures a birth at admission. Detach drops the subscription; consume returns after its owned turn, then create drops Host. Dropped task handles preserve the actor. No liveness claim about arbitrary external IO. Old gateways are bound to old actors."
+property = "Detaching a window/view preserves the actor; explicit Stop signals only its own birth."
+checks = ["make test-formal", "make test"]

@@ -1,0 +1,5 @@
+cargo run --offline --locked --features standalone -- gui --replay tests/fixtures/protocol/all-items.jsonl --headless --screenshot .bboxy/runs/gui-smoke.png
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.51s
+     Running `target/debug/bboxy450-harness gui --replay tests/fixtures/protocol/all-items.jsonl --headless --screenshot .bboxy/runs/gui-smoke.png`
+gui-smoke: PASS · 17 visible items, 14 kinds, readable payloads, 3 approval buttons, scrolled viewport, Metal 1120×7000 · .bboxy/runs/gui-smoke.png

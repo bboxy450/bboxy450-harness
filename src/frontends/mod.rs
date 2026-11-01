@@ -8,3 +8,5 @@ pub mod headless;
 pub mod seat;
 
 pub mod smoke;
+
+pub mod gui;
