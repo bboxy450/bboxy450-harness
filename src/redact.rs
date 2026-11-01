@@ -42,6 +42,40 @@ impl fmt::Debug for Set {
     }
 }
 impl Set {
+    /// Archive imports also recognize common credential prefixes, including
+    /// credentials that were never registered by this running harness.
+    pub fn scrub_import(&self, text: &str) -> String {
+        static SHAPES: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        let patterns = SHAPES.get_or_init(|| regex::Regex::new(
+            r"(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[A-Za-z0-9_-]{30,})"
+        ).expect("fixed import credential pattern"));
+        let registered = self.values.read().unwrap();
+        let mut values = registered.iter().map(|v| v.as_str()).collect::<Vec<_>>();
+        values.sort_by(|a, b| b.len().cmp(&a.len()).then(a.cmp(b)));
+        let mut scrubbed = text.to_owned();
+        for value in values {
+            scrubbed = scrubbed.replace(value, "<redacted>");
+        }
+        patterns.replace_all(&scrubbed, "<redacted>").into_owned()
+    }
+    pub fn import_value(&self, mut value: serde_json::Value) -> serde_json::Value {
+        fn walk(set: &Set, value: &mut serde_json::Value) {
+            match value {
+                serde_json::Value::String(text) => *text = set.scrub_import(text),
+                serde_json::Value::Array(values) => values.iter_mut().for_each(|v| walk(set, v)),
+                serde_json::Value::Object(values) => {
+                    let old = std::mem::take(values);
+                    for (key, mut value) in old {
+                        walk(set, &mut value);
+                        values.insert(set.scrub_import(&key), value);
+                    }
+                }
+                _ => {}
+            }
+        }
+        walk(self, &mut value);
+        value
+    }
     pub(crate) fn capability_initialized(&self) -> bool {
         self.admission.read().unwrap().initialized
     }

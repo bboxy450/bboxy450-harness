@@ -264,3 +264,14 @@ implementation_tests = ["tests/gui_bridge.rs", "tests/gui_rich.rs"]
 assumptions = "Three distinct sequential prompt ItemIds; replacement retires the previous prompt. Capture and dispatch are separate actions. Concurrent independent prompts and actual FIFO gateway delivery are implementation witnesses."
 property = "NoRetiredPromptDispatch"
 checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessClaudeImport"
+title = "Offline import prepares redaction before projection, pairs tools at EOF, and represents unknown input without a worker panic."
+models = ["HarnessClaudeImport", "BrokenHarnessClaudeImportA", "BrokenHarnessClaudeImportB", "BrokenHarnessClaudeImportC"]
+controls = [{name="BrokenHarnessClaudeImportA", expected="safety"}, {name="BrokenHarnessClaudeImportB", expected="safety"}, {name="BrokenHarnessClaudeImportC", expected="safety"}]
+sources = ["src/import/mod.rs", "src/import/claude.rs", "src/import/claude/engine.rs", "src/redact.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/import_claude.rs", "tests/import_claude_gui.rs", "tests/formal_nonvacuity.rs", "scripts/test-import-controls.py"]
+assumptions = "One tool and one unknown record with a single abstract delivery slot; finite EOF, fair source/result/notice/end/delivery progress. Consumer drop is explored before the unknown record. Actual BufRead IO eventually returns; arbitrary stuck user-supplied readers are outside this model. JSON/UTF-8, credential shapes and values, deterministic identifiers, timestamp parsing, line/pending byte limits, blob bytes and GUI rendering remain implementation-only. No arbitrary Rust refinement or complete TLC replacement claim."
+property = "NoOpenToolAtEnd, NoSensitiveProjection, UnknownNeverPanics; ImportEventuallyTerminates under named weak fairness."
+checks = ["make test-formal", "make test"]

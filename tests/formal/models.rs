@@ -1958,8 +1958,131 @@ fn gui_choice(b: bool) -> Model {
     );
     m
 }
+fn claude_import(mode: u8) -> Model {
+    // One tool, one following unknown record, one delivery slot. Payload sizes,
+    // UTF-8/JSON, hashes and source timestamps are implementation witnesses.
+    let mut m = base::<10>(
+        "ClaudeImport",
+        false,
+        &[
+            ("phase", 4, 0),
+            ("prepared", 1, 0),
+            ("tool", 2, 0),
+            ("queue", 1, 0),
+            ("ended", 1, 0),
+            ("leaked", 1, 0),
+            ("unknown_seen", 1, 0),
+            ("panicked", 1, 0),
+            ("delivered", 4, 0),
+            ("cancelled", 1, 0),
+        ],
+    );
+    if mode > 0 {
+        m.name = format!(
+            "BrokenHarnessClaudeImport{}",
+            ['A', 'B', 'C'][(mode - 1) as usize]
+        );
+    }
+    m.check_deadlock = true;
+    act(
+        &mut m,
+        "PrepareRedactor",
+        all([eq(0, 0), eq(1, 0)]),
+        &[(1, Int(1))],
+    );
+    let read = m.actions.len();
+    act(
+        &mut m,
+        "ReadToolUse",
+        all([
+            eq(0, 0),
+            eq(3, 0),
+            if mode == 2 { Bool(true) } else { eq(1, 1) },
+        ]),
+        &[
+            (0, Int(1)),
+            (2, Int(1)),
+            (3, Int(1)),
+            (5, if mode == 2 { Int(1) } else { Int(0) }),
+        ],
+    );
+    let drain = m.actions.len();
+    act(
+        &mut m,
+        "Deliver",
+        eq(3, 1),
+        &[(3, Int(0)), (8, Var(8).plus(Int(1)))],
+    );
+    let result = m.actions.len();
+    act(
+        &mut m,
+        "ReadResult",
+        all([eq(0, 1), eq(3, 0)]),
+        &[(0, Int(2)), (2, Int(2)), (3, Int(1))],
+    );
+    let eof = m.actions.len();
+    act(
+        &mut m,
+        "TruncatedEofRepairsTool",
+        all([eq(0, 1), eq(3, 0)]),
+        &[
+            (0, Int(4)),
+            (2, Int(if mode == 1 { 1 } else { 2 })),
+            (3, Int(1)),
+            (4, Int(1)),
+        ],
+    );
+    let unknown = m.actions.len();
+    act(
+        &mut m,
+        "UnknownIsNotice",
+        all([eq(0, 2), eq(3, 0)]),
+        &[
+            (0, Int(if mode == 3 { 4 } else { 3 })),
+            (3, Int(if mode == 3 { 0 } else { 1 })),
+            (6, Int(if mode == 3 { 0 } else { 1 })),
+            (7, Int(if mode == 3 { 1 } else { 0 })),
+        ],
+    );
+    let finish = m.actions.len();
+    act(
+        &mut m,
+        "EndAtEof",
+        all([eq(0, 3), eq(3, 0)]),
+        &[(0, Int(4)), (3, Int(1)), (4, Int(1))],
+    );
+    act(
+        &mut m,
+        "DropConsumerBeforeUnknown",
+        all([Var(0).le(Int(1)), eq(9, 0)]),
+        &[(0, Int(4)), (2, Int(0)), (3, Int(0)), (9, Int(1))],
+    );
+    act(&mut m, "Finished", all([eq(0, 4), eq(3, 0)]), &[]);
+    safe(&mut m, "NoOpenToolAtEnd", eq(4, 0).or(eq(2, 1).negate()));
+    safe(&mut m, "NoSensitiveProjection", eq(5, 0));
+    safe(&mut m, "UnknownNeverPanics", eq(7, 0));
+    progress(
+        &mut m,
+        "ImportEventuallyTerminates",
+        eq(0, 4).negate(),
+        eq(0, 4),
+        vec![0, read, result, eof, unknown, finish, drain],
+    );
+    progress(
+        &mut m,
+        "DeliveryEventuallyDrains",
+        eq(3, 1),
+        eq(3, 0),
+        vec![drain],
+    );
+    m
+}
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (claude_import(0), "pass"),
+        (claude_import(1), "safety"),
+        (claude_import(2), "safety"),
+        (claude_import(3), "safety"),
         (gui_markdown(0), "pass"),
         (gui_markdown(1), "safety"),
         (gui_markdown(2), "safety"),
