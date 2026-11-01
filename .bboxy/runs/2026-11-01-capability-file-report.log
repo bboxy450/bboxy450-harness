@@ -79,3 +79,42 @@ scripts/test-capability-control.py
 verification/contracts.toml
 verification/corpus.toml
 verification/coverage.toml
+
+
+Round 2 — supersedes the earlier completion claim
+Rejection: 1VMA3N5HA98F5N1JWTWCTMHZR3, task #4505 metadata.rejection.
+Recorded: 2026-11-01T16:57:02.532888+00:00
+Source: 8e1b58467467f8967f96979520d7066e5b73b3fd, capability-file, six signed source commits; no Report trailers.
+PR: https://github.com/bboxy450/bboxy450-term/pull/87, updated to this signed head, not merged.
+
+1. Canonical control. scripts/ci-local.sh runs make test-capability-scan and make test-capability-control serially before formal verification, including continuation entrypoints. The real normal make test transcript records both invocations and the control's red_exit=101, green_exit=0, operator_input=false. The restored supervisor hash is ab9cd871db32e0073b4d0a6de38f0559fd38854977b296becc261fa26339bc37. No other compilation runs during the mutation. scripts/test-landing.py::test_real_ci_entrypoint_binds_success_and_does_not_certify_failure proves the actual CI entrypoint reaches the control and refuses a green receipt when that control fails.
+
+2. Production shared-daemon coverage. scripts/e2e/shared_codex.py now invokes capability_scan.NativeScanner on the real installed Codex shared daemon, actual --codex-proxy companions and actual daemon-started bboxy450-term mcp bridge children. Warm/direct and cold/forwarding-shim runs each scan before and after generation replacement. Four snapshots contain 20 process observations and 60 source checks, all zero for the issued 64-hex values and BBOXY_CAPABILITY=. MCP bridge and daemon-started-child are overlapping roles of the same real processes, not invented separate PIDs. Each snapshot includes one daemon, two companions and two bridges. Values from retired generations remain only in scanner RAM: each mode checks two values before replacement and three after it.
+The scanner checks ps -Eww and the actual owned process's KERN_PROCARGS2 exec-environment region, then runs /usr/bin/env with that kernel snapshot. Darwin's auxiliary string entries are conservatively retained, not filtered out; zero for this superset implies zero for the exec environment. It does not ask the closed-source daemon to execute env internally. A private HOME sentinel and process stamps prevent a redacted/empty or replaced snapshot from counting as success. No observer-environment fallback exists. Only owned fixture PIDs are traversed and only counts/roles/PIDs survive. test-capability-scan uses real owned children with known argv/environment, plus a real legacy-value negative case, to validate the reader and failure path. No kernel implementation code was copied; the independent ABI parser cites Apple xnu's kern_sysctl.c.
+The existing four-kind fixture remains and produces its 36 seat/ancestor/env scans; the new 60 checks cover the previously missing real shared-daemon path. Both real SDK modes still authenticate orient, resume after restart, preserve their borrowed daemon after seat/app close, and make zero external model calls with zero operator input.
+
+3. Exclusive overlay. capability::create_overlay creates parents separately and uses non-recursive mkdir for the final launch-ULID component. Existing directories and symlinks get typed refusals, never reuse. The directory is opened with O_DIRECTORY|O_NOFOLLOW and fstat checks directory type, exact 0700 mode and euid ownership. seat_wiring::overlay_creation_refuses_existing_symlinks_and_directories pre-creates a symlink, verifies the typed reason, and proves the unrelated target and link remain untouched; it also checks directory reuse refusal and successful overlay mode.
+
+4. Failed-plan cleanup. An owned Overlay guard removes an unretained overlay when planning returns an error and transfers cleanup to the existing lifecycle only on success. The tests cover both Claude --bare rejection after creation and an actual Claude wiring write failure. The latter is an owned subprocess with RLIMIT_FSIZE=65: capability creation fits, subsequent wiring returns EFBIG, and FailedWiringRemovesOwnedOverlay asserts the directory is gone. The cleanup model adds AbandonFailedPlan; the existing omitted-cleanup control violates the same ownership invariant on both failure and normal retirement paths. Active same-uid attacks remain outside the ICD boundary.
+
+5. Stale docs. Updated the four paths explicitly named in the authenticated rejection: crates/bbt-mux/README.md, .bboxy/specs/architecture.md, harness-kits.md and w2-5-mcp-and-seat-wiring.md. They now describe path-only environment delivery and the validated overlay file. No legacy value-in-env description remains in these paths.
+
+6. Lowercase format. The reader accepts only the writer's canonical lowercase hexadecimal form; capability_file_refuses_uppercase_hex checks the typed malformed refusal.
+
+Actual commands/results on the rework
+- make test-capability-scan: 0; two real-process unit witnesses. Also executed inside make test.
+- make test-shared-codex-cleanup: 0; all nine private-root cleanup witnesses remain green.
+- make test-landing: 0; all 140 fixtures, including control failure propagation.
+- make check-capability-file: 0; all-target component clippy.
+- make test-formal-contracts: 0; all 12 native contract/witness tests and clippy.
+- make test-boundaries: 0 on 8e1b58467467f8967f96979520d7066e5b73b3fd; seven cockpit process cases plus seat, ctl, signing and shell boundaries.
+- make test: 0, plain command, default concurrency, unattended, exact source 8e1b58467467f8967f96979520d7066e5b73b3fd; canonical control 101 -> 0, all workspace checks, 138 native/TLC variants/31 crates/59 contracts, headless smoke and 27 invariants/0 failures. Default 11 slow invariants remain skipped; no added exclusion or concurrency override.
+- make test-harness-native: 0 on final signed head; real warm/direct and cold/shim scan results above.
+- make check-formal-evidence: 0 on final clean source.
+- make push-branch: 0; six valid signatures, current-source CI/formal receipts and bboxy450 identity checked before updating the PR branch. No author landing/merge.
+Development corrections before the gate: the snapshot unit exposed Darwin auxiliary entries (retained conservatively), and the file-limit witness needed an io::Error downcast. Both were fixed before this first full round-two gate, which exited zero.
+
+Current formal evidence: /Users/feral/mydev/bboxy450-term/.git/bboxy-formal-evidence/5afb054987642324080da90b1ac181c072271d75e07c17a441016639b1cf7e2d/evidence.json
+Evidence SHA256: 5afb054987642324080da90b1ac181c072271d75e07c17a441016639b1cf7e2d; source 8e1b58467467f8967f96979520d7066e5b73b3fd; dirty=false.
+All four new good/control models match 10 states and 18 edges; good models pass, broken models fail safety with TLC exit 12. Failed-plan cleanup is included; model/source/tool hashes and full graph/verdict parity are retained beyond target cleanup.
+Raw local evidence: /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round2-make-test.log, round2-boundaries.log, round2-native-final.log, round2-native-scans-final.json, round2-formal-receipt.log and round2-push.log; target/ci-local.log holds the normal exact-SHA receipt. Only this summary is committed to harness main. The source worktree is clean. The harness-main commit is supplied in task_report; unrelated dirty KB records/history are not synchronized or pushed.
