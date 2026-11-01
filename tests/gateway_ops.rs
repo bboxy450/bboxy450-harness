@@ -16,7 +16,9 @@ async fn running_session() -> (
     TurnId,
 ) {
     let mut p = bboxy450_harness::provider::ScriptedProvider::new(vec![support::sse("text")]);
-    p.delay = Duration::from_millis(3);
+    // Keep the turn open until the test's control op cancels it. This delay is
+    // cancellation-aware; no elapsed-time assumption keeps the fixture alive.
+    p.delay = Duration::from_secs(3600);
     let s = support::with_provider(std::sync::Arc::new(p), false).await;
     let mut sub = support::subscribe(&s.gateway, false);
     s.gateway
@@ -30,10 +32,18 @@ async fn running_session() -> (
     };
     (s, sub, turn)
 }
-fn fill(g: &bboxy450_harness::gateway::InProc) {
+fn fill_and_control(
+    g: &bboxy450_harness::gateway::InProc,
+    control: OpEnvelope,
+) -> (Result<Ack, Refused>, Result<Ack, Refused>) {
+    let send: fn(&bboxy450_harness::gateway::InProc, OpEnvelope) -> Result<Ack, Refused> =
+        Gateway::send;
     for _ in 0..10000 {
-        if g.send(support::prompt(g, "queued")) == Err(Refused::Busy) {
-            return;
+        let work = send(g, support::prompt(g, "queued"));
+        if work == Err(Refused::Busy) {
+            // Send control at the observed work refusal and return both exact
+            // results. A later work send could race the actor freeing a slot.
+            return (work, send(g, control));
         }
     }
     panic!("work inbox never became full");
@@ -53,14 +63,10 @@ async fn version_and_unknown_session_refused() {
 #[tokio::test]
 async fn busy_not_wait() {
     let (s, mut sub, turn) = running_session().await;
-    fill(&s.gateway);
-    let op = support::prompt(&s.gateway, "refused work");
-    // The trait returns the result directly; it cannot yield a reservation future.
-    let send: fn(&bboxy450_harness::gateway::InProc, OpEnvelope) -> Result<Ack, Refused> =
-        Gateway::send;
-    assert_eq!(send(&s.gateway, op), Err(Refused::Busy));
     let close = support::op(&s.gateway, Op::Close);
-    s.gateway.send(close.clone()).unwrap();
+    let (work, control) = fill_and_control(&s.gateway, close.clone());
+    assert_eq!(work, Err(Refused::Busy));
+    assert!(!control.unwrap().duplicate);
     let events = support::end(&mut sub).await;
     assert!(events.iter().any(
         |e| matches!(e.event,Event::TurnEnded{turn:t,reason:StopReason::Cancelled,..} if t==turn)
@@ -71,10 +77,11 @@ async fn busy_not_wait() {
 #[tokio::test]
 async fn interrupt_when_full() {
     let (s, mut sub, turn) = running_session().await;
-    fill(&s.gateway);
     let interrupt = support::op(&s.gateway, Op::Interrupt { turn: Some(turn) });
     let start = Instant::now();
-    assert!(!s.gateway.send(interrupt.clone()).unwrap().duplicate);
+    let (work, control) = fill_and_control(&s.gateway, interrupt.clone());
+    assert_eq!(work, Err(Refused::Busy));
+    assert!(!control.unwrap().duplicate);
     assert!(s.gateway.send(interrupt.clone()).unwrap().duplicate);
     let events = support::end(&mut sub).await;
     assert!(start.elapsed() < Duration::from_secs(2));
