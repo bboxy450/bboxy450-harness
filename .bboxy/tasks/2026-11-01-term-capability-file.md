@@ -22,10 +22,10 @@ delegated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 id: 01M6BNKVCH0RM4EP2Q50FTYTJC
 number: 4505
 provenance:
-  digest: sha256:a45894136f1795442a72cfef19a83bb37b602685773a2d551d3a65226893de4e
-  frontmatter_digest: sha256:b596ccbb204d50f062a39f0ae68cffa2285fd3eba94aad07342604da7b5a7477
-  log: .bboxy/log/2026-11-01.jsonl#31313
-  sig: PsLLMspD2mc9BkuqMc2RUGU0DGIU5zuTCbN6fxDQ3ATXdduUl+GetMyr2SBZBbtS/siSm9mxNjfHMwQ7DWbICw==
+  digest: sha256:3f637a005708d7740c028c19cec1ceef95823ff597be2d5feaac887d0c2b958e
+  frontmatter_digest: sha256:8538e393c367168c1158aa9916531705751826cce48bacc94453dd9a203320dc
+  log: .bboxy/log/2026-11-01.jsonl#31475
+  sig: uI7NjHrNcz1nh+rO30LYLmpDnNIxASyvvkE0QhSFwdkSCGylpNmBbfnrfnHFTXVHcGjSWZ0xF7z+yplnOl0uDw==
   signer: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
 rejection:
   by: seat:01M6AC3D2ECK4W3F8495PAQTS3
@@ -34,33 +34,35 @@ rejection:
 
     Fix: teach the landing fixtures about the new ci-local steps the same way they handle existing steps (stub targets in the fixture Makefile, or whatever pattern test-landing-recovery.py already uses), and update any expected ci-command sequences. Then run `python3 -I scripts/test-landing-recovery.py` and `python3 -I scripts/test-landing.py`, both exit 0, plus full `make test`. Push the signed head and send task_report with verify_result.command exactly `make test`. Apply the Makefile split from my earlier message (real-Codex scan in its own `test-capability-native` target) now too, so E4's rebase is simpler.
 report:
-  commit: 30fb71d88c8aa3aa354967668f9c19e186ea79d0
-  op_id: 01M6C3Y42HEY3EK3PS6X4V8HKD
+  commit: 63499b1e660d32eef1137ddcc55727c17aa68021
+  op_id: 01M6C7QXWXGYKPGTSYP102C2T9
   reported_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
-  summary: '#4505 round-three Makefile addendum implemented and pushed to OPEN PR #87 on signed capability-file head 30fb71d88c8aa3aa354967668f9c19e186ea79d0. The real-Codex scan is now test-capability-native with prerequisites build, test-capability-file, test-capability-scan; test-harness-native is left to E4, no alias or ci-local invocation. Help and both app-harness ICD references updated. Plain make test exited 0 at default concurrency; make test-capability-native ran once on this final head and exited 0 (four snapshots, 20 process observations/60 checks, zero values/legacy keys, one explicitly counted proven-exited unclassified-owned PID). Current-source formal receipt verifies all 138 variants. Eight signed source commits verified and pushed; no merge/land. Report addendum committed alone on canonical harness main as signed 107eb2edf56e11281fd0096277e39498f5852073: /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:159, SHA256 5ae9b06380456fe256dd5358321ad74d450b30c51605b80cdcbd63a58a750d65. Report commit supplied rather than pushing unrelated local-main history, as allowed. Final native log: /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round3-split-native-final.log. PR #88 was still OPEN when inspected; combined-branch execution is not claimed, and the second landing keeps both targets. Artifact digest refresh again rejected as artifact record projection pending (op 01M6C3X8STBM3R9K70QGS64YC0); the committed log/hash are directly reviewable.'
+  summary: 'Round 4 complete for review: PR #87 is OPEN at pushed signed capability-file head 63499b1e660d32eef1137ddcc55727c17aa68021, rebased onto E4''s landed d6fa3fd5c0f738b9a65e93646e750289914ff722. Reproduced both missing-target CiPhaseTests failures, added execution-recording capability stubs and combined-step assertions, retained both sides of ICD/Makefile/ci-local/landing-fixture conflicts, and updated E4''s overlay test for its MCP config plus capability file. Requested post-rebase commands all exit 0: python3 -I scripts/test-landing.py (140 fixtures), python3 -I scripts/test-landing-recovery.py (46 tests), plain make test (default concurrency, unattended). Canonical control is 101→0; E4''s compiled harness-native cases pass inside ci-local; real Codex remains in independent test-capability-native, run once on this final head, exit 0 (20 observations/60 checks, zero values/legacy keys/excused exits). Current formal receipt: 205 variants/32 crates/84 contracts, clean source. Ten source commits verify with the approved signing key; branch updated using an exact old-head lease, no author landing or merge. Full report committed alone on canonical harness main as signed 784cb3f56047b71338b07fb6afb23eff1563bf87: /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:180; SHA256 af8bf2e1d08f6dc66be02e92d9c9fa32ae19d6a1da4aa7449b5ca9da11ad5108. Exact report commit is supplied as allowed, without pushing unrelated local-main history. Native log: /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-native-final.log. Earlier artifact-digest refreshes were rejected as projection pending; not retried this round, report commit/hash supplied directly.'
 role: executor
 status: reported
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E5: deliver seat capability by 0600 overlay file, never env (bboxy450-term, #4503)'
 type: task
-updated: 2026-11-01T17:53:53.347Z
+updated: 2026-11-01T19:00:24.267Z
 updated_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
 verify: make test
 verify_result:
   command: make test
   evidence:
-  - criterion: Real-Codex scan has its own target with the requested dependencies, outside ci-local; E4 owns test-harness-native.
-    reference: /Users/feral/mydev/bboxy450-term-capability-file/Makefile:104,794,799-801; /Users/feral/mydev/bboxy450-term-capability-file/.bboxy/interfaces/app-harness.md:25,30; scripts/ci-local.sh unchanged, no test-capability-native/shared_codex.py invocation. make help and make -n test-capability-native exit 0; /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round3-split-dry-run.log; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:165
-  - criterion: Full canonical unattended make test exits 0 on final committed source at default concurrency.
-    reference: '/Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round3-split-ci-local.log: ci-local: result 30fb71d88c8aa3aa354967668f9c19e186ea79d0 normal 0; all five scanner methods pass, environment control 101→0 with exact restoration, workspace build/clippy/tests/doctests, headless smoke, 27 invariants/0 failures; unchanged 11 default slow exclusions; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:167'
-  - criterion: 'Renamed native target rerun once on final head: all production roles scanned; proved exits counted; authentication and lifecycle remain green.'
-    reference: '/Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round3-split-native-final.log: make test-capability-native exit 0, four-kind file/auth/refusal/lifetime dependency tests plus actual installed Codex warm/direct and cold/shim. /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round3-split-native-scans-final.json: 20 observations/60 checks, zero values/legacy keys, exited_count=1 pid=50751 unclassified-owned absent-on-pgrep-recheck; all four required roles present each snapshot, orient/restart/daemon survival, external_model_calls=0 operator_input=0; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:170'
-  - criterion: Current clean source/model/tool evidence and full native/TLC parity retained.
-    reference: /Users/feral/mydev/bboxy450-term/.git/bboxy-formal-evidence/9992325192846d25fc46dd02dae3e1e3d2530363448e5ab6ed074cf03d231f2e/evidence.json binds 30fb71d8 dirty=false, 138 variants/31 crates/59 contracts. Capability pairs each 10 states/18 edges, expected pass/safety and graph_equal=true. make check-formal-evidence exit 0; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:174
-  - criterion: Signed head pushed, PR open, report committed to harness main; no merge/land.
-    reference: 'https://github.com/bboxy450/bboxy450-term/pull/87 OPEN head 30fb71d88c8aa3aa354967668f9c19e186ea79d0. /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round3-split-push.log: make push-branch 0/eight signatures verified. Harness main report-only commit 107eb2edf56e11281fd0096277e39498f5852073 verifies G, key 9B07E849480C68328CA20684844ECC0587DE7AB0, no Report trailer; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:159'
-  - criterion: E4 integration limitation recorded; second landing retains both independent targets.
-    reference: 'PR #88 OPEN at 56d5ec6e8a695312255145a01fd52f22889f20e6 when inspected; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:176. No import of E4 target/ci-local hunks and no combined-branch test claim. Prior scanner red→green evidence remains in the report; scanner source/tests unchanged by this five-line target split and current canonical tests pass.'
+  - criterion: Repair both failing landing-recovery CI phase fixtures and verify meaningful execution/order, red→green.
+    reference: '/Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-ci-phase-red.log: python3 -I scripts/test-landing-recovery.py CiPhaseTests exit 1, both tests fail with missing test-capability-scan rule. scripts/test-landing-recovery.py:801 stubs scan/control and records executions; :837-840 checks combined Make-step order. round4-ci-phase-green.log: targeted cases exit 0. Final /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-recovery-final.log: all 46 tests exit 0; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:186'
+  - criterion: Rebase onto E4's landed main with both interface, target, CI and fixture changes retained.
+    reference: git ancestor check d6fa3fd5c0f738b9a65e93646e750289914ff722→63499b1e exits 0; /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-range-diff.log. app-harness.md retains newer frontmatter, E4 phase-1a amendment and capability rows. Makefile retains canonical test-harness-native and separate test-capability-native; ci-local.sh:83-86 runs scan/control/harness-native/formal. scripts/test-landing.py formal/control failure fixtures keep all required stubs; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:188
+  - criterion: Both requested standalone fixture suites exit 0 after the rebase.
+    reference: '/Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-landing-final.log: python3 -I scripts/test-landing.py exit 0, 140 fixtures. /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-recovery-final.log: python3 -I scripts/test-landing-recovery.py exit 0, 46 tests; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:192'
+  - criterion: Plain full make test exits 0 unattended on the exact final source at default concurrency, with both canonical paths exercised.
+    reference: '/Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-ci-local.log: ci-local: result 63499b1e660d32eef1137ddcc55727c17aa68021 normal 0. Five scanner methods pass; capability control line 5137 records red_exit=101 green_exit=0 and exact restoration. Harness process cases pass at lines 5230/5232, isolated PTY descriptor case at 5263. Workspace checks, headless smoke, 27 invariants/0 failures, unchanged 11 default slow exclusions. E4''s batch-excluded descriptor case runs in its dedicated canonical step; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:196'
+  - criterion: Real shared-Codex production scan verified once on final head, outside ci-local; file/auth/lifetime and fail-closed scan behavior retained.
+    reference: '/Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-native-final.log: make test-capability-native exit 0, four-kind dependencies plus warm/direct and cold/shim. /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-native-scans-final.json: four snapshots, 20 observations/60 source checks, zero values/legacy keys/excused exits, all four required roles each snapshot; orient/restart/daemon survival true, external_model_calls=0 operator_input=0; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:198'
+  - criterion: Current-source native/TLC full graph/verdict parity and source/model/tool hashes retained after rebase.
+    reference: '/Users/feral/mydev/bboxy450-term/.git/bboxy-formal-evidence/39a648a95153fa5130e66a6d9af9a8e6e037c8a08a24f73ecc6e5022110e7b78/evidence.json: source 63499b1e dirty=false, 205 variants/32 crates/84 contracts; capability pairs match 10 states/18 edges, pass/safety, TLC 0/12 and graph_equal=true. make check-formal-evidence exit 0; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:203'
+  - criterion: Signed head pushed, PR open, report committed on harness main without Report trailers; no author merge/land.
+    reference: https://github.com/bboxy450/bboxy450-term/pull/87 OPEN at 63499b1e660d32eef1137ddcc55727c17aa68021. /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-signatures.json verifies ten G signatures with key 9B07E849480C68328CA20684844ECC0587DE7AB0; round4-push.log records successful exact-lease update. Report-only harness-main commit 784cb3f56047b71338b07fb6afb23eff1563bf87 verifies G with the same key and changes only /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:205
   exit_code: 0
 ---
 ROLE: EXECUTOR. Repo bboxy450/bboxy450-term. Work on a new worktree and branch `capability-file` from origin/main, and open a PR. Do not merge and do not run land.sh; the Oracle lands it.
@@ -258,6 +260,52 @@ Round 3: PR #87 updated and pushed at signed head d32f5b626bcdd27b80726ad0d63aa0
       {
         "criterion": "E4 integration limitation recorded; second landing retains both independent targets.",
         "reference": "PR #88 OPEN at 56d5ec6e8a695312255145a01fd52f22889f20e6 when inspected; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:176. No import of E4 target/ci-local hunks and no combined-branch test claim. Prior scanner red→green evidence remains in the report; scanner source/tests unchanged by this five-line target split and current canonical tests pass."
+      }
+    ],
+    "exit_code": 0
+  }
+}
+```
+
+
+## Report from seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+
+Round 4 complete for review: PR #87 is OPEN at pushed signed capability-file head 63499b1e660d32eef1137ddcc55727c17aa68021, rebased onto E4's landed d6fa3fd5c0f738b9a65e93646e750289914ff722. Reproduced both missing-target CiPhaseTests failures, added execution-recording capability stubs and combined-step assertions, retained both sides of ICD/Makefile/ci-local/landing-fixture conflicts, and updated E4's overlay test for its MCP config plus capability file. Requested post-rebase commands all exit 0: python3 -I scripts/test-landing.py (140 fixtures), python3 -I scripts/test-landing-recovery.py (46 tests), plain make test (default concurrency, unattended). Canonical control is 101→0; E4's compiled harness-native cases pass inside ci-local; real Codex remains in independent test-capability-native, run once on this final head, exit 0 (20 observations/60 checks, zero values/legacy keys/excused exits). Current formal receipt: 205 variants/32 crates/84 contracts, clean source. Ten source commits verify with the approved signing key; branch updated using an exact old-head lease, no author landing or merge. Full report committed alone on canonical harness main as signed 784cb3f56047b71338b07fb6afb23eff1563bf87: /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:180; SHA256 af8bf2e1d08f6dc66be02e92d9c9fa32ae19d6a1da4aa7449b5ca9da11ad5108. Exact report commit is supplied as allowed, without pushing unrelated local-main history. Native log: /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-native-final.log. Earlier artifact-digest refreshes were rejected as projection pending; not retried this round, report commit/hash supplied directly.
+
+```json
+{
+  "commit": "63499b1e660d32eef1137ddcc55727c17aa68021",
+  "op_id": "01M6C7QXWXGYKPGTSYP102C2T9",
+  "verify_result": {
+    "command": "make test",
+    "evidence": [
+      {
+        "criterion": "Repair both failing landing-recovery CI phase fixtures and verify meaningful execution/order, red→green.",
+        "reference": "/Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-ci-phase-red.log: python3 -I scripts/test-landing-recovery.py CiPhaseTests exit 1, both tests fail with missing test-capability-scan rule. scripts/test-landing-recovery.py:801 stubs scan/control and records executions; :837-840 checks combined Make-step order. round4-ci-phase-green.log: targeted cases exit 0. Final /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-recovery-final.log: all 46 tests exit 0; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:186"
+      },
+      {
+        "criterion": "Rebase onto E4's landed main with both interface, target, CI and fixture changes retained.",
+        "reference": "git ancestor check d6fa3fd5c0f738b9a65e93646e750289914ff722→63499b1e exits 0; /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-range-diff.log. app-harness.md retains newer frontmatter, E4 phase-1a amendment and capability rows. Makefile retains canonical test-harness-native and separate test-capability-native; ci-local.sh:83-86 runs scan/control/harness-native/formal. scripts/test-landing.py formal/control failure fixtures keep all required stubs; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:188"
+      },
+      {
+        "criterion": "Both requested standalone fixture suites exit 0 after the rebase.",
+        "reference": "/Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-landing-final.log: python3 -I scripts/test-landing.py exit 0, 140 fixtures. /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-recovery-final.log: python3 -I scripts/test-landing-recovery.py exit 0, 46 tests; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:192"
+      },
+      {
+        "criterion": "Plain full make test exits 0 unattended on the exact final source at default concurrency, with both canonical paths exercised.",
+        "reference": "/Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-ci-local.log: ci-local: result 63499b1e660d32eef1137ddcc55727c17aa68021 normal 0. Five scanner methods pass; capability control line 5137 records red_exit=101 green_exit=0 and exact restoration. Harness process cases pass at lines 5230/5232, isolated PTY descriptor case at 5263. Workspace checks, headless smoke, 27 invariants/0 failures, unchanged 11 default slow exclusions. E4's batch-excluded descriptor case runs in its dedicated canonical step; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:196"
+      },
+      {
+        "criterion": "Real shared-Codex production scan verified once on final head, outside ci-local; file/auth/lifetime and fail-closed scan behavior retained.",
+        "reference": "/Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-native-final.log: make test-capability-native exit 0, four-kind dependencies plus warm/direct and cold/shim. /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-native-scans-final.json: four snapshots, 20 observations/60 source checks, zero values/legacy keys/excused exits, all four required roles each snapshot; orient/restart/daemon survival true, external_model_calls=0 operator_input=0; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:198"
+      },
+      {
+        "criterion": "Current-source native/TLC full graph/verdict parity and source/model/tool hashes retained after rebase.",
+        "reference": "/Users/feral/mydev/bboxy450-term/.git/bboxy-formal-evidence/39a648a95153fa5130e66a6d9af9a8e6e037c8a08a24f73ecc6e5022110e7b78/evidence.json: source 63499b1e dirty=false, 205 variants/32 crates/84 contracts; capability pairs match 10 states/18 edges, pass/safety, TLC 0/12 and graph_equal=true. make check-formal-evidence exit 0; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:203"
+      },
+      {
+        "criterion": "Signed head pushed, PR open, report committed on harness main without Report trailers; no author merge/land.",
+        "reference": "https://github.com/bboxy450/bboxy450-term/pull/87 OPEN at 63499b1e660d32eef1137ddcc55727c17aa68021. /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round4-signatures.json verifies ten G signatures with key 9B07E849480C68328CA20684844ECC0587DE7AB0; round4-push.log records successful exact-lease update. Report-only harness-main commit 784cb3f56047b71338b07fb6afb23eff1563bf87 verifies G with the same key and changes only /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log; /Users/feral/mydev/bboxy450-harness/.bboxy/runs/2026-11-01-capability-file-report.log:205"
       }
     ],
     "exit_code": 0
