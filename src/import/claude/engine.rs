@@ -304,7 +304,7 @@ impl<R: BufRead> Engine<R> {
     }
     fn tool_use(&mut self, block: &Value) {
         self.begin_turn();
-        let source = block["id"].as_str().unwrap_or("missing-tool-id").to_owned();
+        let source = provider_id(block["id"].as_str().unwrap_or("missing-tool-id"));
         if let Some(index) = self.pending.iter().position(|p| p.source_id == source) {
             let p = self.pending.remove(index).unwrap();
             self.complete(
@@ -318,9 +318,12 @@ impl<R: BufRead> Engine<R> {
         }
         let name = prefix(block["name"].as_str().unwrap_or("Unknown tool"), 1024).to_owned();
         let raw = canonical(&block["input"]);
-        let input = prefix(&raw, TEXT_CHUNK).to_owned();
+        let input_limit = MAX_PENDING_BYTES - source.len() - name.len() - TEXT_CHUNK - 4096;
+        let input = prefix(&raw, input_limit).to_owned();
         if input.len() != raw.len() {
-            self.notice("Oversized tool input represented by an excerpt");
+            self.notice(
+                "Expanded tool input exceeds pending budget; all text retained in continuations",
+            );
         }
         while self.pending.len() >= MAX_PENDING_TOOLS
             || self.pending.iter().map(Pending::bytes).sum::<usize>()
@@ -346,7 +349,7 @@ impl<R: BufRead> Engine<R> {
             call_id: format!("import-{}", self.ordinal + 1),
             name: name.clone(),
             tool_kind: tool_kind(&name),
-            input_raw: input.clone(),
+            input_raw: prefix(&input, TEXT_CHUNK).into(),
             output: vec![OutputBlock::Text {
                 text: "Pending imported result".into(),
             }],
@@ -354,6 +357,18 @@ impl<R: BufRead> Engine<R> {
             spill: None,
         };
         let id = self.start(&body, None);
+        let mut rest = &raw[prefix(&raw, TEXT_CHUNK).len()..];
+        while !rest.is_empty() {
+            let part = prefix(rest, TEXT_CHUNK);
+            self.item(
+                Item::Notice {
+                    level: Level::Info,
+                    text: format!("Imported tool input continuation:\n{part}"),
+                },
+                Some(id),
+            );
+            rest = &rest[part.len()..];
+        }
         let terminal = if name.eq_ignore_ascii_case("bash") {
             let command =
                 prefix(block["input"]["command"].as_str().unwrap_or("Bash"), 8192).to_owned();
@@ -466,7 +481,7 @@ impl<R: BufRead> Engine<R> {
                 call_id: p.call_id,
                 name: p.name.clone(),
                 tool_kind: tool_kind(&p.name),
-                input_raw: p.input,
+                input_raw: prefix(&p.input, TEXT_CHUNK).into(),
                 output: vec![if error {
                     OutputBlock::Error {
                         text: prefix(text, TEXT_CHUNK).into(),
@@ -486,6 +501,15 @@ impl<R: BufRead> Engine<R> {
         });
     }
     fn tool_extras(&mut self, p: &Pending, input: &Value, meta: &Value) {
+        if !input.is_object()
+            && matches!(
+                p.name.to_ascii_lowercase().as_str(),
+                "edit" | "write" | "multiedit" | "todowrite"
+            )
+        {
+            self.unknown("structured tool input");
+            return;
+        }
         match p.name.to_ascii_lowercase().as_str() {
             "edit" | "write" | "multiedit" => {
                 let path = prefix(
@@ -544,7 +568,7 @@ impl<R: BufRead> Engine<R> {
                 self.item(Item::TurnDiff { unified }, Some(p.id));
             }
             "todowrite" => {
-                let entries = input["todos"]
+                let entries: Vec<PlanEntry> = input["todos"]
                     .as_array()
                     .into_iter()
                     .flatten()
@@ -552,6 +576,7 @@ impl<R: BufRead> Engine<R> {
                         text: v["content"]
                             .as_str()
                             .or_else(|| v["text"].as_str())
+                            .map(|s| prefix(s, TEXT_CHUNK))
                             .unwrap_or("Untitled plan entry")
                             .into(),
                         status: match v["status"].as_str() {
@@ -569,7 +594,28 @@ impl<R: BufRead> Engine<R> {
                         },
                     })
                     .collect();
-                self.item(Item::Plan { entries }, Some(p.id));
+                let empty = entries.is_empty();
+                let mut batch = vec![];
+                let mut bytes = 0;
+                for entry in entries {
+                    let size = serde_json::to_vec(&entry)
+                        .expect("serializable plan entry")
+                        .len();
+                    if !batch.is_empty() && bytes + size > TEXT_CHUNK {
+                        self.item(
+                            Item::Plan {
+                                entries: std::mem::take(&mut batch),
+                            },
+                            Some(p.id),
+                        );
+                        bytes = 0;
+                    }
+                    bytes += size;
+                    batch.push(entry);
+                }
+                if !batch.is_empty() || empty {
+                    self.item(Item::Plan { entries: batch }, Some(p.id));
+                }
             }
             "task" | "agent" => {
                 self.subagent(meta["agentId"].as_str().unwrap_or(&p.source_id), Some(p.id))
@@ -588,7 +634,7 @@ impl<R: BufRead> Engine<R> {
                 if !block["content"].is_string() && !block["content"].is_array() {
                     self.unknown("tool result content");
                 }
-                let source = block["tool_use_id"].as_str().unwrap_or("");
+                let source = provider_id(block["tool_use_id"].as_str().unwrap_or(""));
                 let image_result = meta["isImage"].as_bool().unwrap_or(false);
                 let text = if image_result {
                     "(image result, metadata only)".into()
@@ -863,6 +909,9 @@ fn tool_kind(name: &str) -> ToolKind {
         "todowrite" => ToolKind::Think,
         _ => ToolKind::Other,
     }
+}
+fn provider_id(value: &str) -> String {
+    format!("{:x}", Sha256::digest(value.as_bytes()))
 }
 fn timestamp_ms(value: &str) -> Option<u64> {
     let parsed =

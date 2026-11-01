@@ -138,6 +138,10 @@ async fn planted_shapes_and_registered_values_never_reach_envelopes_or_blobs() {
         overlap.scrub_import("synthetic-long-credential"),
         "<redacted>"
     );
+    let short = Set::default();
+    short.register("x");
+    short.register("e");
+    assert_eq!(short.scrub_import("xx"), "<redacted>");
     let dir = tempfile::tempdir().unwrap();
     let mut opts = options();
     opts.blob_root = Some(dir.path().into());
@@ -536,4 +540,62 @@ async fn large_text_and_escaped_tool_output_remain_readable_inside_envelope_boun
             .iter()
             .all(|e| serde_json::to_vec(e).unwrap().len() <= MAX_ENVELOPE_BYTES)
     );
+}
+
+#[tokio::test]
+async fn large_tool_arguments_keep_the_file_path_and_every_plan_entry() {
+    let write = serde_json::json!({"content":"new synthetic line\n".repeat(5000),"file_path":"large-synthetic.txt","tail_marker":"synthetic-tail"});
+    let todos=(0..2000).map(|i|serde_json::json!({"content":format!("Synthetic plan entry {i}: {}","p".repeat(80)),"status":"pending"})).collect::<Vec<_>>();
+    let records = [
+        serde_json::json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"large-write","name":"Write","input":write},{"type":"tool_use","id":"large-plan","name":"TodoWrite","input":{"todos":todos}}]}}),
+        serde_json::json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"large-write","content":"written"},{"type":"tool_result","tool_use_id":"large-plan","content":"planned"}]}}),
+    ];
+    let events = imported(
+        records
+            .iter()
+            .map(|r| r.to_string() + "\n")
+            .collect::<String>()
+            .into_bytes(),
+    )
+    .await;
+    assert!(events.iter().any(|e|matches!(&e.event,Event::ItemCompleted {body:Item::FileChange {path,unified,..},..} if path==std::path::Path::new("large-synthetic.txt")&&unified.contains("new synthetic line"))));
+    let entries = events
+        .iter()
+        .filter_map(|e| match &e.event {
+            Event::ItemCompleted {
+                body: Item::Plan { entries },
+                ..
+            } => Some(entries.len()),
+            _ => None,
+        })
+        .sum::<usize>();
+    assert_eq!(entries, 2000);
+    assert!(events.iter().any(|e|matches!(&e.event,Event::ItemCompleted {body:Item::Notice {text,..},..} if text.starts_with("Imported tool input continuation:")&&text.contains("synthetic-tail"))));
+    assert!(
+        events
+            .iter()
+            .all(|e| serde_json::to_vec(e).unwrap().len() <= MAX_ENVELOPE_BYTES)
+    );
+}
+
+#[tokio::test]
+async fn pending_byte_budget_closes_old_calls_before_retaining_more_arguments() {
+    let mut input = String::new();
+    for i in 0..40 {
+        input.push_str(&(serde_json::json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":format!("large-{i}"),"name":"Read","input":{"payload":"p".repeat(400000)}}]}}).to_string()+"\n"));
+    }
+    let mut stream = claude::convert_with(std::io::Cursor::new(input.into_bytes()), options());
+    let mut events = vec![];
+    while let Some(next) = stream.next().await {
+        events.push(next.unwrap());
+    }
+    let stats = stream.metrics();
+    assert!(
+        stats.peak_pending_tools < MAX_PENDING_TOOLS
+            && stats.peak_pending_bytes > 3_000_000
+            && stats.peak_pending_bytes <= MAX_PENDING_BYTES,
+        "PendingByteBudgetMeasuresFullArguments"
+    );
+    laws::check_transcript(&events).unwrap();
+    assert!(events.iter().any(|e|matches!(&e.event,Event::ItemCompleted {body:Item::Notice {text,..},..} if text.contains("Pending Claude tool budget exceeded"))));
 }

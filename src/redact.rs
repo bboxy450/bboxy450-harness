@@ -50,13 +50,38 @@ impl Set {
             r"(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[A-Za-z0-9_-]{30,})"
         ).expect("fixed import credential pattern"));
         let registered = self.values.read().unwrap();
-        let mut values = registered.iter().map(|v| v.as_str()).collect::<Vec<_>>();
-        values.sort_by(|a, b| b.len().cmp(&a.len()).then(a.cmp(b)));
-        let mut scrubbed = text.to_owned();
-        for value in values {
-            scrubbed = scrubbed.replace(value, "<redacted>");
+        // Find on original bytes, then merge overlapping matches. Replacement
+        // markers are never rescanned by another (possibly short) secret.
+        let mut spans = patterns
+            .find_iter(text)
+            .map(|m| (m.start(), m.end()))
+            .collect::<Vec<_>>();
+        for value in registered.iter().filter(|v| !v.is_empty()) {
+            spans.extend(
+                text.match_indices(value.as_str())
+                    .map(|(at, _)| (at, at + value.len())),
+            );
         }
-        patterns.replace_all(&scrubbed, "<redacted>").into_owned()
+        spans.sort_unstable();
+        let mut merged: Vec<(usize, usize)> = vec![];
+        for (start, end) in spans {
+            if let Some(last) = merged.last_mut()
+                && start <= last.1
+            {
+                last.1 = last.1.max(end);
+            } else {
+                merged.push((start, end));
+            }
+        }
+        let mut result = String::new();
+        let mut end = 0;
+        for (start, next) in merged {
+            result.push_str(&text[end..start]);
+            result.push_str("<redacted>");
+            end = next;
+        }
+        result.push_str(&text[end..]);
+        result
     }
     pub fn import_value(&self, mut value: serde_json::Value) -> serde_json::Value {
         fn walk(set: &Set, value: &mut serde_json::Value) {
