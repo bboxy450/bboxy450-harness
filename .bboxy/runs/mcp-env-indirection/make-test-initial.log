@@ -1,0 +1,17 @@
+python3 -I scripts/test.py
+test: cargo fmt --check
+test: cargo clippy --offline --locked --all-targets --all-features -- -D warnings
+    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-core)
+error: this creates an owned instance just for comparison
+  --> tests/bin/mcp_fixture.rs:24:72
+   |
+24 | ...   "alias_sock_matches":std::env::var_os("S").is_some_and(|s| std::path::PathBuf::from(s)==std::path::PathBuf::from(std::env::var...
+   |                                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `s`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#cmp_owned
+   = note: `-D clippy::cmp-owned` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::cmp_owned)]`
+
+error: could not compile `bboxy450-harness` (bin "mcp-fixture" test) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+make: *** [test] Error 101
