@@ -111,6 +111,18 @@ pub(crate) fn select_sources(
 mod source_tests {
     use super::*;
     #[test]
+    fn reserved_reference_is_a_typed_config_error_before_resolution() {
+        for source in ["$BBOXY_SOCK", "${BBOXY_SEAT_ID}", "!echo ${BBOXY_ROLE}"] {
+            let env = [("alias".into(), source.into())].into();
+            for origin in [Origin::Profile, Origin::Acp] {
+                let error = validate_environment(origin, &env).unwrap_err();
+                assert_eq!(error.class, ErrorClass::Config);
+                assert_eq!(error.message, "reserved environment reference");
+            }
+            assert!(validate_environment(Origin::Launcher, &env).is_ok());
+        }
+    }
+    #[test]
     fn launcher_provenance_cannot_come_from_server_json_and_overrides_once() {
         let server = |command: &str| {
             serde_json::from_value::<ServerConfig>(json!({"command":command,"launcher":true}))
@@ -497,6 +509,22 @@ fn scrub_bboxy_env(command: &mut tokio::process::Command) {
         }
     }
 }
+fn validate_environment(
+    origin: Origin,
+    env: &BTreeMap<String, String>,
+) -> Result<(), crate::provider::ProviderError> {
+    if origin != Origin::Launcher
+        && env
+            .values()
+            .any(|value| value.contains("$BBOXY_") || value.contains("${BBOXY_"))
+    {
+        return Err(crate::provider::ProviderError::new(
+            ErrorClass::Config,
+            "reserved environment reference",
+        ));
+    }
+    Ok(())
+}
 async fn supervise(
     slot: Arc<Slot>,
     redactor: Set,
@@ -504,6 +532,19 @@ async fn supervise(
     cancel: CancellationToken,
 ) {
     use std::sync::atomic::Ordering;
+    // Invalid configuration is terminal for this slot, not a restartable server
+    // failure. Validate all values before running even the first resolver.
+    if let Err(error) = validate_environment(slot.origin, &slot.config.env) {
+        slot.state.store(3, Ordering::Release);
+        notice(
+            &output,
+            &cancel,
+            Level::Warn,
+            format!("mcp {}: configuration error: {}", slot.name, error.message),
+        )
+        .await;
+        return;
+    }
     for attempt in 0..5u32 {
         if cancel.is_cancelled() {
             return;

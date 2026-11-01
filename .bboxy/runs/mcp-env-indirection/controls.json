@@ -1,0 +1,46 @@
+[
+  {
+    "name": "bboxy-indirection",
+    "source": "src/mcp.rs",
+    "source_sha256": "7ff8b9d129195af43a7f501e9221715b7e8106f799ed8b5a2328f3b1f29aaf07",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "seat_process",
+      "seat_launch::profile_and_acp_refuse_bboxy_environment_indirection",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "BBOXY reference lacked typed configuration refusal",
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "resolver-namespace",
+    "source": "src/process.rs",
+    "source_sha256": "c05676dd85b76bddd94d097ae29e1219cd563e8dca9709665e1a6dcc24c3ad30",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "seat_process",
+      "seat_launch::command_resolver_cannot_copy_seat_environment_into_mcp_aliases",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "command resolver leaked BBOXY_SOCK into an MCP alias",
+    "red_exit": 101,
+    "green_exit": 0
+  }
+]

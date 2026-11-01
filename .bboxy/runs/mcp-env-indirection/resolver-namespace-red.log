@@ -1,0 +1,19 @@
+
+running 1 test
+seat_launch::command_resolver_cannot_copy_seat_environment_into_mcp_aliases --- FAILED
+
+failures:
+
+---- seat_launch::command_resolver_cannot_copy_seat_environment_into_mcp_aliases stdout ----
+
+thread 'seat_launch::command_resolver_cannot_copy_seat_environment_into_mcp_aliases' (120927468) panicked at tests/support/seat_launch.rs:508:9:
+command resolver leaked BBOXY_SOCK into an MCP alias (ACP=false)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    seat_launch::command_resolver_cannot_copy_seat_environment_into_mcp_aliases
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 1.90s
+
+error: test failed, to rerun pass `--test seat_process`

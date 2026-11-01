@@ -162,7 +162,8 @@ async fn run_inner(
     if cancel.is_cancelled() {
         return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
     }
-    let mut child = Command::new(req.program)
+    let mut command = Command::new(req.program);
+    command
         .args(req.args)
         .current_dir(req.cwd)
         .env_remove("BBOXY_CAPABILITY")
@@ -174,8 +175,17 @@ async fn run_inner(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .process_group(0)
-        .kill_on_drop(true)
-        .spawn()?;
+        .kill_on_drop(true);
+    if capture_only {
+        // A !cmd resolver is untrusted regardless of the eventual key/server
+        // consumer. Preserve PATH/HOME but never hand seat identity to its shell.
+        for (name, _) in std::env::vars_os() {
+            if name.as_encoded_bytes().starts_with(b"BBOXY_") {
+                command.env_remove(name);
+            }
+        }
+    }
+    let mut child = command.spawn()?;
     let pgid = child.id().expect("spawned child PID");
     let mut group = OwnedGroup::new(pgid);
     let mut stdout = child.stdout.take().unwrap();

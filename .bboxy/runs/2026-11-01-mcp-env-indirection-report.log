@@ -1,0 +1,75 @@
+Task #4344 / 01M6BKTWWKQGW85XN2D4EYVQDV — E1f MCP environment indirection
+Executor: E1 harness-core. Worktree: /Users/feral/mydev/bboxy450-harness-core.
+Branch: e1f-mcp-env-indirection. Base: origin/main 6ca1f57 (merged PR #8).
+Binding: tasks/2026-11-01-harness-mcp-env-indirection.md; MCP §5/§6.
+No merge, release, operator input, or live-provider request.
+
+Mechanisms / evidence
+src/mcp.rs:512 validate_environment returns ProviderError{class: Config} for
+$BBOXY_* or ${BBOXY_*} references in any non-launcher env value. Validation runs
+before all resolvers/spawns. A rejected slot emits one configuration Notice and
+becomes dead; it does not consume five restart attempts. The session still turns.
+src/mcp.rs:113 unit witness checks both Profile and Acp, both variable syntaxes,
+a shell reference, ErrorClass::Config, and the trusted launcher exception.
+src/process.rs:179 capture_stdout removes the entire BBOXY_ namespace from the
+resolver shell before spawn. This is the shared !cmd path for profile keys and
+both MCP sources. Ordinary PATH/HOME are retained; launcher server inheritance
+and source provenance are unchanged.
+tests/support/seat_launch.rs:485 real binary / echo_env witnesses exercise both
+profile and ACP with the exploit map, bare/braced references, no server spawn on
+refusal, a completed turn, and check_transcript over the closed log.
+:504 checks !printenv BBOXY_SOCK fails without starting the server, and the
+successful empty variant starts echo_env with an empty alias and no namespace.
+The existing launcher witness still proves the trusted source inherits identity.
+tests/bin/mcp_fixture.rs:24 persists names and match/empty booleans only.
+Every process witness clears the parent environment and uses throwaway identity.
+verification/coverage.toml explicitly inventories data/refusal/secrecy as
+implementation-only coverage. Immutable provenance/data transforms add no new
+MCP lifecycle transition; all existing lifecycle models and controls still run.
+
+Commands and real exit status
+1. cargo test --offline --locked --features acp,test-fixtures --test seat_process
+   environment_indirection -- --nocapture — 101 before the product fix:
+   BBOXY reference lacked typed configuration refusal (ACP=false, braced=false).
+2. cargo test --offline --locked --features acp,test-fixtures --test seat_process
+   command_resolver_cannot -- --nocapture — 101 before the product fix:
+   command resolver leaked BBOXY_SOCK into an MCP alias (ACP=false).
+3. python3 -I scripts/test-e1c-rework-controls.py --case bboxy-indirection
+   --case resolver-namespace --out .bboxy/runs/mcp-env-indirection — 0.
+   bboxy-indirection: remove the refusal; 101 at the named refusal assertion,
+   restored implementation 0.
+   resolver-namespace: scrub capability only; 101 at the named alias-leak
+   assertion, restored implementation 0.
+   controls.json and four red/green logs are committed alongside this report.
+4. Initial make test — 2: clippy cmp_owned in a fixture path comparison.
+   Replaced that owned conversion with a borrowed Path; initial log retained.
+5. Exactly make test — 0, unattended, source
+   28ed46355b594959fb5e436f8a39c360254dbff2.
+   All 11 canonical layers exited 0, then all GUI layers/smoke exited 0.
+   Includes fmt, clippy -D warnings, all unit/integration/e2e/process/mock-SSE
+   tests, separate seven launcher/security cases, hardening controls, native
+   first, pinned TLC parity, secret/header/KB checks and GUI rendering smoke.
+   Native/TLC: 64 model variants, 25 contracts, full state/edge/verdict parity.
+   Code receipt: ff941bb4f1d05db22926d47c81795721b57df507a0fd4229b30355cb584d10ae.
+   make-test.log, test-current.json, gui-gate.json and formal-native.json preserve
+   actual output, command status and all 134 test-input hashes.
+
+Acceptance / gaps
+Required refusal, resolver isolation, launcher inheritance and continued turns
+are covered by real process witnesses; both deliberate controls are 101 -> 0.
+No assigned gap. The tests cover the specified environment-reference channels,
+not arbitrary intentional disclosure by trusted launcher code. No real
+credential bytes are in these logs. Final record commit changes evidence only;
+signed final SHA and current-head formal receipt are in task_report / PR.
+
+Integrated-main refresh
+Main advanced to 1b1d39e (merged E3d GUI PR #10). Rebased onto it, resolving
+only the coverage inventory by retaining E3d's row and the new MCP row.
+Exactly make test ran again, no env prefix, exit 0 on signed source
+e2890a1b41715b8c0c4387e5286c1c5501a2ae5b. All 11 canonical layers, 64 native/TLC
+models, and the updated GUI structural smoke (22 cards, 8 disclosures) pass.
+post-rebase-test-current.json and post-rebase-gui-gate.json give every status and
+134 input hashes. post-rebase-console.log is a console capture; one tool chunk
+was truncated, so the structured gate records are the authoritative layer list.
+All functional source/control changes are identical across this rebase; only
+E3d GUI inputs and the combined coverage inventory changed.

@@ -72,6 +72,10 @@ def main(selected=None):
 }
 ''')),
         ('leader-only','src/mcp.rs','mcp_client','close_kills_a_server_and_member_that_ignore_eof_and_term','MCP server group survived Close: orphaned member',leader_only),
+        ('bboxy-indirection','src/mcp.rs','seat_process','seat_launch::profile_and_acp_refuse_bboxy_environment_indirection','BBOXY reference lacked typed configuration refusal',
+         lambda s:once(s,'origin != Origin::Launcher\n        && env','false\n        && env')),
+        ('resolver-namespace','src/process.rs','seat_process','seat_launch::command_resolver_cannot_copy_seat_environment_into_mcp_aliases','command resolver leaked BBOXY_SOCK into an MCP alias',
+         lambda s:once(s,'name.as_encoded_bytes().starts_with(b"BBOXY_")','name.as_encoded_bytes() == b"BBOXY_CAPABILITY"')),
         ('bboxy-scrub','src/mcp.rs','seat_process','cannot_inherit_bboxy_environment*',['profile MCP inherited BBOXY variables','ACP MCP inherited BBOXY variables'],
          lambda s:once(s,'scrub_bboxy_env(&mut command);','/* scrub removed by control */')),
         ('launcher-inherit','src/mcp.rs','seat_process','seat_launch::launcher_flags_deliver_context_tools_and_only_launcher_environment','launcher MCP lost BBOXY capability',

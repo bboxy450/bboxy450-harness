@@ -82,6 +82,7 @@ sources = [
     "src/frontends/gui/layout_checks.rs",
 ]
 implementation_only = [
+    "MCP §5 environment indirection: validate_environment rejects reserved references with ErrorClass::Config before startup; process::capture_stdout removes the namespace for all command resolvers. Immutable origin/data projection, no HarnessMcpServer lifecycle change; tests/seat_process.rs + tests/support/seat_launch.rs and the typed-error unit witness, controls bboxy-indirection/resolver-namespace",
     "embed-seat §1/§6 and MCP §1/§5/§6 launch text, file parsing, source precedence and BBOXY environment projection: tests/seat_process.rs + tests/support/seat_launch.rs and engine/mcp unit witnesses; origin is immutable non-deserialized slot configuration, with no new HarnessMcpServer lifecycle transition",
     "R22 automatic compaction: tests/context_auto.rs; finite abstraction excludes wire byte and blob durability",
     "R23 ACP wire bytes, content merge, suffix repair and schema mapping: tests/acp_face.rs; HarnessAcpFlow covers FIFO/output ownership, not arbitrary Rust refinement",
