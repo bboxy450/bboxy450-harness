@@ -1,33 +1,52 @@
-E2 toolkit-widgets: full report, migrated under d2900
-Project: bboxy450-term (https://github.com/bboxy450/bboxy450-term)
-Task: harness tasks/2026-10-31-toolkit-widgets.md (#50)
-Authority: harness decisions/d2900-e2-pr86-integration.md (59f0d8d), amending d824.
-Executor: E2 toolkit-widgets, seat 01M6ADTVVZS36VS43P2PG15HRQ.
+FINAL INTEGRATION EVIDENCE (current; supersedes archived reporting/location statements)
+Signed term merge: d5e19904bca42b4e98e3f5c6ccf92acd852f3b01
+Parents: 4889321f13e509dc7ca18ce7ed3f0217e76cdd1b ee6b7d5ed5b5c2a412ba8352478a052cd63f47cd
+Signature: G; key 9B07E849480C68328CA20684844ECC0587DE7AB0; Boxy <bboxy450@gmail.com>.
+No new Report: trailer. No rebase or history rewrite.
+make test CI_LOG=target/ci-integration.log — exit 0; default RUST_TEST_THREADS=2, environment unset, no override.
+CI SHA256: 49ffb747e56d6440f62a39baa5fed60140e3e1c3440461ac2cc3e00f4994f864
+Formal SHA256: 944ee78625847a6a532e92848931b99542228ba6017b5349b73cb432ee85fd85
+Formal: 122 models / 31 crates / 51 contracts match native and Java TLC; good and Broken controls.
+Headless stories: all 128 passed, target/ci-integration.log:347.
+Headless GUI stopped Ok, target/ci-integration.log:4737.
+Invariants:27 checks,0 failures,11 normal-policy slow skips, target/ci-integration.log:4934.
+Exact-source normal0 result: target/ci-integration.log:4936
+Both issue85 mux witnesses passed, including watched replay invariant. No exception used.
+make list-toolkit-package — exit0; /tmp/e2-integration-package.log; no reports/ path.
+Current UI reports directory absent; Cargo.toml exclude line removed.
+Conflicts resolved by retaining both Make target sets and document exports, joining all formal contracts/corpus cases and the doc coverage models/sources. No AGENTS or KB-schema edit relative to origin/main.
 
-CURRENT INTEGRATION
-The crate-local reports directory and manifest exclude line are removed.
-The report lives only at harness/.bboxy/runs/2026-11-01-toolkit-widgets-report.log.
-The source integration merges origin/main ee6b7d5e into harness-widgets, retaining
-both Makefile target sets, both document exports and all formal registrations.
-The bboxy450-doc coverage entry includes streaming/preparation and report provenance.
-No new Report: trailer, KB schema modification or historical rewrite is made.
-The three round-3 functional fixes are unchanged from signed 4889321f.
-A fresh full make test at default concurrency will run after the merge is signed.
-Its actual result and source-bound receipt will be appended below before handoff.
+Full-gate layer commands and actual exits (emitted by canonical make test):
+exit 0; target/ci-integration.log:4; sh scripts/layering.sh
+exit 0; target/ci-integration.log:6; python3 -I scripts/test-landing.py
+exit 0; target/ci-integration.log:48; python3 -I scripts/test-resource-ledger.py
+exit 0; target/ci-integration.log:54; cargo build --workspace --locked --target-dir /Users/feral/mydev/bboxy450-term-harness-widgets/target
+exit 0; target/ci-integration.log:66; cargo clippy --workspace --all-targets --locked --target-dir /Users/feral/mydev/bboxy450-term-harness-widgets/target -- -D warnings
+exit 0; target/ci-integration.log:91; sh scripts/quarantine-test.sh --workspace --locked
+exit 0; target/ci-integration.log:4363; make test-formal TARGET_DIR=/Users/feral/mydev/bboxy450-term-harness-widgets/target
+exit 0; target/ci-integration.log:4697; sh scripts/ui-lint.sh
+exit 0; target/ci-integration.log:4715; cargo build -p bboxy450-term --locked --target-dir /Users/feral/mydev/bboxy450-term-harness-widgets/target
+exit 0; target/ci-integration.log:4721; Complete private env/argv is retained at the CI line below; env -i runs target/debug/bboxy450-term --headless --smoke --ctl --unattended with private account/home/run/repository.
+exit 0; target/ci-integration.log:4738; sh scripts/invariants.sh
 
-PRE-INTEGRATION VERIFICATION (COMPLETED)
-Signed source: 4889321f13e509dc7ca18ce7ed3f0217e76cdd1b.
-Command: make test CI_LOG=target/ci-round2.log ; exit: 0.
-Concurrency: Make default RUST_TEST_THREADS=2, no override or retry.
-CI SHA256: 7905ed57e14752410f138daa2813752a80dd668d83d49085bb9ca6d2b4966afa.
-Formal SHA256: 4fa8940c3c7872d06717d2516f8798e3459689c220c8a362ac69b44c588539be.
-116 models / 31 crates / 48 contracts; all 128 new stories passed.
-Both issue85 mux witnesses passed; all 27 normal invariants passed, 11 slow skipped.
-Full layer commands and exits: /tmp/e2-round2-final-evidence.json.
-The following archived report describes that verified source. Its earlier report
-location/exclusion references are superseded by the current d2900 migration above.
+REMAINING REPORT-RANGE GATE REFUSAL (not worked around)
+SIGNED_RANGE=origin/main..HEAD make test-kb-reports — exit2 (Cargo101).
+/tmp/e2-integration-report-range.log SHA256: 33101c076189819aceb985be17ecba9dda77d4e5802f6ff0c36a113eeefebd80
+real_bboxy_frontmatter_parses and reports::committed_report_trailers_resolve_in_their_own_trees failed.
+crates/bbt-doc/tests/corpus/reports.rs:195:5:
+  4889321f13e509dc7ca18ce7ed3f0217e76cdd1b: Report: [[toolkit-widgets-report]] does not resolve to a report in the same tree
+  18ff123b6dc68d2a4f578417359c910a3ce933b3: Report: [[toolkit-widgets-report]] does not resolve to a report in the same tree
+  6ee4342226a1af1e38c4db97b5ef1eaed58add2f: Report: [[toolkit-widgets-report]] does not resolve to a report in the same tree
+  b81d3c384c48185e5f85fa3ce997d297ab361f46: Report: [[toolkit-widgets-report]] does not resolve to a report in the same tree
+The current merge-commit check passes; the complete PR-range check rejects old trailers.
+The Oracle was sent the exact check/message under d2900. No gate relaxation, typed KB report creation or historical rewrite is attempted.
+Source/merge commit is locally complete and clean; PR86 still at4889321f pending report-gate disposition. No PR/main merge or release.
 
-ARCHIVED ROUND-3 MECHANISMS, ACCEPTANCE AND RED-TO-GREEN EVIDENCE
+CURRENT REPORT LOCATION: harness .bboxy/runs/2026-11-01-toolkit-widgets-report.log.
+This is a plain .log evidence artifact per d2900, not an indexed Markdown record.
+
+ARCHIVED MECHANISMS AND RED-TO-GREEN EVIDENCE FOLLOW (source4889321f; widget implementation unchanged)
+
 
 # Toolkit widgets: second rework report
 
