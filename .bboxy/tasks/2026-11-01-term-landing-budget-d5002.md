@@ -5,31 +5,58 @@ allowed_paths:
 - verification/
 - tests/
 - .bboxy/runs/
+artifacts:
+- '[[01M6CEWEZJN7W78EQTMZPGFN63]]'
 assignee: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 authorship:
   kind: seat
   process_generation: '1'
-  public_key: 0Yj/k2rOV2tLHQm2aES5d/roSsYDRC/E70ukAxvovgo=
-  signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
+  public_key: u0vQJ7ngwMS5yr2jtfd3HrkhSWQXq2tpEWFJBh5W+4A=
+  signer: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 created: 2026-11-01T19:28:36.979Z
 created_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 delegated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 id: 01M6C9BKH81A65DH77B29TJ2RS
 number: 4900
 provenance:
-  digest: sha256:be7ec9a4af9d0424711b89fc827c2851a55319865480efb01af4a09396758e0d
-  frontmatter_digest: sha256:d356b188e9e1eccc221e195fe319ecedb25b4520a0d86dc8fce8a252dbb5e518
-  log: .bboxy/log/2026-11-01.jsonl#31510
-  sig: gC0nDByiNbEo+FLaL9+y3vau8uVfkrZIOcm5LEnqgU2OlUHeEcTNWNpg2xlrMTbxkJ7NMw/4/quKdyGohzttCQ==
-  signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
+  digest: sha256:3101e23bec34b19ce799ea4434ed42c86f4500f5f7201d499c8b97aa9b13e8ce
+  frontmatter_digest: sha256:3636ffdea627d36547fd69f210e268342388727e1c8afde4464ceb98ccc81e3f
+  log: .bboxy/log/2026-11-01.jsonl#31646
+  sig: h2yChIjudcR/cDj50CmCygpOVYCWmhzVwhOG4LUk0hXS28gHS9gaKXVFOvDTA6ds+bZ2P1RN0luPoa/dMhHaBA==
+  signer: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+report:
+  commit: 680c0579bdd777e808542024f5bb64e3e98e56b4
+  op_id: 01M6CEXB8ZJGVPDY7BYK9VTCAX
+  reported_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+  summary: 'Implemented d5002 R0–R4 in bboxy450-term PR #89 (https://github.com/bboxy450/bboxy450-term/pull/89), branch landing-budget, signed HEAD 680c0579bdd777e808542024f5bb64e3e98e56b4. Exact make test exited 0 unattended; full postsubmit compared 201 native/TLC models with 0 reused verdicts, and a subsequent opt-in formal run reused all 201 with a valid current-source receipt. Nine named mutation controls went 1 -> 0. Full command/exit/hash report: [[runs/2026-11-01-landing-budget-report.log]], SHA-256 dee342e882f0d01e751a831425563b75c2f4b257a0fb3f47c752246de5f76ed5, signed local harness report-only commit 2bb259987ae1150573abd5f54d4dffcbf9d4156d (refs/heads/landing-budget-report-4900, not pushed). Term source tree is clean; only the new term branch was pushed. Real two-cut bbt-mux margin measurement remains unmeasured. No merge or production land.sh run.'
 role: executor
-status: claimed
+status: reported
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E6: implement d5002 landing presubmit budget (R0-R4) in bboxy450-term'
 type: task
-updated: 2026-11-01T19:28:40.207Z
-updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
+updated: 2026-11-01T21:05:41.865Z
+updated_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 verify: make test
+verify_result:
+  command: make test
+  evidence:
+  - criterion: Full unattended canonical gate
+    reference: '/Users/feral/mydev/bboxy450-term-landing-budget/target/ci-local.log ends: ci-local: result 680c0579bdd777e808542024f5bb64e3e98e56b4 normal 0; full report records its SHA-256. Headless smoke passed; final invariants: 27 checks, 0 failures, 11 slow checks skipped.'
+  - criterion: R0 per-stage/sub-step timings and load
+    reference: scripts/test-landing.py BudgetClockTests and BudgetPresubmitTests.test_observed_ctl_runs_once pass; target/landing-budget/dry-run.json records four stages, four formal sub-steps, start/end load, exit 0 and ctl_runs=[ctl]. Missing-phase mutation exits 1 then restored 0.
+  - criterion: R1 no duplicate ctl; filtered/ignored tests remain covered
+    reference: Real Rust ctl fixture runs once when covered and twice when filtered or ignored. Wrong-attempt/target receipts cannot suppress execution. R1, R1-filtered and R1-ignored named controls each exit 1 -> 0, source hashes match signed source.
+  - criterion: R2 fixture dependency scope
+    reference: BudgetPresubmitTests.test_harness_helper_cut_skips_landing_fixtures and test_landing_machinery_cut_runs_fixtures pass (positive changes landing.py). Broad scripts/ mutation exits 1 at unrelated script ran landing fixtures, restored 0. Full ci-local retains unconditional fixture runs.
+  - criterion: R3 per-model archive reuse with fresh receipts
+    reference: 'Postsubmit evidence 275951b78d9de047b0c09ef051333e0d04807d3ef21a303f1f18a348e3c1dbb3: 201 models, 0 reused. Opt-in evidence 831269341df5d0813ba64fae4e7094175d2d801791205d00d41269a6ccda6ec5: 201 reused_from that archive. make test-formal FORMAL_REUSE=1 and make check-formal-evidence exit 0. Stale TLA and postsubmit-reuse mutations exit 1 -> 0; changed tool pins recheck every model.'
+  - criterion: R4 advisory stage overruns; unchanged hard 900 s bound
+    reference: BudgetPresubmitTests.test_allocation_overrun_is_advisory and BudgetClockTests.test_stage_allocation_is_advisory_but_900_seconds_still_blocks pass. Named controls exit 1 -> 0. Virtual time above 900 s yields 124; stage overrun yields a finding and exit 0.
+  - criterion: Required fixture commands
+    reference: python3 -I scripts/test-landing.py -> 0 (152); python3 -I scripts/test-landing-recovery.py -> 0 (46); python3 -I scripts/test-formal.py -> 0 (20); five existing extended cases -> 0; all raw log hashes and command lines are in the committed .log.
+  - criterion: Signed scoped branch, PR and report
+    reference: 'Term signed HEAD 680c0579bdd777e808542024f5bb64e3e98e56b4; git verify-commit -> 0; origin/landing-budget matches; PR #89 OPEN; 13 scoped files. Harness report-only signed commit 2bb259987ae1150573abd5f54d4dffcbf9d4156d changes only .bboxy/runs/2026-11-01-landing-budget-report.log. Neither commit has a Report trailer.'
+  exit_code: 0
 ---
 ROLE: EXECUTOR. Repo bboxy450/bboxy450-term. Work on a new worktree and branch `landing-budget` from origin/main (289218b6 or later), and open a PR. Do not merge or run land.sh; the Oracle lands it.
 
@@ -49,3 +76,52 @@ Acceptance:
 - All commits are signed, with no Report trailer.
 - The report goes in bboxy450-harness `.bboxy/runs/2026-11-01-landing-budget-report.log`. Tell me the commit; don't push unrelated history.
 - Send one task_report with verify_result.command exactly `make test`.
+
+## Report from seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+
+Implemented d5002 R0–R4 in bboxy450-term PR #89 (https://github.com/bboxy450/bboxy450-term/pull/89), branch landing-budget, signed HEAD 680c0579bdd777e808542024f5bb64e3e98e56b4. Exact make test exited 0 unattended; full postsubmit compared 201 native/TLC models with 0 reused verdicts, and a subsequent opt-in formal run reused all 201 with a valid current-source receipt. Nine named mutation controls went 1 -> 0. Full command/exit/hash report: [[runs/2026-11-01-landing-budget-report.log]], SHA-256 dee342e882f0d01e751a831425563b75c2f4b257a0fb3f47c752246de5f76ed5, signed local harness report-only commit 2bb259987ae1150573abd5f54d4dffcbf9d4156d (refs/heads/landing-budget-report-4900, not pushed). Term source tree is clean; only the new term branch was pushed. Real two-cut bbt-mux margin measurement remains unmeasured. No merge or production land.sh run.
+
+```json
+{
+  "commit": "680c0579bdd777e808542024f5bb64e3e98e56b4",
+  "op_id": "01M6CEXB8ZJGVPDY7BYK9VTCAX",
+  "verify_result": {
+    "command": "make test",
+    "evidence": [
+      {
+        "criterion": "Full unattended canonical gate",
+        "reference": "/Users/feral/mydev/bboxy450-term-landing-budget/target/ci-local.log ends: ci-local: result 680c0579bdd777e808542024f5bb64e3e98e56b4 normal 0; full report records its SHA-256. Headless smoke passed; final invariants: 27 checks, 0 failures, 11 slow checks skipped."
+      },
+      {
+        "criterion": "R0 per-stage/sub-step timings and load",
+        "reference": "scripts/test-landing.py BudgetClockTests and BudgetPresubmitTests.test_observed_ctl_runs_once pass; target/landing-budget/dry-run.json records four stages, four formal sub-steps, start/end load, exit 0 and ctl_runs=[ctl]. Missing-phase mutation exits 1 then restored 0."
+      },
+      {
+        "criterion": "R1 no duplicate ctl; filtered/ignored tests remain covered",
+        "reference": "Real Rust ctl fixture runs once when covered and twice when filtered or ignored. Wrong-attempt/target receipts cannot suppress execution. R1, R1-filtered and R1-ignored named controls each exit 1 -> 0, source hashes match signed source."
+      },
+      {
+        "criterion": "R2 fixture dependency scope",
+        "reference": "BudgetPresubmitTests.test_harness_helper_cut_skips_landing_fixtures and test_landing_machinery_cut_runs_fixtures pass (positive changes landing.py). Broad scripts/ mutation exits 1 at unrelated script ran landing fixtures, restored 0. Full ci-local retains unconditional fixture runs."
+      },
+      {
+        "criterion": "R3 per-model archive reuse with fresh receipts",
+        "reference": "Postsubmit evidence 275951b78d9de047b0c09ef051333e0d04807d3ef21a303f1f18a348e3c1dbb3: 201 models, 0 reused. Opt-in evidence 831269341df5d0813ba64fae4e7094175d2d801791205d00d41269a6ccda6ec5: 201 reused_from that archive. make test-formal FORMAL_REUSE=1 and make check-formal-evidence exit 0. Stale TLA and postsubmit-reuse mutations exit 1 -> 0; changed tool pins recheck every model."
+      },
+      {
+        "criterion": "R4 advisory stage overruns; unchanged hard 900 s bound",
+        "reference": "BudgetPresubmitTests.test_allocation_overrun_is_advisory and BudgetClockTests.test_stage_allocation_is_advisory_but_900_seconds_still_blocks pass. Named controls exit 1 -> 0. Virtual time above 900 s yields 124; stage overrun yields a finding and exit 0."
+      },
+      {
+        "criterion": "Required fixture commands",
+        "reference": "python3 -I scripts/test-landing.py -> 0 (152); python3 -I scripts/test-landing-recovery.py -> 0 (46); python3 -I scripts/test-formal.py -> 0 (20); five existing extended cases -> 0; all raw log hashes and command lines are in the committed .log."
+      },
+      {
+        "criterion": "Signed scoped branch, PR and report",
+        "reference": "Term signed HEAD 680c0579bdd777e808542024f5bb64e3e98e56b4; git verify-commit -> 0; origin/landing-budget matches; PR #89 OPEN; 13 scoped files. Harness report-only signed commit 2bb259987ae1150573abd5f54d4dffcbf9d4156d changes only .bboxy/runs/2026-11-01-landing-budget-report.log. Neither commit has a Report trailer."
+      }
+    ],
+    "exit_code": 0
+  }
+}
+```
