@@ -43,6 +43,8 @@ def main():
             ['python3','-I','scripts/checks.py','headers'],
             ['python3','-I','scripts/checks.py','kb-records'],
             ['python3','-I','scripts/checks.py','kb-records-control'],
+            ['python3','-I','scripts/checks.py','inventory-shape'],
+            ['python3','-I','scripts/checks.py','inventory-shape-control'],
         ]:
             print('test: '+ ' '.join(command),flush=True)
             result=subprocess.run(command,cwd=ROOT,env=env)

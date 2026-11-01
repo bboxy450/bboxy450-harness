@@ -65,6 +65,31 @@ def kb_records_control():
         try:kb_records(Path(tmp)/'.bboxy')
         except ValueError:print('kb records control: PASS (rejected)');return
     raise ValueError('kb records control: a record without frontmatter was accepted')
+INVENTORIES=['verification/coverage.toml']
+def inventory_shape(root=ROOT,files=INVENTORIES):
+    """Shared inventories: every array is one entry per line with a trailing comma, so concurrent additions never touch the same line."""
+    for name in files:
+        lines=(root/name).read_text().splitlines();inside=False
+        for n,l in enumerate(lines,1):
+            t=l.strip()
+            if inside:
+                if t==']':inside=False
+                elif t and not t.startswith('#') and not t.endswith(','):raise ValueError(f'{name}:{n}: array entry without trailing comma')
+            elif re.match(r'[\w."-]+\s*=\s*\[',t):
+                if t.split('=',1)[1].strip()!='[':raise ValueError(f'{name}:{n}: array on one line; put one entry per line')
+                inside=True
+        if inside:raise ValueError(f'{name}: unterminated array')
+    print('inventory shape: PASS ('+str(len(files))+')')
+def inventory_shape_control():
+    """Broken controls: a one-line array and a missing trailing comma must both fail."""
+    import tempfile
+    for bad in ['models = ["A", "B"]\n','models = [\n    "A",\n    "B"\n]\n']:
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp)/'inv.toml').write_text(bad)
+            try:inventory_shape(Path(tmp),['inv.toml'])
+            except ValueError:continue
+        raise ValueError('inventory shape control: a malformed array was accepted')
+    print('inventory shape control: PASS (rejected 2)')
 if __name__=='__main__':
-    try:{'headers':headers,'secrets':secrets,'kb-records':kb_records,'kb-records-control':kb_records_control}[sys.argv[1]]()
+    try:{'headers':headers,'secrets':secrets,'kb-records':kb_records,'kb-records-control':kb_records_control,'inventory-shape':inventory_shape,'inventory-shape-control':inventory_shape_control}[sys.argv[1]]()
     except (ValueError,KeyError) as error:print(error,file=sys.stderr);sys.exit(1)
