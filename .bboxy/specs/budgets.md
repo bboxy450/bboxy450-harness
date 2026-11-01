@@ -31,6 +31,7 @@ The numbers in this file are allocations: they are decisions. Measured numbers c
 Check (structural, `make test`): `tests/rt_budget.rs`.
 - Every entry point in the `spawn_blocking` row (grep, glob, directory read, diff, markdown preparation over 64 KiB, fsync) calls `assert_off_rt_worker()`. It panics if the current thread is a `bbt-rt` worker.
 - The test drives each entry point and asserts the hook ran.
+- **Ownership of the witnesses.** Core (E1) owns the grep, glob, directory read, diff and fsync witnesses in `tests/rt_budget.rs`, and exports `assert_off_rt_worker()` and the permit-backed hook API. The markdown-preparation witness belongs to the GUI owner (E3): its markdown prepare path calls the same API, and `tests/gui_budget.rs` asserts that the hook ran. Core adds no stand-in parser. Until E3's witness lands, the markdown row is **unproven**, not passed.
 - The test runs 16 concurrent 10k-file greps and asserts that the semaphore's observed maximum of held permits is exactly 4, and that no walk ran without a permit.
 
 Measurement (`make bench-budgets`): the same grep fixture while a 1 ms ticker runs on `bbt_rt::handle()`. Ticker p99 lateness ≤ 5 ms. This moved out of `make test` on 2026-11-01: it flaked at load 44–60 on 10 CPUs (8.38 ms, then 7.51 ms) on unchanged code. Oracle ruling E1b item 15, agreed by the Architect.
@@ -71,3 +72,4 @@ Owner: Nyx Copperwing <ARCHITECT>.
 ## Change log
 
 - **2026-11-01, at the Oracle's ruling E1b item 15** (message 01M6APCPE97RFQMKJY2A9RPZZC). Wall-clock p99 checks leave `make test`. §1 and §2 get structural gates, and the p99s move to `make bench-budgets`, which prints UNMEASURED when load exceeds ncpu. §2 was extended by the Architect for the same reason, before it could flake. Alternative rejected: a looser threshold, which would still measure the load and would hide a real regression.
+- **2026-11-01, at E1's question** (message 01M6AQ7Q99WB77W7HDJTYBSZ9V). The markdown hook's execution witness belongs to E3 (`gui_budget`), and core adds no stand-in parser.
