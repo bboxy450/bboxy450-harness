@@ -16,7 +16,7 @@ updated: "2026-10-31T00:00:00Z"
 # Law 3: never block
 
 **Property.**
-1. `Gateway::send` and `Gateway::subscribe` are non-`async` and return in bounded time. A full work lane returns `Busy`.
+1. Server admission, `Gateway::send` and `Gateway::subscribe`, is non-`async` and returns in bounded time. A full work lane returns `Busy`. The remote `UnixClient::send` is `async`: it awaits only its own connection's reply frame, bounded at 5 s, and never runs on the UI thread ([[gateway]] §1a).
 2. `Interrupt`, `ResolveApproval` and `Close` are admitted whatever the state of the work lane.
 3. The engine publishes with `try_push` only. A subscriber that does not read gets `Lagged` and is closed, while the engine and the other subscribers finish the turn.
 4. No harness task holds a `bbt-rt` worker for more than 1 ms ([[budgets]] §1).
