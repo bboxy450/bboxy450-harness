@@ -1240,6 +1240,12 @@ fn embed_stop_control_reaches_a_stale_a_to_b_to_a_delivery() {
     );
     let index = |name: &str| good.variables.iter().position(|v| v.name == name).unwrap();
     assert!(
+        b.states.iter().any(|s| s[index("birth")] == 2
+            && s[index("applied_stop_birth")] == 0
+            && s[index("stopped")] == 1),
+        "broken delivery must stop the replacement A with the first A's Stop"
+    );
+    assert!(
         g.states.iter().any(|s| s[index("birth")] == 2
             && s[index("held_stop_birth")] == 0
             && s[index("stop_pending")] == 1),

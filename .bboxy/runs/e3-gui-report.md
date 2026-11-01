@@ -4,7 +4,7 @@ task: "[[2026-10-31-harness-gui]]"
 status: verification-in-progress
 ---
 
-PR https://github.com/bboxy450/bboxy450-harness/pull/2, branch `e3-gui`. Phase 1 uses published toolkit 0.1.1. No merge performed. This record supersedes the rejected c5c0f19 handoff; final verification and rebase onto E1b remain pending.
+PR https://github.com/bboxy450/bboxy450-harness/pull/2, branch `e3-gui`. Phase 1 uses published toolkit 0.1.1. No merge performed. This record supersedes the rejected c5c0f19 handoff; final unfiltered verification and rebase onto E1b remain pending. `make test-formal` exited 0 on signed 861a176: 33 models, 16 pairs plus Yarn, exact native/TLC states and transitions; `e3-rework-formal.log` records the retained receipt. UI-specific lib/bin clippy and normal all-target/all-feature clippy both exited 0.
 
 | Oracle item | Mechanism and evidence |
 |---|---|

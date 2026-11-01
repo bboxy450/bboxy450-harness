@@ -157,6 +157,10 @@ async fn injected_clock_stops_at_300us_defers_and_loses_no_envelope() {
         bridge.pending_notices(),
         "the production drain must defer queued work"
     );
+    assert!(
+        !bridge.dirty.drain().is_empty(),
+        "deferred bridge work must wake the next frame"
+    );
     let mut frames = 1;
     while bridge.pending_notices() {
         let before = clock.now();

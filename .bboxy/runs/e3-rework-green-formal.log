@@ -1,5 +1,5 @@
    Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.54s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.00s
      Running tests/formal_models.rs (target/debug/deps/formal_models-d55003898c94690a)
 
 running 1 test
