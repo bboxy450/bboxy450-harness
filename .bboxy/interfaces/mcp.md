@@ -19,17 +19,19 @@ links:
   to: '[[secrets-never-persist]]'
 - rel: constrains
   to: '[[never-block]]'
+- rel: depends-on
+  to: '[[seat-capability-delivery]]'
 number: 1988
 provenance:
-  digest: sha256:b6920ad88c2d1297ff194bc7b78204c15da7fa69338c94510f86be758a74092f
-  frontmatter_digest: sha256:eb94f3493fdcf742a80cbd794dcad0c5b0b9479c398b72c863a004fcb4353119
-  log: .bboxy/log/2026-11-01.jsonl#25250
-  sig: ctt5My2q3H9pJhkDhZC9mVObEZdzCxrNypmubLmJYslqNBpgoOh6VE3nZt69oIOCRttQ66Tbtp/d8Ebpoj9EAA==
+  digest: sha256:489707fbd6fd16ffb32d57b44973a0855f5ef38fecf161c2274a4bf8208dc9f3
+  frontmatter_digest: sha256:3dab4ffbb1bbc3e0d10b2f4ccf4d73a5a29bf20b94b20a3ed1672958898195da
+  log: .bboxy/log/2026-11-01.jsonl#28155
+  sig: kGy0ZvW2v/rkpbaqzB5PTTql0nKXj9kqc9vadvTQLE3O1wkUnPrgZb1PnqPSWEsUa8RWU7DwhUaOR1z3nFo0CA==
   signer: seat:01M6AC7H87H9S94Y1D45PSQVH6
 status: baselined
 title: 'ICD: MCP client — session-lived servers, registry, policy, degradation (v0.1)'
 type: interface
-updated: 2026-11-01T12:15:33.479Z
+updated: 2026-11-01T13:39:08.740Z
 updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 ---
 # ICD: MCP client
@@ -106,7 +108,13 @@ updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 ## 5. Secrets
 
 - **Env values.** Each `env` value is a literal, `$VAR`, or a kittens `!cmd` (10 s timeout, 8 KiB cap, [[provider]] §4).
-- **Inherited environment.** A server inherits the harness process environment, then its configured `env` is applied over it. **Every `BBOXY_*` variable is removed before spawn, except for launcher servers** (§1 sources). `BBOXY_CAPABILITY` is a seat credential, and a profile or ACP server is untrusted code.
+- **No `BBOXY_*` delivery to profile or ACP servers.** A profile or ACP server never receives a `BBOXY_*` value through any of three paths:
+  - **inheritance:** every `BBOXY_*` variable is removed from the inherited environment before spawn;
+  - **config:** a configured `env` key named `BBOXY_*` is dropped, with one `Notice{Warn}`;
+  - **the resolver:** a `$VAR` reference to `BBOXY_*`, or a `!cmd` whose output equals a registered `BBOXY_*` value, is dropped, with one `Notice{Warn}`.
+
+  The server still spawns without that key. Launcher servers (§1 sources) are the only exception: they inherit `BBOXY_*`. `BBOXY_CAPABILITY` is a seat credential, and a profile or ACP server is untrusted code.
+- **Same-uid exception (what this does not claim).** On macOS, any process running under the same uid can read another process's exec-time environment with `ps -Eww -p <pid>`. This still works after the process has unset the variable; it was verified on 2026-11-01. So the rule above guarantees non-delivery, not secrecy. A profile server, or any tool any seat runs, can still find the capability in the environment of the harness or of its parent seat. Until [[seat-capability-delivery]] takes the capability out of the environment, this ICD does not claim that the capability is hidden from same-uid code. That proposal also does not defend against an active same-uid attacker who reads files.
 - **Registration.** Every resolved value is registered with the redactor `Set` (`src/redact.rs:36`) **before** the child is spawned.
 - **Scrubbing.** Tool arguments are scrubbed before they are written; results, `Notice` text and stderr excerpts are scrubbed before they enter any item (law [[secrets-never-persist]]).
 - **Profiles.** The profile file stores the reference (`$VAR`, `!cmd`), never the resolved value.
@@ -121,7 +129,8 @@ updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 | §3 calls | `slow` gives `Failed` with the timeout reason within `timeout_s` + 1 s, and the turn continues; an `Interrupt` during `slow` gives `TurnEnded{Cancelled}` in ≤ 2 s; a response from the previous generation after a crash is dropped |
 | §4 labels | the notice count equals the number of state changes in each mode |
 | §5 secrets | `echo_env` returns its secret env value; the log, the notices and the stderr excerpt contain no copy (`grep -c` = 0 over the session directory) |
-| §5 inherited environment | with `BBOXY_CAPABILITY=x` and `BBOXY_SOCK=y` set on the harness, `echo_env` as a profile server sees neither, and the same fixture as a launcher server sees both |
+| §5 no `BBOXY_*` delivery | The harness runs with `BBOXY_CAPABILITY=x` and `BBOXY_SOCK=y`. `echo_env` as a profile server is configured three ways, each in its own case: with no env, with `env: {BBOXY_CAPABILITY: "lit"}`, and with `env: {K: "$BBOXY_CAPABILITY"}`. In every case it sees no `BBOXY_*` key and no value `x`, and each dropped key yields one `Notice{Warn}`. The same fixture as a launcher server sees both values |
+| §5 same-uid exception | not verified here: it is a stated non-claim. The removal check is [[seat-capability-delivery]] §4 |
 | model | **HarnessMcpServer**, below |
 
 **HarnessMcpServer**, adapted from PluginConnection (generations A→B→A, as in HarnessCancelTree).
@@ -146,5 +155,10 @@ updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
   - waiting for servers at session start: one hung server would block every turn.
 - **2026-11-01, at E1's question** (message 01M6AWED4QVM27ZVE6ZHP7WY5D). §1 and §6 disagreed on the failure count. Binding: 5 failed attempts (the initial one plus 4 restarts), then `dead`. §6 now asserts 5 spawns and no sixth. Version unchanged.
 - **2026-11-01, at the Oracle's embed-seat request** (message 01M6BGD5FMZ55AJ4V6SS4Q11KK). §1 adds launcher servers from `seat --mcp-config`. §5 states environment inheritance, which the ICD had not specified: servers inherit the process environment, but `BBOXY_*` is removed except for launcher servers. `src/mcp.rs` at cdde43d inherits everything, so a profile server could read the seat capability; that is a defect against this line. Alternative rejected: clearing the whole environment, which breaks `PATH`/`HOME` for ordinary servers. Version unchanged.
+- **2026-11-01, at the Oracle's security finding** (message 01M6BN8XAGAW3C6AGHYZY3NWRK, from the PR #11 review). §5 changes in two ways.
+  - Non-delivery now covers all three paths: inheritance, config keys, and resolver references. The resolver path was open: `$BBOXY_CAPABILITY` in a profile `env` would have been resolved.
+  - The same-uid exception is stated, so the ICD claims nothing it cannot enforce. I re-verified it on this machine: `ps -Eww` shows a child's exec-time environment even after the child unsets the variable.
+
+  The removal is proposed in [[seat-capability-delivery]]. Version unchanged.
 
 Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: configured MCP servers (E1c implements the client).
