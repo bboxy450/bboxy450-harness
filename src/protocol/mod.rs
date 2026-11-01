@@ -376,7 +376,7 @@ pub enum ItemKind {
     #[serde(other)]
     Unknown,
 }
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -697,17 +697,6 @@ impl Item {
                 session: SessionId(id.0),
             },
             ItemKind::Unknown => Self::Unknown,
-        }
-    }
-}
-impl Default for Usage {
-    fn default() -> Self {
-        Self {
-            input_tokens: 0,
-            output_tokens: 0,
-            cached_input_tokens: None,
-            reasoning_tokens: None,
-            cost_micros_usd: None,
         }
     }
 }

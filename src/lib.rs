@@ -8,3 +8,20 @@
 //! One core, one event log, and protocol consumers for every face.
 
 pub mod protocol;
+
+pub mod process;
+pub mod redact;
+pub mod runtime;
+pub mod store;
+
+pub mod provider;
+
+pub mod policy;
+
+pub mod tools;
+
+pub mod gateway;
+
+pub mod engine;
+
+pub mod frontends;

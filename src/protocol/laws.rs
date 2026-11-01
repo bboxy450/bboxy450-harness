@@ -114,10 +114,10 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                 kind,
                 parent,
             } => {
-                if let Some(t) = turn {
-                    if !started.contains(t) || ended.contains(t) {
-                        return Err(fail("one-ending", "item outside running turn"));
-                    }
+                if let Some(t) = turn
+                    && (!started.contains(t) || ended.contains(t))
+                {
+                    return Err(fail("one-ending", "item outside running turn"));
                 }
                 if !items.insert(*item) {
                     return Err(fail("one-ending", "item id reused"));
@@ -146,10 +146,9 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                 if let Item::ToolCall {
                     call_id, output, ..
                 } = body
+                    && (!calls.insert(call_id.clone()) || output.is_empty())
                 {
-                    if !calls.insert(call_id.clone()) || output.is_empty() {
-                        return Err(fail("tool-pairing", "duplicate call id or absent result"));
-                    }
+                    return Err(fail("tool-pairing", "duplicate call id or absent result"));
                 }
             }
             Event::ItemDelta { item, .. } | Event::ItemSnapshot { item, .. } => {
@@ -158,10 +157,8 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                 }
             }
             Event::SessionClosed => closed = true,
-            Event::Lagged { .. } | Event::Reset { .. } => {
-                if i + 1 != events.len() {
-                    return Err(fail("log-is-truth", "subscription control is not last"));
-                }
+            Event::Lagged { .. } | Event::Reset { .. } if i + 1 != events.len() => {
+                return Err(fail("log-is-truth", "subscription control is not last"));
             }
             _ => {}
         }
