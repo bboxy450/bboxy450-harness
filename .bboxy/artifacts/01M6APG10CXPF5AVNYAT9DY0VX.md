@@ -10,14 +10,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 788
+bytes: null
 claimed: false
 created: 2026-11-01T04:39:44.402Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:a65d170381cf4f9ce3c207e59bcf269d380734cba72770ee719c21149e6c2d59
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -69,22 +69,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793508130064'
+- before_digest: sha256:a65d170381cf4f9ce3c207e59bcf269d380734cba72770ee719c21149e6c2d59
+  commit: null
+  digest: null
+  event_hash: 291c471d36ded49e413dc5f9d5bd18d0aab061d1483e8abbdac6c4893ce5fdef
+  generation: '1'
+  grade: inferred
+  id: 01M6AQ23C4H5P08S7XP5ZVXYPA
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/src/frontends/gui/mod.rs
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '7421'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793508574562'
 id: 01M6APG10CXPF5AVNYAT9DY0VX
 kind: file
-last_observation_sequence: '7222'
+last_observation_sequence: '7421'
 number: 1327
 observation_reason: null
 observed: true
 produced_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:157d2d425e8172dcc1e5fddace0d60d566507e10d452064879ac1ee612de2b48
-  log: .bboxy/log/2026-11-01.jsonl#7223
-  sig: jxncm/wuq3JpEdeb98/W40qIoeFPVm8HDcP9ufqMoCRiAsPkHrBRtt5DNPSHBxcQru/aCB+W3JHE9GoGfhqaBQ==
+  frontmatter_digest: sha256:22c35631d1953aea79e13d67ea9c376e0ace520b6599db7df5ba8d5d8a3cbb25
+  log: .bboxy/log/2026-11-01.jsonl#7422
+  sig: O1iLx4Tt1h9hHh58hod5HeOfOrleyyKfgOlcVdzbtkO2kN0Qzo0eFcO9XcwCo5Eji1XFeIl0gCmo32zETrATCQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/src/frontends/gui/mod.rs
 type: artifact
-updated: 2026-11-01T04:42:13.356Z
+updated: 2026-11-01T04:49:36.646Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

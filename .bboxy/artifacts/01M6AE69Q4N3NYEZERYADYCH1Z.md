@@ -10,13 +10,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 11467
+bytes: 11229
 claimed: false
 created: 2026-11-01T03:41:59.458Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:90bc18da3b55b4b6b6be7b36bb2d3127bd34a51dbb8d37a5986e34e6b521ceb7
+digest: sha256:8b6a0b637ba28b27bc71cc4998b14ea9d9c2b922c92874652b839091771aea59
 digest_grade: observed
 for: []
 grade: inferred
@@ -133,22 +133,54 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793506848983'
+- before_digest: sha256:90bc18da3b55b4b6b6be7b36bb2d3127bd34a51dbb8d37a5986e34e6b521ceb7
+  commit: null
+  digest: sha256:0a008cb460887fe35baeb6baecea7f78c95b29298b08634a4ba4253b66fd6f0c
+  event_hash: e9c1960b5d7a6149bc100d3491cfb357137e090fbdb101324a62d531ed5c5860
+  generation: '1'
+  grade: inferred
+  id: 01M6APZ0BXGF6DKVSAEPE6M0QH
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/protocol_golden.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '7369'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793508474696'
+- before_digest: sha256:0a008cb460887fe35baeb6baecea7f78c95b29298b08634a4ba4253b66fd6f0c
+  commit: null
+  digest: sha256:8b6a0b637ba28b27bc71cc4998b14ea9d9c2b922c92874652b839091771aea59
+  event_hash: 893d7eb51b36ea50a372f35faae3cc48840b8ca9f9e81a373e54682a836935ae
+  generation: '1'
+  grade: inferred
+  id: 01M6APZ0TRFQQVVYB7954B2FKY
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/protocol_golden.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '7375'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793508475080'
 id: 01M6AE69Q4N3NYEZERYADYCH1Z
 kind: file
-last_observation_sequence: '5956'
+last_observation_sequence: '7375'
 number: 564
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:fd60c835edecc5855e4587961a5373a8f22e62f93e7f03d3a2d6cf8190f0b92e
-  log: .bboxy/log/2026-11-01.jsonl#5957
-  sig: 8E6Q0NW40WRslbqH/whuZWK9MSkNapek3rw9nJfJG3YtKBAixZoDhv+UpUgW2pLOVllGZD6xQ3gFwXPzLmeXAg==
+  frontmatter_digest: sha256:64c1f795848bbdd9c578dafc717791d05873bc6b24d38d7c0acb8bb5b625feed
+  log: .bboxy/log/2026-11-01.jsonl#7376
+  sig: kVrNjji2dORz0l811jKwCd4vEYAA5LHCfILM9t9JOqCBp3En2LBTqnpnVz0g18xQNnZeruUx2J7X4Ce77Hu3Aw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/protocol_golden.rs
 type: artifact
-updated: 2026-11-01T04:20:50.376Z
+updated: 2026-11-01T04:47:55.743Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

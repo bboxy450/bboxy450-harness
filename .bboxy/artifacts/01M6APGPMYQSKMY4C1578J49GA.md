@@ -10,14 +10,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 14960
+bytes: null
 claimed: false
 created: 2026-11-01T04:40:06.566Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:75c01458c485c79ca263b30690fe58aba51b6b6fe47230d57e14121575ce278d
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -69,22 +69,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793508130064'
+- before_digest: sha256:75c01458c485c79ca263b30690fe58aba51b6b6fe47230d57e14121575ce278d
+  commit: null
+  digest: null
+  event_hash: 9d7835781721225e82997c0a6dd093baf2bb5d298d2c34b08708238cbb944d07
+  generation: '1'
+  grade: inferred
+  id: 01M6AQ234QRRA782FWCV83RNDD
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/src/frontends/gui/bridge.rs
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '7418'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793508574562'
 id: 01M6APGPMYQSKMY4C1578J49GA
 kind: file
-last_observation_sequence: '7216'
+last_observation_sequence: '7418'
 number: 1357
 observation_reason: null
 observed: true
 produced_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:d6f021de33e0662190d131ec4e0a9fbdbaa50a1bfa543ca9b2cc880c005c8f48
-  log: .bboxy/log/2026-11-01.jsonl#7217
-  sig: 6WniqB5C0MOaNZ8NiFTRkPB9jEpiNJDG1HY3zqCaqUwY65BtUYj8hsAVYGSdPxrWV0Lhc0mFtVC5lN/ri8sEAw==
+  frontmatter_digest: sha256:3e4736f536116686ec297f70ff138228ef5a6acf84c19c1ec4b0b1e9248c0fb1
+  log: .bboxy/log/2026-11-01.jsonl#7419
+  sig: JxRcH/1M5lMgLxHQ3hCPP3FClC3qezAgIAFPFmD6Jw6SkgdO7KwcSiGnOiUdAUSvvgPYQrygU7sYuejMIW1YDw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/src/frontends/gui/bridge.rs
 type: artifact
-updated: 2026-11-01T04:42:12.879Z
+updated: 2026-11-01T04:49:36.409Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

@@ -15,7 +15,7 @@ created: 2026-11-01T04:02:07.238Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:b7ac7b41d3f8536d86508b18d85c4265e36953014308c2b8f8d11473749d4b84
+digest: sha256:7581fbaf0a5f35fbce1410e737fb8d12a2387916e12913f9452630811c91700b
 digest_grade: observed
 for: []
 grade: inferred
@@ -116,22 +116,102 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/git/ref
   ts: '1793507937307'
+- before_digest: sha256:b7ac7b41d3f8536d86508b18d85c4265e36953014308c2b8f8d11473749d4b84
+  commit: 6f8a9ba5a3340b8d9bbb905d88cb312e0919d257
+  digest: sha256:5d0e65c3683643c4a25d740520d9315a4e526bed39a454fb3428b3605734a94e
+  event_hash: 2dd58a9ee54f60b2ccc271ce6fc679039c4581aa32b6df5132f6d695dd8b9c05
+  generation: null
+  grade: inferred
+  id: 01M6APWV7Z5VRC4980VPKK4SXH
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:refs/heads/e3-gui
+  seat: null
+  sequence: '7339'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793508404419'
+- before_digest: sha256:5d0e65c3683643c4a25d740520d9315a4e526bed39a454fb3428b3605734a94e
+  commit: c329b9c9d3468981eb1f2b865c76a39285ed1ad7
+  digest: sha256:5a63c9bbb4c6cc320818e15630f1700b2e3477fd18a77da11b681eb705588560
+  event_hash: 3655ea60a19a96c442551de88f6bc9e763f6ef1c3c620cf37d8ba1f7120e6763
+  generation: null
+  grade: inferred
+  id: 01M6AQ26XM4DM0JJ4PH4EXTXR3
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:refs/heads/e3-gui
+  seat: null
+  sequence: '7466'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793508577070'
+- before_digest: sha256:5a63c9bbb4c6cc320818e15630f1700b2e3477fd18a77da11b681eb705588560
+  commit: d6a759f7bc121aba6392e21a9dfe9ec7f96ad77d
+  digest: sha256:1d0f5c686f49ef50d37cc66389ab1f28ee8c0ea68aca614d2a31996d6662c8e5
+  event_hash: 97288704b14377c60460c2481aa314f042b8b943eb7f2c2a1054945c2fe2cd15
+  generation: null
+  grade: inferred
+  id: 01M6AQKGFV82CW3FVPHGH9JSR1
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:refs/heads/e3-gui
+  seat: null
+  sequence: '7953'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793509147065'
+- before_digest: sha256:1d0f5c686f49ef50d37cc66389ab1f28ee8c0ea68aca614d2a31996d6662c8e5
+  commit: 3821d3a30a29b04f604d2c15ca3a6757dd535bb7
+  digest: sha256:d2634246cfc545addc818fdbd48fd7af133d7f860080fa1a3621c467b51683e3
+  event_hash: 081a674fd503311b0ccee6f82c35f1f0c3ea58a466458c5f2108656d3803e26e
+  generation: null
+  grade: inferred
+  id: 01M6AQS1T1NTX5BTEHEXKDVYE9
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:refs/heads/e3-gui
+  seat: null
+  sequence: '8060'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793509328659'
+- before_digest: sha256:d2634246cfc545addc818fdbd48fd7af133d7f860080fa1a3621c467b51683e3
+  commit: c5c0f19f01269d7a80ca1dd076618899c49bd5fe
+  digest: sha256:7581fbaf0a5f35fbce1410e737fb8d12a2387916e12913f9452630811c91700b
+  event_hash: 7b168c0e5bf4cb755704bfd3f734461d1df1f9fe5d2da2476c137c388d608d10
+  generation: null
+  grade: inferred
+  id: 01M6AR0GTE7AX55K3TH9K6TQY2
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:refs/heads/e3-gui
+  seat: null
+  sequence: '8132'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793509571969'
 id: 01M6AMB4R4C61606NPHHMACH89
 kind: other
-last_observation_sequence: '6792'
+last_observation_sequence: '8132'
 number: 1119
 observation_reason: git-ref-value; authorship unverified
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:5635876a7f26e6d103d01b79582c6bb5ae5e59ba393460521c3965549c11843a
-  log: .bboxy/log/2026-11-01.jsonl#6793
-  sig: OTn0IkTpnfW3LGpKIKBQQuw4NYfWIoHygQfeznbnCMb4XrRHQOcoa3PwvCIvIL7mdLd5aNEbrYrorfYvS3p/CA==
+  frontmatter_digest: sha256:6fb6bbe64eb7302a5b67445d34fe5180d1d6035f8f9a28685ca531c629b986dc
+  log: .bboxy/log/2026-11-01.jsonl#8133
+  sig: h0j7ZqT2VjfwzGDa210GgiQi9bE3A7BETyleFBybCrdK8xL/s+OAHvfKCpun1TiXnV+2gPntTCNPpdrPEmffBQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: git:refs/heads/e3-gui
 type: artifact
-updated: 2026-11-01T04:38:59.417Z
+updated: 2026-11-01T05:06:13.456Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

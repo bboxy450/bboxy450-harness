@@ -10,13 +10,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 7312
+bytes: 7296
 claimed: false
 created: 2026-11-01T03:43:15.538Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:f4b5c488f502d229bd33e56b65fbf008c29ecc4e31c80535ddc28e93a52eb288
+digest: sha256:5fb7a180c8c949bdad665da623eebf2253c029279ef2fbfe401208a2d8b4017d
 digest_grade: observed
 for: []
 grade: inferred
@@ -101,22 +101,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793506779061'
+- before_digest: sha256:f4b5c488f502d229bd33e56b65fbf008c29ecc4e31c80535ddc28e93a52eb288
+  commit: null
+  digest: sha256:5fb7a180c8c949bdad665da623eebf2253c029279ef2fbfe401208a2d8b4017d
+  event_hash: 04193f2ca360e802646cb2d925ff1c5e4cf9903fd290030e56c50d6bb8e89f21
+  generation: '1'
+  grade: inferred
+  id: 01M6AQFF4GH49XP5S1MN7CC0QP
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/policy_gate.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '7881'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793509011358'
 id: 01M6AF5K5RC1S0F0PA1KJA0TN2
 kind: file
-last_observation_sequence: '5877'
+last_observation_sequence: '7881'
 number: 748
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:dbfa563b2d4da663d6937ee159acf29abf16b596e6d3795ca5d0dd013ccf0da3
-  log: .bboxy/log/2026-11-01.jsonl#5878
-  sig: VUPWsndsY3yZCpf5//ctZaJjapM/VkyHqnzEsjkKYsnOx+A5rUhT/TC+PBEmyrn3qKz3ZMf40+0ovCokvzrgAA==
+  frontmatter_digest: sha256:8bf391e4a2502e3ec908baa556904701bb47d6df3c57b02a3d23f3c0a99fb3bb
+  log: .bboxy/log/2026-11-01.jsonl#7882
+  sig: shNm1a8kO7ULuqlIkjp/1ZIDwfdHfaznwM+BtLpgBdoNrXhpV6jVdJHnvxtcywM14rSwn+BRZ59xRWZAxSyKBA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/policy_gate.rs
 type: artifact
-updated: 2026-11-01T04:19:41.179Z
+updated: 2026-11-01T04:56:54.680Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

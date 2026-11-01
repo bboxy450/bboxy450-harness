@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 1908
+bytes: null
 claimed: false
 created: 2026-11-01T04:40:09.078Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:49028066a47923e142a6f24b4c42fb01ebce10d4c2f6716f6cf2ec249ca8c131
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -36,22 +36,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793507936474'
+- before_digest: sha256:49028066a47923e142a6f24b4c42fb01ebce10d4c2f6716f6cf2ec249ca8c131
+  commit: null
+  digest: null
+  event_hash: 4a8bec04eec0aa3b5bfac6a36d928ddd4ce17be6f70c62ce2e81ac0f7d10c133
+  generation: null
+  grade: inferred
+  id: 01M6AQ28FEN7FZDD98HFJCB4JD
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/Cargo.toml
+  seat: null
+  sequence: '7484'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793508574619'
 id: 01M6APGS3N4HVHP6W1ET9ECADT
 kind: file
-last_observation_sequence: '7117'
+last_observation_sequence: '7484'
 number: 1360
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:645de55f9de1da5c4c9cbb394ecff25b6e16f1f776b5ea8ec9fa120bdf8b6ec4
-  log: .bboxy/log/2026-11-01.jsonl#7118
-  sig: n/0hfc6HWMfSKnK822DEkcIVeS8qe7ARrgxrnWwEgU26p4EaI1t5/B61pR5MhRINrOXTEC0Z9BC2f9qUvTFmDA==
+  frontmatter_digest: sha256:b279fefd7a190a8f0a67edcf9b28e27c82d6d93cd3718dadb75b871675690751
+  log: .bboxy/log/2026-11-01.jsonl#7485
+  sig: kCnh1n07hSljDGJzfKfkLSpcne8FAKRt51jdQIxWPrL5vD0RKtv3REAr5ZjaDeyfD+eCmDzJN7G2SImo9ze6BQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/Cargo.toml
 type: artifact
-updated: 2026-11-01T04:40:09.078Z
+updated: 2026-11-01T04:49:41.874Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

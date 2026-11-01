@@ -10,13 +10,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 4133
+bytes: 4864
 claimed: false
 created: 2026-11-01T04:36:50.867Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:8b759cf7520ba69c160c742a0a66860b2a3f332ea6b4148a436a7a9e13eb73d0
+digest: sha256:9f6e510c668b6e957771e4b6d7c42616176db98b23332934ed8ea07a3fb10c98
 digest_grade: observed
 for: []
 grade: inferred
@@ -37,22 +37,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793507810435'
+- before_digest: sha256:8b759cf7520ba69c160c742a0a66860b2a3f332ea6b4148a436a7a9e13eb73d0
+  commit: null
+  digest: sha256:9f6e510c668b6e957771e4b6d7c42616176db98b23332934ed8ea07a3fb10c98
+  event_hash: e00b1b2bb2b64ec0d26270a4ef7cb239532cd669d1387190e2bf8b6ca2cca2c3
+  generation: '1'
+  grade: inferred
+  id: 01M6AQJYJP8J7VBMDF5DRDCCC0
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/hardening/fault-controls.json
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '7941'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793509128049'
 id: 01M6APAQH8TEETJHKXBNC8DZ9Z
 kind: file
-last_observation_sequence: '6696'
+last_observation_sequence: '7941'
 number: 1299
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:e4bd6079817c5f513adb451be898ae1d0e08fbebc439fd7b0a67762d5a93ab10
-  log: .bboxy/log/2026-11-01.jsonl#6697
-  sig: sMCmGobMCTra//lcDUKntXv6tbjJKETeG4YRhXZJ/0LPk2DQiKQjPJXmI0Zy/+2CxohhZCx4ZLpvluHJO643Bw==
+  frontmatter_digest: sha256:355a3213ab1624906cb23becd485aed5d110e8c3f050fb9f89bb101b9d828cde
+  log: .bboxy/log/2026-11-01.jsonl#7942
+  sig: vIxG42ZlofaPm6NVqNHiNTkx6JXjfj8M2y2hpMf76j8hYIPmi51PIAEUJJ3ku1CgDXWSP5bnfcONrRf5cMUiBA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/hardening/fault-controls.json
 type: artifact
-updated: 2026-11-01T04:36:50.867Z
+updated: 2026-11-01T04:58:48.791Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

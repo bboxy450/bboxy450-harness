@@ -10,14 +10,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 1781
+bytes: null
 claimed: false
 created: 2026-11-01T04:42:09.955Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:b512da690312db193425244fb6404f4d3cd710c67dc72b79f249034935241fb5
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -53,22 +53,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793508130064'
+- before_digest: sha256:b512da690312db193425244fb6404f4d3cd710c67dc72b79f249034935241fb5
+  commit: null
+  digest: null
+  event_hash: 388ba5f659b1bcc163e47a69b15d1fd276259ebceb7d65d1d7b009784480f761
+  generation: '1'
+  grade: inferred
+  id: 01M6AQ22E0K2MN3337Q59W1NDY
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/src/frontends/gui/budget.rs
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '7409'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793508574562'
 id: 01M6APMF52KHYMMYY379RFG04W
 kind: file
-last_observation_sequence: '7210'
+last_observation_sequence: '7409'
 number: 1367
 observation_reason: null
 observed: true
 produced_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:530438d11c1d948408b22173eb9fd245987843e655825993878a43a0aaf07a11
-  log: .bboxy/log/2026-11-01.jsonl#7211
-  sig: RSyDk3rF6a5ZkLCpN/4Yx08kenLqPXRc3xaMSqBuXtzx7d8ZbI5SPb4YG0jN43sQ2Y8yU7BiwTgvtQV7S+NdCQ==
+  frontmatter_digest: sha256:bdd4a1e02ecb8a2fa019a4c670e0a1f7ac0febfcc06c7020d289cb6c973f637f
+  log: .bboxy/log/2026-11-01.jsonl#7410
+  sig: /3LECjgSEGH3+SrIxNqZqqJW1sc7eBFbdb6g0dVGO3R4ZeBwqlB84QkjLGKCZhssMiIAOnxgUswcOFn8QvUaBQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/src/frontends/gui/budget.rs
 type: artifact
-updated: 2026-11-01T04:42:12.323Z
+updated: 2026-11-01T04:49:35.682Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact
