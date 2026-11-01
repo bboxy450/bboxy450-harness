@@ -1,0 +1,31 @@
+{
+  "tested_source": "ddccf9972e06f5c97216f5985d90ea59569c008b",
+  "base": "bfda40c01f4dddba9e3a9291f3206dab51e016dc",
+  "command": "make test",
+  "exit_code": 0,
+  "unfiltered": true,
+  "private_home": true,
+  "operator_input": false,
+  "source_inputs_match": true,
+  "formal_models": 43,
+  "formal_contracts": 19,
+  "screenshots": {
+    ".bboxy/runs/gui-smoke.png": "3c6279507911431a12050b3026bae0fb5039b73f30a8ef2d2a51c6a738530b8a",
+    ".bboxy/runs/gui-smoke-scrolled.png": "e1c899f31614fe9ab501e48f2b4dff863741b288f0289950c8175405d34f7ddb"
+  },
+  "bench_command": "make bench-budgets",
+  "bench_exit_code": 0,
+  "bench_verdict": "UNMEASURED",
+  "prior_post_rebase_attempts": [
+    {
+      "log": "e3-post-rebase-attempt1.log",
+      "exit_code": 2,
+      "cause": "raw-script equality instead of the actual bash terminal head; corrected typed-head assertions"
+    },
+    {
+      "log": "e3-post-rebase-attempt2.log",
+      "exit_code": 2,
+      "cause": "clippy collapsible_match in the new test; folded into outer pattern"
+    }
+  ]
+}

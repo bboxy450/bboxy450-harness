@@ -1,5 +1,5 @@
 {
-  "source": "352dc2155aecbb16813be8f4b9177b2499417324",
+  "source": "ddccf9972e06f5c97216f5985d90ea59569c008b",
   "input_sha256": {
     ".bboxy/interfaces/embed-seat.md": "144f9c3eecf85232e445dec43cf39004c73a27aef12014f696c8f1070be4c774",
     ".bboxy/interfaces/gateway.md": "a7943c25aa496cac8d28dae393bdea4b025e0adf6f98c1ac2bea3c1de99e8530",
@@ -108,7 +108,7 @@
     "tests/gui_cli.rs": "b4fa6378743c0242981bd3e97a63d6188430395caf11f6f7f4bd202cf2972315",
     "tests/gui_fixtures.rs": "56072922bc11a25d56dafdedda47168f308b700029487a8305738b48b4db0d7f",
     "tests/gui_gate.py": "94c17c99105165841eec4205fa7dfb67b481c8737a4a102e7e1893d00580f263",
-    "tests/gui_render.rs": "b214257708692c8c0ae6864515d692516173f14cf434f5d3d81afb9420ec548f",
+    "tests/gui_render.rs": "07b75f733c8607bb47731acce132a2189e5da1dde02e526912de018917385d41",
     "tests/policy_gate.rs": "5fb7a180c8c949bdad665da623eebf2253c029279ef2fbfe401208a2d8b4017d",
     "tests/profile_lifecycle.rs": "8acc222adde5659e1e1a756c4e302be86a6f3f33c1b4476743d8c905a2c1ef70",
     "tests/protocol_golden.rs": "8b6a0b637ba28b27bc71cc4998b14ea9d9c2b922c92874652b839091771aea59",

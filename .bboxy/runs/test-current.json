@@ -1,6 +1,6 @@
 {
-  "at": "2026-11-01T06:07:53.790515+00:00",
-  "source": "1d02b17d3c459ab415f1e8fedf668dc9e2842d22",
+  "at": "2026-11-01T06:11:56.252401+00:00",
+  "source": "ddccf9972e06f5c97216f5985d90ea59569c008b",
   "input_sha256": {
     "Cargo.lock": "d589d8af320107a6f60391c1f525e0f177f11c0b9cb1fb53e6a8660c4abbb638",
     "Cargo.toml": "ab536d316b0f09d2408c30751576aefbce6c8e1833f4130c81dbbf49d0d2bdb2",
@@ -96,7 +96,7 @@
     "tests/gui_cli.rs": "b4fa6378743c0242981bd3e97a63d6188430395caf11f6f7f4bd202cf2972315",
     "tests/gui_fixtures.rs": "56072922bc11a25d56dafdedda47168f308b700029487a8305738b48b4db0d7f",
     "tests/gui_gate.py": "94c17c99105165841eec4205fa7dfb67b481c8737a4a102e7e1893d00580f263",
-    "tests/gui_render.rs": "f2590aff762cff5fb1ef0ed2429a8500cc11deb442bd9b945533639d90467380",
+    "tests/gui_render.rs": "07b75f733c8607bb47731acce132a2189e5da1dde02e526912de018917385d41",
     "tests/policy_gate.rs": "5fb7a180c8c949bdad665da623eebf2253c029279ef2fbfe401208a2d8b4017d",
     "tests/profile_lifecycle.rs": "8acc222adde5659e1e1a756c4e302be86a6f3f33c1b4476743d8c905a2c1ef70",
     "tests/protocol_golden.rs": "8b6a0b637ba28b27bc71cc4998b14ea9d9c2b922c92874652b839091771aea59",
@@ -120,7 +120,7 @@
   },
   "private_home": true,
   "operator_input": false,
-  "outcome": "FAIL",
+  "outcome": "PASS",
   "commands": [
     {
       "command": [
@@ -142,7 +142,57 @@
         "-D",
         "warnings"
       ],
-      "exit_code": 101
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--all-targets"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/test-hardening.py"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "make",
+        "test-formal-native"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "make",
+        "test-formal-parity"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/checks.py",
+        "secrets"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/checks.py",
+        "headers"
+      ],
+      "exit_code": 0
     }
   ]
 }

@@ -1,0 +1,14 @@
+cargo test --offline --locked --features standalone --test gui_bench -- --ignored --nocapture
+    Blocking waiting for file lock on package cache
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.35s
+     Running tests/gui_bench.rs (target/debug/deps/gui_bench-f5f9a5e03479fae3)
+
+running 1 test
+UNMEASURED gui-budget: load 56.40, ncpu 10; no p99 verdict
+test hundred_thousand_deltas_frame_p99 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+python3 -I scripts/bench-budgets.py
+UNMEASURED: load 56.40 exceeds 10 CPUs

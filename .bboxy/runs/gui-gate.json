@@ -1,5 +1,5 @@
 {
-  "source": "352dc2155aecbb16813be8f4b9177b2499417324",
+  "source": "ddccf9972e06f5c97216f5985d90ea59569c008b",
   "private_home": true,
   "operator_input": false,
   "commands": [
@@ -40,7 +40,14 @@
         "--",
         "--nocapture"
       ],
-      "exit_code": 101
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "make",
+        "test-gui-smoke"
+      ],
+      "exit_code": 0
     }
   ]
 }

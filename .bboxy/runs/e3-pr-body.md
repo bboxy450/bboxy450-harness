@@ -1,10 +1,10 @@
-Adds the standalone and embedded GUI consumer on toolkit 0.1.1: retained Envelope projection, background gateway/preparation workers, StreamDock transcript, composer and approval/control actions, offline replay, and headless Metal smoke.
+Adds the standalone/embedded GUI consumer on toolkit 0.1.1: pure retained Envelope projection, background subscription and preparation, StreamDock transcript, composer/approval/control actions, offline replay and headless Metal rendering.
 
-The Oracle rework now models delayed stale Stop delivery through A→B→A, limits StreamToView coverage to DirtyWake, tests the real bridge drain with an injected 0.3ms clock, repairs dropped deltas with a snapshot before completion, and activates rendered approval buttons against the live gateway. Cards show readable typed content and completed terminal blobs load on workers. The smoke checks per-card content, approval controls and a scrolled viewport.
+Rebased onto bfda40c (protocol v0.2 core). The rework models stale Stop delivery through A→B→A, limits StreamToView coverage to DirtyWake, tests the real bridge with an injected 0.3ms clock, checks snapshot repair before completion and activates rendered approval buttons. Cards show readable content; completed terminal blobs load on workers. The smoke checks per-card meaning, controls and scrolling.
 
-Validation on the rework: focused GUI regressions and semantic headless smoke exit 0; 33 native/TLC models and broken controls match; both clippy configurations exit 0. Mutation controls for ignored budget, ignored snapshot and redirected approval each exit 101 as intended. `make bench-budgets` reports UNMEASURED under load.
+Validation: full unfiltered `make test` exits 0 unattended, including 43 native/TLC variants across 19 contracts, unit/integration/process tests, both clippy checks, GUI tests and actual offscreen replay smoke. Live typed terminal/tool heads, live snapshots and completed output are tested against the real gateway. All commits are signed. Both benchmark entries report UNMEASURED under load; no performance verdict claimed.
 
-Pending final integration: Oracle's PR #3 merge signal, rebase onto main, then unfiltered `make test` exit 0. The live v0.2 test is currently red at the old core's missing terminal head; no final gate is waived. Phase 2 widget adoption awaits its explicit merge signal.
+Report: https://github.com/bboxy450/bboxy450-harness/blob/e3-gui/.bboxy/runs/e3-gui-report.md
+Screenshots: `.bboxy/runs/gui-smoke.png` and `.bboxy/runs/gui-smoke-scrolled.png`.
 
-Report: [.bboxy/runs/e3-gui-report.md](.bboxy/runs/e3-gui-report.md)
-Screenshots: [.bboxy/runs/gui-smoke.png](.bboxy/runs/gui-smoke.png), [.bboxy/runs/gui-smoke-scrolled.png](.bboxy/runs/gui-smoke-scrolled.png)
+Phase 2 widget adoption awaits its explicit merge signal. Do not merge as Executor.
