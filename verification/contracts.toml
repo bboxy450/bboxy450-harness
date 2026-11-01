@@ -194,7 +194,7 @@ checks = ["make test-formal", "make test"]
 name = "HarnessEmbedLifecycle"
 title = "Detaching a window/view preserves the actor; explicit Stop signals only its own birth."
 models = ["HarnessEmbedLifecycle", "BrokenHarnessEmbedLifecycle"]
-sources = ["src/frontends/gui/bridge.rs", "src/frontends/gui/window.rs", "tests/formal/models.rs"]
+sources = ["src/frontends/gui/bridge.rs", "src/frontends/gui/window.rs", "src/frontends/gui/view.rs", "tests/formal/models.rs"]
 implementation_tests = ["tests/gui_bridge.rs", "tests/gui_render.rs"]
 assumptions = "Three monotonic births with public A-B-A labels; delayed Stop captures a birth at admission. Detach drops the subscription; consume returns after its owned turn, then create drops Host. Dropped task handles preserve the actor. No liveness claim about arbitrary external IO. Old gateways are bound to old actors."
 property = "Detaching a window/view preserves the actor; explicit Stop signals only its own birth."
@@ -242,4 +242,25 @@ sources = ["src/mcp.rs", "tests/formal/models.rs"]
 implementation_tests = ["tests/mcp_client.rs", "tests/bin/mcp_fixture.rs", "tests/formal_nonvacuity.rs"]
 assumptions = "One unreaped leader and zero to two members; SIGTERM is ignored. Grace expiry abstracts the timer and sends SIGKILL, then leader wait completes Close. Members may exit independently before completion. Weak fairness on kill/reap after Close begins. Group ownership and pgid reuse remain HarnessProcessLifecycle; OS signals, EOF and reaping are process witnesses, not arbitrary Rust refinement. Maps to src/mcp.rs::finish_child and the stubborn_group fixture."
 property = "NoMemberAfterClose and ReapAfterKill; CloseEventuallyCompletes. Broken control kills only the leader, leaving a live member at completed Close."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessGuiMarkdownBudget"
+title = "Streaming parse work stays linear and deferred source bytes remain readable"
+models = ["HarnessGuiMarkdownBudget", "BrokenHarnessGuiMarkdownQuadratic", "BrokenHarnessGuiMarkdownHiddenTail", "BrokenHarnessGuiMarkdownSuppressedRender"]
+controls = [{ name = "BrokenHarnessGuiMarkdownQuadratic", expected = "safety" }, { name = "BrokenHarnessGuiMarkdownHiddenTail", expected = "safety" }, { name = "BrokenHarnessGuiMarkdownSuppressedRender", expected = "liveness" }]
+sources = ["src/frontends/gui/rich.rs", "src/frontends/gui/view.rs", "src/frontends/gui/bridge.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/gui_rich.rs", "tests/gui_budget.rs"]
+assumptions = "Seven streamed byte units plus a final byte introduced by completion; parser cost upper-bounded by source size, retained prefix and literal pending tail. The final byte cannot be visible before completion. Three-times-input parse credit plus one completion flush bounds total work by four times input. Render is enabled only for a dirty row. Completion dirties the row. Weak fairness on enabled rendering after completion; the suppressed-render control disables this step after completion. Actual Markdown equivalence, highlighting, CPU time and worker/UI ownership remain implementation witnesses, not a Rust refinement proof."
+property = "ParseWorkIsLinear; NoHiddenBytes; completed replies eventually become fully visible."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessGuiApprovalChoice"
+title = "A retired rendered approval cannot dispatch to the replacement prompt"
+models = ["HarnessGuiApprovalChoice", "BrokenHarnessGuiApprovalChoice"]
+sources = ["src/frontends/gui/view.rs", "src/frontends/gui/window.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/gui_bridge.rs", "tests/gui_rich.rs"]
+assumptions = "Three distinct sequential prompt ItemIds; replacement retires the previous prompt. Capture and dispatch are separate actions. Concurrent independent prompts and actual FIFO gateway delivery are implementation witnesses."
+property = "NoRetiredPromptDispatch"
 checks = ["make test-formal", "make test"]

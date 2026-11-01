@@ -1,0 +1,125 @@
+   Compiling serde_core v1.0.229
+   Compiling futures-channel v0.3.34
+   Compiling futures-io v0.3.34
+   Compiling tracing-attributes v0.1.31
+   Compiling indexmap v2.14.2
+   Compiling nix v0.31.3
+   Compiling uuid v1.29.0
+   Compiling tokio-stream v0.1.19
+   Compiling futures-util v0.3.34
+   Compiling toml_edit v0.25.17+spec-1.1.0
+   Compiling proc-macro-crate v3.5.0
+   Compiling bboxy450-yarn-macros v0.1.1
+   Compiling tracing v0.1.44
+   Compiling winit v0.30.13
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.154
+   Compiling futures-executor v0.3.34
+   Compiling tokio-util v0.7.19
+   Compiling tower v0.5.3
+   Compiling hyper-util v0.1.21
+   Compiling chrono v0.4.45
+   Compiling bincode v1.3.3
+   Compiling serde_urlencoded v0.7.1
+   Compiling bboxy450-ui v0.1.1 (https://github.com/bboxy450/bboxy450-term?rev=4889321f13e509dc7ca18ce7ed3f0217e76cdd1b#4889321f)
+   Compiling futures v0.3.34
+   Compiling tower-http v0.6.11
+   Compiling naga-types v30.0.1
+   Compiling process-wrap v10.0.1
+   Compiling serde_yaml v0.9.34+deprecated
+   Compiling hyper-rustls v0.27.10
+   Compiling bboxy450-yarn v0.1.1
+   Compiling ulid v1.2.1
+   Compiling wgpu-types v30.0.1
+   Compiling naga v30.0.1
+   Compiling bboxy450-rt v0.1.1
+   Compiling reqwest v0.12.28
+   Compiling syntect v5.3.0
+   Compiling schemars v1.2.3
+   Compiling rmcp v3.5.1
+   Compiling wgpu-naga-bridge v30.0.1
+   Compiling wgpu-hal v30.0.1
+   Compiling bboxy450-doc v0.1.1 (https://github.com/bboxy450/bboxy450-term?rev=4889321f13e509dc7ca18ce7ed3f0217e76cdd1b#4889321f)
+   Compiling wgpu-core-deps-apple v30.0.1
+   Compiling wgpu-core v30.0.1
+   Compiling wgpu v30.0.1
+   Compiling bboxy450-render v0.1.1 (https://github.com/bboxy450/bboxy450-term?rev=4889321f13e509dc7ca18ce7ed3f0217e76cdd1b#4889321f)
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 34.53s
+     Running tests/gui_bridge.rs (target/debug/deps/gui_bridge-bc26e51a8e38d531)
+
+running 2 tests
+test rendered_approval_actions_use_control_lane ... ok
+test background_subscription_and_detach_preserves_run ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.98s
+
+     Running tests/gui_budget.rs (target/debug/deps/gui_budget-3da1b049945d4d69)
+
+running 3 tests
+test budgeted_remainder_keeps_its_wake ... ok
+test completed_layouts_are_retained ... ok
+gui-budget: real Bridge, 100000 deltas, 6 injected-clock frames, 300us limit, deferred notifications and zero projection loss
+test injected_clock_stops_at_300us_defers_and_loses_no_envelope ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.87s
+
+     Running tests/gui_cli.rs (target/debug/deps/gui_cli-a709f068cfaeb64e)
+
+running 2 tests
+test escape_and_control_c_route_interrupt ... ok
+test replay_cli_is_offline_and_invalid_inputs_fail_without_a_window ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+
+     Running tests/gui_fixtures.rs (target/debug/deps/gui_fixtures-d340af77cbc985ae)
+
+running 7 tests
+test stick_and_release ... ok
+test snapshots_replace_ordered_tail_late_chunks_and_aba_epochs_are_retired ... ok
+test completion_wins_and_durable_replay_cannot_reopen_or_duplicate ... ok
+test v0_2_heads_and_terminal_snapshot_repair ... ok
+test every_fixture_passes_laws_and_projects ... ok
+test snapshot_repairs_dropped_and_coalesced_deltas_before_completion ... ok
+test live_equals_replay ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.74s
+
+     Running tests/gui_render.rs (target/debug/deps/gui_render-b5e42d088bf75be6)
+
+running 5 tests
+test composer_send_and_control_buttons_reach_real_gateway ... ok
+test cards_show_readable_content_instead_of_serialized_payloads ... ok
+test actual_layout_sticks_releases_and_renders_approval_actions ... ok
+test replay_resize_publishes_current_width_and_invalidates_frame_cache ... ok
+gui-live: completed blob content rendered; typed terminal head=true, tool head=true, live snapshot=true
+test live_terminal_heads_snapshots_and_completed_blob_reach_the_view ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
+
+     Running tests/gui_rich.rs (target/debug/deps/gui_rich-c37b0f4b5c845233)
+
+running 15 tests
+test a_completion_from_a_retired_token_does_not_replace_new_typing ... ok
+test editor_history_and_slash_completion_use_the_upgraded_editor ... ok
+
+thread 'large_markdown_uses_the_production_replay_preparation_worker' (118767599) panicked at src/frontends/gui/view.rs:1085:9:
+blocking IO on the UI thread
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test deferred_tail_is_literal_preview_then_formatted_on_completion ... ok
+test definition_lines_in_containers_repair_previously_formatted_blocks ... ok
+test context_trim_is_a_prepared_rich_callout_with_its_actual_frontier ... ok
+test a_long_code_line_remains_readable_in_the_expandable_source_view ... ok
+test large_markdown_uses_the_production_replay_preparation_worker ... ok
+test disclosure_controls_change_the_view_without_reparsing_or_core_operations ... ok
+test escape_key_routing_closes_completion_before_interrupting_the_live_turn ... ok
+test closing_an_old_gateway_does_not_close_a_reopened_actor_in_the_same_store ... ok
+test the_end_of_a_64k_reply_is_readable_after_scrolling ... ok
+test approval_keyboard_and_escape_resolve_the_actual_prompt ... ok
+test the_view_shows_live_tool_role_and_tail_then_the_full_terminal_blob ... ok
+structured Markdown: 69315 parsed / 65536 received, 64 appends, 0 deferred, 1346 block layouts
+test structured_64k_markdown_measures_toolkit_incrementality_without_throttling ... ok
+test streamed_64k_markdown_has_linear_parse_work_and_reuses_completed_layout ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.28s
+

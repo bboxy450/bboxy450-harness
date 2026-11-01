@@ -1,0 +1,22 @@
+Final toolkit and PR7 integration
+Directive: 01M6BGA6H9V9K4W99ZMXRE7TCN.
+Toolkit ui/doc/render pin: 59dedc64861d66650e163bfabab88f5ed67eb810.
+Cargo.lock replaces the four git toolkit source identities; no crates.io 0.1.2
+wait or requirement. The runtime remains published/shared under the R15 patch.
+
+Rebased onto harness origin/main cdde43d, including PR7. Conflict resolution
+retains the complete updated main formal implementations, plus the GUI model
+functions and controls. Exact-name union checks compare main and pre-rebase
+3371457: 58 main + 61 prior-GUI variants -> 64 unique models; 25 contracts.
+Coverage retains both source/witness sets. README count updated accordingly.
+PR7's ACP coupling and MCP group-close additions are not overwritten.
+
+No core source was edited on this branch. The ContextTrim callout, v0.4 rich
+fixture, 22-item/15-kind smoke and prior GUI tests remain intact. Plain make test
+is run after this integration commit; its fresh log is e3b-final-make-test.log.
+
+The first plain make test exited2 at clippy: merged UI imports TransportParameter,
+which is absent from published UI-core0.1.1. UI-core is therefore also patched
+to the SAME59dedc64 Git revision. Runtime stays registry0.1.1; the R15 metadata
+check passes with one package copy /one UI-thread registry. Targeted all-feature
+clippy exits0. A fresh unfiltered plain make test follows this correction.

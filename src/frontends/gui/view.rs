@@ -84,7 +84,7 @@ impl c::Measure for Metrics {
 pub fn context() -> ui::Context {
     ui::Context::new(Theme::Dark, Density::Cozy)
 }
-fn column(children: Vec<c::Item>, height: Option<f32>) -> c::Element {
+pub(super) fn column(children: Vec<c::Item>, height: Option<f32>) -> c::Element {
     let mut style = ui::Style::new(ui::Preset::Card);
     style.overrides.padding = Some([ui::Length::Px(0.); 4]);
     style.overrides.height = height.map(ui::Length::Px);
@@ -121,8 +121,11 @@ pub enum Action {
     Send,
     Interrupt,
     Stop,
+    StopAt(Epoch),
     Approval(ItemId, ApprovalDecision),
     Jump,
+    Toggle(ItemId, super::rich::Toggle),
+    Complete(ui::text_edit::Completion, String),
 }
 #[derive(Default)]
 pub struct Frame {
@@ -156,6 +159,7 @@ type CacheKey = (
 pub struct CachedRow {
     width: f32,
     completed: Option<Seq>,
+    face: super::rich::Face,
     layout: c::Layout,
 }
 struct Controls {
@@ -165,7 +169,9 @@ struct Controls {
     rows_h: f32,
 }
 pub struct HarnessView {
-    pub composer: composer::Controller,
+    pub composer: super::editor::Input,
+    approval: Option<(ItemId, ui::modules::approval::Approval)>,
+    completion: Option<ui::text_edit::CompletionPopover>,
     pub scroll: chat_scroll::State,
     metrics: Metrics,
     cached: Option<CacheKey>,
@@ -175,7 +181,7 @@ pub struct HarnessView {
 }
 impl Default for HarnessView {
     fn default() -> Self {
-        let composer = composer::Controller::new(composer::Composer {
+        let composer = super::editor::Input::new(composer::Composer {
             focus: true,
             body_height: Some(64.),
             to: vec![composer::Address {
@@ -188,6 +194,8 @@ impl Default for HarnessView {
         });
         Self {
             composer,
+            approval: None,
+            completion: None,
             scroll: Default::default(),
             metrics: Metrics::default(),
             cached: None,
@@ -354,7 +362,11 @@ impl HarnessView {
         let controls = timer.elapsed();
         let solved = timer.elapsed();
         if let Some(prepared) = prepared {
-            restore_rows(&mut layout, &prepared.rows);
+            let viewport = find(&layout, "transcript")
+                .and_then(|n| n.children.first())
+                .map(|n| n.rect)
+                .ok_or("transcript viewport missing")?;
+            restore_rows(&mut layout, &prepared.rows, viewport);
         }
         let restored = timer.elapsed();
         let mut frame = Frame::default();
@@ -387,6 +399,39 @@ impl HarnessView {
                     frame.visible.push((*id, model.items[id].kind, r));
                 }
             }
+            for (key, toggle) in [
+                (
+                    format!("reasoning/{id}/toggle"),
+                    super::rich::Toggle::Reasoning,
+                ),
+                (format!("source/{id}/toggle"), super::rich::Toggle::Source),
+                (
+                    format!("tool/{id}/arguments/toggle"),
+                    super::rich::Toggle::Arguments,
+                ),
+                (
+                    format!("tool/{id}/output/toggle"),
+                    super::rich::Toggle::Output,
+                ),
+            ] {
+                if let Some(node) = find(&layout, &key) {
+                    let r = intersection(node.rect, scroll_node.rect);
+                    if r.w > 0. && r.h > 0. {
+                        frame.actions.push((r, Action::Toggle(*id, toggle)));
+                    }
+                }
+            }
+            for h in 0.. {
+                let Some(node) = find(&layout, &format!("diff/{id}/hunk/{h}/toggle")) else {
+                    break;
+                };
+                let r = intersection(node.rect, scroll_node.rect);
+                if r.w > 0. && r.h > 0. {
+                    frame
+                        .actions
+                        .push((r, Action::Toggle(*id, super::rich::Toggle::Hunk(h))));
+                }
+            }
             let row = &model.items[id];
             if let Item::Approval {
                 options,
@@ -409,10 +454,30 @@ impl HarnessView {
         for (key, action) in [
             ("jump", Action::Jump),
             ("interrupt", Action::Interrupt),
-            ("stop", Action::Stop),
+            ("stop", Action::StopAt(state.transcript.epoch)),
         ] {
             if let Some(node) = find(&layout, key) {
                 frame.actions.push((node.rect, action));
+            }
+        }
+        if let Some(popover) = &self.completion {
+            let popup =
+                popover
+                    .element(ctx)
+                    .layout(Rect::new(12., 40., 320., 0.), ctx, &self.metrics)?;
+            for (i, choice) in popover.choices.options.iter().enumerate() {
+                if let Some(node) = find(&popup, &format!("completion/{i}")) {
+                    frame.actions.insert(
+                        0,
+                        (
+                            node.rect,
+                            Action::Complete(popover.request.clone(), choice.label.clone()),
+                        ),
+                    );
+                }
+            }
+            for paint in c::paint(&popup, ctx) {
+                append_paint(&mut frame.list, paint)?;
             }
         }
         frame.layout = Some(layout);
@@ -428,19 +493,117 @@ impl HarnessView {
         ));
         Ok(&self.frame)
     }
+    pub fn edit(&mut self, command: ui::text_edit::Command) {
+        self.composer.handle(composer::Command::Edit(command));
+        self.completion = self.composer.popover();
+        self.invalidate();
+    }
+    pub fn completion_open(&self) -> bool {
+        self.completion.is_some()
+    }
+    pub fn complete(&mut self, key: ui::modules::approval::Key) -> bool {
+        if self.completion.is_none() {
+            self.completion = self.composer.popover();
+        }
+        let Some(popover) = &mut self.completion else {
+            return false;
+        };
+        if let Some(edit) = popover.handle(key) {
+            self.composer.handle(composer::Command::Edit(edit));
+            self.completion = None;
+        }
+        self.invalidate();
+        true
+    }
+    fn sync_approval(&mut self, bridge: &Bridge) -> bool {
+        let row = bridge.state.transcript.items.values().find(|r| {
+            r.kind == ItemKind::Approval
+                && r.status.is_none()
+                && matches!(r.body, Item::Approval { decision: None, .. })
+        });
+        let Some(row) = row else {
+            self.approval = None;
+            return false;
+        };
+        if self.approval.as_ref().is_none_or(|(id, _)| *id != row.id)
+            && let Item::Approval { options, .. } = &row.body
+        {
+            self.approval = Some((row.id, approval_choices(row.id, options)));
+        }
+        self.approval.is_some()
+    }
+    pub fn approval_key(&mut self, key: ui::modules::approval::Key, bridge: &Bridge) -> bool {
+        if !self.sync_approval(bridge) {
+            return false;
+        }
+        let (id, prompt) = self.approval.as_mut().unwrap();
+        let id = *id;
+        let selected = prompt.handle(key);
+        bridge.toggle(
+            id,
+            super::rich::Toggle::Approval(prompt.selected().unwrap_or(0)),
+        );
+        if let Some(selected) = selected {
+            let decision = match selected.as_str() {
+                "Allow" => ApprovalDecision::Allow,
+                "Always" => ApprovalDecision::AllowAlways,
+                _ => ApprovalDecision::Deny { reason: None },
+            };
+            self.activate(Action::Approval(id, decision), bridge);
+        }
+        self.invalidate();
+        true
+    }
+    pub fn cancel_prompt(&mut self, bridge: &Bridge) -> bool {
+        if self.sync_approval(bridge) {
+            let id = self.approval.as_ref().unwrap().0;
+            self.completion = None;
+            self.activate(
+                Action::Approval(
+                    id,
+                    ApprovalDecision::Deny {
+                        reason: Some("Cancelled".into()),
+                    },
+                ),
+                bridge,
+            );
+            return true;
+        }
+        if self.completion.take().is_some() {
+            self.invalidate();
+            return true;
+        }
+        false
+    }
     pub fn activate(&mut self, action: Action, bridge: &Bridge) {
         match action {
             Action::Jump => self.scroll.follow_latest(),
+            Action::Toggle(item, toggle) => bridge.toggle(item, toggle),
+            Action::Complete(request, text) => {
+                let outcome = self.composer.handle(composer::Command::Edit(
+                    ui::text_edit::Command::Complete { request, text },
+                ));
+                if outcome == composer::Outcome::Changed {
+                    self.completion = None;
+                } else {
+                    self.completion = self.composer.popover();
+                }
+            }
             Action::Send => {
                 if let composer::Outcome::Submit(sent) =
                     self.composer.handle(composer::Command::Send)
                 {
-                    match bridge.send(Op::UserTurn {
-                        blocks: vec![InputBlock::Text {
-                            text: sent.text.clone(),
-                        }],
-                        mode: TurnMode::Queue,
-                    }) {
+                    let op = match sent.text.trim() {
+                        "/interrupt" => Op::Interrupt { turn: None },
+                        "/stop" => Op::Close,
+                        _ => Op::UserTurn {
+                            blocks: vec![InputBlock::Text {
+                                text: sent.text.clone(),
+                            }],
+                            mode: TurnMode::Queue,
+                        },
+                    };
+                    match bridge.send(op) {
                         Ok(_) => {
                             self.composer.stored(&sent);
                             self.notice = None;
@@ -459,7 +622,29 @@ impl HarnessView {
                 let op = match action {
                     Action::Interrupt => Op::Interrupt { turn: None },
                     Action::Stop => Op::Close,
+                    Action::StopAt(birth) => {
+                        if bridge.state.transcript.epoch != birth {
+                            self.notice = Some("Session replaced".into());
+                            self.invalidate();
+                            return;
+                        }
+                        Op::Close
+                    }
                     Action::Approval(approval, decision) => {
+                        if !bridge
+                            .state
+                            .transcript
+                            .items
+                            .get(&approval)
+                            .is_some_and(|row| {
+                                row.status.is_none()
+                                    && matches!(row.body, Item::Approval { decision: None, .. })
+                            })
+                        {
+                            self.notice = Some("Approval expired".into());
+                            self.invalidate();
+                            return;
+                        }
                         Op::ResolveApproval { approval, decision }
                     }
                     _ => unreachable!(),
@@ -503,6 +688,13 @@ fn append_paint(list: &mut DrawList, paint: c::Paint) -> Result<(), String> {
                 mask,
             });
         }
+        // Adapted from bboxybook components::append_flat: a decorative rim
+        // is optional in a flat offscreen/standalone composition.
+        // https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
+        c::Paint::Material {
+            kind: ui::Material::Rim,
+            ..
+        } => {}
         c::Paint::Material { .. } => {
             return Err("Unsupported transcript material".into());
         }
@@ -743,24 +935,14 @@ fn display_body(row: &ViewItem, terminal_output: Option<&String>) -> String {
         Item::Subagent { session } => format!("Session: {session}"),
         Item::Unknown => "Unsupported item".into(),
     };
-    let mut end = text.len().min(4096);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    if end < text.len() {
-        format!("{}\n… Full body retained in the session log.", &text[..end])
-    } else if text.is_empty() {
-        "…".into()
-    } else {
-        text
-    }
+    if text.is_empty() { "…".into() } else { text }
 }
 
 // Adapted from bbt-ui components::translate_layout. Completed layouts are
 // immutable; only their placement changes. ScrollView's fixed-height window
 // elides offscreen slots before this walk, so only visible rows are restored.
 // https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
-fn restore_rows(node: &mut c::Layout, rows: &im::HashMap<ItemId, Arc<CachedRow>>) {
+fn restore_rows(node: &mut c::Layout, rows: &im::HashMap<ItemId, Arc<CachedRow>>, viewport: Rect) {
     if let c::LayoutKind::Named(name) = &node.kind
         && let Some(id) = name
             .strip_prefix("cached/")
@@ -768,18 +950,63 @@ fn restore_rows(node: &mut c::Layout, rows: &im::HashMap<ItemId, Arc<CachedRow>>
             .map(ItemId)
         && let Some(row) = rows.get(&id)
     {
-        let mut solved = row.layout.clone();
-        let dx = node.rect.x - solved.rect.x;
-        let dy = node.rect.y - solved.rect.y;
-        translate(&mut solved, dx, dy);
-        *node = solved;
+        let dx = node.rect.x - row.layout.rect.x;
+        let dy = node.rect.y - row.layout.rect.y;
+        if let Some(solved) = visible_layout(&row.layout, dx, dy, viewport) {
+            *node = solved;
+        }
         return;
     }
     for child in &mut node.children {
-        restore_rows(child, rows);
+        restore_rows(child, rows, viewport);
     }
 }
-fn translate(node: &mut c::Layout, dx: f32, dy: f32) {
+// Keep only glyphs/blocks intersecting the viewport. A giant paragraph remains
+// fully scrollable without cloning/painting its entire cached solved layout.
+fn visible_layout(node: &c::Layout, dx: f32, dy: f32, viewport: Rect) -> Option<c::Layout> {
+    let rect = Rect::new(node.rect.x + dx, node.rect.y + dy, node.rect.w, node.rect.h);
+    let visible = intersection(rect, viewport);
+    if visible.w <= 0. || visible.h <= 0. {
+        return None;
+    }
+    let kind = match &node.kind {
+        c::LayoutKind::Text {
+            runs,
+            selectable,
+            ellipsis,
+            shadow,
+        } => c::LayoutKind::Text {
+            runs: runs
+                .iter()
+                .filter(|r| {
+                    r.rect.bottom() + dy >= viewport.y && r.rect.y + dy <= viewport.bottom()
+                })
+                .map(|r| {
+                    let mut r = r.clone();
+                    r.rect.x += dx;
+                    r.rect.y += dy;
+                    r.baseline += dy;
+                    r
+                })
+                .collect(),
+            selectable: *selectable,
+            ellipsis: *ellipsis,
+            shadow: *shadow,
+        },
+        other => other.clone(),
+    };
+    Some(c::Layout {
+        rect,
+        baseline: node.baseline,
+        kind,
+        children: node
+            .children
+            .iter()
+            .filter_map(|child| visible_layout(child, dx, dy, viewport))
+            .collect(),
+    })
+}
+pub(super) fn translate(node: &mut c::Layout, dx: f32, dy: f32) {
     node.rect.x += dx;
     node.rect.y += dy;
     if let c::LayoutKind::Text { runs, .. } = &mut node.kind {
@@ -803,6 +1030,11 @@ pub struct PreparedRows {
     pub layout_builds: usize,
     pub large_markdown_blocks: usize,
     pub prepared_on_ui: bool,
+    pub parsed_markdown_bytes: usize,
+    pub received_markdown_bytes: usize,
+    pub markdown_block_layouts: usize,
+    pub markdown_appends: usize,
+    pub deferred_markdown_batches: usize,
 }
 #[derive(Default)]
 pub struct Preparer {
@@ -811,6 +1043,7 @@ pub struct Preparer {
     scope: Option<(Option<SessionId>, Epoch)>,
     layout_builds: usize,
     terminal_outputs: std::collections::HashMap<ItemId, String>,
+    documents: super::rich::Documents,
 }
 impl Preparer {
     /// Blob loading is completed before preparation, on the background path.
@@ -822,16 +1055,28 @@ impl Preparer {
         self.rows.remove(&id);
     }
 
+    pub(crate) fn same_scope(&self, model: &Transcript) -> bool {
+        self.scope == Some((model.session, model.epoch))
+    }
     pub(crate) fn scope(&mut self, model: &Transcript) {
         let scope = (model.session, model.epoch);
         if self.scope != Some(scope) {
             self.rows.clear();
             self.terminal_outputs.clear();
+            self.documents = Default::default();
             self.scope = Some(scope);
         }
     }
     /// Caller must use the bounded runtime::blocking preparation pool.
     pub fn prepare(&mut self, source: Arc<Transcript>, width: f32) -> Result<PreparedRows, String> {
+        self.prepare_with_faces(source, width, &Default::default())
+    }
+    pub fn prepare_with_faces(
+        &mut self,
+        source: Arc<Transcript>,
+        width: f32,
+        faces: &super::rich::Faces,
+    ) -> Result<PreparedRows, String> {
         let ctx = context();
         let model = &source;
         let width = width.max(240.);
@@ -840,19 +1085,47 @@ impl Preparer {
         bbt_rt::assert_not_ui_thread();
         for (index, id) in model.order.iter().enumerate() {
             let row = &model.items[id];
+            let face = faces.get(id).cloned().unwrap_or_default();
             if row.completed.is_some()
                 && let Some(cached) = self.rows.get(id)
                 && cached.width == width
                 && cached.completed == row.completed
+                && cached.face == face
             {
                 let h = cached.layout.rect.h;
                 total_height += h;
                 continue;
             }
+            let trim_callout = if let Item::ContextTrim { clipped_through } = &row.body {
+                Some(format!(
+                    "### Context trimmed through event {}\n\nTool and terminal output limited to **2 KiB**; reasoning and images omitted from model context.",
+                    clipped_through.0
+                ))
+            } else {
+                None
+            };
+            let sourceable = matches!(row.kind, ItemKind::AgentMessage | ItemKind::Reasoning);
+            let markdown = match &row.body {
+                Item::AgentMessage { markdown } => Some(markdown.as_str()),
+                Item::Reasoning { summary, .. } => Some(summary.as_str()),
+                Item::ContextTrim { .. } => trim_callout.as_deref(),
+                _ => None,
+            };
             let message = Message {
                 from: kind_label(row.kind).into(),
                 role: role(row.kind).into(),
-                text: display_body(row, self.terminal_outputs.get(id)),
+                text: if markdown.is_some()
+                    || matches!(
+                        row.kind,
+                        ItemKind::ToolCall
+                            | ItemKind::FileChange
+                            | ItemKind::TurnDiff
+                            | ItemKind::Approval
+                    ) {
+                    String::new()
+                } else {
+                    display_body(row, self.terminal_outputs.get(id))
+                },
                 time: row.status.as_ref().map_or("Streaming".into(), status_text),
                 message_ids: vec![id.to_string()],
                 ..Default::default()
@@ -865,39 +1138,182 @@ impl Preparer {
                     show_channel: Some(false),
                 }],
             };
-            let mut body = dock.items_at(ctx, index, &self.metrics);
-            if let Item::Approval {
-                options,
-                decision: None,
-                ..
-            } = &row.body
-                && row.status.is_none()
-            {
-                let mut buttons = vec![];
-                for option in options {
-                    let (text, _) = approval(*option);
-                    let state = ButtonState::Idle;
-                    let button = Button {
-                        label: text.into(),
-                        kind: ButtonKind::Ghost,
-                        state,
-                        icon: None,
-                        key: None,
-                    }
-                    .element(ctx)?;
-                    buttons.push(named(format!("approval/{id}/{text}"), button).into());
-                }
-                let b = c::Box::new(ui::Style::new(ui::Preset::Card), buttons);
-                body.push(c::Element::Box(b).into());
+            let mut cards = dock.items_at(ctx, index, &self.metrics);
+            let skeleton =
+                cards[0]
+                    .element
+                    .layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?;
+            let content_key = format!("e{index}/body");
+            let content_width = find(&skeleton, &content_key)
+                .ok_or("missing StreamDock body")?
+                .rect
+                .w;
+            let rich = markdown
+                .map(|text| {
+                    self.documents.prepare(
+                        *id,
+                        text,
+                        row.completed.is_some(),
+                        content_width,
+                        &self.metrics,
+                    )
+                })
+                .transpose()?;
+            let mut body = vec![];
+            let mut toggles = vec![];
+            if row.kind == ItemKind::Reasoning {
+                toggles.push(
+                    inline_control(
+                        format!("reasoning/{id}/toggle"),
+                        if face.reasoning_closed {
+                            "Show reasoning"
+                        } else {
+                            "Hide reasoning"
+                        },
+                        ctx,
+                    )
+                    .into(),
+                );
             }
-            let element = named(format!("item/{id}"), column(body, None));
-            let layout = element.layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?;
+            if let Some(rich) = &rich {
+                if !sourceable {
+                    body.push(rich.element.clone().into());
+                } else {
+                    toggles.push(
+                        inline_control(
+                            format!("source/{id}/toggle"),
+                            if face.source {
+                                "View formatted"
+                            } else {
+                                "View source"
+                            },
+                            ctx,
+                        )
+                        .into(),
+                    );
+                    body.push(inline_row(std::mem::take(&mut toggles)).into());
+                    if !face.reasoning_closed {
+                        if face.source {
+                            let mut text = c::Text::new(
+                                markdown.unwrap_or_default(),
+                                ui::Text {
+                                    mono: true,
+                                    ..Default::default()
+                                },
+                            );
+                            text.preserve_whitespace = true;
+                            body.push(c::Element::Text(text).into());
+                        } else {
+                            body.push(rich.element.clone().into());
+                        }
+                    }
+                }
+            }
+            match &row.body {
+                Item::ToolCall {
+                    name,
+                    input_raw,
+                    output,
+                    ..
+                } => {
+                    use ui::modules::tool_call::{Status, ToolCall};
+                    let status = match row.status {
+                        None => Status::Running,
+                        Some(ItemStatus::Completed) => Status::Succeeded,
+                        Some(ItemStatus::Failed { .. }) => Status::Failed,
+                        _ => Status::Cancelled,
+                    };
+                    let output = output
+                        .iter()
+                        .map(|b| match b {
+                            OutputBlock::Text { text } | OutputBlock::Error { text } => {
+                                text.clone()
+                            }
+                            OutputBlock::Diff { unified, .. } => unified.clone(),
+                            OutputBlock::Json { value } => arguments(&value.to_string()),
+                            OutputBlock::Image { blob } => {
+                                format!("Image: {} · {} bytes", blob.mime, blob.len)
+                            }
+                            _ => "Unsupported output".into(),
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    let mut tool = ToolCall {
+                        key: format!("tool/{id}"),
+                        title: name.clone(),
+                        status,
+                        arguments: format!("Arguments: {}", arguments(input_raw)),
+                        output,
+                        arguments_open: !face.arguments_closed,
+                        output_open: !face.output_closed,
+                    }
+                    .element(ctx, content_width, &self.metrics);
+                    subdued_tool_parts(&mut tool, false);
+                    body.push(tool.into());
+                }
+                Item::FileChange { unified, .. } | Item::TurnDiff { unified } => {
+                    use ui::modules::diff::{Diff, DiffView, Folds};
+                    crate::runtime::blocking_hook(crate::runtime::BlockingWork::Diff);
+                    let diff = Diff::parse(unified).map_err(str::to_string)?;
+                    let mut folds = Folds::default();
+                    for h in &face.closed_hunks {
+                        folds.toggle(*h);
+                    }
+                    body.push(
+                        DiffView {
+                            key: &format!("diff/{id}"),
+                            diff: &diff,
+                            folds: &folds,
+                        }
+                        .element(ctx, content_width, &self.metrics)
+                        .into(),
+                    );
+                }
+                Item::Approval {
+                    subject,
+                    options,
+                    decision,
+                    ..
+                } => {
+                    if decision.is_some() {
+                        body.push(label(display_body(row, None)).into());
+                    } else {
+                        let mut prompt = approval_atom(*id, subject, options);
+                        for _ in 0..face.approval_selected {
+                            prompt.handle(ui::modules::approval::Key::Down);
+                        }
+                        body.push(approval_element(&prompt, ctx).into());
+                    }
+                }
+                _ => {}
+            }
+            let content = find_element_mut(&mut cards[0].element, &content_key)
+                .ok_or("missing StreamDock content")?;
+            let c::Element::Box(content) = content else {
+                return Err("unexpected StreamDock body".into());
+            };
+            let mut inside = content.children.split_off(1);
+            inside.extend(body);
+            let mut inset = column(inside, None);
+            if let c::Element::Box(b) = &mut inset {
+                b.gap = ui::Length::Px(6.);
+            }
+            content
+                .children
+                .push(named(format!("body/{id}"), inset).into());
+            let mut element = named(format!("item/{id}"), column(cards, None));
+            flat(&mut element);
+            let mut layout = element.layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?;
+            if let Some(rich) = &rich {
+                super::rich::restore(&mut layout, &rich.blocks);
+            }
             let height = layout.rect.h;
             self.rows.insert(
                 *id,
                 Arc::new(CachedRow {
                     width,
                     completed: row.completed,
+                    face,
                     layout,
                 }),
             );
@@ -919,6 +1335,11 @@ impl Preparer {
             layout_builds: self.layout_builds,
             large_markdown_blocks,
             prepared_on_ui: bbt_rt::is_ui_thread(),
+            parsed_markdown_bytes: self.documents.parsed_bytes,
+            received_markdown_bytes: self.documents.received_bytes,
+            markdown_block_layouts: self.documents.block_layouts,
+            markdown_appends: self.documents.appends,
+            deferred_markdown_batches: self.documents.deferred_batches,
         })
     }
 }
@@ -930,5 +1351,210 @@ fn find_mut<'a>(node: &'a mut c::Layout, key: &str) -> Option<&'a mut c::Layout>
         node.children
             .iter_mut()
             .find_map(|child| find_mut(child, key))
+    }
+}
+
+fn approval_choices(
+    id: ItemId,
+    options: &[ApprovalDecisionKind],
+) -> ui::modules::approval::Approval {
+    ui::modules::approval::Approval::new(
+        format!("approval/{id}"),
+        "",
+        options
+            .iter()
+            .map(|kind| {
+                let (label, _) = approval(*kind);
+                ui::modules::approval::OptionItem {
+                    key: label.into(),
+                    label: label.into(),
+                    enabled: *kind != ApprovalDecisionKind::Unknown,
+                }
+            })
+            .collect(),
+    )
+}
+fn approval_atom(
+    id: ItemId,
+    subject: &ApprovalSubject,
+    options: &[ApprovalDecisionKind],
+) -> ui::modules::approval::Approval {
+    let mut prompt = approval_choices(id, options);
+    let summary = subject
+        .summary
+        .split_once(' ')
+        .and_then(|(name, raw)| {
+            serde_json::from_str::<serde_json::Value>(raw)
+                .ok()
+                .map(|_| format!("{name}: {}", arguments(raw)))
+        })
+        .unwrap_or_else(|| subject.summary.clone());
+    let paths = subject
+        .paths
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    prompt.title = format!(
+        "{summary}\n{paths}\n{}",
+        subject.command.as_deref().unwrap_or("")
+    );
+    prompt
+}
+fn inline_row(children: Vec<c::Item>) -> c::Element {
+    c::Element::Stack(c::Stack {
+        direction: Axis::Row,
+        gap: ui::Length::Px(8.),
+        align: c::Alignment::Start,
+        children,
+    })
+}
+fn inline_control(key: String, text: &str, ctx: ui::Context) -> c::Element {
+    named(
+        key,
+        Button {
+            label: text.into(),
+            kind: ButtonKind::Ghost,
+            state: ButtonState::Idle,
+            icon: None,
+            key: None,
+        }
+        .element(ctx)
+        .expect("inline control style"),
+    )
+}
+fn approval_element(prompt: &ui::modules::approval::Approval, ctx: ui::Context) -> c::Element {
+    let mut atom = prompt.element(ctx);
+    if let c::Element::Named { content, .. } = &mut atom
+        && let c::Element::Stack(stack) = content.as_mut()
+    {
+        stack.children.truncate(1);
+        let buttons = prompt
+            .options
+            .iter()
+            .enumerate()
+            .map(|(i, option)| {
+                let kind = match option.key.as_str() {
+                    "Allow" => ButtonKind::Primary,
+                    "Deny" => ButtonKind::Danger,
+                    _ => ButtonKind::Ghost,
+                };
+                let state = if !option.enabled {
+                    ButtonState::Disabled
+                } else if prompt.selected() == Some(i) {
+                    ButtonState::Focus
+                } else {
+                    ButtonState::Idle
+                };
+                let mut button = Button {
+                    label: option.label.clone(),
+                    kind,
+                    state,
+                    icon: None,
+                    key: None,
+                }
+                .element(ctx)
+                .expect("approval button style");
+                if kind == ButtonKind::Ghost
+                    && let c::Element::Box(b) = &mut button
+                {
+                    b.style.overrides.fill = Some(ui::Paint::solid(ui::Color::Surface2));
+                }
+                named(format!("{}/{}", prompt.key, option.key), button).into()
+            })
+            .collect();
+        stack.children.push(inline_row(buttons).into());
+    }
+    atom
+}
+// The toolkit tool card owns disclosure geometry. Status colour belongs to the
+// status chip; argument/output bands use the host's subdued theme surfaces.
+fn subdued_tool_parts(element: &mut c::Element, active: bool) {
+    match element {
+        c::Element::Named { name, content } => subdued_tool_parts(
+            content,
+            active || name.ends_with("/arguments") || name.ends_with("/output"),
+        ),
+        c::Element::Box(b) => {
+            if active {
+                b.style.overrides.fill = Some(ui::Paint::solid(ui::Color::Surface2));
+                b.style.overrides.border = Some(ui::Border {
+                    width: ui::Length::Px(1.),
+                    paint: ui::Paint::solid(ui::Color::Line),
+                    outside: false,
+                });
+            }
+            b.children.retain(|item| !matches!(&item.element, c::Element::Named { name, .. } if active && name.ends_with("/head/count")));
+            for item in &mut b.children {
+                subdued_tool_parts(&mut item.element, active);
+            }
+        }
+        c::Element::Stack(stack) => {
+            stack.children.retain(|item| !matches!(&item.element, c::Element::Named { name, .. } if active && name.ends_with("/head/count")));
+            for item in &mut stack.children {
+                subdued_tool_parts(&mut item.element, active);
+            }
+        }
+        _ => {}
+    }
+}
+fn find_element_mut<'a>(element: &'a mut c::Element, key: &str) -> Option<&'a mut c::Element> {
+    match element {
+        c::Element::Named { name, content } => {
+            if name == key {
+                Some(content)
+            } else {
+                find_element_mut(content, key)
+            }
+        }
+        c::Element::Box(b) => b
+            .children
+            .iter_mut()
+            .find_map(|i| find_element_mut(&mut i.element, key)),
+        c::Element::Stack(s) => s
+            .children
+            .iter_mut()
+            .find_map(|i| find_element_mut(&mut i.element, key)),
+        _ => None,
+    }
+}
+
+// This host has a flat material pass. Preserve toolkit geometry, colours and
+// actions, while choosing the flat surface override before solving the tree.
+pub(super) fn flat(element: &mut c::Element) {
+    match element {
+        c::Element::Box(b) => {
+            b.style.overrides.material = Some(ui::Material::Flat);
+            for item in &mut b.children {
+                flat(&mut item.element);
+            }
+        }
+        c::Element::Stack(s) => {
+            for item in &mut s.children {
+                flat(&mut item.element);
+            }
+        }
+        c::Element::Flow(f) => {
+            for item in &mut f.children {
+                flat(&mut item.element);
+            }
+        }
+        c::Element::Named { content, .. }
+        | c::Element::FixedHeight { content, .. }
+        | c::Element::Filter { content, .. }
+        | c::Element::InlineMiddle { content, .. }
+        | c::Element::Baseline { content, .. } => flat(content),
+        c::Element::ScrollView(s) => flat(&mut s.content),
+        c::Element::Overlay(s) => {
+            s.style.overrides.material = Some(ui::Material::Flat);
+            flat(&mut s.content);
+        }
+        c::Element::Layers { base, overlays } => {
+            flat(base);
+            for p in overlays {
+                flat(&mut p.content);
+            }
+        }
+        _ => {}
     }
 }

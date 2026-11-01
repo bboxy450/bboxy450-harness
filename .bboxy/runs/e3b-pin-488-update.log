@@ -1,0 +1,12 @@
+    Updating git repository `https://github.com/bboxy450/bboxy450-term`
+    Updating crates.io index
+     Locking 4 packages to highest Rust 1.99 compatible versions
+    Removing bboxy450-doc v0.1.1 (https://github.com/bboxy450/bboxy450-term?rev=18ff123b6dc68d2a4f578417359c910a3ce933b3#18ff123b)
+      Adding bboxy450-doc v0.1.1 (https://github.com/bboxy450/bboxy450-term?rev=4889321f13e509dc7ca18ce7ed3f0217e76cdd1b#4889321f)
+    Removing bboxy450-mermaid v0.1.1 (https://github.com/bboxy450/bboxy450-term?rev=18ff123b6dc68d2a4f578417359c910a3ce933b3#18ff123b)
+      Adding bboxy450-mermaid v0.1.1 (https://github.com/bboxy450/bboxy450-term?rev=4889321f13e509dc7ca18ce7ed3f0217e76cdd1b#4889321f)
+    Removing bboxy450-render v0.1.1 (https://github.com/bboxy450/bboxy450-term?rev=18ff123b6dc68d2a4f578417359c910a3ce933b3#18ff123b)
+      Adding bboxy450-render v0.1.1 (https://github.com/bboxy450/bboxy450-term?rev=4889321f13e509dc7ca18ce7ed3f0217e76cdd1b#4889321f)
+    Removing bboxy450-ui v0.1.1 (https://github.com/bboxy450/bboxy450-term?rev=18ff123b6dc68d2a4f578417359c910a3ce933b3#18ff123b)
+      Adding bboxy450-ui v0.1.1 (https://github.com/bboxy450/bboxy450-term?rev=4889321f13e509dc7ca18ce7ed3f0217e76cdd1b#4889321f)
+note: pass `--verbose` to see 16 unchanged dependencies behind latest

@@ -1,8 +1,16 @@
 {
-  "source": "4889c8df51be330a26e2a540cd7defe5b3e9ec38",
+  "source": "28dbd12c12d2485dc1a687efd06919ee0b9d18e5",
   "private_home": true,
   "operator_input": false,
   "commands": [
+    {
+      "command": [
+        "python3",
+        "-I",
+        "tests/gui_dependencies.py"
+      ],
+      "exit_code": 0
+    },
     {
       "command": [
         "cargo",
@@ -27,6 +35,8 @@
         "--locked",
         "--features",
         "standalone",
+        "--test",
+        "gui_rich",
         "--test",
         "gui_render",
         "--test",

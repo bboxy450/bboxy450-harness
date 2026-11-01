@@ -1,0 +1,37 @@
+d2400 / E1c integration review
+Reviewed: git diff eef1153^1 eef1153 -- src/frontends/gui
+- kind_label(ContextTrim) names the new protocol kind; retained.
+- display_body(ContextTrim) is a pure field projection; retained as fallback.
+  Normal rendering now prepares a styled Markdown callout with the actual
+  clipped_through frontier and the clipping effect inside the existing card.
+- smoke ContextTrim expectation retained and strengthened to its actual frontier.
+- smoke Compaction expectation derives from replaced_through for each item;
+  retained and reformatted as a readable match instead of the one-liner.
+
+Rebased e3b-gui-rich onto origin/main ccce095, which contains E1c merge eef1153.
+Resolved Cargo features/dependencies by keeping ACP and test-fixtures plus GUI
+rich dependencies. Cargo.lock retains both sets. The widget pin stays 4889321f.
+Formal models, corpus, contracts and coverage retain the exact union of both
+branches: 61 variants / 24 contracts. Generated image/receipt conflicts are
+resolved by regeneration, not treated as current verification evidence.
+
+Refreshed tests/fixtures/gui/rich-all-items.jsonl from the current protocol
+fixture (59 envelopes), adding only the Rust highlighting witness to the first
+AgentMessage completion. It now includes ContextTrim and both legal Compaction
+frontiers, at events 36 and 45. check_transcript passes in the new GUI test.
+
+Commands:
+- cargo check --offline --locked --features standalone: exit 0.
+- GUI feature tests (gui_rich/render/bridge/budget/fixtures/cli): exit 0;
+  all 15 rich tests pass, including styled ContextTrim, frontier and no-source
+  disclosure assertions. Log: e3b-e1c-gui-tests.log.
+- make test-gui-smoke: exit 0, 22 items / 15 kinds, card containment and semantic
+  checks, offscreen Metal 1120x7000 plus scrolled viewport. e3b-e1c-smoke.log.
+- exact-union corpus/contract checks against origin/main and pre-rebase branch:
+  exit 0, 61 models and 24 contracts; no model/contract name was lost.
+
+No core source was edited. Main includes the atomic PID-file publication fix
+in store_recovery.rs (write temporary file, then rename), addressing the earlier
+out-of-scope failure recorded at the old gate.
+Full canonical verification is pending this integration commit. Toolkit pin is
+held at 4889321f13e509dc7ca18ce7ed3f0217e76cdd1b per Oracle; final rev pending.

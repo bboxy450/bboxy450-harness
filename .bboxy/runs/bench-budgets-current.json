@@ -1,8 +1,21 @@
 {
-  "at": "2026-11-01T06:12:05.208955+00:00",
-  "source": "ddccf9972e06f5c97216f5985d90ea59569c008b",
-  "load_1m": 56.404296875,
+  "at": "2026-11-01T12:23:53.692203+00:00",
+  "source": "28dbd12c12d2485dc1a687efd06919ee0b9d18e5",
+  "load_1m": 8.11669921875,
   "ncpu": 10,
-  "outcome": "UNMEASURED",
+  "outcome": "PASS",
+  "command": [
+    "cargo",
+    "test",
+    "--offline",
+    "--locked",
+    "--test",
+    "rt_budget",
+    "ten_thousand_file_grep_leaves_io_ticker_responsive",
+    "--",
+    "--ignored",
+    "--exact",
+    "--nocapture"
+  ],
   "exit_code": 0
 }

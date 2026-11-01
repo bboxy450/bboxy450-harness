@@ -21,9 +21,9 @@ struct Wake;
 impl bbt_rt::Waker for Wake {
     fn wake(&self) {}
 }
-#[test]
+#[tokio::test]
 #[ignore = "wall-clock measurement belongs to make bench-budgets, never make test"]
-fn hundred_thousand_deltas_frame_p99() {
+async fn hundred_thousand_deltas_frame_p99() {
     let mut load = [0f64; 3];
     // SAFETY: getloadavg writes at most this three-element output array.
     let observed = unsafe { libc::getloadavg(load.as_mut_ptr(), 3) };
@@ -71,9 +71,17 @@ fn hundred_thousand_deltas_frame_p99() {
                 replay: true,
                 ..Default::default()
             };
-            state.prepared = Some(Arc::new(
-                preparer.prepare(state.transcript.clone(), 1120.).unwrap(),
-            ));
+            state.prepared = Some(Arc::new({
+                let mut owned = std::mem::take(&mut preparer);
+                let source = state.transcript.clone();
+                let (next, prepared) = bboxy450_harness::runtime::blocking(move || {
+                    let prepared = owned.prepare(source, 1120.).unwrap();
+                    (owned, prepared)
+                })
+                .await;
+                preparer = next;
+                prepared
+            }));
             let start = Instant::now();
             let cpu = thread_cpu();
             bridge.drain(Duration::from_micros(300));

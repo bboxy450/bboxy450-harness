@@ -5,8 +5,8 @@
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 
-//! A bounded drain with an injected clock; the same loop serves frames and the
-//! deterministic 100k-envelope witness. An item projection is one atomic unit.
+//! A bounded UI publication drain with an injected clock. Protocol deltas are
+//! projected on the worker; replacing one complete view state is atomic.
 use std::time::{Duration, Instant};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Work {

@@ -1698,8 +1698,142 @@ fn mcp_group_close(leader_only: bool) -> Model {
     );
     m
 }
+// Byte units abstract the upper bound reported by StreamingMarkdown's parse
+// range. An unfolded ready row includes its parsed prefix and literal tail.
+fn gui_markdown(mode: u8) -> Model {
+    let mut m = base::<6>(
+        "GuiMarkdownBudget",
+        false,
+        &[
+            ("received", 8, 0),
+            ("parsed_prefix", 8, 0),
+            ("parse_work", 64, 0),
+            ("completed", 1, 0),
+            ("rendered_current", 1, 0),
+            ("visible_bytes", 8, 0),
+        ],
+    );
+    if mode != 0 {
+        m.name = if mode == 1 {
+            "BrokenHarnessGuiMarkdownQuadratic"
+        } else if mode == 2 {
+            "BrokenHarnessGuiMarkdownHiddenTail"
+        } else {
+            "BrokenHarnessGuiMarkdownSuppressedRender"
+        }
+        .into();
+    }
+    act(
+        &mut m,
+        "Append",
+        all([eq(3, 0), Var(0).lt(Int(7))]),
+        &[(0, Var(0).plus(Int(1))), (4, Int(0))],
+    );
+    let credit = Var(0).plus(Var(0)).plus(Var(0));
+    act(
+        &mut m,
+        "PrepareAppend",
+        all([
+            eq(3, 0),
+            Var(1).lt(Var(0)),
+            if mode == 1 {
+                Bool(true)
+            } else {
+                Var(2).plus(Var(0)).le(credit)
+            },
+        ]),
+        &[(1, Var(0)), (2, Var(2).plus(Var(0)))],
+    );
+    // Completion introduces the final byte. A pre-completion render cannot
+    // already satisfy the visibility response just by setting a mode flag.
+    act(
+        &mut m,
+        "CompletionDeliversFinalByte",
+        all([eq(3, 0), eq(0, 7)]),
+        &[
+            (0, Int(8)),
+            (1, Int(8)),
+            (2, Var(2).plus(Int(8))),
+            (3, Int(1)),
+            (4, Int(0)),
+        ],
+    );
+    let render = m.actions.len();
+    act(
+        &mut m,
+        "RenderPreparedRow",
+        all([eq(4, 0), if mode == 3 { eq(3, 0) } else { Bool(true) }]),
+        &[(4, Int(1)), (5, if mode == 2 { Var(1) } else { Var(0) })],
+    );
+    safe(
+        &mut m,
+        "ParseWorkIsLinear",
+        Var(2).le(Var(0).plus(Var(0)).plus(Var(0)).plus(Var(0))),
+    );
+    safe(&mut m, "NoHiddenBytes", eq(4, 0).or(Var(5).eq(Var(0))));
+    progress(
+        &mut m,
+        "CompletedReplyEventuallyVisible",
+        eq(3, 1),
+        eq(5, 8),
+        vec![render],
+    );
+    m
+}
+fn gui_choice(b: bool) -> Model {
+    let mut m = base::<6>(
+        "GuiApprovalChoice",
+        b,
+        &[
+            ("prompt_birth", 2, 0),
+            ("captured_birth", 2, 0),
+            ("captured", 1, 0),
+            ("open", 1, 1),
+            ("dispatched", 1, 0),
+            ("dispatched_for", 2, 0),
+        ],
+    );
+    act(
+        &mut m,
+        "CaptureRenderedButton",
+        eq(3, 1),
+        &[(1, Var(0)), (2, Int(1))],
+    );
+    act(
+        &mut m,
+        "RetireAndReplacePrompt",
+        Var(0).lt(Int(2)),
+        &[(0, Var(0).plus(Int(1))), (3, Int(1)), (4, Int(0))],
+    );
+    act(
+        &mut m,
+        "ResolveCapturedChoice",
+        all([
+            eq(2, 1),
+            if b {
+                Bool(true)
+            } else {
+                all([eq(3, 1), Var(1).eq(Var(0))])
+            },
+        ]),
+        &[(4, Int(1)), (5, Var(1)), (3, Int(0))],
+    );
+    safe(
+        &mut m,
+        "NoRetiredPromptDispatch",
+        eq(4, 0).or(Var(5).eq(Var(0))),
+    );
+    m
+}
 pub fn corpus() -> Vec<(Model, &'static str)> {
-    let mut out = vec![];
+    let mut out = vec![
+        (gui_markdown(0), "pass"),
+        (gui_markdown(1), "safety"),
+        (gui_markdown(2), "safety"),
+        (gui_markdown(3), "liveness"),
+        (gui_choice(false), "pass"),
+        (gui_choice(true), "safety"),
+    ];
     for b in [false, true] {
         for m in [
             lifecycle_mode(b, false),

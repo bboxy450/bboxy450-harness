@@ -1,0 +1,124 @@
+E3b / PR #5 — FINAL VERIFIED HANDOFF
+Task: tasks/2026-10-31-harness-gui-phase2.md (#2202)
+Executor: E3 harness-gui / seat 01M6AMBPG3XD3CMJWHQCKWAG7M
+Worktree: /Users/feral/mydev/bboxy450-harness-gui
+Branch: e3b-gui-rich; rebased onto harness origin/main cdde43d, including PR #7.
+Verified source commit: 28dbd12c12d2485dc1a687efd06919ee0b9d18e5 (signed Boxy).
+The task_report supplies the final signed report-only head; its source inputs
+are identical to this gate. No core source edits. No merge or release.
+
+FINAL PIN AND DEPENDENCY ALIGNMENT
+[patch.crates-io] pins ui, doc, render AND ui-core to merged toolkit main
+59dedc64861d66650e163bfabab88f5ed67eb810. Cargo.lock updated; transitive mermaid
+uses that revision too. Published runtime 0.1.1 stays shared through the Git-source
+patch. R15 metadata asserts one copy of every toolkit package and one UI-thread
+registry. crates.io 0.1.2 is not required; there is no remaining toolkit-pin wait.
+
+The first plain make test stopped at clippy because published UI-core 0.1.1
+lacks TransportParameter, imported by the merged UI settings module. Pinning
+UI-core to the SAME revision fixed that API mismatch. The failed log remains
+committed as e3b-final-make-test.log. The corrected, fresh run below is unfiltered.
+No source was changed in another repository and no dependency code was patched.
+
+COMMANDS AND ACTUAL RESULTS
+make test — exit 0, exactly this plain command, no flags or target overrides.
+  e3b-final-make-test-fixed.log; e3b-final-verification.json; test-current.json;
+  gui-gate.json. All 10 core stages + 4 GUI stages exit 0: fmt, all-feature/all-
+  target clippy, core acp/test-fixtures, hardening, native/TLC, secret/header/KB
+  checks/control, GUI R15/lint/API/fixture/budget/CLI tests and offscreen smoke.
+  Private HOME, no operator input, no test exclusion or thread-count override.
+  All 15 rich tests pass, including the real native Escape route and ContextTrim.
+make check-formal-evidence — exit 0; e3b-final-formal-checked.log.
+  Committed source/model/tool hash summary: e3b-final-formal-summary.json.
+make bench-budgets — exit 0; e3b-final-bench.log, load 8.12 / 10 CPUs.
+  GUI 200 frames / 100000 deltas: wall p99 0.678ms, CPU p99 0.539ms, limit 0.9ms.
+  Grep ticker p99 3.27325ms, allocation 5ms. These are observational benchmark
+  targets; there is no wall-clock performance gate in make test.
+
+FILES, MECHANISMS AND ACCEPTANCE EVIDENCE
+- model.rs retains the pure Envelope -> ItemId transcript projection, completion
+  overwrite, pre-completion snapshot repair, generation/order ledger and reset/
+  lag handling. Protocol fixture/property tests run in the GUI gate.
+- bridge.rs subscribes on bbt-rt, prepares/publishes immutable snapshots off UI
+  through Latest/UiSender/DirtySource and loads entire completed terminal blobs.
+  The UI never awaits; the GUI disallowed-method lint passes.
+- rich.rs uses bbt-doc StreamingMarkdown.append, actual reparsed_range accounting,
+  syntax highlighting and retained block layouts on bounded blocking workers.
+  Completed unchanged rows are reused. Structured 64KiB test: 69315 parsed bytes,
+  all 64 batches appended, zero credit deferrals, 1346 prepared block layouts.
+  The separate unfinished-paragraph case proves the <=4x parse-credit bound;
+  deferred bytes are intentionally literal previews, formatted on completion.
+- view.rs uses inset StreamDock cards, diff views, tool cards and the approval
+  atom. Source/reasoning controls are compact inline buttons. Approval choices
+  are compact primary/secondary/danger with distinct fills and no empty badges.
+  AgentMessage/Reasoning support rich streaming, collapse/source disclosure,
+  full >64KiB readability and viewport glyph filtering, with no 4KiB cap.
+- Terminal's real API witness renders TOOL role, command, Running status and
+  live tail mid-stream, then every 10000-word payload plus BLOB-END on completion.
+  Plan/Image/Usage/Subagent remain readable plain text as assigned.
+- editor.rs provides first-line history and / plus @ hooks, offering slash
+  commands only. A stale completion cannot replace new typing. window.rs routes
+  the same key function used by native App::key in unattended tests: approval
+  Escape, completion dismissal and running-turn interruption. Ctrl-C remains a
+  control-lane interrupt. Rendered approval actions send actual ResolveApproval.
+- The same-store crash/reopen witness sends old-gateway Close and an old rendered
+  Stop after a new attachment. Action::StopAt captures the epoch and refuses a
+  replacement birth; the new actor completes another turn. No disjoint roots.
+- gui_budget drives the REAL Bridge::drain_with_clock: stop at 300us, defer with
+  a wake, lose nothing, preserve completed layouts. The >64KiB production replay
+  test checks actual MarkdownPrepare permit calls and explicitly catches the
+  registered-UI-thread panic; it does not rely on a dead flag read.
+
+MAIN / PR #7 AND D2400 INTEGRATION
+Exact inventory union with main and pre-rebase GUI is checked in the verification
+record: 64 variants / 25 contracts. Updated ACP coupling, MCP group-close models,
+automatic compaction and all GUI controls are retained. Core source unchanged
+relative to main. e3b-final-rebase.log records the resolution.
+
+E1c's actual merged GUI additions were reviewed under d2400. ContextTrim kind
+label and pure field fallback are retained; normal display uses a worker-prepared
+rich callout with its actual frontier and clipping effect. No generated-status
+source toggle. Compaction smoke expectations use each replaced_through value;
+the unformatted one-liner is now a readable match. e3b-e1c-review.log records it.
+
+The rich all-items fixture derives from protocol v0.4: 59 envelopes, 22 items,
+all 15 kinds, ContextTrim through event 45 and legal Compaction frontiers 36/45.
+Only the first AgentMessage completion adds the Rust highlighting witness.
+The ContextTrim API test runs transcript laws, replay/preparation and rendering,
+checking frontier, effect, emphasis and absence of an unnecessary source action.
+
+FORMAL AND NEGATIVE CONTROLS
+All 64 native/TLC variants agree on full reachable state/edge sets and expected
+safety/liveness/deadlock verdicts. The 25 contracts/one-crate source inventory and
+pinned Java/TLC hashes are in the committed summary. Local graph archives remain
+retained review outputs, not claimed as committed directories.
+
+Prior red->green commands, mutation diffs, actual exits and restoration hashes
+remain in e3b-round2-red-controls.json and e3b-round2-red-{1,2,4}.log:
+1. Removing the production Stop birth guard cancels the recovered actor.
+2. Full-source reparsing fails the 64-append/no-throttling incremental witness.
+4. Unconditional rendering makes the liveness control incorrectly pass.
+Completion introduces a final byte that cannot have been visible earlier; its
+suppressed-render control fails liveness (1162 states/2410 edges). All restored
+controls pass the expected-verdict gate. Snapshot repair and the earlier cap
+control remain covered. Container-definition rendered output compares with a
+fresh parse and passes on the final pin.
+
+SMOKE AND SCREENSHOTS
+Offscreen Metal smoke passes: 22 visible items / 15 kinds, readable per-card
+payloads, highlighted glyph colours, diff add/remove, tool status, ContextTrim
+frontier/effect/emphasis, three distinct approval fills, button widths <30% of
+body width and every body's rect inset inside its card. Scrolled viewport is
+also checked. Images match the previously visually inspected integration bytes.
+.bboxy/runs/gui-smoke.png (1120x7000)
+  SHA256 f97b0829ce2d534a8a2477dfe36a5407421d9401c9bbf12e82d01fb7d623a83d
+.bboxy/runs/gui-smoke-scrolled.png (1120x860)
+  SHA256 065f211b8e364e180ec3a253df9a0a2c81db0d04b8a6e5f6c6d16dc90a554815
+
+LIMITS
+Finite models do not prove arbitrary Rust refinement or full TLC replacement.
+Native surface presentation/physical IME remain outside headless coverage;
+CoreText/Metal and real API/process witnesses run unattended. The earlier core
+PID-file publication race is addressed by main's atomic rename and passes in
+this gate. No unresolved failure remains in the required command. The initial
+UI-core mismatch is resolved and its failed attempt is preserved. No merge.

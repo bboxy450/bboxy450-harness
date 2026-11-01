@@ -283,3 +283,33 @@ frontend = "project"
 name = "BrokenHarnessMcpGroupClose"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessGuiMarkdownBudget"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessGuiMarkdownQuadratic"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessGuiMarkdownHiddenTail"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessGuiApprovalChoice"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessGuiApprovalChoice"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessGuiMarkdownSuppressedRender"
+expected = "liveness"
+frontend = "project"

@@ -44,7 +44,7 @@ test-gui-lint:
 	CLIPPY_CONF_DIR='$(CURDIR)/src/frontends/gui/lint' cargo clippy --offline --locked --all-features --lib --bin bboxy450-harness -- -D warnings
 
 test-gui-smoke:
-	cargo run --offline --locked --features standalone -- gui --replay tests/fixtures/protocol/all-items.jsonl --headless --screenshot .bboxy/runs/gui-smoke.png
+	cargo run --offline --locked --features standalone -- gui --replay tests/fixtures/gui/rich-all-items.jsonl --headless --screenshot .bboxy/runs/gui-smoke.png
 
 .PHONY: bench-budgets bench-gui-budget
 bench-budgets: bench-gui-budget
