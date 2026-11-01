@@ -345,6 +345,11 @@ async fn live_terminal_heads_snapshots_and_completed_blob_reach_the_view() {
 
 #[tokio::test]
 async fn structural_layout_smoke_checks_restored_geometry() {
+    assert_eq!(
+        bboxy450_harness::frontends::gui::view::CONTENTLESS_SHAPE_PATTERNS,
+        ["*/rail", "composer/text/caret", "composer/address/*/dot"],
+        "ContentlessShapePatternsStayExplicit"
+    );
     let mut model = read_replay("tests/fixtures/gui/rich-all-items.jsonl".into())
         .await
         .unwrap();
@@ -381,6 +386,8 @@ async fn structural_layout_smoke_checks_restored_geometry() {
     )
     .unwrap();
     println!("prepared structural geometry: {checked:?}");
+    assert_eq!(checked.cards, state.transcript.items.len());
+    assert_eq!(checked.disclosures, checked.accordion_headers);
     for key in ["jump", "interrupt", "stop"] {
         let button =
             bboxy450_harness::frontends::gui::view::find(frame.layout.as_ref().unwrap(), key)

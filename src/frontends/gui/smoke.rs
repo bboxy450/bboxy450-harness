@@ -121,6 +121,7 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
 
         fn colours(node: &bbt_ui::components::Layout)->BTreeSet<[u32;4]> {
             let mut out=BTreeSet::new();if let bbt_ui::components::LayoutKind::Text{runs,..}=&node.kind {out.extend(runs.iter().map(|r|r.style.color.map(f32::to_bits)));}
+            if let bbt_ui::components::LayoutKind::Path {fill:Some(fill),..}=&node.kind {out.insert(fill.map(f32::to_bits));}
             for child in &node.children {out.extend(colours(child));}out
         }
         fn highlighted(node:&bbt_ui::components::Layout)->bool {
@@ -165,7 +166,7 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
                 if !inset_text(content,content.rect) {return Err("tool text touches the accordion border".into());}
                 let disclosure=super::view::find(layout,&format!("{key}/head/right/swatch")).ok_or("tool disclosure missing")?;
                 let foreground=bbt_ui::Paint::solid(bbt_ui::Color::Foreground).resolve(super::view::context())?.map(f32::to_bits);
-                if layout_text(disclosure)!="▾" || !colours(disclosure).contains(&foreground) {return Err("tool disclosure lacks a contrasting theme glyph".into());}
+                if !colours(disclosure).contains(&foreground) {return Err("tool disclosure lacks a contrasting theme glyph".into());}
             }
         }
         let trim=state.transcript.items.values().find(|r|r.kind==ItemKind::ContextTrim).ok_or("fixture lacks ContextTrim")?;

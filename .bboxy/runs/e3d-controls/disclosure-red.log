@@ -1,0 +1,19 @@
+
+running 1 test
+test structural_layout_smoke_checks_restored_geometry ... FAILED
+
+failures:
+
+failures:
+    structural_layout_smoke_checks_restored_geometry
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.18s
+
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.25s
+     Running tests/gui_render.rs (target/debug/deps/gui_render-0065bc55c85d9dd2)
+
+thread 'structural_layout_smoke_checks_restored_geometry' (120711176) panicked at tests/gui_render.rs:387:6:
+called `Result::unwrap()` on an `Err` value: "DisclosureAtLeastCapHeight: tool/00000000000000000000000037/arguments glyph=Rect { x: 1082.9, y: 100.1375, w: 2.1000001, h: 2.1000001 } ink=2.1000001 label_em=10.5"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+error: test failed, to rerun pass `--test gui_render`

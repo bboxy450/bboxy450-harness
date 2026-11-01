@@ -6,6 +6,7 @@
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 
 """Break real rendering, demand the named structural assertion, then restore it."""
+import argparse
 import fcntl
 import hashlib
 import json
@@ -25,7 +26,7 @@ def once(source, old, new):
         raise ValueError('mutation anchor drift: ' + old)
     return source.replace(old, new)
 
-def main():
+def main(selected=None):
     cases = [
         ('markdown', 'rich.rs', 'MarkdownBlocksInsideCard',
          'translate(&mut solved, dx, dy);', 'translate(&mut solved, dx + 2048., dy);'),
@@ -38,7 +39,21 @@ def main():
         ('empty-box', 'view.rs', 'NoEmptyPaintedBoxes',
          'key: None,\n                }\n                .element(ctx)\n                .expect("approval button style");',
          'key: Some(String::new()),\n                }\n                .element(ctx)\n                .expect("approval button style");'),
+        ('disclosure', 'view.rs', 'DisclosureAtLeastCapHeight',
+         'let side = ui::Style::new(ui::Preset::Band)',
+         'let side = 0.2 * ui::Style::new(ui::Preset::Band)'),
+        ('gutters', 'view.rs', 'CardGuttersSymmetric',
+         '[0., gutter, 0., gutter].map(ui::Length::Px)',
+         '[0., 0., 0., gutter].map(ui::Length::Px)'),
+        ('shape-list', 'view.rs', 'ContentlessShapePatternsStayExplicit',
+         '    "composer/address/*/dot", // An address status dot encodes state with colour.',
+         '    "composer/address/*/dot", // An address status dot encodes state with colour.\n    "approval/*/badge",'),
     ]
+    if selected:
+        unknown = set(selected) - {c[0] for c in cases}
+        if unknown:
+            raise ValueError('unknown controls: ' + str(unknown))
+        cases = [c for c in cases if c[0] in selected]
     OUT.mkdir(parents=True, exist_ok=True)
     records = []
     env = os.environ.copy()
@@ -88,4 +103,9 @@ if __name__ == '__main__':
         handle.truncate()
         handle.write(str(os.getpid()) + '\n')
         handle.flush()
-        raise SystemExit(main())
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--case', action='append')
+        parser.add_argument('--out', type=Path, default=OUT)
+        args = parser.parse_args()
+        OUT = args.out
+        raise SystemExit(main(args.case))

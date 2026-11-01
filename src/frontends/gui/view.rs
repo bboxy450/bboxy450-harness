@@ -1089,6 +1089,7 @@ impl Preparer {
         let ctx = context();
         let model = &source;
         let width = width.max(240.);
+        let gutter = ctx.density.tokens().gap as f32;
         self.scope(model);
         let mut total_height = 0.;
         bbt_rt::assert_not_ui_thread();
@@ -1148,10 +1149,11 @@ impl Preparer {
                 }],
             };
             let mut cards = dock.items_at(ctx, index, &self.metrics);
-            let skeleton =
-                cards[0]
-                    .element
-                    .layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?;
+            let skeleton = cards[0].element.layout(
+                Rect::new(0., 0., width - 2. * gutter, 0.),
+                ctx,
+                &self.metrics,
+            )?;
             let content_key = format!("e{index}/body");
             let content_width = find(&skeleton, &content_key)
                 .ok_or("missing StreamDock body")?
@@ -1316,7 +1318,11 @@ impl Preparer {
             content
                 .children
                 .push(named(format!("body/{id}"), inset).into());
-            let mut element = named(format!("item/{id}"), column(cards, None));
+            let mut row_content = column(cards, None);
+            if let c::Element::Box(b) = &mut row_content {
+                b.style.overrides.padding = Some([0., gutter, 0., gutter].map(ui::Length::Px));
+            }
+            let mut element = named(format!("item/{id}"), row_content);
             flat(&mut element);
             let mut layout = element.layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?;
             if let Some(rich) = &rich {
@@ -1351,10 +1357,32 @@ impl Preparer {
     }
 }
 
+/// Contentless decorations, deliberately excluded from content-box semantics.
+/// Keep this list explicit: adding another pattern requires changing its test.
+pub const CONTENTLESS_SHAPE_PATTERNS: &[&str] = &[
+    "*/rail",                 // StreamDock's role-colour rule has no content slot.
+    "composer/text/caret",    // The insertion marker represents a text position.
+    "composer/address/*/dot", // An address status dot encodes state with colour.
+];
+fn contentless_shape(name: &str) -> Option<usize> {
+    CONTENTLESS_SHAPE_PATTERNS.iter().position(|pattern| {
+        pattern
+            .split_once('*')
+            .map_or(name == *pattern, |(prefix, suffix)| {
+                name.len() >= prefix.len() + suffix.len()
+                    && name.starts_with(prefix)
+                    && name.ends_with(suffix)
+            })
+    })
+}
 // Rules, status dots and the editor caret have no content slot. Retain their
 // solved geometry/colour as drawing primitives; cards and controls keep Box.
 fn paint_shapes(node: &mut c::Layout) {
-    if matches!(&node.kind, c::LayoutKind::Named(name) if name.ends_with("/rail") || name == "composer/text/caret")
+    let shape = match &node.kind {
+        c::LayoutKind::Named(name) => contentless_shape(name),
+        _ => None,
+    };
+    if matches!(shape, Some(0 | 1))
         && let Some(rail) = node.children.first_mut()
         && let c::LayoutKind::Box { style, .. } = &rail.kind
         && rail.children.is_empty()
@@ -1366,7 +1394,7 @@ fn paint_shapes(node: &mut c::Layout) {
         };
         return;
     }
-    if matches!(&node.kind, c::LayoutKind::Named(name) if name.starts_with("composer/address/") && name.ends_with("/dot"))
+    if shape == Some(2)
         && let Some(dot) = node.children.first_mut()
         && let c::LayoutKind::Box { style, .. } = &dot.kind
         && dot.children.is_empty()
@@ -1571,7 +1599,7 @@ fn subdued_tool_parts(element: &mut c::Element, face: &super::rich::Face) {
                 } else {
                     face.output_closed
                 };
-                **content = label(if closed { "▸" } else { "▾" });
+                **content = disclosure_glyph(closed, context());
             }
             if name.ends_with("/head/sname")
                 && let c::Element::Text(text) = content.as_mut()
@@ -1595,6 +1623,37 @@ fn subdued_tool_parts(element: &mut c::Element, face: &super::rich::Face) {
         }
         _ => {}
     }
+}
+fn disclosure_glyph(closed: bool, ctx: ui::Context) -> c::Element {
+    use bbt_ui_model::draw::{PathCommand as P, PathStroke};
+    // One header em bounds its cap height. A path uses the whole ink rectangle,
+    // unlike the font-dependent 3 px ink inside a nominal 13 px triangle span.
+    let side = ui::Style::new(ui::Preset::Band)
+        .resolve(ctx)
+        .expect("header style")
+        .text
+        .size;
+    let points = if closed {
+        [[0., 0.], [side, side / 2.], [0., side], [0., 0.]]
+    } else {
+        [[0., 0.], [side, 0.], [side / 2., side], [0., 0.]]
+    };
+    c::Element::Path(c::Path {
+        size: [side, side],
+        points: Arc::from([
+            P::Move(points[0]),
+            P::Line(points[1]),
+            P::Line(points[2]),
+            P::Line(points[3]),
+        ]),
+        stroke: PathStroke {
+            width: 0.,
+            ..Default::default()
+        },
+        paint: ui::Paint::solid(ui::Color::Foreground),
+        fill: Some(ui::Paint::solid(ui::Color::Foreground)),
+        opacity: 1.,
+    })
 }
 fn find_element_mut<'a>(element: &'a mut c::Element, key: &str) -> Option<&'a mut c::Element> {
     match element {
