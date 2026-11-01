@@ -1,0 +1,6145 @@
+{
+  "source": "a7c6cb21b2a71319ac06fd561b18920646da03f2",
+  "tlc": {
+    "version": "1.7.4",
+    "url": "https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar",
+    "sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
+  },
+  "java": {
+    "version": "21.0.13+9",
+    "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jre_aarch64_mac_hotspot_21.0.13_9.tar.gz",
+    "sha256": "225bab0a09491ef06835488cd942f5d2befa9a0410a2484f0c8bbcf7506ec09a"
+  },
+  "crates": [
+    {
+      "name": "bboxy450-harness",
+      "status": "contract-model",
+      "models": [
+        "HarnessMcpGroupClose",
+        "HarnessAcpFlow",
+        "HarnessAutoCompact",
+        "HarnessMcpServer",
+        "HarnessTurnLifecycle",
+        "HarnessTurnLifecyclePairing",
+        "HarnessCancelTree",
+        "HarnessCancelTreeGroup",
+        "HarnessSteerQueue",
+        "HarnessControlLaneBound",
+        "HarnessApprovalLifecycle",
+        "HarnessApprovalUnattended",
+        "HarnessSubscriberReplay",
+        "HarnessSubscriberReplayRegistration",
+        "HarnessProcessLifecycle",
+        "HarnessSubscriberReplayDrop",
+        "HarnessSubscriberReplayHealthy",
+        "HarnessStreamToView",
+        "HarnessTurnLoop",
+        "HarnessProfileLoad",
+        "HarnessForkMaterialize",
+        "HarnessDirtyWakeFrame",
+        "HarnessScrollStick",
+        "HarnessEmbedLifecycle"
+      ],
+      "scope": "Finite two-turn/two-tool lifecycle; birth fencing A-B-A, unattended approval, FIFO control, bounded replay/lag/reset and Yarn arbitration. HTTP/TCP bytes, filesystem/process effects, wall-clock deadlines, secrecy and terminal bytes are witnessed by implementation tests; no arbitrary Rust refinement claim.",
+      "sources": [
+        "src/mcp.rs",
+        "src/context/auto.rs",
+        "src/frontends/acp.rs",
+        "src/context/mod.rs",
+        "src/context/compact.rs",
+        "src/store/fork.rs",
+        "src/engine/history.rs",
+        "src/engine/mod.rs",
+        "src/engine/task_group.rs",
+        "src/engine/turn_loop.rs",
+        "src/frontends/headless.rs",
+        "src/frontends/mod.rs",
+        "src/frontends/seat.rs",
+        "src/frontends/smoke.rs",
+        "src/gateway/host.rs",
+        "src/gateway/mod.rs",
+        "src/gateway/unix.rs",
+        "src/lib.rs",
+        "src/main.rs",
+        "src/policy.rs",
+        "src/process.rs",
+        "src/protocol/laws.rs",
+        "src/protocol/mod.rs",
+        "src/provider/mod.rs",
+        "src/provider/parser.rs",
+        "src/provider/profile.rs",
+        "src/redact.rs",
+        "src/runtime.rs",
+        "src/store.rs",
+        "src/tools.rs",
+        "src/frontends/gui/assets.rs",
+        "src/frontends/gui/bridge.rs",
+        "src/frontends/gui/chat_scroll.rs",
+        "src/frontends/gui/mod.rs",
+        "src/frontends/gui/model.rs",
+        "src/frontends/gui/options.rs",
+        "src/frontends/gui/smoke.rs",
+        "src/frontends/gui/view.rs",
+        "src/frontends/gui/window.rs",
+        "src/frontends/gui/budget.rs"
+      ],
+      "implementation_only": [
+        "embed-seat \u00a71/\u00a76 and MCP \u00a71/\u00a75/\u00a76 launch text, file parsing, source precedence and BBOXY environment projection: tests/seat_process.rs + tests/support/seat_launch.rs and engine/mcp unit witnesses; origin is immutable non-deserialized slot configuration, with no new HarnessMcpServer lifecycle transition",
+        "R22 automatic compaction: tests/context_auto.rs; finite abstraction excludes wire byte and blob durability",
+        "R23 ACP wire bytes, content merge, suffix repair and schema mapping: tests/acp_face.rs; HarnessAcpFlow covers FIFO/output ownership, not arbitrary Rust refinement",
+        "R24 MCP stdio, policy, timeout, crash and secrecy witnesses: tests/mcp_client.rs; HarnessMcpGroupClose covers group completion, actual signals and reaping remain process witnesses",
+        "R20 deterministic compaction and context replay: tests/context_compact.rs",
+        "R21 materialized fork and blob isolation: tests/store_fork.rs",
+        "runtime worker/permit hooks: tests/rt_budget.rs; timing measurements: make bench-budgets",
+        "real HTTP and UTF-8/SSE parsing",
+        "policy rules and file effects",
+        "process groups and wall-clock limits",
+        "JSONL filesystem durability and blobs",
+        "secret redaction and terminal projection",
+        "GUI pixels/CoreText/Metal, native surface presentation and IME: tests/gui_render.rs and test-gui-smoke; no arbitrary Rust refinement claim",
+        "Protocol v0.2 optional identity heads, bounded Unicode terminal tails and snapshot repair: tests/gui_fixtures.rs + tests/fixtures/gui/v0_2-identity-terminal.jsonl",
+        "Real-clock GUI frame timing: tests/gui_bench.rs and make bench-gui-budget; UNMEASURED above ncpu",
+        "GUI applied delta ledger, completion and pre-completion snapshot repair: tests/gui_fixtures.rs; HarnessStreamToView models only dirty-wake bookkeeping"
+      ]
+    }
+  ],
+  "contracts": [
+    {
+      "name": "HarnessTurnLifecycle",
+      "title": "Exactly one ending; paired results at end; replay never redispatches; every queued turn eventually ends under weak fairness.",
+      "models": [
+        "HarnessTurnLifecycle",
+        "BrokenHarnessTurnLifecycle"
+      ],
+      "sources": [
+        "src/engine/turn_loop.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/e2e_scripted.rs"
+      ],
+      "assumptions": "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof.",
+      "property": "Exactly one ending; paired results at end; replay never redispatches; every queued turn eventually ends under weak fairness.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessTurnLifecyclePairing",
+      "title": "Cancel/crash synthesizes every missing result before the single ending.",
+      "models": [
+        "HarnessTurnLifecyclePairing",
+        "BrokenHarnessTurnLifecyclePairing"
+      ],
+      "sources": [
+        "src/store.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/store_recovery.rs"
+      ],
+      "assumptions": "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof.",
+      "property": "Cancel/crash synthesizes every missing result before the single ending.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessCancelTree",
+      "title": "No held completion applies across A-B-A births.",
+      "models": [
+        "HarnessCancelTree",
+        "BrokenHarnessCancelTree"
+      ],
+      "sources": [
+        "src/engine/mod.rs",
+        "src/engine/turn_loop.rs",
+        "src/engine/task_group.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "src/engine/mod.rs",
+        "tests/cancel_process.rs",
+        "tests/formal_nonvacuity.rs"
+      ],
+      "assumptions": "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof.",
+      "property": "No held completion applies across A-B-A births.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessCancelTreeGroup",
+      "title": "End implies no live child after group kill and join.",
+      "models": [
+        "HarnessCancelTreeGroup",
+        "BrokenHarnessCancelTreeGroup"
+      ],
+      "sources": [
+        "src/process.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/cancel_process.rs",
+        "tests/formal_nonvacuity.rs"
+      ],
+      "assumptions": "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof.",
+      "property": "End implies no live child after group kill and join.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessSteerQueue",
+      "title": "Interrupt admitted when work full; a steer is consumed exactly once under weak fairness.",
+      "models": [
+        "HarnessSteerQueue",
+        "BrokenHarnessSteerQueue",
+        "BrokenHarnessSteerQueueDelivery"
+      ],
+      "controls": [
+        {
+          "name": "BrokenHarnessSteerQueue",
+          "expected": "liveness"
+        },
+        {
+          "name": "BrokenHarnessSteerQueueDelivery",
+          "expected": "safety"
+        }
+      ],
+      "sources": [
+        "src/gateway/mod.rs",
+        "src/engine/mod.rs",
+        "src/engine/turn_loop.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/gateway_ops.rs",
+        "tests/e2e_scripted.rs",
+        "tests/formal_nonvacuity.rs"
+      ],
+      "assumptions": "One acked steer, one running/ended turn, one independent interrupt and a full 64-slot work lane. Weak fairness on delivery/conversion and control admission/consumption. Multi-steer FIFO order is an implementation witness in e2e_scripted; the separate ControlLaneBound model explores depths 0..257. No arbitrary Rust refinement proof.",
+      "property": "Interrupt admitted when work full; a steer is consumed exactly once under weak fairness.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessApprovalLifecycle",
+      "title": "One resolver, current-generation allowance before any effect; replay does not reask.",
+      "models": [
+        "HarnessApprovalLifecycle",
+        "BrokenHarnessApprovalLifecycle"
+      ],
+      "sources": [
+        "src/engine/mod.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/policy_gate.rs"
+      ],
+      "assumptions": "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof.",
+      "property": "One resolver, current-generation allowance before any effect; replay does not reask.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessApprovalUnattended",
+      "title": "No approver implies eventual immediate unattended resolution.",
+      "models": [
+        "HarnessApprovalUnattended",
+        "BrokenHarnessApprovalUnattended"
+      ],
+      "sources": [
+        "src/policy.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/policy_gate.rs"
+      ],
+      "assumptions": "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof.",
+      "property": "No approver implies eventual immediate unattended resolution.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessSubscriberReplay",
+      "title": "Register before replay read; no silent durable gap; epoch loss requires reset.",
+      "models": [
+        "HarnessSubscriberReplay",
+        "BrokenHarnessSubscriberReplay",
+        "BrokenHarnessSubscriberReplayEpochReuse"
+      ],
+      "controls": [
+        {
+          "name": "BrokenHarnessSubscriberReplay",
+          "expected": "safety"
+        },
+        {
+          "name": "BrokenHarnessSubscriberReplayEpochReuse",
+          "expected": "safety"
+        }
+      ],
+      "sources": [
+        "src/gateway/mod.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/gateway_replay.rs",
+        "tests/store_recovery.rs"
+      ],
+      "assumptions": "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof.",
+      "property": "Register before replay read; no silent durable gap; epoch loss requires reset.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessSubscriberReplayDrop",
+      "title": "A lagged cursor must be repaired by replay.",
+      "models": [
+        "HarnessSubscriberReplayDrop",
+        "BrokenHarnessSubscriberReplayDrop"
+      ],
+      "sources": [
+        "src/gateway/mod.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/gateway_lag.rs"
+      ],
+      "assumptions": "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof.",
+      "property": "A lagged cursor must be repaired by replay.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessSubscriberReplayHealthy",
+      "title": "A slow subscriber never prevents a healthy subscriber from making progress.",
+      "models": [
+        "HarnessSubscriberReplayHealthy",
+        "BrokenHarnessSubscriberReplayHealthy"
+      ],
+      "sources": [
+        "src/gateway/mod.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/gateway_lag.rs"
+      ],
+      "assumptions": "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof.",
+      "property": "A slow subscriber never prevents a healthy subscriber from making progress.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessStreamToView",
+      "title": "Dirty wake recheck prevents a lost event.",
+      "models": [
+        "HarnessStreamToView",
+        "BrokenHarnessStreamToView"
+      ],
+      "sources": [
+        "src/gateway/mod.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/gateway_replay.rs",
+        "tests/store_recovery.rs"
+      ],
+      "assumptions": "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof.",
+      "property": "Dirty wake recheck prevents a lost event.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessProfileLoad",
+      "title": "Closing a session joins pending profile IO without a late profile effect",
+      "models": [
+        "HarnessProfileLoad",
+        "BrokenHarnessProfileLoad"
+      ],
+      "sources": [
+        "src/engine/mod.rs",
+        "src/gateway/host.rs",
+        "src/provider/profile.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/profile_lifecycle.rs",
+        "tests/gateway_host.rs"
+      ],
+      "assumptions": "One profile operation, three births, one held completion. Named weak fairness on joining/retiring. Filesystem scheduling and kernel process-group timing remain implementation witnesses.",
+      "property": "A stale or closed profile slot never changes session configuration; Close eventually joins it.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessForkMaterialize",
+      "title": "Publish a complete fixed parent prefix and its blobs atomically",
+      "models": [
+        "HarnessForkMaterialize",
+        "BrokenHarnessForkMaterialize"
+      ],
+      "sources": [
+        "src/store.rs",
+        "src/store/fork.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/store_fork.rs"
+      ],
+      "assumptions": "One fixed fork point, two parent heads, four materialization phases; crash may repeat forever, so no liveness claim. Actual rename, fsync, blob hashes, credentials and filesystem scheduling are implementation-only witnesses.",
+      "property": "Visible child implies its blobs and fixed parent prefix are complete, regardless of subsequent parent appends.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessControlLaneBound",
+      "title": "A full work lane does not reduce the independent 256-slot control capacity",
+      "models": [
+        "HarnessControlLaneBound",
+        "BrokenHarnessControlLaneBound"
+      ],
+      "sources": [
+        "src/engine/mod.rs",
+        "src/gateway/mod.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/gateway_ops.rs",
+        "tests/formal_nonvacuity.rs"
+      ],
+      "assumptions": "Full 64-slot work lane; producer/consumer populations of 65 interrupt slots, 64 approval slots and one Close slot. Correct producers own and consumers return their type slot. The broken producer loses its reservation at full legitimate population and floods duplicates to depth 257 while consumers are delayed for this finite safety witness. FIFO and arbitrary malicious traffic remain implementation witnesses; no fairness claim.",
+      "property": "Per-type slots are conserved, depth equals the outstanding op count, and the dynamically reachable legitimate maximum 130 fits the independent 256 capacity. The duplicate producer breaks slot conservation and overflows capacity.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessProcessLifecycle",
+      "title": "Cancel kills remaining members before releasing the leader reservation",
+      "models": [
+        "HarnessProcessLifecycle",
+        "BrokenHarnessProcessDrain",
+        "BrokenHarnessProcessOwnership",
+        "BrokenHarnessProcessReapedMembers"
+      ],
+      "controls": [
+        {
+          "name": "BrokenHarnessProcessDrain",
+          "expected": "liveness"
+        },
+        {
+          "name": "BrokenHarnessProcessOwnership",
+          "expected": "safety"
+        },
+        {
+          "name": "BrokenHarnessProcessReapedMembers",
+          "expected": "safety"
+        }
+      ],
+      "sources": [
+        "src/process.rs",
+        "src/mcp.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "src/process.rs",
+        "tests/cancel_process.rs",
+        "tests/mcp_client.rs"
+      ],
+      "assumptions": "One leader (running/exited-waitable/reaped), one independent live member and one possibly escaped pipe holder. Leader exit, member exit, signal, reap, drain and cancel completion are separate actions. Weak fairness on exit/signal/reap/drain/end; OS waitid, real PID reuse and the 500ms grace remain process witnesses.",
+      "property": "Cancel completion implies no live member. A signal never targets a group with neither a leader reservation nor a member; bounded drain eventually ends cancellation.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessSubscriberReplayRegistration",
+      "title": "Registration precedes the replay snapshot",
+      "models": [
+        "HarnessSubscriberReplayRegistration",
+        "BrokenHarnessSubscriberReplayRegistration"
+      ],
+      "sources": [
+        "src/gateway/mod.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/gateway_replay.rs",
+        "tests/gateway_lag.rs"
+      ],
+      "assumptions": "Three durable entries, one concurrent append, atomic registration and snapshot actions; kernel scheduling and actual socket delivery remain implementation witnesses.",
+      "property": "No durable entry can fall between the replay snapshot and live registration.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessDirtyWakeFrame",
+      "title": "A budgeted frame never strands its remainder; arrival eventually yields a frame.",
+      "models": [
+        "HarnessDirtyWakeFrame",
+        "BrokenHarnessDirtyWakeFrame"
+      ],
+      "sources": [
+        "src/frontends/gui/bridge.rs",
+        "src/frontends/gui/budget.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/gui_budget.rs"
+      ],
+      "assumptions": "Produced/consumed counters 0..3, one wake bit, one drain phase. Weak fairness on frame drain/completion; broken control isolates safety. Real timing and OS wake delivery are API witnesses.",
+      "property": "A budgeted frame never strands its remainder; arrival eventually yields a frame.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessScrollStick",
+      "title": "Tail follows append until manual scroll; Jump or wheeling to the bottom restores following.",
+      "models": [
+        "HarnessScrollStick",
+        "BrokenHarnessScrollStick"
+      ],
+      "sources": [
+        "src/frontends/gui/chat_scroll.rs",
+        "src/frontends/gui/view.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/gui_fixtures.rs",
+        "tests/gui_render.rs"
+      ],
+      "assumptions": "Tail/offset/requested 0..3, one following flag, monotonic growth. Jump and wheel-to-bottom are atomic user actions; no user fairness assumed. Real layout clamp, wheel bursts and pixels remain implementation witnesses.",
+      "property": "Tail follows append until manual scroll; Jump or wheeling to the bottom restores following.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessEmbedLifecycle",
+      "title": "Detaching a window/view preserves the actor; explicit Stop signals only its own birth.",
+      "models": [
+        "HarnessEmbedLifecycle",
+        "BrokenHarnessEmbedLifecycle"
+      ],
+      "sources": [
+        "src/frontends/gui/bridge.rs",
+        "src/frontends/gui/window.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/gui_bridge.rs",
+        "tests/gui_render.rs"
+      ],
+      "assumptions": "Three monotonic births with public A-B-A labels; delayed Stop captures a birth at admission. Detach drops the subscription; consume returns after its owned turn, then create drops Host. Dropped task handles preserve the actor. No liveness claim about arbitrary external IO. Old gateways are bound to old actors.",
+      "property": "Detaching a window/view preserves the actor; explicit Stop signals only its own birth.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessAutoCompact",
+      "title": "Durable completed-turn reductions precede requests, are monotone across restart, and terminate.",
+      "models": [
+        "HarnessAutoCompact",
+        "BrokenHarnessAutoCompactA",
+        "BrokenHarnessAutoCompactB",
+        "BrokenHarnessAutoCompactC",
+        "BrokenHarnessAutoCompactD"
+      ],
+      "controls": [
+        {
+          "name": "BrokenHarnessAutoCompactA",
+          "expected": "safety"
+        },
+        {
+          "name": "BrokenHarnessAutoCompactB",
+          "expected": "safety"
+        },
+        {
+          "name": "BrokenHarnessAutoCompactC",
+          "expected": "liveness"
+        },
+        {
+          "name": "BrokenHarnessAutoCompactD",
+          "expected": "safety"
+        }
+      ],
+      "sources": [
+        "src/context/auto.rs",
+        "src/context/mod.rs",
+        "src/engine/mod.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/context_auto.rs",
+        "tests/formal_nonvacuity.rs"
+      ],
+      "assumptions": "Load 0..4 abstracts exact compact-JSON estimation; one open turn in slot 3 above advancing completed frontiers 1..2; a queued cancellation may write latest ending 3 without closing that turn; trim estimates 2 or 3 explore trim-only and summary-without-new-trim, two durable frontiers and two ladder steps per round. Durable high-water frontiers represent log history. Weak fairness on ladder/send actions. Bytes, Unicode clipping, blob fsync and real process restart remain implementation witnesses; no arbitrary Rust refinement proof.",
+      "property": "NeverReducesOpenTurn, BoundariesMonotone, ItemBeforeRequest and BoundaryEventuallySends.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessMcpServer",
+      "title": "An unavailable server never holds admission; requests timeout or finish, and results are fenced by birth.",
+      "models": [
+        "HarnessMcpServer",
+        "BrokenHarnessMcpServerA",
+        "BrokenHarnessMcpServerB",
+        "BrokenHarnessMcpServerC"
+      ],
+      "controls": [
+        {
+          "name": "BrokenHarnessMcpServerA",
+          "expected": "deadlock"
+        },
+        {
+          "name": "BrokenHarnessMcpServerB",
+          "expected": "safety"
+        },
+        {
+          "name": "BrokenHarnessMcpServerC",
+          "expected": "liveness"
+        }
+      ],
+      "sources": [
+        "src/mcp.rs",
+        "src/tools.rs",
+        "src/engine/mod.rs",
+        "src/engine/turn_loop.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/mcp_client.rs",
+        "tests/formal_nonvacuity.rs"
+      ],
+      "assumptions": "Three births (gen 0..2, public A-B-A) abstract the five-attempt product limit. A held response can cross two failures; a silent call needs Timeout. Failure and restart are independent of round admission. Weak fairness on admission, immediate failure/call and response/discard/timeout groups. SDK framing, real process groups, secrets, deadlines and pagination remain implementation witnesses; no arbitrary Rust refinement proof.",
+      "property": "NoStaleResult, DeadIsFinal; RoundNeverWaits and CallEventuallyEnds under the named fairness assumptions.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessAcpFlow",
+      "title": "Session admission is FIFO, and a paused writer cannot close the face or hold the engine.",
+      "models": [
+        "HarnessAcpFlow",
+        "BrokenHarnessAcpFlowA",
+        "BrokenHarnessAcpFlowB",
+        "BrokenHarnessAcpFlowC"
+      ],
+      "controls": [
+        {
+          "name": "BrokenHarnessAcpFlowA",
+          "expected": "safety"
+        },
+        {
+          "name": "BrokenHarnessAcpFlowB",
+          "expected": "safety"
+        },
+        {
+          "name": "BrokenHarnessAcpFlowC",
+          "expected": "safety"
+        }
+      ],
+      "sources": [
+        "src/frontends/acp.rs",
+        "src/engine/task_group.rs",
+        "src/gateway/mod.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/acp_face.rs",
+        "tests/formal_nonvacuity.rs"
+      ],
+      "assumptions": "One prompt followed by cancel; two engine events and two connection replies, queue 0..2 abstracts capacity 256. EngineNeverWaits is enabledness of the actual EngineEmit guard, including writer capacity in broken C; its witness compares actual successor edges at full capacity. Reading resumes under weak fairness, with a drain opportunity in every nonempty readable interval. Fair admission, engine, projection and writer actions; finite inbound burst. Durable prompt admission abstracts lag recovery; actual 4096-slot overflow and held-EOF replay are unit witnesses in src/frontends/acp.rs. Wire bytes, actual OS scheduling, dropped-delta repair and multi-session dispatch remain API witnesses. Pairing remains HarnessTurnLifecycle; no Rust refinement claim.",
+      "property": "CancelHitsItsPrompt, CloseOnlyOnEof, EngineNeverWaits and PromptEventuallyResponds.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    },
+    {
+      "name": "HarnessMcpGroupClose",
+      "title": "Close joins every member of its process group even when SIGTERM is ignored.",
+      "models": [
+        "HarnessMcpGroupClose",
+        "BrokenHarnessMcpGroupClose"
+      ],
+      "controls": [
+        {
+          "name": "BrokenHarnessMcpGroupClose",
+          "expected": "safety"
+        }
+      ],
+      "sources": [
+        "src/mcp.rs",
+        "tests/formal/models.rs"
+      ],
+      "implementation_tests": [
+        "tests/mcp_client.rs",
+        "tests/bin/mcp_fixture.rs",
+        "tests/formal_nonvacuity.rs"
+      ],
+      "assumptions": "One unreaped leader and zero to two members; SIGTERM is ignored. Grace expiry abstracts the timer and sends SIGKILL, then leader wait completes Close. Members may exit independently before completion. Weak fairness on kill/reap after Close begins. Group ownership and pgid reuse remain HarnessProcessLifecycle; OS signals, EOF and reaping are process witnesses, not arbitrary Rust refinement. Maps to src/mcp.rs::finish_child and the stubborn_group fixture.",
+      "property": "NoMemberAfterClose and ReapAfterKill; CloseEventuallyCompletes. Broken control kills only the leader, leaving a live member at completed Close.",
+      "checks": [
+        "make test-formal",
+        "make test"
+      ]
+    }
+  ],
+  "models": [
+    {
+      "name": "HarnessTurnLifecycle",
+      "expected": "pass",
+      "states": 504,
+      "edges": 2592,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "StartQueued",
+          "ToolPending",
+          "ResultOne",
+          "ResultTwo",
+          "ToolResult",
+          "FinishCancelOrError",
+          "EmitOneEnding",
+          "CrashRecoveryPairsWithoutRedispatch",
+          "ReplayIsReadOnly",
+          "StartQueued",
+          "ToolPending",
+          "ResultOne",
+          "ResultTwo",
+          "ToolResult",
+          "FinishCancelOrError",
+          "EmitOneEnding",
+          "CrashRecoveryPairsWithoutRedispatch",
+          "ReplayIsReadOnly"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "ExactlyOneEnding",
+          "PairedAtEnd",
+          "ExactlyOneEnding",
+          "PairedAtEnd"
+        ],
+        "responses": [
+          "EveryQueuedTurnEnds",
+          "EveryQueuedTurnEnds"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 4,
+            "min": 0,
+            "name": "phase_a"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "ends_a"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "round_a"
+          },
+          {
+            "initial": 0,
+            "max": 4,
+            "min": 0,
+            "name": "phase_b"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "ends_b"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "round_b"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "result_a1"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "result_a2"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "result_b1"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "result_b2"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "recovered"
+          }
+        ],
+        "weak_fair": [
+          [
+            5,
+            6
+          ],
+          [
+            14,
+            15
+          ]
+        ]
+      },
+      "tla_sha256": "e376f26b3539b21d9ff18a3c78704bf15d7ae05dba5c89ffb61511db7461025d"
+    },
+    {
+      "name": "HarnessTurnLifecyclePairing",
+      "expected": "pass",
+      "states": 504,
+      "edges": 2592,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "StartQueued",
+          "ToolPending",
+          "ResultOne",
+          "ResultTwo",
+          "ToolResult",
+          "FinishCancelOrError",
+          "EmitOneEnding",
+          "CrashRecoveryPairsWithoutRedispatch",
+          "ReplayIsReadOnly",
+          "StartQueued",
+          "ToolPending",
+          "ResultOne",
+          "ResultTwo",
+          "ToolResult",
+          "FinishCancelOrError",
+          "EmitOneEnding",
+          "CrashRecoveryPairsWithoutRedispatch",
+          "ReplayIsReadOnly"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "ExactlyOneEnding",
+          "PairedAtEnd",
+          "ExactlyOneEnding",
+          "PairedAtEnd"
+        ],
+        "responses": [
+          "EveryQueuedTurnEnds",
+          "EveryQueuedTurnEnds"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 4,
+            "min": 0,
+            "name": "phase_a"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "ends_a"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "round_a"
+          },
+          {
+            "initial": 0,
+            "max": 4,
+            "min": 0,
+            "name": "phase_b"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "ends_b"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "round_b"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "result_a1"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "result_a2"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "result_b1"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "result_b2"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "recovered"
+          }
+        ],
+        "weak_fair": [
+          [
+            5,
+            6
+          ],
+          [
+            14,
+            15
+          ]
+        ]
+      },
+      "tla_sha256": "c19a49572c82abddef20623c9f133b667b0d5fbae81dca8bc8c8807490e7fd34"
+    },
+    {
+      "name": "HarnessCancelTree",
+      "expected": "pass",
+      "states": 36,
+      "edges": 54,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "CaptureCompletion",
+          "CancelOldBirth",
+          "KillAndJoin",
+          "NextBirth",
+          "HeldCompletion",
+          "RetireHeld"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoStaleCompletion",
+          "NoChildAfterEnd"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "generation"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "identity"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "held_generation"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "held"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "live_child"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "bad"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "00b99f4e501d84417e7f7657c8c33dbded17062886dfd4c0ef92009294814d65"
+    },
+    {
+      "name": "HarnessCancelTreeGroup",
+      "expected": "pass",
+      "states": 36,
+      "edges": 54,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "CaptureCompletion",
+          "CancelOldBirth",
+          "KillAndJoin",
+          "NextBirth",
+          "HeldCompletion",
+          "RetireHeld"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoStaleCompletion",
+          "NoChildAfterEnd"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "generation"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "identity"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "held_generation"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "held"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "live_child"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "bad"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "3fbedda9807f4272d0cc825a290ab46b3ebe5e9f7546b3eab815c4eb98ff4863"
+    },
+    {
+      "name": "HarnessSteerQueue",
+      "expected": "pass",
+      "states": 15,
+      "edges": 22,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "AdmitControl",
+          "ConsumeControl",
+          "DeliverSteer",
+          "TurnEndsBeforeDelivery",
+          "ConvertSteerToQueuedTurn"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "SteerAppearsAtMostOnce"
+        ],
+        "responses": [
+          "AckedSteerEventuallyAppears",
+          "InterruptAlwaysProgresses"
+        ],
+        "variables": [
+          {
+            "initial": 64,
+            "max": 64,
+            "min": 0,
+            "name": "work_inbox"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "pending_interrupt"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "admitted"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "consumed"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "running"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "delivered"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "queued"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "acked"
+          }
+        ],
+        "weak_fair": [
+          [
+            2,
+            4
+          ],
+          [
+            0,
+            1
+          ]
+        ]
+      },
+      "tla_sha256": "7e8a797c07d0845717e04bfcbbdf6c71001bb2a890b857b5140a71d8bcc2c06b"
+    },
+    {
+      "name": "HarnessControlLaneBound",
+      "expected": "pass",
+      "states": 8580,
+      "edges": 42376,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "ProduceInterrupt",
+          "ConsumeInterrupt",
+          "ProduceApproval",
+          "ConsumeApproval",
+          "ProduceClose",
+          "ConsumeClose"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "InterruptSlotsConserved",
+          "ApprovalSlotsConserved",
+          "CloseSlotsConserved",
+          "DepthMatchesOutstanding",
+          "ControlLaneBounded",
+          "LegitimateOutstandingFits"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 65,
+            "max": 65,
+            "min": 0,
+            "name": "interrupt_slots"
+          },
+          {
+            "initial": 0,
+            "max": 257,
+            "min": 0,
+            "name": "interrupt_pending"
+          },
+          {
+            "initial": 64,
+            "max": 64,
+            "min": 0,
+            "name": "approval_slots"
+          },
+          {
+            "initial": 0,
+            "max": 64,
+            "min": 0,
+            "name": "approval_pending"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "close_slots"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "close_pending"
+          },
+          {
+            "initial": 0,
+            "max": 257,
+            "min": 0,
+            "name": "control_depth"
+          },
+          {
+            "initial": 64,
+            "max": 64,
+            "min": 0,
+            "name": "work_inbox"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "duplicate_producer"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "a66e2cd3f6ed2f8410f07cee9bbbd8e1baf53e44d89115e61e301557b320ab18"
+    },
+    {
+      "name": "HarnessApprovalLifecycle",
+      "expected": "pass",
+      "states": 13,
+      "edges": 28,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "ReplaceBirthAtoBtoA",
+          "FaceOneAllow",
+          "FaceTwoDeny",
+          "Cancel",
+          "CurrentApprovedEffect",
+          "ReplayNeverReasks"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "AnswerOnlyCurrent",
+          "NoEffectWithoutAllow",
+          "ExactlyOneResolver"
+        ],
+        "responses": [
+          "AskedEventuallyResolved"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "approval"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "generation"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "answer_generation"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "effect"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "resolutions"
+          }
+        ],
+        "weak_fair": [
+          [
+            1,
+            2,
+            3
+          ]
+        ]
+      },
+      "tla_sha256": "3686030b469cae6d1c3640baaccfdd8bf48491f64986a71ab42d4c92be5b9a8d"
+    },
+    {
+      "name": "HarnessApprovalUnattended",
+      "expected": "pass",
+      "states": 6,
+      "edges": 13,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "ReplaceBirthAtoBtoA",
+          "UnattendedDeny",
+          "OtherSessionContinues"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "ExactlyOneResolver"
+        ],
+        "responses": [
+          "UnattendedEventuallyResolves"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "approval"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "generation"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "answer_generation"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "effect"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "resolutions"
+          }
+        ],
+        "weak_fair": [
+          [
+            1
+          ]
+        ]
+      },
+      "tla_sha256": "15fa2d3c51e49aa650a898e0c60032113ff4e188705998b5a56a29267d4dd600"
+    },
+    {
+      "name": "HarnessSubscriberReplay",
+      "expected": "pass",
+      "states": 166,
+      "edges": 180,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "TailLossTo0",
+          "TailLossTo1",
+          "TailLossTo2",
+          "RestartWithDurableEpoch",
+          "AppendReassigned1",
+          "AppendReassigned2",
+          "AppendReassigned3",
+          "ResetToTrusted0",
+          "ResetToTrusted1",
+          "ResetToTrusted2",
+          "ResetToTrusted3",
+          "ResumeWithoutReset",
+          "Deliver1",
+          "Deliver2",
+          "Deliver3"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "FaceViewIsLogPrefix",
+          "EpochNeverReused"
+        ],
+        "responses": [
+          "RecoveryEventuallyReconnects"
+        ],
+        "variables": [
+          {
+            "initial": 3,
+            "max": 3,
+            "min": 0,
+            "name": "head"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "epoch"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "hwm"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "birth"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "face_epoch"
+          },
+          {
+            "initial": 3,
+            "max": 3,
+            "min": 0,
+            "name": "cursor"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "resets"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "e1"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "e2"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "e3"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "b1"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "b2"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "b3"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "f1"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "f2"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "f3"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "log_epoch_max"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "prior_epoch"
+          }
+        ],
+        "weak_fair": [
+          [
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11
+          ]
+        ]
+      },
+      "tla_sha256": "be2e3fdc97d0e9db26e63989d1acb295c6793394953a99491a44df92b937bf75"
+    },
+    {
+      "name": "HarnessSubscriberReplayDrop",
+      "expected": "pass",
+      "states": 19,
+      "edges": 22,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "RegisterBeforeRead",
+          "ReadReplayHead",
+          "ConcurrentAppend",
+          "FinishReplayRegister",
+          "LiveDeliverOrLag",
+          "ReplayAfterLag",
+          "KernelTailLoss"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoSilentDurableGap",
+          "EpochLossRequiresReset"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "head"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "registered"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "read_head"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "cursor"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "buffer"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "lagged"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "epoch"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "reset"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "ab305f81103c9f73a530f72d77b6830d6a721d0516bdc1e7047364df0c1669dd"
+    },
+    {
+      "name": "HarnessSubscriberReplayHealthy",
+      "expected": "pass",
+      "states": 10,
+      "edges": 12,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "AppendNeverWaitsForSlowPeer",
+          "HealthyDeliver"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoDuplicateOrFutureDelivery"
+        ],
+        "responses": [
+          "HealthyPeerProgresses"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "head"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "slow_full"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "healthy_cursor"
+          }
+        ],
+        "weak_fair": [
+          [
+            1
+          ]
+        ]
+      },
+      "tla_sha256": "262aaa7b2ee67b37d5e57990c70ab5c698f8db39c053c4c095fdbdbac83216dc"
+    },
+    {
+      "name": "HarnessStreamToView",
+      "expected": "pass",
+      "states": 20,
+      "edges": 40,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "MarkBits",
+          "PostWake",
+          "TakeBits",
+          "ClearPending",
+          "RecheckEmpty",
+          "RecheckPublished"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoLostImmediateWake"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "bits"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "pending"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "producer_pc"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "drain_pc"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "98be76c3ebf493b59369c85823ab645405edf94ca171a68e8f11f10729f10181"
+    },
+    {
+      "name": "HarnessDirtyWakeFrame",
+      "expected": "pass",
+      "states": 19,
+      "edges": 25,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "Publish",
+          "BudgetOne",
+          "CompleteEmpty",
+          "CompleteRemainder"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoLostRemainder"
+        ],
+        "responses": [
+          "ArrivalYieldsFrame"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "produced"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "consumed"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "wake"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "draining"
+          }
+        ],
+        "weak_fair": [
+          [
+            1,
+            2,
+            3
+          ]
+        ]
+      },
+      "tla_sha256": "fec8f2108fdd8d4a48523d2bae87a3c6baa44d0e4f8035f85898e30297b8661b"
+    },
+    {
+      "name": "HarnessScrollStick",
+      "expected": "pass",
+      "states": 12,
+      "edges": 22,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "AppendFollowing",
+          "ScrollAway",
+          "AppendManual",
+          "WheelBackToBottom",
+          "JumpToLatest"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "TailShownWhileFollowing",
+          "ManualOffsetPreserved"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "tail"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "following"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "offset"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "requested"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "8d6cf534173cfd0528858a2fd4e3f0dfe72fdd27dc8d9dd98c445b7fb4bbe765"
+    },
+    {
+      "name": "HarnessEmbedLifecycle",
+      "expected": "pass",
+      "states": 74,
+      "edges": 124,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "AdmitStopForBoundGateway",
+          "DetachFace",
+          "OwnedTurnFinishes",
+          "ConsumeReturnsAndCreateDropsHost",
+          "NewBirthAtoBtoA",
+          "DeliverHeldStop",
+          "OldGatewayDoesNotSignalCurrentActor"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "DetachPreservesRun",
+          "StopSignalsOwnBirth",
+          "HostRetiresWithConsume",
+          "DetachedConsumeReturnsAfterOwnedWork"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "attached"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "consume"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "host_owned"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "actor_alive"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "birth"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "stop_pending"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "held_stop_birth"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "applied_stop_birth"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "stopped"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "owned_turn"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "e719e7e8296ced1526cf452646b9287d9683b2094dfd72715e1743e42d692cbd"
+    },
+    {
+      "name": "HarnessProfileLoad",
+      "expected": "pass",
+      "states": 51,
+      "edges": 81,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "Start",
+          "Resolve",
+          "Close",
+          "Join",
+          "LateCompletion",
+          "ReplaceBirth",
+          "ApplyCurrent",
+          "Retire"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoLateProfileEffect"
+        ],
+        "responses": [
+          "ClosedServicesJoin"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 4,
+            "min": 0,
+            "name": "job"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "closed"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "generation"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "captured"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "applied"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "held"
+          }
+        ],
+        "weak_fair": [
+          [
+            3,
+            7
+          ]
+        ]
+      },
+      "tla_sha256": "d7787799c8d986a822d2a6dea2703b27487f180f65b5444f7b14e34571ce3c7b"
+    },
+    {
+      "name": "HarnessForkMaterialize",
+      "expected": "pass",
+      "states": 8,
+      "edges": 16,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "CopyBlobs",
+          "WriteFixedPrefix",
+          "AtomicPublish",
+          "CrashBeforePublish",
+          "ParentAppends"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "VisibleChildHasBlobsAndFixedPrefix"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "blobs_ready"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "copied_at"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "visible"
+          },
+          {
+            "initial": 1,
+            "max": 2,
+            "min": 0,
+            "name": "parent_head"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "6b6352a6bc9a8de76b49a77f9b38d073c36754a70e09f1c4ed0fc1697bee6b9c"
+    },
+    {
+      "name": "BrokenHarnessTurnLifecycle",
+      "expected": "safety",
+      "states": 738,
+      "edges": 3708,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "StartQueued",
+          "ToolPending",
+          "ResultOne",
+          "ResultTwo",
+          "ToolResult",
+          "FinishCancelOrError",
+          "EmitOneEnding",
+          "CrashRecoveryPairsWithoutRedispatch",
+          "ReplayIsReadOnly",
+          "LateCompletionSecondEnding",
+          "StartQueued",
+          "ToolPending",
+          "ResultOne",
+          "ResultTwo",
+          "ToolResult",
+          "FinishCancelOrError",
+          "EmitOneEnding",
+          "CrashRecoveryPairsWithoutRedispatch",
+          "ReplayIsReadOnly",
+          "LateCompletionSecondEnding"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "ExactlyOneEnding",
+          "PairedAtEnd",
+          "ExactlyOneEnding",
+          "PairedAtEnd"
+        ],
+        "responses": [
+          "EveryQueuedTurnEnds",
+          "EveryQueuedTurnEnds"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 4,
+            "min": 0,
+            "name": "phase_a"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "ends_a"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "round_a"
+          },
+          {
+            "initial": 0,
+            "max": 4,
+            "min": 0,
+            "name": "phase_b"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "ends_b"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "round_b"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "result_a1"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "result_a2"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "result_b1"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "result_b2"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "recovered"
+          }
+        ],
+        "weak_fair": [
+          [
+            5,
+            6
+          ],
+          [
+            15,
+            16
+          ]
+        ]
+      },
+      "tla_sha256": "dd3e23f02b57c2b98c1832f050d786d109393e27120ddcfff9b22ee2f644b09e"
+    },
+    {
+      "name": "BrokenHarnessTurnLifecyclePairing",
+      "expected": "safety",
+      "states": 712,
+      "edges": 3272,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "StartQueued",
+          "ToolPending",
+          "ResultOne",
+          "ResultTwo",
+          "ToolResult",
+          "FinishCancelOrError",
+          "EmitOneEnding",
+          "CrashRecoveryPairsWithoutRedispatch",
+          "ReplayIsReadOnly",
+          "StartQueued",
+          "ToolPending",
+          "ResultOne",
+          "ResultTwo",
+          "ToolResult",
+          "FinishCancelOrError",
+          "EmitOneEnding",
+          "CrashRecoveryPairsWithoutRedispatch",
+          "ReplayIsReadOnly"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "ExactlyOneEnding",
+          "PairedAtEnd",
+          "ExactlyOneEnding",
+          "PairedAtEnd"
+        ],
+        "responses": [
+          "EveryQueuedTurnEnds",
+          "EveryQueuedTurnEnds"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 4,
+            "min": 0,
+            "name": "phase_a"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "ends_a"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "round_a"
+          },
+          {
+            "initial": 0,
+            "max": 4,
+            "min": 0,
+            "name": "phase_b"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "ends_b"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "round_b"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "result_a1"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "result_a2"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "result_b1"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "result_b2"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "recovered"
+          }
+        ],
+        "weak_fair": [
+          [
+            5,
+            6
+          ],
+          [
+            14,
+            15
+          ]
+        ]
+      },
+      "tla_sha256": "bfcbd818315763b5f7f26b79ed43eb440986f8342b8e777d6f7d7f25ef9b0f22"
+    },
+    {
+      "name": "BrokenHarnessCancelTree",
+      "expected": "safety",
+      "states": 66,
+      "edges": 96,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "CaptureCompletion",
+          "CancelOldBirth",
+          "KillAndJoin",
+          "NextBirth",
+          "HeldCompletion",
+          "RetireHeld"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoStaleCompletion",
+          "NoChildAfterEnd"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "generation"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "identity"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "held_generation"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "held"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "live_child"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "bad"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "60d4036afe44abc7828e435756b925cd6cb34cfd4ab045ac8a4d98b33e8479aa"
+    },
+    {
+      "name": "BrokenHarnessCancelTreeGroup",
+      "expected": "safety",
+      "states": 36,
+      "edges": 54,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "CaptureCompletion",
+          "CancelOldBirth",
+          "KillAndJoin",
+          "NextBirth",
+          "HeldCompletion",
+          "RetireHeld"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoStaleCompletion",
+          "NoChildAfterEnd"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "generation"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "identity"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "held_generation"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "held"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "live_child"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "bad"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "7c099558fa74c2d767dfd13bffef11a144368ebb07aaada35036c51ac2bb0839"
+    },
+    {
+      "name": "BrokenHarnessSteerQueue",
+      "expected": "liveness",
+      "states": 5,
+      "edges": 4,
+      "tlc_exit": 13,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "AdmitControl",
+          "ConsumeControl",
+          "DeliverSteer",
+          "TurnEndsBeforeDelivery",
+          "ConvertSteerToQueuedTurn"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "SteerAppearsAtMostOnce"
+        ],
+        "responses": [
+          "AckedSteerEventuallyAppears",
+          "InterruptAlwaysProgresses"
+        ],
+        "variables": [
+          {
+            "initial": 64,
+            "max": 64,
+            "min": 0,
+            "name": "work_inbox"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "pending_interrupt"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "admitted"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "consumed"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "running"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "delivered"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "queued"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "acked"
+          }
+        ],
+        "weak_fair": [
+          [
+            2,
+            4
+          ],
+          [
+            0,
+            1
+          ]
+        ]
+      },
+      "tla_sha256": "3f186a0b5b04fb13b8a96ef5ebc9850e0c9af4dc70cd7220d102a05921a7c338"
+    },
+    {
+      "name": "BrokenHarnessControlLaneBound",
+      "expected": "safety",
+      "states": 8708,
+      "edges": 42504,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "ProduceInterrupt",
+          "ConsumeInterrupt",
+          "ProduceApproval",
+          "ConsumeApproval",
+          "ProduceClose",
+          "ConsumeClose",
+          "LoseProducerReservation",
+          "DuplicateInterruptWithoutSlot"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "InterruptSlotsConserved",
+          "ApprovalSlotsConserved",
+          "CloseSlotsConserved",
+          "DepthMatchesOutstanding",
+          "ControlLaneBounded",
+          "LegitimateOutstandingFits"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 65,
+            "max": 65,
+            "min": 0,
+            "name": "interrupt_slots"
+          },
+          {
+            "initial": 0,
+            "max": 257,
+            "min": 0,
+            "name": "interrupt_pending"
+          },
+          {
+            "initial": 64,
+            "max": 64,
+            "min": 0,
+            "name": "approval_slots"
+          },
+          {
+            "initial": 0,
+            "max": 64,
+            "min": 0,
+            "name": "approval_pending"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "close_slots"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "close_pending"
+          },
+          {
+            "initial": 0,
+            "max": 257,
+            "min": 0,
+            "name": "control_depth"
+          },
+          {
+            "initial": 64,
+            "max": 64,
+            "min": 0,
+            "name": "work_inbox"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "duplicate_producer"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "f27be594b86d452e0e64e54b88d4075d50ba7a395d936824062a84e6bcee9b76"
+    },
+    {
+      "name": "BrokenHarnessApprovalLifecycle",
+      "expected": "safety",
+      "states": 15,
+      "edges": 32,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "ReplaceBirthAtoBtoA",
+          "FaceOneAllow",
+          "FaceTwoDeny",
+          "Cancel",
+          "CurrentApprovedEffect",
+          "ReplayNeverReasks"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "AnswerOnlyCurrent",
+          "NoEffectWithoutAllow",
+          "ExactlyOneResolver"
+        ],
+        "responses": [
+          "AskedEventuallyResolved"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "approval"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "generation"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "answer_generation"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "effect"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "resolutions"
+          }
+        ],
+        "weak_fair": [
+          [
+            1,
+            2,
+            3
+          ]
+        ]
+      },
+      "tla_sha256": "c4b25dc5463106505483f9e65ed6f8306d7c164d06f8dc66e82f3f4e9f471fc6"
+    },
+    {
+      "name": "BrokenHarnessApprovalUnattended",
+      "expected": "liveness",
+      "states": 3,
+      "edges": 5,
+      "tlc_exit": 13,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "ReplaceBirthAtoBtoA",
+          "UnattendedDeny",
+          "OtherSessionContinues"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "ExactlyOneResolver"
+        ],
+        "responses": [
+          "UnattendedEventuallyResolves"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "approval"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "generation"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "answer_generation"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "effect"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "resolutions"
+          }
+        ],
+        "weak_fair": [
+          [
+            1
+          ]
+        ]
+      },
+      "tla_sha256": "f1940d851d25e5eacc77278438c724fddcf654bba3ef3602bbc58fc63ea07e44"
+    },
+    {
+      "name": "BrokenHarnessSubscriberReplay",
+      "expected": "safety",
+      "states": 44,
+      "edges": 46,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "TailLossTo0",
+          "TailLossTo1",
+          "TailLossTo2",
+          "RestartWithDurableEpoch",
+          "AppendReassigned1",
+          "AppendReassigned2",
+          "AppendReassigned3",
+          "ResetToTrusted0",
+          "ResetToTrusted1",
+          "ResetToTrusted2",
+          "ResetToTrusted3",
+          "ResumeWithoutReset",
+          "Deliver1",
+          "Deliver2",
+          "Deliver3"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "FaceViewIsLogPrefix",
+          "EpochNeverReused"
+        ],
+        "responses": [
+          "RecoveryEventuallyReconnects"
+        ],
+        "variables": [
+          {
+            "initial": 3,
+            "max": 3,
+            "min": 0,
+            "name": "head"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "epoch"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "hwm"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "birth"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "face_epoch"
+          },
+          {
+            "initial": 3,
+            "max": 3,
+            "min": 0,
+            "name": "cursor"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "resets"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "e1"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "e2"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "e3"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "b1"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "b2"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "b3"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "f1"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "f2"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "f3"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "log_epoch_max"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "prior_epoch"
+          }
+        ],
+        "weak_fair": [
+          [
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11
+          ]
+        ]
+      },
+      "tla_sha256": "80e581af5e68e51c7dfd0766d606696ead830d54139765ff73e16cbb9580fcf8"
+    },
+    {
+      "name": "BrokenHarnessSubscriberReplayDrop",
+      "expected": "safety",
+      "states": 20,
+      "edges": 31,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "RegisterBeforeRead",
+          "ReadReplayHead",
+          "ConcurrentAppend",
+          "FinishReplayRegister",
+          "LiveDeliverOrLag",
+          "ReplayAfterLag",
+          "KernelTailLoss"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoSilentDurableGap",
+          "EpochLossRequiresReset"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "head"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "registered"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "read_head"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "cursor"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "buffer"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "lagged"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "epoch"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "reset"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "fd1a6a9f2083048f1ac19e4c42fda9750fe8a05ff9ee75afe1f02979cbe44097"
+    },
+    {
+      "name": "BrokenHarnessSubscriberReplayHealthy",
+      "expected": "liveness",
+      "states": 4,
+      "edges": 3,
+      "tlc_exit": 13,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "AppendNeverWaitsForSlowPeer",
+          "HealthyDeliver"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoDuplicateOrFutureDelivery"
+        ],
+        "responses": [
+          "HealthyPeerProgresses"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "head"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "slow_full"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "healthy_cursor"
+          }
+        ],
+        "weak_fair": [
+          [
+            1
+          ]
+        ]
+      },
+      "tla_sha256": "068af1a6055632ad754ab1e17a9eea1514b57771b382639931349d836693b0e7"
+    },
+    {
+      "name": "BrokenHarnessStreamToView",
+      "expected": "safety",
+      "states": 21,
+      "edges": 42,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "MarkBits",
+          "PostWake",
+          "TakeBits",
+          "ClearPending",
+          "RecheckEmpty",
+          "RecheckPublished"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoLostImmediateWake"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "bits"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "pending"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "producer_pc"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "drain_pc"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "2a69d81b9b484c04619aef6ddb5e8cfe83e74700cd4e92e8eeab145ffce69447"
+    },
+    {
+      "name": "BrokenHarnessDirtyWakeFrame",
+      "expected": "safety",
+      "states": 22,
+      "edges": 26,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "Publish",
+          "BudgetOne",
+          "CompleteEmpty",
+          "CompleteRemainder"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoLostRemainder"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "produced"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "consumed"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "wake"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "draining"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "ec05cd77ed07b712c1a51ce7d64d2b77af8d15ce58a50ce05cf15811aa9cf484"
+    },
+    {
+      "name": "BrokenHarnessScrollStick",
+      "expected": "safety",
+      "states": 14,
+      "edges": 27,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "AppendFollowing",
+          "ScrollAway",
+          "AppendManual",
+          "WheelBackToBottom",
+          "JumpToLatest"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "TailShownWhileFollowing",
+          "ManualOffsetPreserved"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "tail"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "following"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "offset"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "requested"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "a39ddd1f6ff752cb3e981bca46678ce83180a9483e4fee3739c0d74d8bced1a6"
+    },
+    {
+      "name": "BrokenHarnessEmbedLifecycle",
+      "expected": "safety",
+      "states": 83,
+      "edges": 146,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "AdmitStopForBoundGateway",
+          "DetachFace",
+          "OwnedTurnFinishes",
+          "ConsumeReturnsAndCreateDropsHost",
+          "NewBirthAtoBtoA",
+          "DeliverHeldStop",
+          "OldGatewayDoesNotSignalCurrentActor"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "DetachPreservesRun",
+          "StopSignalsOwnBirth",
+          "HostRetiresWithConsume",
+          "DetachedConsumeReturnsAfterOwnedWork"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "attached"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "consume"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "host_owned"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "actor_alive"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "birth"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "stop_pending"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "held_stop_birth"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "applied_stop_birth"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "stopped"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "owned_turn"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "54ed5299439f1ccf1f8aac6aa1b45dc7107242da969af345929bf194534fc43e"
+    },
+    {
+      "name": "BrokenHarnessProfileLoad",
+      "expected": "safety",
+      "states": 60,
+      "edges": 90,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "Start",
+          "Resolve",
+          "Close",
+          "Join",
+          "LateCompletion",
+          "ReplaceBirth",
+          "ApplyCurrent",
+          "Retire"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoLateProfileEffect"
+        ],
+        "responses": [
+          "ClosedServicesJoin"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 4,
+            "min": 0,
+            "name": "job"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "closed"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "generation"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "captured"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "applied"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "held"
+          }
+        ],
+        "weak_fair": [
+          [
+            3,
+            7
+          ]
+        ]
+      },
+      "tla_sha256": "30ad3cf78925e6f5cf97fa3edf7fa8d6fd920dced7bf7bcced7232b5f25d53bb"
+    },
+    {
+      "name": "BrokenHarnessForkMaterialize",
+      "expected": "safety",
+      "states": 8,
+      "edges": 16,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "CopyBlobs",
+          "WriteFixedPrefix",
+          "AtomicPublish",
+          "CrashBeforePublish",
+          "ParentAppends"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "VisibleChildHasBlobsAndFixedPrefix"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "blobs_ready"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "copied_at"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "visible"
+          },
+          {
+            "initial": 1,
+            "max": 2,
+            "min": 0,
+            "name": "parent_head"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "538fa525f0e9bf7117432d22dbd8adfeb2e177b4395431e2d7bf0c217301e1f6"
+    },
+    {
+      "name": "HarnessAutoCompact",
+      "expected": "pass",
+      "states": 320,
+      "edges": 908,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "TrimWillFit",
+          "TrimNeedsSummary",
+          "CompleteAnotherPrefixTurn",
+          "CompletePrefixBelowQueuedEnding",
+          "QueueTurn",
+          "CancelQueuedTurn",
+          "Boundary",
+          "BeginTrim",
+          "CompleteTrim",
+          "BeginSummary",
+          "CompleteSummary",
+          "Send",
+          "NextRound",
+          "Restart"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NeverReducesOpenTurn",
+          "BoundariesMonotone",
+          "ItemBeforeRequest"
+        ],
+        "responses": [
+          "BoundaryEventuallySends"
+        ],
+        "variables": [
+          {
+            "initial": 4,
+            "max": 4,
+            "min": 0,
+            "name": "est"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "turn_open"
+          },
+          {
+            "initial": 1,
+            "max": 2,
+            "min": 0,
+            "name": "ended_through"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "clipped"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "replaced"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "steps"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "item"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "durable_clipped"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "durable_replaced"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "queued"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "latest_ending"
+          },
+          {
+            "initial": 3,
+            "max": 3,
+            "min": 0,
+            "name": "trim_estimate"
+          }
+        ],
+        "weak_fair": [
+          [
+            7,
+            8,
+            9,
+            10,
+            11
+          ]
+        ]
+      },
+      "tla_sha256": "23cfacad81bf986f0346aa5694e5101f103dfb9c04e273667e8b836b2fc3efaf"
+    },
+    {
+      "name": "HarnessMcpServer",
+      "expected": "pass",
+      "states": 86,
+      "edges": 226,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "StartRound",
+          "Ready",
+          "FailedStartOrExit",
+          "Restart",
+          "Exhausted",
+          "Call",
+          "ServerHangs",
+          "HoldResult",
+          "UnavailableFailsImmediately",
+          "Respond",
+          "DropStale",
+          "Timeout",
+          "Finished"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoStaleResult",
+          "DeadIsFinal"
+        ],
+        "responses": [
+          "RoundNeverWaits",
+          "CallEventuallyEnds",
+          "RoundMakesProgress"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "state"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "gen"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "failures"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "call"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "round_open"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "held"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "held_generation"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "accepted_tag"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "accepted_birth"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "silent"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "retired"
+          }
+        ],
+        "weak_fair": [
+          [
+            0
+          ],
+          [
+            9,
+            10,
+            11
+          ],
+          [
+            8,
+            5
+          ]
+        ]
+      },
+      "tla_sha256": "42d5f906ec1e9107f98c6e0fa7fe0d26b4e3e193ab5145181e4b034001377420"
+    },
+    {
+      "name": "BrokenHarnessAutoCompactA",
+      "expected": "safety",
+      "states": 256,
+      "edges": 744,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "TrimWillFit",
+          "TrimNeedsSummary",
+          "CompleteAnotherPrefixTurn",
+          "CompletePrefixBelowQueuedEnding",
+          "QueueTurn",
+          "CancelQueuedTurn",
+          "Boundary",
+          "BeginTrim",
+          "CompleteTrim",
+          "BeginSummary",
+          "CompleteSummary",
+          "Send",
+          "NextRound",
+          "Restart"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NeverReducesOpenTurn",
+          "BoundariesMonotone",
+          "ItemBeforeRequest"
+        ],
+        "responses": [
+          "BoundaryEventuallySends"
+        ],
+        "variables": [
+          {
+            "initial": 4,
+            "max": 4,
+            "min": 0,
+            "name": "est"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "turn_open"
+          },
+          {
+            "initial": 1,
+            "max": 2,
+            "min": 0,
+            "name": "ended_through"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "clipped"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "replaced"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "steps"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "item"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "durable_clipped"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "durable_replaced"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "queued"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "latest_ending"
+          },
+          {
+            "initial": 3,
+            "max": 3,
+            "min": 0,
+            "name": "trim_estimate"
+          }
+        ],
+        "weak_fair": [
+          [
+            7,
+            8,
+            9,
+            10,
+            11
+          ]
+        ]
+      },
+      "tla_sha256": "d3543b26000f08e743448969182154c16e36fdc308e2c11bb3f0719ad1093b9f"
+    },
+    {
+      "name": "BrokenHarnessMcpServerA",
+      "expected": "deadlock",
+      "states": 84,
+      "edges": 214,
+      "tlc_exit": 11,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "StartRound",
+          "Ready",
+          "FailedStartOrExit",
+          "Restart",
+          "Exhausted",
+          "Call",
+          "ServerHangs",
+          "HoldResult",
+          "UnavailableFailsImmediately",
+          "Respond",
+          "DropStale",
+          "Timeout",
+          "Finished"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoStaleResult",
+          "DeadIsFinal"
+        ],
+        "responses": [
+          "RoundNeverWaits",
+          "CallEventuallyEnds",
+          "RoundMakesProgress"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "state"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "gen"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "failures"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "call"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "round_open"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "held"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "held_generation"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "accepted_tag"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "accepted_birth"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "silent"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "retired"
+          }
+        ],
+        "weak_fair": [
+          [
+            0
+          ],
+          [
+            9,
+            10,
+            11
+          ],
+          [
+            8,
+            5
+          ]
+        ]
+      },
+      "tla_sha256": "6643e46799b544d31951f230eb63ea876fa4e1807fbb8921521c718fd00f347d"
+    },
+    {
+      "name": "BrokenHarnessAutoCompactB",
+      "expected": "safety",
+      "states": 700,
+      "edges": 2152,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "TrimWillFit",
+          "TrimNeedsSummary",
+          "CompleteAnotherPrefixTurn",
+          "CompletePrefixBelowQueuedEnding",
+          "QueueTurn",
+          "CancelQueuedTurn",
+          "Boundary",
+          "BeginTrim",
+          "CompleteTrim",
+          "BeginSummary",
+          "CompleteSummary",
+          "Send",
+          "NextRound",
+          "Restart"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NeverReducesOpenTurn",
+          "BoundariesMonotone",
+          "ItemBeforeRequest"
+        ],
+        "responses": [
+          "BoundaryEventuallySends"
+        ],
+        "variables": [
+          {
+            "initial": 4,
+            "max": 4,
+            "min": 0,
+            "name": "est"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "turn_open"
+          },
+          {
+            "initial": 1,
+            "max": 2,
+            "min": 0,
+            "name": "ended_through"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "clipped"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "replaced"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "steps"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "item"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "durable_clipped"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "durable_replaced"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "queued"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "latest_ending"
+          },
+          {
+            "initial": 3,
+            "max": 3,
+            "min": 0,
+            "name": "trim_estimate"
+          }
+        ],
+        "weak_fair": [
+          [
+            7,
+            8,
+            9,
+            10,
+            11
+          ]
+        ]
+      },
+      "tla_sha256": "ba7a490955b2fc0c960977f6adeb893c13011a242233e60f7e4aaf455289be92"
+    },
+    {
+      "name": "BrokenHarnessMcpServerB",
+      "expected": "safety",
+      "states": 98,
+      "edges": 260,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "StartRound",
+          "Ready",
+          "FailedStartOrExit",
+          "Restart",
+          "Exhausted",
+          "Call",
+          "ServerHangs",
+          "HoldResult",
+          "UnavailableFailsImmediately",
+          "Respond",
+          "DropStale",
+          "Timeout",
+          "Finished"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoStaleResult",
+          "DeadIsFinal"
+        ],
+        "responses": [
+          "RoundNeverWaits",
+          "CallEventuallyEnds",
+          "RoundMakesProgress"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "state"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "gen"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "failures"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "call"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "round_open"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "held"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "held_generation"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "accepted_tag"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "accepted_birth"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "silent"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "retired"
+          }
+        ],
+        "weak_fair": [
+          [
+            0
+          ],
+          [
+            9,
+            10,
+            11
+          ],
+          [
+            8,
+            5
+          ]
+        ]
+      },
+      "tla_sha256": "4ab92bb8a99b381e6c385479f0afbdacf47bcfe0ec5cd7d0f84367e8aef1879f"
+    },
+    {
+      "name": "BrokenHarnessAutoCompactC",
+      "expected": "liveness",
+      "states": 280,
+      "edges": 740,
+      "tlc_exit": 13,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "TrimWillFit",
+          "TrimNeedsSummary",
+          "CompleteAnotherPrefixTurn",
+          "CompletePrefixBelowQueuedEnding",
+          "QueueTurn",
+          "CancelQueuedTurn",
+          "Boundary",
+          "BeginTrim",
+          "CompleteTrim",
+          "BeginSummary",
+          "CompleteSummary",
+          "Send",
+          "NextRound",
+          "Restart"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NeverReducesOpenTurn",
+          "BoundariesMonotone",
+          "ItemBeforeRequest"
+        ],
+        "responses": [
+          "BoundaryEventuallySends"
+        ],
+        "variables": [
+          {
+            "initial": 4,
+            "max": 4,
+            "min": 0,
+            "name": "est"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "turn_open"
+          },
+          {
+            "initial": 1,
+            "max": 2,
+            "min": 0,
+            "name": "ended_through"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "clipped"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "replaced"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "steps"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "item"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "durable_clipped"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "durable_replaced"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "queued"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "latest_ending"
+          },
+          {
+            "initial": 3,
+            "max": 3,
+            "min": 0,
+            "name": "trim_estimate"
+          }
+        ],
+        "weak_fair": [
+          [
+            7,
+            8,
+            9,
+            10,
+            11
+          ]
+        ]
+      },
+      "tla_sha256": "25004c2a44da9ebfc05f995f0a8a0363901d26f15475d57d4bcf729702b7ede6"
+    },
+    {
+      "name": "BrokenHarnessMcpServerC",
+      "expected": "liveness",
+      "states": 72,
+      "edges": 163,
+      "tlc_exit": 13,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "StartRound",
+          "Ready",
+          "FailedStartOrExit",
+          "Restart",
+          "Exhausted",
+          "Call",
+          "ServerHangs",
+          "HoldResult",
+          "UnavailableFailsImmediately",
+          "Respond",
+          "DropStale",
+          "Timeout",
+          "Finished"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoStaleResult",
+          "DeadIsFinal"
+        ],
+        "responses": [
+          "RoundNeverWaits",
+          "CallEventuallyEnds",
+          "RoundMakesProgress"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "state"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "gen"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "failures"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "call"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "round_open"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "held"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "held_generation"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "accepted_tag"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "accepted_birth"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "silent"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "retired"
+          }
+        ],
+        "weak_fair": [
+          [
+            0
+          ],
+          [
+            9,
+            10,
+            11
+          ],
+          [
+            8,
+            5
+          ]
+        ]
+      },
+      "tla_sha256": "2703a1352f7de1dbd16f0a646866e2dcfe2be33bb819a7f6a094e4610a47b452"
+    },
+    {
+      "name": "BrokenHarnessAutoCompactD",
+      "expected": "safety",
+      "states": 628,
+      "edges": 1854,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "TrimWillFit",
+          "TrimNeedsSummary",
+          "CompleteAnotherPrefixTurn",
+          "CompletePrefixBelowQueuedEnding",
+          "QueueTurn",
+          "CancelQueuedTurn",
+          "Boundary",
+          "BeginTrim",
+          "CompleteTrim",
+          "BeginSummary",
+          "CompleteSummary",
+          "Send",
+          "NextRound",
+          "Restart"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NeverReducesOpenTurn",
+          "BoundariesMonotone",
+          "ItemBeforeRequest"
+        ],
+        "responses": [
+          "BoundaryEventuallySends"
+        ],
+        "variables": [
+          {
+            "initial": 4,
+            "max": 4,
+            "min": 0,
+            "name": "est"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "turn_open"
+          },
+          {
+            "initial": 1,
+            "max": 2,
+            "min": 0,
+            "name": "ended_through"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "clipped"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "replaced"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "steps"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "item"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "durable_clipped"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "durable_replaced"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "queued"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "latest_ending"
+          },
+          {
+            "initial": 3,
+            "max": 3,
+            "min": 0,
+            "name": "trim_estimate"
+          }
+        ],
+        "weak_fair": [
+          [
+            7,
+            8,
+            9,
+            10,
+            11
+          ]
+        ]
+      },
+      "tla_sha256": "5f18f919f30b23fe4ad1072b4f9060cee53d5bb2e649a5c35d396fc54f747508"
+    },
+    {
+      "name": "HarnessAcpFlow",
+      "expected": "pass",
+      "states": 1148,
+      "edges": 2290,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "ReadPrompt",
+          "ReadCancel",
+          "DurablePromptAdmission",
+          "CancelItsRunningPrompt",
+          "CancelAfterEnding",
+          "UnorderedCancelOvertakesPrompt",
+          "EngineEmit",
+          "EngineEnd",
+          "SubscriptionProjects",
+          "ConnectionReply",
+          "QueuePromptResponse",
+          "WriterMessage",
+          "WriterResponse",
+          "ReaderResumes",
+          "ReaderPauses",
+          "EofOrBrokenStdout",
+          "FullQueueClosesConnection"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "CancelHitsItsPrompt",
+          "CloseOnlyOnEof",
+          "EngineNeverWaits"
+        ],
+        "responses": [
+          "PromptEventuallyResponds"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "inbox"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "prompt_admitted"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "cancel_admitted"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "turn"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "log_head"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "projected"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "writer_queue"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "reading"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "conn"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "peer"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "response"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "cancel_target"
+          },
+          {
+            "initial": 2,
+            "max": 2,
+            "min": 0,
+            "name": "metadata_left"
+          }
+        ],
+        "weak_fair": [
+          [
+            2
+          ],
+          [
+            3,
+            4
+          ],
+          [
+            6
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            10
+          ],
+          [
+            11,
+            12
+          ],
+          [
+            13
+          ]
+        ]
+      },
+      "tla_sha256": "580a727348ff2427059edec8281f12678a0d3503cb34d4c0ff5f30018dc05fad"
+    },
+    {
+      "name": "BrokenHarnessAcpFlowA",
+      "expected": "safety",
+      "states": 1484,
+      "edges": 2915,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "ReadPrompt",
+          "ReadCancel",
+          "DurablePromptAdmission",
+          "CancelItsRunningPrompt",
+          "CancelAfterEnding",
+          "UnorderedCancelOvertakesPrompt",
+          "EngineEmit",
+          "EngineEnd",
+          "SubscriptionProjects",
+          "ConnectionReply",
+          "QueuePromptResponse",
+          "WriterMessage",
+          "WriterResponse",
+          "ReaderResumes",
+          "ReaderPauses",
+          "EofOrBrokenStdout",
+          "FullQueueClosesConnection"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "CancelHitsItsPrompt",
+          "CloseOnlyOnEof",
+          "EngineNeverWaits"
+        ],
+        "responses": [
+          "PromptEventuallyResponds"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "inbox"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "prompt_admitted"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "cancel_admitted"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "turn"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "log_head"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "projected"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "writer_queue"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "reading"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "conn"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "peer"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "response"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "cancel_target"
+          },
+          {
+            "initial": 2,
+            "max": 2,
+            "min": 0,
+            "name": "metadata_left"
+          }
+        ],
+        "weak_fair": [
+          [
+            2
+          ],
+          [
+            3,
+            4
+          ],
+          [
+            6
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            10
+          ],
+          [
+            11,
+            12
+          ],
+          [
+            13
+          ]
+        ]
+      },
+      "tla_sha256": "11ba35ef88f6a95d2d8e0d8514751fc7bc4e641e910677181bb0198d0f102820"
+    },
+    {
+      "name": "BrokenHarnessAcpFlowB",
+      "expected": "safety",
+      "states": 1296,
+      "edges": 2586,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "ReadPrompt",
+          "ReadCancel",
+          "DurablePromptAdmission",
+          "CancelItsRunningPrompt",
+          "CancelAfterEnding",
+          "UnorderedCancelOvertakesPrompt",
+          "EngineEmit",
+          "EngineEnd",
+          "SubscriptionProjects",
+          "ConnectionReply",
+          "QueuePromptResponse",
+          "WriterMessage",
+          "WriterResponse",
+          "ReaderResumes",
+          "ReaderPauses",
+          "EofOrBrokenStdout",
+          "FullQueueClosesConnection"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "CancelHitsItsPrompt",
+          "CloseOnlyOnEof",
+          "EngineNeverWaits"
+        ],
+        "responses": [
+          "PromptEventuallyResponds"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "inbox"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "prompt_admitted"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "cancel_admitted"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "turn"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "log_head"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "projected"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "writer_queue"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "reading"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "conn"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "peer"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "response"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "cancel_target"
+          },
+          {
+            "initial": 2,
+            "max": 2,
+            "min": 0,
+            "name": "metadata_left"
+          }
+        ],
+        "weak_fair": [
+          [
+            2
+          ],
+          [
+            3,
+            4
+          ],
+          [
+            6
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            10
+          ],
+          [
+            11,
+            12
+          ],
+          [
+            13
+          ]
+        ]
+      },
+      "tla_sha256": "d30437f5e45e6bd8f061e394dfee8b32af6c2dd3cb68e2472a1261ddbe7a21a6"
+    },
+    {
+      "name": "BrokenHarnessAcpFlowC",
+      "expected": "safety",
+      "states": 1148,
+      "edges": 2274,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "ReadPrompt",
+          "ReadCancel",
+          "DurablePromptAdmission",
+          "CancelItsRunningPrompt",
+          "CancelAfterEnding",
+          "UnorderedCancelOvertakesPrompt",
+          "EngineEmit",
+          "EngineEnd",
+          "SubscriptionProjects",
+          "ConnectionReply",
+          "QueuePromptResponse",
+          "WriterMessage",
+          "WriterResponse",
+          "ReaderResumes",
+          "ReaderPauses",
+          "EofOrBrokenStdout",
+          "FullQueueClosesConnection"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "CancelHitsItsPrompt",
+          "CloseOnlyOnEof",
+          "EngineNeverWaits"
+        ],
+        "responses": [
+          "PromptEventuallyResponds"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "inbox"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "prompt_admitted"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "cancel_admitted"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "turn"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "log_head"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "projected"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "writer_queue"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "reading"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "conn"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "peer"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "response"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "cancel_target"
+          },
+          {
+            "initial": 2,
+            "max": 2,
+            "min": 0,
+            "name": "metadata_left"
+          }
+        ],
+        "weak_fair": [
+          [
+            2
+          ],
+          [
+            3,
+            4
+          ],
+          [
+            6
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            10
+          ],
+          [
+            11,
+            12
+          ],
+          [
+            13
+          ]
+        ]
+      },
+      "tla_sha256": "7e72ca5e188be1bb3e3816679d3712bd70b8de7882aed10e75d8c6e781d91814"
+    },
+    {
+      "name": "HarnessMcpGroupClose",
+      "expected": "pass",
+      "states": 8,
+      "edges": 11,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "CloseSendsIgnoredTerm",
+          "GraceExpiresAndKill",
+          "ReapAndCompleteClose",
+          "MemberExits"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoMemberAfterClose",
+          "ReapAfterKill"
+        ],
+        "responses": [
+          "CloseEventuallyCompletes"
+        ],
+        "variables": [
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "leader_alive"
+          },
+          {
+            "initial": 2,
+            "max": 2,
+            "min": 0,
+            "name": "members_alive"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "close"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "term_sent"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "leader_reaped"
+          }
+        ],
+        "weak_fair": [
+          [
+            1,
+            2
+          ]
+        ]
+      },
+      "tla_sha256": "ee20cb1a5d1b34492bbe0ee8e8998c7efa170fb644710313fe9190dfecd013a0"
+    },
+    {
+      "name": "BrokenHarnessMcpGroupClose",
+      "expected": "safety",
+      "states": 12,
+      "edges": 15,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "CloseSendsIgnoredTerm",
+          "GraceExpiresAndKill",
+          "ReapAndCompleteClose",
+          "MemberExits"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoMemberAfterClose",
+          "ReapAfterKill"
+        ],
+        "responses": [
+          "CloseEventuallyCompletes"
+        ],
+        "variables": [
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "leader_alive"
+          },
+          {
+            "initial": 2,
+            "max": 2,
+            "min": 0,
+            "name": "members_alive"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "close"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "term_sent"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "leader_reaped"
+          }
+        ],
+        "weak_fair": [
+          [
+            1,
+            2
+          ]
+        ]
+      },
+      "tla_sha256": "50aab034245955cf3270c83378a86cdc78b57e4e53672c298ecaaa251e3808fa"
+    },
+    {
+      "name": "BrokenHarnessSteerQueueDelivery",
+      "expected": "safety",
+      "states": 18,
+      "edges": 27,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "AdmitControl",
+          "ConsumeControl",
+          "DeliverSteer",
+          "TurnEndsBeforeDelivery",
+          "ConvertSteerToQueuedTurn"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "SteerAppearsAtMostOnce"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 64,
+            "max": 64,
+            "min": 0,
+            "name": "work_inbox"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "pending_interrupt"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "admitted"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "consumed"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "running"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "delivered"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "queued"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "acked"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "174ee0affd83c5e881a04a3347cf0df36dcb6acbabff3e3941919f5efdc8dee3"
+    },
+    {
+      "name": "HarnessSubscriberReplayRegistration",
+      "expected": "pass",
+      "states": 19,
+      "edges": 22,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "RegisterBeforeRead",
+          "ReadReplayHead",
+          "ConcurrentAppend",
+          "FinishReplayRegister",
+          "LiveDeliverOrLag",
+          "ReplayAfterLag",
+          "KernelTailLoss"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoSilentDurableGap",
+          "EpochLossRequiresReset"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "head"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "registered"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "read_head"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "cursor"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "buffer"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "lagged"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "epoch"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "reset"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "42f0608af7ef2b0e4e212b9a97a0fbffbd12f7fa5f10dfe80d77b4914646bf61"
+    },
+    {
+      "name": "BrokenHarnessSubscriberReplayRegistration",
+      "expected": "safety",
+      "states": 16,
+      "edges": 21,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "RegisterBeforeRead",
+          "ReadReplayHead",
+          "ConcurrentAppend",
+          "FinishReplayRegister",
+          "LiveDeliverOrLag",
+          "ReplayAfterLag",
+          "KernelTailLoss"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoSilentDurableGap",
+          "EpochLossRequiresReset"
+        ],
+        "responses": [],
+        "variables": [
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "head"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "registered"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "read_head"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "cursor"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "buffer"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "lagged"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "epoch"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "reset"
+          }
+        ],
+        "weak_fair": []
+      },
+      "tla_sha256": "36945265a00692af4769078e8b69cb533a1017c5b566feccb3b025d01f8cd406"
+    },
+    {
+      "name": "BrokenHarnessSubscriberReplayEpochReuse",
+      "expected": "safety",
+      "states": 118,
+      "edges": 122,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "TailLossTo0",
+          "TailLossTo1",
+          "TailLossTo2",
+          "RestartWithDurableEpoch",
+          "AppendReassigned1",
+          "AppendReassigned2",
+          "AppendReassigned3",
+          "ResetToTrusted0",
+          "ResetToTrusted1",
+          "ResetToTrusted2",
+          "ResetToTrusted3",
+          "ResumeWithoutReset",
+          "Deliver1",
+          "Deliver2",
+          "Deliver3"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "FaceViewIsLogPrefix",
+          "EpochNeverReused"
+        ],
+        "responses": [
+          "RecoveryEventuallyReconnects"
+        ],
+        "variables": [
+          {
+            "initial": 3,
+            "max": 3,
+            "min": 0,
+            "name": "head"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "epoch"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "hwm"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "birth"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "face_epoch"
+          },
+          {
+            "initial": 3,
+            "max": 3,
+            "min": 0,
+            "name": "cursor"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "phase"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "resets"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "e1"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "e2"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "e3"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "b1"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "b2"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "b3"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "f1"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "f2"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "f3"
+          },
+          {
+            "initial": 1,
+            "max": 3,
+            "min": 0,
+            "name": "log_epoch_max"
+          },
+          {
+            "initial": 0,
+            "max": 3,
+            "min": 0,
+            "name": "prior_epoch"
+          }
+        ],
+        "weak_fair": [
+          [
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11
+          ]
+        ]
+      },
+      "tla_sha256": "a6690c7b51a4cefd99bc170e0dc6c9698e87e5f8441bb00e34b9b590cc5564f3"
+    },
+    {
+      "name": "HarnessProcessLifecycle",
+      "expected": "pass",
+      "states": 15,
+      "edges": 24,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "LeaderExits",
+          "MemberExits",
+          "Cancel",
+          "SignalReservedGroup",
+          "SkipDisownedGroup",
+          "ReapLeader",
+          "GraceClosesPipe",
+          "CompleteCancel",
+          "SignalEmptyGroup"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoMemberAfterCancel",
+          "NoSignalToEmptyGroup",
+          "NoPipeWaitAfterEnd"
+        ],
+        "responses": [
+          "CancelEventuallyEnds"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "leader"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "member_alive"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "cancel"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "kill_attempted"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "pipe_open"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "ended"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "signal_to_empty"
+          }
+        ],
+        "weak_fair": [
+          [
+            0,
+            3,
+            4,
+            5,
+            6,
+            7
+          ]
+        ]
+      },
+      "tla_sha256": "a2cdafa5097a8426b54c40ed62f093a6494d805b0d7cc7fbf0ccc06efc034ad8"
+    },
+    {
+      "name": "BrokenHarnessProcessDrain",
+      "expected": "liveness",
+      "states": 11,
+      "edges": 18,
+      "tlc_exit": 13,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "LeaderExits",
+          "MemberExits",
+          "Cancel",
+          "SignalReservedGroup",
+          "SkipDisownedGroup",
+          "ReapLeader",
+          "GraceClosesPipe",
+          "CompleteCancel",
+          "SignalEmptyGroup"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoMemberAfterCancel",
+          "NoSignalToEmptyGroup",
+          "NoPipeWaitAfterEnd"
+        ],
+        "responses": [
+          "CancelEventuallyEnds"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "leader"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "member_alive"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "cancel"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "kill_attempted"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "pipe_open"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "ended"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "signal_to_empty"
+          }
+        ],
+        "weak_fair": [
+          [
+            0,
+            3,
+            4,
+            5,
+            6,
+            7
+          ]
+        ]
+      },
+      "tla_sha256": "121d0d0ceee6422da40b33dd9a2bb6c7d9b6d43adddb2ee8786466c5b487e682"
+    },
+    {
+      "name": "BrokenHarnessProcessOwnership",
+      "expected": "safety",
+      "states": 18,
+      "edges": 32,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "LeaderExits",
+          "MemberExits",
+          "Cancel",
+          "SignalReservedGroup",
+          "SkipDisownedGroup",
+          "ReapLeader",
+          "GraceClosesPipe",
+          "CompleteCancel",
+          "SignalEmptyGroup"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoMemberAfterCancel",
+          "NoSignalToEmptyGroup",
+          "NoPipeWaitAfterEnd"
+        ],
+        "responses": [
+          "CancelEventuallyEnds"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "leader"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "member_alive"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "cancel"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "kill_attempted"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "pipe_open"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "ended"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "signal_to_empty"
+          }
+        ],
+        "weak_fair": [
+          [
+            0,
+            3,
+            4,
+            5,
+            6,
+            7
+          ]
+        ]
+      },
+      "tla_sha256": "35aece477f57439fffae5be03f352a4d0b918c35a521fe5fc12fad9b91082b6d"
+    },
+    {
+      "name": "BrokenHarnessProcessReapedMembers",
+      "expected": "safety",
+      "states": 22,
+      "edges": 39,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "actions": [
+          "LeaderExits",
+          "MemberExits",
+          "Cancel",
+          "SignalReservedGroup",
+          "SkipDisownedGroup",
+          "ReapLeader",
+          "GraceClosesPipe",
+          "CompleteCancel",
+          "SignalEmptyGroup"
+        ],
+        "implementation_refinement_proven": false,
+        "invariants": [
+          "NoMemberAfterCancel",
+          "NoSignalToEmptyGroup",
+          "NoPipeWaitAfterEnd"
+        ],
+        "responses": [
+          "CancelEventuallyEnds"
+        ],
+        "variables": [
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "leader"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "member_alive"
+          },
+          {
+            "initial": 0,
+            "max": 2,
+            "min": 0,
+            "name": "cancel"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "kill_attempted"
+          },
+          {
+            "initial": 1,
+            "max": 1,
+            "min": 0,
+            "name": "pipe_open"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "ended"
+          },
+          {
+            "initial": 0,
+            "max": 1,
+            "min": 0,
+            "name": "signal_to_empty"
+          }
+        ],
+        "weak_fair": [
+          [
+            0,
+            3,
+            4,
+            5,
+            6,
+            7
+          ]
+        ]
+      },
+      "tla_sha256": "808886ef3b42ee7acb5a9bdb5529baa0539b6dbdcf6e2c44f9be187f809aa33b"
+    },
+    {
+      "name": "HarnessTurnLoop",
+      "expected": "pass",
+      "states": 208,
+      "edges": 575,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": null,
+      "tla_sha256": "f1c00d4b96c5ccfeea7f9cfb3a65994915e3628c39581dc4df8303506015cc50"
+    }
+  ],
+  "complete_tlc_replacement": false,
+  "dirty": false,
+  "input_sha256": {
+    ".bboxy/interfaces/acp.md": "dd1fd0ca08ad38909569086559ec41b0ce505e29058403624f81d3eb38e5c074",
+    ".bboxy/interfaces/embed-seat.md": "00e942388c531eee8e839f2d8d2ddfcc7e09156eacc8b45b63043e7954fcbdda",
+    ".bboxy/interfaces/gateway.md": "c8e9f7b2e1bee4765a0fc008d0c528e1407423d535edc793ee0e69495577c63f",
+    ".bboxy/interfaces/interfaces.md": "c8c6888af99422b033700e6271e1286fb66489a3e7fdc2c525c8e600bae845c4",
+    ".bboxy/interfaces/mcp.md": "ead1e6820430e9f04253d2eb52a404f2348dbddc03c411316bc421f1a411edff",
+    ".bboxy/interfaces/protocol.md": "16cf4e17e9e559b2c47b788faf1c79c738896dee7c76cbc76603be5a07094f9a",
+    ".bboxy/interfaces/provider.md": "8c58c8a4386b88f7f8e41e41c691dc56745d939052539ef02bd0b63108f0da1e",
+    ".bboxy/interfaces/upstream-toolkit.md": "410085b91dfd17a9e281fd55764e54d8fb4960abe415df108cea6a8b9cf256f4",
+    ".bboxy/invariants/cancel-is-cancel.md": "c9026e09e83be8db91efda1102f7ac4f88f740803a9aaebd38b5818475e7da6e",
+    ".bboxy/invariants/kb-records-index.md": "56a10ab107e03476852e22adda5335f439a3dbb1cbec0c1c4fc75dbe0477e0e6",
+    ".bboxy/invariants/log-is-truth.md": "824ce491b47534850db0b5487b9cf95b40530898dc63db778f0529283d31a91b",
+    ".bboxy/invariants/never-block.md": "246ebc853838ce7619e1f5de38c0af0c92ea2814a76a55c01a9a57a48427851f",
+    ".bboxy/invariants/one-ending.md": "6604cc2803cf39d622955f29cd39a8ab90df1f83374ff6ac6a1ef06eb3addc13",
+    ".bboxy/invariants/policy-gates-effects.md": "650fb5078bc4e04ccec88389294809032648d664139c0eeba43c19aa856c2351",
+    ".bboxy/invariants/secrets-never-persist.md": "f63fe8ab15018e4a9f5008b5b047b55496ad7d8345f94b2320dcd28897bc85ab",
+    ".bboxy/invariants/tool-pairing.md": "17ecf5ea1ef2b3e29a0a0f5bccb373249f66d28a1310ea9d283d1491a64396c9",
+    "Cargo.lock": "5f144a9345f74ee6f519be1755ac2e47886ed56783b5c7fc82918e8260943f8f",
+    "Cargo.toml": "d224ea21844bd9c5b7f5c91bbf8f15660066570455e88dd500bf2c105af5c3c5",
+    "protocol.schema.json": "1ffd8b5715c47921bba08270249fd0ee26dc34855d50a56adafd083c84945e39",
+    "scripts/bench-budgets.py": "80b3fa2fc5bedb8d029502c80122f7ad34c2d8f859bfad7c7413b527720339dc",
+    "scripts/checks.py": "a5a5bb7c29e52732816968915505cf2d00246bf74930bf2398faad9e4205d941",
+    "scripts/formal.py": "7bd64ace2a79bc92d689ed64480938c2b9882d3dbb6f1c19ef23e0daa56d7cff",
+    "scripts/hardening-controls.py": "ae83ceca439064dec5d07fe3dd8a55f3276d5b6d4cf5a3276294a4498b314c6c",
+    "scripts/smoke-live.py": "688396f814ce8bf1c8ccf0cd1bd241a6af451707636d5989561067767b798eea",
+    "scripts/test-e1c-controls.py": "6191bb3d57c708243357a2ffa245820e20ddc1867a9bfb78449b1391bfcae67b",
+    "scripts/test-e1c-rework-controls.py": "4b6b1d9e620b658b5406694b37a78723e2bdc9c4f8bbd137387cc40c29c18e90",
+    "scripts/test-formal.py": "7d123846f22e30f108175e050a07d9be37c333866932a20488ef7cf4ffb4a1cf",
+    "scripts/test-hardening.py": "e0104e0712cf46281c787587294188a4dfad78c0953e16981dc10ca561f72d43",
+    "scripts/test.py": "b4b839572f2efaa430b567852f3a658afb2b4799a466a37a3ff9ad86bf47dcd4",
+    "src/context/auto.rs": "a87cdc60a48e8c9199cfe2287288a5094264a9f0c2313f64f5fc2a685445b79f",
+    "src/context/compact.rs": "ace4de06457032249dc29afd7c3eeabea45dda8fc2ae13f0560034d4fc698142",
+    "src/context/mod.rs": "23bfffbd3855acb190c75d8cc9514f1c34417eb6acd1b0ce6674a41f6ec0d8a3",
+    "src/engine/history.rs": "28bdf97337c7af0308a287c435134824ab269faed523bb6e52ac913a5581d6db",
+    "src/engine/mod.rs": "1231c7ca5df1b4f10f411f312dfb75644d7ea174b3358d5446b705d19da05ee4",
+    "src/engine/task_group.rs": "48c04c8bf8683535f2f14a778a4d61a6e0fee38997a9665e44c7d5250c155ac1",
+    "src/engine/turn_loop.rs": "e6683dba876a082bfb34b9ebc674631f28fff6c798378a209767d0563f98695a",
+    "src/frontends/acp.rs": "876aaad3120c3b9f2a1e45ad4aa70a8496fdf54cd6ca0e7a15d8b5e6fb064406",
+    "src/frontends/gui/assets.rs": "e1cf43d8a4fa0c9d62f56967138f77bf19a3df132e979513801ba82951c1479e",
+    "src/frontends/gui/bridge.rs": "dc897adb9828f075a60b5de8d6d60c7228b1d95f3c900db6c125889d2a5be9b6",
+    "src/frontends/gui/budget.rs": "b512da690312db193425244fb6404f4d3cd710c67dc72b79f249034935241fb5",
+    "src/frontends/gui/chat_scroll.rs": "e6e9bc28ed4da5b5e0ba3d9c929ac255cba65b6b7bfe2ee379942113865c43a2",
+    "src/frontends/gui/lint/clippy.toml": "28aa1de626f990b70d1efe594734cb217c471103a9e61b597452f8f169993f3d",
+    "src/frontends/gui/mod.rs": "a65d170381cf4f9ce3c207e59bcf269d380734cba72770ee719c21149e6c2d59",
+    "src/frontends/gui/model.rs": "0981d6108213cec93b6953629e11122d9f3349b1a086ccd2700d35d0c0dffc69",
+    "src/frontends/gui/options.rs": "a3af6f1eaee654d1081d85ef3c8540a94116fc70de85735b6e159aa73fc5d53e",
+    "src/frontends/gui/smoke.rs": "590d4c0d450ac887f358a47046ab2e76ba1f648cce7fa911490212a504ca53a9",
+    "src/frontends/gui/view.rs": "63266199f96b8bf9d4de703272d5dde407be771fc0db1152c45e0c6bf456ed60",
+    "src/frontends/gui/window.rs": "38f1dd2223d75cced4b4474d1f5156fcab8f3faacedbd991860eef79c4b75791",
+    "src/frontends/headless.rs": "b4495c46641b3bf8193b7a48e063089ab1fe0048423a88e02fb8c10c52a74732",
+    "src/frontends/mod.rs": "ceb52fe9d8604ab2582ffeca4e5288eb76e04e9b44848581fb892c25ef790c56",
+    "src/frontends/seat.rs": "f30fca698d4a50c1fb46c3b3b1cc0b90775977c77e6c8420ed5c8dcc9dd537cb",
+    "src/frontends/smoke.rs": "2ed612b75a9cfad008d3ec524bce01d6ffea20ab0aae39667f7c697a138af330",
+    "src/gateway/host.rs": "b724a189c50eeed83de8dcb7d9266e72c36a121905da1107adcea8096f6ec725",
+    "src/gateway/mod.rs": "e41e8e8cd3e6c8e5de6864412ab76de68a61861c8f5765e3b30bb06f1fbc88a6",
+    "src/gateway/unix.rs": "8e8c12406c0eafce23d364e9dfb99df7e5276facb0dd517d7cfa599255b81bac",
+    "src/lib.rs": "0fad68a1928effd23670a24aa2001cd268e7cf0969f3b77ca423fdbbd243a9b0",
+    "src/main.rs": "e8692543448eba7ce925eac72bc7b3f532cc2ba866e511a07d5e6196c5e85247",
+    "src/mcp.rs": "ff67fc86d2248c7e4740caeb82581e1c7ac30978bef6680c4a2a82750706f6d9",
+    "src/policy.rs": "4a88c7dd75ed079340d74cbc70fb7f5ffef871f9dffb51c004fdd9d61e16cae7",
+    "src/process.rs": "fd9f6540729825e46fe3b6eece294f8f63f41cb45962efad76d0ff9430b66ea7",
+    "src/protocol/laws.rs": "74ef636edec3e1ae7e2c67dfc4f14d152a0ae0346a4f32e0f0d6ee845a08d47b",
+    "src/protocol/mod.rs": "7de4297ad311858cc93ccf11a6e4d12b638f9e0035de007d96ef3041ada1ef55",
+    "src/provider/mod.rs": "6badabab8922e3c4ff8c59be2a46895a79cc43dcf85765693093b2d1fbce0dbc",
+    "src/provider/parser.rs": "b140abdaffd0430196293c691f43643587d314c6d14abff48a56a97f3e9fe6f8",
+    "src/provider/profile.rs": "2a13ffb5ad1192d196f72f768c8de7e904ee97de828d1f8e6861d909997cf9aa",
+    "src/redact.rs": "e8109df53ea3ac755da3d3b1a6cb6557d68b356ba16e7b91321407ce483b52c7",
+    "src/runtime.rs": "5d07be0ce4800646fb41d8743523cb48a78a93dcb6585d8be63e3c59e9fc47a2",
+    "src/store.rs": "6cab1a7029c3fd7a95505a24476530fe8378145d69d71baac882f25736983f8d",
+    "src/store/fork.rs": "778faff5f5302a2597a0ca5a1e29b7a7431efa3a114cba9482c775664f6a575c",
+    "src/tools.rs": "11f4923f040bb1bad3154d6a74e82eb5bdc5093b5dfc32e5d06c3591c177da19",
+    "tests/acp_face.rs": "894490f988cf42c69da842fdd046f0254c696bbf8d92f6e374487e82f47341c4",
+    "tests/bin/mcp_fixture.rs": "69ab0430ec253d523afb04aa2bbbad24da6d6d29030d8e95a1755cefaf36f84d",
+    "tests/cancel_process.rs": "5995ca7d4f269f975da9b02e4a04a8270b4bc58669458114972e942f02693330",
+    "tests/cli_headless.rs": "83a2eb17818eddff50846e58d51e78ec2cedb2a05e2303e654bea0823c842c1c",
+    "tests/context_auto.rs": "ff02a582c86c6573ab831f335232d8efe0bae869e841289de7330be13bd9e754",
+    "tests/context_compact.rs": "4ff53a6bd1dee33102a2db4b4de5e395459ca85d2906b413f0db3314e4a3bbed",
+    "tests/e2e_scripted.rs": "e03f186a0983c6a294d5b356fe3dda04fd03911d54e4dd4f22dac8b9011050fb",
+    "tests/exec_stream.rs": "0284f3ed899e2db585c84ca482c560cae5a4430d3f3b888b08027dc7e3516e75",
+    "tests/fixtures/acp/loaded-all-items.jsonl": "fdef7499cae54e54c2ffef7a27d4ebd9c164d6668f0b869395d20587cde60e3b",
+    "tests/fixtures/acp/scripted-turn.jsonl": "a00ef7a591d5d23b894c889ddb96e994933100db1377d773fc72c805e760cbe6",
+    "tests/fixtures/compact/all-items.md": "747bbc3c10c30ceae7eb077ea626f623ef77411f00ad5f89860b4672af32610d",
+    "tests/fixtures/gui/v0_2-identity-terminal.jsonl": "f4d7fe14ee2dd5c1c87703868c62274f2fc544a9b492f00fb865fd713367f635",
+    "tests/fixtures/protocol/all-items.jsonl": "a74077590627509daccc7bd4ef30e36f8eeec4b59d60df28d08211cd7c8518e4",
+    "tests/fixtures/protocol/interrupt-mid-tool.jsonl": "39d59901196880fcd319b1b1ad614ecbf2a5eb010da9d39202019bcf54084c70",
+    "tests/fixtures/protocol/lagged.jsonl": "1f5a8367ea01cdd145892c5df803e94aa41dcd0fd6778704291f7987694b2f41",
+    "tests/fixtures/protocol/recovery.jsonl": "48f12457bae7db72aa0c56793e3b4924052ea302693a5f6292d612a9b4d9660c",
+    "tests/fixtures/protocol/reset.jsonl": "4e198f82837a00de38c7f03ec5ddf492c2a5373defc6be564bd108380b0a3dd7",
+    "tests/fixtures/seat/all-items.txt": "9957ee51d90961d75edc329c5765a5450b2ae55649afcfb332de0b998f297746",
+    "tests/fixtures/seat/interrupt-mid-tool.txt": "c6e7298792ab5aa4698be7eeca989ed4a951b051d327a0cbb13383ebf5cb390a",
+    "tests/fixtures/seat/lagged.txt": "4976e0c3b5cd5f04124a104e2d5798fbd2d56c4031ea02f0a72d2ab5b77f43df",
+    "tests/fixtures/seat/recovery.txt": "2c1368be0efcb7a195e3f90f018e32563af743c88d6668f6a404c6827dbf169b",
+    "tests/fixtures/seat/reset.txt": "e3aa65e8dbcc1102b2fc7d6cb8573e1a543e8bf570461491b58f502da0062aa9",
+    "tests/fixtures/sse/429-then-ok.sse": "453671a2fac9a73b2595b9453e5213e428c3e4b9ba2cf543a7226d90109587c1",
+    "tests/fixtures/sse/500-after-output.sse": "3070192d51f2eea0b93390511faadf6bfc98fc3732a8a454a4f10cfe25772640",
+    "tests/fixtures/sse/bash.sse": "208a19fca98e92b248de330cc791c758224ee6dec34b1f7f65fe6f0124863b4e",
+    "tests/fixtures/sse/cancel.sse": "e5c49cc51712b0d65a956a82cf2f61f1ceb6acc170f4549db593488997598483",
+    "tests/fixtures/sse/duplicate-id.sse": "aa1fe938dfe4e29ec265eefab606d659cbe0574c75b43b8d21829ddf5e7ae984",
+    "tests/fixtures/sse/edit.sse": "f38cb3a2d8380387e3d0bbcb5120b79d5d4fc2f882aff7d22c7ee09544f5a1f5",
+    "tests/fixtures/sse/missing-finish.sse": "731babae49fc487dcd251b4e15c91d0b6dcb876450dc6fb19d6b284a67944461",
+    "tests/fixtures/sse/parallel.sse": "c20ac4fd0863f68faa8cda4018b8ba5afbe96303c1fa8b16cacd232cd4fb0771",
+    "tests/fixtures/sse/stall.sse": "e5c49cc51712b0d65a956a82cf2f61f1ceb6acc170f4549db593488997598483",
+    "tests/fixtures/sse/text-tool.sse": "c20ac4fd0863f68faa8cda4018b8ba5afbe96303c1fa8b16cacd232cd4fb0771",
+    "tests/fixtures/sse/text.sse": "453671a2fac9a73b2595b9453e5213e428c3e4b9ba2cf543a7226d90109587c1",
+    "tests/fixtures/sse/tools.sse": "c20ac4fd0863f68faa8cda4018b8ba5afbe96303c1fa8b16cacd232cd4fb0771",
+    "tests/fixtures/sse/utf8-split.sse": "df1684e41815d2ffe11033e2ec019de614439dbb1d9bb7ef507a75a1d1e0e073",
+    "tests/formal/export.rs": "8c7222a2575965b19f1a7b8add2fa176ef16d2d4033048ce1790125e5935cb95",
+    "tests/formal/models.rs": "95e8267cd52fd3da7397f58b9503dce671db354aab5e14dc041951aba706ba5b",
+    "tests/formal_models.rs": "ce809fcbe081559a25f046e65e894f24d59bdad654ee95d92604066befe95fd7",
+    "tests/formal_nonvacuity.rs": "d14cce645f33330030909a6110a042f85267b17119a92accf144d4f4f9bc1014",
+    "tests/gateway_host.rs": "9a88dbc6e0792f5dd65f318d46bac3f0dc26bacd43f34d6feb49fac4f7b9eab3",
+    "tests/gateway_lag.rs": "7483c5a3c013c615e8c885d61ba743ecb48e38bf62b6568d485d4eba6b3981ee",
+    "tests/gateway_ops.rs": "0ac333bb286fb98840f9c14ec3f070fb52d7440c9d1879f304ab993b62bb27b7",
+    "tests/gateway_replay.rs": "d51eee4a3c98c96132788b879fd7a217eb7059ec2b68d00cd84e88398f498ce3",
+    "tests/gateway_unix.rs": "24f792877c2c3c867071e704d56179e402bb62230b7a8ffd525f29a0a15dfcaf",
+    "tests/gui_bench.rs": "03ba7cc4a125fc29e94f04e556d76533d18c452fa3fdf40518c28295323f9259",
+    "tests/gui_bridge.rs": "d64c38d6597d9fc3473116bdf5470c025d882f45a0e1bb31bd93a44f266e49b5",
+    "tests/gui_budget.rs": "ac5a839e8759f2aae5aca4c4b3a7697880747f7fd359fee602bc7f11e572f3dd",
+    "tests/gui_cli.rs": "b4fa6378743c0242981bd3e97a63d6188430395caf11f6f7f4bd202cf2972315",
+    "tests/gui_fixtures.rs": "56072922bc11a25d56dafdedda47168f308b700029487a8305738b48b4db0d7f",
+    "tests/gui_gate.py": "94c17c99105165841eec4205fa7dfb67b481c8737a4a102e7e1893d00580f263",
+    "tests/gui_render.rs": "07b75f733c8607bb47731acce132a2189e5da1dde02e526912de018917385d41",
+    "tests/mcp_client.rs": "3f3a237c7e0f8015a6f374d8bc11f661b86c79c81a2ba53925d2970dfb29f0e1",
+    "tests/policy_gate.rs": "700c6fefb150022e1c81c822deb811b2ca7d6710ed2b72e061056cccaa0f6c4e",
+    "tests/profile_lifecycle.rs": "b15ce1fac0bf24d4ebeb58e7f22ef48d8dcbe38c8676298ecc52a9789f38ae4b",
+    "tests/protocol_golden.rs": "f7c04e7d2d3b2e40c9a5bc4d061ddd80f1951df549a66b268df76234792a579f",
+    "tests/protocol_laws.rs": "24ea9cde614fa073f9dd07e9f917b397286b14ed1ea513a0c42425c2aa158286",
+    "tests/provider_stream.rs": "17071da321247fc7e9d32e4c23a44367ff23fcbad3397221da5a73ad43b051af",
+    "tests/reactor_projection.rs": "8631b450483a054fee0ccefa53cd56e10e552285e603ea3f51382bb0022336fe",
+    "tests/rt_budget.rs": "34596e9132cd70d740a7fa77dc0fc4999d9e0ebd6ab4d574687c3dcfce32635e",
+    "tests/seat_golden.rs": "e55ba07802b8d466dea086ceff997e47da13627cb07b5813342c6e18b2dbe3bd",
+    "tests/seat_process.rs": "7e38e85cc15d4055925a27ad6aad232c77bcec6eac289d8e69a3369e86ebb6d1",
+    "tests/secrets.rs": "531c11f28d5d39643a9bacfc9a74225e860b900f661c92b092083f1048743a39",
+    "tests/store_fork.rs": "11862a11510fac2295adfe4246b6bc430ff3a690b2146a770719113d911764ce",
+    "tests/store_recovery.rs": "71993b22894b6779fef73904667685acab2f5d5f19e814486410e396780c3863",
+    "tests/support/mod.rs": "676004ef70cd21b5108332931fb54bdcc10d97a8153a2ef417fb49131678be45",
+    "tests/support/seat_launch.rs": "e37ff2e9e0ebce1081e71e4e7704cd298054931e8e04de6e74a92799a6738c1a",
+    "tests/support/setsid.py": "494b864d2df3524ce69fdf57f05ce253c46f90a743d8159386ab7a5689d7f040",
+    "tests/support/sse_server.rs": "dc7c6e2fc1281af3f93c9a6b511a24b83e29660b0af7d92b5bc53464ddb657ec",
+    "tests/tools.rs": "eb3dc1cc3f0ac60ee64bde39d6d330b1efb681b7cbabf5b501ad0752e836dbde",
+    "verification/contracts.toml": "2bbde48f436fe70a7fa858c1ed695089e8a66da701b4d794ec88fe8377425ecd",
+    "verification/corpus.toml": "9f6dc10e0fc36c069992863f9d545c288a347817503a8611210c2ef09091010f",
+    "verification/coverage.toml": "12ebb908cdd71df53e32ee69db11cea3f5037ed446e70ad9af0737f3c298dbed",
+    "verification/tools.lock.json": "45d8a35d0b533e53689efc46542315cf91713ee5821a2f002289cc0b8bc7a8dd",
+    "verification/upstream-sources.json": "ff6ba970c7eaba23643502453ddf59215efed8459c611806e07602dbc335a9e3",
+    "verification/upstream/crates-bboxy450-tlc-examples-verify.rs": "8451a8b06b9356f77b0bb04004f91cef2b1450941c520d4ca2c9f2dad97ca23b",
+    "verification/upstream/scripts-formal.py": "b29da35dafb6daf6295e5434e7dff3f4d72ae990d164739433aabe69aa5bf018",
+    "verification/upstream/scripts-test-formal.py": "25680d110c95b8007a79836dca67c08ae4bae458cd03fbafb69075bd133de9d7"
+  }
+}

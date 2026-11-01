@@ -1,0 +1,170 @@
+E1d — seat startup flags and MCP environment boundary
+
+Task: .bboxy/tasks/2026-11-01-harness-seat-flags-mcp-env.md (#4069).
+Executor: E1 harness-core.
+Worktree: /Users/feral/mydev/bboxy450-harness-core
+Branch: e1d-seat-flags-mcp-env
+PR: https://github.com/bboxy450/bboxy450-harness/pull/8
+Final signed head and current-head receipt are supplied by task_report.
+No merge.
+
+BINDING AND ORDER
+
+Read embed-seat §1/§2/§6 and MCP #1988 §2/§5/§6 before coding, on a base
+containing cdde43d and signed 9fdddce. Implemented the security scrub first:
+both profile and ACP process witnesses failed (101) before the fix and passed
+(0) after it. Then added launcher inheritance and both flags.
+PR #8 was opened early as a draft after the five new flag/env tests passed,
+so E4 could build against the flags while full verification continued.
+The final integration rebase includes main aa797c0 and the rich-GUI merge.
+Only the coverage inventory needed conflict resolution; main's models and
+GUI inventory were retained and our implementation-only row was prepended.
+The updated embed-seat phase-1a/1b split was read. Side A readiness, automatic
+wake, session-id persistence and resume are not claimed by this task.
+
+FILES AND MECHANISMS
+
+1. MCP environment
+   src/mcp.rs::scrub_bboxy_env removes every inherited or explicitly configured
+   BBOXY_* name, including non-UTF8 names via their encoded prefix. Ordinary
+   environment entries remain. Untrusted BBOXY_* configured entries are not
+   resolved or executed. The existing reserved-capability alias check remains
+   for non-launcher environments.
+   The baseline already removed BBOXY_CAPABILITY specifically; it still leaked
+   SEAT_ID, SOCK, ROLE, GENERATION and the custom prefix marker. The new rule
+   covers the full namespace, including the explicit-env override path.
+
+   Origin is private, immutable slot configuration assigned by select_sources;
+   it is not a ServerConfig serde field. A profile/ACP server named bboxy or
+   carrying launcher:true does not gain inheritance. Only servers supplied by
+   the trusted host's launcher map retain BBOXY_*.
+   Launcher values and the inherited capability are registered with the
+   redactor before spawn. MCP calls still pass policy.decide; trust_hints is
+   independent of launcher provenance.
+
+2. Startup flags
+   src/frontends/headless.rs accepts --append-system-prompt <text> and
+   --mcp-config <path>; unknown options and missing values remain errors.
+   The launcher file has the documented JSON mcpServers shape. Read/parse
+   failures become durable Warn Notices and do not fail the turn.
+   The file read/parse runs through the bounded blocking API.
+
+   engine::LaunchOptions is separate from the existing Config struct and
+   profile/ACP data. Host::with_launch carries it through create and open;
+   the CLI also passes that host into ACP through serve_with_host.
+   SessionActor appends the supplied text after the base system text in the
+   existing system message. Therefore it is inside the stable prefix.
+   The launcher map wins over ACP, ACP over profile. select_sources emits
+   one final collision Notice per name. Tool names keep mcp__bboxy__<tool>.
+
+3. Model classification
+   Origin and launcher data are fixed before a Slot starts and remain fixed
+   across its restarts. Selection, environment construction, file parsing
+   and prompt concatenation are input transformations, not new
+   HarnessMcpServer lifecycle transitions. verification/coverage.toml names
+   these as implementation-only coverage and points to the actual unit and
+   process witnesses. No environment property is falsely attributed to the
+   existing lifecycle model.
+   The mandatory native/TLC corpus still runs in full on the changed sources.
+
+WITNESSES
+
+- tests/support/seat_launch.rs, included by tests/seat_process.rs:
+  profile and ACP servers each observe no BBOXY_* names; a launcher observes
+  the synthetic seat id and capability. A profile server in that same session
+  remains scrubbed. The lower-priority profile bboxy server is never spawned,
+  and its collision yields exactly one Notice.
+- With both flags, an actual seat process sends its first HTTP/SSE mock request
+  with the supplied context in the system message and mcp__bboxy__read in its
+  tools. Both server readiness events are observed before that first turn.
+- engine's Recording provider also checks the first actual scripted
+  ModelRequest.messages[..stable_prefix] directly for the appended text.
+- Missing and unreadable launcher paths both print the Notice and reach
+  EndTurn. Unknown options and missing flag arguments exit 1.
+- Server JSON cannot forge launcher provenance; source selection is unit-tested.
+- Every process-test parent clears its environment and supplies throwaway
+  values. The fixture records names and boolean comparisons only, never
+  capability values. No real key/capability value is printed or committed.
+  check_transcript holds over the resulting durable session logs.
+
+RED -> GREEN
+
+Command:
+python3 -I scripts/test-e1c-rework-controls.py --case bboxy-scrub --case launcher-inherit --case append-system --case missing-mcp-config --out .bboxy/runs/seat-flags-mcp-env
+
+Exit: 0. Each mutation is restored in finally; the same tests run green.
+seat-flags-mcp-env/controls.json records exact commands and source hashes;
+the adjacent red/green logs retain output (trailing whitespace normalized).
+
+Control              Red  Restored  Required assertion
+bboxy-scrub           101  0         profile AND ACP MCP inherited BBOXY variables
+launcher-inherit      101  0         launcher MCP lost BBOXY capability
+append-system         101  0         appended startup text absent from stable system prefix
+missing-mcp-config    101  0         unavailable MCP config did not produce a Notice
+
+The scrub baseline independently failed both process cases before any product
+scrub change (scrub-baseline-red.log), then passed (scrub-green.log).
+The five new process cases passed together (flags-green.log).
+All-target/all-feature Clippy passed (clippy.log).
+
+PTY FIXTURE ISOLATION
+
+The combined targeted run passed 9 library and 15 MCP tests, but exposed
+existing 2-second PTY shutdown guards while all eight seat scenarios ran
+together. First the unavailable-socket cleanup failed; after explicit cooked
+EOF, the hangup cleanup failed. Both real failures remain in
+targeted-initial-failure.log and targeted-second-failure.log.
+The hangup test passed alone and the original three PTY cases passed together;
+their logs are pty-isolated.log and pty-group.log.
+No functional deadline was relaxed. The unavailable-socket test now sends
+explicit EOF, and scripts/test.py runs the five launcher scenarios in a
+separate invocation from the PTY lifecycle cases. Every case still executes;
+there is no global test lock or change to product scheduling. The full
+canonical gate verifies both invocations.
+
+COMMANDS AND EXITS
+
+- cargo check --offline --locked --all-features: exit 0 (check.log).
+- cargo clippy --offline --locked --all-targets --all-features -- -D warnings:
+  exit 0 (clippy.log).
+- cargo test --offline --locked --quiet --features acp,test-fixtures --test
+  seat_process seat_launch:: : exit 0, all 5 new process cases (flags-green.log).
+- The initial combined lib/MCP/seat command exited 101 for the PTY guards
+  described above, with its library and MCP suites passing. Those failures
+  are retained; they are not labelled as a green gate.
+- The four-control command above: exit 0; each negative test 101, restored 0.
+- make test (exactly, no environment prefix): exit 0 on signed
+  96ce2d3f822ca627ad4f2b0058f6aee33900b4d0 after the integration rebase.
+  make-test.log, test-current.json, gui-gate.json and verification.json record
+  every child exit 0: fmt, clippy, all-target tests and separate launcher tests,
+  hardening checks, native before TLC, secrets, headers, KB positive/negative
+  controls, rich-GUI tests and GUI smoke.
+- The earlier pre-rebase make test also exited 0 on a7c6cb2. Its outputs are
+  retained as pre-rebase-* and are historical.
+- git verify-commit on the source/records heads: exit 0.
+- Secret and header scans after staging the new source/evidence: exit 0.
+
+FORMAL / CURRENT SOURCE
+
+Full native/TLC parity holds for 64 models, 25 contracts and one crate on the
+rebased tree. All complete reachable state/transition graphs and expected
+safety/deadlock/liveness verdicts match. The code-run receipt is
+4b37415922cea411521054fe2597b9db1b7af3274ceb48272e9bd351304e72aa.
+Evidence: formal-code.json and make-test.log.
+The security/launcher contract is implementation-only, as classified above.
+The lifecycle models and their deliberate failures remain mandatory.
+These finite graphs do not establish arbitrary Rust refinement or replace
+unrestricted Java TLC. Java remains a verification dependency only.
+
+SCOPE AND HANDOFF
+
+The report and code commits are signed with the Boxy machine key
+9B07E849480C68328CA20684844ECC0587DE7AB0.
+No new live-provider requests were made; all new provider traffic is local
+mock SSE. The canonical GUI smoke is included in make test. No protocol
+schema or version change is needed for non-serialized launch settings.
+All assigned Side B requirements are addressed. E4's actual bboxy450-term
+seat-spawn validation remains its separate assignment.
+The final task_report names the signed head, exact make test exit and the
+refreshed current-head formal receipt. Prior accepted-task artifacts remain
+untouched; this task's proof outputs live in seat-flags-mcp-env/.
