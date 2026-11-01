@@ -14,7 +14,7 @@ Authorized rebases onto 9030e565 and then b9015a4 retain both sets of Make
 targets. The final review nit names composer-readiness-missing in the launch note.
 PR: https://github.com/bboxy450/bboxy450-term/pull/88
 Harness gitlink: 47b140fa9bd2bec99054394c206deb1b36d7b3b0 (harness main).
-Signing key: 9B07E849480C68328CA20684844ECC0587DE7AB0,
+Signing key fingerprint 9B07E849480C68328CA20684844ECC0587DE7AB0,
 Boxy (bboxy450) <bboxy450@gmail.com>.
 Initial make push-branch exits 0 on 56d5ec6e: eight signatures, formal receipt
 and exact-head CI checked before opening PR #88. After the authorized rebase,
