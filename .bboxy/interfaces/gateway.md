@@ -28,7 +28,7 @@ pub trait Gateway: Send + Sync {
     fn subscribe(&self, req: Subscribe) -> Result<Subscription, Refused>;
 }
 pub struct Ack { pub op_id: OpId, pub duplicate: bool }
-pub enum Refused { Busy, UnknownSession, SessionExists, Version { server: Version }, Closed }
+pub enum Refused { Busy, UnknownSession, SessionExists, BadFork, Version { server: Version }, Closed }  // BadFork: protocol §4c
 pub struct Subscribe {
     pub session: SessionId,
     pub after: Option<(Epoch, Seq)>,   // None = from seq 1
@@ -83,7 +83,7 @@ impl Subscription { pub fn hello(&self) -> &Hello; } // always present: the sess
 
 Rules:
 - **No pending Hello.** `subscribe` succeeds only on a loaded session, so `hello()` is available at once. `subscribe` or `send` naming another session returns `UnknownSession`; it never loads.
-- **`StartSession`.** `create` is its only path. Its errors are `SessionExists` (unless the same `op_id`, which returns the duplicate `Ack` and the existing `InProc`) and `Version`. `StartSession` sent through `Gateway::send` returns `SessionExists`. The outcome rule is unchanged: `SessionStarted` with `cause = op_id`, seq 1.
+- **`StartSession`.** `create` is its only path. Its errors are `BadFork` (protocol §4c), `SessionExists` (unless the same `op_id`, which returns the duplicate `Ack` and the existing `InProc`) and `Version`. `StartSession` sent through `Gateway::send` returns `SessionExists`. The outcome rule is unchanged: `SessionStarted` with `cause = op_id`, seq 1.
 - **`open`.** Its errors are `UnknownSession` (no log) and `Closed` (the log ends in `SessionClosed`; read-only replay of a closed log is the `headless --json` path through the store, not a gateway). A store failure during recovery is `Closed` too, with the error as a `Notice` in the next open; nothing half-loaded is ever served.
 - **Unix.** The server calls `Host::create` or `Host::open` first and binds `run/<session>.sock` only after it returns, so a client never connects to an unloaded session. There is no create socket: the process that hosts the session (seat, headless) calls `Host::create` locally, then binds. `UnixClient::connect` always targets a bound session socket with a `Subscribe`, and sending `StartSession` over it returns `SessionExists`.
 - **Who awaits.** The GUI awaits `create`/`open` from a background task and shows a loading state; the frame loop never awaits it. Law 1 is unchanged: once loaded, admission never awaits.
@@ -145,3 +145,4 @@ Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: E2 (the GUI uses `InProc`
 
 - **2026-11-01, at E1's question** (message 01M6AHRY2RX664DTK1S4NJ0QR8). A non-awaiting `subscribe` with an immediate `hello()` cannot load and recover a log from disk. Adds §1b: an async `Host::create`/`Host::open` factory, a `Gateway` over loaded sessions only, no pending `Hello`, and `StartSession` through `create` only. Restores the missing §2 heading. Alternative rejected: a pending-`Hello` subscription, which adds a state to every face for a case phase 1 does not have (one session per process). Version unchanged; nothing in §5's implicit load had been built.
 - **2026-11-01, at E1's follow-up** (message 01M6AJ86HR8KJP4V8K9D441HV1). Removes the undefined "create socket" from the §1b Unix rule: creation is local to the hosting process, and sockets exist only for loaded sessions.
+- **2026-11-01, at E1's question** (message 01M6AJMVVHA6DCBHGFXM8BCFHM). Adds `Refused::BadFork`, returned only by `Host::create`.

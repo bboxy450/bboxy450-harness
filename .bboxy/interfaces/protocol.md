@@ -10,7 +10,7 @@ links:
   - { to: "[[gateway]]", rel: carried-by }
   - { to: "[[architect-review-v0]]", rel: amended-by }
 created: "2026-10-31T00:00:00Z"
-updated: "2026-10-31T00:00:00Z"
+updated: "2026-11-01T00:00:00Z"
 ---
 # ICD: protocol — Op, Event, Envelope, Item lifecycle
 
@@ -74,7 +74,7 @@ For `StartSession`, `OpEnvelope.session` is a new `SessionId` minted by the clie
 
   | Op | Outcome on success | Outcome on refusal (`OpRejected{reason}`) |
   |---|---|---|
-  | `StartSession` | `SessionStarted`, seq 1. Profile resolution follows, also caused by this op: `ProfileChanged`, or a `Notice{Error}` item | — (refusals are synchronous: `SessionExists`) |
+  | `StartSession` | `SessionStarted`, seq 1. Profile resolution follows, also caused by this op: `ProfileChanged`, or a `Notice{Error}` item | — (refusals are synchronous from `Host::create`: `SessionExists`, `BadFork`) |
   | `UserTurn{Queue}` | `TurnQueued` | `InvalidInput` |
   | `UserTurn{Steer}` | the steer's `ItemStarted{UserMessage}` in the running turn, or `TurnQueued` if no turn is running | `InvalidInput` |
   | `SetProfile` | `ProfileChanged` | `NotIdle`, `UnknownProfile`, `ProfileInvalid` |
@@ -261,6 +261,39 @@ The completed body is authoritative, so a face that missed deltas loses nothing.
 
 A `ToolCall` closed this way carries the synthetic output `"tool call was not completed"`, so the provider history stays paired.
 
+### 4b. Compaction and context replay
+
+Phase 1 compaction is **deterministic and makes no model call**: the summary is a pure digest of the log, so the same log prefix always gives the same blob bytes and `sha256`. A model-written summary is a later decision; it would need an inference budget, and replay would still read the stored blob, never regenerate it.
+
+- **Window.** Let `C` be the latest `ItemCompleted{Compaction, status: completed}` (`r0 = C.replaced_through`, or 0 if none). When `Compact` runs (idle, FIFO with turns), `r` is the seq of the last `TurnEnded` in the log. If there is no `TurnEnded` with seq > `r0`, the outcome is `OpRejected{NothingToCompact}`. Otherwise the window is the turns whose `TurnEnded` seq is in `(r0, r]`.
+- **Digest.** `pub fn compact_summary(prev: Option<&str>, window: &[Envelope]) -> String` in `src/context/compact.rs`, UTF-8 Markdown, mime `text/markdown`:
+  ```text
+  # Earlier conversation (compacted through seq <r>)
+  <prev, without its first line>
+  ## Turn <TurnStarted seq>
+  User: <Text blocks joined by "\n", clipped to 2000 chars; Image → [image <sha256[..8]>]; Mention → @<path>>
+  Tool: <name> <input_raw clipped to 200> → <ItemStatus tag>[ exit <n>]      (one line per ToolCall; Terminal likewise with its command)
+  Changed: <path> (<ChangeKind tag>)                                         (one line per FileChange)
+  Assistant: <the turn's last AgentMessage, clipped to 4000 chars>
+  Ended: <StopReason tag>
+  ```
+  Only completed item bodies are read. `Reasoning` (including `provider_opaque`), `Usage`, `Notice`, `Plan`, `Image` items, tool and terminal output, and `TurnDiff` are dropped. A line whose source is absent is omitted. *Clipped to n* counts Unicode scalar values and appends `…` when it cuts.
+- **Cap.** The digest is at most 32 KiB. Over that, whole `## Turn` sections are dropped oldest first (those inherited from `prev` included), and one line `(<k> earlier turns omitted)` follows the heading, where `k` accumulates across compactions.
+- **Item.** `ItemStarted{Compaction}` with `turn: None`, no deltas, then `ItemCompleted{Compaction{summary, replaced_through: r}}`. The blob is written and fsynced before `ItemCompleted` is appended.
+- **Replay rule (what the model sees).** A request's messages are: the system and tool prefix; then, if `C` exists, one user-role message whose content is the summary blob text; then the wire mapping of every item whose `ItemStarted` seq is > `C.replaced_through`, in log order. Items at or below `replaced_through` never enter a request again. The log is not rewritten: faces still show the full history (law [[log-is-truth]]). `stable_prefix` covers the system prefix plus the summary message, so it changes only at a compaction.
+- **No automatic ladder in phase 1.** Clip/drop/summarize on overflow ([[harness-zoomed-out]] `context`) is deferred. An over-long request fails as `ErrorClass::BadRequest`, the turn ends with `StopReason::Error`, and the face offers `Compact`.
+
+### 4c. Fork
+
+Phase 1 fork **materializes** the parent prefix into the child's own log. A child never reads its parent after creation, so replay, recovery and the gateway stay single-session.
+
+- **Fork point.** `StartSession{fork: Some((parent, at))}` is valid when the parent log exists, `2 ≤ at ≤` its durable head, `at` is below any `SessionClosed`, and the prefix `1..=at` is *quiescent*: every `TurnQueued`, `TurnStarted` and `ItemStarted` in it has its `TurnEnded` or `ItemCompleted` in it too. Otherwise `Host::create` returns `Refused::BadFork`. A `TurnEnded` seq is always a valid point.
+- **Child log.** Seq 1 is the child's `SessionStarted` with `meta.fork = Some((parent, at))`. Then, for each parent durable envelope with seq `2..=at`, a copy with **the same seq**, `event`, `ts_ms` and `cause`, and with `session` and `epoch` set to the child's. So child seq *n* is parent seq *n* for *n* ≤ `at`, and a `Compaction.replaced_through` copied from the parent stays valid. Live child events start at `at + 1`, beginning with the child's `ProfileChanged` (or `Notice`).
+- **Identity.** Copied `TurnId`, `ItemId` and `call_id` values are kept. An item's identity is `(SessionId, ItemId)`, so the same `ItemId` in parent and child are different items. Copied `cause` op ids are history only: the child's idempotence memory holds only ops the child admitted, starting with the `StartSession` op id.
+- **Blobs.** Every `BlobRef` in the copied range is copied (hard link if possible) into `sessions/<child>/blobs/`.
+- **Atomicity.** Blobs, then the log to a temp file, fsync, rename. A crash leaves no child or a complete one. Reading the parent's lines `≤ at` is safe while the parent appends, because the log is append-only.
+- **Equivalence.** The child's first request equals the request the parent would have built at `at` with the child's profile.
+
 ## 5. Wire and size
 
 - JSON, one `Envelope` per line (`\n`), UTF-8. The same bytes go into the store, onto the socket, out of `--json` stdout, and into fixtures.
@@ -282,6 +315,8 @@ A `ToolCall` closed this way carries the synthetic output `"tool call was not co
 | §3 one terminal per turn; §4 item lifecycle and recovery | model AgentTurnLifecycle + BrokenAgentTurnLifecycle; `check_transcript` (below) run over every e2e transcript |
 | §2 lanes, idempotence, steer exactly once | model InputPreemption + BrokenInputPreemption; `tests/gateway_ops.rs` |
 | §5 round trip and forward compatibility | `tests/protocol_golden.rs`: every fixture line parses and re-serialises byte-identical; an injected future variant parses as `Unknown` |
+| §4b compaction | `tests/context_compact.rs`: golden digests in `tests/fixtures/compact/*.md`; the same log compacted twice gives the same `sha256`; the request after a compaction contains no item with `ItemStarted` seq ≤ `replaced_through`; a second `Compact` with no new turn gives `NothingToCompact`; the 32 KiB cap drops oldest turns first. Pure function: implementation-only coverage, recorded in the formal inventory |
+| §4c fork | `tests/store_fork.rs`: child seq *n* equals parent seq *n* for *n* ≤ `at` (event bytes compared); a non-quiescent `at` gives `BadFork`; the parent's log hash is unchanged; deleting the parent after the fork leaves the child openable; the child's first `ModelRequest` equals the parent's at `at`; a fork taken while the parent appends copies exactly `1..=at`; `check_transcript` passes on the child |
 | §1 epoch and `Reset` | model SubscriberReplay + BrokenSubscriberReplay; `tests/store_recovery.rs` truncates a log tail and asserts `Reset` |
 
 `src/protocol/laws.rs` exports `pub fn check_transcript(&[Envelope]) -> Result<(), LawViolation>`. It is the executable form of laws 1, 2 and 5. Every e2e test and every GUI fixture test calls it, and fixtures are rejected if they fail it.
@@ -291,5 +326,6 @@ A `ToolCall` closed this way carries the synthetic output `"tool call was not co
 - **2026-10-31, v0.1 completed at E1's question** (message 01M6ADW6HBB0YCX5Z746AJ7WPG). This adds §4a, the outcome table, the control-lane bound and collisions, and `SessionClosed`. `Close` loses its `mode`, because detaching is dropping a subscription. `Phase` becomes struct variants. Nothing had been implemented against the earlier text, so the version is unchanged.
 - **2026-10-31, at E1's second question** (message 01M6AE3W63JVE3QANQ392DN2HH). This adds the tag keys `InputBlock`=`type`, `ItemStatus`=`status`, `StopReason`=`reason` and `Delta`=`type`. It also adds `ErrorClass::Cancelled` to the enum, matching provider ICD §1. Version unchanged.
 - **2026-11-01, at E1's third question** (message 01M6AHRY2RX664DTK1S4NJ0QR8). `StartSession` is admitted by `Host::create` ([[gateway]] §1b). Version unchanged.
+- **2026-11-01, at E1's fourth question** (message 01M6AJMVVHA6DCBHGFXM8BCFHM). Adds §4b (deterministic digest compaction, the replay rule, no automatic ladder in phase 1) and §4c (fork materializes the parent prefix with identical seqs). Alternatives rejected: a model-written summary (non-deterministic, spends inference outside [[budgets]]); a fork that references the parent (cross-session reads in replay and recovery, and a dangling parent on delete). Adds `Refused::BadFork` ([[gateway]]). Version unchanged.
 
 Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: E2.
