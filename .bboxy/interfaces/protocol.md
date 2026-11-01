@@ -2,7 +2,7 @@
 id: "0ERX7PT0Z3S73CS5EFTEHN8VA4"
 number: 6
 type: interface
-title: "ICD: protocol — Op, Event, Envelope, Item lifecycle (v0.2)"
+title: "ICD: protocol — Op, Event, Envelope, Item lifecycle (v0.3)"
 status: baselined
 links:
   - { to: "[[interfaces]]", rel: index }
@@ -19,7 +19,7 @@ updated: "2026-11-01T00:00:00Z"
 | Side A | `engine` + `store` (E1): the only producer of `Envelope`, the only consumer of `Op` |
 | Side B | every face: `gui` (E2), `headless`, `acp`, `seat` line mode; tests and fixtures |
 | Module | `src/protocol/`. Depends on `serde`, `serde_json`, `ulid` only: no tokio, no toolkit |
-| Version | `PROTOCOL: Version { major: 0, minor: 2 }` (0.2 adds `ItemStarted.head` and `Terminal.live`) |
+| Version | `PROTOCOL: Version { major: 0, minor: 3 }` (0.2 adds `ItemStarted.head` and `Terminal.live`; 0.3 adds `Item::ContextTrim`) |
 | Change rule | Additive changes are minor: a new variant behind `Unknown`, or a new optional field. Anything else is a major change, which needs both owners and a decision record. A face's question about this boundary is a missing line here |
 
 ## 1. Identity and ordering
@@ -177,6 +177,7 @@ pub enum Item {
                    decision: Option<ApprovalDecision>, by: Option<Resolver> },  // Resolver = Face(name) | Rule(id) | Unattended
     Image        { mime: String, blob: BlobRef },
     Compaction   { summary: BlobRef, replaced_through: Seq },
+    ContextTrim  { clipped_through: Seq },                  // §4d: older items are sent clipped
     Usage        { usage: Usage },
     Notice       { level: Level, text: String },          // retries and warnings; redacted
     Subagent     { session: SessionId },
@@ -207,7 +208,7 @@ pub struct SessionMeta {
 }
 pub enum ItemKind {                                            // same strings as Item's "kind" tag
     UserMessage, AgentMessage, Reasoning, ToolCall, FileChange, TurnDiff, Terminal,
-    Plan, Approval, Image, Compaction, Usage, Notice, Subagent, #[serde(other)] Unknown,
+    Plan, Approval, Image, Compaction, ContextTrim, Usage, Notice, Subagent, #[serde(other)] Unknown,
 }
 pub struct Usage {
     pub input_tokens: u64, pub output_tokens: u64,
@@ -306,6 +307,21 @@ Phase 1 compaction is **deterministic and makes no model call**: the summary is 
 - **Replay rule (what the model sees).** A request's messages are: the system and tool prefix; then, if `C` exists, one user-role message whose content is the summary blob text; then the wire mapping of every item whose `ItemStarted` seq is > `C.replaced_through`, in log order. Items at or below `replaced_through` never enter a request again. The log is not rewritten: faces still show the full history (law [[log-is-truth]]). `stable_prefix` covers the system prefix plus the summary message, so it changes only at a compaction.
 - **No automatic ladder in phase 1.** Clip/drop/summarize on overflow ([[harness-zoomed-out]] `context`) is deferred. An over-long request fails as `ErrorClass::BadRequest`, the turn ends with `StopReason::Error`, and the face offers `Compact`.
 
+### 4d. Automatic compaction
+
+Automatic compaction keeps a request inside the model's window without the user asking. Every step is recorded as a durable item, so a request stays a pure function of the log (§4b replay rule) and the cached prefix changes only at those items.
+
+- **Window `W`.** The profile's `context_tokens` if set, otherwise `Caps::context_tokens` ([[provider]] §1). If neither is known, automatic compaction is off for the session and one `Notice{Warn, "context window unknown; automatic compaction off"}` is appended at the first round. The profile field `auto_compact: bool` (default `true`) turns it off explicitly.
+- **Estimate `E`.** Before each round's request: the `input_tokens + output_tokens` of the session's latest `Usage` item, plus `ceil(b / 4)`, where `b` is the UTF-8 byte length of the wire messages added since that `Usage`. With no `Usage` yet, `ceil(b / 4)` of the whole request. `E` depends only on the log.
+- **Trigger.** At a round boundary (before the request, never during a stream), if `E + max_tokens > 0.8 · W`. `max_tokens` is the request's value, or `W / 8` when it is unset.
+- **Ladder.** Each step reduces only *completed turns*, whose `TurnEnded` seq is ≤ `r`, the latest `TurnEnded` in the log. The current turn is never reduced. After each step the engine re-estimates and stops when `E + max_tokens ≤ 0.6 · W`.
+  1. **Trim** (clip and drop together). Append `ContextTrim{clipped_through: r}`. In requests, every item with `ItemStarted` seq ≤ `clipped_through` (and above the latest `replaced_through`) is sent with: tool and terminal output cut to its first 2 KiB plus `…[clipped <n> bytes]`; `Reasoning` items and `Image` blocks omitted. Skipped when `r` ≤ the latest `clipped_through`.
+  2. **Summarize.** A §4b compaction with window `(r0, r]` and the same digest. Skipped when there is no `TurnEnded` above `r0`.
+  3. **Nothing left to reduce.** The request is sent as it is. If it overflows, the turn ends with `StopReason::Error{class: BadRequest}` as in §4b. The ladder never runs again in the same round, so it cannot loop.
+- **Items.** Both steps are items in the current turn: `ItemStarted{turn: Some(current), kind}` then `ItemCompleted`, before the round's request is built. A trim has no blob; a summary follows §4b (blob fsynced before `ItemCompleted`). A manual `Op::Compact` is unchanged: it runs when idle, with `turn: None`.
+- **Cache stability.** `clipped_through` and `replaced_through` only increase, and only at these items. Between them, `messages[..stable_prefix]` is byte-identical from round to round ([[provider]] §2 rule 6). The prefix is the system prompt and tools, plus the summary message, plus the trimmed range. Each trim or summary costs exactly one cache miss.
+- **Recovery and fork.** Both items are ordinary durable items, so recovery and fork (§4c) carry them unchanged. A restart rebuilds the same request.
+
 ### 4c. Fork
 
 Phase 1 fork **materializes** the parent prefix into the child's own log. A child never reads its parent after creation, so replay, recovery and the gateway stay single-session.
@@ -339,6 +355,7 @@ Phase 1 fork **materializes** the parent prefix into the child's own log. A chil
 | §2 lanes, idempotence, steer exactly once | model InputPreemption + BrokenInputPreemption; `tests/gateway_ops.rs` |
 | §5 round trip and forward compatibility | `tests/protocol_golden.rs`: every fixture line parses and re-serialises byte-identical; an injected future variant parses as `Unknown` |
 | §4b compaction | `tests/context_compact.rs`: golden digests in `tests/fixtures/compact/*.md`; the same log compacted twice gives the same `sha256`; the request after a compaction contains no item with `ItemStarted` seq ≤ `replaced_through`; a second `Compact` with no new turn gives `NothingToCompact`; the 32 KiB cap drops oldest turns first; a user message containing `\n## Turn 1\n` survives two compactions as one escaped line and the section count is unchanged; a queued-then-cancelled turn adds no section. Pure function: implementation-only coverage, recorded in the formal inventory |
+| §4d automatic compaction | model **HarnessAutoCompact** + broken controls (below); `tests/context_auto.rs` with the scripted provider and `context_tokens: 4000`: (a) a 30-turn session triggers trim, then summary, and every request stays ≤ 0.8 · W after the ladder; (b) two consecutive requests with no new trim or summary share a byte-identical `messages[..stable_prefix]`; (c) kill and reopen between rounds rebuilds a byte-identical request; (d) a single turn bigger than `W` sends once and ends with `Error{BadRequest}`, with no second ladder pass; (e) an unknown window yields one `Notice` and no `ContextTrim`; `check_transcript`: `clipped_through` and `replaced_through` never decrease, and are never above the latest `TurnEnded` before them |
 | §4c fork | `tests/store_fork.rs`: child seq *n* equals parent seq *n* for *n* ≤ `at` (event bytes compared); a non-quiescent `at` gives `BadFork`; the parent's log hash is unchanged; deleting the parent after the fork leaves the child openable; the child's first `ModelRequest` equals the parent's at `at`; a fork taken while the parent appends copies exactly `1..=at`; `check_transcript` passes on the child |
 | §4 head and live output | `check_transcript`: every `ToolCall`/`Terminal` `ItemStarted` has a `head` of matching kind, the completed body's identity equals it, and `ItemCompleted` never has `live: Some`. `tests/store_recovery.rs`: kill the process mid tool call; after reopening, the recovered `ToolCall` keeps its `call_id` and `name`, and the next `ModelRequest` pairs the tool result to it. `tests/gateway_replay.rs`: subscribe during a 200 KiB exec; the snapshot's `live` equals the last 64 KiB of the deltas |
 | §1 epoch and `Reset` | model SubscriberReplay + BrokenSubscriberReplay; `tests/store_recovery.rs` truncates a log tail and asserts `Reset` |
@@ -355,5 +372,6 @@ Phase 1 fork **materializes** the parent prefix into the child's own log. A chil
 - **2026-11-01, at the Oracle's question** (message 01M6AMASRXSGVHYFESFGWZVCRK). §1 said seqs are never reused, yet after tail loss the next epoch reassigns them. Corrected: positions are `(Epoch, Seq)`; validity is gateway §2's trusted head. Decision [[d1134-reset-trusted-head]]. Version unchanged.
 - **2026-11-01, v0.2 at E1's E1b question** (message 01M6AMHT3Y47902K55F608ZY3X). Adds `ItemStarted.head` (durable identity for `ToolCall` and `Terminal`; recovery reads only the log) and `Terminal.live` (a 64 KiB tail that snapshots repair). Additive fields, so this is a minor bump. Alternatives rejected: keeping runtime identities with a synthetic fallback (a closure would then depend on whether the process restarted, which breaks [[log-is-truth]]); a separate durable identity event (one more event per item, for data that is known at start).
 - **2026-11-01, at E1's question** (message 01M6AN4153XBMPVHYPEWP3TNM8). Epoch allocated from the log alone is reused when a whole epoch's tail is lost, which defeats the trusted head. Adds the open order: fsync the surviving log, then a durable epoch high-water mark outside the JSONL, then admit the writer. Amends [[d1134-reset-trusted-head]]. Version unchanged (store-internal, not on the wire).
+- **2026-11-01, v0.3 at the Oracle's request** (message 01M6AVJ56YFJSKHDJ9Q6Z17QNH). Adds §4d, automatic compaction: an 80 % trigger on a log-only estimate, a trim then summarize ladder over completed turns, and the durable `ContextTrim` item. Alternatives rejected: request-only clipping (the request would depend on state that is not in the log, and every frontier move would miss the cache); a model-written summary (§4b); a reactive retry on overflow (it needs a new `ErrorClass` for a case the 80 % margin already covers). Clip and drop are one step, not two, so the ladder costs one cache miss instead of two.
 
 Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: E2.

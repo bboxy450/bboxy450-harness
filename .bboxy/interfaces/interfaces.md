@@ -22,9 +22,11 @@ updated: "2026-10-31T00:00:00Z"
 
 | ICD | Sides | Status |
 |---|---|---|
-| [[protocol]] | engine/store (E1) ↔ every face (E2 GUI, headless, acp, seat) | baselined v0.1, **critical path** |
+| [[protocol]] | engine/store (E1) ↔ every face (E2 GUI, headless, acp, seat) | baselined v0.3, **critical path** |
 | [[gateway]] | engine (E1) ↔ faces; InProc and Unix | baselined v0.1 |
 | [[provider]] | engine ↔ OpenAI-compatible endpoint (E1 on both sides) | baselined v0.1 |
+| [[acp]] | engine via `Host`/`InProc` (E1) ↔ ACP v1 clients over stdio | baselined v0.1 |
+| [[mcp]] | engine registry and policy (E1) ↔ user-configured MCP servers (untrusted child processes) | baselined v0.1 |
 | [[embed-seat]] | bboxy450-term (ICD #348 owner) ↔ `seat` face | proposed; Side A needs Corvin Duskmantle |
 | [[upstream-toolkit]] | harness ↔ bboxy450-term toolkit and formal stack; upstream items U1–U7, each with an interim and an acceptance check | proposed; bboxy450-term owners accept each item |
 | toolkit widgets | E2 upstream in bboxy450-term ↔ the harness `gui` face | no ICD of its own. Each widget's API is part of its upstream task brief, and the face consumes only `protocol` plus `bbt_ui::Element` |
@@ -56,6 +58,9 @@ updated: "2026-10-31T00:00:00Z"
 | R19 | No test needs the operator | the harness `make test` runs with `HOME=$(mktemp -d)`, no network (the scripted provider), no Keychain | `make test` |
 | R20 | Compaction is deterministic and the model never sees replaced items | `tests/context_compact.rs` ([[protocol]] §4b); implementation-only coverage (a pure function), named in `verification/coverage.toml` | `make test` |
 | R21 | A fork is a self-contained log identical to the parent prefix | `tests/store_fork.rs` ([[protocol]] §4c); implementation-only coverage (single-writer atomic create over an append-only prefix), named in `verification/coverage.toml` | `make test` |
+| R22 | Automatic compaction keeps requests inside the window, is cache-stable and is rebuilt identically after restart | model HarnessAutoCompact + 3 broken controls; `tests/context_auto.rs` (a)–(e) ([[protocol]] §4d) | `make test` |
+| R23 | ACP v1 face: mapping, stop reasons, approvals, load replay, unsupported methods | `tests/acp_face.rs` and the `tests/fixtures/acp/*.jsonl` goldens ([[acp]] §6) | `make test` |
+| R24 | MCP servers never block a turn, every call is policy-gated, secrets never persist | model HarnessMcpServer + 3 broken controls; `tests/mcp_client.rs` with the fixture server ([[mcp]] §6) | `make test` |
 
 ## Formal models
 
@@ -83,6 +88,8 @@ The harness reuses the bboxy450-term formal stack, following [[formal-reuse]] §
 | **HarnessIncrementalMarkdown** (render) | RenderLinePlan (cache identity guard). [[formal-reuse]] maps none; this is the closest upstream shape | prefix_valid, tail_kind ∈ {closed, open-fence}, append kind | `CacheNeverStale`: a reused prefix implies its identity is still valid | the cache is kept across an append that reopens a fence: **safety** | upstream bbt-doc property test: incremental parse = full parse over random append splits |
 | **HarnessScrollStick** (render) | **new**. The rules come from `chat_scroll.rs` scoped intent | following, manual_offset, growth, jump | `TailShownWhileFollowing`; `ManualOffsetPreserved`; `jump ~> following` | layout resets a manual offset on growth: **safety** | `gui_fixtures::stick_and_release` |
 | **HarnessEmbedLifecycle** | LifecycleOwnership | attach, detach kind ∈ {window, cmd-q, hangup}, stop, birth | `DetachPreservesRun`; `StopSignalsOwnBirth` | detach kills the run: **safety** | `seat_process` hangup; standalone window-close test |
+| **HarnessAutoCompact** (law 5, cache stability) | **new**, built on HarnessTurnLifecycle's turn states | `est` 0..4 (abstract load), `turn_open`, `ended_through` 0..2, `clipped` 0..2, `replaced` 0..2, `phase` ∈ {idle, ladder, sending}, `steps` 0..2 per round | `NeverReducesOpenTurn` (`clipped ≤ ended_through ∧ replaced ≤ ended_through`); `BoundariesMonotone` (an action never lowers `clipped` or `replaced`); `ItemBeforeRequest` (no `sending` while a ladder item is open); `boundary ~> sending` under WF{ladder, send} | (a) the window includes the open turn: **safety**; (b) after restart the boundary is recomputed from non-durable state and may move back: **safety**; (c) no "nothing left to reduce" exit, so the ladder retries forever: **liveness** | `context_auto` (a)–(e) ([[protocol]] §4d) |
+| **HarnessMcpServer** (laws 3, 4, 6) | PluginConnection (generations A→B→A, as HarnessCancelTree) | `state` ∈ {starting, ready, failed, dead}, `gen` 0..2, `failures` 0..2, `call` ∈ {none, inflight(g)}, `round_open` | `NoStaleResult`; `RoundNeverWaits`; `DeadIsFinal`; `inflight ~> none` under WF{timeout, respond} | (a) a round waits for `ready`: **deadlock**; (b) a result from any generation is accepted: **safety**; (c) no timeout: **liveness** | `mcp_client` ([[mcp]] §6) |
 
 **Sanity controls.** FairResponse, WeakFairFlicker and StutteringIsNotFairProgress (tlc `verify.rs:36,176`) run unchanged, so a liveness verdict means what the harness claims it means.
 

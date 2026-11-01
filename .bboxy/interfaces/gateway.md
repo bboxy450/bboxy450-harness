@@ -66,7 +66,7 @@ Rules:
 
 ## 1b. Loading: an async factory, and a Gateway over loaded sessions only
 
-Opening a log runs recovery (protocol §4), which reads and fsyncs the disk, so it cannot happen inside a non-awaiting call. Loading is therefore a separate `async` step, and a `Gateway` only ever serves a session that is already loaded. Phase 1 has one session per process; there is no multi-session daemon.
+Opening a log runs recovery (protocol §4), which reads and fsyncs the disk, so it cannot happen inside a non-awaiting call. Loading is therefore a separate `async` step, and a `Gateway` only ever serves a session that is already loaded. One `Host` may create or open several sessions in one process (the ACP face does, [[acp]]). Each is its own actor and its own `InProc`; there is no daemon shared across processes.
 
 ```rust
 pub struct Host { /* store root, profiles, runtime handles */ }
@@ -153,3 +153,4 @@ Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: E2 (the GUI uses `InProc`
 - **2026-11-01, at E1's question** (message 01M6AJMVVHA6DCBHGFXM8BCFHM). Adds `Refused::BadFork`, returned only by `Host::create`.
 - **2026-11-01, at the Oracle's question** (message 01M6AMASRXSGVHYFESFGWZVCRK). §2 `Reset` used `after.seq > head`, which accepts an old-epoch cursor over reassigned seqs. Replaced by the trusted head `t(e)`. Decision [[d1134-reset-trusted-head]]. Version unchanged; `src/gateway/mod.rs:511` (at 71a4d95) is now out of spec.
 - **2026-11-01, at E1's question** (message 01M6AN4153XBMPVHYPEWP3TNM8). `t(e)` relies on epochs never being reused; protocol §1 now persists an epoch high-water mark before the writer is admitted. Evidence row §2 extended.
+- **2026-11-01, at the Oracle's ACP request** (message 01M6AVJ56YFJSKHDJ9Q6Z17QNH). §1b: a `Host` may hold several sessions in one process, each with its own `InProc`. No other change.
