@@ -10,6 +10,7 @@ allowed_paths:
 - README.md
 - .bboxy/runs/
 - .bboxy/tasks/2026-10-31-harness-core.md
+assignee: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 authorship:
   kind: seat
   process_generation: '1'
@@ -22,16 +23,16 @@ id: 01M6ADSZHWN6SMV968JZKTPEE1
 number: 48
 provenance:
   digest: sha256:c2e87681f557baa5e5f4428006c26e44357e51905be2e8ebe2d12bda7227dd4a
-  frontmatter_digest: sha256:2dfbf9ca4e3b49492600c41650a73819e3226bc210ae5d9b1e16e4ccffda19b9
-  log: .bboxy/log/2026-11-01.jsonl#185
-  sig: jwAH6C0yZoVupR8rZ8QQFyJWIUuHzlqKciFhleD1d/dTa/Y9A2AqoHRURcT8CcUihSM4Ly52iQWrSXCegc0fAQ==
+  frontmatter_digest: sha256:acc97e61f1b06a7ec19582b007e6edf766d197af1b74ee06735f3609165deed0
+  log: .bboxy/log/2026-11-01.jsonl#209
+  sig: qlZ+5McxgOWJyn0Odww+HzIGw12jXkURMyutjr/RrJIX0QvLizKdAM4Kfq9c15pibXoqtZff/DMB6cmPCha2AA==
   signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
 role: executor
-status: open
+status: claimed
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E1: bboxy450-harness core — protocol, engine, provider, tools, store, gateway, headless, formal models, live smoke'
 type: task
-updated: 2026-11-01T02:07:53.479Z
+updated: 2026-11-01T02:08:24.158Z
 updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 verify: make test
 ---

@@ -9,6 +9,7 @@ allowed_paths:
 - scripts/deps-licences.sh
 - Cargo.toml
 - Cargo.lock
+assignee: seat:01M6ADTVVZS36VS43P2PG15HRQ
 authorship:
   kind: seat
   process_generation: '1'
@@ -21,16 +22,16 @@ id: 01M6ADTGYAQ5VJ7GZ05FWT7Q93
 number: 50
 provenance:
   digest: sha256:bf80a392afcdd918e5c58b23e68a662806ac184aa2fda4eb33307210e2f6c309
-  frontmatter_digest: sha256:6fd02f524035b9654ab53be45755302da65672212cfdf0c48fe00ee9b1d7cdf6
-  log: .bboxy/log/2026-11-01.jsonl#191
-  sig: cNnbq+XFXT4W/mQQRS6DynoaNT8SMiepLvb1qZmJgpE6x9ERbjv3rZxxrEVlBhNXHQNCniLQVV67z574BuvJCA==
+  frontmatter_digest: sha256:0554ff130c9d0bd825cb228b635f8e4c07e21230f69c172fd735a5901f959f2b
+  log: .bboxy/log/2026-11-01.jsonl#214
+  sig: 30dyCaTUh058P79jSLOOAnp8vyiLQGbkbOz0/qzQLLahoF3E38XM70G5JjWwOA4GDvY+JNBwcGG8oOJ9xGjKAw==
   signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
 role: executor
-status: open
+status: claimed
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E2: upstream bboxy450-term toolkit widgets for the harness GUI + rendering formal models'
 type: task
-updated: 2026-11-01T02:08:11.298Z
+updated: 2026-11-01T02:08:24.721Z
 updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 verify: make test
 ---
