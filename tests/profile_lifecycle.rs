@@ -9,11 +9,11 @@ use bboxy450_harness::{gateway::Gateway, protocol::*};
 use std::time::{Duration, Instant};
 #[tokio::test]
 async fn close_cancels_and_joins_idle_profile_key_command() {
-    let s = support::session(vec![support::sse("text")], false).await;
+    let mut s = support::session(vec![support::sse("text")], false).await;
     let profiles = s.temp.path().join("profiles");
     std::fs::create_dir_all(&profiles).unwrap();
     let pid = s.temp.path().join("key.pid");
-    std::fs::write(profiles.join("slow.md"),format!("---\nname: slow\nmodel: unused\nendpoint: http://127.0.0.1:9/v1\napi_key: '!echo $$ > {}; sleep 600'\n---\n",pid.display())).unwrap();
+    std::fs::write(profiles.join("slow.md"),format!("---\nname: slow\nmodel: unused\nendpoint: http://127.0.0.1:9/v1\napi_key: '!sleep 600 & echo $$ > {}; wait'\n---\n",pid.display())).unwrap();
     let change = support::op(
         &s.gateway,
         Op::SetProfile {
@@ -31,10 +31,35 @@ async fn close_cancels_and_joins_idle_profile_key_command() {
         .trim()
         .parse()
         .unwrap();
+    // The ready file is written after the child exists, so this witnesses a
+    // two-process group rather than racing the shell's initial child spawn.
+    let mut sub = support::subscribe(&s.gateway, false);
     let start = Instant::now();
     s.gateway.send(support::op(&s.gateway, Op::Close)).unwrap();
-    let events = support::close(s).await;
+    let mut seen = vec![];
+    let closed = tokio::time::timeout(Duration::from_secs(2), async {
+        while let Some(event) = sub.recv().await {
+            let done = matches!(event.event, Event::SessionClosed);
+            seen.push(serde_json::to_value(&event.event).unwrap()["type"].clone());
+            if done {
+                return;
+            }
+        }
+    })
+    .await;
+    if closed.is_err() {
+        let group_live = unsafe { libc::kill(-pgid, 0) } == 0;
+        // This test owns the group and must leave no sleeping child on failure.
+        if group_live {
+            unsafe {
+                libc::kill(-pgid, libc::SIGKILL);
+            }
+        }
+        let _ = tokio::time::timeout(Duration::from_secs(2), &mut s.task).await;
+        panic!("Close missed its unchanged 2s deadline; group_live={group_live}; events={seen:?}");
+    }
     assert!(start.elapsed() < Duration::from_secs(2));
+    let events = support::close(s).await;
     assert_eq!(unsafe { libc::kill(-pgid, 0) }, -1);
     assert_eq!(
         std::io::Error::last_os_error().raw_os_error(),
