@@ -1,0 +1,18 @@
+{
+  "command": [
+    "git",
+    "diff",
+    "--exit-code",
+    "5d9f676c04b36bef3a863843eb9dfd62bd04eccc",
+    "fe7d82ae24627124aefe1b9cc7db268d978e9770",
+    "--",
+    "src",
+    "Cargo.toml",
+    "Cargo.lock",
+    "protocol.schema.json"
+  ],
+  "exit_code": 0,
+  "smoke_source": "5d9f676c04b36bef3a863843eb9dfd62bd04eccc",
+  "verified_source": "fe7d82ae24627124aefe1b9cc7db268d978e9770",
+  "runtime_inputs_unchanged": true
+}
