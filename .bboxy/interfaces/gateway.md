@@ -91,7 +91,11 @@ Rules:
 ## 2. Delivery order
 
 1. **`Hello`.** The stream's first frame is `Hello{ v, epoch, head: Seq, meta }`. On the Unix transport it is a frame of its own; in-process it is the `Subscription::hello()` accessor.
-2. **`Reset`, if needed.** If `after.epoch != epoch` and `after.seq > head`, the subscription delivers `Reset{epoch, head}` and closes. The face drops everything above `head` and resubscribes.
+2. **`Reset`, if needed.** For a cursor `after = (e, s)` the server computes the **trusted head** `t(e)`: the highest seq whose event is the same in epoch `e`'s view and in the current log.
+   - Let `first(e')` be the seq of the first envelope written in epoch `e'` (derivable from the log's `epoch` fields; epochs that wrote nothing are skipped). Then `t(e) = min(head, min{ first(e') − 1 : e < e' ≤ epoch })`; for `e = epoch` this is `head`.
+   - If `e > epoch` (the log was replaced), `t(e) = 0`.
+   - If `s > t(e)`, the subscription delivers `Reset{epoch, head: t(e)}` and closes. The face drops everything above `t(e)` and resubscribes with `after = (epoch, t(e))`.
+   - Otherwise replay starts after `s`. An old-epoch cursor with `s ≤ head` is **not** enough: a seq in `(t(e), head]` may name a different event than the face holds.
 3. **Replay.** Every durable envelope with `after.seq < seq ≤ head`, in order.
 4. **Snapshots.** If `ephemeral`, one `ItemSnapshot` per open item.
 5. **Live.** Durable and ephemeral envelopes in emission order. Durable `seq` values are strictly increasing with no gaps.
@@ -133,6 +137,7 @@ Replay and live are joined without a gap or a duplicate. The subscriber is regis
 | Clause | Evidence |
 |---|---|
 | §1 send never awaits | invariant [[never-block]]; `send` is a non-`async fn` (a compile-time fact); `tests/gateway_ops.rs::busy_not_wait` fills the inbox and asserts `Busy` in under 1 ms |
+| §2 trusted head | model HarnessSubscriberReplay gains a tail-loss action (head falls to any synced value, epoch + 1, the next appends reuse the lost seqs) and the invariant `FaceViewIsLogPrefix`; broken control (d): the Reset rule `after.epoch != epoch && after.seq > head` must fail **safety**. `tests/store_recovery.rs`: deliver 1..10 in epoch 1, truncate to 8, reopen and append 9..11 in epoch 2; cursor (1,10) gets `Reset{head: 8}`, cursor (1,8) replays 9..11 with no Reset, cursor (2,11) replays nothing; a third epoch with tail loss to 6 makes cursor (1,8) get `Reset{head: 6}` |
 | §2 no gap, no duplicate | model SubscriberReplay + Broken (the broken control registers *after* the store read); `tests/gateway_replay.rs` subscribes at every seq of a fixture session and asserts the concatenated durable seq list equals `1..=head` |
 | §3 lag | `tests/gateway_lag.rs`: a never-reading subscriber under a 100k-delta firehose gets `Lagged` while a second subscriber and the engine finish the turn |
 | §4 transports equal | the same `gateway_*` suite runs against `InProc` and `Unix` (one `#[rstest]` matrix); for `Unix` the `UnixClient` result is compared to the `InProc` `Ack`/`Refused` |
@@ -146,3 +151,4 @@ Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: E2 (the GUI uses `InProc`
 - **2026-11-01, at E1's question** (message 01M6AHRY2RX664DTK1S4NJ0QR8). A non-awaiting `subscribe` with an immediate `hello()` cannot load and recover a log from disk. Adds §1b: an async `Host::create`/`Host::open` factory, a `Gateway` over loaded sessions only, no pending `Hello`, and `StartSession` through `create` only. Restores the missing §2 heading. Alternative rejected: a pending-`Hello` subscription, which adds a state to every face for a case phase 1 does not have (one session per process). Version unchanged; nothing in §5's implicit load had been built.
 - **2026-11-01, at E1's follow-up** (message 01M6AJ86HR8KJP4V8K9D441HV1). Removes the undefined "create socket" from the §1b Unix rule: creation is local to the hosting process, and sockets exist only for loaded sessions.
 - **2026-11-01, at E1's question** (message 01M6AJMVVHA6DCBHGFXM8BCFHM). Adds `Refused::BadFork`, returned only by `Host::create`.
+- **2026-11-01, at the Oracle's question** (message 01M6AMASRXSGVHYFESFGWZVCRK). §2 `Reset` used `after.seq > head`, which accepts an old-epoch cursor over reassigned seqs. Replaced by the trusted head `t(e)`. Decision [[d1134-reset-trusted-head]]. Version unchanged; `src/gateway/mod.rs:511` (at 71a4d95) is now out of spec.

@@ -27,12 +27,12 @@ updated: "2026-11-01T00:00:00Z"
 ```rust
 pub struct SessionId(Ulid);   pub struct TurnId(Ulid);
 pub struct ItemId(Ulid);      pub struct OpId(Ulid);     // OpId is minted by the client
-pub struct Seq(u64);          // per session, durable events only, starts at 1, gapless, never reused
+pub struct Seq(u64);          // per session, durable events only, starts at 1, gapless; never reused within an epoch
 pub struct Epoch(u32);        // +1 each time the store opens the session log for writing
 ```
 
 - The store assigns `Seq` at append, and `Seq` is the order of truth. Ephemeral events carry no `Seq`.
-- Within one `Epoch`, a published `Seq` is never revoked. The store writes (`write(2)`) before it publishes, so a *process* crash loses nothing that was published. A kernel crash or power loss can lose the unsynced tail; the next `Epoch` then starts at the surviving head. A subscriber holding `seq > head` receives `Reset` (§3).
+- Within one `Epoch`, a published `Seq` is never revoked. The store writes (`write(2)`) before it publishes, so a *process* crash loses nothing that was published. A kernel crash or power loss can lose the unsynced tail; the next `Epoch` then appends from the surviving head, so a lost seq can be **reassigned** to a different event. A durable position is therefore `(Epoch, Seq)`, not `Seq` alone. Which old-epoch positions are still valid is the *trusted head* rule ([[gateway]] §2).
 - The engine mints every ULID except `OpId`. The kind of an `ItemId` never changes.
 
 ## 2. Ops (face → engine)
@@ -331,5 +331,6 @@ Phase 1 fork **materializes** the parent prefix into the child's own log. A chil
 - **2026-11-01, at E1's third question** (message 01M6AHRY2RX664DTK1S4NJ0QR8). `StartSession` is admitted by `Host::create` ([[gateway]] §1b). Version unchanged.
 - **2026-11-01, at E1's fourth question** (message 01M6AJMVVHA6DCBHGFXM8BCFHM). Adds §4b (deterministic digest compaction, the replay rule, no automatic ladder in phase 1) and §4c (fork materializes the parent prefix with identical seqs). Alternatives rejected: a model-written summary (non-deterministic, spends inference outside [[budgets]]); a fork that references the parent (cross-session reads in replay and recovery, and a dangling parent on delete). Adds `Refused::BadFork` ([[gateway]]). Version unchanged.
 - **2026-11-01, at E1's fifth question** (message 01M6AJW9H6MSQS31Q2VC9RNSYB). §4b digest: unstarted turns are omitted (rejected alternative: a `TurnQueued` seq header for a turn the model never saw); fields are clipped, then escaped to one line; the `prev` parse is fixed. Version unchanged.
+- **2026-11-01, at the Oracle's question** (message 01M6AMASRXSGVHYFESFGWZVCRK). §1 said seqs are never reused, yet after tail loss the next epoch reassigns them. Corrected: positions are `(Epoch, Seq)`; validity is gateway §2's trusted head. Decision [[d1134-reset-trusted-head]]. Version unchanged.
 
 Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: E2.
