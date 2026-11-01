@@ -48,6 +48,7 @@ checks = ["make test-formal", "make test"]
 name = "HarnessSteerQueue"
 title = "Interrupt admitted when work full; a steer is consumed exactly once under weak fairness."
 models = ["HarnessSteerQueue", "BrokenHarnessSteerQueue", "BrokenHarnessSteerQueueDelivery"]
+controls = [{name="BrokenHarnessSteerQueue", expected="liveness"}, {name="BrokenHarnessSteerQueueDelivery", expected="safety"}]
 sources = ["src/gateway/mod.rs", "tests/formal/models.rs"]
 implementation_tests = ["tests/gateway_ops.rs"]
 assumptions = "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof."
@@ -77,7 +78,8 @@ checks = ["make test-formal", "make test"]
 [[contract]]
 name = "HarnessSubscriberReplay"
 title = "Register before replay read; no silent durable gap; epoch loss requires reset."
-models = ["HarnessSubscriberReplay", "BrokenHarnessSubscriberReplay", "BrokenHarnessSubscriberReplayEpochReuse", "HarnessSubscriberReplayRegistration", "BrokenHarnessSubscriberReplayRegistration"]
+models = ["HarnessSubscriberReplay", "BrokenHarnessSubscriberReplay", "BrokenHarnessSubscriberReplayEpochReuse"]
+controls = [{name="BrokenHarnessSubscriberReplay", expected="safety"}, {name="BrokenHarnessSubscriberReplayEpochReuse", expected="safety"}]
 sources = ["src/gateway/mod.rs", "tests/formal/models.rs"]
 implementation_tests = ["tests/gateway_replay.rs", "tests/store_recovery.rs"]
 assumptions = "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof."
@@ -149,8 +151,19 @@ checks=["make test-formal","make test"]
 name="HarnessProcessLifecycle"
 title="Cancellation closes escaped pipes and a reaped group cannot be signalled"
 models=["HarnessProcessLifecycle","BrokenHarnessProcessDrain","BrokenHarnessProcessOwnership"]
+controls=[{name="BrokenHarnessProcessDrain",expected="liveness"},{name="BrokenHarnessProcessOwnership",expected="safety"}]
 sources=["src/process.rs","tests/formal/models.rs"]
 implementation_tests=["tests/cancel_process.rs"]
 assumptions="One owned leader, one escaped pipe holder, four cancellation phases. Weak fairness on kill/drain/end models eventual progress; the physical 500ms grace and 2s bound are real-process witnesses."
 property="A cancelled run eventually ends after bounded drain; reaped ownership never signals a reused group."
+checks=["make test-formal","make test"]
+
+[[contract]]
+name="HarnessSubscriberReplayRegistration"
+title="Registration precedes the replay snapshot"
+models=["HarnessSubscriberReplayRegistration","BrokenHarnessSubscriberReplayRegistration"]
+sources=["src/gateway/mod.rs","tests/formal/models.rs"]
+implementation_tests=["tests/gateway_replay.rs","tests/gateway_lag.rs"]
+assumptions="Three durable entries, one concurrent append, atomic registration and snapshot actions; kernel scheduling and actual socket delivery remain implementation witnesses."
+property="No durable entry can fall between the replay snapshot and live registration."
 checks=["make test-formal","make test"]

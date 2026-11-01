@@ -1,0 +1,8 @@
+{
+  "command": [
+    "make",
+    "test"
+  ],
+  "exit_code": 2,
+  "source": "8aaae7ebe773a26ff5c6308d946ad04a95ed1463"
+}

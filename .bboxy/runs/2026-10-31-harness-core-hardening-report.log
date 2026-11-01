@@ -27,3 +27,11 @@ Binding amendments: d1174 (schema path), d1372 (items 14/15), d1134
 epoch high-water mark. Architect-authored amendments were cherry-picked,
 including 82f2edd and 7bdf826 for budgets. Core owns grep/glob/dir-read/diff/fsync;
 the Markdown execution witness belongs to E3 and remains unproven here.
+
+Full gate attempt 1 on 8aaae7e: `make test` exited 2. Fmt, clippy,
+all 70 Rust tests (one timing-only benchmark ignored) and five Python
+hardening checks passed. The native inventory gate then rejected contract
+families with multiple controls. Fixed by declaring each additional negative
+control and its expected verdict explicitly, retaining omission/duplicate/
+unexecuted-control rejection. Eight formal gate negative tests and
+`make test-formal-native` then exited 0. A fresh canonical run follows.

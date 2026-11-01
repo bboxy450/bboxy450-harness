@@ -19,6 +19,43 @@ spec=importlib.util.spec_from_file_location('formal',Path(__file__).with_name('f
 formal=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(formal)
 class Gate(unittest.TestCase):
+    def test_extra_controls_are_explicit_executed_negative_verdicts(self):
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t);(root/'verification').mkdir();(root/'witness.rs').write_text('')
+            corpus='''[[model]]
+name="HarnessExample"
+expected="pass"
+[[model]]
+name="BrokenHarnessExample"
+expected="safety"
+[[model]]
+name="BrokenHarnessExampleProgress"
+expected="liveness"
+'''
+            text='''[[contract]]
+name="HarnessExample"
+title="example"
+models=["HarnessExample","BrokenHarnessExample","BrokenHarnessExampleProgress"]
+controls=[{name="BrokenHarnessExample",expected="safety"},{name="BrokenHarnessExampleProgress",expected="liveness"}]
+sources=["witness.rs"]
+implementation_tests=["witness.rs"]
+assumptions="finite"
+property="safety and progress"
+checks=["make test-formal","make test"]
+'''
+            (root/'verification/corpus.toml').write_text(corpus)
+            path=root/'verification/contracts.toml';path.write_text(text)
+            names={'HarnessExample','BrokenHarnessExample','BrokenHarnessExampleProgress'}
+            self.assertEqual(len(formal.contracts(root,names)),1)
+            for invalid in [
+                text.replace('expected="liveness"','expected="pass"'),
+                text.replace(',{name="BrokenHarnessExampleProgress",expected="liveness"}',''),
+                text.replace('name="BrokenHarnessExampleProgress",expected="liveness"','name="Missing",expected="liveness"'),
+            ]:
+                path.write_text(invalid)
+                with self.assertRaises(ValueError):formal.contracts(root,names)
+            path.write_text(text)
+            with self.assertRaises(ValueError):formal.contracts(root,names-{'BrokenHarnessExampleProgress'})
     def test_tool_error_is_not_a_property_verdict(self):
         for code in [1,2,10,99]:
             with self.assertRaises(ValueError):formal.verdict(subprocess.CompletedProcess([],code,'syntax error'))
