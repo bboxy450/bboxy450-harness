@@ -17,15 +17,15 @@ links:
   to: '[[mcp]]'
 number: 1982
 provenance:
-  digest: sha256:37d9d267e391e5d883f5dccd9517407f0c44b790a2a5916e4e296cbf46c0853b
-  frontmatter_digest: sha256:7f5e3ab52c7fd0fe8af4a0b856d1b3ecf317e38751975473fd9eb37f13f18c68
-  log: .bboxy/log/2026-11-01.jsonl#12464
-  sig: VMrk9gHH+BneFjVRbEgo2Wnbc/UXJnTvv+QN9EcC9qXrveRZ6nirDwu0gsOgIOF5AO+mmgeqEuV4p1qCuWesBQ==
+  digest: sha256:2d044ac53decb0aed0334c23fe9b68e239d911bb806fef082e440b6cd672d81f
+  frontmatter_digest: sha256:29a7a4f58bcbee8e028437ae21927b56b9d02535081b756fb0c0fd006587b19f
+  log: .bboxy/log/2026-11-01.jsonl#20387
+  sig: ld3AGABa05ZsmQcg3Ld3HfTJoW4jv8zexh84QsObCrzw8DiOtbzLPtHfJzxFPbO0u1Z8H3Kn2wwu1T8ibq8wCA==
   signer: seat:01M6AC7H87H9S94Y1D45PSQVH6
 status: baselined
 title: 'ICD: ACP face — Agent Client Protocol v1 over stdio (v0.1)'
 type: interface
-updated: 2026-11-01T06:30:09.944Z
+updated: 2026-11-01T09:35:05.921Z
 updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 ---
 # ICD: ACP face
@@ -80,7 +80,9 @@ Nothing else is advertised.
 ### 1c. Concurrency of the face
 
 - **Handlers never hold the dispatcher.** The SDK dispatches requests one at a time (kittens `src/acp.rs:10-17`). A `session/prompt` handler therefore sends the op and parks the reply on the session's own task, so `session/cancel` and other sessions' requests run while a prompt is pending.
-- **Several sessions per process.** Each session has its own `InProc` and its own subscription task.
+- **Per-session FIFO admission.** The reader routes each inbound message that names a `sessionId` to that session's own admission worker, in arrival order. The worker hands ops to the engine in that order and waits for each op's ack before admitting the next. So a `session/cancel` that arrives after a `session/prompt` reaches the engine after that prompt's `UserTurn` was acked, and interrupts that turn. Spawning one task per line is forbidden: it lets a cancel overtake its prompt. Workers of different sessions never wait on each other. Messages with no `sessionId` (`initialize`, `session/new`, responses to `session/request_permission`) are handled on the connection without any session worker.
+- **Output backpressure.** One writer task owns stdout and drains a bounded queue (256 messages). A producer whose push finds the queue full **waits** for space. Producers are the session subscription tasks and the session workers, never the reader and never the engine. A full queue never closes the connection, never cancels a session and never drops a message. The engine stays unaffected because a subscription that is not drained gets `Lagged` ([[gateway]] §3). The face then resubscribes from `resume_after`, and §3 suffix repair restores any text whose deltas were dropped. A stalled client therefore delays only its own output. The turn still finishes in the engine and in the log.
+- **Several sessions per process.** Each session has its own `InProc`, its own admission worker and its own subscription task.
 - **A second prompt while one is running** is queued (`TurnMode::Queue`). Each prompt is answered at its own turn's `TurnEnded`.
 
 ## 2. `TurnEnded` → `session/prompt` response
@@ -126,7 +128,7 @@ ACP chunks only append, so the face keeps `sent[item]`, the count of characters 
 ## 5. Lifecycle and failure
 
 - **Start.** The client spawns `bboxy450-harness acp [--profile <name>]`.
-- **Stdin EOF or a broken stdout** = the client went away. Every session the face holds gets `Op::Close`, and the process exits within 2 s.
+- **Stdin EOF or a broken stdout** = the client went away. Every session the face holds gets `Op::Close`, and the process exits within 2 s. **These are the only teardown causes.** A client that stops reading has not gone away (§1c backpressure).
 - **A malformed line** → JSON-RPC parse error `-32700`. The connection stays open.
 - **An outbound message over 256 KiB** is clipped at its text fields; it is never split.
 
@@ -135,13 +137,15 @@ ACP chunks only append, so the face keeps `sent[item]`, the count of characters 
 | Clause | Evidence |
 |---|---|
 | §1, §1a methods and capabilities | `tests/acp_face.rs`, using a scripted ACP client over a pipe and the scripted provider: the `initialize` capabilities equal §1a byte for byte; every unsupported method in §1 returns `-32601`; an unknown notification is ignored |
-| §1c dispatcher | `session/cancel` sent 100 ms after `session/prompt` gives `stopReason: cancelled` in ≤ 2 s; two sessions prompt concurrently and both finish |
+| §1c dispatcher and FIFO | `session/cancel` sent 100 ms after `session/prompt` gives `stopReason: cancelled` in ≤ 2 s. `session/prompt` and `session/cancel` written back to back in one pipe write, with no wait, give `TurnEnded{Cancelled}` and never `NoSuchTurn`. Two sessions prompt concurrently and both finish, including while one session's worker is waiting on the writer |
+| §1c backpressure | a client that stops reading during a streaming turn (well past 256 queued messages), then resumes. The connection stays open, the turn reaches `TurnEnded`, the prompt gets its response, the concatenated text equals the log, `divergence = 0`, and `check_transcript` passes |
+| §1c ordering and survival | model **HarnessAcpFlow**: per-session inbox (prompt, cancel), admitted ops, writer queue 0..2 (the cap stands in for 256), `reading` (toggles), `conn` ∈ {open, closed}, turn ∈ {none, run, ended}. Properties: `CancelHitsItsPrompt` (a cancel admitted after its prompt never finds no turn while that turn is unended); `CloseOnlyOnEof` (`conn = closed` only after EOF or a broken stdout); `EngineNeverWaits` (an engine emit is always enabled); `prompt ~> response` under WF{writer} and `reading` infinitely often. Broken controls: (a) one task per line, so a cancel can overtake its prompt: **safety**; (b) a full queue cancels and closes the connection: **safety** |
 | §2 stop reasons | one scripted turn per row; `Error` gives `-32603` with `data.class` |
 | §3 mapping and suffix repair | golden transcripts `tests/fixtures/acp/*.jsonl`. Text, reasoning, tool call, file change and terminal come from **real scripted-provider turns**. `Plan`, and any other item kind that no engine path produces yet, comes from the existing all-items protocol fixture, loaded with `session/load` and mapped by the same face code. No plan-producing tool or event is added for the test; a lag-injected run (ephemeral drops forced) produces the same concatenated text as an undropped run; `divergence = 0` |
 | §3 load | `session/load` of a recorded session sends every replayed update **before** its response, and the replay equals the golden |
 | §4 approvals | selected/cancelled/error/disconnect each give the stated decision; a late response after `Interrupt` is dropped |
 | §5 lifecycle | closing stdin mid-turn: the process exits in ≤ 2 s, no child is alive, and `check_transcript` passes on the log |
-| one prompt, one response | the prompt ↔ `TurnEnded` pairing is a projection of HarnessTurnLifecycle's one-outcome property; `acp_face` is its witness. No separate model |
+| one prompt, one response | the prompt ↔ `TurnEnded` pairing remains a projection of HarnessTurnLifecycle's one-outcome property; `acp_face` is its witness. HarnessAcpFlow does not re-model it |
 
 ## Change log
 
@@ -150,5 +154,11 @@ ACP chunks only append, so the face keeps `sent[item]`, the count of characters 
   - unstable ACP features: they track a moving draft;
   - a full ACP `diff`: it needs old and new text in `FileChange`. That would be an additive field later, if a client needs it.
 - **2026-11-01, at E1's question** (message 01M6AWED4QVM27ZVE6ZHP7WY5D). §6: `Plan` is witnessed through the all-items fixture via `session/load`, because no engine path produces a plan in v0.3. A plan-producing tool is a separate design decision, not a test fixture.
+- **2026-11-01, at E1's question** (message 01M6B79ZHWNYJQ19NSF85WVFYX), following the Oracle's rework of task 2026-10-31-harness-acp-mcp-compaction (MUST 1, MUST 2). §1c gains two rules: per-session FIFO admission, where each op is acked before the next is admitted; and output backpressure, where a full writer queue makes the producer wait and never tears the connection down. §5 states that EOF and a broken stdout are the only teardown causes. §6 adds the model HarnessAcpFlow, with two broken controls; prompt pairing stays in HarnessTurnLifecycle. Alternatives rejected:
+  - a bounded wait that drops or closes on expiry: a client that is slow but alive would lose output or its session;
+  - coalescing updates in the face: this duplicates the lag-plus-suffix-repair path that already exists;
+  - one global admission queue: it would serialize every session behind the slowest.
+
+  Version unchanged: the wire is unchanged, and v0.1 had left these points unspecified.
 
 Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: ACP clients (E1c implements the face).
