@@ -28,11 +28,17 @@ updated: "2026-11-01T00:00:00Z"
 pub struct SessionId(Ulid);   pub struct TurnId(Ulid);
 pub struct ItemId(Ulid);      pub struct OpId(Ulid);     // OpId is minted by the client
 pub struct Seq(u64);          // per session, durable events only, starts at 1, gapless; never reused within an epoch
-pub struct Epoch(u32);        // +1 each time the store opens the session log for writing
+pub struct Epoch(u32);        // +1 each time the store opens the session log for writing; never reused (§1 open)
 ```
 
 - The store assigns `Seq` at append, and `Seq` is the order of truth. Ephemeral events carry no `Seq`.
 - Within one `Epoch`, a published `Seq` is never revoked. The store writes (`write(2)`) before it publishes, so a *process* crash loses nothing that was published. A kernel crash or power loss can lose the unsynced tail; the next `Epoch` then appends from the surviving head, so a lost seq can be **reassigned** to a different event. A durable position is therefore `(Epoch, Seq)`, not `Seq` alone. Which old-epoch positions are still valid is the *trusted head* rule ([[gateway]] §2).
+- **Open for writing**, in this order, before the writer is admitted or any event is published:
+  1. Read the log and drop a torn last line. `fsync` the log, so the surviving head is durable and is the new epoch's base.
+  2. `epoch = max(hwm, max epoch in the log) + 1`, where `hwm` is the decimal `u32` in `sessions/<id>/epoch` (absent = 0).
+  3. Write `epoch` to `sessions/<id>/epoch` atomically: temp file, `fsync`, rename, `fsync` the directory.
+
+  An epoch's events can only be published after its number is durable, so losing every record of an epoch can never make its number reusable. An unreadable `epoch` file fails the open (`Refused::Closed`, [[gateway]] §1b); it is never guessed. A fork writes the child's `epoch` file (`1`) inside its atomic create (§4c).
 - The engine mints every ULID except `OpId`. The kind of an `ItemId` never changes.
 
 ## 2. Ops (face → engine)
@@ -348,5 +354,6 @@ Phase 1 fork **materializes** the parent prefix into the child's own log. A chil
 - **2026-11-01, at E1's fifth question** (message 01M6AJW9H6MSQS31Q2VC9RNSYB). §4b digest: unstarted turns are omitted (rejected alternative: a `TurnQueued` seq header for a turn the model never saw); fields are clipped, then escaped to one line; the `prev` parse is fixed. Version unchanged.
 - **2026-11-01, at the Oracle's question** (message 01M6AMASRXSGVHYFESFGWZVCRK). §1 said seqs are never reused, yet after tail loss the next epoch reassigns them. Corrected: positions are `(Epoch, Seq)`; validity is gateway §2's trusted head. Decision [[d1134-reset-trusted-head]]. Version unchanged.
 - **2026-11-01, v0.2 at E1's E1b question** (message 01M6AMHT3Y47902K55F608ZY3X). Adds `ItemStarted.head` (durable identity for `ToolCall` and `Terminal`; recovery reads only the log) and `Terminal.live` (a 64 KiB tail that snapshots repair). Additive fields, so this is a minor bump. Alternatives rejected: keeping runtime identities with a synthetic fallback (a closure would then depend on whether the process restarted, which breaks [[log-is-truth]]); a separate durable identity event (one more event per item, for data that is known at start).
+- **2026-11-01, at E1's question** (message 01M6AN4153XBMPVHYPEWP3TNM8). Epoch allocated from the log alone is reused when a whole epoch's tail is lost, which defeats the trusted head. Adds the open order: fsync the surviving log, then a durable epoch high-water mark outside the JSONL, then admit the writer. Amends [[d1134-reset-trusted-head]]. Version unchanged (store-internal, not on the wire).
 
 Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: E2.
