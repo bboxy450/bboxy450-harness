@@ -658,3 +658,223 @@ prove behavior and advisory classification, not a production latency claim.
 No additional implementation gap was introduced. This report-only harness
 append preserves the earlier evidence and leaves unrelated shared-tree edits
 untouched; its signed report commit is reported separately from source HEAD.
+
+
+R5 ROUND 2 APPENDIX — task #4915 — 2026-11-01T23:11:35Z
+
+This appendix supersedes earlier current-head and verification-result fields.
+Source: a89e6f0cf63c65288af570583e0652bd939df0a2, signed Boxy commit;
+parent 6c9d9d7497eef3b6db74f6af53b9471e05a2c2ff. Branch landing-budget,
+PR https://github.com/bboxy450/bboxy450-term/pull/89. The new source commit is
+pushed; no merge or production land.sh. Only five scoped source/test/verification
+files changed (42 insertions, 4 deletions); raw logs remain outside Git.
+
+Executable-record refusal
+scripts/landing.py:1193 — records_gate_delta now refuses every changed path
+under .bboxy/invariants/ (and replacement of the directory itself), before the
+literal name grep and before records checks. The delta inventory uses
+--no-renames, so old paths from deletions and renames are also inspected.
+scripts/invariants.sh:245 discovers these records with a glob and executes
+their check fields. A literal complete-path grep cannot establish equivalence
+for such new executable checks. Refusal is gate_log_source_mismatch with the
+"executable gate record" detail. Ordinary unreferenced decision records keep
+the existing R5 acceptance path and records-only check set.
+
+Submodule hardening
+scripts/landing.py:1183 — the outside-record Git tree comparison explicitly
+passes --ignore-submodules=none, overriding diff.ignoreSubmodules=all. The
+witness changes a real gitlink between committed fixture trees, sets that
+local configuration, and requires the typed non-records tree-delta refusal.
+It does not depend on a submodule checkout or a network service.
+
+Gate-script glob audit
+The retained inventory is target/landing-r5-round2/audit.json, backed by
+script-glob-audit.log. Current executable record discovery:
+- scripts/invariants.sh:245, .bboxy/invariants/*.md: check fields enter the
+  Cargo batch or shell_check eval. The entire directory now refuses R5 reuse.
+Other .bboxy globs found by the script audit read data, not executable checks:
+- scripts/pending-flags.sh:8 reads invariant status/slow/gate fields; it already
+  runs in records_checks, and the directory is now also refused for reuse.
+- scripts/never-block.sh:11 reads task status and blocked-on-person phrases;
+  the records gate already runs it.
+- scripts/quarantine.py:105 validates a task number in the administration path;
+  it does not execute the task body. The quarantine table is a literal named
+  input and remains covered by the existing named-record refusal.
+- scripts/e2e-seed.sh:22 compares function/type/status as data in its verify
+  branch, without executing text supplied by a record.
+- scripts/images.sh:11 extracts image links and checks their files; the records
+  gate already runs it.
+- scripts/harness-submodule.py:129 restores/removes test-owned child run
+  outputs; it does not execute record-supplied commands.
+Other globs cover workspace/model/Rust inputs, lab/release copies, temporary
+ledgers or private e2e fixture outputs. Non-.bboxy tree changes already refuse
+R5. No second executable .bboxy gate-record glob was found in current scripts.
+This is an audit of the present script corpus, not a promise about future gate
+scripts; new dynamic executable inputs must carry equivalent refusal coverage.
+
+Red -> green evidence
+Two witnesses were added before changing production code. On the previous
+6c9d9d74 implementation, with only those tests added, the corrected baseline
+command exited 1 with exactly two assertion failures:
+1. LandTests.test_records_gate_refuses_a_new_executable_invariant:
+   "executable invariant delta was accepted". It adds a valid invariant with
+   check: cargo test -p a fixture after the full gate. Old code accepted and
+   pushed it. Fixed code refuses, leaves the remote unchanged, and runs zero
+   Cargo checks on that path.
+2. LandTests.test_records_gate_refuses_submodule_delta_despite_ignore_config:
+   "ignored submodule delta was accepted". Old code returned without Refusal.
+With the two production guards restored, both plus the existing unreferenced
+records-only positive passed (3 tests, exit 0).
+The first draft gitlink fixture used the commit helper that re-staged away its
+missing gitlink; that setup error is retained in baseline-red.log. The witness
+was corrected to commit its prepared index directly before the valid baseline
+was captured in baseline-red-fixed-fixture.log. No production fix was present
+in that valid baseline.
+
+scripts/test-landing-budget-controls.py adds two canonical controls:
+R5-executable removes only the invariant-directory refusal. The new invariant
+assertion fails with exit 1; restoration gives exit 0.
+R5-submodule removes only --ignore-submodules=none. The ignored-submodule
+assertion fails with exit 1; restoration gives exit 0.
+All 20 controls ran in the actual full make test and each went 1 -> 0 at its
+named assertion. Python unittest uses exit 1 for these assertion failures.
+Their source hashes were checked against a89e6f0c before archiving the logs.
+These checks strengthen the existing equivalent-input predicate;
+verification/contracts.toml LandingVerification and verification/README.md
+record the restriction. No new state machine or parallel formal checker was
+introduced. Existing R0-R4 behavior and controls remain in the same PR.
+
+Commands, actual results and retained outputs
+Worktree: /Users/feral/mydev/bboxy450-term-landing-budget.
+make test — exit 0 on this exact signed head, first full run of this revision.
+  target/landing-r5-round2/make-test.log and ci-local.log; final source/result
+  line is a89e6f0cf63c65288af570583e0652bd939df0a2 normal 0.
+  Includes 164 landing fixtures, all 20 mutation controls, Rust checks,
+  headless smoke, native/TLC parity and final invariants (27 checks, 0 failures,
+  11 slow checks skipped by the unchanged canonical fast invariant selection).
+python3 -I scripts/test-landing.py — initial concurrent exit 1, final solo exit 0
+  (164 fixtures, failures 0). Both logs/exits are retained separately.
+python3 -I scripts/test-landing-recovery.py — exit 0, 46 tests.
+python3 -I scripts/test-landing.py LandTests.test_records_gate_refuses_a_new_executable_invariant LandTests.test_records_gate_refuses_submodule_delta_despite_ignore_config — baseline exit 1 (two named failures before fix).
+python3 -I scripts/test-landing.py LandTests.test_records_gate_refuses_a_new_executable_invariant LandTests.test_records_gate_refuses_submodule_delta_despite_ignore_config LandTests.test_records_rebase_accepts_gate_and_runs_only_records_checks — exit 0 (3 tests after fix).
+make check-formal-evidence — exit 0, strict current-source receipt validation.
+git verify-commit HEAD — exit 0.
+git diff --check — exit 0; tracked source worktree clean.
+git push origin landing-budget — exit 0, only 6c9d9d74..a89e6f0c to the PR branch.
+
+Concurrent standalone failure retained honestly
+The first standalone landing invocation overlapped the full CI fixture corpus
+and recovery. PresubmitTests.test_build_cap_retries_once_warm_with_the_same_target_and_then_passes
+failed: its 3 s build cap fired twice (3.094 s and 3.044 s), so its expected
+successful warm retry returned 77. The log records load about 28-33. This is the
+existing build-cap fixture, not either new R5 witness. After the other suites
+finished, the exact same standalone command passed all 164 tests without any
+source, deadline, assertion, quarantine or exclusion change. The full canonical
+make test passed on its first invocation at this revision, including this
+fixture. The overlapping failure remains available rather than being erased.
+
+Current fresh formal evidence
+32 crates, 82 contracts, 201 model comparisons; every native/TLC graph and
+verdict matches, zero reused verdicts. Expectations: pass 93, safety 84,
+deadlock 2, liveness 22. Finite-corpus parity is not full TLC completeness or
+arbitrary-Rust correctness.
+Evidence digest = bcb4fe2d52dbb0feff44e5db5e6f204cd10470f5e60718c01f1db51e0ff42b93
+Checker digest = 8225d069bbb7478217c1954ec79dee0f5f617534907937488eab1a3c947b3e32
+The archive is bboxy450-term/.git/bboxy-formal-evidence/<evidence digest>/evidence.json;
+the exact current file is also retained as postsubmit-evidence.json below.
+The previously documented branch-shared, unsigned evidence-store trust risk
+remains; full postsubmit never reuses. Finding F1 (knowledge_provider.rs:239)
+and the unmeasured real two-cut bbt-mux margin remain as recorded above. No new
+live-provider request or real credential was used for this task.
+
+Canonical control outcomes:
+R0: 1 -> 0; missing phase was silently classified
+R1: 1 -> 0; ctl binary ran twice
+R1-filtered: 1 -> 0; filtered invariant was skipped
+R1-ignored: 1 -> 0; ignored result suppressed the invariant
+R2: 1 -> 0; unrelated script ran landing fixtures
+R2-copy-tuple: 1 -> 0; added fixture copy did not trigger
+R3: 1 -> 0; changed TLA reused stale evidence
+R3-postsubmit: 1 -> 0; postsubmit reused a verdict
+R3-checker: 1 -> 0; changed checker harness reused evidence
+CI-controls: 1 -> 0; budget controls did not block full CI
+R4: 1 -> 0; stage advisory blocked presubmit
+R4-total: 1 -> 0; 900 second run bound was bypassed
+R5-exact-only: 1 -> 0; records-only gate was refused
+R5-outside: 1 -> 0; non-records delta was accepted
+R5-named: 1 -> 0; code-named record was accepted
+R5-executable: 1 -> 0; executable invariant delta was accepted
+R5-submodule: 1 -> 0; ignored submodule delta was accepted
+R5-checks: 1 -> 0; failed records checks were accepted
+R5-snapshot: 1 -> 0; records-only gate was refused
+R5-secrets: 1 -> 0; secret-like record was accepted
+
+Retained checksum inventory (runtime logs outside Git):
+target/landing-r5-round2/make-test.log sha256:eafe27ea3ac1c79fc0bed3c45e8da244572ff11aadd7fb823553a2313d002421
+target/landing-r5-round2/make-test.exit sha256:9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+target/landing-r5-round2/ci-local.log sha256:ef9ba176dc3748455b9818e86c7e65d7be959b3b1138b972a41eabe73ddd55d9
+target/landing-r5-round2/test-landing.log sha256:c88d907e9f59783452c3ed390e8f0d627fcc839e63a54eac7e60bd0999a63669
+target/landing-r5-round2/test-landing.exit sha256:9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+target/landing-r5-round2/test-landing-concurrent.log sha256:b59c6ca097f422e7243ca9c47effa41e1a531c908b1ae36f2579fa52eb100689
+target/landing-r5-round2/test-landing-concurrent.exit sha256:4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865
+target/landing-r5-round2/test-landing-recovery.log sha256:01cfe4f2cf963d31692fc0e3ffb26364fc851d2f715308a27757e37ea10509cf
+target/landing-r5-round2/test-landing-recovery.exit sha256:9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+target/landing-r5-round2/baseline-red.log sha256:60431cda67c8aea53103b6e318e5880f269d0ae3176b9f2e972c5cbab99ae4f0
+target/landing-r5-round2/baseline-red.exit sha256:4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865
+target/landing-r5-round2/baseline-red-fixed-fixture.log sha256:4c06688c60a0b048c88f6326c702937dcfd7ec1981f559c326a51620bc14203c
+target/landing-r5-round2/baseline-red-fixed-fixture.exit sha256:4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865
+target/landing-r5-round2/focused-green.log sha256:fbb98452accd9607b640b6ac880f6839898d599dee0f1a6221bf641f8830f550
+target/landing-r5-round2/focused-green.exit sha256:9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+target/landing-r5-round2/check-formal-evidence.log sha256:d9f769f8b64fff2b316da511db1be215c06af56453343684244e7ed35c843246
+target/landing-r5-round2/check-formal-evidence.exit sha256:9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+target/landing-r5-round2/signature.log sha256:5a76c44aed4cfe106a41fc11aa610c70e0433e4c1f92864bb29bd512c9f5fea3
+target/landing-r5-round2/signature.exit sha256:9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+target/landing-r5-round2/postsubmit-evidence.json sha256:bcb4fe2d52dbb0feff44e5db5e6f204cd10470f5e60718c01f1db51e0ff42b93
+target/landing-r5-round2/formal-summary.json sha256:ac04ef438cf655a331c437ab4357fdf548fa51b089e003dbfca6b92548bcc9dc
+target/landing-r5-round2/audit.json sha256:11ecb01f3e9b57f1d4c4ee42116f3bc2014a18bffd2f6ee4f35d6756b7a89671
+target/landing-r5-round2/script-glob-audit.log sha256:e0aee9579291b1f10d714859d1df895267b745ee642c0124cecaa79eac8b3c8b
+target/landing-r5-round2/script-glob-audit.exit sha256:9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+target/landing-r5-round2/canonical-control-outputs/summary.json sha256:8af0e9d38763741049391f0ca4648c485a7d5056a9dd390287339af587ead2ad
+target/landing-r5-round2/canonical-control-outputs/CI-controls-green.log sha256:c67c0d2e40c3c3524051f6b6131f6b8cf0c016e433e18829490123b97c9b37c6
+target/landing-r5-round2/canonical-control-outputs/CI-controls-red.log sha256:d9e63ee34d14e112890d1068935dfb279a41c2f227264a1137d3715f0d6eda67
+target/landing-r5-round2/canonical-control-outputs/R0-green.log sha256:c346f1228fe88f4ab3cb336ffa610dc3a34ec7c7bb7d05df7a1c222f2d928881
+target/landing-r5-round2/canonical-control-outputs/R0-red.log sha256:7efd259b875925193e7b16d03a7de0f9911adf61b02cf603e4d71c246cfffa9f
+target/landing-r5-round2/canonical-control-outputs/R1-filtered-green.log sha256:21f6a7cd9c44aafd05ab555e534f1d976984510b7dd3901ef4333cf1eb4e84af
+target/landing-r5-round2/canonical-control-outputs/R1-filtered-red.log sha256:469bd2dc4f942aefb2922864b2b39c396288ab0b6c841f6ef431e6a4bd69d3c2
+target/landing-r5-round2/canonical-control-outputs/R1-green.log sha256:33dae24921d5b5a2435002c3162759048cebc2f73dc922abd54ac5671f51da36
+target/landing-r5-round2/canonical-control-outputs/R1-ignored-green.log sha256:1bae3a82dfee1969d553f3728b656aa144a580877eca1fdf3076aacb797614fa
+target/landing-r5-round2/canonical-control-outputs/R1-ignored-red.log sha256:1ea75505d05b979b25deb4bcebf8810767f0716508347eca9fdd4ce2b3349268
+target/landing-r5-round2/canonical-control-outputs/R1-red.log sha256:c3703602f1aa9528993c183dc215c4278e2beb8ca4553fa12e6b590ff53f4550
+target/landing-r5-round2/canonical-control-outputs/R2-copy-tuple-green.log sha256:2a48d1af48a36b9e932f8787ae620d7d396a87e45c16d6513055e6410f8aaa34
+target/landing-r5-round2/canonical-control-outputs/R2-copy-tuple-red.log sha256:3ee519e520b7d66a19032adef43cc93957f5eef7796ad7dfc3b712b8e183a9c2
+target/landing-r5-round2/canonical-control-outputs/R2-green.log sha256:fb8fa348b505cc306d69c657f928d31cee4f591182426afc840f190e8e7d753f
+target/landing-r5-round2/canonical-control-outputs/R2-red.log sha256:50fb28d9ec84400061d521a3b69ca94e5b9b8c8ed66fb73cd24236ad2f704edd
+target/landing-r5-round2/canonical-control-outputs/R3-checker-green.log sha256:3e02f551919e8b8b015471bdf763b3d897b9266106d1c221aeffed21cc86ec1e
+target/landing-r5-round2/canonical-control-outputs/R3-checker-red.log sha256:927083b4ac4bcebabb39dcfb6935ba8ce7485262727f0928f9202ee8a8390beb
+target/landing-r5-round2/canonical-control-outputs/R3-green.log sha256:cb694d631231e4d0522984e644e67f22e40f116d6328ef5b76d8db4068c4fbd8
+target/landing-r5-round2/canonical-control-outputs/R3-postsubmit-green.log sha256:cb694d631231e4d0522984e644e67f22e40f116d6328ef5b76d8db4068c4fbd8
+target/landing-r5-round2/canonical-control-outputs/R3-postsubmit-red.log sha256:00b6cd342d52ec03a6bd289f11167b4fc0a69e4a270f18ad2c184363e44455bb
+target/landing-r5-round2/canonical-control-outputs/R3-red.log sha256:048c4f3ea6bea469056acf1f76777f74a8c6f4c71d2a6dfd49661de1d37ec497
+target/landing-r5-round2/canonical-control-outputs/R4-green.log sha256:3addfc5ae10f1c453598938a1992633d4b5f9383bdf761db3b1cc1e50cc55dac
+target/landing-r5-round2/canonical-control-outputs/R4-red.log sha256:589ce7067986f83ae20d36508b0c72bb85c4f15da651b65a99d54279e279c1e3
+target/landing-r5-round2/canonical-control-outputs/R4-total-green.log sha256:fb184ea57734512b1f088f9181209901b9cd46df3eb7eaa2500ea9e48dde20b5
+target/landing-r5-round2/canonical-control-outputs/R4-total-red.log sha256:4fcddae9b4df566465dd83e3ca999ced7d485f229f9fe6d4e121952603b6df73
+target/landing-r5-round2/canonical-control-outputs/R5-checks-green.log sha256:c6ea31e901a433fbbde828432deb3e4dab1c018e206b390e67eb1c5c9c3d4ee4
+target/landing-r5-round2/canonical-control-outputs/R5-checks-red.log sha256:fbac5b9a1b0d716363cdb6e8bcf133f0fd01d8948a771cdcf79dd3044ce7188a
+target/landing-r5-round2/canonical-control-outputs/R5-exact-only-green.log sha256:d5bafdc53ff609574b4643185789c23d358b8afbf2d81b55d8bcaccf8e3ffefe
+target/landing-r5-round2/canonical-control-outputs/R5-exact-only-red.log sha256:725361924a7a83c4e08c6c23b0f130b93d0e1d061e3c9dd01b6c826e30b1bf28
+target/landing-r5-round2/canonical-control-outputs/R5-executable-green.log sha256:8d8c9811edb5f6d2f344d991aba85d4e76429695ffeb5f1cbe0056d123089e16
+target/landing-r5-round2/canonical-control-outputs/R5-executable-red.log sha256:7ed909180fbe7b6249fe2378fb0109ac43633278318ce367bdb62183ce42a4fd
+target/landing-r5-round2/canonical-control-outputs/R5-named-green.log sha256:7753cd905fb7cfcc8ad1a8b340c5f561b5b10cf9ad992bf5ca3550c2d114e06f
+target/landing-r5-round2/canonical-control-outputs/R5-named-red.log sha256:847628ed54a4024a82e64e23d46bcdcf9a5eb4f7067e7fd79ae021e6c87169f4
+target/landing-r5-round2/canonical-control-outputs/R5-outside-green.log sha256:3692bf90d7c25c10cf254a1cf1bbdf8197a6b1ed2c3ded9ab0eda3f813ab5f2e
+target/landing-r5-round2/canonical-control-outputs/R5-outside-red.log sha256:23c72f9e7911686418f03e6ee166c5bc8eb16e26738a58fd6d5a55f1e2d6136f
+target/landing-r5-round2/canonical-control-outputs/R5-secrets-green.log sha256:edf07795958965ee6b848e950471446940a18309571955ed040be609d282fdd6
+target/landing-r5-round2/canonical-control-outputs/R5-secrets-red.log sha256:ef1dd316558d6c15bb0ac31078f6256cbc85b3b2ac2e115ebd71d631dff7db42
+target/landing-r5-round2/canonical-control-outputs/R5-snapshot-green.log sha256:3f3fe6ca60d69ae6f18d4a51eebe60250dc2cc280d03b0748295c5207475be5d
+target/landing-r5-round2/canonical-control-outputs/R5-snapshot-red.log sha256:e9351df0b95a498933014d09822eb814d61c64bf4e13c7179d38e616a790ab33
+target/landing-r5-round2/canonical-control-outputs/R5-submodule-green.log sha256:700b9070cc7c58c88b6c56c7f9a0605ee56fdecf43499247cab83b2d3631c66d
+target/landing-r5-round2/canonical-control-outputs/R5-submodule-red.log sha256:8940dc3bfb9652b599e29b3bfacfa5ee3d987688e28561827e095f55ae1c21db
+
+This append is committed in a separate signed report-only harness commit,
+without pushing unrelated shared-tree history. The source PR remains unmerged.
