@@ -1,0 +1,31 @@
+{
+  "item": "item14-old-reset",
+  "source": "src/gateway/mod.rs",
+  "restored_sha256": "5507c8e9d2b0f14a7cb2a23267452c81f3bcc46106dca6e54d38fcd9df4803d6",
+  "red": {
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "store_recovery",
+      "trusted_head_cursors"
+    ],
+    "exit_code": 101,
+    "test_assertion_failed": true
+  },
+  "green": {
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "store_recovery",
+      "trusted_head_cursors"
+    ],
+    "exit_code": 0,
+    "test_assertion_failed": false
+  }
+}

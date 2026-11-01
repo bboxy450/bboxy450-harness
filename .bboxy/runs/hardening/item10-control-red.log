@@ -1,0 +1,24 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.31s
+     Running tests/gateway_ops.rs (target/debug/deps/gateway_ops-60795fd8dbd07c75)
+
+running 1 test
+test interrupt_when_full ... FAILED
+
+failures:
+
+---- interrupt_when_full stdout ----
+
+thread 'interrupt_when_full' (112264570) panicked at tests/gateway_ops.rs:80:5:
+assertion failed: events.iter().any(|e|
+        matches!(e.event,Event::TurnEnded{turn:t,reason:StopReason::Cancelled,..}
+                if t==turn) && e.cause == Some(interrupt.op_id))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    interrupt_when_full
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.79s
+
+error: test failed, to rerun pass `--test gateway_ops`

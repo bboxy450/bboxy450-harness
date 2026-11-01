@@ -1,0 +1,248 @@
+[
+  {
+    "item": "item08-fence",
+    "source": "src/engine/mod.rs",
+    "restored_sha256": "01dd42c35bb735780a84e6e64014ac416feda346a2e0fd3f7ef48123243058a4",
+    "red": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--lib",
+        "a_b_a_is_fenced_by_birth_not_identity"
+      ],
+      "exit_code": 101,
+      "test_assertion_failed": true
+    },
+    "green": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--lib",
+        "a_b_a_is_fenced_by_birth_not_identity"
+      ],
+      "exit_code": 0,
+      "test_assertion_failed": false
+    }
+  },
+  {
+    "item": "item09-deny",
+    "source": "src/engine/mod.rs",
+    "restored_sha256": "01dd42c35bb735780a84e6e64014ac416feda346a2e0fd3f7ef48123243058a4",
+    "red": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "policy_gate",
+        "deny_star_never_executes_the_counting_tool"
+      ],
+      "exit_code": 101,
+      "test_assertion_failed": true
+    },
+    "green": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "policy_gate",
+        "deny_star_never_executes_the_counting_tool"
+      ],
+      "exit_code": 0,
+      "test_assertion_failed": false
+    }
+  },
+  {
+    "item": "item09-stale",
+    "source": "src/engine/mod.rs",
+    "restored_sha256": "01dd42c35bb735780a84e6e64014ac416feda346a2e0fd3f7ef48123243058a4",
+    "red": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "policy_gate",
+        "old_turn_approval_cannot_resolve_the_current_turn"
+      ],
+      "exit_code": 101,
+      "test_assertion_failed": true
+    },
+    "green": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "policy_gate",
+        "old_turn_approval_cannot_resolve_the_current_turn"
+      ],
+      "exit_code": 0,
+      "test_assertion_failed": false
+    }
+  },
+  {
+    "item": "item10-control",
+    "source": "src/engine/mod.rs",
+    "restored_sha256": "01dd42c35bb735780a84e6e64014ac416feda346a2e0fd3f7ef48123243058a4",
+    "red": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "gateway_ops",
+        "interrupt_when_full"
+      ],
+      "exit_code": 101,
+      "test_assertion_failed": true
+    },
+    "green": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "gateway_ops",
+        "interrupt_when_full"
+      ],
+      "exit_code": 0,
+      "test_assertion_failed": false
+    }
+  },
+  {
+    "item": "item14-old-reset",
+    "source": "src/gateway/mod.rs",
+    "restored_sha256": "5507c8e9d2b0f14a7cb2a23267452c81f3bcc46106dca6e54d38fcd9df4803d6",
+    "red": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "store_recovery",
+        "trusted_head_cursors"
+      ],
+      "exit_code": 101,
+      "test_assertion_failed": true
+    },
+    "green": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "store_recovery",
+        "trusted_head_cursors"
+      ],
+      "exit_code": 0,
+      "test_assertion_failed": false
+    }
+  },
+  {
+    "item": "item14-lost-epoch",
+    "source": "src/store.rs",
+    "restored_sha256": "ae6c688077568ad68d1c5adea07e1ed06aad5b312cd447bf0d1cb03d23e6f98d",
+    "red": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "store_recovery",
+        "trusted_head_cursors"
+      ],
+      "exit_code": 101,
+      "test_assertion_failed": true
+    },
+    "green": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "store_recovery",
+        "trusted_head_cursors"
+      ],
+      "exit_code": 0,
+      "test_assertion_failed": false
+    }
+  },
+  {
+    "item": "item15-worker",
+    "source": "src/tools.rs",
+    "restored_sha256": "74d0bffdba1e053f65ae4a3800f0e9b75c36f4b9dadf9dade08430b8725723bf",
+    "red": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "rt_budget",
+        "expensive_entries_hold_four_permits_off_the_io_workers"
+      ],
+      "exit_code": 101,
+      "test_assertion_failed": true
+    },
+    "green": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "rt_budget",
+        "expensive_entries_hold_four_permits_off_the_io_workers"
+      ],
+      "exit_code": 0,
+      "test_assertion_failed": false
+    }
+  },
+  {
+    "item": "item15-permits",
+    "source": "src/runtime.rs",
+    "restored_sha256": "5d07be0ce4800646fb41d8743523cb48a78a93dcb6585d8be63e3c59e9fc47a2",
+    "red": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "rt_budget",
+        "expensive_entries_hold_four_permits_off_the_io_workers"
+      ],
+      "exit_code": 101,
+      "test_assertion_failed": true
+    },
+    "green": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "rt_budget",
+        "expensive_entries_hold_four_permits_off_the_io_workers"
+      ],
+      "exit_code": 0,
+      "test_assertion_failed": false
+    }
+  }
+]

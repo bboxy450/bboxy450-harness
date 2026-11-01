@@ -66,7 +66,14 @@ pub(crate) struct Context {
 }
 enum Message {
     Model(ModelEvent),
-    Tool { index: u8, output: Box<ToolOutput> },
+    Tool {
+        index: u8,
+        output: Box<ToolOutput>,
+    },
+    ToolDelta {
+        item: ItemId,
+        chunk: crate::process::Chunk,
+    },
 }
 #[derive(Clone)]
 struct Call {
@@ -74,6 +81,8 @@ struct Call {
     id: String,
     name: String,
     raw: String,
+    started: bool,
+    terminal: Option<ItemId>,
     args: Result<Value, String>,
 }
 struct Sources {
@@ -94,6 +103,7 @@ pub(crate) struct TurnRunner {
     reasoning: Option<ItemId>,
     calls: BTreeMap<u8, Call>,
     results: BTreeMap<u8, ToolOutput>,
+    finished: std::sync::Arc<std::sync::Mutex<BTreeMap<u8, ToolOutput>>>,
     round: u32,
     pending: VecDeque<(OpId, Vec<InputBlock>)>,
     usage: Option<Usage>,
@@ -118,6 +128,7 @@ impl TurnRunner {
             reasoning: None,
             calls: BTreeMap::new(),
             results: BTreeMap::new(),
+            finished: Default::default(),
             round: 0,
             pending: VecDeque::new(),
             usage: None,
@@ -174,6 +185,39 @@ impl TurnRunner {
         if self.ctx.cancel.is_cancelled() {
             reason = StopReason::Cancelled;
         }
+        for (index, result) in self.finished.lock().unwrap().iter() {
+            if let Some(call) = self.calls.get(index) {
+                if let Some(item) = call.terminal
+                    && let Some(Item::Terminal {
+                        exit,
+                        signal,
+                        output,
+                        ..
+                    }) = &result.terminal
+                    && let Some((
+                        _,
+                        Item::Terminal {
+                            exit: e,
+                            signal: s,
+                            output: b,
+                            live,
+                            ..
+                        },
+                    )) = self.open.get_mut(&item)
+                {
+                    *e = *exit;
+                    *s = *signal;
+                    b.clone_from(output);
+                    *live = None;
+                }
+                if let Some((_, Item::ToolCall { output, spill, .. })) =
+                    self.open.get_mut(&call.item)
+                {
+                    output.clone_from(&result.output);
+                    spill.clone_from(&result.spill);
+                }
+            }
+        }
         let status = if matches!(reason, StopReason::Cancelled) {
             ItemStatus::Cancelled
         } else if matches!(reason, StopReason::Error { .. }) {
@@ -212,6 +256,9 @@ impl TurnRunner {
                         text: "tool call was not completed".into(),
                     });
                 }
+            }
+            if let Item::Terminal { live, .. } = &mut body {
+                *live = None;
             }
             self.emit(
                 Event::ItemCompleted {
@@ -254,6 +301,7 @@ impl TurnRunner {
                 item,
                 kind: body.kind(),
                 parent,
+                head: body.head(),
             },
             cause,
         )
@@ -292,6 +340,7 @@ impl TurnRunner {
         }
         self.calls.clear();
         self.results.clear();
+        self.finished.lock().unwrap().clear();
         self.text = None;
         self.reasoning = None;
         let prefix = json!({"role":"system","content":format!("You are bboxy450-harness, a coding assistant. Use the provided tools. Working directory: {}",self.ctx.cwd.display())});
@@ -388,34 +437,15 @@ impl TurnRunner {
                 name,
                 args,
             }) => {
-                if !self.calls.contains_key(&index) {
-                    let item = self
-                        .started(
-                            Item::ToolCall {
-                                call_id: id.clone().unwrap_or_default(),
-                                name: name.clone().unwrap_or_default(),
-                                tool_kind: ToolKind::Other,
-                                input_raw: String::new(),
-                                output: vec![],
-                                locations: vec![],
-                                spill: None,
-                            },
-                            None,
-                            None,
-                        )
-                        .await;
-                    self.calls.insert(
-                        index,
-                        Call {
-                            item,
-                            id: String::new(),
-                            name: String::new(),
-                            raw: String::new(),
-                            args: Err("incomplete arguments".into()),
-                        },
-                    );
-                }
-                let call = self.calls.get_mut(&index).unwrap();
+                let call = self.calls.entry(index).or_insert_with(|| Call {
+                    item: ItemId::new(),
+                    id: String::new(),
+                    name: String::new(),
+                    raw: String::new(),
+                    started: false,
+                    terminal: None,
+                    args: Err("incomplete arguments".into()),
+                });
                 if let Some(id) = id {
                     call.id = id;
                 }
@@ -423,26 +453,49 @@ impl TurnRunner {
                     call.name = name;
                 }
                 call.raw.push_str(&args);
+                let ready = !call.id.is_empty() && !call.name.is_empty();
+                let started = call.started;
                 let item = call.item;
-                if let Item::ToolCall {
-                    call_id,
-                    name,
-                    input_raw,
-                    ..
-                } = &mut self.open.get_mut(&item).unwrap().1
-                {
-                    call_id.clone_from(&call.id);
-                    name.clone_from(&call.name);
-                    input_raw.clone_from(&call.raw);
+                let body = Item::ToolCall {
+                    call_id: call.id.clone(),
+                    name: call.name.clone(),
+                    tool_kind: self
+                        .ctx
+                        .tools
+                        .get(&call.name)
+                        .map(|d| d.kind)
+                        .unwrap_or(ToolKind::Other),
+                    input_raw: call.raw.clone(),
+                    output: vec![],
+                    locations: vec![],
+                    spill: None,
+                };
+                let append = if started { args } else { call.raw.clone() };
+                if ready {
+                    if !started {
+                        call.started = true;
+                        self.emit(
+                            Event::ItemStarted {
+                                turn: Some(self.ctx.turn),
+                                item,
+                                kind: ItemKind::ToolCall,
+                                parent: None,
+                                head: body.head(),
+                            },
+                            None,
+                        )
+                        .await;
+                    }
+                    self.open.insert(item, (None, body));
+                    self.emit(
+                        Event::ItemDelta {
+                            item,
+                            delta: Delta::ToolInput { append },
+                        },
+                        None,
+                    )
+                    .await;
                 }
-                self.emit(
-                    Event::ItemDelta {
-                        item,
-                        delta: Delta::ToolInput { append: args },
-                    },
-                    None,
-                )
-                .await;
             }
             Message::Model(ModelEvent::ToolCallReady {
                 index,
@@ -517,7 +570,7 @@ impl TurnRunner {
                     .await;
                 if matches!(finish, Finish::ToolCalls) {
                     for (index, call) in self.calls.clone() {
-                        self.spawn_tool(index, call);
+                        self.spawn_tool(index, call).await;
                     }
                     if self.calls.is_empty() {
                         return Err("tool finish without calls".into());
@@ -534,6 +587,16 @@ impl TurnRunner {
                     }));
                 }
             }
+            Message::ToolDelta { item, chunk } => {
+                if let Some((_, body)) = self.open.get_mut(&item) {
+                    let delta = Delta::Output {
+                        stream: chunk.stream,
+                        append: chunk.text,
+                    };
+                    body.apply(&delta);
+                    self.emit(Event::ItemDelta { item, delta }, None).await;
+                }
+            }
             Message::Tool { index, output } => {
                 if self.ctx.current.load(Ordering::Acquire) != self.ctx.generation {
                     return Ok(Control::Continue);
@@ -541,14 +604,47 @@ impl TurnRunner {
                 let Some(call) = self.calls.get(&index).cloned() else {
                     return Err("orphan tool completion".into());
                 };
-                for body in output
-                    .changes
-                    .iter()
-                    .cloned()
-                    .chain(output.terminal.iter().cloned())
-                {
+                for body in output.changes.iter().cloned() {
                     let item = self.started(body, Some(call.item), None).await;
                     self.completed(item, ItemStatus::Completed).await;
+                }
+                if let Some(item) = call.terminal {
+                    if let Some(Item::Terminal {
+                        exit,
+                        signal,
+                        output: blob,
+                        ..
+                    }) = output.terminal.as_ref()
+                        && let Some((
+                            _,
+                            Item::Terminal {
+                                exit: e,
+                                signal: s,
+                                output: b,
+                                live,
+                                ..
+                            },
+                        )) = self.open.get_mut(&item)
+                    {
+                        *e = *exit;
+                        *s = *signal;
+                        b.clone_from(blob);
+                        *live = None;
+                    }
+                    if let Some((_, Item::Terminal { live, .. })) = self.open.get_mut(&item) {
+                        *live = None;
+                    }
+                    self.completed(
+                        item,
+                        if output.failed {
+                            ItemStatus::Failed {
+                                reason: "tool failed".into(),
+                            }
+                        } else {
+                            ItemStatus::Completed
+                        },
+                    )
+                    .await;
                 }
                 if let Item::ToolCall {
                     output: blocks,
@@ -642,7 +738,40 @@ impl TurnRunner {
             self.completed(id, ItemStatus::Completed).await;
         }
     }
-    fn spawn_tool(&mut self, index: u8, call: Call) {
+    async fn spawn_tool(&mut self, index: u8, call: Call) {
+        let terminal = if let Ok(args) = call.args.as_ref()
+            && matches!(call.name.as_str(), "exec" | "bash")
+        {
+            let command = if call.name == "bash" {
+                format!("bash -c {}", args["command"].as_str().unwrap_or(""))
+            } else {
+                format!(
+                    "{} {}",
+                    args["program"].as_str().unwrap_or(""),
+                    args["args"]
+                        .as_array()
+                        .map(|a| a
+                            .iter()
+                            .filter_map(|s| s.as_str())
+                            .collect::<Vec<_>>()
+                            .join(" "))
+                        .unwrap_or_default()
+                )
+            };
+            let body = Item::Terminal {
+                terminal: ItemId::new().to_string(),
+                command: self.ctx.redactor.scrub(&command),
+                exit: None,
+                signal: None,
+                output: None,
+                live: Some(String::new()),
+            };
+            let item = self.started(body, Some(call.item), None).await;
+            self.calls.get_mut(&index).unwrap().terminal = Some(item);
+            Some(item)
+        } else {
+            None
+        };
         let registry = self.ctx.tools.clone();
         let context = crate::tools::Context {
             cwd: self.ctx.cwd.clone(),
@@ -657,6 +786,7 @@ impl TurnRunner {
         let tx = self.tx.clone();
         let turn = self.ctx.turn;
         let generation = self.ctx.generation;
+        let finished = self.finished.clone();
         self.group.spawn(async move{
    let result=std::panic::AssertUnwindSafe(async {
     let args=match call.args{Ok(v)=>v,Err(e)=>return ToolOutput::error(e)};let Some(def)=registry.get(&call.name)else{return ToolOutput::error("unknown tool");};
@@ -664,8 +794,14 @@ impl TurnRunner {
       let request=Internal::Approval{generation,turn,item,tool:call.name.clone(),effect:def.effect.clone(),body,reply};if !send(&actor,request,&cancel).await{return ToolOutput::error("cancelled");}
       tokio::select!{biased;_=cancel.cancelled()=>return ToolOutput::error("cancelled"),r=wait=>match r{Ok(Some(p))=>Some(p),_=>return ToolOutput::error("policy denied this tool")}}
     }else{None};
-    registry.run(&call.name,args,context,permit).await
+    let (out,mut chunks)=mpsc::channel(32);
+    let execution=registry.run_stream(&call.name,args,context,permit,terminal.map(|_|out));tokio::pin!(execution);let mut open=terminal.is_some();
+    loop{tokio::select!{biased;
+      chunk=chunks.recv(),if open=>match chunk{Some(chunk)=>{let _=send(&tx,Message::ToolDelta{item:terminal.unwrap(),chunk},&cancel).await;},None=>open=false},
+      result=&mut execution=>{while let Ok(chunk)=chunks.try_recv(){let _=send(&tx,Message::ToolDelta{item:terminal.unwrap(),chunk},&cancel).await;}break result;}
+    }}
    }).catch_unwind().await.unwrap_or_else(|_|ToolOutput::error("tool panicked"));
+   finished.lock().unwrap().insert(index,result.clone());
    let _=send(&tx,Message::Tool{index,output:Box::new(result)},&cancel).await;
   });
     }

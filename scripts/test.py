@@ -33,7 +33,9 @@ def main():
             ['cargo','fmt','--check'],
             ['cargo','clippy','--offline','--locked','--all-targets','--all-features','--','-D','warnings'],
             ['cargo','test','--offline','--locked','--all-targets'],
-            ['make','test-formal'],
+            ['python3','-I','scripts/test-hardening.py'],
+            ['make','test-formal-native'],
+            ['make','test-formal-parity'],
             ['python3','-I','scripts/checks.py','secrets'],
             ['python3','-I','scripts/checks.py','headers'],
         ]:

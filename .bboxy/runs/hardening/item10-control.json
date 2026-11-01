@@ -1,0 +1,31 @@
+{
+  "item": "item10-control",
+  "source": "src/engine/mod.rs",
+  "restored_sha256": "01dd42c35bb735780a84e6e64014ac416feda346a2e0fd3f7ef48123243058a4",
+  "red": {
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "gateway_ops",
+      "interrupt_when_full"
+    ],
+    "exit_code": 101,
+    "test_assertion_failed": true
+  },
+  "green": {
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "gateway_ops",
+      "interrupt_when_full"
+    ],
+    "exit_code": 0,
+    "test_assertion_failed": false
+  }
+}

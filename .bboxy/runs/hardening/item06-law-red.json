@@ -1,0 +1,12 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--offline",
+    "--locked",
+    "--test",
+    "protocol_laws"
+  ],
+  "exit_code": 101,
+  "source": "71a4d95c92ec23dad98c42c8c8871330c8dd510f"
+}

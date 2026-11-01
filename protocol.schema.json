@@ -490,6 +490,17 @@
         {
           "type": "object",
           "properties": {
+            "head": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ItemHead"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
             "item": {
               "$ref": "#/$defs/ItemId"
             },
@@ -958,6 +969,13 @@
               "type": "string",
               "const": "terminal"
             },
+            "live": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
             "output": {
               "anyOf": [
                 {
@@ -1139,6 +1157,66 @@
           "required": [
             "kind",
             "session"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "ItemHead": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "call_id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "tool_call"
+            },
+            "name": {
+              "type": "string"
+            },
+            "tool_kind": {
+              "$ref": "#/$defs/ToolKind"
+            }
+          },
+          "required": [
+            "kind",
+            "call_id",
+            "name",
+            "tool_kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "terminal"
+            },
+            "terminal": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "terminal",
+            "command"
           ]
         },
         {

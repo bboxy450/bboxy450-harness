@@ -1,0 +1,13 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--offline",
+    "--locked",
+    "--test",
+    "formal_nonvacuity",
+    "subscriber_model_can_lose_an_entire_epoch"
+  ],
+  "exit_code": 101,
+  "original_model_source": "df7e651"
+}

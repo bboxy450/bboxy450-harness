@@ -11,6 +11,10 @@ fn fixture() -> Vec<Envelope> {
         .map(|l| serde_json::from_str(l).unwrap())
         .collect()
 }
+fn expect_violation(events: &[Envelope], law: &str, detail: &str) {
+    let violation = check_transcript(events).unwrap_err();
+    assert_eq!((violation.law, violation.detail.as_str()), (law, detail));
+}
 #[test]
 fn rejects_double_end_gap_unpaired_and_kind_change() {
     let good = fixture();
@@ -20,16 +24,31 @@ fn rejects_double_end_gap_unpaired_and_kind_change() {
     e.seq = Some(Seq(e.seq.unwrap().0 + 1));
     e.at = e.seq.unwrap();
     bad.push(e);
-    assert!(check_transcript(&bad).is_err());
+    expect_violation(&bad, "one-ending", "orphan or duplicate ending");
     let mut bad = good.clone();
     bad.remove(1);
-    assert!(check_transcript(&bad).is_err());
+    expect_violation(&bad, "log-is-truth", "durable gap or duplicate");
     let mut bad = good.clone();
-    if let Event::ItemCompleted { body, .. } = &mut bad[4].event {
-        *body = Item::Unknown;
+    let tool = bad
+        .iter_mut()
+        .find(|e| {
+            matches!(
+                e.event,
+                Event::ItemCompleted {
+                    body: Item::ToolCall { .. },
+                    ..
+                }
+            )
+        })
+        .unwrap();
+    if let Event::ItemCompleted {
+        body: Item::ToolCall { output, .. },
+        ..
+    } = &mut tool.event
+    {
+        output.clear();
     }
-    bad.retain(|e|!matches!(e.event,Event::ItemCompleted{ref body,..} if matches!(body,Item::ToolCall{..})));
-    assert!(check_transcript(&bad).is_err());
+    expect_violation(&bad, "tool-pairing", "duplicate call id or absent result");
     let mut bad = good.clone();
     let e = bad
         .iter_mut()
@@ -38,5 +57,97 @@ fn rejects_double_end_gap_unpaired_and_kind_change() {
     if let Event::ItemCompleted { body, .. } = &mut e.event {
         *body = Item::Plan { entries: vec![] };
     }
-    assert!(check_transcript(&bad).is_err());
+    expect_violation(&bad, "one-ending", "item kind changed");
+}
+
+#[test]
+fn durable_identity_and_live_completion_rules_are_specific() {
+    let good = fixture();
+    let mut bad = good.clone();
+    let start = bad
+        .iter_mut()
+        .find(|e| {
+            matches!(
+                e.event,
+                Event::ItemStarted {
+                    kind: ItemKind::ToolCall,
+                    ..
+                }
+            )
+        })
+        .unwrap();
+    if let Event::ItemStarted { head, .. } = &mut start.event {
+        *head = None;
+    }
+    expect_violation(&bad, "item-identity", "missing or mismatched durable head");
+    let mut bad = good.clone();
+    let start = bad
+        .iter_mut()
+        .find(|e| {
+            matches!(
+                e.event,
+                Event::ItemStarted {
+                    kind: ItemKind::ToolCall,
+                    ..
+                }
+            )
+        })
+        .unwrap();
+    if let Event::ItemStarted { head, .. } = &mut start.event {
+        *head = Some(ItemHead::Terminal {
+            terminal: "wrong-kind".into(),
+            command: "".into(),
+        });
+    }
+    expect_violation(&bad, "item-identity", "missing or mismatched durable head");
+    let mut bad = good.clone();
+    let complete = bad
+        .iter_mut()
+        .find(|e| {
+            matches!(
+                e.event,
+                Event::ItemCompleted {
+                    body: Item::ToolCall { .. },
+                    ..
+                }
+            )
+        })
+        .unwrap();
+    if let Event::ItemCompleted {
+        body: Item::ToolCall { call_id, .. },
+        ..
+    } = &mut complete.event
+    {
+        *call_id = "changed-identity".into();
+    }
+    expect_violation(
+        &bad,
+        "item-identity",
+        "body identity differs from durable head",
+    );
+    let mut bad = good;
+    let complete = bad
+        .iter_mut()
+        .find(|e| {
+            matches!(
+                e.event,
+                Event::ItemCompleted {
+                    body: Item::Terminal { .. },
+                    ..
+                }
+            )
+        })
+        .unwrap();
+    if let Event::ItemCompleted {
+        body: Item::Terminal { live, .. },
+        ..
+    } = &mut complete.event
+    {
+        *live = Some("illegal completed tail".into());
+    }
+    expect_violation(
+        &bad,
+        "item-identity",
+        "completed terminal contains live output",
+    );
 }

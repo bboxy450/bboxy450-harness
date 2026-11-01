@@ -1,0 +1,22 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--offline",
+    "--locked",
+    "--lib",
+    "--test",
+    "cancel_process",
+    "--test",
+    "formal_nonvacuity",
+    "--test",
+    "formal_models",
+    "--test",
+    "protocol_laws",
+    "--test",
+    "gateway_ops",
+    "--test",
+    "gateway_host"
+  ],
+  "exit_code": 0
+}

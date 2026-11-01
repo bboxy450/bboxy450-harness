@@ -1,3 +1,9 @@
+# Copyright 2026 Boxy (bboxy450) and contributors.
+# SPDX-License-Identifier: LicenseRef-Respectful-Slop-1.0-Draft
+# Project: bboxy450-harness — https://github.com/bboxy450/bboxy450-harness
+# License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
+# Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
+# Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 [[contract]]
 name = "HarnessTurnLifecycle"
 title = "Exactly one ending; paired results at end; replay never redispatches; every queued turn eventually ends under weak fairness."
@@ -22,8 +28,8 @@ checks = ["make test-formal", "make test"]
 name = "HarnessCancelTree"
 title = "No held completion applies across A-B-A births."
 models = ["HarnessCancelTree", "BrokenHarnessCancelTree"]
-sources = ["src/engine/turn_loop.rs", "tests/formal/models.rs"]
-implementation_tests = ["tests/cancel_process.rs"]
+sources = ["src/engine/mod.rs", "src/engine/turn_loop.rs", "src/engine/task_group.rs", "tests/formal/models.rs"]
+implementation_tests = ["src/engine/mod.rs", "tests/cancel_process.rs", "tests/formal_nonvacuity.rs"]
 assumptions = "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof."
 property = "No held completion applies across A-B-A births."
 checks = ["make test-formal", "make test"]
@@ -33,7 +39,7 @@ name = "HarnessCancelTreeGroup"
 title = "End implies no live child after group kill and join."
 models = ["HarnessCancelTreeGroup", "BrokenHarnessCancelTreeGroup"]
 sources = ["src/process.rs", "tests/formal/models.rs"]
-implementation_tests = ["tests/cancel_process.rs"]
+implementation_tests = ["tests/cancel_process.rs", "tests/formal_nonvacuity.rs"]
 assumptions = "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof."
 property = "End implies no live child after group kill and join."
 checks = ["make test-formal", "make test"]
@@ -41,10 +47,11 @@ checks = ["make test-formal", "make test"]
 [[contract]]
 name = "HarnessSteerQueue"
 title = "Interrupt admitted when work full; a steer is consumed exactly once under weak fairness."
-models = ["HarnessSteerQueue", "BrokenHarnessSteerQueue"]
-sources = ["src/gateway/mod.rs", "tests/formal/models.rs"]
-implementation_tests = ["tests/gateway_ops.rs"]
-assumptions = "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof."
+models = ["HarnessSteerQueue", "BrokenHarnessSteerQueue", "BrokenHarnessSteerQueueDelivery"]
+controls = [{name="BrokenHarnessSteerQueue", expected="liveness"}, {name="BrokenHarnessSteerQueueDelivery", expected="safety"}]
+sources = ["src/gateway/mod.rs", "src/engine/mod.rs", "src/engine/turn_loop.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/gateway_ops.rs", "tests/e2e_scripted.rs", "tests/formal_nonvacuity.rs"]
+assumptions = "One acked steer, one running/ended turn, one independent interrupt and a full 64-slot work lane. Weak fairness on delivery/conversion and control admission/consumption. Multi-steer FIFO order is an implementation witness in e2e_scripted; the separate ControlLaneBound model explores depths 0..257. No arbitrary Rust refinement proof."
 property = "Interrupt admitted when work full; a steer is consumed exactly once under weak fairness."
 checks = ["make test-formal", "make test"]
 
@@ -71,9 +78,10 @@ checks = ["make test-formal", "make test"]
 [[contract]]
 name = "HarnessSubscriberReplay"
 title = "Register before replay read; no silent durable gap; epoch loss requires reset."
-models = ["HarnessSubscriberReplay", "BrokenHarnessSubscriberReplay"]
+models = ["HarnessSubscriberReplay", "BrokenHarnessSubscriberReplay", "BrokenHarnessSubscriberReplayEpochReuse"]
+controls = [{name="BrokenHarnessSubscriberReplay", expected="safety"}, {name="BrokenHarnessSubscriberReplayEpochReuse", expected="safety"}]
 sources = ["src/gateway/mod.rs", "tests/formal/models.rs"]
-implementation_tests = ["tests/gateway_replay.rs"]
+implementation_tests = ["tests/gateway_replay.rs", "tests/store_recovery.rs"]
 assumptions = "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof."
 property = "Register before replay read; no silent durable gap; epoch loss requires reset."
 checks = ["make test-formal", "make test"]
@@ -103,7 +111,7 @@ name = "HarnessStreamToView"
 title = "Dirty wake recheck prevents a lost event."
 models = ["HarnessStreamToView", "BrokenHarnessStreamToView"]
 sources = ["src/gateway/mod.rs", "tests/formal/models.rs"]
-implementation_tests = ["tests/gateway_replay.rs"]
+implementation_tests = ["tests/gateway_replay.rs", "tests/store_recovery.rs"]
 assumptions = "Finite integer/Boolean model; two turns and tools, three births/log entries, bounded queues; named weak-fair action groups only. Replay drain abstracts a finite prefix atomically. Real HTTP, filesystem atomicity, kernel scheduling, monotonic time and terminal bytes remain implementation-only. No refinement proof."
 property = "Dirty wake recheck prevents a lost event."
 checks = ["make test-formal", "make test"]
@@ -127,4 +135,35 @@ sources=["src/store.rs","src/store/fork.rs","tests/formal/models.rs"]
 implementation_tests=["tests/store_fork.rs"]
 assumptions="One fixed fork point, two parent heads, four materialization phases; crash may repeat forever, so no liveness claim. Actual rename, fsync, blob hashes, credentials and filesystem scheduling are implementation-only witnesses."
 property="Visible child implies its blobs and fixed parent prefix are complete, regardless of subsequent parent appends."
+checks=["make test-formal","make test"]
+
+[[contract]]
+name="HarnessControlLaneBound"
+title="A full work lane does not reduce the independent 256-slot control capacity"
+models=["HarnessControlLaneBound","BrokenHarnessControlLaneBound"]
+sources=["src/engine/mod.rs","src/gateway/mod.rs","tests/formal/models.rs"]
+implementation_tests=["tests/gateway_ops.rs","tests/formal_nonvacuity.rs"]
+assumptions="Full 64-slot work lane; producer/consumer populations of 65 interrupt slots, 64 approval slots and one Close slot. Correct producers own and consumers return their type slot. The broken producer loses its reservation at full legitimate population and floods duplicates to depth 257 while consumers are delayed for this finite safety witness. FIFO and arbitrary malicious traffic remain implementation witnesses; no fairness claim."
+property="Per-type slots are conserved, depth equals the outstanding op count, and the dynamically reachable legitimate maximum 130 fits the independent 256 capacity. The duplicate producer breaks slot conservation and overflows capacity."
+checks=["make test-formal","make test"]
+
+[[contract]]
+name="HarnessProcessLifecycle"
+title="Cancel kills remaining members before releasing the leader reservation"
+models=["HarnessProcessLifecycle","BrokenHarnessProcessDrain","BrokenHarnessProcessOwnership","BrokenHarnessProcessReapedMembers"]
+controls=[{name="BrokenHarnessProcessDrain",expected="liveness"},{name="BrokenHarnessProcessOwnership",expected="safety"},{name="BrokenHarnessProcessReapedMembers",expected="safety"}]
+sources=["src/process.rs","tests/formal/models.rs"]
+implementation_tests=["src/process.rs","tests/cancel_process.rs"]
+assumptions="One leader (running/exited-waitable/reaped), one independent live member and one possibly escaped pipe holder. Leader exit, member exit, signal, reap, drain and cancel completion are separate actions. Weak fairness on exit/signal/reap/drain/end; OS waitid, real PID reuse and the 500ms grace remain process witnesses."
+property="Cancel completion implies no live member. A signal never targets a group with neither a leader reservation nor a member; bounded drain eventually ends cancellation."
+checks=["make test-formal","make test"]
+
+[[contract]]
+name="HarnessSubscriberReplayRegistration"
+title="Registration precedes the replay snapshot"
+models=["HarnessSubscriberReplayRegistration","BrokenHarnessSubscriberReplayRegistration"]
+sources=["src/gateway/mod.rs","tests/formal/models.rs"]
+implementation_tests=["tests/gateway_replay.rs","tests/gateway_lag.rs"]
+assumptions="Three durable entries, one concurrent append, atomic registration and snapshot actions; kernel scheduling and actual socket delivery remain implementation witnesses."
+property="No durable entry can fall between the replay snapshot and live registration."
 checks=["make test-formal","make test"]

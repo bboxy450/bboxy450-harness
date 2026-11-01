@@ -34,6 +34,17 @@ pub async fn session(rounds: Vec<Vec<u8>>, allow: bool) -> Session {
     with_provider(Arc::new(ScriptedProvider::new(rounds)), allow).await
 }
 pub async fn with_provider(provider: Arc<dyn Provider>, allow: bool) -> Session {
+    with_policy(
+        provider,
+        if allow {
+            Policy::allow_all(Unattended::Deny)
+        } else {
+            Policy::new(Unattended::Deny)
+        },
+    )
+    .await
+}
+pub async fn with_policy(provider: Arc<dyn Provider>, policy: Policy) -> Session {
     let temp = tempfile::tempdir().unwrap();
     std::fs::write(temp.path().join("input.txt"), "before\n").unwrap();
     std::fs::write(temp.path().join("other.txt"), "other\n").unwrap();
@@ -43,11 +54,7 @@ pub async fn with_provider(provider: Arc<dyn Provider>, allow: bool) -> Session 
         sessions: temp.path().join("sessions"),
         provider,
         model: "scripted".into(),
-        policy: if allow {
-            Policy::allow_all(Unattended::Deny)
-        } else {
-            Policy::new(Unattended::Deny)
-        },
+        policy,
         redactor: Set::default(),
         profile_error: None,
         max_rounds: 50,
@@ -128,4 +135,10 @@ pub fn sse(name: &str) -> Vec<u8> {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fixtures/sse/{name}.sse")),
     )
     .unwrap()
+}
+
+pub fn tool_sse(id: &str, name: &str, args: serde_json::Value) -> Vec<u8> {
+    let chunk = serde_json::json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":id,"type":"function","function":{"name":name,"arguments":args.to_string()}}]},"finish_reason":null}]});
+    let finish = serde_json::json!({"choices":[{"delta":{},"finish_reason":"tool_calls"}]});
+    format!("data: {chunk}\n\ndata: {finish}\n\ndata: [DONE]\n\n").into_bytes()
 }

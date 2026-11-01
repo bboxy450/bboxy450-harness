@@ -1,0 +1,34 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.23s
+     Running tests/formal_nonvacuity.rs (target/debug/deps/formal_nonvacuity-73212bc4f620123b)
+
+running 5 tests
+test acked_steer_reaches_both_exactly_once_routes ... ok
+test leader_exit_is_not_group_exit_and_both_ownership_controls_are_real ... FAILED
+test control_producers_conserve_slots_and_consumers_return_them ... FAILED
+test cancellation_tag_changes_and_removing_the_fence_exposes_a_stale_apply ... ok
+test subscriber_model_can_lose_an_entire_epoch_and_rejects_both_old_rules ... ok
+
+failures:
+
+---- leader_exit_is_not_group_exit_and_both_ownership_controls_are_real stdout ----
+
+thread 'leader_exit_is_not_group_exit_and_both_ownership_controls_are_real' (113277048) panicked at tests/formal_nonvacuity.rs:21:28:
+missing state variable leader
+
+---- control_producers_conserve_slots_and_consumers_return_them stdout ----
+
+thread 'control_producers_conserve_slots_and_consumers_return_them' (113277047) panicked at tests/formal_nonvacuity.rs:21:28:
+missing state variable interrupt_pending
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    control_producers_conserve_slots_and_consumers_return_them
+    leader_exit_is_not_group_exit_and_both_ownership_controls_are_real
+
+test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--test formal_nonvacuity`

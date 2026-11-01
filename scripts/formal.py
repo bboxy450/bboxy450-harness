@@ -105,11 +105,20 @@ def contracts(root, models):
     if not path.is_file() and not (root / "crates/bboxy450-term").exists():
         return []  # Independently exported checker has its own conformance corpus.
     rows = tomllib.loads(path.read_text())["contract"]
+    expected = {m["name"]: m["expected"] for m in tomllib.loads((root / "verification/corpus.toml").read_text())["model"]}
     seen = set()
     for row in rows:
         name = row["name"]
-        pair = {name, "Broken" + name}
-        if name in seen or set(row["models"]) != pair or not pair.issubset(models):
+        controls = row.get("controls", [{"name": "Broken" + name, "expected": expected.get("Broken" + name)}])
+        control_names = [c["name"] for c in controls]
+        family = {name, *control_names}
+        if (name in seen or not controls or len(set(control_names)) != len(control_names)
+                or len(set(row["models"])) != len(row["models"])
+                or set(row["models"]) != family or not family.issubset(models)
+                or expected.get(name) != "pass"
+                or any(not c["name"].startswith("BrokenHarness")
+                       or c["expected"] not in {"safety", "liveness", "deadlock"}
+                       or expected.get(c["name"]) != c["expected"] for c in controls)):
             raise ValueError(f"missing, duplicate or unexecuted contract pair: {name}")
         seen.add(name)
         for field in ["assumptions", "property", "title"]:

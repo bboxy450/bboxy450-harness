@@ -9,7 +9,7 @@ use crate::{
     protocol::*,
     provider::ToolDef,
     redact::Set,
-    runtime::blocking,
+    runtime::{BlockingWork, assert_off_rt_worker, blocking, blocking_hook},
     store::Blobs,
 };
 use serde_json::{Value, json};
@@ -178,6 +178,16 @@ impl Registry {
         ctx: Context,
         permit: Option<Permit>,
     ) -> ToolOutput {
+        self.run_stream(name, args, ctx, permit, None).await
+    }
+    pub async fn run_stream(
+        &self,
+        name: &str,
+        args: Value,
+        ctx: Context,
+        permit: Option<Permit>,
+        output: Option<crate::process::OutputSink>,
+    ) -> ToolOutput {
         let Some(def) = self.get(name) else {
             return ToolOutput::error(format!("unknown tool {name}"));
         };
@@ -253,7 +263,7 @@ impl Registry {
                 }
             }
             if matches!(name, "exec" | "bash") {
-                return self.exec(name, &args, &ctx).await;
+                return self.exec(name, &args, &ctx, output).await;
             }
             let name = name.to_owned();
             let a = args.clone();
@@ -290,7 +300,13 @@ impl Registry {
             output
         }
     }
-    async fn exec(&self, name: &str, args: &Value, ctx: &Context) -> ToolOutput {
+    async fn exec(
+        &self,
+        name: &str,
+        args: &Value,
+        ctx: &Context,
+        output: Option<crate::process::OutputSink>,
+    ) -> ToolOutput {
         let (program, argv) = if name == "bash" {
             let Some(command) = args["command"].as_str() else {
                 return ToolOutput::error("command is required");
@@ -326,7 +342,7 @@ impl Registry {
             cap: 50 * 1024,
             redactor: ctx.redactor.clone(),
         };
-        match crate::process::run(req, ctx.cancel.clone()).await {
+        match crate::process::run_stream(req, ctx.cancel.clone(), output).await {
             Err(_) => ToolOutput::error("process could not run"),
             Ok(out) => {
                 let spill = if let Some(path) = out.spill {
@@ -355,6 +371,7 @@ impl Registry {
                         exit: out.code,
                         signal: out.signal,
                         output: output_blob,
+                        live: None,
                     }),
                     pgid: Some(out.pgid),
                     failed,
@@ -424,6 +441,7 @@ fn exact(old: &str, needle: &str, replacement: &str) -> Result<String, String> {
     Ok(old.replacen(needle, replacement, 1))
 }
 fn diff(path: &Path, old: &str, new: &str) -> String {
+    blocking_hook(BlockingWork::Diff);
     let mut out = format!(
         "--- a/{}\n+++ b/{}\n@@ -1,{} +1,{} @@\n",
         path.display(),
@@ -444,12 +462,14 @@ fn diff(path: &Path, old: &str, new: &str) -> String {
     out
 }
 fn file_tool(name: &str, args: &Value, ctx: &Context) -> Result<(String, Vec<Item>), String> {
+    assert_off_rt_worker();
     let path = ctx.cwd.join(args["path"].as_str().unwrap_or("."));
     let io = |_: std::io::Error| "filesystem operation failed".to_string();
     match name {
         "read" => {
             text(args, "path")?;
             if path.is_dir() {
+                blocking_hook(BlockingWork::DirectoryRead);
                 let mut names = std::fs::read_dir(path)
                     .map_err(io)?
                     .map(|e| e.map(|e| e.file_name().to_string_lossy().to_string()))
@@ -540,6 +560,11 @@ fn file_tool(name: &str, args: &Value, ctx: &Context) -> Result<(String, Vec<Ite
             Ok((output, changes))
         }
         "glob" | "grep" => {
+            blocking_hook(if name == "grep" {
+                BlockingWork::Grep
+            } else {
+                BlockingWork::Glob
+            });
             let pattern = text(args, "pattern")?;
             let regex = if name == "grep" {
                 Some(regex::Regex::new(pattern).map_err(|_| "invalid regex")?)
@@ -554,6 +579,7 @@ fn file_tool(name: &str, args: &Value, ctx: &Context) -> Result<(String, Vec<Ite
             let mut stack = vec![path.clone()];
             let mut output = String::new();
             let mut hits = 0;
+            blocking_hook(BlockingWork::Walk);
             while let Some(p) = stack.pop() {
                 if ctx.cancel.is_cancelled() {
                     return Err("cancelled".into());

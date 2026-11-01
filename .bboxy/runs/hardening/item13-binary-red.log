@@ -1,0 +1,14 @@
+.F...
+======================================================================
+FAIL: test_secret_scan_covers_tracked_root_and_arbitrary_directories (__main__.Fixture.test_secret_scan_covers_tracked_root_and_arbitrary_directories) (path='assets/opaque.bin')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/feral/mydev/bboxy450-harness-core/scripts/test-hardening.py", line 28, in test_secret_scan_covers_tracked_root_and_arbitrary_directories
+    r=self.gate('secrets');self.assertNotEqual(r.returncode,0,'tracked sentinel was missed');self.assertIn(path,r.stderr);self.assertNotIn('A'*40,r.stdout+r.stderr)
+                           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 == 0 : tracked sentinel was missed
+
+----------------------------------------------------------------------
+Ran 5 tests in 1.337s
+
+FAILED (failures=1)
