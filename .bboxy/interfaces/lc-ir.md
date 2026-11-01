@@ -91,11 +91,17 @@ pub struct Raw { pub provider: Provider, pub bytes: Vec<u8> /* one native line, 
   - `frame(x)` is `u32` big-endian `len(x)` followed by the UTF-8 bytes of `x`. This rules out boundary collisions such as `("s1","23")` against `("s12","3")`.
   - `provider` is the lowercase name (`claude`, `codex`, `bboxy`).
   - `native_key` is the record's own id where one exists (Claude `uuid`; Codex `call_id`, `rs_…` or `ordinal`; bboxy450-harness `seq` in decimal). Otherwise it is the native line ordinal in decimal.
-  - `role_tag` is empty when the event **is** the whole native record. When one native record yields several events, every event after the first gets a tag, and all of them keep the record's own `native_key`. The tag grammar is closed: lowercase ASCII, with no `#` or other separator, since framing already separates fields.
-    - `turn-start` / `turn-end`: Inferred turn events anchored on the record.
-    - `block-N`: the event made from the N-th element of the record's content array, when a record yields one event per block. Example: a Claude `user` line carrying several `tool_result` blocks.
-    - `replacement-N`: the N-th message of a Codex `compacted.replacement_history`. The Compaction event itself has an empty tag.
-    - `N` is the zero-based index in decimal, with no leading zeros or sign. It is the element's position in the array as written, which never changes because native records are append-only. The same file therefore always gives the same ids. If a record is rewritten, the watcher sees new content ([[lc-watch-sink]] §1) and dedupes by EventId as usual.
+  - `role_tag` follows a closed grammar: lowercase ASCII, with no `#` or other separator, since framing already separates fields. All events from one native record keep that record's `native_key`, and they are told apart only by the tag.
+    - **One event from the record**: the tag is empty.
+    - **Several events from one record**: every event is tagged, with one exception. A Codex `compacted` record's Compaction event keeps the empty tag, and its replacement messages are tagged.
+    - **Tags, in the order the events are emitted (`seq`) within one record**:
+      1. `turn-start`: the Inferred TurnStart anchored on the record.
+      2. `block-N`: the event from the N-th element of the record's content array, including `block-0`. Example: a Claude assistant line's blocks, or a `user` line's `tool_result` blocks.
+      3. `replacement-N`: the N-th message of a Codex `compacted.replacement_history`.
+      4. `usage`, then `subagent`, then `context`: fixed tags with no index, at most one each per record, emitted after the content events in this order. Examples: Claude `assistant.message.usage`, `isSidechain`/Task, and cwd/permissionMode/model changes; for Codex, any record that also yields Usage or Context.
+      5. `turn-end`: an Inferred TurnEnd anchored on the record.
+    - Anything else a record carries stays in `raw`, or becomes a Native event, never an untagged second event (Oracle ruling, message 01M6CQ1J75CY37D5QKF5BYB8J0).
+    - `N` is the zero-based index in decimal, with no leading zeros or sign. It is the element's position in the array as written, which never changes because native records are append-only. The same file therefore always gives the same ids. If a record is rewritten, the watcher sees new content ([[lc-watch-sink]] §1) and dedupes by EventId.
     - Adding a new tag is a minor version change. Changing an existing tag's spelling or index base is a major version change, because it re-ids events. P4's `#replacement-N` must therefore become `replacement-N`.
   - The same input therefore always gives the same id. This is the watcher's idempotency key ([[lc-watch-sink]] §3).
   - Changing the domain tag or the field list is a major version change, and it re-ids every event.
@@ -184,7 +190,7 @@ E3's #4935 `import::claude` (harness) is the first implementation of the Claude 
 | IR fixpoint (casr-style) | `parse::P(lower::P(ir)) == ir`, ignoring `raw` and fidelity, for IR built from each other provider |
 | §5 no silent loss | for every direction, `kept + transformed + dropped == events`, and each `dropped` reason is one row of the table. Broken control: a lowerer that skips an event without counting it fails |
 | §5 target acceptance | phase 0 and phase 6: the lowered session resumes in the real CLI against a mock endpoint ([[log-converter]] §7 P0) |
-| §2 multi-event tags | a Claude `user` line with 3 `tool_result` blocks and a Codex `compacted` record with 2 replacement messages give distinct ids that are stable across runs (`block-0..2`, `replacement-0..1`). Broken control: every derived event using an empty tag collides |
+| §2 multi-event tags | Every event from one record gets a distinct id, stable across runs, emitted in grammar order. Fixtures: a Claude assistant line with text, thinking and tool_use blocks plus usage, a sidechain and a model change (`block-0..2`, `usage`, `subagent`, `context`); a Claude `user` line with 3 `tool_result` blocks; a Codex `compacted` record with 2 replacement messages; a Codex record that yields Usage or Context besides its main event. Broken control: dropping any tag (an empty tag for a derived event) makes two ids collide |
 | §4 event_msg duplicates | a Codex fixture with paired `response_item` message + `event_msg` `agent_message` gives exactly one Message event and one Native event |
 | §2 EventId framing | a test vector golden for `(claude, s1, 23)` and `(claude, s12, 3)` gives different ids, and fixed vectors pin the bytes. Broken control: unframed concatenation makes the two collide |
 | §2 determinism | two runs on the same input give byte-identical `bxl` |
@@ -194,6 +200,7 @@ E3's #4935 `import::claude` (harness) is the first implementation of the Claude 
 
 ## Change log
 
+- **2026-11-01, at the Oracle's P3 ruling** (message 01M6CQ1J75CY37D5QKF5BYB8J0). Fixed tags `usage`, `subagent` and `context` are added, at most one each per record, after the content events. When a record yields several events, all of them are tagged, so `block-0` is tagged too; the only exception is the Compaction event. The emission order is part of the grammar.
 - **2026-11-01, at the Oracle's P4 review** (message 01M6CP8GRD8W29GDDGCMFFMJ5J). The role_tag grammar is now closed: `turn-start`, `turn-end`, `block-N` and `replacement-N`, zero-based, with no `#`. `block-N` was added because a Claude line with several tool results had the same collision. Codex `event_msg` user_message/agent_message/agent_reasoning map to Native.
 - **2026-11-01, at the Oracle's P1 review** (message 01M6CME9FPSKY4PJNC2A0BAJNQ). EventId fields are length-prefixed (u32 BE) under the domain tag `bxl.event.v1`. The unframed concatenation collided across field boundaries.
 
