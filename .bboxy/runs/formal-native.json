@@ -1,5 +1,5 @@
 {
-  "source": "a757963a71ed11d93111d3034ed4f7d47a9c960d",
+  "source": "ca59d8e5d0ac177b8d2725397c1d44ea20ffda6f",
   "input_sha256": {
     ".bboxy/interfaces/acp.md": "8544f6def1f314149e7af57084a35228ee2305f81fb5385708397f9aeefffb7d",
     ".bboxy/interfaces/embed-seat.md": "144f9c3eecf85232e445dec43cf39004c73a27aef12014f696c8f1070be4c774",
@@ -71,7 +71,7 @@
     "src/store/fork.rs": "778faff5f5302a2597a0ca5a1e29b7a7431efa3a114cba9482c775664f6a575c",
     "src/tools.rs": "11f4923f040bb1bad3154d6a74e82eb5bdc5093b5dfc32e5d06c3591c177da19",
     "tests/acp_face.rs": "d4e0f295bc4bff0f371a159fb7319316244f2c71f2983ea77398b5aa967e68af",
-    "tests/bin/mcp_fixture.rs": "0beafa5fcd725ed2a9f6d299f521eb14eda8f950c15d0eb885fbce1cfcaa69a3",
+    "tests/bin/mcp_fixture.rs": "ce65faeb490a2227804febe8c48168470c5ab710b55f661242c7c165e3cd8c73",
     "tests/cancel_process.rs": "5995ca7d4f269f975da9b02e4a04a8270b4bc58669458114972e942f02693330",
     "tests/cli_headless.rs": "83a2eb17818eddff50846e58d51e78ec2cedb2a05e2303e654bea0823c842c1c",
     "tests/context_auto.rs": "806a53d8992353d168ce5d7422e35176678f763c1e56d4bb6633c4ed4677fb69",
@@ -123,7 +123,7 @@
     "tests/gui_render.rs": "07b75f733c8607bb47731acce132a2189e5da1dde02e526912de018917385d41",
     "tests/mcp_client.rs": "5121894c565b96913953dcd9057500247d1178826bc23d2d778fcf1a77796a69",
     "tests/policy_gate.rs": "961354e46ed2b6e27e9784274b9ffeb10bc2138879aeaf227660b3b628c03c64",
-    "tests/profile_lifecycle.rs": "8acc222adde5659e1e1a756c4e302be86a6f3f33c1b4476743d8c905a2c1ef70",
+    "tests/profile_lifecycle.rs": "b15ce1fac0bf24d4ebeb58e7f22ef48d8dcbe38c8676298ecc52a9789f38ae4b",
     "tests/protocol_golden.rs": "f7c04e7d2d3b2e40c9a5bc4d061ddd80f1951df549a66b268df76234792a579f",
     "tests/protocol_laws.rs": "24ea9cde614fa073f9dd07e9f917b397286b14ed1ea513a0c42425c2aa158286",
     "tests/provider_stream.rs": "17071da321247fc7e9d32e4c23a44367ff23fcbad3397221da5a73ad43b051af",
@@ -133,7 +133,7 @@
     "tests/seat_process.rs": "c1be3be776dafbc489cc4daedde8069b46fd4acce75ff2e9a87be43a26fc29a8",
     "tests/secrets.rs": "531c11f28d5d39643a9bacfc9a74225e860b900f661c92b092083f1048743a39",
     "tests/store_fork.rs": "11862a11510fac2295adfe4246b6bc430ff3a690b2146a770719113d911764ce",
-    "tests/store_recovery.rs": "47638dbdab605b8894b83489bba86d235c8822448e0177007900ff5e9ba83601",
+    "tests/store_recovery.rs": "71993b22894b6779fef73904667685acab2f5d5f19e814486410e396780c3863",
     "tests/support/mod.rs": "676004ef70cd21b5108332931fb54bdcc10d97a8153a2ef417fb49131678be45",
     "tests/support/setsid.py": "494b864d2df3524ce69fdf57f05ce253c46f90a743d8159386ab7a5689d7f040",
     "tests/support/sse_server.rs": "dc7c6e2fc1281af3f93c9a6b511a24b83e29660b0af7d92b5bc53464ddb657ec",

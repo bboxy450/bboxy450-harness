@@ -4,9 +4,9 @@ created: "2026-11-01T08:53:16.408Z"
 created_by: "seat:01M6ADTTF9QWWFZFVZJHJ3DD8E"
 id: "01M6B508DHRETFHE9NEXHZS2TW"
 number: 3022
-provenance: {"digest":"sha256:0f22d1c3ad88e002f346887878f653eb7cb39ea1370f886977dc8bd0c3841d91","frontmatter_digest":"sha256:0c5f393aa49a1473d749d2c231104f3e9954354ffd7518f03ea4c436cd6e96b5","log":".bboxy/log/2026-11-01.jsonl#18974","sig":"lpqyCKpDfNofl1oA8r9ID8JbIyUgNsIYr0piblfbyaadYIJzAKKPQtJZrSEU0CAeMl4I2vWRJQH3loutH+wvCw==","signer":"seat:01M6ADTTF9QWWFZFVZJHJ3DD8E"}
+provenance: {"digest":"sha256:ac7e84a289523d8246bf30a1f3d8bcb209ce3845080264629c74e1ffabe8e751","frontmatter_digest":"sha256:fb1e528a8d704547b3633aec8b3c769e9947fc792bdd15de3bc34a4ecded1545","log":".bboxy/log/2026-11-01.jsonl#19175","sig":"EhGVnPSi8GgRhCZp2mM4CbBC1aEZYcdTETieF75LF5/UjEamdwdI7/p9cwOv3A6cuI7YWcqdYOqGrANpO6BgAg==","signer":"seat:01M6ADTTF9QWWFZFVZJHJ3DD8E"}
 type: "note"
-updated: "2026-11-01T09:01:48.938Z"
+updated: "2026-11-01T09:15:29.619Z"
 updated_by: "seat:01M6ADTTF9QWWFZFVZJHJ3DD8E"
 ---
 # E1c handoff — ACP, MCP and automatic compaction
@@ -18,9 +18,12 @@ Branch: `e1c-acp-mcp-compaction`. No merge performed.
 The implementation follows the baselined ICDs, including protocol **0.4**
 (`Effect::Read`) and the queued-cancellation frontier clarification in `72d6549`
 (cherry-picked as signed `237f441`). The pin comparison preceded code changes
-in signed `ed99393`. Implementation commits: signed `1e8925e`, `52dd070` and `a757963`.
+in signed `ed99393`. Implementation commits: signed `1e8925e`, `52dd070`, `a757963` and the
+item-7 fixture follow-up `ca59d8e`.
 The full gate and live smoke ran on `a757963a71ed11d93111d3034ed4f7d47a9c960d`.
 The final signed handoff head and PR URL are supplied by `task_report`.
+Item 7 is now complete: 200 consecutive seat-process runs and the full gate
+pass; the audit and new evidence appear at the end of this report.
 
 ## Files, mechanisms and acceptance evidence
 
@@ -167,3 +170,46 @@ The records commit changes no verification inputs. Current-head formal evidence
 is refreshed after that commit and retained under `verification/evidence/`;
 the final `task_report` supplies its digest and the signed head. Regenerated
 receipts/logs are run outputs, distinct from the clean source tree.
+
+## Item 7 — d2019 PID publication follow-up
+
+The seat fix was already present in signed `52dd070`: `echo $$` writes
+`key.pid.tmp`, then `mv` publishes `key.pid`. The initial empty-file
+failure remains in `e1c/make-test-initial.log`.
+
+Required command:
+
+```sh
+for i in $(seq 200); do CARGO_BUILD_JOBS=2 cargo test --test seat_process || exit 1; done
+```
+
+Actual exit: **0**. All **200 consecutive runs** passed all three tests:
+**600 passed, 0 failed, 0 ignored**. The log contains exactly 200 complete
+three-test success summaries and one test-binary path. The seat source matches
+the committed fix byte for byte. [seat-200.json](e1c/seat-200.json) records the
+source and binary SHA256; [seat-200.log](e1c/seat-200.log) retains the output.
+
+The requested audit found and fixed three other producers in signed
+`ca59d8e`, using a temporary file in the same directory followed by rename:
+
+| Location | Finding / mechanism |
+| --- | --- |
+| `tests/profile_lifecycle.rs:16` | Key-command PID was created before its bytes were written; publish it by rename. |
+| `tests/store_recovery.rs:198` | Recovery fixture's group PID had the same exists-before-write race; publish it by rename. |
+| `tests/bin/mcp_fixture.rs:29`, consumed by `tests/acp_face.rs:525` | Escaped-child PID marker could become visible before `std::fs::write` completed; write a sibling temporary file and rename it. |
+| `tests/cancel_process.rs:11` | Existing helper retries until the PID parses. Direct reads at :71/:76 follow LEADER_EXITED: both shell writes completed before the leader exited, and only then can the member emit the marker. No change needed. |
+| `tests/mcp_client.rs:281` / :569 | PID lists are read after Close joins the server or after terminal fifth-failure notification. Each append completes before initialization; no writer remains at the read. No change needed. |
+| `tests/seat_process.rs:130` | Already atomic; the 200-run stress provides the requested evidence. |
+
+Machine-readable inventory: [pidfile-audit.json](e1c/pidfile-audit.json).
+
+`CARGO_BUILD_JOBS=2 make test` on `ca59d8e` exited **0**, unattended.
+The canonical stack includes the affected ACP, profile, recovery and cancellation
+tests, all 52 native/TLC models and the GUI gate. Evidence:
+[item7-make-test.log](e1c/item7-make-test.log), `test-current.json`,
+`gui-gate.json`, [item7-formal-code.json](e1c/item7-formal-code.json).
+
+This follow-up changes only test fixtures and evidence. The earlier live PASS
+remains the observed smoke result on unchanged product code; no additional live
+requests were made. Current-head formal receipts are refreshed after the records
+commit and named in the task report.
