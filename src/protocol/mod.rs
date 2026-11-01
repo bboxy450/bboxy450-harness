@@ -813,6 +813,12 @@ impl BlobRef {
 pub fn schema() -> schemars::Schema {
     schemars::schema_for!(ProtocolSchema)
 }
+/// Stable schema output without enabling insertion-ordered maps in the workspace.
+pub fn schema_value() -> serde_json::Value {
+    let mut value: serde_json::Value = schema().into();
+    value.sort_all_objects();
+    value
+}
 #[derive(JsonSchema)]
 #[allow(dead_code)]
 struct ProtocolSchema {

@@ -92,7 +92,7 @@ async fn run_cli(
             "--export-schema" => {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&crate::protocol::schema()).unwrap()
+                    serde_json::to_string_pretty(&crate::protocol::schema_value()).unwrap()
                 );
                 return Ok(0);
             }

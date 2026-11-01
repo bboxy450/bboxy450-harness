@@ -356,8 +356,7 @@ fn canonical_json(value: &impl serde::Serialize) -> String {
 
 #[test]
 fn canonical_json_sorts_nested_objects_in_arrays() {
-    let value: serde_json::Value =
-        serde_json::from_str(r#"{"z":[{"b":1,"a":0}],"a":1}"#).unwrap();
+    let value: serde_json::Value = serde_json::from_str(r#"{"z":[{"b":1,"a":0}],"a":1}"#).unwrap();
     assert_eq!(canonical_json(&value), r#"{"a":1,"z":[{"a":0,"b":1}]}"#);
 }
 
@@ -367,14 +366,17 @@ fn default_json_maps_iterate_sorted() {
     let mut map = serde_json::Map::new();
     map.insert("z".into(), serde_json::Value::Null);
     map.insert("a".into(), serde_json::Value::Null);
-    assert_eq!(map.keys().map(String::as_str).collect::<Vec<_>>(), ["a", "z"]);
+    assert_eq!(
+        map.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["a", "z"]
+    );
 }
 
 #[test]
 fn schema_and_golden_transcripts() {
     let update = std::env::var_os("UPDATE_GOLDENS").is_some();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let schema = serde_json::to_string_pretty(&canonical_value(&schema())).unwrap() + "\n";
+    let schema = serde_json::to_string_pretty(&schema_value()).unwrap() + "\n";
     if update {
         fs::write(root.join("protocol.schema.json"), &schema).unwrap();
     }
