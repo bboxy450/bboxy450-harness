@@ -45,7 +45,8 @@ pub enum Relation { ForkOf, ResumeOf, SwitchedFrom, SubagentOf, CompactedFrom, I
 pub struct Event {
     pub seq: u64,                       // dense from 0 within the session; assigned by the parser
     pub id: EventId,                    // deterministic; see §2
-    pub parent: Option<EventId>,        // DAG edge: Claude parentUuid; the previous event elsewhere
+    pub record: RecordId,               // the native record this event came from (§2)
+    pub parent: Option<RecordId>,       // DAG edge between records: Claude parentUuid; the previous record elsewhere
     pub turn: Option<TurnId>,           // None outside a turn (session setup, settings)
     pub at: Option<Timestamp>,          // RFC 3339 with ms, as recorded natively; never invented
     pub fidelity: Fidelity,
@@ -67,7 +68,7 @@ pub enum EventKind {
                  tool_kind: ToolKind, input: ToolInput },    // ToolKind = protocol §4 ToolKind
     ToolResult { call_id: String, is_error: bool, blocks: Vec<Block> },
     Reasoning  { text: Option<String>, summary: Option<String>, sealed: Option<Sealed> },
-    Compaction { summary: Option<Vec<Block>>, replaced_through: Option<EventId>,
+    Compaction { summary: Option<Vec<Block>>, replaced_through: Option<RecordId>,
                  replacement: Vec<EventId>, sealed: Option<Sealed> },
     Context    { changes: BTreeMap<String, Value> },        // Codex turn_context, Claude cwd/permissionMode/model
     Usage      { input: u64, output: u64, cache_read: u64, cache_write: u64, reasoning: u64 },
@@ -87,6 +88,12 @@ pub struct Raw { pub provider: Provider, pub bytes: Vec<u8> /* one native line, 
 
 ## 2. Identity, order and turns
 
+- **RecordId** (Oracle ruling, message 01M6CQA36J7VD1WX0MFXRFNNJS) is the id of a native **record**. It uses the same framing as EventId, with an empty `role_tag`: `blake3(frame("bxl.event.v1") ‖ frame(provider) ‖ frame(native_id) ‖ frame(native_key) ‖ frame(""))[..16]`.
+  - It is computed **directly** from a native reference, such as Claude `parentUuid`, `logicalParentUuid` or `leafUuid`, or a Codex previous item. No lookup table is needed and no state is kept, so parsing stays O(1) per line ([[log-converter]] §4 budgets).
+  - Every event carries `record`, its source record, and `parent`, the RecordId of its parent record.
+  - A record that yields **one** event has an EventId equal to its RecordId by construction, because both use the empty tag.
+  - For a record that yields **several** events, the RecordId is an anchor. It is never the id of an emitted event. Its events share `record` and are ordered by `seq` and their tags.
+  - A consumer joins a child to its parent by `child.parent == event.record`, never by guessing `block-0`.
 - **EventId** = the first 16 bytes of `blake3(frame("bxl.event.v1") ‖ frame(provider) ‖ frame(native_id) ‖ frame(native_key) ‖ frame(role_tag))`.
   - `frame(x)` is `u32` big-endian `len(x)` followed by the UTF-8 bytes of `x`. This rules out boundary collisions such as `("s1","23")` against `("s12","3")`.
   - `provider` is the lowercase name (`claude`, `codex`, `bboxy`).
@@ -105,7 +112,7 @@ pub struct Raw { pub provider: Provider, pub bytes: Vec<u8> /* one native line, 
     - Adding a new tag is a minor version change. Changing an existing tag's spelling or index base is a major version change, because it re-ids events. P4's `#replacement-N` must therefore become `replacement-N`.
   - The same input therefore always gives the same id. This is the watcher's idempotency key ([[lc-watch-sink]] §3).
   - Changing the domain tag or the field list is a major version change, and it re-ids every event.
-- **Order.** `seq` is native file order. `parent` carries the Claude DAG: streamed blocks chain by `parentUuid`, a sidechain is a branch, and `last-prompt.leafUuid` names the live leaf. For Codex and bboxy450-harness, `parent` is the previous event.
+- **Order.** `seq` is native file order. `parent` carries the DAG between **records**: Claude streamed blocks chain by `parentUuid`, a sidechain is a branch, and `last-prompt.leafUuid` names the live leaf record. For Codex and bboxy450-harness, `parent` is the previous record's RecordId (a Codex item reference where one exists). Events within one record are ordered by `seq`, not by `parent`.
 - **Turns.**
   - Codex: explicit, from `event_msg` `task_started` and `task_complete`/`turn_aborted`.
   - bboxy450-harness: explicit, from `TurnStarted`/`TurnEnded`.
@@ -128,7 +135,7 @@ pub struct Raw { pub provider: Provider, pub bytes: Vec<u8> /* one native line, 
 | Claude `user` with string or text blocks | TurnStart (Inferred) + Message{User} |
 | Claude `assistant` `text` / `thinking{thinking, signature}` / `redacted_thinking` / `tool_use{id, name, input}` | Message{Assistant} / Reasoning{text, sealed: ThinkingSignature} / Reasoning{sealed: RedactedThinking} / ToolCall{call_id: id, input: Json} |
 | Claude `user` with `tool_result{tool_use_id, content, is_error}` | ToolResult |
-| Claude `system` `compact_boundary`, then the `user` line with `isCompactSummary` | Compaction{summary, replaced_through: logicalParentUuid's event} |
+| Claude `system` `compact_boundary`, then the `user` line with `isCompactSummary` | Compaction{summary, replaced_through: RecordId(logicalParentUuid)} |
 | Claude `isSidechain` chain / Task subagent | Subagent + lineage SubagentOf |
 | Claude `assistant.message.usage` | Usage |
 | Codex `session_meta` | Session (source, cwd, git); `base_instructions` → Message{System} (Partial) |
@@ -190,6 +197,7 @@ E3's #4935 `import::claude` (harness) is the first implementation of the Claude 
 | IR fixpoint (casr-style) | `parse::P(lower::P(ir)) == ir`, ignoring `raw` and fidelity, for IR built from each other provider |
 | §5 no silent loss | for every direction, `kept + transformed + dropped == events`, and each `dropped` reason is one row of the table. Broken control: a lowerer that skips an event without counting it fails |
 | §5 target acceptance | phase 0 and phase 6: the lowered session resumes in the real CLI against a mock endpoint ([[log-converter]] §7 P0) |
+| §2 RecordId join | a Claude fixture where a sidechain child's `parentUuid` names a multi-event assistant record, and another child names a single-event record. Both parents join through `child.parent == event.record` with no map or second pass, and the single-event record's EventId == RecordId. Broken control: resolving parents to the `block-0` EventId fails the single-event case, because an empty-tag id ≠ the `block-0` id |
 | §2 multi-event tags | Every event from one record gets a distinct id, stable across runs, emitted in grammar order. Fixtures: a Claude assistant line with text, thinking and tool_use blocks plus usage, a sidechain and a model change (`block-0..2`, `usage`, `subagent`, `context`); a Claude `user` line with 3 `tool_result` blocks; a Codex `compacted` record with 2 replacement messages; a Codex record that yields Usage or Context besides its main event. Broken control: dropping any tag (an empty tag for a derived event) makes two ids collide |
 | §4 event_msg duplicates | a Codex fixture with paired `response_item` message + `event_msg` `agent_message` gives exactly one Message event and one Native event |
 | §2 EventId framing | a test vector golden for `(claude, s1, 23)` and `(claude, s12, 3)` gives different ids, and fixed vectors pin the bytes. Broken control: unframed concatenation makes the two collide |
@@ -200,6 +208,7 @@ E3's #4935 `import::claude` (harness) is the first implementation of the Claude 
 
 ## Change log
 
+- **2026-11-01, at the Oracle's P3 DAG ruling** (message 01M6CQA36J7VD1WX0MFXRFNNJS). RecordId is added (the same framing, empty tag). `Event.record` and `Event.parent: Option<RecordId>` replace the EventId parent, and `Compaction.replaced_through` becomes a RecordId. A single-event record's EventId equals its RecordId; a multi-event record's RecordId is an anchor that is never emitted.
 - **2026-11-01, at the Oracle's P3 ruling** (message 01M6CQ1J75CY37D5QKF5BYB8J0). Fixed tags `usage`, `subagent` and `context` are added, at most one each per record, after the content events. When a record yields several events, all of them are tagged, so `block-0` is tagged too; the only exception is the Compaction event. The emission order is part of the grammar.
 - **2026-11-01, at the Oracle's P4 review** (message 01M6CP8GRD8W29GDDGCMFFMJ5J). The role_tag grammar is now closed: `turn-start`, `turn-end`, `block-N` and `replacement-N`, zero-based, with no `#`. `block-N` was added because a Claude line with several tool results had the same collision. Codex `event_msg` user_message/agent_message/agent_reasoning map to Native.
 - **2026-11-01, at the Oracle's P1 review** (message 01M6CME9FPSKY4PJNC2A0BAJNQ). EventId fields are length-prefixed (u32 BE) under the domain tag `bxl.event.v1`. The unframed concatenation collided across field boundaries.
