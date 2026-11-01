@@ -11,6 +11,8 @@ pub mod assets;
 pub mod bridge;
 pub mod budget;
 pub mod chat_scroll;
+#[cfg(feature = "embedded")]
+pub mod layout_checks;
 pub mod model;
 pub mod options;
 #[cfg(feature = "embedded")]

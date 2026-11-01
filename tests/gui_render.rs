@@ -342,3 +342,64 @@ async fn live_terminal_heads_snapshots_and_completed_blob_reach_the_view() {
         "live gateway must deliver coalesced v0.2 output snapshots"
     );
 }
+
+#[tokio::test]
+async fn structural_layout_smoke_checks_restored_geometry() {
+    let mut model = read_replay("tests/fixtures/gui/rich-all-items.jsonl".into())
+        .await
+        .unwrap();
+    for id in model.order.clone() {
+        let row = model.items.get_mut(&id).unwrap();
+        if let Item::Approval {
+            decision, options, ..
+        } = &mut row.body
+        {
+            *decision = None;
+            *options = vec![
+                ApprovalDecisionKind::Allow,
+                ApprovalDecisionKind::AllowAlways,
+                ApprovalDecisionKind::Deny,
+            ];
+            row.status = None;
+            row.completed = None;
+        }
+    }
+    let mut state = FrameState {
+        transcript: Arc::new(model),
+        ready: true,
+        replay: true,
+        ..Default::default()
+    };
+    state.prepared = Some(Arc::new(
+        prepare(&mut Preparer::default(), state.transcript.clone(), 1120.).await,
+    ));
+    let mut view = HarnessView::default();
+    let frame = view.render(&state, [1120., 7000.]).unwrap();
+    let checked = bboxy450_harness::frontends::gui::layout_checks::check(
+        state.prepared.as_ref().unwrap(),
+        frame.layout.as_ref().unwrap(),
+    )
+    .unwrap();
+    println!("prepared structural geometry: {checked:?}");
+    for key in ["jump", "interrupt", "stop"] {
+        let button =
+            bboxy450_harness::frontends::gui::view::find(frame.layout.as_ref().unwrap(), key)
+                .unwrap();
+        fn text(n: &bbt_ui::components::Layout) -> Option<bbt_ui_model::layout::Rect> {
+            if matches!(n.kind, bbt_ui::components::LayoutKind::Text { .. }) {
+                Some(n.rect)
+            } else {
+                n.children.iter().find_map(text)
+            }
+        }
+        let label = text(button).unwrap();
+        assert!(
+            ((button.rect.y + button.rect.h / 2.) - (label.y + label.h / 2.)).abs() < 0.5,
+            "ToolbarLabelCentered: {key} button {:?} label {label:?}",
+            button.rect
+        );
+    }
+    assert!(
+        checked.markdown_blocks >= 6 && checked.accordion_headers >= 8 && checked.inline_rows >= 4
+    );
+}

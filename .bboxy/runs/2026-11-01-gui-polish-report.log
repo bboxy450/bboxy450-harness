@@ -1,0 +1,100 @@
+E3c GUI polish — task #4104 (01M6BHRGKVYXQ67R209RH4AW6F)
+Worktree: /Users/feral/mydev/bboxy450-harness-gui
+Branch: e3c-gui-polish; base origin/main b6bf813 (merged PR #5).
+Verified source: dee8ee72580b235ead981412db0aba0d7e8f378d.
+The following records commit changes only .bboxy/runs evidence. The final signed
+head and PR URL accompany task_report; no merge is performed by this Executor.
+
+Files and mechanism
+- src/frontends/gui/view.rs:1031 — removed prepared_on_ui and
+  large_markdown_blocks, including the scan feeding the latter. The real UI
+  ownership assertion and worker preparation path remain exercised by gui_rich.
+- rich.rs:162 — retain the mdblock boundary around its restored layout, with
+  the actual solved block rect and populated child.
+- view.rs:1040 and layout_checks.rs:59 — inspect every complete worker-prepared
+  row before viewport elision, then inspect the frame controls. Containment
+  cannot pass by clipping a misplaced block out of the frame.
+- layout_checks.rs:84/95/115/137 — named contracts MarkdownBlocksInsideCard,
+  AccordionHeaderFillCoversRow, InlineControlsInsideRow, NoEmptyPaintedBoxes.
+  The checks require populated blocks within their card, resolved Surface2
+  covering the full disclosure row, non-overlapping controls and contained
+  label runs, and meaningful content in every painted Box. Fills, borders,
+  rings, focus rings and shadows count as painted. Witness counts are 6 restored
+  markdown blocks, 8 accordion headers, 5 inline rows and 60 painted boxes.
+- smoke.rs:51 — production headless smoke calls these same checks. Existing
+  rendered meaning, highlighting, diff, approval and scrolled viewport checks
+  remain. smoke.rs:165 additionally checks body text padding and theme-coloured
+  disclosure glyphs. tests/gui_render.rs:347 drives actual replay preparation
+  and rendering, including ToolbarLabelCentered at :398.
+- view.rs:338/1532 — fit the toolbar's vertical inset to its fixed height;
+  give accordion content 6 px vertical / 8 px horizontal padding and natural
+  wrapped height; paint header rows with Surface2; use Foreground disclosure
+  glyphs matching the open/closed state. Status-chip colours remain intact.
+- view.rs:1356 — intentional rules, address status dots and the caret retain
+  their solved geometry as Rects/Path primitives, rather than empty content
+  boxes. Empty control badges are not exempted from the check.
+- view.rs:1110 and tests/gui_rich.rs:886 — ContextTrim says "Tool output limited
+  to 2 KiB". The rendered assertion rejects the previous terminal-output copy,
+  matching the ToolCall-only clipping arm in src/context/mod.rs.
+- verification/coverage.toml — inventory the new source and label pure geometry
+  as implementation-only coverage. No stateful contract or model changed.
+  Source headers retain the project's attribution and policy URL.
+
+Red -> green controls (each real rendering mutation, exit 101 -> 0)
+Command: python3 -I scripts/gui-polish-controls.py — exit 0.
+The script uses a private HOME and restores/hash-checks production source after
+both failure and success. Each case runs the exact structural_layout_smoke test:
+- markdown: translate the restored block 2048 px out of its card;
+  MarkdownBlocksInsideCard. e3c-controls/markdown-{red,green}.log.
+- header-fill: remove the actual accordion header surface;
+  AccordionHeaderFillCoversRow. e3c-controls/header-fill-{red,green}.log.
+- inline: force an actual inline button to 2048 px width;
+  InlineControlsInsideRow. e3c-controls/inline-{red,green}.log.
+- empty-box: restore an empty rendered shortcut badge after approval labels;
+  NoEmptyPaintedBoxes. e3c-controls/empty-box-{red,green}.log.
+Machine-readable commands, statuses and restored source hashes:
+.bboxy/runs/e3c-controls/results.json. All hashes match the verified source.
+An initial viewport-only control correctly exposed missing block witnesses;
+inspection was moved before culling so the control now fails at containment.
+
+Verification and actual exits
+- First plain make test: exit 2; clippy's replace_box lint returned 101.
+  Reused the disclosure's existing allocation in signed commit dee8ee7.
+  Raw output: .bboxy/runs/e3c-make-test-attempt1.log.
+- cargo clippy --offline --locked --all-targets --all-features -- -D warnings:
+  exit 0; .bboxy/runs/e3c-clippy.log.
+- Refreshed all four controls after that fix: script exit 0, each 101 -> 0.
+- Final command exactly: make test — exit 0, unattended and unfiltered.
+  .bboxy/runs/e3c-make-test.log contains the complete output.
+  test-current.json records all 10 canonical stages at exit 0; gui-gate.json
+  records all 4 GUI stages at exit 0, both for source dee8ee7.
+  Includes fmt, all-target/all-feature clippy, core/unit/integration tests,
+  hardening, native/TLC, secret/header/KB gates, toolkit identity/dependency
+  check, GUI UI-thread lint, all 6 GUI integration binaries (including all
+  15 rich tests), and make test-gui-smoke. No percentile measurement is a gate;
+  the existing wall-clock benchmark remains ignored, outside make test.
+- Native/TLC parity: all 64 variants have equal complete state/transition
+  graphs and expected safety/deadlock/liveness verdicts; 25 contracts, 1 crate.
+  .bboxy/runs/e3c-formal-summary.json commits source/model/tool hashes and
+  per-model evidence for the checked source, dirty=false.
+- .bboxy/runs/e3c-verification.json verifies both gate manifests, all 153 formal
+  input hashes, control source restoration and image digests.
+- .bboxy/runs/e3c-source-signatures.log: both source commits verify G, Boxy
+  (bboxy450) <bboxy450@gmail.com>, key 9B07E849480C68328CA20684844ECC0587DE7AB0.
+
+Committed screenshots from the final headless smoke
+- .bboxy/runs/gui-smoke.png (1120 x 7000), SHA256
+  635f551f2f792d795062bb5931d7ea8c5e561a8bd97de12da80996b03ce37371.
+  Shows padded tool bodies, full subdued bands, contrasting disclosure glyphs,
+  centered toolbar labels and corrected ContextTrim text. 22 visible items,
+  15 kinds, three distinct compact approval buttons, highlighted code and diffs.
+- .bboxy/runs/gui-smoke-scrolled.png (1120 x 860), SHA256
+  cddb47d7dd59570be2c97ba5774c9a356a40d0016401dc408d3c3085b24aae2c.
+  Actual intermediate scroll, readable content and virtualized visible rows.
+
+Scope and remaining work
+All requested implementation and acceptance checks passed. No core files or
+runtime stateful contracts changed. Source inputs are clean; prior untracked
+E3/E3b logs and local formal archives are preserved. Physical display interaction
+was unnecessary: all verification used fixtures, test identities and headless
+rendering. The Oracle reviews and decides acceptance/merge.

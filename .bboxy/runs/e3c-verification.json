@@ -1,0 +1,192 @@
+{
+  "source": "dee8ee72580b235ead981412db0aba0d7e8f378d",
+  "command": "make test",
+  "exit_code": 0,
+  "operator_input": false,
+  "private_home": true,
+  "core_stages": [
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--check"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--all-targets",
+        "--all-features",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--all-targets",
+        "--features",
+        "acp,test-fixtures"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/test-hardening.py"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "make",
+        "test-formal-native"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "make",
+        "test-formal-parity"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/checks.py",
+        "secrets"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/checks.py",
+        "headers"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/checks.py",
+        "kb-records"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/checks.py",
+        "kb-records-control"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "gui_stages": [
+    {
+      "command": [
+        "python3",
+        "-I",
+        "tests/gui_dependencies.py"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "--bin",
+        "bboxy450-harness",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--features",
+        "standalone",
+        "--test",
+        "gui_rich",
+        "--test",
+        "gui_render",
+        "--test",
+        "gui_bridge",
+        "--test",
+        "gui_fixtures",
+        "--test",
+        "gui_budget",
+        "--test",
+        "gui_cli",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "make",
+        "test-gui-smoke"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "input_hashes_match": true,
+  "formal": {
+    "models": 64,
+    "contracts": 25,
+    "crates": 1,
+    "all_graphs_equal": true
+  },
+  "controls": [
+    {
+      "assertion": "MarkdownBlocksInsideCard",
+      "red_exit": 101,
+      "green_exit": 0
+    },
+    {
+      "assertion": "AccordionHeaderFillCoversRow",
+      "red_exit": 101,
+      "green_exit": 0
+    },
+    {
+      "assertion": "InlineControlsInsideRow",
+      "red_exit": 101,
+      "green_exit": 0
+    },
+    {
+      "assertion": "NoEmptyPaintedBoxes",
+      "red_exit": 101,
+      "green_exit": 0
+    }
+  ],
+  "screenshots": {
+    ".bboxy/runs/gui-smoke.png": "635f551f2f792d795062bb5931d7ea8c5e561a8bd97de12da80996b03ce37371",
+    ".bboxy/runs/gui-smoke-scrolled.png": "cddb47d7dd59570be2c97ba5774c9a356a40d0016401dc408d3c3085b24aae2c"
+  }
+}

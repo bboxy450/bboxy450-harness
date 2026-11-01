@@ -48,6 +48,8 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         let width = 1120;
         let height = 7000;
         let frame = view.render(&state, [width as f32, height as f32])?;
+        let checked = super::layout_checks::check(state.prepared.as_ref().ok_or("missing prepared rows")?, frame.layout.as_ref().ok_or("missing solved layout")?)?;
+        println!("gui-smoke structural: {checked:?}");
         let mut renderer = ChromeRenderer::with_context(context, super::assets::icons())
             .map_err(|e| e.to_string())?;
         let rgba = renderer
@@ -153,6 +155,17 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         for row in state.transcript.items.values().filter(|r|r.kind==ItemKind::ToolCall) {
             for part in ["arguments","output"] {
                 if super::view::find(layout,&format!("tool/{}/{part}/head/count",row.id)).is_some() {return Err("tool accordion exposes a meaningless count".into());}
+                let key = format!("tool/{}/{part}",row.id);
+                let content=super::view::find(layout,&format!("{key}/content")).ok_or("tool content inset missing")?;
+                fn inset_text(node:&bbt_ui::components::Layout, area:bbt_ui_model::layout::Rect)->bool {
+                    if let bbt_ui::components::LayoutKind::Text {runs,..}=&node.kind
+                        && runs.iter().any(|r| !r.text.trim().is_empty() && (r.rect.x < area.x+7.5 || r.rect.y < area.y+5.5 || r.rect.right()>area.right()-7.5 || r.rect.bottom()>area.bottom()-5.5)) {return false;}
+                    node.children.iter().all(|child|inset_text(child,area))
+                }
+                if !inset_text(content,content.rect) {return Err("tool text touches the accordion border".into());}
+                let disclosure=super::view::find(layout,&format!("{key}/head/right/swatch")).ok_or("tool disclosure missing")?;
+                let foreground=bbt_ui::Paint::solid(bbt_ui::Color::Foreground).resolve(super::view::context())?.map(f32::to_bits);
+                if layout_text(disclosure)!="▾" || !colours(disclosure).contains(&foreground) {return Err("tool disclosure lacks a contrasting theme glyph".into());}
             }
         }
         let trim=state.transcript.items.values().find(|r|r.kind==ItemKind::ContextTrim).ok_or("fixture lacks ContextTrim")?;

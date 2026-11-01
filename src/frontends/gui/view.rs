@@ -334,7 +334,9 @@ impl HarnessView {
                 .element(ctx)?;
                 controls.push(named(key, button).into());
             }
-            let header = c::Element::Box(c::Box::new(ui::Style::new(ui::Preset::Card), controls));
+            let mut header = c::Box::new(ui::Style::new(ui::Preset::Card), controls);
+            header.style.overrides.padding = Some([4., 8., 4., 8.].map(ui::Length::Px));
+            let header = named("toolbar", c::Element::Box(header));
             let root = column(
                 vec![
                     c::Item {
@@ -350,7 +352,8 @@ impl HarnessView {
                 Some(size[1]),
             );
 
-            let layout = root.layout(Rect::new(0., 0., width, size[1]), ctx, &self.metrics)?;
+            let mut layout = root.layout(Rect::new(0., 0., width, size[1]), ctx, &self.metrics)?;
+            paint_shapes(&mut layout);
             self.controls = Some(Controls {
                 key: controls_key,
                 size,
@@ -1028,13 +1031,19 @@ pub struct PreparedRows {
     rows: im::HashMap<ItemId, Arc<CachedRow>>,
     height: f32,
     pub layout_builds: usize,
-    pub large_markdown_blocks: usize,
-    pub prepared_on_ui: bool,
     pub parsed_markdown_bytes: usize,
     pub received_markdown_bytes: usize,
     pub markdown_block_layouts: usize,
     pub markdown_appends: usize,
     pub deferred_markdown_batches: usize,
+}
+impl PreparedRows {
+    pub(super) fn layouts(&self) -> impl Iterator<Item = &c::Layout> {
+        self.source
+            .order
+            .iter()
+            .filter_map(|id| self.rows.get(id).map(|row| &row.layout))
+    }
 }
 #[derive(Default)]
 pub struct Preparer {
@@ -1098,7 +1107,7 @@ impl Preparer {
             }
             let trim_callout = if let Item::ContextTrim { clipped_through } = &row.body {
                 Some(format!(
-                    "### Context trimmed through event {}\n\nTool and terminal output limited to **2 KiB**; reasoning and images omitted from model context.",
+                    "### Context trimmed through event {}\n\nTool output limited to **2 KiB**; reasoning and images omitted from model context.",
                     clipped_through.0
                 ))
             } else {
@@ -1191,7 +1200,13 @@ impl Preparer {
                         )
                         .into(),
                     );
-                    body.push(inline_row(std::mem::take(&mut toggles)).into());
+                    body.push(
+                        named(
+                            format!("inline/{id}/toggles"),
+                            inline_row(std::mem::take(&mut toggles)),
+                        )
+                        .into(),
+                    );
                     if !face.reasoning_closed {
                         if face.source {
                             let mut text = c::Text::new(
@@ -1248,7 +1263,7 @@ impl Preparer {
                         output_open: !face.output_closed,
                     }
                     .element(ctx, content_width, &self.metrics);
-                    subdued_tool_parts(&mut tool, false);
+                    subdued_tool_parts(&mut tool, &face);
                     body.push(tool.into());
                 }
                 Item::FileChange { unified, .. } | Item::TurnDiff { unified } => {
@@ -1307,6 +1322,7 @@ impl Preparer {
             if let Some(rich) = &rich {
                 super::rich::restore(&mut layout, &rich.blocks);
             }
+            paint_shapes(&mut layout);
             let height = layout.rect.h;
             self.rows.insert(
                 *id,
@@ -1320,27 +1336,65 @@ impl Preparer {
             self.layout_builds += 1;
             total_height += height;
         }
-        let large_markdown_blocks = source
-            .items
-            .values()
-            .filter(
-                |row| matches!(&row.body, Item::AgentMessage { markdown } if markdown.len() > 4096),
-            )
-            .count();
         Ok(PreparedRows {
             source,
             width,
             rows: self.rows.clone(),
             height: total_height,
             layout_builds: self.layout_builds,
-            large_markdown_blocks,
-            prepared_on_ui: bbt_rt::is_ui_thread(),
             parsed_markdown_bytes: self.documents.parsed_bytes,
             received_markdown_bytes: self.documents.received_bytes,
             markdown_block_layouts: self.documents.block_layouts,
             markdown_appends: self.documents.appends,
             deferred_markdown_batches: self.documents.deferred_batches,
         })
+    }
+}
+
+// Rules, status dots and the editor caret have no content slot. Retain their
+// solved geometry/colour as drawing primitives; cards and controls keep Box.
+fn paint_shapes(node: &mut c::Layout) {
+    if matches!(&node.kind, c::LayoutKind::Named(name) if name.ends_with("/rail") || name == "composer/text/caret")
+        && let Some(rail) = node.children.first_mut()
+        && let c::LayoutKind::Box { style, .. } = &rail.kind
+        && rail.children.is_empty()
+    {
+        rail.kind = c::LayoutKind::Rects {
+            rects: Arc::from([(Rect::new(0., 0., rail.rect.w, rail.rect.h), style.fill)]),
+            scale: 1.,
+            repeat: None,
+        };
+        return;
+    }
+    if matches!(&node.kind, c::LayoutKind::Named(name) if name.starts_with("composer/address/") && name.ends_with("/dot"))
+        && let Some(dot) = node.children.first_mut()
+        && let c::LayoutKind::Box { style, .. } = &dot.kind
+        && dot.children.is_empty()
+    {
+        // The address status dot is likewise a shape, with no content slot.
+        use bbt_ui_model::draw::{PathCommand as P, PathStroke};
+        let [x, y] = [dot.rect.w / 2., dot.rect.h / 2.];
+        let k = 0.552_284_8;
+        dot.kind = c::LayoutKind::Path {
+            points: Arc::from([
+                P::Move([x, 0.]),
+                P::Cubic([[x + x * k, 0.], [2. * x, y - y * k], [2. * x, y]]),
+                P::Cubic([[2. * x, y + y * k], [x + x * k, 2. * y], [x, 2. * y]]),
+                P::Cubic([[x - x * k, 2. * y], [0., y + y * k], [0., y]]),
+                P::Cubic([[0., y - y * k], [x - x * k, 0.], [x, 0.]]),
+            ]),
+            stroke: PathStroke {
+                width: 0.,
+                ..Default::default()
+            },
+            color: style.fill,
+            fill: Some(style.fill),
+            scale: 1.,
+        };
+        return;
+    }
+    for child in &mut node.children {
+        paint_shapes(child);
     }
 }
 
@@ -1463,36 +1517,80 @@ fn approval_element(prompt: &ui::modules::approval::Approval, ctx: ui::Context) 
                 named(format!("{}/{}", prompt.key, option.key), button).into()
             })
             .collect();
-        stack.children.push(inline_row(buttons).into());
+        stack.children.push(
+            named(
+                format!("inline/{}/choices", prompt.key),
+                inline_row(buttons),
+            )
+            .into(),
+        );
     }
     atom
 }
 // The toolkit tool card owns disclosure geometry. Status colour belongs to the
 // status chip; argument/output bands use the host's subdued theme surfaces.
-fn subdued_tool_parts(element: &mut c::Element, active: bool) {
+fn subdued_tool_parts(element: &mut c::Element, face: &super::rich::Face) {
     match element {
-        c::Element::Named { name, content } => subdued_tool_parts(
-            content,
-            active || name.ends_with("/arguments") || name.ends_with("/output"),
-        ),
-        c::Element::Box(b) => {
-            if active {
-                b.style.overrides.fill = Some(ui::Paint::solid(ui::Color::Surface2));
-                b.style.overrides.border = Some(ui::Border {
-                    width: ui::Length::Px(1.),
-                    paint: ui::Paint::solid(ui::Color::Line),
-                    outside: false,
-                });
+        c::Element::Named { name, content } => {
+            if (name.ends_with("/arguments") || name.ends_with("/output"))
+                && let c::Element::Box(frame) = content.as_mut()
+                && let c::Element::Box(inner) = &mut frame.children[0].element
+            {
+                // Natural height includes the body's inset and wrapped lines.
+                // The toolkit's fixed height was measured before host padding.
+                frame.style.overrides.height = None;
+                frame.style.overrides.fill = Some(ui::Paint::solid(ui::Color::Surface));
+                inner.style.overrides.padding = Some([ui::Length::Px(0.); 4]);
+                if inner.children.len() > 2 {
+                    let body = &mut inner.children[2];
+                    let mut inset = column(vec![body.element.clone().into()], None);
+                    if let c::Element::Box(b) = &mut inset {
+                        b.style.overrides.padding = Some([6., 8., 6., 8.].map(ui::Length::Px));
+                    }
+                    body.element = named(format!("{name}/content"), inset);
+                    body.extent = c::Extent::MinContent;
+                    // Spacing is layout, not an empty painted card.
+                    inner.children[1] = c::Item {
+                        element: c::Element::Spacer,
+                        extent: c::Extent::Fixed(3.),
+                    };
+                }
+                frame.children.truncate(1); // no decorative empty bumper
+                frame.children[0].extent = c::Extent::MinContent;
             }
-            b.children.retain(|item| !matches!(&item.element, c::Element::Named { name, .. } if active && name.ends_with("/head/count")));
+            if name.ends_with("/head")
+                && let c::Element::Box(header) = content.as_mut()
+            {
+                header.style.overrides.fill = Some(ui::Paint::solid(ui::Color::Surface2));
+                header.style.overrides.padding = Some([0., 8., 0., 8.].map(ui::Length::Px));
+            }
+            if name.ends_with("/head/right/swatch") {
+                // A visible disclosure glyph replaces the empty status swatch.
+                let closed = if name.contains("/arguments/") {
+                    face.arguments_closed
+                } else {
+                    face.output_closed
+                };
+                **content = label(if closed { "▸" } else { "▾" });
+            }
+            if name.ends_with("/head/sname")
+                && let c::Element::Text(text) = content.as_mut()
+            {
+                for run in &mut text.runs {
+                    run.style.paint = ui::Paint::solid(ui::Color::Foreground);
+                }
+            }
+            subdued_tool_parts(content, face);
+        }
+        c::Element::Box(b) => {
+            b.children.retain(|item| !matches!(&item.element, c::Element::Named { name, .. } if name.ends_with("/head/count")));
             for item in &mut b.children {
-                subdued_tool_parts(&mut item.element, active);
+                subdued_tool_parts(&mut item.element, face);
             }
         }
         c::Element::Stack(stack) => {
-            stack.children.retain(|item| !matches!(&item.element, c::Element::Named { name, .. } if active && name.ends_with("/head/count")));
             for item in &mut stack.children {
-                subdued_tool_parts(&mut item.element, active);
+                subdued_tool_parts(&mut item.element, face);
             }
         }
         _ => {}

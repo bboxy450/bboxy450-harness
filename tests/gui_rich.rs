@@ -883,6 +883,7 @@ async fn context_trim_is_a_prepared_rich_callout_with_its_actual_frontier() {
     let text = layout_text(body);
     assert!(text.contains(&format!("Context trimmed through event {frontier}")));
     assert!(text.contains("2 KiB") && text.contains("model context"));
+    assert!(text.contains("Tool output limited") && !text.contains("terminal output"));
     fn emphasized(node: &bbt_ui::components::Layout) -> bool {
         if let bbt_ui::components::LayoutKind::Text { runs, .. } = &node.kind
             && runs.iter().any(|r| r.style.weight >= 600)
