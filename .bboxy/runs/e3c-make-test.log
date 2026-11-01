@@ -1,0 +1,628 @@
+python3 -I scripts/test.py
+test: cargo fmt --check
+test: cargo clippy --offline --locked --all-targets --all-features -- -D warnings
+    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.68s
+test: cargo test --offline --locked --all-targets --features acp,test-fixtures
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.00s
+     Running unittests src/lib.rs (target/debug/deps/bboxy450_harness-b06c501198e934e9)
+
+running 7 tests
+test redact::ordered_tests::held_tails_keep_arrival_order_and_cross_stream_secrets_are_scrubbed ... ok
+test process::ownership_tests::reaped_group_drop_never_signals_a_reused_identity ... ok
+test gateway::admission_tests::held_capacity_returns_busy_without_an_actor_or_runtime ... ok
+test engine::hardening_tests::crashed_closes_from_the_durable_head_not_runtime_identity ... ok
+test frontends::acp::tests::admission_lag_replays_the_durable_prompt_before_next_input ... ok
+test frontends::acp::tests::real_stream_with_forced_ephemeral_drops_repairs_from_completion_and_snapshot ... ok
+test engine::hardening_tests::a_b_a_is_fenced_by_birth_not_identity ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.82s
+
+     Running unittests src/main.rs (target/debug/deps/bboxy450_harness-3073096c2752150d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests tests/bin/mcp_fixture.rs (target/debug/deps/mcp_fixture-1b432b97f7eebf38)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/acp_face.rs (target/debug/deps/acp_face-1e708411c28fac7a)
+
+running 15 tests
+test every_unsupported_method_has_method_not_found ... ok
+test malformed_line_does_not_end_the_face ... ok
+test failed_load_cwd_closes_the_session_that_was_opened ... ok
+test eof_mid_stream_closes_items_and_preserves_transcript_laws ... ok
+test load_replays_all_items_including_plan_before_response ... ok
+test back_to_back_prompt_and_cancel_preserve_session_order ... ok
+test cancelled_permission_denies_even_when_unattended_allows ... ok
+test disconnect_resolves_pending_permission_and_closes_the_log ... ok
+test queued_prompts_cancel_and_other_sessions_keep_running ... ok
+test permission_rpc_errors_use_the_sessions_unattended_policy ... ok
+test max_tokens_max_rounds_and_error_replies_match_the_ending ... ok
+test scripted_client_full_turn_and_permission_keep_the_dispatcher_live ... ok
+test slow_reader_resumes_without_losing_the_turn ... ok
+test acp_binary_uses_only_jsonrpc_on_real_stdio ... ok
+test eof_cancels_a_pending_profile_factory_without_waiting_for_its_key_command ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.82s
+
+     Running tests/cancel_process.rs (target/debug/deps/cancel_process-69f6b84f9582bb2f)
+
+running 4 tests
+test real_process_group_witness ... ok
+test cancel_kills_group_and_joins_before_ending ... ok
+test cancel_after_leader_exit_kills_the_remaining_member ... ok
+test escaped_pipe_holder_cannot_stall_a_cancelled_turn ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.17s
+
+     Running tests/cli_headless.rs (target/debug/deps/cli_headless-18b06e24c620ed2f)
+
+running 2 tests
+test closed_json_replay_does_not_resolve_credentials_or_change_the_log ... ok
+test binary_emits_protocol_and_edits_unattended ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/context_auto.rs (target/debug/deps/context_auto-036d19524fbee04d)
+
+running 10 tests
+test context_crash_child ... ignored
+test thresholds_and_unicode_clipping_are_exact ... ok
+test usage_anchors_count_exact_new_messages_and_reductions_void_them ... ok
+test trimming_alone_fits_without_a_following_summary ... ok
+test failed_summary_blob_faults_before_request_and_recovery_closes_the_item ... ok
+test oversized_open_turn_sends_once_and_unknown_window_warns_once ... ok
+test cancelling_a_queued_turn_cannot_move_the_frontier_over_the_running_turn ... ok
+test sigkill_between_rounds_rebuilds_the_identical_model_request ... ok
+test durable_frontier_reopens_to_the_same_request ... ok
+test thirty_turns_trim_then_summarize_and_share_the_stable_prefix ... ok
+
+test result: ok. 9 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.03s
+
+     Running tests/context_compact.rs (target/debug/deps/context_compact-772f4983cdeabc21)
+
+running 3 tests
+test digest_matches_golden_and_omits_private_and_large_bodies ... ok
+test cap_drops_oldest_sections_and_fields_cannot_inject_headers ... ok
+test compact_replays_summary_once_and_rejects_an_unchanged_window ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/e2e_scripted.rs (target/debug/deps/e2e_scripted-09f676f015876e92)
+
+running 5 tests
+test malformed_stream_has_one_ending ... ok
+test bad_argument_object_is_a_paired_model_visible_error ... ok
+test parallel_reads_then_edit_then_answer ... ok
+test steer_fallback_preserves_admission_order ... ok
+test steer_at_round_boundary_appears_once_in_running_turn ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s
+
+     Running tests/exec_stream.rs (target/debug/deps/exec_stream-cf1367f1e968f339)
+
+running 2 tests
+test output_chunks_never_exceed_sixteen_kib_after_lossy_decoding ... ok
+test exec_streams_a_repairable_tail_before_completion ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/formal_models.rs (target/debug/deps/formal_models-bb8b2d0d69ea6421)
+
+running 2 tests
+test models::embed_stop_control_reaches_a_stale_a_to_b_to_a_delivery ... ok
+test native_contracts_and_broken_controls ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+     Running tests/formal_nonvacuity.rs (target/debug/deps/formal_nonvacuity-ac2684cea78433d8)
+
+running 11 tests
+test cancellation_tag_changes_and_removing_the_fence_exposes_a_stale_apply ... ok
+test models::embed_stop_control_reaches_a_stale_a_to_b_to_a_delivery ... ok
+test acked_steer_reaches_both_exactly_once_routes ... ok
+test mcp_close_joins_members_even_when_term_is_ignored ... ok
+test mcp_controls_reach_aba_deadlock_and_silent_inflight ... ok
+test leader_exit_is_not_group_exit_and_both_ownership_controls_are_real ... ok
+test subscriber_model_can_lose_an_entire_epoch_and_rejects_both_old_rules ... ok
+test automatic_compaction_controls_violate_the_named_contracts ... ok
+test acp_engine_emit_stays_enabled_with_a_full_writer ... ok
+test acp_fifo_and_paused_writer_are_reachable_and_the_controls_are_real ... ok
+test control_producers_conserve_slots_and_consumers_return_them ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/gateway_host.rs (target/debug/deps/gateway_host-e93273545fcbd692)
+
+running 4 tests
+test create_is_idempotent_and_bound_gateway_never_creates ... ok
+test open_recovers_before_hello_and_subscribe_never_loads ... ok
+test closed_missing_and_corrupt_sessions_are_not_exposed ... ok
+test idle_socket_keeps_a_silent_client_and_emits_heartbeat ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.06s
+
+     Running tests/gateway_lag.rs (target/debug/deps/gateway_lag-790a1030527794ed)
+
+running 1 test
+test firehose_dead_reader ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.47s
+
+     Running tests/gateway_ops.rs (target/debug/deps/gateway_ops-fe9138268325d451)
+
+running 3 tests
+test version_and_unknown_session_refused ... ok
+test busy_not_wait ... ok
+test interrupt_when_full ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/gateway_replay.rs (target/debug/deps/gateway_replay-1b2e97e2b99275e1)
+
+running 1 test
+test subscribe_at_every_seq_and_reset ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/gateway_unix.rs (target/debug/deps/gateway_unix-7d8b245e1f28a07b)
+
+running 3 tests
+test disconnection_resolves_all_pending_sends ... ok
+test transport_replay_and_duplicate_admission_equal_inproc ... ok
+test withheld_ack_times_out_without_blocking_envelopes_and_same_id_is_safe ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.11s
+
+     Running tests/gui_bench.rs (target/debug/deps/gui_bench-fa669c172704d9ad)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/gui_bridge.rs (target/debug/deps/gui_bridge-462e0058ef6093f7)
+
+running 1 test
+test background_subscription_and_detach_preserves_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+
+     Running tests/gui_budget.rs (target/debug/deps/gui_budget-46cea0d95d77eda9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/gui_cli.rs (target/debug/deps/gui_cli-cd37c54020db2833)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/gui_fixtures.rs (target/debug/deps/gui_fixtures-b582ef69aecfb44a)
+
+running 7 tests
+test stick_and_release ... ok
+test snapshots_replace_ordered_tail_late_chunks_and_aba_epochs_are_retired ... ok
+test completion_wins_and_durable_replay_cannot_reopen_or_duplicate ... ok
+test v0_2_heads_and_terminal_snapshot_repair ... ok
+test every_fixture_passes_laws_and_projects ... ok
+test snapshot_repairs_dropped_and_coalesced_deltas_before_completion ... ok
+test live_equals_replay ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.13s
+
+     Running tests/gui_render.rs (target/debug/deps/gui_render-dc675fa528cbcc57)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/gui_rich.rs (target/debug/deps/gui_rich-8c18e0febc6f7420)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/mcp_client.rs (target/debug/deps/mcp_client-37991b0147c8d461)
+
+running 15 tests
+test crash_mid_call_is_failed_and_turn_continues ... ok
+test interrupt_notifies_a_slow_call_and_ends_cancelled ... ok
+test close_kills_a_server_and_member_that_ignore_eof_and_term ... ok
+test normalized_names_keep_the_first_collision_and_cap_at_64 ... ok
+test crash_stderr_and_spilled_results_never_persist_the_secret ... ok
+test changed_list_waits_for_next_turn_snapshot ... ok
+test close_cancels_a_hung_tools_relist_and_reaps_the_server ... ok
+test starting_hung_server_never_blocks_a_turn ... ok
+test every_trusted_read_obeys_deny_and_explicit_ask ... ok
+test a_lying_write_hint_needs_explicit_trust_to_bypass_the_question ... ok
+test reserved_capability_is_removed_after_configured_environment_overrides ... ok
+test trusted_read_has_no_question_and_secrets_are_scrubbed ... ok
+test readonly_concurrency_is_separate_from_untrusted_policy ... ok
+test timeout_is_labelled_cancelled_and_turn_continues ... ok
+test five_failed_attempts_are_terminal_and_close_reaps_each_group ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.25s
+
+     Running tests/policy_gate.rs (target/debug/deps/policy_gate-90806777cdfe1f03)
+
+running 4 tests
+test first_resolution_wins_and_stale_is_rejected ... ok
+test unattended_denies_and_registry_declares_effects ... ok
+test old_turn_approval_cannot_resolve_the_current_turn ... ok
+test deny_star_never_executes_the_counting_tool ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running tests/profile_lifecycle.rs (target/debug/deps/profile_lifecycle-17b63289db5e68f6)
+
+running 2 tests
+test profile_resolution_applies_once_and_never_fetches_a_model ... ok
+test close_cancels_and_joins_idle_profile_key_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/protocol_golden.rs (target/debug/deps/protocol_golden-1e6e36d26ccbfce3)
+
+running 2 tests
+test future_variants_and_fields ... ok
+test schema_and_golden_transcripts ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/protocol_laws.rs (target/debug/deps/protocol_laws-cefbdde6789ec2a9)
+
+running 3 tests
+test durable_identity_and_live_completion_rules_are_specific ... ok
+test rejects_double_end_gap_unpaired_and_kind_change ... ok
+test queued_cancellation_does_not_authorize_reducing_a_running_turn ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/provider_stream.rs (target/debug/deps/provider_stream-2ec1eb5b4c2893b7)
+
+running 6 tests
+test cancel_mid_stream ... ok
+test midstream_disconnect_never_retries ... ok
+test empty_final_delta_after_tool_finish_preserves_ready_calls ... ok
+test strict_assembly_and_fragmentation ... ok
+test stall_is_bounded_and_errors_do_not_echo_bodies ... ok
+test real_http_retry_after_then_success ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.01s
+
+     Running tests/reactor_projection.rs (target/debug/deps/reactor_projection-018f7c3c02aa1779)
+
+running 1 test
+test every_readiness_mask_matches_shared_projection ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/rt_budget.rs (target/debug/deps/rt_budget-d984b42c7242fbe0)
+
+running 2 tests
+test ten_thousand_file_grep_leaves_io_ticker_responsive ... ignored, wall-clock measurement: make bench-budgets
+test expensive_entries_hold_four_permits_off_the_io_workers ... ok
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 4.26s
+
+     Running tests/seat_golden.rs (target/debug/deps/seat_golden-9c7eb5bf8b834b55)
+
+running 1 test
+test fixtures_are_append_only_and_escape_safe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/seat_process.rs (target/debug/deps/seat_process-33bccc80658372a4)
+
+running 3 tests
+test no_bboxy_sock_still_finishes_a_turn ... ok
+test terminate_during_key_resolution_joins_the_key_process ... ok
+test hangup_stops_without_an_operator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.59s
+
+     Running tests/secrets.rs (target/debug/deps/secrets-83a3ef456ae46dfb)
+
+running 4 tests
+test keychain_sources_are_not_launched ... ok
+test key_command_model_tools_and_errors_never_persist_secrets ... ok
+test split_model_key_is_scrubbed_from_snapshots_and_seat_output ... ok
+test command_resolution_bounds_stdout_ignores_stderr_and_registers_repeated_values ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+
+     Running tests/store_fork.rs (target/debug/deps/store_fork-1795b43817e2e506)
+
+running 4 tests
+test corrupt_parent_blob_never_publishes_a_child_log ... ok
+test invalid_fork_points_are_refused_without_a_child_log ... ok
+test fork_while_parent_appends_copies_exactly_the_fixed_prefix ... ok
+test fork_is_self_contained_and_builds_the_same_first_request ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-0fcf1a86c51a33c2)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.40s
+
+     Running tests/tools.rs (target/debug/deps/tools-50429c5b84d836b1)
+
+running 2 tests
+test exact_unique_edit_and_staged_patch ... ok
+test argv_cap_spill_search_and_path_locks ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+test: python3 -I scripts/test-hardening.py
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 1.191s
+
+OK
+test: make test-formal-native
+FORMAL_OUT='/Users/feral/mydev/bboxy450-harness-gui/target/formal/models' cargo test --offline --locked --test formal_models --test formal_nonvacuity --test reactor_projection
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.54s
+     Running tests/formal_models.rs (target/debug/deps/formal_models-2ab2a8c84bf4f8f5)
+
+running 2 tests
+test models::embed_stop_control_reaches_a_stale_a_to_b_to_a_delivery ... ok
+test native_contracts_and_broken_controls ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.28s
+
+     Running tests/formal_nonvacuity.rs (target/debug/deps/formal_nonvacuity-2e0adf8dae183b4d)
+
+running 11 tests
+test cancellation_tag_changes_and_removing_the_fence_exposes_a_stale_apply ... ok
+test models::embed_stop_control_reaches_a_stale_a_to_b_to_a_delivery ... ok
+test acked_steer_reaches_both_exactly_once_routes ... ok
+test mcp_close_joins_members_even_when_term_is_ignored ... ok
+test leader_exit_is_not_group_exit_and_both_ownership_controls_are_real ... ok
+test subscriber_model_can_lose_an_entire_epoch_and_rejects_both_old_rules ... ok
+test mcp_controls_reach_aba_deadlock_and_silent_inflight ... ok
+test automatic_compaction_controls_violate_the_named_contracts ... ok
+test acp_engine_emit_stays_enabled_with_a_full_writer ... ok
+test acp_fifo_and_paused_writer_are_reachable_and_the_controls_are_real ... ok
+test control_producers_conserve_slots_and_consumers_return_them ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/reactor_projection.rs (target/debug/deps/reactor_projection-b8f2f0e6a50d1443)
+
+running 1 test
+test every_readiness_mask_matches_shared_projection ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+python3 -I scripts/formal.py --native --target '/Users/feral/mydev/bboxy450-harness-gui/target/formal'
+formal: native 64 models; 1 crates inventoried
+test: make test-formal-parity
+FORMAL_OUT='/Users/feral/mydev/bboxy450-harness-gui/target/formal/models' cargo test --offline --locked --test formal_models --test formal_nonvacuity --test reactor_projection
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/formal_models.rs (target/debug/deps/formal_models-2ab2a8c84bf4f8f5)
+
+running 2 tests
+test models::embed_stop_control_reaches_a_stale_a_to_b_to_a_delivery ... ok
+test native_contracts_and_broken_controls ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+     Running tests/formal_nonvacuity.rs (target/debug/deps/formal_nonvacuity-2e0adf8dae183b4d)
+
+running 11 tests
+test acked_steer_reaches_both_exactly_once_routes ... ok
+test mcp_close_joins_members_even_when_term_is_ignored ... ok
+test cancellation_tag_changes_and_removing_the_fence_exposes_a_stale_apply ... ok
+test leader_exit_is_not_group_exit_and_both_ownership_controls_are_real ... ok
+test models::embed_stop_control_reaches_a_stale_a_to_b_to_a_delivery ... ok
+test subscriber_model_can_lose_an_entire_epoch_and_rejects_both_old_rules ... ok
+test mcp_controls_reach_aba_deadlock_and_silent_inflight ... ok
+test automatic_compaction_controls_violate_the_named_contracts ... ok
+test acp_engine_emit_stays_enabled_with_a_full_writer ... ok
+test acp_fifo_and_paused_writer_are_reachable_and_the_controls_are_real ... ok
+test control_producers_conserve_slots_and_consumers_return_them ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/reactor_projection.rs (target/debug/deps/reactor_projection-b8f2f0e6a50d1443)
+
+running 1 test
+test every_readiness_mask_matches_shared_projection ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+python3 -I scripts/formal.py --native --target '/Users/feral/mydev/bboxy450-harness-gui/target/formal'
+formal: native 64 models; 1 crates inventoried
+python3 -I scripts/test-formal.py
+........
+----------------------------------------------------------------------
+Ran 8 tests in 0.137s
+
+OK
+python3 -I scripts/formal.py --target '/Users/feral/mydev/bboxy450-harness-gui/target/formal'
+formal: BrokenHarnessGuiMarkdownQuadratic: safety, 1348 states, 2916 edges match
+formal: BrokenHarnessGuiMarkdownHiddenTail: safety, 968 states, 1895 edges match
+formal: HarnessGuiMarkdownBudget: pass, 1184 states, 2586 edges match
+formal: BrokenHarnessGuiMarkdownSuppressedRender: liveness, 1162 states, 2410 edges match
+formal: HarnessGuiApprovalChoice: pass, 14 states, 22 edges match
+formal: BrokenHarnessGuiApprovalChoice: safety, 17 states, 33 edges match
+formal: HarnessTurnLifecyclePairing: pass, 504 states, 2592 edges match
+formal: HarnessTurnLifecycle: pass, 504 states, 2592 edges match
+formal: HarnessCancelTree: pass, 36 states, 54 edges match
+formal: HarnessCancelTreeGroup: pass, 36 states, 54 edges match
+formal: HarnessSteerQueue: pass, 15 states, 22 edges match
+formal: HarnessApprovalLifecycle: pass, 13 states, 28 edges match
+formal: HarnessApprovalUnattended: pass, 6 states, 13 edges match
+formal: HarnessControlLaneBound: pass, 8580 states, 42376 edges match
+formal: HarnessSubscriberReplay: pass, 166 states, 180 edges match
+formal: HarnessSubscriberReplayDrop: pass, 19 states, 22 edges match
+formal: HarnessSubscriberReplayHealthy: pass, 10 states, 12 edges match
+formal: HarnessStreamToView: pass, 20 states, 40 edges match
+formal: HarnessDirtyWakeFrame: pass, 19 states, 25 edges match
+formal: HarnessScrollStick: pass, 12 states, 22 edges match
+formal: HarnessEmbedLifecycle: pass, 74 states, 124 edges match
+formal: HarnessProfileLoad: pass, 51 states, 81 edges match
+formal: HarnessForkMaterialize: pass, 8 states, 16 edges match
+formal: BrokenHarnessTurnLifecycle: safety, 738 states, 3708 edges match
+formal: BrokenHarnessTurnLifecyclePairing: safety, 712 states, 3272 edges match
+formal: BrokenHarnessCancelTree: safety, 66 states, 96 edges match
+formal: BrokenHarnessCancelTreeGroup: safety, 36 states, 54 edges match
+formal: BrokenHarnessSteerQueue: liveness, 5 states, 4 edges match
+formal: BrokenHarnessApprovalLifecycle: safety, 15 states, 32 edges match
+formal: BrokenHarnessApprovalUnattended: liveness, 3 states, 5 edges match
+formal: BrokenHarnessControlLaneBound: safety, 8708 states, 42504 edges match
+formal: BrokenHarnessSubscriberReplay: safety, 44 states, 46 edges match
+formal: BrokenHarnessSubscriberReplayDrop: safety, 20 states, 31 edges match
+formal: BrokenHarnessSubscriberReplayHealthy: liveness, 4 states, 3 edges match
+formal: BrokenHarnessStreamToView: safety, 21 states, 42 edges match
+formal: BrokenHarnessDirtyWakeFrame: safety, 22 states, 26 edges match
+formal: BrokenHarnessScrollStick: safety, 14 states, 27 edges match
+formal: BrokenHarnessEmbedLifecycle: safety, 83 states, 146 edges match
+formal: BrokenHarnessProfileLoad: safety, 60 states, 90 edges match
+formal: BrokenHarnessForkMaterialize: safety, 8 states, 16 edges match
+formal: HarnessAutoCompact: pass, 320 states, 908 edges match
+formal: HarnessMcpServer: pass, 86 states, 226 edges match
+formal: BrokenHarnessMcpServerA: deadlock, 84 states, 214 edges match
+formal: BrokenHarnessAutoCompactA: safety, 256 states, 744 edges match
+formal: BrokenHarnessAutoCompactB: safety, 700 states, 2152 edges match
+formal: BrokenHarnessMcpServerB: safety, 98 states, 260 edges match
+formal: BrokenHarnessAutoCompactC: liveness, 280 states, 740 edges match
+formal: BrokenHarnessMcpServerC: liveness, 72 states, 163 edges match
+formal: BrokenHarnessAutoCompactD: safety, 628 states, 1854 edges match
+formal: HarnessAcpFlow: pass, 1148 states, 2290 edges match
+formal: BrokenHarnessAcpFlowB: safety, 1296 states, 2586 edges match
+formal: BrokenHarnessAcpFlowA: safety, 1484 states, 2915 edges match
+formal: BrokenHarnessAcpFlowC: safety, 1148 states, 2274 edges match
+formal: HarnessMcpGroupClose: pass, 8 states, 11 edges match
+formal: BrokenHarnessMcpGroupClose: safety, 12 states, 15 edges match
+formal: BrokenHarnessSteerQueueDelivery: safety, 18 states, 27 edges match
+formal: HarnessSubscriberReplayRegistration: pass, 19 states, 22 edges match
+formal: BrokenHarnessSubscriberReplayRegistration: safety, 16 states, 21 edges match
+formal: HarnessProcessLifecycle: pass, 15 states, 24 edges match
+formal: BrokenHarnessSubscriberReplayEpochReuse: safety, 118 states, 122 edges match
+formal: BrokenHarnessProcessDrain: liveness, 11 states, 18 edges match
+formal: BrokenHarnessProcessOwnership: safety, 18 states, 32 edges match
+formal: BrokenHarnessProcessReapedMembers: safety, 22 states, 39 edges match
+formal: HarnessTurnLoop: pass, 208 states, 575 edges match
+formal: receipt {"checkout": "/Users/feral/mydev/bboxy450-harness-gui", "contracts": 25, "crates": 1, "dirty": false, "evidence": "/Users/feral/mydev/bboxy450-harness-gui/verification/evidence/5175723e81abd527ac98011ea9980aaa75e00271496c5cf38e4992e69251e4b7/evidence.json", "evidence_sha256": "5175723e81abd527ac98011ea9980aaa75e00271496c5cf38e4992e69251e4b7", "models": 64, "source": "dee8ee72580b235ead981412db0aba0d7e8f378d"}
+formal: 64 models; 1 crates inventoried; native/TLC parity held
+test: python3 -I scripts/checks.py secrets
+secret scan: PASS
+test: python3 -I scripts/checks.py headers
+headers: PASS
+test: python3 -I scripts/checks.py kb-records
+kb records: PASS (2805)
+test: python3 -I scripts/checks.py kb-records-control
+kb records control: PASS (rejected)
+/Applications/Xcode.app/Contents/Developer/usr/bin/make test-gui
+python3 -I tests/gui_gate.py
+gui-test: python3 -I tests/gui_dependencies.py
+gui-dependencies: PASS; one copy of each toolkit package, shared UI-thread registry
+gui-test: cargo clippy --offline --locked --all-features --lib --bin bboxy450-harness -- -D warnings
+    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.00s
+gui-test: cargo test --offline --locked --features standalone --test gui_rich --test gui_render --test gui_bridge --test gui_fixtures --test gui_budget --test gui_cli -- --nocapture
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.38s
+     Running tests/gui_bridge.rs (target/debug/deps/gui_bridge-c4e379efbc8510d5)
+
+running 2 tests
+test rendered_approval_actions_use_control_lane ... ok
+test background_subscription_and_detach_preserves_run ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+
+     Running tests/gui_budget.rs (target/debug/deps/gui_budget-af590deb8f3bd6c5)
+
+running 3 tests
+test budgeted_remainder_keeps_its_wake ... ok
+test completed_layouts_are_retained ... ok
+gui-budget: real Bridge, 100000 deltas, 6 injected-clock frames, 300us limit, deferred notifications and zero projection loss
+test injected_clock_stops_at_300us_defers_and_loses_no_envelope ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.82s
+
+     Running tests/gui_cli.rs (target/debug/deps/gui_cli-7221a2c0430a6336)
+
+running 2 tests
+test escape_and_control_c_route_interrupt ... ok
+test replay_cli_is_offline_and_invalid_inputs_fail_without_a_window ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.00s
+
+     Running tests/gui_fixtures.rs (target/debug/deps/gui_fixtures-a44454eab0384261)
+
+running 7 tests
+test stick_and_release ... ok
+test snapshots_replace_ordered_tail_late_chunks_and_aba_epochs_are_retired ... ok
+test completion_wins_and_durable_replay_cannot_reopen_or_duplicate ... ok
+test v0_2_heads_and_terminal_snapshot_repair ... ok
+test every_fixture_passes_laws_and_projects ... ok
+test snapshot_repairs_dropped_and_coalesced_deltas_before_completion ... ok
+test live_equals_replay ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/gui_render.rs (target/debug/deps/gui_render-0065bc55c85d9dd2)
+
+running 6 tests
+test cards_show_readable_content_instead_of_serialized_payloads ... ok
+test composer_send_and_control_buttons_reach_real_gateway ... ok
+test actual_layout_sticks_releases_and_renders_approval_actions ... ok
+test replay_resize_publishes_current_width_and_invalidates_frame_cache ... ok
+prepared structural geometry: Checked { markdown_blocks: 6, accordion_headers: 8, inline_rows: 5, painted_boxes: 60 }
+test structural_layout_smoke_checks_restored_geometry ... ok
+gui-live: completed blob content rendered; typed terminal head=true, tool head=true, live snapshot=true
+test live_terminal_heads_snapshots_and_completed_blob_reach_the_view ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
+
+     Running tests/gui_rich.rs (target/debug/deps/gui_rich-6d6360d861f167c9)
+
+running 15 tests
+test editor_history_and_slash_completion_use_the_upgraded_editor ... ok
+test a_completion_from_a_retired_token_does_not_replace_new_typing ... ok
+
+thread 'large_markdown_uses_the_production_replay_preparation_worker' (120558193) panicked at src/frontends/gui/view.rs:1094:9:
+blocking IO on the UI thread
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test deferred_tail_is_literal_preview_then_formatted_on_completion ... ok
+test definition_lines_in_containers_repair_previously_formatted_blocks ... ok
+test large_markdown_uses_the_production_replay_preparation_worker ... ok
+test context_trim_is_a_prepared_rich_callout_with_its_actual_frontier ... ok
+test escape_key_routing_closes_completion_before_interrupting_the_live_turn ... ok
+test a_long_code_line_remains_readable_in_the_expandable_source_view ... ok
+test disclosure_controls_change_the_view_without_reparsing_or_core_operations ... ok
+test closing_an_old_gateway_does_not_close_a_reopened_actor_in_the_same_store ... ok
+test the_end_of_a_64k_reply_is_readable_after_scrolling ... ok
+test approval_keyboard_and_escape_resolve_the_actual_prompt ... ok
+test the_view_shows_live_tool_role_and_tail_then_the_full_terminal_blob ... ok
+structured Markdown: 69315 parsed / 65536 received, 64 appends, 0 deferred, 1346 block layouts
+test structured_64k_markdown_measures_toolkit_incrementality_without_throttling ... ok
+test streamed_64k_markdown_has_linear_parse_work_and_reuses_completed_layout ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.88s
+
+gui-test: make test-gui-smoke
+cargo run --offline --locked --features standalone -- gui --replay tests/fixtures/gui/rich-all-items.jsonl --headless --screenshot .bboxy/runs/gui-smoke.png
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.58s
+     Running `target/debug/bboxy450-harness gui --replay tests/fixtures/gui/rich-all-items.jsonl --headless --screenshot .bboxy/runs/gui-smoke.png`
+gui-smoke structural: Checked { markdown_blocks: 6, accordion_headers: 8, inline_rows: 5, painted_boxes: 60 }
+gui-smoke: PASS · 22 visible items, 15 kinds, readable payloads, 3 approval buttons, scrolled viewport, Metal 1120×7000 · .bboxy/runs/gui-smoke.png
