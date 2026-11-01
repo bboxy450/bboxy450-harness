@@ -15,7 +15,7 @@ created: 2026-11-01T02:07:42.273Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:27af45edf917dcfeaec27832b719efc411b27acd59558cefcf771bd9ddde2660
+digest: sha256:71e99795f25619090ebc45ceda59ea3646a9ec020ab586a2c1bf8df690df5ffb
 digest_grade: observed
 for: []
 grade: inferred
@@ -484,22 +484,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/git/ref
   ts: '1793513681741'
+- before_digest: sha256:27af45edf917dcfeaec27832b719efc411b27acd59558cefcf771bd9ddde2660
+  commit: 47e2e9819a2dea7c4ee06205c6fe23c8a1a42cf9
+  digest: sha256:71e99795f25619090ebc45ceda59ea3646a9ec020ab586a2c1bf8df690df5ffb
+  event_hash: e1937c306f6aaa0f176d26a37f41b5b423d546cbf3cd86517a8a2f9c509cf324
+  generation: null
+  grade: inferred
+  id: 01M6AVYWNNKTPVFGBRHHCTBNRR
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:refs/remotes/origin/main
+  seat: null
+  sequence: '11505'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793513712387'
 id: 01M6ADR6CQGP32EAM0BRZ262SH
 kind: other
-last_observation_sequence: '11467'
+last_observation_sequence: '11505'
 number: 47
 observation_reason: git-ref-value; authorship unverified
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:9e4601d69dc99c72a02573ba4b75fa65ca6b0e3d2843ba0718f8de2fd66a9a60
-  log: .bboxy/log/2026-11-01.jsonl#11468
-  sig: dG1i+GAcxjifm8w9KPKk3ZVYem3DA0t4NRCa0KIWKFLHChfU+r7odvXK2I0dk3xKlla038udcDz3uLZCIdZlAw==
+  frontmatter_digest: sha256:c1514e6b00b94590149a1d7aed7275a1675b0420131e5d03115033b8c70d3bd6
+  log: .bboxy/log/2026-11-01.jsonl#11506
+  sig: Su3nR4O/TTNIKrqYh45HfE0rAkN/MNOrSUTI/b5bKbvWJassXQWHBytOvEOyrToDzU+FLnHu+zr6QTVKSB2pDQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: git:refs/remotes/origin/main
 type: artifact
-updated: 2026-11-01T06:14:44.539Z
+updated: 2026-11-01T06:15:14.359Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

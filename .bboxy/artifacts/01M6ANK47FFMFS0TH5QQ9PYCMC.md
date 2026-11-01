@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6ADTTF9QWWFZFVZJHJ3DD8E
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 30282
+bytes: null
 claimed: false
 created: 2026-11-01T04:23:57.424Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:a17d45aba6c716703ec0f46aefcc99083e6e54315334c0be0ccf96455e861544
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -37,22 +36,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793507035873'
+- before_digest: sha256:a17d45aba6c716703ec0f46aefcc99083e6e54315334c0be0ccf96455e861544
+  commit: null
+  digest: null
+  event_hash: 6c3de9e6c25029c7382734a04bd3a763b03a0b798d3c7945bc392f30f69553b3
+  generation: null
+  grade: inferred
+  id: 01M6AW312Q7J14VE0X24QR39WT
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/interfaces/protocol.md
+  seat: null
+  sequence: '11587'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793513745890'
 id: 01M6ANK47FFMFS0TH5QQ9PYCMC
 kind: markdown
-last_observation_sequence: '6040'
+last_observation_sequence: '11587'
 number: 1217
 observation_reason: null
 observed: true
-produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:2002d3f7434c35502523c81c87a3a26c5584d418aea410ed3525214f86031f66
-  log: .bboxy/log/2026-11-01.jsonl#6041
-  sig: s27jwvEDMNPp3IdbDzYAOJoqk5Y1qBHgDeQaOgISwIpaGXSsvkZQCY+KQxIiOMHb0j6PieGPpwER/wnG3uvlBw==
+  frontmatter_digest: sha256:c5456513d34b7ea56b8c2fc8cbbcef5b7bdbbecce1a683005bce431ea9cd836b
+  log: .bboxy/log/2026-11-01.jsonl#11588
+  sig: L9RW53mRXGZBDeS4olgHRWPRGlpoxMW3PBdJMmzRRp5ZR5AiLp787csKTzV+sXtrS4/ERqpg2JHPJsPonTw6CA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/interfaces/protocol.md
 type: artifact
-updated: 2026-11-01T04:23:57.424Z
+updated: 2026-11-01T06:17:29.946Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact
