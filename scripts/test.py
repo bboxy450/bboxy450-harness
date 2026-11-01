@@ -33,6 +33,7 @@ def main():
             ['cargo','fmt','--check'],
             ['cargo','clippy','--offline','--locked','--all-targets','--','-D','warnings'],
             ['cargo','clippy','--offline','--locked','--all-targets','--all-features','--','-D','warnings'],
+            ['cargo','test','--offline','--locked','--all-targets'],
             # Keep launcher process bursts separate from PTY lifecycle deadlines.
             # Every case still runs; neither the deadline nor product scheduling changes.
             ['cargo','test','--offline','--locked','--all-targets','--features','acp,test-fixtures','--','--skip','seat_launch::'],
