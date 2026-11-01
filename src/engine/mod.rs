@@ -45,6 +45,13 @@ pub struct Config {
     pub max_rounds: u32,
     pub profile_error: Option<String>,
 }
+/// Trusted process-launch settings, separate from profile/ACP server data.
+#[derive(Clone, Default)]
+pub struct LaunchOptions {
+    pub append_system_prompt: String,
+    pub mcp_servers: crate::mcp::Servers,
+    pub notices: Vec<String>,
+}
 pub(crate) enum Internal {
     ServiceNotice {
         level: Level,
@@ -118,6 +125,7 @@ pub struct SessionActor {
     auto: crate::context::auto::Options,
     window_warned: bool,
     mcp: crate::mcp::Manager,
+    append_system_prompt: String,
 }
 impl SessionActor {
     pub async fn open(
@@ -131,15 +139,23 @@ impl SessionActor {
         start: OpId,
         notice: Option<String>,
     ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
-        Self::load_with_mcp(config, start, notice, Default::default()).await
+        Self::load_with_mcp(
+            config,
+            start,
+            notice,
+            Default::default(),
+            Default::default(),
+        )
+        .await
     }
     pub(crate) async fn load_with_mcp(
         config: Config,
         start: OpId,
         notice: Option<String>,
         overrides: crate::mcp::Servers,
+        launch: LaunchOptions,
     ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
-        let actor = Self::new(config, start, notice, overrides).await?;
+        let actor = Self::new(config, start, notice, overrides, launch).await?;
         let gateway = actor.gateway.clone();
         let task = bbt_rt::handle().spawn(actor.run());
         Ok((gateway, task))
@@ -149,6 +165,7 @@ impl SessionActor {
         start: OpId,
         notice: Option<String>,
         overrides: crate::mcp::Servers,
+        launch: LaunchOptions,
     ) -> std::io::Result<Self> {
         let mut store = Store::open(
             config.sessions.clone(),
@@ -208,7 +225,11 @@ impl SessionActor {
                     .await?;
             }
         }
-        if let Some(text) = notice {
+        for (level, text) in notice
+            .into_iter()
+            .map(|text| (Level::Error, text))
+            .chain(launch.notices.into_iter().map(|text| (Level::Warn, text)))
+        {
             let item = ItemId::new();
             store
                 .append(
@@ -227,10 +248,7 @@ impl SessionActor {
                     Event::ItemCompleted {
                         item,
                         status: ItemStatus::Completed,
-                        body: Item::Notice {
-                            level: Level::Error,
-                            text,
-                        },
+                        body: Item::Notice { level, text },
                     },
                     None,
                 )
@@ -258,16 +276,12 @@ impl SessionActor {
             enabled: profile.as_ref().is_none_or(|p| p.auto_compact),
             window: profile.as_ref().and_then(|p| p.context_tokens),
         };
-        let mut servers = profile
+        let servers = profile
             .as_ref()
             .map(|p| p.mcp_servers.clone())
             .unwrap_or_default();
-        let collisions = overrides
-            .keys()
-            .filter(|k| servers.contains_key(*k))
-            .cloned()
-            .collect::<Vec<_>>();
-        servers.extend(overrides);
+        let (servers, collisions) =
+            crate::mcp::select_sources(servers, overrides, launch.mcp_servers);
         let mut services = task_group::TaskGroup::new(CancellationToken::new());
         let mcp = crate::mcp::Manager::start(
             servers,
@@ -275,7 +289,7 @@ impl SessionActor {
             output.clone(),
             &mut services,
         );
-        for name in collisions {
+        for text in collisions {
             let tx = output.clone();
             let cancel = services.cancel.clone();
             services.spawn(async move {
@@ -283,7 +297,7 @@ impl SessionActor {
                     &tx,
                     Internal::ServiceNotice {
                         level: Level::Info,
-                        text: format!("mcp {name}: ACP configuration overrides profile"),
+                        text,
                     },
                     &cancel,
                 )
@@ -314,6 +328,7 @@ impl SessionActor {
             profile_pending: None,
             auto,
             window_warned,
+            append_system_prompt: launch.append_system_prompt,
         };
         Ok(actor)
     }
@@ -836,9 +851,15 @@ impl SessionActor {
     }
     async fn request_context(&self) -> std::io::Result<(Vec<serde_json::Value>, usize)> {
         let (tail, prefix) = crate::context::replay(&self.store.events, &self.store.blobs).await?;
-        let mut messages = vec![
-            serde_json::json!({"role":"system","content":format!("You are bboxy450-harness, a coding assistant. Use the provided tools. Working directory: {}",self.config.meta.cwd.display())}),
-        ];
+        let mut system = format!(
+            "You are bboxy450-harness, a coding assistant. Use the provided tools. Working directory: {}",
+            self.config.meta.cwd.display()
+        );
+        if !self.append_system_prompt.is_empty() {
+            system.push('\n');
+            system.push_str(&self.append_system_prompt);
+        }
+        let mut messages = vec![serde_json::json!({"role":"system","content":system})];
         messages.extend(tail);
         Ok((messages, prefix))
     }
@@ -1155,6 +1176,86 @@ mod hardening_tests {
             .unwrap()
     }
     #[tokio::test]
+    async fn launch_context_is_in_the_first_scripted_request_stable_prefix() {
+        let temp = tempfile::tempdir().unwrap();
+        let session = SessionId::new();
+        let requests = Arc::new(Mutex::new(vec![]));
+        let provider = Recording {
+            inner: provider::ScriptedProvider::new(vec![
+                include_bytes!("../../tests/fixtures/sse/text.sse").to_vec(),
+            ]),
+            requests: requests.clone(),
+        };
+        let config = Config {
+            meta: SessionMeta {
+                session,
+                cwd: temp.path().into(),
+                profile: None,
+                fork: None,
+                protocol: PROTOCOL,
+                harness: "test".into(),
+                created_ms: 0,
+            },
+            sessions: temp.path().join("sessions"),
+            profiles: temp.path().join("profiles"),
+            provider: Arc::new(provider),
+            model: "scripted".into(),
+            policy: Policy::new(Unattended::Deny),
+            redactor: Set::default(),
+            max_rounds: 2,
+            profile_error: None,
+        };
+        let (gateway, task) = SessionActor::load_with_mcp(
+            config,
+            OpId::new(),
+            None,
+            Default::default(),
+            LaunchOptions {
+                append_system_prompt: "NAME: test seat\nROLE: EXECUTOR".into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let mut sub = gateway
+            .subscribe(crate::gateway::Subscribe {
+                session,
+                after: None,
+                ephemeral: false,
+            })
+            .unwrap();
+        gateway
+            .send(envelope(
+                &gateway,
+                Op::UserTurn {
+                    blocks: vec![InputBlock::Text {
+                        text: "hello".into(),
+                    }],
+                    mode: TurnMode::Queue,
+                },
+            ))
+            .unwrap();
+        loop {
+            if matches!(event(&mut sub).await.event, Event::TurnEnded { .. }) {
+                break;
+            }
+        }
+        gateway.send(envelope(&gateway, Op::Close)).unwrap();
+        task.await.unwrap().unwrap();
+        let requests = requests.lock().unwrap();
+        let request = requests.first().unwrap();
+        assert!(request.stable_prefix > 0);
+        assert!(
+            request.messages[..request.stable_prefix]
+                .iter()
+                .any(|m| m["role"] == "system"
+                    && m["content"]
+                        .as_str()
+                        .is_some_and(|s| s.ends_with("NAME: test seat\nROLE: EXECUTOR"))),
+            "appended startup text absent from stable system prefix"
+        );
+    }
+    #[tokio::test]
     async fn crashed_closes_from_the_durable_head_not_runtime_identity() {
         let temp = tempfile::tempdir().unwrap();
         let session = SessionId::new();
@@ -1177,9 +1278,15 @@ mod hardening_tests {
             max_rounds: 1,
             profile_error: None,
         };
-        let mut actor = SessionActor::new(config, OpId::new(), None, Default::default())
-            .await
-            .unwrap();
+        let mut actor = SessionActor::new(
+            config,
+            OpId::new(),
+            None,
+            Default::default(),
+            Default::default(),
+        )
+        .await
+        .unwrap();
         let turn = TurnId::new();
         let item = ItemId::new();
         let head = ItemHead::ToolCall {
@@ -1277,9 +1384,15 @@ mod hardening_tests {
             max_rounds: 50,
             profile_error: None,
         };
-        let actor = SessionActor::new(config, OpId::new(), None, Default::default())
-            .await
-            .unwrap();
+        let actor = SessionActor::new(
+            config,
+            OpId::new(),
+            None,
+            Default::default(),
+            Default::default(),
+        )
+        .await
+        .unwrap();
         let output = actor.output.clone();
         let generation = actor.generation.clone();
         let g = actor.gateway.clone();

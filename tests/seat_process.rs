@@ -9,6 +9,9 @@ use std::{
     io::{Read, Write},
     time::{Duration, Instant},
 };
+#[cfg(feature = "test-fixtures")]
+#[path = "support/seat_launch.rs"]
+mod seat_launch;
 fn launch(
     script: &str,
 ) -> (
@@ -110,6 +113,10 @@ fn no_bboxy_sock_still_finishes_a_turn() {
     let output = rx.recv_timeout(Duration::from_secs(5)).unwrap();
     assert!(String::from_utf8_lossy(&output).contains("Done."));
     read.join().unwrap();
+    // This witnesses an unavailable socket, not master-descriptor lifetime.
+    // Cooked EOF closes this seat even while sibling process fixtures run.
+    writer.write_all(b"\x04").unwrap();
+    writer.flush().unwrap();
     drop(writer);
     drop(master);
     let start = Instant::now();

@@ -1,0 +1,182 @@
+{
+  "source": "96ce2d3f822ca627ad4f2b0058f6aee33900b4d0",
+  "verify_result": {
+    "command": "make test",
+    "exit_code": 0
+  },
+  "inputs_byte_identical": 132,
+  "commands": [
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--check"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--all-targets",
+        "--all-features",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--all-targets",
+        "--features",
+        "acp,test-fixtures",
+        "--",
+        "--skip",
+        "seat_launch::"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--features",
+        "acp,test-fixtures",
+        "--test",
+        "seat_process",
+        "seat_launch::"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/test-hardening.py"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "make",
+        "test-formal-native"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "make",
+        "test-formal-parity"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/checks.py",
+        "secrets"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/checks.py",
+        "headers"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/checks.py",
+        "kb-records"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-I",
+        "scripts/checks.py",
+        "kb-records-control"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "gui_commands": [
+    {
+      "command": [
+        "python3",
+        "-I",
+        "tests/gui_dependencies.py"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "--bin",
+        "bboxy450-harness",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--features",
+        "standalone",
+        "--test",
+        "gui_rich",
+        "--test",
+        "gui_render",
+        "--test",
+        "gui_bridge",
+        "--test",
+        "gui_fixtures",
+        "--test",
+        "gui_budget",
+        "--test",
+        "gui_cli",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "make",
+        "test-gui-smoke"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "control_count": 4,
+  "all_controls_red": 101,
+  "all_controls_green": 0,
+  "operator_input": false,
+  "live_requests": 0
+}

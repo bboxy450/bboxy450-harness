@@ -13,6 +13,18 @@ fn main() {
 }
 async fn run() {
     let mode = std::env::args().nth(1).unwrap_or_else(|| "normal".into());
+    if let Ok(path) = std::env::var("MCP_ENV_REPORT") {
+        let names = std::env::vars_os()
+            .filter_map(|(name, _)| name.into_string().ok())
+            .filter(|name| name.starts_with("BBOXY_"))
+            .collect::<std::collections::BTreeSet<_>>();
+        // The test parent supplies only throwaway values. Persist observations,
+        // never environment values (especially never the seat capability).
+        let report = json!({"names":names,"seat_matches":std::env::var("BBOXY_SEAT_ID").as_deref()==Ok("throwaway-seat"),"capability_matches":std::env::var("BBOXY_CAPABILITY").as_deref()==Ok("throwaway-capability")});
+        let temp = path.clone() + ".tmp";
+        std::fs::write(&temp, serde_json::to_vec(&report).unwrap()).unwrap();
+        std::fs::rename(temp, path).unwrap();
+    }
     if mode == "stubborn_member" {
         unsafe {
             libc::signal(libc::SIGTERM, libc::SIG_IGN);

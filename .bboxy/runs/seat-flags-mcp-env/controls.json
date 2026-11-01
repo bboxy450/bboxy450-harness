@@ -1,0 +1,90 @@
+[
+  {
+    "name": "bboxy-scrub",
+    "source": "src/mcp.rs",
+    "source_sha256": "ff67fc86d2248c7e4740caeb82581e1c7ac30978bef6680c4a2a82750706f6d9",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "seat_process",
+      "cannot_inherit_bboxy_environment"
+    ],
+    "red_assertion": [
+      "profile MCP inherited BBOXY variables",
+      "ACP MCP inherited BBOXY variables"
+    ],
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "launcher-inherit",
+    "source": "src/mcp.rs",
+    "source_sha256": "ff67fc86d2248c7e4740caeb82581e1c7ac30978bef6680c4a2a82750706f6d9",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "seat_process",
+      "seat_launch::launcher_flags_deliver_context_tools_and_only_launcher_environment",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "launcher MCP lost BBOXY capability",
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "append-system",
+    "source": "src/engine/mod.rs",
+    "source_sha256": "1231c7ca5df1b4f10f411f312dfb75644d7ea174b3358d5446b705d19da05ee4",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--lib",
+      "engine::hardening_tests::launch_context_is_in_the_first_scripted_request_stable_prefix",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "appended startup text absent from stable system prefix",
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "missing-mcp-config",
+    "source": "src/frontends/headless.rs",
+    "source_sha256": "b4495c46641b3bf8193b7a48e063089ab1fe0048423a88e02fb8c10c52a74732",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "seat_process",
+      "seat_launch::unavailable_config_is_a_notice_and_the_turn_completes",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "unavailable MCP config did not produce a Notice",
+    "red_exit": 101,
+    "green_exit": 0
+  }
+]

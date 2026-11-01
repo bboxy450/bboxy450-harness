@@ -881,14 +881,27 @@ pub async fn serve_cancelled<
     W: AsyncWrite + Unpin + Send + 'static,
 >(
     input: R,
+    output: W,
+    config: Config,
+    cancel: CancellationToken,
+) -> std::io::Result<()> {
+    let host = Host::new(config.clone());
+    serve_with_host(input, output, config, host, cancel).await
+}
+pub(crate) async fn serve_with_host<
+    R: AsyncRead + Unpin + Send + 'static,
+    W: AsyncWrite + Unpin + Send + 'static,
+>(
+    input: R,
     mut output: W,
     config: Config,
+    host: Host,
     cancel: CancellationToken,
 ) -> std::io::Result<()> {
     let (tx, mut rx) = mpsc::channel::<Value>(256);
     let (connection, mut requests) = mpsc::unbounded_channel();
     let face = Arc::new(Face {
-        host: Host::new(config.clone()),
+        host,
         config,
         sessions: Mutex::default(),
         permissions: Mutex::default(),
