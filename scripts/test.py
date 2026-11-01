@@ -31,6 +31,7 @@ def main():
         env['TMPDIR']=own
         for command in [
             ['cargo','fmt','--check'],
+            ['cargo','clippy','--offline','--locked','--all-targets','--','-D','warnings'],
             ['cargo','clippy','--offline','--locked','--all-targets','--all-features','--','-D','warnings'],
             # Keep launcher process bursts separate from PTY lifecycle deadlines.
             # Every case still runs; neither the deadline nor product scheduling changes.
