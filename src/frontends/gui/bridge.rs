@@ -30,6 +30,7 @@ pub struct FrameState {
     pub transcript: Arc<Transcript>,
     pub gateway: Option<InProc>,
     pub error: Option<String>,
+    pub notice: Option<String>,
     pub replay: bool,
     pub ready: bool,
     #[cfg(feature = "embedded")]
@@ -112,11 +113,13 @@ impl Bridge {
         let mailbox = self.mailbox.clone();
         let detach = self.detach.clone();
         self.worker = Some(bbt_rt::handle().spawn(async move {
+            let redactor = crate::redact::Set::default();
+            crate::capability::register(&redactor).await;
             let root = path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
-            match read_replay(path).await {
+            match read_replay_with_redactor(path, redactor.clone()).await {
                 Ok(transcript) => {
-                    if let Some(session) = transcript.session { mailbox.blobs.store(Some(Arc::new(crate::store::Blobs { dir: root.join(session.to_string()).join("blobs"), redactor: Default::default() }))); }
-                    let state = FrameState { transcript: Arc::new(transcript), replay: true, ready: true, ..Default::default() };
+                    if let Some(session) = transcript.session { mailbox.blobs.store(Some(Arc::new(crate::store::Blobs { dir: root.join(session.to_string()).join("blobs"), redactor: redactor.clone() }))); }
+                    let state = FrameState { transcript: Arc::new(transcript), notice: redactor.capability_notice(), replay: true, ready: true, ..Default::default() };
                     let mut preparer = Preparer::default();
                     loop {
                         publish_frame(state.clone(), &mailbox, &mut preparer).await;
@@ -151,6 +154,7 @@ impl Bridge {
         let mailbox = self.mailbox.clone();
         let detach = self.detach.clone();
         self.worker = Some(bbt_rt::handle().spawn(async move {
+            crate::capability::register(&config.redactor).await;
             let session = config.meta.session;
             mailbox.blobs.store(Some(Arc::new(crate::store::Blobs {
                 dir: config.sessions.join(session.to_string()).join("blobs"),
@@ -415,17 +419,25 @@ async fn consume(gateway: InProc, mailbox: Arc<Mailbox>, detach: CancellationTok
 }
 /// Validation and projection of large fixture files use the same four-permit
 /// preparation pool as other harness blocking/CPU work, never a frame callback.
+pub async fn read_replay(path: PathBuf) -> Result<Transcript, String> {
+    let redactor = crate::redact::Set::default();
+    crate::capability::register(&redactor).await;
+    read_replay_with_redactor(path, redactor).await
+}
 #[allow(
     clippy::disallowed_methods,
     reason = "file reading and projection run inside runtime::blocking, never a frame"
 )]
-pub async fn read_replay(path: PathBuf) -> Result<Transcript, String> {
+pub(crate) async fn read_replay_with_redactor(
+    path: PathBuf,
+    redactor: crate::redact::Set,
+) -> Result<Transcript, String> {
     crate::runtime::blocking(move || {
         let bytes = std::fs::read(path).map_err(|_| "Replay file unavailable".to_string())?;
         let wire = bytes
             .split(|c| *c == b'\n')
             .filter(|line| !line.is_empty())
-            .map(serde_json::from_slice)
+            .map(|line| serde_json::from_slice(line).map(|value| redactor.value(value)))
             .collect::<Result<Vec<serde_json::Value>, _>>()
             .map_err(|_| "Invalid replay JSONL".to_string())?;
         let events: Vec<Envelope> = wire

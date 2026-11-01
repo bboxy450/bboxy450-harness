@@ -96,7 +96,7 @@ def main(selected=None):
          lambda s:once(s,'name.as_encoded_bytes().starts_with(b"BBOXY_")','name.as_encoded_bytes() == b"BBOXY_CAPABILITY"')),
         ('bboxy-scrub','src/mcp.rs','seat_process','cannot_inherit_bboxy_environment*',['profile MCP inherited BBOXY variables','ACP MCP inherited BBOXY variables'],
          lambda s:once(s,'scrub_bboxy_env(&mut command);','/* scrub removed by control */')),
-        ('launcher-inherit','src/mcp.rs','seat_process','seat_launch::launcher_flags_deliver_context_tools_and_only_launcher_environment','launcher MCP lost BBOXY capability',
+        ('launcher-inherit','src/mcp.rs','seat_process','seat_launch::launcher_flags_deliver_context_tools_and_only_launcher_environment','launcher MCP lost its capability file',
          lambda s:once(s,'if slot.origin!=Origin::Launcher {scrub_bboxy_env(&mut command);}','scrub_bboxy_env(&mut command);')),
         ('append-system','src/engine/mod.rs','lib','engine::hardening_tests::launch_context_is_in_the_first_scripted_request_stable_prefix','appended startup text absent from stable system prefix',
          lambda s:once(s,'if !self.append_system_prompt.is_empty() {','if false {')),

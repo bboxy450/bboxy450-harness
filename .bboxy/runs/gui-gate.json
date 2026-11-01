@@ -1,5 +1,5 @@
 {
-  "source": "7a4cc7a2dbb36bfbbb0a7bccbe76577ba55201b0",
+  "source": "b2c078c414a409d033c58431aef022595645cbb2",
   "private_home": true,
   "operator_input": false,
   "commands": [
@@ -47,6 +47,8 @@
         "gui_budget",
         "--test",
         "gui_cli",
+        "--test",
+        "capability_delivery",
         "--",
         "--nocapture"
       ],

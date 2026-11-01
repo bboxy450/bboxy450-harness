@@ -340,9 +340,6 @@ fn config(options: &Options) -> Result<Config, String> {
         .join(".bboxy450-harness");
     let session = SessionId::new();
     let redactor = Set::default();
-    if let Ok(value) = std::env::var("BBOXY_CAPABILITY") {
-        redactor.register(&value);
-    }
     Ok(Config {
         meta: SessionMeta {
             session,

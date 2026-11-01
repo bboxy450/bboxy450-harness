@@ -1,0 +1,172 @@
+bboxy450-harness capability delivery, Side B — Executor handoff
+Task: 01M6CC8E3X4PKTAHT1TPYRK31Y (#4902)
+Task path: .bboxy/tasks/2026-11-01-harness-capability-file-side-b.md
+Executor: E3 harness-gui / 01M6AMBPG3XD3CMJWHQCKWAG7M
+Recorded: 2026-11-01
+Repository: https://github.com/bboxy450/bboxy450-harness
+Worktree: /Users/feral/mydev/bboxy450-harness-capability-side-b
+Branch: capability-file-side-b
+Base: origin/main be46789268fcc058de664f21990a721a40d53ad5 (after binding 011d24b)
+Tested source commit: b2c078c414a409d033c58431aef022595645cbb2
+Signature: G; 9B07E849480C68328CA20684844ECC0587DE7AB0
+Author: Boxy <bboxy450@gmail.com>
+
+Result
+make test exited 0 unattended at the default test concurrency. The canonical
+stack includes the real-process leak control, native/TLC parity and GUI smoke.
+No operator, display interaction, real provider or external credential was used.
+The source/input hashes still match the full-gate record after verification.
+This report and generated .bboxy/runs files are evidence-only additions; the
+full make test source SHA is the explicit b2c078c commit above. Current-head
+formal evidence is refreshed after the evidence commit and supplied at handoff.
+
+Mechanism and files
+src/capability.rs:21,57,73,99 — shared typed consumer, adapted with origin credit
+from bboxy450-term. Pre-open metadata rejects symlinks and non-regular files;
+O_NOFOLLOW|O_NONBLOCK open is followed by descriptor fstat, regular-file/euid/
+exact 0600 checks. Bounded reading accepts exactly 64 lowercase hex plus newline.
+The returned value and temporary buffer use Zeroizing. Refusal text consists
+only of fixed seat_admission_file_* codes, without path/value/OS error text.
+File IO runs through runtime::blocking. Reading preserves the overlay file.
+
+src/redact.rs:45-76 — each face's shared Set captures initialization, the
+validated admission value and a safe refusal. The value is registered before
+provider, tool or MCP startup; the MCP check uses this captured value rather
+than consulting the removed raw environment variable.
+
+src/frontends/headless.rs:132 — bootstrap precedes closed replay and provider
+creation; seat and ACP use this same entry. Closed replay is scrubbed too.
+src/frontends/gui/bridge.rs:117,157,424 — replay and live GUI creation register
+on workers before transcript projection or Host/provider/MCP startup.
+src/frontends/gui/smoke.rs:18 — offscreen replay registers before parsing and
+rendering. GUI FrameState/view status exposes a safe degradation Notice.
+src/frontends/smoke.rs:35 — optional live-smoke face registers even before its
+no-provider-key skip. src/engine/mod.rs:235 persists a safe startup Notice for
+missing/invalid input, without aborting the session.
+
+src/mcp.rs:578-581 — profile/ACP resolved environment values are refused when
+they contain the captured capability. Existing reserved-reference/config-key
+checks remain. The immutable Launcher origin retains its ICD §5 exception:
+--mcp-config servers inherit/reference BBOXY_* including the file path. This is
+intentional; profile/ACP servers and their command resolvers do not inherit it.
+src/process.rs:477 — tools, terminals and command resolvers unconditionally
+remove every inherited BBOXY_* name, including BBOXY_CAPABILITY_FILE.
+
+Test fixtures now create their own private 0600 files instead of supplying the
+legacy value in env. scripts/test.py, tests/gui_gate.py and the GUI control
+runner remove the real seat's file path in their private test environments.
+No production BBOXY_CAPABILITY setter or compatibility fallback was added.
+Changes are inside src/, tests/, scripts/, verification/ and .bboxy/runs/.
+No new dependency, core policy change, merge, publication or installation.
+
+ICD verification cases and real-process witnesses
+tests/capability_delivery.rs:292,298,305 — real headless, seat and ACP binaries
+start with only a private capability file. Their actual shell tool executes
+printenv, cat "$BBOXY_CAPABILITY_FILE", printenv BBOXY_CAPABILITY_FILE, then cat
+with an explicit literal path. The env/path probes reveal no BBOXY_* entries
+and no value. The explicit-path output is exactly <redacted>. Assertions inspect
+completed ToolCall output, stdout/stderr, transcript laws and every actual
+session file/blob, not a mocked scrubber. The original file remains unchanged.
+This covers ICD cases (a) and (b), and the requested output-redaction witness.
+
+tests/support/seat_launch.rs:11,493,509 — production launcher/profile/ACP MCP
+processes witness the origin-specific environment rules. Profile/ACP echo_env
+reports no reserved namespace or admission value; launcher echo_env confirms
+its file path is present and the legacy value is absent. Case (c).
+tests/capability_delivery.rs:390 — real profile and ACP !cmd resolvers read the
+private file through a literal path. A resolved value equal to the admission
+value is refused before its MCP server starts (no report file); a safe Notice
+is emitted and the user turn completes. Case (d), resolved-value comparison.
+
+tests/capability_delivery.rs:311 — missing path, symlink, wrong mode, malformed
+content, directory and absent environment all produce fixed Notices and still
+complete a turn. Notices contain neither the rejected path nor file content.
+src/capability.rs:127,173 — three unit witnesses cover canonical bounded reads,
+file preservation, invalid size/newline/case, symlink/type/mode and foreign uid
+metadata refusal before reading. No foreign secret is read.
+tests/capability_delivery.rs:368 — optional live-smoke startup checks its file
+and emits WrongMode before its isolated no-key skip.
+tests/capability_delivery.rs:431 — two actual offscreen GUI subprocesses render
+otherwise identical fixtures: one embeds the private value, the other embeds
+<redacted>. PNG bytes are equal; stdout/stderr contain no value. This checks
+GUI smoke loading before projection/rendering, rather than only a helper call.
+
+Broken controls
+scripts/test-capability-control.py restores the legacy raw-env face bootstrap,
+runs exactly processes::capability_file_value_is_redacted_in_real_headless_tool_and_log,
+requires exit 101 at CapabilityFileValueIsRedacted (not compilation failure),
+restores source bytes, then requires exit 0. It is in canonical scripts/test.py:46;
+test-hardening also asserts the canonical command list retains it.
+Canonical run: red_exit=101, green_exit=0, operator_input=false.
+Restored src/capability.rs SHA256:
+0f449d5b018021295fcb977c271512ccc2dada75721b160770e50e1143cb868f
+Local logs: target/capability-control/legacy-reader-red.log,
+target/capability-control/file-reader-green.log, receipt.json.
+Existing resolver-namespace and launcher-inherit controls were also rerun:
+each 101 -> 0 at its named namespace/launcher-file assertion. Local receipt:
+target/side-b-compat-controls/controls.json. No raw private transcripts committed.
+
+Formal model and implementation boundary
+The binding ICD names HarnessMcpServer. tests/formal/models.rs adds finite
+file availability, face preparation, admission registration and output
+projection states/actions. ReadyAfterCapabilityAttempt and
+NoUnredactedCapability check startup ordering and registration before output.
+Missing-file preparation has a reachable degraded Notice path. Existing MCP
+lifecycle/restart controls A/B/C remain. BrokenHarnessMcpServerD models the
+legacy env reader ignoring a valid file and violates NoUnredactedCapability.
+tests/formal_nonvacuity.rs checks both reachable good/degraded cases and the
+named broken-control violation. Contract/corpus/coverage include the new case.
+
+Full native/TLC parity: 68 variants, 1 crate, 25 contracts; every graph_equal=true.
+HarnessMcpServer: 362 states, 1145 edges, TLC exit 0, expected pass.
+BrokenHarnessMcpServerD: 362 states, 1145 edges, TLC exit 12, expected safety.
+Good TLA SHA256: b25920995659909276ff7cbc885b9507a4bd0210bb727f6c06737059a5c2b815
+Broken D TLA SHA256: 359c89efb6d7a9328482d7b12f860ffffbf36a69ec976f48af8515233dec931c
+Committed evidence summary: .bboxy/runs/2026-11-01-capability-side-b-formal.json
+Summary SHA256: 1038a06c0c9ba8aa18ed216bd36b2f356e4af247c14aabf294724dbbc4ca2fdb
+The complete local graph archive is verification/evidence/<that SHA256>/;
+it is an untracked verifier archive, not a claimed committed artifact.
+verification/coverage.toml:86-88 records one implementation-only entry per line
+for file syscalls/exact bytes, real environment/value projection and face worker
+ownership. The finite model does not prove arbitrary Rust/kernel correctness,
+language-wide TLC replacement or protection against active same-uid file reads.
+
+Commands and actual exits
+make test — 0. Full local log: target/side-b-evidence/make-test.log
+Log SHA256: 10b9f5208f43b4899d8445dedf4c3ab619ec25ce9226b1aaaded6eab8cf791bb
+The launch environment removed BBOXY_CAPABILITY and BBOXY_CAPABILITY_FILE so
+tests could not consume this real seat's admission; no test filter, jobs limit
+or alternate make target was passed. Existing canonical isolation of seat-launch
+and PTY descriptor witnesses is unchanged; those cases run separately and pass.
+.bboxy/runs/test-current.json: PASS, source b2c078c, all 17 command exits 0:
+fmt, default/all-feature clippy, both feature suites, isolated seat/PTY witnesses,
+hardening, new leak control, native formal, TLC parity, secrets, headers, KB
+records/control and inventory/control. New core process suite: 6 passed.
+.bboxy/runs/gui-gate.json: source b2c078c, all 4 command exits 0: dependencies,
+strict UI clippy, GUI integration suite (including the new real-render test),
+test-gui-smoke. No added wall-clock percentile gate.
+
+Additional focused commands, all exit 0:
+cargo check --offline --locked --all-features
+cargo test --offline --locked --lib capability::tests
+cargo test --offline --locked --features acp,test-fixtures --test capability_delivery --test formal_nonvacuity
+cargo test --offline --locked --features standalone --test capability_delivery
+cargo clippy --offline --locked --all-targets --all-features -- -D warnings
+make test-gui-lint
+python3 -I scripts/test-capability-control.py
+python3 -I scripts/test-e1c-rework-controls.py --case resolver-namespace --case launcher-inherit --out target/side-b-compat-controls
+Focused logs are retained under target/side-b-evidence/.
+
+Headless screenshots refreshed and inspected
+.bboxy/runs/gui-smoke.png — 1120x7000, 22 visible items, 15 kinds, 3 approval
+buttons; structural geometry and meaning assertions pass. Missing-file Notice
+is safe. Scrolled viewport case also passes; no display/operator interaction.
+PNG SHA256: e407c508447e7213b1ef41a8e311088d33f300df0ba2a98a3d1a3f0bc52368c8
+.bboxy/runs/gui-smoke-scrolled.png SHA256:
+9a3150d93954a51ac7f5d4aaeda05f210be5a50081757bd83405d3d91764f02a
+
+Handoff
+Implementation is complete and verified. Report/evidence commit is separate
+from the explicit tested source commit, with identical gate input hashes.
+The final signed branch head, PR URL and fresh current-head formal receipt are
+provided in the task_report. The Executor does not merge or accept this task.

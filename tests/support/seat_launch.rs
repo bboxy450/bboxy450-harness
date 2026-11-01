@@ -12,11 +12,15 @@ fn command(temp: &Path, face: &str) -> tokio::process::Command {
     command_inner(temp, face, true)
 }
 fn command_inner(temp: &Path, face: &str, scripted: bool) -> tokio::process::Command {
+    use std::os::unix::fs::PermissionsExt;
+    let capability_file = temp.join("capability");
+    std::fs::write(&capability_file, format!("{}\n", "ab".repeat(32))).unwrap();
+    std::fs::set_permissions(&capability_file, std::fs::Permissions::from_mode(0o600)).unwrap();
     let mut c = tokio::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"));
     c.env_clear()
         .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
         .env("HOME", temp)
-        .env("BBOXY_CAPABILITY", "throwaway-capability")
+        .env("BBOXY_CAPABILITY_FILE", capability_file)
         .env("BBOXY_SEAT_ID", "throwaway-seat")
         .env("BBOXY_SOCK", temp.join("missing.sock"))
         .env("BBOXY_GENERATION", "7")
@@ -236,8 +240,9 @@ async fn launcher_flags_deliver_context_tools_and_only_launcher_environment() {
     let profile = observation(&profile_report).await;
     assert_eq!(
         launcher["capability_matches"], true,
-        "launcher MCP lost BBOXY capability"
+        "launcher MCP lost its capability file"
     );
+    assert_eq!(launcher["legacy_capability_present"], false);
     assert_eq!(
         launcher["seat_matches"], true,
         "launcher MCP lost seat identity"

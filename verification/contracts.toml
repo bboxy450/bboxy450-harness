@@ -213,13 +213,13 @@ checks = ["make test-formal", "make test"]
 
 [[contract]]
 name = "HarnessMcpServer"
-title = "An unavailable server never holds admission; requests timeout or finish, and results are fenced by birth."
-models = ["HarnessMcpServer", "BrokenHarnessMcpServerA", "BrokenHarnessMcpServerB", "BrokenHarnessMcpServerC"]
-controls = [{name="BrokenHarnessMcpServerA", expected="deadlock"}, {name="BrokenHarnessMcpServerB", expected="safety"}, {name="BrokenHarnessMcpServerC", expected="liveness"}]
-sources = ["src/mcp.rs", "src/tools.rs", "src/engine/mod.rs", "src/engine/turn_loop.rs", "tests/formal/models.rs"]
-implementation_tests = ["tests/mcp_client.rs", "tests/formal_nonvacuity.rs"]
-assumptions = "Three births (gen 0..2, public A-B-A) abstract the five-attempt product limit. A held response can cross two failures; a silent call needs Timeout. Failure and restart are independent of round admission. Weak fairness on admission, immediate failure/call and response/discard/timeout groups. SDK framing, real process groups, secrets, deadlines and pagination remain implementation witnesses; no arbitrary Rust refinement proof."
-property = "NoStaleResult, DeadIsFinal; RoundNeverWaits and CallEventuallyEnds under the named fairness assumptions."
+title = "An unavailable server never holds admission; requests timeout or finish, results are fenced by birth, and a supplied capability is registered before output projection."
+models = ["HarnessMcpServer", "BrokenHarnessMcpServerA", "BrokenHarnessMcpServerB", "BrokenHarnessMcpServerC", "BrokenHarnessMcpServerD"]
+controls = [{name="BrokenHarnessMcpServerA", expected="deadlock"}, {name="BrokenHarnessMcpServerB", expected="safety"}, {name="BrokenHarnessMcpServerC", expected="liveness"}, {name="BrokenHarnessMcpServerD", expected="safety"}]
+sources = ["src/capability.rs", "src/redact.rs", "src/frontends/headless.rs", "src/frontends/gui/bridge.rs", "src/mcp.rs", "src/tools.rs", "src/engine/mod.rs", "src/engine/turn_loop.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/capability_delivery.rs", "tests/support/seat_launch.rs", "tests/mcp_client.rs", "tests/formal_nonvacuity.rs"]
+assumptions = "Three births (gen 0..2, public A-B-A) abstract the five-attempt product limit. A held response can cross two failures; a silent call needs Timeout. Failure and restart are independent of round admission. Weak fairness on admission, immediate failure/call and response/discard/timeout groups. A valid-file input is registered during face preparation; an unavailable file completes preparation with a Notice. Output may follow either preparation, and MCP readiness follows preparation. Control D consults only the missing legacy variable despite a valid file. Actual IO checks, environment bytes, SDK framing, process groups, string matching, deadlines and pagination remain implementation witnesses; no arbitrary Rust refinement proof."
+property = "NoStaleResult, DeadIsFinal, NoUnredactedCapability, ReadyAfterCapabilityAttempt; RoundNeverWaits and CallEventuallyEnds under the named fairness assumptions."
 checks = ["make test-formal", "make test"]
 
 [[contract]]

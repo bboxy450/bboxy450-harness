@@ -31,6 +31,11 @@ pub async fn run() -> i32 {
     code
 }
 async fn smoke(acp_mode: bool) -> Result<(Value, i32), Box<dyn std::error::Error>> {
+    let redactor = Set::default();
+    crate::capability::register(&redactor).await;
+    if let Some(notice) = redactor.capability_notice() {
+        eprintln!("Notice: {notice}");
+    }
     let home = PathBuf::from(std::env::var_os("HOME").ok_or("HOME unavailable")?);
     let old = home.join(".kittens/profiles/nemotron.md");
     let old = match tokio::fs::read_to_string(old).await {
@@ -70,10 +75,6 @@ async fn smoke(acp_mode: bool) -> Result<(Value, i32), Box<dyn std::error::Error
         .await?;
     f.write_all(text.as_bytes()).await?;
     f.flush().await?;
-    let redactor = Set::default();
-    if let Ok(cap) = std::env::var("BBOXY_CAPABILITY") {
-        redactor.register(&cap);
-    }
     let key = match profile.key(&redactor, CancellationToken::new()).await {
         Ok(k) => k,
         Err(_) => {

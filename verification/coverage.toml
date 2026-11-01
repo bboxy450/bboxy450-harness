@@ -37,6 +37,7 @@ models = [
 ]
 scope = "Finite two-turn/two-tool lifecycle; birth fencing A-B-A, unattended approval, FIFO control, bounded replay/lag/reset and Yarn arbitration. HTTP/TCP bytes, filesystem/process effects, wall-clock deadlines, secrecy and terminal bytes are witnessed by implementation tests; no arbitrary Rust refinement claim."
 sources = [
+    "src/capability.rs",
     "src/mcp.rs",
     "src/context/auto.rs",
     "src/frontends/acp.rs",
@@ -82,6 +83,9 @@ sources = [
     "src/frontends/gui/layout_checks.rs",
 ]
 implementation_only = [
+    "Seat-capability file syscalls and exact bytes: O_NOFOLLOW/O_NONBLOCK, pre-open metadata and fstat regular/euid/exact0600 checks, 64 lowercase hex plus newline, safe refusal text; src/capability.rs unit witnesses. HarnessMcpServer abstracts a valid versus unavailable file and registration before projection, not kernel/filesystem correctness.",
+    "Seat capability environment projection: real headless/seat/ACP tool processes, profile/ACP MCP env and resolved-value refusals, launcher inheritance exception, stored output and GUI smoke rendering in tests/capability_delivery.rs and tests/support/seat_launch.rs. Environment bytes, actual value matching and pixels are implementation witnesses.",
+    "Capability startup degradation and GUI worker ownership: shared redactor bootstrap runs before providers/MCP, records safe Notice on missing/invalid files, and GUI replay/creation use preparation workers. tests/capability_delivery.rs; no arbitrary Rust refinement claim.",
     "Physical PTY EOF versus cooked Ctrl-D: Darwin poll requests POLLIN; headless tty_tests is a deterministic native PTY byte/syscall witness. Descriptor-only fixture writer avoids portable-pty EOT; non-PTY key fixture closes sibling descriptors, with CLOEXEC race forced structurally in a dedicated canonical test invocation, excluded from both concurrent feature suites. Controls pty-hangup-poll, pty-writer-drop and pty-spawn-fds; no model of termios/bytes.",
     "Group-kill residuals: OwnedChild exclusive private wait/Drop, SIGCHLD admission and Tokio 1.54.1 no-external-reaper assumption; process ownership unit and MCP already-fenced idempotence, exited-leader/live-member and failed-handoff stubborn fixtures with a disposable foreign group. The shared handler CAS is exercised after release; TERM and actual grace-sleep entry counts prove exited cleanup skips delay. SC/kernel/foreign unsafe code remain implementation boundary, not arbitrary Rust refinement.",
     "Embed-seat §3/§6 signal-path instruction/timing and kernel group/reap witnesses: tests/seat_process.rs + tests/support/seat_shutdown.rs, raw synchronous handlers and bounded atomic registry in process.rs. HarnessProcessLifecycle models hangup versus supervisor death for an arbitrary owned group; actual 100ms CPU scheduling, 250ms escalation, slot SC/CAS, PTY EOF classification and fsync are implementation evidence, not a real-time model",
