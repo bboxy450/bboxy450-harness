@@ -3,8 +3,8 @@ running 1 test
 prepared structural geometry: Checked { markdown_blocks: 6, accordion_headers: 8, inline_rows: 5, painted_boxes: 60 }
 test structural_layout_smoke_checks_restored_geometry ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.47s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.25s
 
    Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.39s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.63s
      Running tests/gui_render.rs (target/debug/deps/gui_render-0065bc55c85d9dd2)

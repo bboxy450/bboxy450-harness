@@ -1571,7 +1571,7 @@ fn subdued_tool_parts(element: &mut c::Element, face: &super::rich::Face) {
                 } else {
                     face.output_closed
                 };
-                *content = Box::new(label(if closed { "▸" } else { "▾" }));
+                **content = label(if closed { "▸" } else { "▾" });
             }
             if name.ends_with("/head/sname")
                 && let c::Element::Text(text) = content.as_mut()
