@@ -28,6 +28,7 @@ updated: "2026-10-31T00:00:00Z"
 | [[acp]] | engine via `Host`/`InProc` (E1) ↔ ACP v1 clients over stdio | baselined v0.1 |
 | [[mcp]] | engine registry and policy (E1) ↔ user-configured MCP servers (untrusted child processes) | baselined v0.1 |
 | [[embed-seat]] | bboxy450-term (ICD #348 owner) ↔ `seat` face | proposed; Side A needs Corvin Duskmantle |
+| [[seat-capability-delivery]] | bboxy450-term launch kit, bridge and hook (ICD #348) ↔ every seat kind, including `seat` | proposed; the capability moves out of the process environment into a 0600 overlay file. The Oracle signs under d4071 |
 | [[upstream-toolkit]] | harness ↔ bboxy450-term toolkit and formal stack; upstream items U1–U7, each with an interim and an acceptance check | proposed; bboxy450-term owners accept each item |
 | toolkit widgets | E2 upstream in bboxy450-term ↔ the harness `gui` face | no ICD of its own. Each widget's API is part of its upstream task brief, and the face consumes only `protocol` plus `bbt_ui::Element` |
 
