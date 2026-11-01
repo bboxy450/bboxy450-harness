@@ -1,0 +1,23 @@
+[
+  {
+    "name": "pty-hangup-poll",
+    "source": "src/frontends/headless.rs",
+    "source_sha256": "bef75812a99c199b129bcb75d388a39656b6cec32fb81e26a4cc51d4b87eb989",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--lib",
+      "frontends::headless::tty_tests::physical_eof_is_distinct_from_cooked_control_d",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "physical PTY EOF was classified as cooked Ctrl-D",
+    "red_exit": 101,
+    "green_exit": 0
+  }
+]

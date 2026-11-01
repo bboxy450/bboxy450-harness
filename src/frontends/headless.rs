@@ -446,6 +446,21 @@ mod tty_tests {
             "cooked Ctrl-D was classified as a physical hangup"
         );
         drop(pty.master);
+        // Another concurrently spawning fixture may still be closing an
+        // inherited descriptor. Classify only after physical EOF is observed.
+        let mut poll = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        unsafe {
+            libc::poll(&mut poll, 1, 2000);
+        }
+        assert_eq!(
+            slave.read(&mut byte).unwrap(),
+            0,
+            "physical EOF was not observed"
+        );
         assert!(
             tty_hung_up(fd),
             "physical PTY EOF was classified as cooked Ctrl-D"
