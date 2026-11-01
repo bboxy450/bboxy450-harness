@@ -15,12 +15,12 @@ updated: "2026-11-01T00:00:00Z"
 ---
 # ICD: live session switch, proposed
 
-**Status: proposed.** This ICD switches a live bboxy450-term seat from harness A to harness B, keeping the conversation. Supported directions are claude→codex, codex→claude, either→Bboxy and Bboxy→either. It amends bboxy450-term ICD #348 (§6). Under d4071, the #348 rows land in a bboxy450-term PR and the Oracle signs them.
+**Status: proposed.** This ICD switches a live bboxy450-term seat from harness A to harness B, keeping the conversation. Supported directions are claude→codex, codex→claude, either→bboxy450-harness and bboxy450-harness→either. It amends bboxy450-term ICD #348 (§6). Under d4071, the #348 rows land in a bboxy450-term PR and the Oracle signs them.
 
 | | |
 |---|---|
 | Side A | bboxy450-term: `bbt-mux` seat lifecycle (generation, `harness_kind`, `harness_session_id` persistence at `logic.rs:6162-6170`), `ctl`, the wake-up launch kit |
-| Side B | `bboxy450-log-converter` CLI, run as a child process: `switch-prepare --from <provider> --native <id or path> --ir <seat.bxl.d> --to <provider> --cwd <dir>` |
+| Side B | the `bboxy450-log-converter` binary from the in-tree crate `crates/bboxy450-log-converter` (d5087), run as a child process for crash and memory isolation: `switch-prepare --from <provider> --native <id or path> --ir <seat.bxl.d> --to <provider> --cwd <dir>` |
 | Constraint | the converter never runs on term's UI or logic thread, so term spends no frame time on it |
 
 ## 1. What crosses
@@ -36,7 +36,7 @@ updated: "2026-11-01T00:00:00Z"
 States: `Running(A)` → `Quiescing` → `Stopped(A)` → `Converting` → `Launching(B)` → `Running(B)`. Any failure goes to `RollingBack` → `Running(A)`.
 
 1. **Quiesce.** `ctl seat switch <seat> --to <B>` is accepted only at a turn boundary: adapter `turn_open == false` and no pending approval. Otherwise it is refused immediately with `switch_turn_open`, and nothing waits (never-block). From acceptance until `Running(B)` or rollback, seat input is **refused** with `seat_switching`. It is not queued, so no input can reach the wrong harness.
-2. **Stop A** through its normal close path (the embed-seat §3 budgets for Bboxy; the client's own exit for Claude and Codex). The native file is final when A's process group is gone.
+2. **Stop A** through its normal close path (the embed-seat §3 budgets for bboxy450-harness; the client's own exit for Claude and Codex). The native file is final when A's process group is gone.
 3. **Convert.** Run `switch-prepare`. It:
    - parses A's final native session into the seat IR log;
    - checks the IR turn boundary ([[lc-ir]] §2), refusing `not_at_turn_boundary` if it is not one;
@@ -47,14 +47,14 @@ States: `Running(A)` → `Quiescing` → `Stopped(A)` → `Converting` → `Laun
 
 ## 3. Entry points (placement)
 
-P0 settled these routes: log-converter PR #2 at `7945ad92`, report `.bboxy/runs/p0-resume-probe-report.log`, facts F1–F10, Claude Code 2.1.304 and codex-cli 0.164.0, against mock endpoints. The facts are pinned to those client versions. A client upgrade re-runs `make test-probes` before switching is trusted again.
+P0 settled these routes: retired-repo PR #2 at `7945ad92`, being ported to bboxy450-term as `make test-log-converter-native`, report `.bboxy/runs/p0-resume-probe-report.log`, facts F1–F10, Claude Code 2.1.304 and codex-cli 0.164.0, against mock endpoints. The facts are pinned to those client versions. A client upgrade re-runs `make test-probes` before switching is trusted again.
 
 | Target | Placement | Resume | Evidence |
 |---|---|---|---|
 | Claude | write the lowered session to a **private staging file** `<state>/seats/<seat>/native/claude-<new-uuid>.jsonl`, created with `O_EXCL` and mode 0600. That is outside `~/.claude`, so the converter writes nothing there. Claude appends to this file while the session lives, so it is kept until the seat closes. Node uuids stay unique: duplicate uuids make Claude drop history silently with exit 0 (F4), so lowering is tested on the model input, not the exit code | `claude --resume <staging path>` | F2, F3; F4/F5 controls |
 | Codex, IR with no Codex-sealed events | **Codex's importer**: write the session as Claude-format text into a disposable staging tree `<tmp>/home/.claude/projects/<slug>/<uuid>.jsonl`. Run `codex app-server` with `HOME=<tmp>/home` and the real `CODEX_HOME`, then: initialize with `experimentalApi`, detect, import SESSIONS, wait for the completed import history (an importId alone is not success, F8), and resume the returned id. Codex writes its own rollout and database. `CLAUDE_CONFIG_DIR` does not select the tree (F8) | `codex resume <returned id>` | F7, F8 |
 | Codex, IR with Codex-sealed reasoning or compaction (a session that ends in Codex after A→B→A) | **open**. The importer carries only Claude text, so Codex's own encrypted reasoning would be lost. The fallback is a direct rollout placement (F6: `session_meta` first, then filename lookup backfills `state_5.sqlite`), still under [[d4972-session-switch-native-write-exception]]. That needs proof of same-provider opaque fidelity first. Until then, use the importer route and count the loss as `dropped{sealed_reasoning_route}` | `codex resume <id>` | F6, F10 control |
-| Bboxy | `bboxy450-harness import <bxl>`. The harness writes its own session, and term still never writes `~/.bboxy450-harness` (#348 Versioning) | `bboxy450-harness seat --resume <id>` | P5 |
+| bboxy450-harness | `bboxy450-harness import <bxl>`. The harness writes its own session, and term still never writes `~/.bboxy450-harness` (#348 Versioning) | `bboxy450-harness seat --resume <id>` | P5 |
 
 **Coverage limits** carried to P6: P0 proved two-turn text sessions only. Tools, images, signed thinking, encrypted reasoning and compaction, long cwd slugs and interactive TUI resume are untested. The F9 reasoning summary is accepted by the mock only, not the real Responses service. P6 measures each of these per route and records any loss in the LossReport.
 
@@ -70,7 +70,7 @@ The result is a **new** native id for A, never an append to the original file. R
 
 - **State:** seat phase (§2), `procs` (the set of live harness processes for the seat), `turn_open`, `input_inbox`, `native` (map id → `{owner, contents_version}`), `harness_session_id`, convert outcome, launch outcome.
 - **Actions:** UserInput, TurnStart/End, RequestSwitch, StopA, ExitA, ConvertOk/Fail, LaunchOk/Fail, Rollback, RequestSwitchBack.
-- **Bounds:** 2 providers + Bboxy, 2 switches (A→B→A), 1 failure each.
+- **Bounds:** 2 providers + bboxy450-harness, 2 switches (A→B→A), 1 failure each.
 
 **Safety:**
 - `OneHarness`: `Cardinality(procs) ≤ 1`.
@@ -96,7 +96,7 @@ The result is a **new** native id for A, never an append to the original file. R
 | Amended by | add: `bboxy450-harness:[[session-switch]]` |
 | States and lifecycle | add: a seat may change `harness_kind` at `generation + 1` through `ctl seat switch`, only at a turn boundary. Seat input is refused with `seat_switching` while the switch runs. Failure rolls back to the source harness resuming its untouched native session |
 | Versioning | **unchanged for Claude**: the converter stages Claude sessions outside `~/.claude` (F2). **For Codex**, Codex's own importer writes `~/.codex` (a client write, listed with cause `ctl seat switch`) from a disposable staging HOME (F7). The [[d4972-session-switch-native-write-exception]] create-only exception stays only for the open Codex direct-rollout route (§3), and lapses when that route is either proven or dropped |
-| Verified by | add: `make test-session-switch` (bboxy450-term), which runs claude→codex→claude and either→Bboxy→either against mock model endpoints in a throwaway HOME/CODEX_HOME, plus the `LcSessionSwitch` model |
+| Verified by | add: `make test-session-switch` (bboxy450-term), which runs claude→codex→claude and either→bboxy450-harness→either against mock model endpoints in a throwaway HOME/CODEX_HOME, plus the `LcSessionSwitch` model |
 
 ## 7. Verified by
 

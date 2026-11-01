@@ -3,13 +3,16 @@ id: 01M6CK65TFFXVF9YPVF44R5SZP
 number: 4964
 type: decision
 title: "bboxy450-log-converter lives in its own repo, git-pinned by harness and term"
-status: proposed
+status: superseded
+superseded_by: d5087
 proposed: "2026-11-01"
 links:
   - { to: "[[log-converter]]", rel: decides }
   - { to: "[[d4949-log-converter-from-scratch]]", rel: constrained-by }
 ---
 # bboxy450-log-converter lives in its own repo
+
+**Superseded by [[d5087-log-converter-in-term]]** (operator: "no new repos, all crates in bboxy450-term repository"). The dependency direction below still holds: the converter depends on neither the harness nor term's application crates. The repo, pin and authorization parts no longer apply. **The rejection of (b) below was wrong.** The harness already depends on seven term-hosted toolkit crates by git pin (harness `Cargo.toml:80-88`), so living in term does not invert anything. What matters is the crate-level direction, which d5087 keeps.
 
 Proposed 2026-11-01 by the Architect, Nyx Copperwing, at the Oracle's request (message 01M6CJZSEMEF8MFSYJQ7B33CKP).
 

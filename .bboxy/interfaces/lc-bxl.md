@@ -118,13 +118,13 @@ A segment is a sequence of zstd frames, so `zstd -d 000001.bxl` decompresses the
 
 | Clause | Evidence |
 |---|---|
-| §2 compatibility | `zstd -d` (pinned in the tools lock) decompresses a sealed segment to the concatenated CBOR frames; `zstd -t` passes |
+| §2 compatibility | `zstd -d` (pinned in bboxy450-term `verification/tools.lock.json`) decompresses a sealed segment to the concatenated CBOR frames; `zstd -t` passes |
 | §3 recovery | `tests/torn.rs`: truncate a written log at every byte offset of the last two frames; reopen; the result is the longest valid frame prefix, and appending continues with the next `frame_seq` |
 | §3 single writer | a second `Writer::open` returns `writer_busy` without blocking (with a 1 s timeout as a test guard only) |
 | §4 tail | `tests/tail.rs`: a writer process appends while 2 reader processes tail; the events each reader gets equal the written sequence exactly; a reader restarted from a saved cursor continues with no gap or duplicate |
 | §5 canonical CBOR | a golden with a map holding keys 10, 23, 24, 100, -1 and `"a"` encodes as 10, 23, 24, 100, -1, "a" (length-first would give 10, 23, -1, 24, 100, "a"); re-encoding a decoded non-canonical input gives the canonical bytes. Broken control: length-first ordering fails the golden |
 | §5 dictionaries | the dictionary training input is listed in `dicts/SOURCES.md` and contains only `fixtures/synthetic/**` or reviewed sanitized bundles; a check refuses any other path |
-| §6 model | `make test-formal` with `LcAppendLog` and its three controls, native + Java parity |
+| §6 model | bboxy450-term `make test-formal` with `LcAppendLog` and its three controls, native + Java parity |
 
 ## Change log
 

@@ -21,7 +21,7 @@ updated: "2026-11-01T00:00:00Z"
 |---|---|
 | Side A | parsers `parse::{claude, codex, bboxy}`, plus the sanitizer pass `sanitize` |
 | Side B | lowerers `lower::{claude, codex, bboxy}`, ATIF export, `bxl` writer, watcher sinks |
-| Provider names | `claude`, `codex`, `bboxy`. **"Bboxy" is the user-facing name of our harness** in the CLI, docs and loss reports. `bboxy450-harness` stays only as the binary and crate name |
+| Provider names | internal tags `claude`, `codex`, `bboxy`. **"bboxy450-harness" is the user-facing name of our harness** in the CLI, docs and loss reports (operator; this supersedes "Bboxy"). The CLI accepts `bboxy` and `bboxy450-harness` for it |
 
 ## 1. Shape
 
@@ -90,14 +90,14 @@ pub struct Raw { pub provider: Provider, pub bytes: Vec<u8> /* one native line, 
 - **EventId** = the first 16 bytes of `blake3(frame("bxl.event.v1") ‖ frame(provider) ‖ frame(native_id) ‖ frame(native_key) ‖ frame(role_tag))`.
   - `frame(x)` is `u32` big-endian `len(x)` followed by the UTF-8 bytes of `x`. This rules out boundary collisions such as `("s1","23")` against `("s12","3")`.
   - `provider` is the lowercase name (`claude`, `codex`, `bboxy`).
-  - `native_key` is the record's own id where one exists (Claude `uuid`; Codex `call_id`, `rs_…` or `ordinal`; Bboxy `seq` in decimal). Otherwise it is the native line ordinal in decimal.
+  - `native_key` is the record's own id where one exists (Claude `uuid`; Codex `call_id`, `rs_…` or `ordinal`; bboxy450-harness `seq` in decimal). Otherwise it is the native line ordinal in decimal.
   - `role_tag` is empty, except on Inferred events, where it names the role (`turn-start`, `turn-end`) and the anchor's key is used as `native_key`.
   - The same input therefore always gives the same id. This is the watcher's idempotency key ([[lc-watch-sink]] §3).
   - Changing the domain tag or the field list is a major version change, and it re-ids every event.
-- **Order.** `seq` is native file order. `parent` carries the Claude DAG: streamed blocks chain by `parentUuid`, a sidechain is a branch, and `last-prompt.leafUuid` names the live leaf. For Codex and Bboxy, `parent` is the previous event.
+- **Order.** `seq` is native file order. `parent` carries the Claude DAG: streamed blocks chain by `parentUuid`, a sidechain is a branch, and `last-prompt.leafUuid` names the live leaf. For Codex and bboxy450-harness, `parent` is the previous event.
 - **Turns.**
   - Codex: explicit, from `event_msg` `task_started` and `task_complete`/`turn_aborted`.
-  - Bboxy: explicit, from `TurnStarted`/`TurnEnded`.
+  - bboxy450-harness: explicit, from `TurnStarted`/`TurnEnded`.
   - Claude: inferred. A `user` line whose content is a string or text blocks, and that is not `isMeta`, `isCompactSummary` or a `tool_result`, starts a turn. The turn ends at the last assistant or tool event before the next turn start, or at a `system` `turn_duration`.
 - **Turn boundary** (the switch point, [[session-switch]] §2): the last event is a TurnEnd with outcome Completed or Interrupted, and no ToolCall in the turn lacks a ToolResult.
 
@@ -128,7 +128,7 @@ pub struct Raw { pub provider: Provider, pub bytes: Vec<u8> /* one native line, 
 | Codex `compacted{replacement_history, compaction.encrypted_content}` | Compaction{replacement: parsed messages, sealed: EncryptedCompaction}, Fidelity Opaque for the sealed part |
 | Codex `turn_context` | Context |
 | Codex `event_msg` `token_count` | Usage |
-| Bboxy Envelope items (protocol v0.4 §4) | 1:1: UserMessage/AgentMessage → Message; Reasoning → Reasoning (`provider_opaque` → `sealed` with its provider); ToolCall → ToolCall + ToolResult; Compaction/ContextTrim → Compaction; Usage, Notice, Subagent 1:1; FileChange/TurnDiff/Terminal/Plan/Approval/Image → Native{Bboxy} with Full fidelity for the Bboxy target, and lowered cross-provider as text (§5) |
+| bboxy450-harness Envelope items (protocol v0.4 §4) | 1:1: UserMessage/AgentMessage → Message; Reasoning → Reasoning (`provider_opaque` → `sealed` with its provider); ToolCall → ToolCall + ToolResult; Compaction/ContextTrim → Compaction; Usage, Notice, Subagent 1:1; FileChange/TurnDiff/Terminal/Plan/Approval/Image → Native{bboxy450-harness} with Full fidelity for the bboxy450-harness target, and lowered cross-provider as text (§5) |
 | anything unrecognised | Native{provider, record_type} (Opaque); a line that is not JSON → Notice{Warn}, plus a parse-error count. Never a panic, never a silent drop |
 
 E3's #4935 `import::claude` (harness) is the first implementation of the Claude rows and of the sanitizer. Its code moves into this crate in phase 3 ([[log-converter]] §7).
@@ -141,8 +141,8 @@ E3's #4935 `import::claude` (harness) is the first implementation of the Claude 
 |---|---|---|---|
 | Claude → Codex | Claude Native records; Usage; reasoning per the table below | ToolCall/ToolResult → `function_call`/`function_call_output`, `call_id` kept, `arguments` = JSON string; Claude tool names without a Codex equivalent → `function_call` with the original name and namespace `claude`; Compaction → a Developer message with the summary | Message text, tool I/O |
 | Codex → Claude | `sealed` EncryptedCompaction; Codex Native records; reasoning per the table below | `exec`/custom tools → `tool_use` with input `{"code": …}` and the original name; Developer → Claude `user` with `isMeta`; Compaction → `compact_boundary` + `isCompactSummary` user line from `replacement` | Message text, tool outputs as `tool_result` text |
-| Claude/Codex → Bboxy | foreign Native records (counted) | reasoning per the table below; Bash → Terminal, Edit/Write/MultiEdit/apply_patch → FileChange, TodoWrite/plan → Plan | all text, tool I/O, images |
-| Bboxy → Claude/Codex | Usage; reasoning per the table below | FileChange/TurnDiff → ToolCall + ToolResult text with the unified diff; Terminal → a Bash/`exec` call with output; Plan → text; Approval → Notice text; Image → `input_image` (Codex) or image block (Claude) when the blob is present, else text | Message text, tool I/O |
+| Claude/Codex → bboxy450-harness | foreign Native records (counted) | reasoning per the table below; Bash → Terminal, Edit/Write/MultiEdit/apply_patch → FileChange, TodoWrite/plan → Plan | all text, tool I/O, images |
+| bboxy450-harness → Claude/Codex | Usage; reasoning per the table below | FileChange/TurnDiff → ToolCall + ToolResult text with the unified diff; Terminal → a Bash/`exec` call with output; Plan → text; Approval → Notice text; Image → `input_image` (Codex) or image block (Claude) when the blob is present, else text | Message text, tool I/O |
 | same provider | nothing (`raw` verbatim) | — | everything |
 
 **Reasoning.** This follows the operator ruling relayed by the Oracle in message 01M6CKBFRBGGVBDT05CRCV6H35, and it is binding.
@@ -154,8 +154,8 @@ E3's #4935 `import::claude` (harness) is the first implementation of the Claude 
 | Claude → Claude, Codex → Codex | verbatim from `raw` | replayed verbatim |
 | Claude → Codex | on the importer route ([[session-switch]] §3), whatever Codex's importer does with Claude thinking text. P6 measures it and counts it. On a direct rollout, a `reasoning` item with `summary[{summary_text}]` and `encrypted_content: null`: P0 F9 shows the client accepts it (mock only; the real service is untested). Otherwise dropped and counted as `dropped{reasoning_text_not_carriable}`. It is never folded into assistant or user text, because the model would then read it as something it said aloud | dropped, counted |
 | Codex → Claude | dropped and counted as `dropped{reasoning_text_not_carriable}`: Claude rejects a `thinking` block without a valid signature (`invalid_thinking_signature`, #4953), and an unsigned block cannot be made legal. It is never folded into text | dropped, counted |
-| Claude/Codex → Bboxy | kept as `Reasoning{summary: text, raw: text}`, rendered and available to Bboxy on any model, including OpenRouter models (real reasoning examples from Claude) | kept as `Reasoning.provider_opaque = {provider, form, bytes}`; never sent to a model of another provider |
-| Bboxy → Claude/Codex | as the two cross-provider rows above, by target | replayed only if `provider_opaque.provider == target`; otherwise dropped, counted |
+| Claude/Codex → bboxy450-harness | kept as `Reasoning{summary: text, raw: text}`, rendered and available to bboxy450-harness on any model, including OpenRouter models (real reasoning examples from Claude) | kept as `Reasoning.provider_opaque = {provider, form, bytes}`; never sent to a model of another provider |
+| bboxy450-harness → Claude/Codex | as the two cross-provider rows above, by target | replayed only if `provider_opaque.provider == target`; otherwise dropped, counted |
 
 **Cross-provider constraints for the target to accept the result** (from #4953, to be proven in phase 0):
 - Claude requires `tool_use_id` matching the pattern, no duplicate ids, no unmatched `tool_result` and no empty text block. Lowering rewrites foreign call ids into the Claude pattern, deterministically from `call_id`.
@@ -167,7 +167,7 @@ E3's #4935 `import::claude` (harness) is the first implementation of the Claude 
 
 ## 7. Versioning
 
-- The IR is versioned with `bxl` ([[lc-bxl]] §5). The CBOR encoding is the canonical one of [[lc-bxl]] §5. It uses integer keys per field (the table lives in `src/ir/keys.rs` and is golden-tested), unknown keys are preserved, and every enum ends in `Unknown`.
+- The IR is versioned with `bxl` ([[lc-bxl]] §5). The CBOR encoding is the canonical one of [[lc-bxl]] §5. It uses integer keys per field (the table lives in `crates/bboxy450-log-converter/src/ir/keys.rs` in bboxy450-term and is golden-tested), unknown keys are preserved, and every enum ends in `Unknown`.
 - `parser_revision` bumps on any mapping change. A consumer may re-parse from `raw` when it sees an older revision.
 
 ## 8. Verified by
@@ -181,7 +181,7 @@ E3's #4935 `import::claude` (harness) is the first implementation of the Claude 
 | §2 EventId framing | a test vector golden for `(claude, s1, 23)` and `(claude, s12, 3)` gives different ids, and fixed vectors pin the bytes. Broken control: unframed concatenation makes the two collide |
 | §2 determinism | two runs on the same input give byte-identical `bxl` |
 | §4 robustness | malformed lines, a truncated last line and unknown types give Notice/Native, never a panic. Broken control: an unknown type that panics fails the test |
-| §5 reasoning | for each direction, a fixture with readable and sealed reasoning gives exactly the table's outcome. Bboxy targets keep both; cross-provider targets count `sealed_reasoning_foreign`. Broken control: a lowerer that folds reasoning into assistant text fails |
+| §5 reasoning | for each direction, a fixture with readable and sealed reasoning gives exactly the table's outcome. bboxy450-harness targets keep both; cross-provider targets count `sealed_reasoning_foreign`. Broken control: a lowerer that folds reasoning into assistant text fails |
 | §6 sanitizer | planted secrets in all three fixtures; the output contains none, and `checks.py secrets` passes. Broken control: skipping the pass fails |
 
 ## Change log
