@@ -30,10 +30,12 @@ new final byte, invalidates the old row, and requires eventual visibility of
 that byte. The suppressed-render control disables rendering after completion
 and must fail liveness. Restoring the old unconditional render guard makes that
 control incorrectly pass; the native harness detects this (exit 101). The
-corpus now has 49 variants / 21 contracts. Full parity is being refreshed.
+corpus now has 49 variants / 21 contracts. Native/TLC parity exits 0. The new
+final-byte visibility control fails liveness with 1162 states / 2410 edges.
 
 5: The prior report's local archive and uncommitted head-log claims are removed.
-This round will commit the new formal log and a source/model/tool hash summary.
+The formal log and source/model/tool hash summary are committed as
+e3b-rework-formal.log and e3b-rework-formal-summary.json.
 Local graph archives are retained review outputs, not claimed as committed files.
 
 6: The native App::key delegates to the exported route_key function. Tests drive
@@ -62,5 +64,11 @@ Current commands (actual exits):
   Current failure: '[reference][r]' stays literal after '> [r]: ...'. This is
   toolkit PR #86's round-3 defect, and the pin will follow its next head.
 
-Full unfiltered make test and final formal evidence remain pending for this
-rework. The previous full-gate success is historical, not a claim for this tree.
+Full unfiltered make test remains pending the next toolkit head. Formal parity
+and check-formal-evidence both exit 0 for source 1d67f62d87b6e21c963775ab15a2b9c1cb74151e. The previous full-gate success is historical, not a claim for this tree.
+
+The full feature GUI suite excluding ONLY the new upstream definition regression
+exits 0: e3b-rework-gui-except-upstream.log. The exclusion is explicit; this is
+not an unfiltered make test success. All 13 other rich tests run and pass.
+The same-store Stop, linear structured parse and final-byte liveness controls
+have red→green evidence. Final completion waits on the known upstream fix.
