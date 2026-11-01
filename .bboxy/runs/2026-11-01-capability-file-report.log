@@ -118,3 +118,39 @@ Current formal evidence: /Users/feral/mydev/bboxy450-term/.git/bboxy-formal-evid
 Evidence SHA256: 5afb054987642324080da90b1ac181c072271d75e07c17a441016639b1cf7e2d; source 8e1b58467467f8967f96979520d7066e5b73b3fd; dirty=false.
 All four new good/control models match 10 states and 18 edges; good models pass, broken models fail safety with TLC exit 12. Failed-plan cleanup is included; model/source/tool hashes and full graph/verdict parity are retained beyond target cleanup.
 Raw local evidence: /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round2-make-test.log, round2-boundaries.log, round2-native-final.log, round2-native-scans-final.json, round2-formal-receipt.log and round2-push.log; target/ci-local.log holds the normal exact-SHA receipt. Only this summary is committed to harness main. The source worktree is clean. The harness-main commit is supplied in task_report; unrelated dirty KB records/history are not synchronized or pushed.
+
+
+Round 3 — final scanner failure semantics and final-head verification
+Rejection: 6APHCPEV3NWXKF5A1PXVNTGZQN, task #4505 metadata.rejection.
+Recorded: 2026-11-01T17:27:01.395753+00:00
+Source: d32f5b626bcdd27b80726ad0d63aa0723e138cd0, capability-file, seven signed source commits; no Report trailers.
+PR: https://github.com/bboxy450/bboxy450-term/pull/87, OPEN; head readback matches this SHA. No merge or author landing performed.
+
+Mechanism and evidence
+- scripts/e2e/capability_scan.py:147-174 no longer suppresses a labelled process's sampling failure because another PID already covered that role. NativeCapabilityScanFailed names the PID and role(s), plus a safe exception-class reason, without subprocess output or environment bytes. Initial owned-process classification failures also fail closed unless exit is proved.
+- capability_scan.py:114-123 permits an exit only for ESRCH or absence from a successful pgrep PID census. A live PID, a failed census or any non-sampling assertion/parser failure remains fatal. :177-181 records exited_count and exited_processes with PID, roles and reason before checking required-role coverage; a coverage failure also reports these exits.
+- scripts/test-capability-scan.py:86-89 reproduces a healthy first bridge and a second already-labelled bridge whose ps command fails. test_ps_failure_on_a_live_labelled_second_bridge_is_fatal failed against the old scanner (RuntimeError not raised), then passed with this fix. :91-99 checks both ESRCH and successful-pgrep absence are counted/reported; :101-104 proves pgrep failure cannot excuse a scan failure.
+
+Commands and actual exit results on this final source
+- make test-capability-scan, new tests against old scanner: make exit 2, unittest exit 1. Named regression above fails with AssertionError: RuntimeError not raised. Log: /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round3-scan-red.log.
+- make test-capability-scan after the fix: exit 0, all five test methods pass (including both exit-proof subcases). Log: /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round3-scan-green.log.
+- git diff --check: exit 0 before the signed source commit.
+- make test: exit 0, plain command, default concurrency, unattended. target/ci-local.log ends with ci-local: result d32f5b626bcdd27b80726ad0d63aa0723e138cd0 normal 0. It runs all five scanner tests, the actual env-injection control (red_exit=101, green_exit=0, exact supervisor source restored), workspace build/clippy/tests, all 138 native/TLC variants, headless smoke with zero windows and orderly child cleanup, and 27 invariants with zero failures. The canonical default 11 slow exclusions remain unchanged; no concurrency or test override was added. Log: /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round3-make-test.log; detailed gate log: /Users/feral/mydev/bboxy450-term-capability-file/target/ci-local.log.
+- make test-harness-native: exit 0, run ONCE on final signed head d32f5b626bcdd27b80726ad0d63aa0723e138cd0 after the full gate. Required final native run log: /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round3-native-final.log. Parsed public summary: /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round3-native-scans-final.json.
+- make check-formal-evidence: exit 0, clean exact-source receipt. Log: /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round3-formal-receipt.log.
+- make push-branch: exit 0, seven valid source signatures and current CI/formal receipts verified, approved bboxy450 GitHub identity, feature branch pushed to d32f5b626bcdd27b80726ad0d63aa0723e138cd0. Log: /Users/feral/mydev/bboxy450-term-capability-file/target/capability-file/round3-push.log.
+- gh pr edit/view: exit 0; PR #87 remains OPEN at the signed head above.
+
+Final native scan accounting
+Warm/direct and cold/shim runs each scan before and after generation replacement. The four snapshots contain 20 successfully scanned process observations and 60 source checks: zero copies of any current/retired issued value, zero BBOXY_CAPABILITY= keys. Every snapshot covers shared-daemon, proxy-companion, mcp-bridge and daemon-started-mcp-child. Both modes authenticate orient, resume after restart, preserve the borrowed daemon after seat/app close, and report external_model_calls=0 and operator_input=0.
+The warm after-generation-replacement snapshot additionally counts one exited owned process: pid=40028, roles=[unclassified-owned], reason=absent-on-pgrep-recheck. It is reported rather than silently skipped. Total exited_count=1; the other three snapshots report zero. Required labelled roles were all successfully scanned. Current plus retired values remain only in scanner RAM: two before replacement, three after it.
+As explicitly accepted in this round, the real shared-Codex production scan remains outside ci-local because it needs the installed Codex binary, following the repository's native-boundary convention. The canonical stack still runs its deterministic scanner units and the real environment-injection control. No additional exception or waiver was used.
+
+Final formal receipt
+Source: d32f5b626bcdd27b80726ad0d63aa0723e138cd0; dirty=false; 138 variants, 31 crates, 59 contracts.
+Evidence SHA256: 29b4e14c4cf63abd961f8e7b973409085b4a2ab287ca119aaaad422c84069f2c.
+Retained current-source evidence: /Users/feral/mydev/bboxy450-term/.git/bboxy-formal-evidence/29b4e14c4cf63abd961f8e7b973409085b4a2ab287ca119aaaad422c84069f2c/evidence.json.
+SeatCapabilityEnvironment and SeatCapabilityCleanup: pass, 10 states/18 edges, TLC exit 0, graph_equal=true. Their Broken controls: safety, 10 states/18 edges, TLC exit 12, graph_equal=true. The pure observer error-accounting change adds no product lifecycle state; current source/model/tool hashes are verified by the refreshed receipt.
+
+Handoff state
+The source worktree is clean and the signed head is pushed. Only this report summary is appended and committed to harness main; its signed commit is supplied in task_report as requested. Raw fixture/run logs remain local under ignored target paths. The earlier sections retain the unchanged, accepted file-shape, lifetime, authentication, overlay, cleanup, documentation and lowercase-format evidence; no claim is made that their separately named historical commands were rerun in this focused round. Unrelated harness-main KB changes/history are not included or synchronized. No outstanding task failure is claimed away; Oracle acceptance remains pending.
