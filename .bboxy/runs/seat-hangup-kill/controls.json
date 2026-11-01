@@ -1,0 +1,90 @@
+[
+  {
+    "name": "group-kill",
+    "source": "src/mcp.rs",
+    "source_sha256": "62de91ca3916b7eae92d870feb359664f3ce26c342ad46e11e20d17121ebc03d",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "mcp_client",
+      "close_kills_a_server_and_member_that_ignore_eof_and_term",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "MCP server group survived Close",
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "seat-hangup",
+    "source": "src/process.rs",
+    "source_sha256": "f0d315e358414e05e87138d21fc687d30a0ddbc4ee5dbac315a6a502e4147737",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "seat_process",
+      "seat_shutdown::hup_kills_owned_groups_before_supervisor_escalation_and_resume_recovers",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "owned group survived supervisor escalation",
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "seat-hangup-model",
+    "source": "tests/formal/models.rs",
+    "source_sha256": "050419fac2d448026ed1b41e3d5f26be2f5126de4f246c4763cdc67710efaae7",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "formal_nonvacuity",
+      "synchronous_hangup_kill_precedes_the_supervisors_unjoinable_exit",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "NoOwnedMemberAfterSupervisorKill",
+    "red_exit": 101,
+    "green_exit": 0
+  },
+  {
+    "name": "leader-only",
+    "source": "src/mcp.rs",
+    "source_sha256": "62de91ca3916b7eae92d870feb359664f3ce26c342ad46e11e20d17121ebc03d",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "mcp_client",
+      "close_kills_a_server_and_member_that_ignore_eof_and_term",
+      "--",
+      "--exact"
+    ],
+    "red_assertion": "MCP server group survived Close: orphaned member",
+    "red_exit": 101,
+    "green_exit": 0
+  }
+]

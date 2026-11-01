@@ -12,6 +12,9 @@ use std::{
 #[cfg(feature = "test-fixtures")]
 #[path = "support/seat_launch.rs"]
 mod seat_launch;
+#[cfg(feature = "test-fixtures")]
+#[path = "support/seat_shutdown.rs"]
+mod seat_shutdown;
 fn launch(
     script: &str,
 ) -> (

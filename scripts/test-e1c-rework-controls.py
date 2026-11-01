@@ -22,10 +22,11 @@ def once(source,before,after):
     if source.count(before)!=1:raise ValueError('mutation anchor drift: '+before)
     return source.replace(before,after)
 def leader_only(source):
-    start=source.index('async fn finish_child(');end=source.index('async fn supervise(',start)
-    body=source[start:end];before='libc::kill(-(pid as i32),'
-    if body.count(before)!=2:raise ValueError('group-signal mutation anchor drift')
-    return source[:start]+body.replace(before,'libc::kill(pid as i32,')+source[end:]
+    start=source.index('async fn finish_child(');end=source.index('fn scrub_bboxy_env(',start)
+    body=source[start:end]
+    for signal in ['SIGTERM','SIGKILL']:
+        body=once(body,'group.send(libc::'+signal+');','unsafe {libc::kill(child.id().unwrap() as i32,libc::'+signal+');}')
+    return source[:start]+body+source[end:]
 def main(selected=None):
     cases=[
         ('backpressure','src/frontends/acp.rs','acp_face','slow_reader_resumes_without_losing_the_turn','slow reader lost the ACP connection',
@@ -43,7 +44,7 @@ def main(selected=None):
          lambda s:region(s,'    fn content(','    fn suffix(','''    fn content(&mut self,_parent:ItemId,_item:ItemId,value:Value)->Value {value}
 ''')),
         ('group-kill','src/mcp.rs','mcp_client','close_kills_a_server_and_member_that_ignore_eof_and_term','MCP server group survived Close',
-         lambda s:region(s,'async fn finish_child(','async fn supervise(','''async fn finish_child(rx:oneshot::Receiver<Child>) {
+         lambda s:region(s,'async fn finish_child(','fn scrub_bboxy_env(','''async fn finish_child(rx:oneshot::Receiver<Child>,_group:crate::process::OwnedGroup) {
     if let Ok(mut child)=rx.await {let _=child.wait().await;}
 }
 ''')),
@@ -71,6 +72,10 @@ def main(selected=None):
     }
 }
 ''')),
+        ('seat-hangup','src/process.rs','seat_process','seat_shutdown::hup_kills_owned_groups_before_supervisor_escalation_and_resume_recovers','owned group survived supervisor escalation',
+         lambda s:region(s,'pub(crate) fn kill_owned_groups()','extern "C" fn shutdown_signal','pub(crate) fn kill_owned_groups() {}\n')),
+        ('seat-hangup-model','tests/formal/models.rs','formal_nonvacuity','synchronous_hangup_kill_precedes_the_supervisors_unjoinable_exit','NoOwnedMemberAfterSupervisorKill',
+         lambda s:once(s,'if mode == 4 { Var(1) } else { Int(0) }','if mode == 0 || mode == 4 { Var(1) } else { Int(0) }')),
         ('leader-only','src/mcp.rs','mcp_client','close_kills_a_server_and_member_that_ignore_eof_and_term','MCP server group survived Close: orphaned member',leader_only),
         ('bboxy-indirection','src/mcp.rs','seat_process','seat_launch::profile_and_acp_refuse_bboxy_environment_indirection','BBOXY reference lacked typed configuration refusal',
          lambda s:once(s,'origin != Origin::Launcher\n        && env','false\n        && env')),

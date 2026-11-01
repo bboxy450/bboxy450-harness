@@ -871,7 +871,7 @@ fn replay_tail(mode: u8) -> Model {
     m
 }
 fn process_lifecycle(mode: u8) -> Model {
-    let mut m = base::<7>(
+    let mut m = base::<9>(
         "ProcessLifecycle",
         false,
         &[
@@ -882,6 +882,8 @@ fn process_lifecycle(mode: u8) -> Model {
             ("pipe_open", 1, 1),
             ("ended", 1, 0),
             ("signal_to_empty", 1, 0),
+            ("seat_alive", 1, 1),
+            ("hangup", 1, 0),
         ],
     );
     let exit = m.actions.len();
@@ -946,6 +948,44 @@ fn process_lifecycle(mode: u8) -> Model {
         ]),
         &[(6, Int(1))],
     );
+    // SIGHUP/TERM/PTY EOF run the signal-safe kill before the async close
+    // path is notified. A later supervisor KILL cannot run Rust Drop/join.
+    act(
+        &mut m,
+        "HangupReservedGroup",
+        all([eq(8, 0), eq(0, 2).negate()]),
+        &[
+            (8, Int(1)),
+            (1, if mode == 4 { Var(1) } else { Int(0) }),
+            (3, if mode == 4 { Var(3) } else { Int(1) }),
+        ],
+    );
+    act(
+        &mut m,
+        "HangupAfterGroupRetired",
+        all([eq(8, 0), eq(0, 2)]),
+        &[(8, Int(1))],
+    );
+    act(
+        &mut m,
+        "BeginAsyncHangupClose",
+        all([eq(8, 1), eq(2, 0)]),
+        &[(2, Int(1))],
+    );
+    for action in &mut m.actions {
+        action.guard = action.guard.clone().and(eq(7, 1));
+    }
+    act(
+        &mut m,
+        "SupervisorEscalatesToKill",
+        all([eq(8, 1), eq(7, 1)]),
+        &[(7, Int(0))],
+    );
+    safe(
+        &mut m,
+        "NoOwnedMemberAfterSupervisorKill",
+        eq(7, 1).or(eq(1, 0)),
+    );
     safe(
         &mut m,
         "NoMemberAfterCancel",
@@ -956,14 +996,15 @@ fn process_lifecycle(mode: u8) -> Model {
     progress(
         &mut m,
         "CancelEventuallyEnds",
-        eq(2, 0).negate(),
-        eq(2, 2),
+        eq(2, 0).negate().and(eq(7, 1)),
+        eq(2, 2).or(eq(7, 0)),
         vec![exit, signal, skip, reap, drain, end],
     );
     match mode {
         1 => m.name = "BrokenHarnessProcessDrain".into(),
         2 => m.name = "BrokenHarnessProcessOwnership".into(),
         3 => m.name = "BrokenHarnessProcessReapedMembers".into(),
+        4 => m.name = "BrokenHarnessProcessHangup".into(),
         _ => {}
     }
     m
@@ -1908,6 +1949,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
     out.push((process_lifecycle(1), "liveness"));
     out.push((process_lifecycle(2), "safety"));
     out.push((process_lifecycle(3), "safety"));
+    out.push((process_lifecycle(4), "safety"));
     use bbt_yarn::reactor_model;
     let mut projected = bboxy450_harness::harness_turn_topology!(
         reactor_model,

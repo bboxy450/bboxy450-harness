@@ -370,3 +370,36 @@ fn mcp_controls_reach_aba_deadlock_and_silent_inflight() {
         );
     }
 }
+
+#[test]
+fn synchronous_hangup_kill_precedes_the_supervisors_unjoinable_exit() {
+    let m = model("HarnessProcessLifecycle");
+    let alive = variable(&m, "seat_alive");
+    let member = variable(&m, "member_alive");
+    let hup = variable(&m, "hangup");
+    let good = m.check(100_000).unwrap();
+    assert!(
+        good.violations.is_empty(),
+        "NoOwnedMemberAfterSupervisorKill"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[hup] == 1 && s[alive] == 1 && s[member] == 0)
+    );
+    assert!(good.states.iter().any(|s| s[alive] == 0));
+    assert!(good.states.iter().all(|s| s[alive] == 1 || s[member] == 0));
+    let broken = model("BrokenHarnessProcessHangup").check(100_000).unwrap();
+    assert!(
+        broken
+            .states
+            .iter()
+            .any(|s| s[hup] == 1 && s[alive] == 0 && s[member] == 1)
+    );
+    assert!(
+        broken
+            .violations
+            .iter()
+            .any(|v| v.property == "NoOwnedMemberAfterSupervisorKill" && v.cycle.is_empty())
+    );
+}

@@ -20,6 +20,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
 pub async fn cli() -> i32 {
     let result=async {
+        crate::process::install_shutdown_handlers().map_err(|_|"signal handler failed".to_string())?;
         let stop=CancellationToken::new();let ready=Arc::new(std::sync::atomic::AtomicBool::new(false));
         let mut hup=tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()).map_err(|_|"signal handler failed".to_string())?;
         let mut term=tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).map_err(|_|"signal handler failed".to_string())?;
@@ -292,12 +293,27 @@ async fn run_cli(
             .map_err(|_| "session could not be created")?
             .0
     };
-    let socket = crate::gateway::unix::UnixServer::bind(
-        root.join("run").join(format!("{session}.sock")),
-        gateway.clone(),
-    )
-    .await
-    .map_err(|_| "session socket unavailable")?;
+    let socket_path = root.join("run").join(format!("{session}.sock"));
+    if resume.is_some() {
+        // Successful open owns the session's exclusive writer lease. Its old
+        // process is gone, but SIGKILL cannot unlink the bound socket pathname.
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+        match tokio::fs::symlink_metadata(&socket_path).await {
+            Ok(meta)
+                if meta.file_type().is_socket() && meta.uid() == unsafe { libc::geteuid() } =>
+            {
+                tokio::fs::remove_file(&socket_path)
+                    .await
+                    .map_err(|_| "stale session socket unavailable")?;
+            }
+            Ok(_) => return Err("session socket path is not an owned socket".into()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err("session socket unavailable".into()),
+        }
+    }
+    let socket = crate::gateway::unix::UnixServer::bind(socket_path, gateway.clone())
+        .await
+        .map_err(|_| "session socket unavailable")?;
     let mut subscription = gateway
         .subscribe(Subscribe {
             session,
@@ -307,6 +323,7 @@ async fn run_cli(
         .map_err(|_| "subscribe refused")?;
     let mut line_projection = super::seat::LineProjection::default();
     let mut stdout = tokio::io::stdout();
+    let stdin_was_tty = unsafe { libc::isatty(libc::STDIN_FILENO) } == 1;
     let mut input = tokio::io::BufReader::new(tokio::io::stdin()).lines();
     ready.store(true, std::sync::atomic::Ordering::Release);
     let mut stopping = false;
@@ -330,7 +347,7 @@ async fn run_cli(
         tokio::select! {biased;
          _=stop.cancelled(),if !stopping=>{let _=gateway.send(op(Op::Close));stopping=true;},
          _=tokio::signal::ctrl_c()=>{if running{let _=gateway.send(op(Op::Interrupt{turn:None}));}},
-         line=input.next_line(),if seat&&!stopping=>{match line{Ok(Some(text))=>{if !text.is_empty(){let _=gateway.send(op(Op::UserTurn{blocks:vec![InputBlock::Text{text}],mode:TurnMode::Queue}));}},_=>{let _=gateway.send(op(Op::Close));stopping=true;}}},
+         line=input.next_line(),if seat&&!stopping=>{match line{Ok(Some(text))=>{if !text.is_empty(){let _=gateway.send(op(Op::UserTurn{blocks:vec![InputBlock::Text{text}],mode:TurnMode::Queue}));}},_=>{if stdin_was_tty && stdin_hung_up(){crate::process::kill_owned_groups();}let _=gateway.send(op(Op::Close));stopping=true;}}},
          event=subscription.recv()=>{let Some(event)=event else{break;};match &event.event{Event::TurnStarted{..}=>running=true,Event::TurnEnded{reason,..}=>{running=false;failed|=matches!(reason,StopReason::Error{..});if !seat&&!stopping{let _=gateway.send(op(Op::Close));stopping=true;}},_=>{}}
           let bytes=if json {let mut b=serde_json::to_vec(&event).map_err(|_|"event serialization failed")?;b.push(b'\n');b}else{line_projection.render(&event)};
           if stdout.write_all(&bytes).await.is_err(){let _=gateway.send(op(Op::Close));break;}let _=stdout.flush().await;
@@ -340,7 +357,9 @@ async fn run_cli(
     }
     socket.close().await.map_err(|_| "socket shutdown failed")?;
     host.join().await.map_err(|_| "session actor failed")?;
-    Ok(if failed { 1 } else { 0 })
+    // Seat Ctrl-D/Close succeeds even when a prior (including recovered) turn
+    // failed. Headless one-shot mode still reports its turn's failure.
+    Ok(if failed && !seat { 1 } else { 0 })
 }
 async fn read_launch(append_system_prompt: String, path: Option<PathBuf>) -> LaunchOptions {
     let mut launch = LaunchOptions {
@@ -368,4 +387,20 @@ async fn read_launch(append_system_prompt: String, path: Option<PathBuf>) -> Lau
         }
     }
     launch
+}
+
+// Cooked Ctrl-D returns EOF with a healthy terminal. A revoked/hung-up PTY
+// returns EOF/EIO with HUP or failed termios; it takes the synchronous path.
+fn stdin_hung_up() -> bool {
+    let mut fd = libc::pollfd {
+        fd: libc::STDIN_FILENO,
+        events: 0,
+        revents: 0,
+    };
+    let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
+    unsafe {
+        libc::poll(&mut fd, 1, 0);
+    }
+    fd.revents & (libc::POLLHUP | libc::POLLERR) != 0
+        || unsafe { libc::tcgetattr(libc::STDIN_FILENO, termios.as_mut_ptr()) } != 0
 }

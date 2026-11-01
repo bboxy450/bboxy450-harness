@@ -483,18 +483,15 @@ impl Transport<RoleClient> for OwnedTransport {
         Ok(())
     }
 }
-async fn finish_child(rx: oneshot::Receiver<Child>) {
+async fn finish_child(rx: oneshot::Receiver<Child>, mut group: crate::process::OwnedGroup) {
     if let Ok(mut child) = rx.await {
-        if let Some(pid) = child.id() {
+        if child.id().is_some() {
             // The leader remains unreaped, reserving its pgid until both signals.
-            unsafe {
-                libc::kill(-(pid as i32), libc::SIGTERM);
-            }
+            group.send(libc::SIGTERM);
             tokio::time::sleep(Duration::from_secs(1)).await;
-            unsafe {
-                libc::kill(-(pid as i32), libc::SIGKILL);
-            }
+            group.send(libc::SIGKILL);
         }
+        group.reaped();
         let _ = child.wait().await;
     }
 }
@@ -574,7 +571,9 @@ async fn supervise(
                 redactor.register(&value);command.env(key,value);
             }
             if slot.origin!=Origin::Launcher {scrub_bboxy_env(&mut command);}
+            let reservation=crate::process::reserve_group().map_err(|_|"process shutting down")?;
             let (transport,err)=TokioChildProcess::builder(command).stderr(std::process::Stdio::piped()).spawn().map_err(|_|"spawn failed")?;
+            let group=crate::process::OwnedGroup::new(transport.id().expect("spawned MCP child"),reservation);
             let (tx,rx)=oneshot::channel();
             let mut pipes=TaskGroup::new(cancel.child_token());
             if let Some(mut err)=err {let ring=stderr.clone();let stop=pipes.cancel.clone();pipes.spawn(async move {let mut buf=[0u8;4096];loop {let n=tokio::select!{biased;_=stop.cancelled()=>break,n=err.read(&mut buf)=>n};let Ok(n)=n else {break;};if n==0{break;}let mut ring=ring.lock().unwrap();ring.extend_from_slice(&buf[..n]);let excess=ring.len().saturating_sub(64*1024);ring.drain(..excess);}});}
@@ -602,7 +601,7 @@ async fn supervise(
                 stop_service.cancel();if !finished {let _=completion.await;}Err("server exited")
             };
             let outcome:Result<(),&str>=run.await;
-            slot.ready.store(Arc::new(None));finish_child(rx).await;let _=pipes.cancel_and_join().await;outcome
+            slot.ready.store(Arc::new(None));finish_child(rx,group).await;let _=pipes.cancel_and_join().await;outcome
         }.await;
         slot.ready.store(Arc::new(None));
         if cancel.is_cancelled() {
