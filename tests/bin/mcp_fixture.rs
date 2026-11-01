@@ -73,6 +73,12 @@ async fn run() {
             }
             Some("tools/list") => {
                 listed += 1;
+                if mode == "hang_relist" && listed > 1 {
+                    if let Ok(path) = std::env::var("MCP_RELIST") {
+                        std::fs::write(path, "waiting").unwrap();
+                    }
+                    continue;
+                }
                 let names = if mode == "list_changed" && listed > 1 {
                     vec!["later"]
                 } else {
@@ -84,7 +90,9 @@ async fn run() {
                     .await;
             }
             Some("tools/call") => {
-                if mode == "list_changed" && request["params"]["name"] == "change" {
+                if matches!(mode.as_str(), "list_changed" | "hang_relist")
+                    && request["params"]["name"] == "change"
+                {
                     let _ = tx
                         .send(json!({"jsonrpc":"2.0","method":"notifications/tools/list_changed"}))
                         .await;

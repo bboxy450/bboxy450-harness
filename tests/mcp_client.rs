@@ -209,6 +209,9 @@ async fn turn(h: &mut Harness, approve: bool) -> Vec<Envelope> {
 async fn close(h: Harness) -> Vec<Envelope> {
     h.gateway.send(support::op(&h.gateway, Op::Close)).unwrap();
     h.host.join().await.unwrap();
+    transcript(&h)
+}
+fn transcript(h: &Harness) -> Vec<Envelope> {
     let text = std::fs::read_to_string(bboxy450_harness::store::log_path(
         &h.temp.path().join("sessions"),
         h.gateway.session(),
@@ -234,6 +237,65 @@ async fn starting_hung_server_never_blocks_a_turn() {
     ));
     let log = close(h).await;
     assert!(!log.iter().any(|e|matches!(&e.event,Event::ItemCompleted {body:Item::Notice {text,..},..} if text=="mcp fixture: ready")));
+}
+#[tokio::test]
+async fn close_cancels_a_hung_tools_relist_and_reaps_the_server() {
+    let temp = tempfile::tempdir().unwrap();
+    let marker = temp.path().join("relist");
+    let pids = temp.path().join("pids");
+    let mut h = start(
+        "hang_relist",
+        true,
+        vec![vec!["mcp__fixture__change"]],
+        [
+            ("MCP_RELIST".into(), marker.to_string_lossy().into()),
+            ("MCP_SPAWNS".into(), pids.to_string_lossy().into()),
+        ]
+        .into(),
+    )
+    .await;
+    ready(&mut h).await;
+    turn(&mut h, false).await;
+    tokio::time::timeout(std::time::Duration::from_secs(8), async {
+        while !marker.exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("fixture never received the re-list request");
+    let stopped = {
+        let closing = h.host.close_all();
+        tokio::pin!(closing);
+        let stopped = tokio::time::timeout(std::time::Duration::from_secs(2), &mut closing).await;
+        if stopped.is_err() {
+            closing.await;
+        }
+        stopped
+    };
+    assert!(
+        stopped.is_ok(),
+        "Close waited for the hung tools/list request"
+    );
+    let log = transcript(&h);
+    assert!(matches!(log.last().unwrap().event, Event::SessionClosed));
+    for pgid in std::fs::read_to_string(pids)
+        .unwrap()
+        .lines()
+        .map(|s| s.parse::<i32>().unwrap())
+    {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+        while unsafe { libc::kill(-pgid, 0) } == 0 {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "fixture group survived Close"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH)
+        );
+    }
 }
 #[tokio::test]
 async fn timeout_is_labelled_cancelled_and_turn_continues() {

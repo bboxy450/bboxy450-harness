@@ -70,6 +70,7 @@ struct Slot {
     config: ServerConfig,
     ready: ArcSwap<Option<Ready>>,
     generation: std::sync::atomic::AtomicU64,
+    state: std::sync::atomic::AtomicU8,
 }
 #[derive(Clone)]
 pub struct Binding {
@@ -114,6 +115,7 @@ impl Manager {
                 config,
                 ready: ArcSwap::from_pointee(None),
                 generation: 0.into(),
+                state: 0.into(),
             });
             let s = slot.clone();
             let tx = output.clone();
@@ -227,7 +229,9 @@ impl Binding {
             .as_ref()
             .filter(|r| r.generation == self.generation)
         else {
-            return ToolOutput::error(format!("mcp {}: server is not ready", self.slot.name));
+            let state = ["starting", "ready", "failed", "dead"]
+                [usize::from(self.slot.state.load(Ordering::Acquire))];
+            return ToolOutput::error(format!("mcp {}: {state}", self.slot.name));
         };
         let args = ctx.redactor.value(args);
         let mut params = CallToolRequestParams::new(self.tool.clone());
@@ -413,6 +417,7 @@ async fn supervise(
         if cancel.is_cancelled() {
             return;
         }
+        slot.state.store(0, Ordering::Release);
         notice(
             &output,
             &cancel,
@@ -447,14 +452,15 @@ async fn supervise(
                 let service=tokio::select! {biased;_=cancel.cancelled()=>return Err("cancelled"),r=handshake=>r.map_err(|_|"initialize timed out")?.map_err(|_|"initialize failed")?};
                 let first=tokio::select! {biased;_=cancel.cancelled()=>{let _=service.cancel().await;return Err("cancelled");},r=tokio::time::timeout_at(deadline,service.peer().list_all_tools())=>r};
                 let tools=match first {Ok(Ok(tools))=>tools,_=>{let _=service.cancel().await;return Err("tools/list failed");}};
-                slot.ready.store(Arc::new(Some(Ready {generation,peer:service.peer().clone(),tools})));
+                slot.ready.store(Arc::new(Some(Ready {generation,peer:service.peer().clone(),tools})));slot.state.store(1,Ordering::Release);
                 notice(&output,&cancel,Level::Info,format!("mcp {}: ready",slot.name)).await;
                 let mut watch=tokio::time::interval(Duration::from_millis(50));
                 loop {
                     tokio::select! {biased;_=cancel.cancelled()=>break,_=watch.tick()=>{if service.is_closed(){break;}},_=changed.notified()=> {
                         tokio::select!{biased;_=cancel.cancelled()=>break,_=tokio::time::sleep(Duration::from_secs(1))=>{}}
                         while changed.notified().now_or_never().is_some() {}
-                        if let Ok(Ok(tools))=tokio::time::timeout(Duration::from_secs(10),service.peer().list_all_tools()).await {slot.ready.store(Arc::new(Some(Ready {generation,peer:service.peer().clone(),tools})));}
+                        let listed=tokio::select!{biased;_=cancel.cancelled()=>break,r=tokio::time::timeout(Duration::from_secs(10),service.peer().list_all_tools())=>r};
+                        if let Ok(Ok(tools))=listed {slot.ready.store(Arc::new(Some(Ready {generation,peer:service.peer().clone(),tools})));}
                     }}
                 }
                 slot.ready.store(Arc::new(None));let _=service.cancel().await;Err("server exited")
@@ -466,6 +472,7 @@ async fn supervise(
         if cancel.is_cancelled() {
             return;
         }
+        slot.state.store(2, Ordering::Release);
         let excerpt = {
             let ring = stderr.lock().unwrap();
             let start = ring.len().saturating_sub(2048);
@@ -480,6 +487,7 @@ async fn supervise(
         )
         .await;
         if attempt == 4 {
+            slot.state.store(3, Ordering::Release);
             notice(
                 &output,
                 &cancel,

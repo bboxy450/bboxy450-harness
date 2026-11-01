@@ -2,7 +2,7 @@
   {
     "name": "timeout",
     "source": "src/mcp.rs",
-    "source_sha256": "5aa181db163a46f1b2216cd7df1ee8699e2dc62ab6cbb6317698ec1dfeea9ce1",
+    "source_sha256": "e9a96c11b49028d8b95ce0538366d71e224216fe96411ab0b3ca83c29d64a109",
     "command": [
       "cargo",
       "test",
@@ -25,7 +25,7 @@
   {
     "name": "crash",
     "source": "src/mcp.rs",
-    "source_sha256": "5aa181db163a46f1b2216cd7df1ee8699e2dc62ab6cbb6317698ec1dfeea9ce1",
+    "source_sha256": "e9a96c11b49028d8b95ce0538366d71e224216fe96411ab0b3ca83c29d64a109",
     "command": [
       "cargo",
       "test",
@@ -66,6 +66,29 @@
     "mutation": "while self.mcp.snapshot().0.is_empty() { tokio::time::sleep(std::time::Duration::from_millis(10)).await; }\n        let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;",
     "red_exit": 101,
     "red_assertion": "MCP must not block turn",
+    "green_exit": 0
+  },
+  {
+    "name": "relist",
+    "source": "src/mcp.rs",
+    "source_sha256": "e9a96c11b49028d8b95ce0538366d71e224216fe96411ab0b3ca83c29d64a109",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--quiet",
+      "--features",
+      "acp,test-fixtures",
+      "--test",
+      "mcp_client",
+      "close_cancels_a_hung_tools_relist_and_reaps_the_server",
+      "--",
+      "--exact"
+    ],
+    "mutation": "let listed=tokio::time::timeout(Duration::from_secs(10),service.peer().list_all_tools()).await;",
+    "red_exit": 101,
+    "red_assertion": "Close waited for the hung tools/list request",
     "green_exit": 0
   },
   {
