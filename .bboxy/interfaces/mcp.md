@@ -23,15 +23,15 @@ links:
   to: '[[seat-capability-delivery]]'
 number: 1988
 provenance:
-  digest: sha256:489707fbd6fd16ffb32d57b44973a0855f5ef38fecf161c2274a4bf8208dc9f3
-  frontmatter_digest: sha256:3dab4ffbb1bbc3e0d10b2f4ccf4d73a5a29bf20b94b20a3ed1672958898195da
-  log: .bboxy/log/2026-11-01.jsonl#28155
-  sig: kGy0ZvW2v/rkpbaqzB5PTTql0nKXj9kqc9vadvTQLE3O1wkUnPrgZb1PnqPSWEsUa8RWU7DwhUaOR1z3nFo0CA==
+  digest: sha256:b149e6505461ef6937f0cff7d5ed5fd5ed0f8bf45627da7be4cb683fbaffd2e8
+  frontmatter_digest: sha256:22870445b37a56d21696243ad0e8a607895760cf7404c4d5ed54e43966688781
+  log: .bboxy/log/2026-11-01.jsonl#28373
+  sig: /fA9r99Uk4DpFBkBOCAb2mONgxG+NeIZt620dcMNnzOkdoeiLA4Q+Pc7sSS0HF+0okZ2njD5rIO2o3dKp2vyCA==
   signer: seat:01M6AC7H87H9S94Y1D45PSQVH6
 status: baselined
 title: 'ICD: MCP client — session-lived servers, registry, policy, degradation (v0.1)'
 type: interface
-updated: 2026-11-01T13:39:08.740Z
+updated: 2026-11-01T13:46:41.298Z
 updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 ---
 # ICD: MCP client
