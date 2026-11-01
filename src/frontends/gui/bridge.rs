@@ -269,7 +269,7 @@ impl Drop for Bridge {
 type Preparer = super::view::Preparer;
 #[cfg(not(feature = "embedded"))]
 #[derive(Default)]
-struct Preparer;
+struct Preparer {}
 async fn publish_frame(mut state: FrameState, mailbox: &Arc<Mailbox>, preparer: &mut Preparer) {
     #[cfg(feature = "embedded")]
     {
