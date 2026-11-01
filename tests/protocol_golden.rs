@@ -342,11 +342,39 @@ fn fixtures() -> Vec<(&'static str, Vec<Envelope>)> {
         ("reset", reset),
     ]
 }
+// ACP enables serde_json/preserve_order upstream. Normalize snapshot values
+// explicitly so neither schema nor nested opaque objects depend on that feature.
+fn canonical_value(value: &impl serde::Serialize) -> serde_json::Value {
+    let mut value = serde_json::to_value(value).unwrap();
+    value.sort_all_objects();
+    value
+}
+
+fn canonical_json(value: &impl serde::Serialize) -> String {
+    serde_json::to_string(&canonical_value(value)).unwrap()
+}
+
+#[test]
+fn canonical_json_sorts_nested_objects_in_arrays() {
+    let value: serde_json::Value =
+        serde_json::from_str(r#"{"z":[{"b":1,"a":0}],"a":1}"#).unwrap();
+    assert_eq!(canonical_json(&value), r#"{"a":1,"z":[{"a":0,"b":1}]}"#);
+}
+
+#[cfg(not(feature = "acp"))]
+#[test]
+fn default_json_maps_iterate_sorted() {
+    let mut map = serde_json::Map::new();
+    map.insert("z".into(), serde_json::Value::Null);
+    map.insert("a".into(), serde_json::Value::Null);
+    assert_eq!(map.keys().map(String::as_str).collect::<Vec<_>>(), ["a", "z"]);
+}
+
 #[test]
 fn schema_and_golden_transcripts() {
     let update = std::env::var_os("UPDATE_GOLDENS").is_some();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let schema = serde_json::to_string_pretty(&schema()).unwrap() + "\n";
+    let schema = serde_json::to_string_pretty(&canonical_value(&schema())).unwrap() + "\n";
     if update {
         fs::write(root.join("protocol.schema.json"), &schema).unwrap();
     }
@@ -358,7 +386,7 @@ fn schema_and_golden_transcripts() {
         check_transcript(&events).unwrap();
         let bytes = events
             .iter()
-            .map(|e| serde_json::to_string(e).unwrap() + "\n")
+            .map(|e| canonical_json(e) + "\n")
             .collect::<String>();
         let path = root.join(format!("tests/fixtures/protocol/{name}.jsonl"));
         if update {
@@ -378,7 +406,7 @@ fn schema_and_golden_transcripts() {
             .lines()
             .map(|l| {
                 let e: Envelope = serde_json::from_str(l).unwrap();
-                assert_eq!(serde_json::to_string(&e).unwrap(), l);
+                assert_eq!(canonical_json(&e), l);
                 e
             })
             .collect::<Vec<_>>();
