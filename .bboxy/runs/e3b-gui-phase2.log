@@ -13,3 +13,9 @@ refreshed v0.4 fixture remain intact; no core source edits or merge.
 Plain make test runs after this integration commit. Earlier gates are historical,
 not a completion claim for this final pin/rebase. The report is refreshed with
 actual results after that command finishes.
+
+Final dependency correction: UI-core now also pins59dedc64, because the final
+UI imports its unpublished TransportParameter API. The initial clippy failure
+is preserved in e3b-final-make-test.log. R15 and all-feature clippy pass after
+this alignment. Runtime remains shared at registry0.1.1. Full plain make test
+is rerun, unfiltered, in e3b-final-make-test-fixed.log.

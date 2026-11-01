@@ -78,11 +78,11 @@ path = "tests/bin/mcp_fixture.rs"
 required-features = ["test-fixtures"]
 
 [patch.crates-io]
+bboxy450-ui-core = { git = "https://github.com/bboxy450/bboxy450-term", rev = "59dedc64861d66650e163bfabab88f5ed67eb810" }
 bboxy450-ui = { git = "https://github.com/bboxy450/bboxy450-term", rev = "59dedc64861d66650e163bfabab88f5ed67eb810" }
 bboxy450-doc = { git = "https://github.com/bboxy450/bboxy450-term", rev = "59dedc64861d66650e163bfabab88f5ed67eb810" }
 bboxy450-render = { git = "https://github.com/bboxy450/bboxy450-term", rev = "59dedc64861d66650e163bfabab88f5ed67eb810" }
 
-# Keep the published core dependencies shared with the git-pinned widgets (R15).
+# Share the published runtime with the git-pinned UI/core widgets (R15).
 [patch."https://github.com/bboxy450/bboxy450-term"]
-bboxy450-ui-core = { version = "=0.1.1" }
 bboxy450-rt = { version = "=0.1.1" }

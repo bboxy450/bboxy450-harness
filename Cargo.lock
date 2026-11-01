@@ -331,8 +331,7 @@ dependencies = [
 [[package]]
 name = "bboxy450-ui-core"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fadff0d432545c123fee56351155a2eeae455eeb449c398cf08e4334b2ab70b"
+source = "git+https://github.com/bboxy450/bboxy450-term?rev=59dedc64861d66650e163bfabab88f5ed67eb810#59dedc64861d66650e163bfabab88f5ed67eb810"
 dependencies = [
  "serde_json",
  "toml",
