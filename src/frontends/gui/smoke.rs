@@ -71,13 +71,15 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         }
         use crate::protocol::ItemKind;
         for row in state.transcript.items.values() {
+            let compaction_expected=if let crate::protocol::Item::Compaction {replaced_through,..}=&row.body {Some(format!("Compacted through event {}",replaced_through.0))}else{None};
             let expected = match row.kind {
                 ItemKind::UserMessage => "Read two files", ItemKind::AgentMessage => "I’ll read both files.",
                 ItemKind::Reasoning => "Compare the current contents.", ItemKind::ToolCall => "Arguments: path: hello.txt",
                 ItemKind::FileChange => "+hello world", ItemKind::TurnDiff => "+++ b/hello.txt",
                 ItemKind::Terminal => "printf ok", ItemKind::Plan => "In progress: Update greeting",
                 ItemKind::Approval => "Edit hello.txt", ItemKind::Image => "Image: image/png",
-                ItemKind::Usage => "Input: 0 tokens", ItemKind::Compaction => "Compacted through event 1",
+                ItemKind::ContextTrim => "Context trimmed through event ",
+                ItemKind::Usage => "Input: 0 tokens", ItemKind::Compaction => compaction_expected.as_deref().expect("compaction fixture body"),
                 ItemKind::Notice => "fixture complete", ItemKind::Subagent => "Session: 00000000000000000000000009",
                 ItemKind::Unknown => return Err("unexpected unknown fixture item".into()),
             };
@@ -91,7 +93,7 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
             "Compare the current contents.", "Arguments: path: hello.txt", "printf ok", "Exit code: 0",
             "--- a/hello.txt", "+hello world", "In progress: Update greeting", "Edit hello.txt",
             "Image: image/png", "0 bytes", "Input: 0 tokens", "Output: 0 tokens",
-            "Session: 00000000000000000000000009", "Compacted through event 1", "fixture complete",
+            "Session: 00000000000000000000000009", "Context trimmed through event ", "fixture complete",
         ];
         for expected in required { if !text.contains(expected) { return Err(format!("missing readable content: {expected}; actual text: {text}")); } }
         if text.contains("\"kind\":") || text.contains("Some(") { return Err("serialized payload reached a card".into()); }

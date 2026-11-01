@@ -27,6 +27,15 @@ pub struct Caps {
     pub context_tokens: u64,
 }
 pub type WireMessage = Value;
+pub fn tools_wire(tools: &[ToolDef]) -> Value {
+    json!(
+        tools
+            .iter()
+            .map(|t| json!({"type":"function","function":t}))
+            .collect::<Vec<_>>()
+    )
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolDef {
     pub name: String,
@@ -178,7 +187,7 @@ impl Provider for OpenAiCompat {
         Box::pin(async_stream::stream! {
              let choice=match req.tool_choice{ToolChoice::Auto=>json!("auto"),ToolChoice::None=>json!("none"),ToolChoice::Required=>json!("required"),ToolChoice::Named(name)=>json!({"type":"function","function":{"name":name}})};
              let mut body=json!({"model":req.model,"messages":this.redactor.value(json!(req.messages)),"stream":true,"stream_options":{"include_usage":true},"reasoning":{"exclude":false}});
-             if !req.tools.is_empty(){body["tools"]=json!(req.tools.iter().map(|t|json!({"type":"function","function":t})).collect::<Vec<_>>());body["tool_choice"]=choice;}
+             if !req.tools.is_empty(){body["tools"]=tools_wire(&req.tools);body["tool_choice"]=choice;}
              if let Some(max)=req.max_tokens{body["max_tokens"]=json!(max);}
              let started=tokio::time::Instant::now();let mut attempt=0u32;
              loop {

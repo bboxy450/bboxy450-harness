@@ -20,4 +20,7 @@ hello.txt
 ✓ hello (1 lines)
 Info: fixture complete
 — EndTurn
-› transcript reset to 38
+› I’ll read both files. Continuing.
+— EndTurn
+› — EndTurn
+› transcript reset to 54

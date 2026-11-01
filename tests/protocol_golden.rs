@@ -90,6 +90,18 @@ impl Fixture {
         let id = self.start(body.kind(), None);
         self.complete(id, body);
     }
+    fn idle_item(&mut self, body: Item) {
+        let item = ItemId(ulid::Ulid::from(self.next));
+        self.next += 1;
+        self.emit(Event::ItemStarted {
+            turn: None,
+            item,
+            kind: body.kind(),
+            parent: None,
+            head: body.head(),
+        });
+        self.complete(item, body);
+    }
     fn end(&mut self, reason: StopReason) {
         self.emit(Event::TurnEnded {
             turn: self.turn,
@@ -237,10 +249,6 @@ fn fixtures() -> Vec<(&'static str, Vec<Envelope>)> {
         mime: "image/png".into(),
         blob: BlobRef::empty(),
     });
-    f.item(Item::Compaction {
-        summary: BlobRef::empty(),
-        replaced_through: Seq(1),
-    });
     f.item(Item::Usage {
         usage: Usage::default(),
     });
@@ -250,6 +258,38 @@ fn fixtures() -> Vec<(&'static str, Vec<Envelope>)> {
     });
     f.item(Item::Subagent {
         session: SessionId(ulid::Ulid::from(9u128)),
+    });
+    f.end(StopReason::EndTurn);
+    let first = Seq(f.head);
+    f.idle_item(Item::Compaction {
+        summary: BlobRef::empty(),
+        replaced_through: first,
+    });
+    f.turn = TurnId(ulid::Ulid::from(3u128));
+    f.start_turn();
+    f.item(Item::UserMessage {
+        blocks: vec![InputBlock::Text {
+            text: "Read two files again.".into(),
+        }],
+    });
+    f.item(Item::AgentMessage {
+        markdown: "I’ll read both files. Continuing.".into(),
+    });
+    f.end(StopReason::EndTurn);
+    let second = Seq(f.head);
+    f.turn = TurnId(ulid::Ulid::from(4u128));
+    f.start_turn();
+    f.item(Item::UserMessage {
+        blocks: vec![InputBlock::Text {
+            text: "Read two files to finish.".into(),
+        }],
+    });
+    f.item(Item::ContextTrim {
+        clipped_through: second,
+    });
+    f.item(Item::Compaction {
+        summary: BlobRef::empty(),
+        replaced_through: second,
     });
     f.end(StopReason::EndTurn);
     let all = f.events.clone();

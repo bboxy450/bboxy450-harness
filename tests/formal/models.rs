@@ -1160,6 +1160,470 @@ fn embed_lifecycle(b: bool) -> Model {
     );
     m
 }
+// Harness-specific models: durable reductions and session-lived, birth-fenced MCP.
+fn acp_flow(mode: u8) -> Model {
+    let mut m = base::<13>(
+        "AcpFlow",
+        false,
+        &[
+            ("inbox", 2, 0),
+            ("prompt_admitted", 1, 0),
+            ("cancel_admitted", 1, 0),
+            ("turn", 2, 0),
+            ("log_head", 2, 0),
+            ("projected", 2, 0),
+            ("writer_queue", 2, 0),
+            ("reading", 1, 0),
+            ("conn", 1, 1),
+            ("peer", 1, 1),
+            ("response", 2, 0),
+            ("cancel_target", 2, 0),
+            ("metadata_left", 2, 2),
+        ],
+    );
+    if mode > 0 {
+        m.name = format!("BrokenHarnessAcpFlow{}", if mode == 1 { 'A' } else { 'B' });
+    }
+    act(
+        &mut m,
+        "ReadPrompt",
+        all([eq(0, 0), eq(8, 1)]),
+        &[(0, Int(1))],
+    );
+    act(
+        &mut m,
+        "ReadCancel",
+        all([eq(0, 1), eq(8, 1)]),
+        &[(0, Int(2))],
+    );
+    let admit = m.actions.len();
+    act(
+        &mut m,
+        "DurablePromptAdmission",
+        all([Int(0).lt(Var(0)), eq(1, 0), eq(8, 1)]),
+        &[(1, Int(1)), (3, Int(1))],
+    );
+    let cancel = m.actions.len();
+    act(
+        &mut m,
+        "CancelItsRunningPrompt",
+        all([eq(0, 2), eq(2, 0), eq(1, 1), eq(3, 1), eq(8, 1)]),
+        &[(2, Int(1)), (11, Var(3)), (3, Int(2))],
+    );
+    act(
+        &mut m,
+        "CancelAfterEnding",
+        all([eq(0, 2), eq(2, 0), eq(1, 1), eq(3, 2), eq(8, 1)]),
+        &[(2, Int(1)), (11, Var(3))],
+    );
+    act(
+        &mut m,
+        "UnorderedCancelOvertakesPrompt",
+        all([Bool(mode == 1), eq(0, 2), eq(2, 0), eq(1, 0), eq(8, 1)]),
+        &[(2, Int(1)), (11, Var(3))],
+    );
+    let emit = m.actions.len();
+    act(
+        &mut m,
+        "EngineEmit",
+        all([eq(1, 1), eq(3, 1), Var(4).lt(Int(2)), eq(8, 1)]),
+        &[(4, Var(4).plus(Int(1)))],
+    );
+    let end = m.actions.len();
+    act(
+        &mut m,
+        "EngineEnd",
+        all([eq(3, 1), eq(4, 2), eq(8, 1)]),
+        &[(3, Int(2))],
+    );
+    let project = m.actions.len();
+    act(
+        &mut m,
+        "SubscriptionProjects",
+        all([Var(5).lt(Var(4)), Var(6).lt(Int(2)), eq(8, 1)]),
+        &[(5, Var(5).plus(Int(1))), (6, Var(6).plus(Int(1)))],
+    );
+    act(
+        &mut m,
+        "ConnectionReply",
+        all([Int(0).lt(Var(12)), Var(6).lt(Int(2)), eq(8, 1)]),
+        &[(12, Var(12).minus(Int(1))), (6, Var(6).plus(Int(1)))],
+    );
+    let reply = m.actions.len();
+    act(
+        &mut m,
+        "QueuePromptResponse",
+        all([
+            eq(3, 2),
+            eq(1, 1),
+            eq(10, 0),
+            Var(5).eq(Var(4)),
+            Var(6).lt(Int(2)),
+            eq(8, 1),
+        ]),
+        &[(10, Int(1)), (6, Var(6).plus(Int(1)))],
+    );
+    let writer = m.actions.len();
+    act(
+        &mut m,
+        "WriterMessage",
+        all([
+            eq(7, 1),
+            eq(8, 1),
+            Int(0).lt(Var(6)),
+            eq(10, 1).negate().or(Int(1).lt(Var(6))),
+        ]),
+        &[(6, Var(6).minus(Int(1)))],
+    );
+    act(
+        &mut m,
+        "WriterResponse",
+        all([eq(7, 1), eq(8, 1), eq(6, 1), eq(10, 1)]),
+        &[(6, Int(0)), (10, Int(2))],
+    );
+    let resume = m.actions.len();
+    act(
+        &mut m,
+        "ReaderResumes",
+        all([eq(7, 0), eq(8, 1)]),
+        &[(7, Int(1))],
+    );
+    // Every nonempty readable interval drains under WF{writer}; pausing on an
+    // empty queue abstracts infinitely-often reading with a drain opportunity.
+    act(
+        &mut m,
+        "ReaderPauses",
+        all([eq(7, 1), eq(6, 0)]),
+        &[(7, Int(0))],
+    );
+    act(
+        &mut m,
+        "EofOrBrokenStdout",
+        eq(9, 1),
+        &[(9, Int(0)), (8, Int(0))],
+    );
+    act(
+        &mut m,
+        "FullQueueClosesConnection",
+        all([Bool(mode == 2), eq(6, 2), eq(8, 1)]),
+        &[(8, Int(0))],
+    );
+    safe(
+        &mut m,
+        "CancelHitsItsPrompt",
+        eq(2, 0).or(Int(0).lt(Var(11))),
+    );
+    safe(&mut m, "CloseOnlyOnEof", eq(8, 1).or(eq(9, 0)));
+    safe(
+        &mut m,
+        "EngineNeverWaits",
+        eq(9, 0).or(eq(3, 1).negate()).or(eq(4, 2)).or(eq(8, 1)),
+    );
+    progress(
+        &mut m,
+        "PromptEventuallyResponds",
+        Int(0).lt(Var(0)).and(eq(9, 1)),
+        eq(10, 2).or(eq(9, 0)),
+        vec![admit],
+    );
+    for fair in [
+        vec![cancel, cancel + 1],
+        vec![emit],
+        vec![end],
+        vec![project],
+        vec![reply],
+        vec![writer, writer + 1],
+        vec![resume],
+    ] {
+        m.weak_fair.push(fair);
+    }
+    m
+}
+fn auto_compact(mode: u8) -> Model {
+    // phase: idle=0, ladder=1, sending=2; item: none=0, trim=1, summary=2.
+    let mut m = base::<13>(
+        "AutoCompact",
+        false,
+        &[
+            ("est", 4, 4),
+            ("turn_open", 1, 1),
+            ("ended_through", 2, 1),
+            ("clipped", 3, 0),
+            ("replaced", 3, 0),
+            ("phase", 2, 0),
+            ("steps", 2, 0),
+            ("item", 2, 0),
+            ("durable_clipped", 3, 0),
+            ("durable_replaced", 3, 0),
+            ("queued", 1, 0),
+            ("latest_ending", 3, 1),
+            ("trim_estimate", 3, 3),
+        ],
+    );
+    if mode > 0 {
+        m.name = format!(
+            "BrokenHarnessAutoCompact{}",
+            ['A', 'B', 'C', 'D'][(mode - 1) as usize]
+        );
+    }
+    // Slots 1..2 are completed prefixes; slot 3 covers the open turn.
+    // A queued cancellation may end in slot 3 without closing that running turn.
+    act(&mut m, "TrimWillFit", eq(5, 0), &[(12, Int(2))]);
+    act(&mut m, "TrimNeedsSummary", eq(5, 0), &[(12, Int(3))]);
+    act(
+        &mut m,
+        "CompleteAnotherPrefixTurn",
+        all([eq(5, 0), eq(2, 1), eq(11, 1)]),
+        &[(2, Int(2)), (11, Int(2))],
+    );
+    act(
+        &mut m,
+        "CompletePrefixBelowQueuedEnding",
+        all([eq(5, 0), eq(2, 1), eq(11, 3)]),
+        &[(2, Int(2))],
+    );
+    act(&mut m, "QueueTurn", eq(10, 0), &[(10, Int(1))]);
+    act(
+        &mut m,
+        "CancelQueuedTurn",
+        eq(10, 1),
+        &[(10, Int(0)), (11, Int(3))],
+    );
+    let frontier = if mode == 4 { Var(11) } else { Var(2) };
+    act(
+        &mut m,
+        "Boundary",
+        eq(5, 0),
+        &[(5, Int(1)), (0, Int(4)), (6, Int(0))],
+    );
+    let mut fair = vec![];
+    fair.push(m.actions.len());
+    act(
+        &mut m,
+        "BeginTrim",
+        all([eq(5, 1), eq(7, 0), eq(6, 0), Var(3).lt(frontier.clone())]),
+        &[(7, Int(1))],
+    );
+    fair.push(m.actions.len());
+    let target = if mode == 1 { Int(3) } else { frontier.clone() };
+    act(
+        &mut m,
+        "CompleteTrim",
+        eq(7, 1),
+        &[
+            (3, target.clone()),
+            (8, target),
+            (7, Int(0)),
+            (6, Int(1)),
+            (0, Var(12)),
+        ],
+    );
+    fair.push(m.actions.len());
+    act(
+        &mut m,
+        "BeginSummary",
+        all([
+            eq(5, 1),
+            eq(7, 0),
+            Var(4).lt(frontier.clone()),
+            Int(2).lt(Var(0)),
+            eq(6, 1).or(all([eq(6, 0), frontier.clone().le(Var(3))])),
+        ]),
+        &[(7, Int(2))],
+    );
+    fair.push(m.actions.len());
+    act(
+        &mut m,
+        "CompleteSummary",
+        eq(7, 2),
+        &[
+            (4, frontier.clone()),
+            (9, frontier.clone()),
+            (7, Int(0)),
+            (6, Int(2)),
+            (0, Int(1)),
+        ],
+    );
+    let nothing = Var(2).le(Var(3)).and(Var(2).le(Var(4)));
+    fair.push(m.actions.len());
+    act(
+        &mut m,
+        "Send",
+        all([
+            eq(5, 1),
+            eq(7, 0),
+            Var(0).le(Int(2)).or(if mode == 3 {
+                Bool(false)
+            } else {
+                eq(6, 2).or(nothing)
+            }),
+        ]),
+        &[(5, Int(2))],
+    );
+    act(&mut m, "NextRound", eq(5, 2), &[(5, Int(0))]);
+    act(
+        &mut m,
+        "Restart",
+        all([eq(5, 2), eq(7, 0)]),
+        &[(3, if mode == 2 { Int(0) } else { Var(8) }), (4, Var(9))],
+    );
+    safe(
+        &mut m,
+        "NeverReducesOpenTurn",
+        Var(3).le(Var(2)).and(Var(4).le(Var(2))),
+    );
+    safe(
+        &mut m,
+        "BoundariesMonotone",
+        Var(8).le(Var(3)).and(Var(9).le(Var(4))),
+    );
+    safe(&mut m, "ItemBeforeRequest", eq(5, 2).negate().or(eq(7, 0)));
+    progress(&mut m, "BoundaryEventuallySends", eq(5, 1), eq(5, 2), fair);
+    m
+}
+fn mcp_server(mode: u8) -> Model {
+    // Starting=0, ready=1, failed=2, dead=3; round absent/open/finished.
+    // Three births stand for the five-attempt product bound; identities are gen mod 2.
+    let mut m = base::<11>(
+        "McpServer",
+        false,
+        &[
+            ("state", 3, 0),
+            ("gen", 2, 0),
+            ("failures", 2, 0),
+            ("call", 1, 0),
+            ("round_open", 2, 0),
+            ("held", 1, 0),
+            ("held_generation", 2, 0),
+            ("accepted_tag", 2, 0),
+            ("accepted_birth", 2, 0),
+            ("silent", 1, 0),
+            ("retired", 1, 0),
+        ],
+    );
+    if mode > 0 {
+        m.name = format!(
+            "BrokenHarnessMcpServer{}",
+            ['A', 'B', 'C'][(mode - 1) as usize]
+        );
+    }
+    m.check_deadlock = mode == 1;
+    act(
+        &mut m,
+        "StartRound",
+        if mode == 1 {
+            all([eq(4, 0), eq(0, 1)])
+        } else {
+            eq(4, 0)
+        },
+        &[(4, Int(1))],
+    );
+    act(&mut m, "Ready", eq(0, 0), &[(0, Int(1))]);
+    act(
+        &mut m,
+        "FailedStartOrExit",
+        all([Var(0).le(Int(1)), Var(2).lt(Int(2))]),
+        &[(0, Int(2)), (2, Var(2).plus(Int(1)))],
+    );
+    act(
+        &mut m,
+        "Restart",
+        all([eq(0, 2), Var(1).lt(Int(2))]),
+        &[(0, Int(0)), (1, Var(1).plus(Int(1)))],
+    );
+    act(
+        &mut m,
+        "Exhausted",
+        all([Var(0).le(Int(1)), eq(2, 2)]),
+        &[(0, Int(3)), (10, Int(1))],
+    );
+    let call = m.actions.len();
+    act(
+        &mut m,
+        "Call",
+        all([eq(4, 1), eq(3, 0), eq(0, 1)]),
+        &[(3, Int(1))],
+    );
+    act(
+        &mut m,
+        "ServerHangs",
+        all([eq(3, 1), eq(5, 0)]),
+        &[(9, Int(1))],
+    );
+    act(
+        &mut m,
+        "HoldResult",
+        all([eq(3, 1), eq(5, 0), eq(9, 0)]),
+        &[(5, Int(1)), (6, Var(1))],
+    );
+    let fail = m.actions.len();
+    act(
+        &mut m,
+        "UnavailableFailsImmediately",
+        all([eq(4, 1), eq(3, 0), eq(0, 1).negate()]),
+        &[(4, Int(2))],
+    );
+    let apply = m.actions.len();
+    act(
+        &mut m,
+        "Respond",
+        all([
+            eq(3, 1),
+            eq(5, 1),
+            if mode == 2 {
+                Bool(true)
+            } else {
+                Var(6).eq(Var(1))
+            },
+        ]),
+        &[
+            (3, Int(0)),
+            (5, Int(0)),
+            (4, Int(2)),
+            (7, Var(6)),
+            (8, Var(1)),
+        ],
+    );
+    let discard = m.actions.len();
+    act(
+        &mut m,
+        "DropStale",
+        all([eq(3, 1), eq(5, 1), Var(6).eq(Var(1)).negate()]),
+        &[(3, Int(0)), (5, Int(0)), (4, Int(2))],
+    );
+    let timeout = m.actions.len();
+    act(
+        &mut m,
+        "Timeout",
+        if mode == 3 { Bool(false) } else { eq(3, 1) },
+        &[(3, Int(0)), (5, Int(0)), (4, Int(2))],
+    );
+    act(&mut m, "Finished", eq(4, 2), &[]);
+    safe(&mut m, "NoStaleResult", Var(7).eq(Var(8)));
+    progress(
+        &mut m,
+        "RoundNeverWaits",
+        eq(4, 0),
+        eq(4, 0).negate(),
+        vec![0],
+    );
+    safe(&mut m, "DeadIsFinal", eq(10, 0).or(eq(0, 3)));
+    progress(
+        &mut m,
+        "CallEventuallyEnds",
+        eq(3, 1),
+        eq(3, 0),
+        vec![apply, discard, timeout],
+    );
+    progress(
+        &mut m,
+        "RoundMakesProgress",
+        eq(4, 1).and(eq(3, 0)),
+        eq(4, 2).or(eq(3, 1)),
+        vec![fail, call],
+    );
+    m
+}
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![];
     for b in [false, true] {
@@ -1198,6 +1662,29 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
             out.push((m, expected));
         }
     }
+    for mode in 0..=3 {
+        out.push((
+            auto_compact(mode),
+            match mode {
+                0 => "pass",
+                3 => "liveness",
+                _ => "safety",
+            },
+        ));
+        out.push((
+            mcp_server(mode),
+            match mode {
+                0 => "pass",
+                1 => "deadlock",
+                2 => "safety",
+                _ => "liveness",
+            },
+        ));
+    }
+    out.push((auto_compact(4), "safety"));
+    out.push((acp_flow(0), "pass"));
+    out.push((acp_flow(1), "safety"));
+    out.push((acp_flow(2), "safety"));
     out.push((steer_mode(false, true), "safety"));
     let mut registration = replay_base(false);
     registration.name = "HarnessSubscriberReplayRegistration".into();

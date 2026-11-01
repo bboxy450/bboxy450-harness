@@ -28,12 +28,12 @@ pub fn export(
     let r = m.check(100_000)?;
     let actual = if r.violations.is_empty() {
         "pass"
-    } else if r.violations.iter().any(|v| !v.cycle.is_empty()) {
-        "liveness"
     } else if r.violations.iter().any(|v| v.property == "Deadlock") {
         "deadlock"
-    } else {
+    } else if r.violations.iter().any(|v| v.cycle.is_empty()) {
         "safety"
+    } else {
+        "liveness"
     };
     if actual != expected {
         return Err(format!("{}: native expected {expected}, got {actual}", m.name).into());

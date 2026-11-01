@@ -1,22 +1,13 @@
 ---
-authorship:
-  kind: seat
-  process_generation: '1'
-  public_key: u0vQJ7ngwMS5yr2jtfd3HrkhSWQXq2tpEWFJBh5W+4A=
-  signer: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
-created: 2026-11-01T08:52:54.701Z
-created_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
-id: 01M6B4ZK4NZ7B4KEM20XZXJEN5
+authorship: {"kind":"seat","process_generation":"1","public_key":"u0vQJ7ngwMS5yr2jtfd3HrkhSWQXq2tpEWFJBh5W+4A=","signer":"seat:01M6ADTTF9QWWFZFVZJHJ3DD8E"}
+created: "2026-11-01T08:52:54.701Z"
+created_by: "seat:01M6ADTTF9QWWFZFVZJHJ3DD8E"
+id: "01M6B4ZK4NZ7B4KEM20XZXJEN5"
 number: 3021
-provenance:
-  digest: sha256:a7c8bd4f61d3faa0f1369de617ae9c05feee3813f8e96775a8b814242359ea75
-  frontmatter_digest: sha256:60ffcdb412a688f1dbb7d646ec914feaeff350e0791c8511b554ade49b553f3e
-  log: .bboxy/log/2026-11-01.jsonl#18777
-  sig: b+LAUpgH0yrG0co8UP2Mnf50CUirM82JIVbRHqNLCsAnYzBSxzGr5EQ0HRiX1xxsH222PRjv04X4ItxKH3pABw==
-  signer: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
-type: note
-updated: 2026-11-01T08:52:54.701Z
-updated_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+provenance: {"digest":"sha256:a7c8bd4f61d3faa0f1369de617ae9c05feee3813f8e96775a8b814242359ea75","frontmatter_digest":"sha256:60ffcdb412a688f1dbb7d646ec914feaeff350e0791c8511b554ade49b553f3e","log":".bboxy/log/2026-11-01.jsonl#18777","sig":"b+LAUpgH0yrG0co8UP2Mnf50CUirM82JIVbRHqNLCsAnYzBSxzGr5EQ0HRiX1xxsH222PRjv04X4ItxKH3pABw==","signer":"seat:01M6ADTTF9QWWFZFVZJHJ3DD8E"}
+type: "note"
+updated: "2026-11-01T08:52:54.701Z"
+updated_by: "seat:01M6ADTTF9QWWFZFVZJHJ3DD8E"
 ---
 # ACP 1.9.1 → 1.12.0 pin check
 

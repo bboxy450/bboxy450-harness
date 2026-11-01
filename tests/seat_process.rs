@@ -68,8 +68,12 @@ fn hangup_stops_without_an_operator() {
     });
     rx.recv_timeout(Duration::from_secs(5)).unwrap();
     reader_thread.join().unwrap();
-    std::thread::sleep(Duration::from_millis(50));
     let start = Instant::now();
+    // Explicit hangup avoids racing PTY foreground-group signal delivery.
+    assert_eq!(
+        unsafe { libc::kill(child.process_id().unwrap() as i32, libc::SIGHUP) },
+        0
+    );
     drop(writer);
     drop(master);
     loop {
@@ -123,7 +127,7 @@ fn terminate_during_key_resolution_joins_the_key_process() {
     let profiles = temp.path().join(".bboxy450-harness/profiles");
     std::fs::create_dir_all(&profiles).unwrap();
     let pid = temp.path().join("key.pid");
-    std::fs::write(profiles.join("slow.md"),format!("---\nname: slow\nmodel: unused\nendpoint: http://127.0.0.1:9/v1\napi_key: '!echo $$ > {}; sleep 600'\n---\n",pid.display())).unwrap();
+    std::fs::write(profiles.join("slow.md"),format!("---\nname: slow\nmodel: unused\nendpoint: http://127.0.0.1:9/v1\napi_key: '!echo $$ > {}.tmp; mv {}.tmp {}; sleep 600'\n---\n",pid.display(),pid.display(),pid.display())).unwrap();
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
         .args(["seat", "--profile", "slow", "--cwd"])
         .arg(temp.path())

@@ -1,0 +1,119 @@
+{
+  "source": "a757963a71ed11d93111d3034ed4f7d47a9c960d",
+  "formal_evidence_sha256": "872bb84c00b5350b8ae35fbc182d864570c427b28e048647f3c17a1311b6c263",
+  "native_command": "make test-formal-native",
+  "native_gate_exit": 0,
+  "parity_command": "make test-formal-parity",
+  "parity_gate_exit": 0,
+  "models_total": 52,
+  "crates_total": 1,
+  "implementation_refinement_proven": false,
+  "controls": [
+    {
+      "control": "BrokenHarnessAutoCompactA",
+      "native_verdict": "safety",
+      "native_violated_properties": [
+        "NeverReducesOpenTurn"
+      ],
+      "required_property": "NeverReducesOpenTurn",
+      "java_tlc_exit": 12,
+      "correct_model": "HarnessAutoCompact",
+      "correct_native_verdict": "pass",
+      "correct_java_tlc_exit": 0,
+      "full_state_and_transition_sets_equal": true,
+      "states": 44,
+      "edges": 96
+    },
+    {
+      "control": "BrokenHarnessAutoCompactB",
+      "native_verdict": "safety",
+      "native_violated_properties": [
+        "BoundariesMonotone"
+      ],
+      "required_property": "BoundariesMonotone",
+      "java_tlc_exit": 12,
+      "correct_model": "HarnessAutoCompact",
+      "correct_native_verdict": "pass",
+      "correct_java_tlc_exit": 0,
+      "full_state_and_transition_sets_equal": true,
+      "states": 88,
+      "edges": 200
+    },
+    {
+      "control": "BrokenHarnessAutoCompactC",
+      "native_verdict": "liveness",
+      "native_violated_properties": [
+        "BoundaryEventuallySends"
+      ],
+      "required_property": "BoundaryEventuallySends",
+      "java_tlc_exit": 13,
+      "correct_model": "HarnessAutoCompact",
+      "correct_native_verdict": "pass",
+      "correct_java_tlc_exit": 0,
+      "full_state_and_transition_sets_equal": true,
+      "states": 36,
+      "edges": 72
+    },
+    {
+      "control": "BrokenHarnessAutoCompactD",
+      "native_verdict": "safety",
+      "native_violated_properties": [
+        "NeverReducesOpenTurn"
+      ],
+      "required_property": "NeverReducesOpenTurn",
+      "java_tlc_exit": 12,
+      "correct_model": "HarnessAutoCompact",
+      "correct_native_verdict": "pass",
+      "correct_java_tlc_exit": 0,
+      "full_state_and_transition_sets_equal": true,
+      "states": 96,
+      "edges": 220
+    },
+    {
+      "control": "BrokenHarnessMcpServerA",
+      "native_verdict": "deadlock",
+      "native_violated_properties": [
+        "Deadlock",
+        "RoundNeverWaits"
+      ],
+      "required_property": "Deadlock",
+      "java_tlc_exit": 11,
+      "correct_model": "HarnessMcpServer",
+      "correct_native_verdict": "pass",
+      "correct_java_tlc_exit": 0,
+      "full_state_and_transition_sets_equal": true,
+      "states": 84,
+      "edges": 214
+    },
+    {
+      "control": "BrokenHarnessMcpServerB",
+      "native_verdict": "safety",
+      "native_violated_properties": [
+        "NoStaleResult"
+      ],
+      "required_property": "NoStaleResult",
+      "java_tlc_exit": 12,
+      "correct_model": "HarnessMcpServer",
+      "correct_native_verdict": "pass",
+      "correct_java_tlc_exit": 0,
+      "full_state_and_transition_sets_equal": true,
+      "states": 98,
+      "edges": 260
+    },
+    {
+      "control": "BrokenHarnessMcpServerC",
+      "native_verdict": "liveness",
+      "native_violated_properties": [
+        "CallEventuallyEnds"
+      ],
+      "required_property": "CallEventuallyEnds",
+      "java_tlc_exit": 13,
+      "correct_model": "HarnessMcpServer",
+      "correct_native_verdict": "pass",
+      "correct_java_tlc_exit": 0,
+      "full_state_and_transition_sets_equal": true,
+      "states": 72,
+      "edges": 163
+    }
+  ]
+}

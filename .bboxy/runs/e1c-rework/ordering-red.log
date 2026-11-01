@@ -1,0 +1,40 @@
+warning: variant `Message` is never constructed
+  --> src/frontends/acp.rs:46:5
+   |
+45 | enum ConnectionInput {
+   |      --------------- variant in this enum
+46 |     Message(Value),
+   |     ^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `inputs` is never read
+  --> src/frontends/acp.rs:56:5
+   |
+49 | struct Face {
+   |        ---- field in this struct
+...
+56 |     inputs: Mutex<BTreeMap<SessionId, mpsc::UnboundedSender<Value>>>,
+   |     ^^^^^^
+
+
+running 1 test
+back_to_back_prompt_and_cancel_preserve_session_order --- FAILED
+
+failures:
+
+---- back_to_back_prompt_and_cancel_preserve_session_order stdout ----
+
+thread 'back_to_back_prompt_and_cancel_preserve_session_order' (118180879) panicked at tests/acp_face.rs:484:13:
+assertion `left == right` failed: cancel overtook prompt admission
+  left: String("end_turn")
+ right: "cancelled"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    back_to_back_prompt_and_cancel_preserve_session_order
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `--test acp_face`

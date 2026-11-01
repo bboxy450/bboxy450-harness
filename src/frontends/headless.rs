@@ -48,6 +48,7 @@ async fn run_cli(
     let mut prompt = None;
     let mut json = false;
     let mut seat = false;
+    let mut acp = false;
     let mut profile = "nemotron".to_owned();
     let mut cwd = std::env::current_dir().map_err(|_| "working directory unavailable")?;
     let mut sessions = None;
@@ -58,7 +59,10 @@ async fn run_cli(
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "smoke-live" => return Ok(super::smoke::run().await),
+            #[cfg(feature = "acp")]
+            "smoke-live-acp" => return Ok(super::smoke::run_acp().await),
             "seat" => seat = true,
+            "acp" => acp = true,
             "-p" | "--prompt" => prompt = Some(args.next().ok_or("missing prompt")?),
             "--json" => json = true,
             "--profile" => profile = args.next().ok_or("missing profile")?,
@@ -105,13 +109,17 @@ async fn run_cli(
             _ => return Err(format!("unknown option {arg}")),
         }
     }
-    if !seat && prompt.is_none() && !(json && resume.is_some()) {
+    if !acp && !seat && prompt.is_none() && !(json && resume.is_some()) {
         return Err("provide -p PROMPT --json, or seat".into());
+    }
+    #[cfg(not(feature = "acp"))]
+    if acp {
+        return Err("ACP requires the acp feature".into());
     }
     let root = PathBuf::from(std::env::var_os("HOME").ok_or("HOME unavailable")?)
         .join(".bboxy450-harness");
     let sessions = sessions.unwrap_or_else(|| root.join("sessions"));
-    if !seat && prompt.is_none() {
+    if !acp && !seat && prompt.is_none() {
         let session = SessionId(
             resume
                 .as_ref()
@@ -138,6 +146,7 @@ async fn run_cli(
     if let Ok(value) = std::env::var("BBOXY_CAPABILITY") {
         redactor.register(&value);
     }
+    let defer_acp_profile = acp && scripts.is_empty();
     let (provider, model, mut policy): (Arc<dyn Provider>, String, Policy) = if !scripts.is_empty()
     {
         let mut rounds = vec![];
@@ -158,6 +167,18 @@ async fn run_cli(
         let loaded =
             tokio::select! {biased;_=stop.cancelled()=>return Ok(0),p=Profile::load(&p)=>p};
         match loaded {
+            Ok(p) if defer_acp_profile => {
+                // Advertise capabilities without executing a credential command.
+                // Host resolves the real provider inside its cancellable factory.
+                let client = provider::OpenAiCompat::new(
+                    &p.endpoint,
+                    crate::redact::Secret::new(String::new(), &redactor),
+                    redactor.clone(),
+                    Default::default(),
+                )
+                .map_err(|e| e.message)?;
+                (Arc::new(client), p.model.clone(), p.policy())
+            }
             Ok(p) => match p.key(&redactor, stop.child_token()).await {
                 Ok(key) => {
                     let options = provider::Options {
@@ -212,12 +233,34 @@ async fn run_cli(
         sessions,
         profiles: root.join("profiles"),
         provider,
-        profile_error: (model == "unconfigured").then_some("profile could not be resolved".into()),
+        profile_error: if defer_acp_profile {
+            Some("profile resolution pending".into())
+        } else {
+            (model == "unconfigured").then_some("profile could not be resolved".into())
+        },
         model,
         policy,
         redactor,
         max_rounds,
     };
+    if acp {
+        #[cfg(feature = "acp")]
+        {
+            super::acp::serve_cancelled(
+                tokio::io::stdin(),
+                tokio::io::stdout(),
+                config,
+                stop.child_token(),
+            )
+            .await
+            .map_err(|_| "ACP stdio failed")?;
+            return Ok(0);
+        }
+        #[cfg(not(feature = "acp"))]
+        {
+            return Err("ACP requires the acp feature".into());
+        }
+    }
     let start = OpEnvelope {
         v: PROTOCOL,
         session,

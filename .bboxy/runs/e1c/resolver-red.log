@@ -1,0 +1,27 @@
+warning: function `capture_stdout` is never used
+   --> src/process.rs:153:21
+    |
+153 | pub(crate) async fn capture_stdout(req: Request, cancel: CancellationToken) -> io::Result<Output> {
+    |                     ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+
+running 1 test
+eof_cancels_a_pending_profile_factory_without_waiting_for_its_key_command --- FAILED
+
+failures:
+
+---- eof_cancels_a_pending_profile_factory_without_waiting_for_its_key_command stdout ----
+
+thread 'eof_cancels_a_pending_profile_factory_without_waiting_for_its_key_command' (116863352) panicked at tests/acp_face.rs:552:9:
+EOF waited for the key command:
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    eof_cancels_a_pending_profile_factory_without_waiting_for_its_key_command
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 3.05s
+
+error: test failed, to rerun pass `--test acp_face`

@@ -32,6 +32,10 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
     let mut items = BTreeSet::new();
     let mut calls = BTreeSet::new();
     let mut closed = false;
+    let mut endings = Vec::new();
+    let mut open_turns = BTreeMap::new();
+    let mut clipped = Seq(0);
+    let mut replaced = Seq(0);
     for (i, e) in events.iter().enumerate() {
         let fail = |law, detail: &str| LawViolation {
             line: i + 1,
@@ -85,6 +89,9 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                 if !queued.contains(turn) || ended.contains(turn) || !started.insert(*turn) {
                     return Err(fail("one-ending", "invalid turn start"));
                 }
+                if let Some(seq) = e.seq {
+                    open_turns.insert(*turn, seq);
+                }
             }
             Event::TurnEnded { turn, reason, .. } => {
                 if matches!(
@@ -99,6 +106,10 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                         "cancelled provider error is a Cancelled ending",
                     ));
                 }
+                if let Some(seq) = e.seq {
+                    endings.push(seq);
+                }
+                open_turns.remove(turn);
                 if !queued.contains(turn) || !ended.insert(*turn) {
                     return Err(fail("one-ending", "orphan or duplicate ending"));
                 }
@@ -142,7 +153,40 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                 }
                 open.insert(*item, (*turn, *kind, *parent, head.clone()));
             }
-            Event::ItemCompleted { item, body, .. } => {
+            Event::ItemCompleted { item, body, status } => {
+                let boundary = match body {
+                    Item::ContextTrim { clipped_through }
+                        if matches!(status, ItemStatus::Completed) =>
+                    {
+                        Some((clipped_through, &mut clipped))
+                    }
+                    Item::Compaction {
+                        replaced_through, ..
+                    } if matches!(status, ItemStatus::Completed) => {
+                        Some((replaced_through, &mut replaced))
+                    }
+                    _ => None,
+                };
+                if let Some((boundary, previous)) = boundary {
+                    if *boundary < *previous {
+                        return Err(fail("context-boundary", "reduction boundary decreased"));
+                    }
+                    let first = open_turns.values().min().copied();
+                    let frontier = endings
+                        .iter()
+                        .rev()
+                        .copied()
+                        .find(|s| first.is_none_or(|start| *s < start))
+                        .unwrap_or(Seq(0));
+                    if *boundary > frontier {
+                        return Err(fail(
+                            "context-boundary",
+                            "reduction exceeds completed frontier",
+                        ));
+                    }
+                    *previous = *boundary;
+                }
+
                 let Some((_, kind, _, head)) = open.remove(item) else {
                     return Err(fail("one-ending", "orphan or duplicate item completion"));
                 };

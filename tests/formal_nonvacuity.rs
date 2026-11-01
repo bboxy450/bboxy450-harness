@@ -169,3 +169,121 @@ fn subscriber_model_can_lose_an_entire_epoch_and_rejects_both_old_rules() {
         );
     }
 }
+#[test]
+fn automatic_compaction_controls_violate_the_named_contracts() {
+    let correct = model("HarnessAutoCompact");
+    let report = correct.check(100_000).unwrap();
+    assert!(report.violations.is_empty());
+    let clipped = variable(&correct, "clipped");
+    let replaced = variable(&correct, "replaced");
+    let latest = variable(&correct, "latest_ending");
+    let frontier = variable(&correct, "ended_through");
+    assert!(
+        report
+            .states
+            .iter()
+            .any(|s| s[clipped] == 1 && s[replaced] == 1)
+    );
+    assert!(
+        report
+            .states
+            .iter()
+            .any(|s| s[latest] == 3 && s[frontier] == 1)
+    );
+    assert!(
+        report
+            .states
+            .iter()
+            .all(|s| s[clipped] <= s[frontier] && s[replaced] <= s[frontier])
+    );
+    let phase = variable(&correct, "phase");
+    let steps = variable(&correct, "steps");
+    let item = variable(&correct, "item");
+    assert!(
+        report.states.iter().any(|s| s[frontier] == 2),
+        "completed frontier never advances"
+    );
+    assert!(
+        report
+            .states
+            .iter()
+            .any(|s| s[phase] == 2 && s[steps] == 1 && s[replaced] == 0),
+        "trim-only request is unreachable"
+    );
+    assert!(
+        report.states.iter().any(|s| s[item] == 2 && s[steps] == 0),
+        "summary without a new trim is unreachable"
+    );
+    for (name, property) in [
+        ("BrokenHarnessAutoCompactA", "NeverReducesOpenTurn"),
+        ("BrokenHarnessAutoCompactB", "BoundariesMonotone"),
+        ("BrokenHarnessAutoCompactC", "BoundaryEventuallySends"),
+        ("BrokenHarnessAutoCompactD", "NeverReducesOpenTurn"),
+    ] {
+        let report = model(name).check(100_000).unwrap();
+        assert!(
+            report.violations.iter().any(|v| v.property == property),
+            "{name}: {:#?}",
+            report.violations
+        );
+    }
+}
+#[test]
+fn acp_fifo_and_paused_writer_are_reachable_and_the_controls_are_real() {
+    let m = model("HarnessAcpFlow");
+    let r = m.check(100_000).unwrap();
+    assert!(r.violations.is_empty(), "{:#?}", r.violations);
+    let queue = variable(&m, "writer_queue");
+    let head = variable(&m, "log_head");
+    let turn = variable(&m, "turn");
+    assert!(
+        r.states.iter().enumerate().any(|(i, s)| s[queue] == 2
+            && s[turn] == 1
+            && s[head] < 2
+            && r.edges[i]
+                .iter()
+                .any(|e| r.states[e.to][head] == s[head] + 1)),
+        "engine cannot emit while the writer queue is full"
+    );
+    for (name, property) in [
+        ("BrokenHarnessAcpFlowA", "CancelHitsItsPrompt"),
+        ("BrokenHarnessAcpFlowB", "CloseOnlyOnEof"),
+    ] {
+        let report = model(name).check(100_000).unwrap();
+        assert!(
+            report
+                .violations
+                .iter()
+                .any(|v| v.property == property && v.cycle.is_empty()),
+            "{name} did not fail {property}"
+        );
+    }
+}
+#[test]
+fn mcp_controls_reach_aba_deadlock_and_silent_inflight() {
+    let correct = model("HarnessMcpServer");
+    let report = correct.check(100_000).unwrap();
+    assert!(report.violations.is_empty());
+    let generation = variable(&correct, "gen");
+    let held = variable(&correct, "held");
+    let tag = variable(&correct, "held_generation");
+    assert!(
+        report
+            .states
+            .iter()
+            .any(|s| s[generation] == 2 && s[held] == 1 && s[tag] == 0),
+        "no A-B-A held completion"
+    );
+    for (name, property) in [
+        ("BrokenHarnessMcpServerA", "Deadlock"),
+        ("BrokenHarnessMcpServerB", "NoStaleResult"),
+        ("BrokenHarnessMcpServerC", "CallEventuallyEnds"),
+    ] {
+        let report = model(name).check(100_000).unwrap();
+        assert!(
+            report.violations.iter().any(|v| v.property == property),
+            "{name}: {:#?}",
+            report.violations
+        );
+    }
+}

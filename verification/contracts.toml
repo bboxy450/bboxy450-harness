@@ -152,8 +152,8 @@ name="HarnessProcessLifecycle"
 title="Cancel kills remaining members before releasing the leader reservation"
 models=["HarnessProcessLifecycle","BrokenHarnessProcessDrain","BrokenHarnessProcessOwnership","BrokenHarnessProcessReapedMembers"]
 controls=[{name="BrokenHarnessProcessDrain",expected="liveness"},{name="BrokenHarnessProcessOwnership",expected="safety"},{name="BrokenHarnessProcessReapedMembers",expected="safety"}]
-sources=["src/process.rs","tests/formal/models.rs"]
-implementation_tests=["src/process.rs","tests/cancel_process.rs"]
+sources=["src/process.rs","src/mcp.rs","tests/formal/models.rs"]
+implementation_tests=["src/process.rs","tests/cancel_process.rs","tests/mcp_client.rs"]
 assumptions="One leader (running/exited-waitable/reaped), one independent live member and one possibly escaped pipe holder. Leader exit, member exit, signal, reap, drain and cancel completion are separate actions. Weak fairness on exit/signal/reap/drain/end; OS waitid, real PID reuse and the 500ms grace remain process witnesses."
 property="Cancel completion implies no live member. A signal never targets a group with neither a leader reservation nor a member; bounded drain eventually ends cancellation."
 checks=["make test-formal","make test"]
@@ -198,4 +198,37 @@ sources = ["src/frontends/gui/bridge.rs", "src/frontends/gui/window.rs", "tests/
 implementation_tests = ["tests/gui_bridge.rs", "tests/gui_render.rs"]
 assumptions = "Three monotonic births with public A-B-A labels; delayed Stop captures a birth at admission. Detach drops the subscription; consume returns after its owned turn, then create drops Host. Dropped task handles preserve the actor. No liveness claim about arbitrary external IO. Old gateways are bound to old actors."
 property = "Detaching a window/view preserves the actor; explicit Stop signals only its own birth."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessAutoCompact"
+title = "Durable completed-turn reductions precede requests, are monotone across restart, and terminate."
+models = ["HarnessAutoCompact", "BrokenHarnessAutoCompactA", "BrokenHarnessAutoCompactB", "BrokenHarnessAutoCompactC", "BrokenHarnessAutoCompactD"]
+controls = [{name="BrokenHarnessAutoCompactA", expected="safety"}, {name="BrokenHarnessAutoCompactB", expected="safety"}, {name="BrokenHarnessAutoCompactC", expected="liveness"}, {name="BrokenHarnessAutoCompactD", expected="safety"}]
+sources = ["src/context/auto.rs", "src/context/mod.rs", "src/engine/mod.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/context_auto.rs", "tests/formal_nonvacuity.rs"]
+assumptions = "Load 0..4 abstracts exact compact-JSON estimation; one open turn in slot 3 above advancing completed frontiers 1..2; a queued cancellation may write latest ending 3 without closing that turn; trim estimates 2 or 3 explore trim-only and summary-without-new-trim, two durable frontiers and two ladder steps per round. Durable high-water frontiers represent log history. Weak fairness on ladder/send actions. Bytes, Unicode clipping, blob fsync and real process restart remain implementation witnesses; no arbitrary Rust refinement proof."
+property = "NeverReducesOpenTurn, BoundariesMonotone, ItemBeforeRequest and BoundaryEventuallySends."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessMcpServer"
+title = "An unavailable server never holds admission; requests timeout or finish, and results are fenced by birth."
+models = ["HarnessMcpServer", "BrokenHarnessMcpServerA", "BrokenHarnessMcpServerB", "BrokenHarnessMcpServerC"]
+controls = [{name="BrokenHarnessMcpServerA", expected="deadlock"}, {name="BrokenHarnessMcpServerB", expected="safety"}, {name="BrokenHarnessMcpServerC", expected="liveness"}]
+sources = ["src/mcp.rs", "src/tools.rs", "src/engine/mod.rs", "src/engine/turn_loop.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/mcp_client.rs", "tests/formal_nonvacuity.rs"]
+assumptions = "Three births (gen 0..2, public A-B-A) abstract the five-attempt product limit. A held response can cross two failures; a silent call needs Timeout. Failure and restart are independent of round admission. Weak fairness on admission, immediate failure/call and response/discard/timeout groups. SDK framing, real process groups, secrets, deadlines and pagination remain implementation witnesses; no arbitrary Rust refinement proof."
+property = "NoStaleResult, DeadIsFinal; RoundNeverWaits and CallEventuallyEnds under the named fairness assumptions."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessAcpFlow"
+title = "Session admission is FIFO, and a paused writer cannot close the face or hold the engine."
+models = ["HarnessAcpFlow", "BrokenHarnessAcpFlowA", "BrokenHarnessAcpFlowB"]
+controls = [{name="BrokenHarnessAcpFlowA",expected="safety"},{name="BrokenHarnessAcpFlowB",expected="safety"}]
+sources = ["src/frontends/acp.rs", "src/engine/task_group.rs", "src/gateway/mod.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/acp_face.rs", "tests/formal_nonvacuity.rs"]
+assumptions = "One prompt followed by cancel; two engine events and two connection replies, queue 0..2 abstracts capacity 256. Reading resumes under weak fairness, with a drain opportunity in every nonempty readable interval. Fair admission, engine, projection and writer actions; finite inbound burst. Wire bytes, actual OS scheduling, dropped-delta repair and multi-session dispatch remain API witnesses. Pairing remains HarnessTurnLifecycle; no Rust refinement claim."
+property = "CancelHitsItsPrompt, CloseOnlyOnEof, EngineNeverWaits and PromptEventuallyResponds."
 checks = ["make test-formal", "make test"]

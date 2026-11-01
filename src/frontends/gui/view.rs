@@ -529,6 +529,7 @@ pub fn kind_label(kind: ItemKind) -> &'static str {
         ItemKind::Approval => "Approval",
         ItemKind::Image => "Image",
         ItemKind::Compaction => "Compaction",
+        ItemKind::ContextTrim => "Context trim",
         ItemKind::Usage => "Usage",
         ItemKind::Notice => "Notice",
         ItemKind::Subagent => "Subagent",
@@ -728,6 +729,9 @@ fn display_body(row: &ViewItem, terminal_output: Option<&String>) -> String {
             "Compacted through event {} · summary {} bytes",
             replaced_through.0, summary.len
         ),
+        Item::ContextTrim { clipped_through } => {
+            format!("Context trimmed through event {}", clipped_through.0)
+        }
         Item::Usage { usage } => format!(
             "Input: {} tokens · Output: {} tokens\nCached: {} tokens · Reasoning: {} tokens",
             usage.input_tokens,

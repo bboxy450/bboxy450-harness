@@ -13,7 +13,7 @@ async fn close_cancels_and_joins_idle_profile_key_command() {
     let profiles = s.temp.path().join("profiles");
     std::fs::create_dir_all(&profiles).unwrap();
     let pid = s.temp.path().join("key.pid");
-    std::fs::write(profiles.join("slow.md"),format!("---\nname: slow\nmodel: unused\nendpoint: http://127.0.0.1:9/v1\napi_key: '!sleep 600 & echo $$ > {}; wait'\n---\n",pid.display())).unwrap();
+    std::fs::write(profiles.join("slow.md"),format!("---\nname: slow\nmodel: unused\nendpoint: http://127.0.0.1:9/v1\napi_key: '!sleep 600 & echo $$ > {}.tmp; mv {}.tmp {}; wait'\n---\n",pid.display(),pid.display(),pid.display())).unwrap();
     let change = support::op(
         &s.gateway,
         Op::SetProfile {

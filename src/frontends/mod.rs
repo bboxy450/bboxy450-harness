@@ -10,3 +10,6 @@ pub mod seat;
 pub mod smoke;
 
 pub mod gui;
+
+#[cfg(feature = "acp")]
+pub mod acp;

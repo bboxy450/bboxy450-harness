@@ -37,39 +37,37 @@ pub fn input(blocks: &[InputBlock]) -> Value {
 /// The log's completed tool bodies are the single source for provider history.
 /// Start order is retained even if parallel completions arrived in reverse order.
 pub fn to_wire(log: &[Envelope]) -> Vec<WireMessage> {
-    let mut bodies = BTreeMap::new();
-    for e in log {
-        if let Event::ItemCompleted { item, body, .. } = &e.event {
-            bodies.insert(*item, body);
-        }
-    }
+    tagged(log)
+        .into_iter()
+        .map(|(_, message)| message)
+        .collect()
+}
+/// The origin is ItemStarted, including for the paired tool result (§4d).
+pub fn tagged(log: &[Envelope]) -> Vec<(Seq, WireMessage)> {
+    let bodies: BTreeMap<_, _> = log
+        .iter()
+        .filter_map(|e| match &e.event {
+            Event::ItemCompleted { item, body, .. } => Some((*item, body)),
+            _ => None,
+        })
+        .collect();
     let mut out = vec![];
-    let mut text = String::new();
-    let mut reasoning = String::new();
-    let mut opaque = None;
-    let mut calls: Vec<Value> = vec![];
-    let mut results: Vec<Value> = vec![];
+    let mut assistant = json!({"role":"assistant","content":""});
+    let mut origin = Seq(0);
+    let mut results = vec![];
     fn flush(
-        out: &mut Vec<Value>,
-        text: &mut String,
-        reasoning: &mut String,
-        opaque: &mut Option<Value>,
-        calls: &mut Vec<Value>,
-        results: &mut Vec<Value>,
+        out: &mut Vec<(Seq, Value)>,
+        assistant: &mut Value,
+        origin: &mut Seq,
+        results: &mut Vec<(Seq, Value)>,
     ) {
-        if !text.is_empty() || !reasoning.is_empty() || !calls.is_empty() {
-            let mut a = json!({"role":"assistant","content":std::mem::take(text)});
-            if !reasoning.is_empty() {
-                a["reasoning"] = json!(std::mem::take(reasoning));
-            }
-            if let Some(v) = opaque.take() {
-                a["reasoning_details"] = v;
-            }
-            if !calls.is_empty() {
-                a["tool_calls"] = json!(std::mem::take(calls));
-            }
-            out.push(a);
+        if *origin != Seq(0) {
+            out.push((
+                *origin,
+                std::mem::replace(assistant, json!({"role":"assistant","content":""})),
+            ));
             out.append(results);
+            *origin = Seq(0);
         }
     }
     for e in log {
@@ -78,38 +76,39 @@ pub fn to_wire(log: &[Envelope]) -> Vec<WireMessage> {
                 let Some(body) = bodies.get(item) else {
                     continue;
                 };
+                let seq = e.seq.unwrap_or(Seq(0));
                 match body {
                     Item::UserMessage { blocks } => {
-                        flush(
-                            &mut out,
-                            &mut text,
-                            &mut reasoning,
-                            &mut opaque,
-                            &mut calls,
-                            &mut results,
-                        );
-                        out.push(json!({"role":"user","content":input(blocks)}));
+                        flush(&mut out, &mut assistant, &mut origin, &mut results);
+                        out.push((seq, json!({"role":"user","content":input(blocks)})));
                     }
                     Item::AgentMessage { markdown } => {
-                        if !calls.is_empty() {
-                            flush(
-                                &mut out,
-                                &mut text,
-                                &mut reasoning,
-                                &mut opaque,
-                                &mut calls,
-                                &mut results,
-                            );
+                        if assistant.get("tool_calls").is_some() {
+                            flush(&mut out, &mut assistant, &mut origin, &mut results);
                         }
-                        text.push_str(markdown);
+                        if !markdown.is_empty() {
+                            let text =
+                                assistant["content"].as_str().unwrap_or("").to_owned() + markdown;
+                            assistant["content"] = json!(text);
+                            origin = origin.max(seq);
+                        }
                     }
                     Item::Reasoning {
                         summary,
                         provider_opaque,
                         ..
                     } => {
-                        reasoning.push_str(summary);
-                        opaque = provider_opaque.clone();
+                        if !summary.is_empty() || provider_opaque.is_some() {
+                            if !summary.is_empty() {
+                                let text = assistant["reasoning"].as_str().unwrap_or("").to_owned()
+                                    + summary;
+                                assistant["reasoning"] = json!(text);
+                            }
+                            if let Some(value) = provider_opaque {
+                                assistant["reasoning_details"] = value.clone();
+                            }
+                            origin = origin.max(seq);
+                        }
                     }
                     Item::ToolCall {
                         call_id,
@@ -118,31 +117,21 @@ pub fn to_wire(log: &[Envelope]) -> Vec<WireMessage> {
                         output,
                         ..
                     } => {
-                        calls.push(json!({"id":call_id,"type":"function","function":{"name":name,"arguments":input_raw}}));
-                        results.push(json!({"role":"tool","tool_call_id":call_id,"content":output_text(output)}));
+                        if assistant.get("tool_calls").is_none() {
+                            assistant["tool_calls"] = json!([]);
+                        }
+                        assistant["tool_calls"].as_array_mut().unwrap().push(json!({"id":call_id,"type":"function","function":{"name":name,"arguments":input_raw}}));
+                        origin = origin.max(seq);
+                        results.push((seq,json!({"role":"tool","tool_call_id":call_id,"content":output_text(output)})));
                     }
                     _ => {}
                 }
             }
-            Event::TurnEnded { .. } => flush(
-                &mut out,
-                &mut text,
-                &mut reasoning,
-                &mut opaque,
-                &mut calls,
-                &mut results,
-            ),
+            Event::TurnEnded { .. } => flush(&mut out, &mut assistant, &mut origin, &mut results),
             _ => {}
         }
     }
-    flush(
-        &mut out,
-        &mut text,
-        &mut reasoning,
-        &mut opaque,
-        &mut calls,
-        &mut results,
-    );
+    flush(&mut out, &mut assistant, &mut origin, &mut results);
     out
 }
 pub fn check_wire(messages: &[WireMessage]) -> Result<(), String> {

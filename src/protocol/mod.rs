@@ -10,7 +10,7 @@ use serde_json::Value;
 use std::path::PathBuf;
 use ulid::Ulid;
 pub mod laws;
-pub const PROTOCOL: Version = Version { major: 0, minor: 2 };
+pub const PROTOCOL: Version = Version { major: 0, minor: 4 };
 pub const MAX_ENVELOPE_BYTES: usize = 256 * 1024;
 macro_rules! identity {($($name:ident),*)=>{$(
 #[derive(Clone,Copy,Debug,PartialEq,Eq,PartialOrd,Ord,Hash,Serialize,Deserialize,JsonSchema)]
@@ -310,6 +310,9 @@ pub enum Item {
         summary: BlobRef,
         replaced_through: Seq,
     },
+    ContextTrim {
+        clipped_through: Seq,
+    },
     Usage {
         usage: Usage,
     },
@@ -389,6 +392,7 @@ pub enum ItemKind {
     Approval,
     Image,
     Compaction,
+    ContextTrim,
     Usage,
     Notice,
     Subagent,
@@ -487,6 +491,7 @@ pub struct ApprovalSubject {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Effect {
+    Read,
     Write,
     Exec,
     Network,
@@ -619,6 +624,7 @@ impl Item {
             Self::Approval { .. } => ItemKind::Approval,
             Self::Image { .. } => ItemKind::Image,
             Self::Compaction { .. } => ItemKind::Compaction,
+            Self::ContextTrim { .. } => ItemKind::ContextTrim,
             Self::Usage { .. } => ItemKind::Usage,
             Self::Notice { .. } => ItemKind::Notice,
             Self::Subagent { .. } => ItemKind::Subagent,
@@ -776,6 +782,9 @@ impl Item {
             ItemKind::Compaction => Self::Compaction {
                 summary: BlobRef::empty(),
                 replaced_through: Seq(0),
+            },
+            ItemKind::ContextTrim => Self::ContextTrim {
+                clipped_through: Seq(0),
             },
             ItemKind::Usage => Self::Usage {
                 usage: Usage::default(),
