@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 21906
+bytes: null
 claimed: false
 created: 2026-11-01T04:02:24.406Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:be754cfc7063f74c3755690f9effc97149894931dc58cd1d2e35fa1d83845106
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -148,22 +148,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793513812175'
+- before_digest: sha256:be754cfc7063f74c3755690f9effc97149894931dc58cd1d2e35fa1d83845106
+  commit: null
+  digest: null
+  event_hash: b489d48daf1a0c2141eea3584ad7032d322832309471a35e3f54a46d73d5fcd5
+  generation: null
+  grade: inferred
+  id: 01M6AWCX90Q9RK8X8Q5ZQKFXAS
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: .bboxy/tasks/2026-10-31-harness-gui.md
+  seat: null
+  sequence: '11639'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793514129474'
 id: 01M6AMBNGDG6RRZ1H802VFV1AC
 kind: markdown
-last_observation_sequence: '11611'
+last_observation_sequence: '11639'
 number: 1122
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:23d91fadefbdeec335d716d029818e9fa8a8ba400394a2e7c78089933ed5ced4
-  log: .bboxy/log/2026-11-01.jsonl#11612
-  sig: kpwosDj9Rz317zpeHjgf09gbDOPeo2v9q+4YX461UBklsPhCJcIB5CVWm1DfAv28PO83NYe7Jr1esnR4DhQyDA==
+  frontmatter_digest: sha256:8679a2d065343d1b123c8625ddb7ad5ab13e1c6afec41906056183269fdcce29
+  log: .bboxy/log/2026-11-01.jsonl#11801
+  sig: MP5S/Q/v6sQo9ur8rAa35TDPJyC3qwySCbWUmuGb+6H3YE2/+n2gxS5GF36LB/LWoqytMYM5sD2qtsi0tHlPDg==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: .bboxy/tasks/2026-10-31-harness-gui.md
 type: artifact
-updated: 2026-11-01T06:17:52.706Z
+updated: 2026-11-01T06:26:15.882Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

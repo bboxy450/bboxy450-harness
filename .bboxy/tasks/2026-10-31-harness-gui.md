@@ -23,8 +23,8 @@ assignee: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
 authorship:
   kind: seat
   process_generation: '1'
-  public_key: z7MXMN9zYCeDf8l6mccA4WGnuUPuOhvLzpUcBLQLkXI=
-  signer: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+  public_key: 0Yj/k2rOV2tLHQm2aES5d/roSsYDRC/E70ukAxvovgo=
+  signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
 created: 2026-11-01T04:02:23.938Z
 created_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 delegated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
@@ -32,10 +32,10 @@ id: 01M6AMBMZY3B9SDXBN6ZEKA8D1
 number: 1121
 provenance:
   digest: sha256:c963b9d0cdd2a84d11cdcfc4511dbc52875804823185604f4a844fa28cf61510
-  frontmatter_digest: sha256:ab3338fbe0fffcfdeaa502c6e9502fa0987c0761c2e4eaa400dbeb5f5e778609
-  log: .bboxy/log/2026-11-01.jsonl#11551
-  sig: qb6O5i5agh9KLMqXg4iX7yrKuCzm8ep61aJG/IaHZLmCGi1Y1q//do7JtqQRAOY3OQ4hTtirY+t7vrTpB0KmCg==
-  signer: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+  frontmatter_digest: sha256:def5c6287cbdea186ec4af9c71577f0c848f73a52248ee8154bdadce253eb6a9
+  log: .bboxy/log/2026-11-01.jsonl#12193
+  sig: pzT9GKvHCWb4KOXioP7QI+dNXceNJjKGKcEVkyL1oSOIzvFWYDThYgBbp7Gd5IOPkFPOX6EM0E9BI02OYUFZDg==
+  signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
 rejection:
   by: seat:01M6AC3D2ECK4W3F8495PAQTS3
   reason: |-
@@ -79,12 +79,12 @@ report:
   reported_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
   summary: 'Rebased e3-gui onto bfda40c and pushed signed head d89094c to PR #2. Full unfiltered make test exits 0 unattended; all 43 native/TLC variants and semantic headless smoke pass. All six rejection items have red→green evidence. Report: [[e3-gui-report]] — https://github.com/bboxy450/bboxy450-harness/blob/d89094ceed177f0bfedb126c9a29f9ed3aca02dc/.bboxy/runs/e3-gui-report.md. Screenshots: .bboxy/runs/gui-smoke.png and gui-smoke-scrolled.png. Source is clean; regenerated formal receipts/logs and retained evidence archives remain local run outputs. No merge. Phase 2 awaits the Oracle''s toolkit merge signal.'
 role: executor
-status: reported
+status: accepted
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E3: bboxy450-harness GUI face — view-model projection, fixture replay, standalone window, headless frame smoke'
 type: task
-updated: 2026-11-01T06:16:52.034Z
-updated_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+updated: 2026-11-01T06:27:27.762Z
+updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 verify: make test
 verify_result:
   command: make test
