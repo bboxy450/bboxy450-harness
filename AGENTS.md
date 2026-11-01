@@ -12,6 +12,12 @@ What this authorizes in `bboxy450/bboxy450-harness`:
   - Verified means the Oracle read the diff and ran the task's `verify` command, which exited 0.
   - `check_transcript` and `make test-formal` must be green.
   - Every commit must carry a signature.
+  - The operator added on 2026-10-31: "you can merge if executor did enough automatic testing, its important to write correct specs, write correct code, do formal verification, do unit - integration - smoke testing". So a merge also needs all of the following:
+    - the change matches its spec or ICD
+    - any changed stateful contract has its model updated, together with a broken control
+    - unit, integration and smoke tests are all green and run unattended
+
+    A PR that is missing any of these goes back to its Executor.
 - **Publish.** Crates are published to crates.io as **bboxy450**, following the signed release order in `~/.agents/AGENTS.md`:
   1. `cargo package`
   2. detached `.asc` signature
