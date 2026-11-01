@@ -170,7 +170,10 @@ pub fn restore(node: &mut c::Layout, blocks: &[Arc<c::Layout>]) {
         let dx = node.rect.x - solved.rect.x;
         let dy = node.rect.y - solved.rect.y;
         translate(&mut solved, dx, dy);
-        *node = solved;
+        // Keep the block boundary around the restored layout: smoke and hit
+        // inspection must see the geometry we actually paint, not empty slots.
+        node.rect = solved.rect;
+        node.children = vec![solved];
         return;
     }
     for child in &mut node.children {

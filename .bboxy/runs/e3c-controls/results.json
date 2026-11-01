@@ -1,0 +1,98 @@
+[
+  {
+    "control": "markdown",
+    "source": "src/frontends/gui/rich.rs",
+    "assertion": "MarkdownBlocksInsideCard",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--features",
+      "standalone",
+      "--test",
+      "gui_render",
+      "structural_layout_smoke_checks_restored_geometry",
+      "--",
+      "--exact",
+      "--nocapture"
+    ],
+    "red_exit": 101,
+    "green_exit": 0,
+    "restored_sha256": "61a345d442ac4e58ba8360c5889d3895c2060474117fb2b28178aae7c36f5157",
+    "private_home": true,
+    "operator_input": false
+  },
+  {
+    "control": "header-fill",
+    "source": "src/frontends/gui/view.rs",
+    "assertion": "AccordionHeaderFillCoversRow",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--features",
+      "standalone",
+      "--test",
+      "gui_render",
+      "structural_layout_smoke_checks_restored_geometry",
+      "--",
+      "--exact",
+      "--nocapture"
+    ],
+    "red_exit": 101,
+    "green_exit": 0,
+    "restored_sha256": "708cffad5240bfe7be68d315bf7332582123b534fbb9743df3355d9a652266ec",
+    "private_home": true,
+    "operator_input": false
+  },
+  {
+    "control": "inline",
+    "source": "src/frontends/gui/view.rs",
+    "assertion": "InlineControlsInsideRow",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--features",
+      "standalone",
+      "--test",
+      "gui_render",
+      "structural_layout_smoke_checks_restored_geometry",
+      "--",
+      "--exact",
+      "--nocapture"
+    ],
+    "red_exit": 101,
+    "green_exit": 0,
+    "restored_sha256": "708cffad5240bfe7be68d315bf7332582123b534fbb9743df3355d9a652266ec",
+    "private_home": true,
+    "operator_input": false
+  },
+  {
+    "control": "empty-box",
+    "source": "src/frontends/gui/view.rs",
+    "assertion": "NoEmptyPaintedBoxes",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--features",
+      "standalone",
+      "--test",
+      "gui_render",
+      "structural_layout_smoke_checks_restored_geometry",
+      "--",
+      "--exact",
+      "--nocapture"
+    ],
+    "red_exit": 101,
+    "green_exit": 0,
+    "restored_sha256": "708cffad5240bfe7be68d315bf7332582123b534fbb9743df3355d9a652266ec",
+    "private_home": true,
+    "operator_input": false
+  }
+]
