@@ -1,0 +1,22 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.82s
+     Running tests/cancel_process.rs (target/debug/deps/cancel_process-cf23628509f71042)
+
+running 1 test
+test cancel_after_leader_exit_kills_the_remaining_member ... FAILED
+
+failures:
+
+---- cancel_after_leader_exit_kills_the_remaining_member stdout ----
+
+thread 'cancel_after_leader_exit_kills_the_remaining_member' (113273096) panicked at tests/cancel_process.rs:54:5:
+member survived cancellation after the leader was reaped
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    cancel_after_leader_exit_kills_the_remaining_member
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 1.94s
+
+error: test failed, to rerun pass `--test cancel_process`

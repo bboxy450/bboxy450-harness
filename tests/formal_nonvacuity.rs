@@ -65,14 +65,64 @@ fn acked_steer_reaches_both_exactly_once_routes() {
     assert!(r.states.iter().any(|s| s[delivered] == 0 && s[queued] == 1));
 }
 #[test]
-fn control_capacity_is_reachable_and_its_broken_control_overflows() {
+fn control_producers_conserve_slots_and_consumers_return_them() {
     let m = model("HarnessControlLaneBound");
     let depth = variable(&m, "control_depth");
+    let interrupt = variable(&m, "interrupt_pending");
+    let approval = variable(&m, "approval_pending");
+    let close = variable(&m, "close_pending");
     let r = m.check(100_000).unwrap();
     assert!(r.violations.is_empty());
-    assert!(r.states.iter().any(|s| s[depth] == 256));
+    assert!(
+        r.states
+            .iter()
+            .any(|s| s[depth] == 130 && s[interrupt] == 65 && s[approval] == 64 && s[close] == 1)
+    );
+    assert_eq!(r.states.iter().map(|s| s[depth]).max(), Some(130));
+    for name in ["ConsumeInterrupt", "ConsumeApproval", "ConsumeClose"] {
+        assert!(
+            m.actions.iter().any(|a| a.name == name),
+            "missing consumer {name}"
+        );
+    }
     let b = model("BrokenHarnessControlLaneBound");
-    assert!(!b.check(100_000).unwrap().violations.is_empty());
+    assert!(
+        b.check(100_000)
+            .unwrap()
+            .violations
+            .iter()
+            .any(|v| v.property == "InterruptSlotsConserved")
+    );
+}
+
+#[test]
+fn leader_exit_is_not_group_exit_and_both_ownership_controls_are_real() {
+    let m = model("HarnessProcessLifecycle");
+    let leader = variable(&m, "leader");
+    let member = variable(&m, "member_alive");
+    let cancel = variable(&m, "cancel");
+    let r = m.check(100_000).unwrap();
+    assert!(r.violations.is_empty());
+    assert!(
+        r.states
+            .iter()
+            .any(|s| s[leader] == 1 && s[member] == 1 && s[cancel] == 0)
+    );
+    assert!(r.states.iter().any(|s| s[cancel] == 2));
+    assert!(r.states.iter().all(|s| s[cancel] != 2 || s[member] == 0));
+    for (name, property) in [
+        ("BrokenHarnessProcessReapedMembers", "NoMemberAfterCancel"),
+        ("BrokenHarnessProcessOwnership", "NoSignalToEmptyGroup"),
+    ] {
+        let broken = model(name).check(100_000).unwrap();
+        assert!(
+            broken
+                .violations
+                .iter()
+                .any(|v| v.property == property && v.cycle.is_empty()),
+            "{name}: missing {property}"
+        );
+    }
 }
 
 #[test]
@@ -90,13 +140,19 @@ fn subscriber_model_can_lose_an_entire_epoch_and_rejects_both_old_rules() {
             .any(|s| s[phase] == 2 && s[head] == 0 && s[hwm] == 2 && s[observed] == 0),
         "whole-epoch loss was unreachable"
     );
-    for name in [
-        "BrokenHarnessSubscriberReplay",
-        "BrokenHarnessSubscriberReplayEpochReuse",
+    for (name, property) in [
+        ("BrokenHarnessSubscriberReplay", "FaceViewIsLogPrefix"),
+        (
+            "BrokenHarnessSubscriberReplayEpochReuse",
+            "EpochNeverReused",
+        ),
     ] {
         let broken = model(name).check(100_000).unwrap();
         assert!(
-            broken.violations.iter().any(|v| v.cycle.is_empty()),
+            broken
+                .violations
+                .iter()
+                .any(|v| v.property == property && v.cycle.is_empty()),
             "broken rule had no safety counterexample"
         );
     }

@@ -1,0 +1,17 @@
+E1b focused rework — red-witness checkpoint
+
+Task #1117, rejection message 434WGCZCFRNMZZCH092EG8VGA7.
+Same worktree and e1b-hardening branch; prior head 1d8fa15.
+The earlier report is historical and its item 2 conclusion is superseded:
+reaping the leader discarded group ownership while a member remained alive.
+
+Actual red process witness on unchanged 1d8fa15 product source:
+cargo test --offline --locked --test cancel_process cancel_after_leader_exit_kills_the_remaining_member → 101,
+'member survived cancellation after the leader was reaped'. The test-owned
+member is cleaned up on failure. Log/record: .bboxy/runs/rework/leader-exit-red.*.
+
+New model nonvacuity assertions also fail on 1d8fa15's model source:
+cargo test --offline --locked --test formal_nonvacuity → 101 (missing separate
+leader/member and producer-slot state). Log/record: rework/models-red.*.
+
+The implementation and final verification for this rework are pending.
