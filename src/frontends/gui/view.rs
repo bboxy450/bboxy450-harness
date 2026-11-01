@@ -134,7 +134,16 @@ pub struct Frame {
     pub max_scroll: f32,
     pub timings: [std::time::Duration; 5],
 }
-type CacheKey = (Arc<Transcript>, String, [f32; 2], f32, bool, usize);
+// Retain identity ownership as well as content. A retired prepared snapshot's
+// allocation cannot be reused for an A -> B -> A resize before replacement.
+type CacheKey = (
+    Arc<Transcript>,
+    String,
+    [f32; 2],
+    f32,
+    bool,
+    Option<Arc<PreparedRows>>,
+);
 pub struct CachedRow {
     width: f32,
     completed: Option<Seq>,
@@ -186,10 +195,6 @@ impl HarnessView {
     /// The same Element is used by a standalone surface and the offscreen driver.
     pub fn render(&mut self, state: &FrameState, size: [f32; 2]) -> Result<&Frame, String> {
         let offset = self.scroll.layout_offset();
-        let prepared_id = state
-            .prepared
-            .as_ref()
-            .map_or(0, |p| Arc::as_ptr(p) as usize);
         let draft = format!("{:?}{:?}{:?}", self.composer.view, self.notice, state.error);
         if self
             .cached
@@ -200,7 +205,11 @@ impl HarnessView {
                     && s == &size
                     && *o == offset
                     && *ready == state.ready
-                    && *prepared == prepared_id
+                    && match (prepared, &state.prepared) {
+                        (Some(prior), Some(next)) => Arc::ptr_eq(prior, next),
+                        (None, None) => true,
+                        _ => false,
+                    }
             })
         {
             return Ok(&self.frame);
@@ -406,7 +415,7 @@ impl HarnessView {
             size,
             offset,
             state.ready,
-            prepared_id,
+            state.prepared.clone(),
         ));
         Ok(&self.frame)
     }
