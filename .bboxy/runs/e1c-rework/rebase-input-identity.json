@@ -1,0 +1,14 @@
+{
+  "at": "2026-11-01T10:37:42.808492+00:00",
+  "head": "a66c17463fa48344aca8b2de51157d20614479c6",
+  "gate_source": "4889c8df51be330a26e2a540cd7defe5b3e9ec38",
+  "source_input_count": 126,
+  "all_gate_inputs_byte_identical": true,
+  "source_models_interfaces_diff_from_pre_rebase_fab8109": "empty",
+  "latest_main": "8483203",
+  "conflict_resolution": "delete nested duplicate .bboxy/.bboxy/runs/e1c-report.md; retain authenticated canonical report",
+  "commands": {
+    "git_rebase_origin_main": 0,
+    "source_input_identity": 0
+  }
+}
