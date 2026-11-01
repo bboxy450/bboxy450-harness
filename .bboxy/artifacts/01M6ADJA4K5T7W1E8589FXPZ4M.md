@@ -2,7 +2,8 @@
 aliases: []
 attribution_candidates:
 - 01M6AC3D2ECK4W3F8495PAQTS3
-attribution_reason: null
+- 01M6AC7H87H9S94Y1D45PSQVH6
+attribution_reason: ambiguous-active-seats
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,13 +11,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 6102
+bytes: 6098
 claimed: false
 created: 2026-11-01T02:07:39.043Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:689e5ab2414f84ec5b0a0310416166a42c99d42c9f4f1c29cdc4c89095cebcd0
+digest: sha256:144f9c3eecf85232e445dec43cf39004c73a27aef12014f696c8f1070be4c774
 digest_grade: observed
 for: []
 grade: inferred
@@ -53,22 +54,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793498855955'
+- before_digest: sha256:689e5ab2414f84ec5b0a0310416166a42c99d42c9f4f1c29cdc4c89095cebcd0
+  commit: null
+  digest: sha256:144f9c3eecf85232e445dec43cf39004c73a27aef12014f696c8f1070be4c774
+  event_hash: 6bd449adba0cf4ae9665dde5ebb16d53e717471a10471df43aca0563b46c08e6
+  generation: null
+  grade: inferred
+  id: 01M6ADYS2K8PZFPGYWQ0EGG11J
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/interfaces/embed-seat.md
+  seat: null
+  sequence: '258'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793499030322'
 id: 01M6ADJA4K5T7W1E8589FXPZ4M
 kind: markdown
-last_observation_sequence: '55'
+last_observation_sequence: '258'
 number: 34
 observation_reason: null
 observed: true
-produced_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:3dcce62de5cedf07430f91cc3253dd5d5285c3c0efe8518cb450141358363550
-  log: .bboxy/log/2026-11-01.jsonl#149
-  sig: ndDyyWjhHwrTSBAgcGO8/s22I/WgZ/DekKkfSEUMYQFNysT7oCL3p/pjYfTGPZlcRBz8sM3T0j60KBWePlSgBA==
+  frontmatter_digest: sha256:97554d3a72151d98920069928c607e31a1a422b58d59688d9ee198c3bcf2c6be
+  log: .bboxy/log/2026-11-01.jsonl#1406
+  sig: dtpgrQhPcvX92FePm0q6+UtMGAeH4UAPimGMRn9jvL/zbuwGYuNlttI7dVXTkMw3YdfZ9buVL3IB37WIS2EcBw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: .bboxy/interfaces/embed-seat.md
 type: artifact
-updated: 2026-11-01T02:07:42.773Z
+updated: 2026-11-01T03:41:26.366Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

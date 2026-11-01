@@ -2,7 +2,8 @@
 aliases: []
 attribution_candidates:
 - 01M6AC3D2ECK4W3F8495PAQTS3
-attribution_reason: null
+- 01M6AC7H87H9S94Y1D45PSQVH6
+attribution_reason: ambiguous-active-seats
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,13 +11,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 11047
+bytes: 25921
 claimed: false
 created: 2026-11-01T02:07:38.270Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:d74c62d240770b86990254f415c69fab6717212d21c2505e4bc1556c792ad77c
+digest: sha256:78c4b20ffaf43491e0e8c34e0aa949658162f0ac9dcf1bd8eff843b7846d413b
 digest_grade: observed
 for: []
 grade: inferred
@@ -53,22 +54,246 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793498855955'
+- before_digest: sha256:d74c62d240770b86990254f415c69fab6717212d21c2505e4bc1556c792ad77c
+  commit: null
+  digest: sha256:a3339643bce7e538312fd36d3c70cdfd9dad8c5b9849852414d05cc49d41e4a3
+  event_hash: 96c312bf216ac7c773834a694a3dbc04f7fdf6cfea9f12bdf2185e80cc08a615
+  generation: '1'
+  grade: reported
+  id: 01M6ADXK885YH7D97JR6M5BHH1
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/interfaces/protocol.md
+  seat: 01M6AC7H87H9S94Y1D45PSQVH6
+  sequence: '234'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/harness/tool
+  ts: '1793498991537'
+- before_digest: sha256:a3339643bce7e538312fd36d3c70cdfd9dad8c5b9849852414d05cc49d41e4a3
+  commit: null
+  digest: sha256:92975e13c563a92aa8375d68172e7efd3a0dced96fe49882732e058919384861
+  event_hash: 4799c6d8e8ee3de1e39cf5b575e7b989328da34f2c41f9ff65992bd5d786aa78
+  generation: '1'
+  grade: reported
+  id: 01M6ADY02TYBABHZDMNYEGM8Y2
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/interfaces/protocol.md
+  seat: 01M6AC7H87H9S94Y1D45PSQVH6
+  sequence: '235'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/harness/tool
+  ts: '1793499004706'
+- before_digest: sha256:92975e13c563a92aa8375d68172e7efd3a0dced96fe49882732e058919384861
+  commit: null
+  digest: sha256:e41bd0a3cecb979b3fc0f593b5dc24e4962264a6f5fff0d07e9c412e397c4dfb
+  event_hash: 1fd96eb3031e7fb734d7b11e833febd50d992ed3bba7ac1535df07435415320d
+  generation: '1'
+  grade: reported
+  id: 01M6ADY1SZAPV5GHPQ6NJ8DPM5
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/interfaces/protocol.md
+  seat: 01M6AC7H87H9S94Y1D45PSQVH6
+  sequence: '237'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/harness/tool
+  ts: '1793499006512'
+- before_digest: sha256:e41bd0a3cecb979b3fc0f593b5dc24e4962264a6f5fff0d07e9c412e397c4dfb
+  commit: null
+  digest: sha256:b05e03efd90652da2bce98950eff558a2b0158434634cd72edbdc51280e06640
+  event_hash: 6d966f1aeb8994d8f73949842e28e2177335d79108ef394fd4662189bb57513f
+  generation: '1'
+  grade: reported
+  id: 01M6ADY357P740ARAMH0SZ9WY3
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/interfaces/protocol.md
+  seat: 01M6AC7H87H9S94Y1D45PSQVH6
+  sequence: '238'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/harness/tool
+  ts: '1793499007849'
+- before_digest: sha256:b05e03efd90652da2bce98950eff558a2b0158434634cd72edbdc51280e06640
+  commit: null
+  digest: sha256:5f756e94f5a980beb6c663957ed30eb3622767613b5094edcfbbbc7907acff42
+  event_hash: 93bc5de01dff9ca3ca2bdf8af195b0befb6b0b486e46989930f837b0e74bb7b2
+  generation: '1'
+  grade: reported
+  id: 01M6ADYFK6PBB7SJTR0JJMTY6B
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/interfaces/protocol.md
+  seat: 01M6AC7H87H9S94Y1D45PSQVH6
+  sequence: '243'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/harness/tool
+  ts: '1793499020569'
+- before_digest: sha256:5f756e94f5a980beb6c663957ed30eb3622767613b5094edcfbbbc7907acff42
+  commit: null
+  digest: sha256:abcdb1e28e5b3fe4472de3c4f6e8b24b54f2129e664de09615e865e6a2cf390d
+  event_hash: a4a4bff6a4375c5e82b4702161866bf3e900fed61df481e6738aa08d0ded0c31
+  generation: '1'
+  grade: reported
+  id: 01M6ADYH3A5XV5YGWRT3RN1GDB
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/interfaces/protocol.md
+  seat: 01M6AC7H87H9S94Y1D45PSQVH6
+  sequence: '244'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/harness/tool
+  ts: '1793499022167'
+- before_digest: sha256:abcdb1e28e5b3fe4472de3c4f6e8b24b54f2129e664de09615e865e6a2cf390d
+  commit: null
+  digest: sha256:ea4f997d135739785962475cc1ef7fab9c7ae9cffb31a825ba6a891159bceb7c
+  event_hash: e7ec9d0fbbedf240092c29fd71724c35106b8677f588ace3c17dd837fd34eb83
+  generation: '1'
+  grade: reported
+  id: 01M6ADYMW3VBJBRR5C2WETAN19
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/interfaces/protocol.md
+  seat: 01M6AC7H87H9S94Y1D45PSQVH6
+  sequence: '253'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/harness/tool
+  ts: '1793499024977'
+- before_digest: sha256:ea4f997d135739785962475cc1ef7fab9c7ae9cffb31a825ba6a891159bceb7c
+  commit: null
+  digest: sha256:0694c2acc2afd4dbfb60a1d990d783cbf84daff412e4b1af1ab7c046271821a2
+  event_hash: a0817d16c48b8d646e9ceba6746a8b9ee1400945e276875b91637c5f198f7f82
+  generation: null
+  grade: inferred
+  id: 01M6AE4CM2SS1T680MQGK3H9J5
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/interfaces/protocol.md
+  seat: null
+  sequence: '440'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793499214326'
+- before_digest: sha256:0694c2acc2afd4dbfb60a1d990d783cbf84daff412e4b1af1ab7c046271821a2
+  commit: null
+  digest: sha256:54771aaf62cd2fed1bbc677bbd6157b2ebd9104c8d792d7cb63b63239cf61380
+  event_hash: 991d0415687a3c4cd648577530e205e45fc2d2b204f701c49c9d9222e908f8ef
+  generation: '1'
+  grade: inferred
+  id: 01M6AHT3R9VE8TJ6QZ1QJ549BE
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/interfaces/protocol.md
+  seat: 01M6AC7H87H9S94Y1D45PSQVH6
+  sequence: '1151'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793503071674'
+- before_digest: sha256:54771aaf62cd2fed1bbc677bbd6157b2ebd9104c8d792d7cb63b63239cf61380
+  commit: null
+  digest: sha256:48def4064ea94703a4da7028203b65b934601b983b7b910807163abc042463b6
+  event_hash: 28cc5c1242eaa618cc875a4977393fef164a6147271e7bf71bf5b0004356ecaa
+  generation: '1'
+  grade: inferred
+  id: 01M6AHTAQSYKWDBDA7XG4JY8CY
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/interfaces/protocol.md
+  seat: 01M6AC7H87H9S94Y1D45PSQVH6
+  sequence: '1152'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793503079027'
+- before_digest: sha256:48def4064ea94703a4da7028203b65b934601b983b7b910807163abc042463b6
+  commit: null
+  digest: sha256:5fc22665f51341f4534dff836a6ff2d5e46aaecc219dd8e384c93b578b215ee7
+  event_hash: 1bad6a796c7d9f678f29620a0645485be5bfe71f5e04b5721c8e12b5db7c2b46
+  generation: '1'
+  grade: inferred
+  id: 01M6AJQX16P62Q29HGN86CARSC
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/interfaces/protocol.md
+  seat: 01M6AC7H87H9S94Y1D45PSQVH6
+  sequence: '1257'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793504047801'
+- before_digest: sha256:5fc22665f51341f4534dff836a6ff2d5e46aaecc219dd8e384c93b578b215ee7
+  commit: null
+  digest: sha256:4d52c623ae03ca6a41071e8c62fc3c1e83dc93767307e79db3311b4e9029786f
+  event_hash: d6382a4b4a52e29ad6ec5f202e92e18fe7ffe9638fdfab55b988a469fb0a725d
+  generation: '1'
+  grade: inferred
+  id: 01M6AJR57SPW07BXHADVB4TWVZ
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/interfaces/protocol.md
+  seat: 01M6AC7H87H9S94Y1D45PSQVH6
+  sequence: '1258'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793504056405'
+- before_digest: sha256:4d52c623ae03ca6a41071e8c62fc3c1e83dc93767307e79db3311b4e9029786f
+  commit: null
+  digest: sha256:b8fbd9a647fdcd2bca843ff04ded8fab0c2ea8606b2bf25591ea5f94576a0292
+  event_hash: 4c63a5b1dedc1790adec2d1882933a075c8774cc22bc53d431692422b87ce309
+  generation: null
+  grade: inferred
+  id: 01M6AJWVBB04ZJRARSS9CCG965
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/interfaces/protocol.md
+  seat: null
+  sequence: '1286'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793504210036'
+- before_digest: sha256:b8fbd9a647fdcd2bca843ff04ded8fab0c2ea8606b2bf25591ea5f94576a0292
+  commit: null
+  digest: sha256:78c4b20ffaf43491e0e8c34e0aa949658162f0ac9dcf1bd8eff843b7846d413b
+  event_hash: 1252c13eb7b540235dde8ff51bb65440e5eb0eb4fb28fd9557da6ee9520186e4
+  generation: null
+  grade: inferred
+  id: 01M6AJX0Q2C0CYVS95ZDK9SRDH
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/interfaces/protocol.md
+  seat: null
+  sequence: '1287'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793504215612'
 id: 01M6ADFMB73BQMNMF0NVT12K34
 kind: markdown
-last_observation_sequence: '64'
+last_observation_sequence: '1287'
 number: 31
 observation_reason: null
 observed: true
-produced_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:fdd1cf295f401063eeb6e07f469a02aefb4fcbef1faad66ba52497e62f0d31ee
-  log: .bboxy/log/2026-11-01.jsonl#155
-  sig: 9zlxri/UF6JX2+trM3MQnqX4c1/FCnJWBAtfHOTp1WIvXira1QYoTuweFYMNQEUfq5JgDU+Qk6BZIATXYoxnDA==
+  frontmatter_digest: sha256:c4a2f48306c8e0898d27c57436e7da24c1fde91086cd08ac90d2360d6582155b
+  log: .bboxy/log/2026-11-01.jsonl#3400
+  sig: PQP4SkPs6QX0oc/SeFrb757Qo00Lb8qw0+7fjlYKztaBsV6gC839n8DKuPMC1MhFDcTiWkN4+E0Hi9hV/k2WDA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: .bboxy/interfaces/protocol.md
 type: artifact
-updated: 2026-11-01T02:07:43.276Z
+updated: 2026-11-01T03:44:19.779Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact
