@@ -60,6 +60,12 @@ impl Set {
             refusal: Some(reason),
         };
     }
+    pub(crate) fn no_capability(&self) {
+        *self.admission.write().unwrap() = Admission {
+            initialized: true,
+            ..Default::default()
+        };
+    }
     pub fn capability_notice(&self) -> Option<String> {
         self.admission
             .read()

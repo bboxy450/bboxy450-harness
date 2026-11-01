@@ -27,6 +27,7 @@ fn capability_bootstrap_covers_valid_and_degraded_faces_and_legacy_read_leaks() 
     let available = variable(&good, "file_available");
     let prepared = variable(&good, "face_prepared");
     let projected = variable(&good, "output_projected");
+    let notice = variable(&good, "notice_emitted");
     let checked = good.check(100_000).unwrap();
     assert!(checked.violations.is_empty());
     assert!(
@@ -39,13 +40,26 @@ fn capability_bootstrap_covers_valid_and_degraded_faces_and_legacy_read_leaks() 
         checked
             .states
             .iter()
-            .any(|s| s[available] == 0 && s[prepared] == 2)
+            .any(|s| s[available] == 2 && s[prepared] == 2 && s[notice] == 1)
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[available] == 0 && s[prepared] == 3 && s[notice] == 0 && s[projected] == 1)
     );
     let bad = model("BrokenHarnessMcpServerD").check(100_000).unwrap();
     assert!(
         bad.violations
             .iter()
             .any(|v| v.property == "NoUnredactedCapability")
+    );
+    let noisy = model("BrokenHarnessMcpServerE").check(100_000).unwrap();
+    assert!(
+        noisy
+            .violations
+            .iter()
+            .any(|v| v.property == "QuietWhenUnset")
     );
 }
 #[test]

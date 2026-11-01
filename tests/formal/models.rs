@@ -1540,7 +1540,7 @@ fn auto_compact(mode: u8) -> Model {
 fn mcp_server(mode: u8) -> Model {
     // Starting=0, ready=1, failed=2, dead=3; round absent/open/finished.
     // Three births stand for the five-attempt product bound; identities are gen mod 2.
-    let mut m = base::<15>(
+    let mut m = base::<16>(
         "McpServer",
         false,
         &[
@@ -1555,17 +1555,19 @@ fn mcp_server(mode: u8) -> Model {
             ("accepted_birth", 2, 0),
             ("silent", 1, 0),
             ("retired", 1, 0),
-            ("file_available", 1, 1),
+            // Input: 0=unset, 1=valid supplied file, 2=invalid supplied file.
+            ("file_available", 2, 1),
             ("capability_registered", 1, 0),
-            // 0=pending, 1=registered, 2=degraded with a Notice.
-            ("face_prepared", 2, 0),
+            // 0=pending, 1=registered, 2=degraded Notice, 3=silent non-seat.
+            ("face_prepared", 3, 0),
             ("output_projected", 1, 0),
+            ("notice_emitted", 1, 0),
         ],
     );
     if mode > 0 {
         m.name = format!(
             "BrokenHarnessMcpServer{}",
-            ['A', 'B', 'C', 'D'][(mode - 1) as usize]
+            ['A', 'B', 'C', 'D', 'E'][(mode - 1) as usize]
         );
     }
     m.check_deadlock = mode == 1;
@@ -1674,13 +1676,24 @@ fn mcp_server(mode: u8) -> Model {
         &[
             (12, Int(if mode == 4 { 0 } else { 1 })),
             (13, Int(if mode == 4 { 2 } else { 1 })),
+            (15, Int(if mode == 4 { 1 } else { 0 })),
         ],
     );
     act(
         &mut m,
         "UnavailableFileNotice",
         eq(13, 0),
-        &[(11, Int(0)), (13, Int(2))],
+        &[(11, Int(2)), (13, Int(2)), (15, Int(1))],
+    );
+    act(
+        &mut m,
+        "UnsetWithoutNotice",
+        eq(13, 0),
+        &[
+            (11, Int(0)),
+            (13, Int(3)),
+            (15, Int(if mode == 5 { 1 } else { 0 })),
+        ],
     );
     act(
         &mut m,
@@ -1692,6 +1705,11 @@ fn mcp_server(mode: u8) -> Model {
         &mut m,
         "NoUnredactedCapability",
         all([eq(11, 1), eq(14, 1)]).negate().or(eq(12, 1)),
+    );
+    safe(
+        &mut m,
+        "QuietWhenUnset",
+        all([eq(11, 0), eq(13, 0).negate()]).negate().or(eq(15, 0)),
     );
     safe(
         &mut m,
@@ -2006,6 +2024,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
     }
     out.push((auto_compact(4), "safety"));
     out.push((mcp_server(4), "safety"));
+    out.push((mcp_server(5), "safety"));
     out.push((acp_flow(0), "pass"));
     out.push((acp_flow(1), "safety"));
     out.push((acp_flow(2), "safety"));

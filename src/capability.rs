@@ -100,12 +100,11 @@ pub async fn register(set: &crate::redact::Set) {
     if set.capability_initialized() {
         return;
     }
-    let path = std::env::var_os("BBOXY_CAPABILITY_FILE");
-    let result = crate::runtime::blocking(move || {
-        path.ok_or(Refusal::MissingFile)
-            .and_then(|path| read(Path::new(&path)))
-    })
-    .await;
+    let Some(path) = std::env::var_os("BBOXY_CAPABILITY_FILE") else {
+        set.no_capability();
+        return;
+    };
+    let result = crate::runtime::blocking(move || read(Path::new(&path))).await;
     match result {
         Ok(value) => set.register_capability(&value),
         Err(reason) => set.refuse_capability(reason),

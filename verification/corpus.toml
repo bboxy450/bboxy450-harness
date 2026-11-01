@@ -255,6 +255,11 @@ expected = "safety"
 frontend = "project"
 
 [[model]]
+name = "BrokenHarnessMcpServerE"
+expected = "safety"
+frontend = "project"
+
+[[model]]
 name = "BrokenHarnessAutoCompactD"
 expected = "safety"
 frontend = "project"

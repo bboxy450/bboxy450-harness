@@ -1,0 +1,152 @@
+bboxy450-harness — capability Side B follow-ups
+Task #4921 / 01M6CF85M6MAJT9NMJEW79VK5Y
+.bboxy/tasks/2026-11-01-harness-capability-side-b-followups.md
+Executor: E3 harness-gui / 01M6AMBPG3XD3CMJWHQCKWAG7M
+Date: 2026-11-01
+Repository: https://github.com/bboxy450/bboxy450-harness
+Worktree: /Users/feral/mydev/bboxy450-harness-capability-side-b
+Branch: capability-side-b-followups
+Base: origin/main 2ce1917044549424a34e682c87c13adb69290ba8, containing
+PR #18 merge 4deca9210b7ffdf68d7f71e9ba7fbd7cb10b8215.
+Tested source: 1201697f31120f7e5324017b8fb9f88ff3069d0c
+Signature grade: G
+Signer fingerprint: 9B07E849480C68328CA20684844ECC0587DE7AB0
+Author: Boxy <bboxy450@gmail.com>
+
+Result: make test exited 0 unattended on the first full canonical run.
+All 17 core command results and four GUI command results are zero. Eight
+production-source mutation controls go 101 -> 0 at named assertions inside
+the canonical stack. Native/TLC parity holds for all 69 variants, one crate,
+25 contracts. No operator input, display interaction or external model call.
+
+1. Live GUI witness
+src/frontends/gui/bridge.rs:161-188 adds a test-fixtures-only observer. The
+actual Bridge::create worker registers its Config redactor, then invokes the
+observer synchronously immediately before Host::new. Production builds have
+no observer field/API. tests/capability_delivery.rs:588 starts that real live
+bridge in an isolated child test process with a private 0600 file. At the
+pre-Host boundary it captures whether Set::scrub(value) == <redacted>, asserts
+GuiLiveCapabilityRegisteredBeforeHost, then waits for a ready session and
+closes it. It uses no window, display interaction or test-thread environment
+mutation. Deleting only the live loader fails that assertion, exit 101;
+restoring its exact bytes passes, exit 0.
+
+2. Per-face controls
+scripts/test-capability-control.py now covers eight paths, with one exact test
+per mutation. Headless/seat/ACP share one production loader, so those mutations
+skip registration only for the selected face. GUI replay, live GUI, GUI smoke
+and optional live smoke each lose their own call. The legacy-reader control
+still replaces the common consumer with a raw-environment reader.
+
+legacy-reader -> HeadlessCapabilityRegistered: 101 -> 0
+headless -> HeadlessCapabilityRegistered: 101 -> 0
+seat -> SeatCapabilityRegistered: 101 -> 0
+ACP -> AcpCapabilityRegistered: 101 -> 0
+GUI Bridge::replay -> GuiReplayCapabilityRegistered: 101 -> 0
+GUI Bridge::create -> GuiLiveCapabilityRegisteredBeforeHost: 101 -> 0
+GUI smoke -> GuiSmokeRegistersCapabilityBeforeRendering: 101 -> 0
+optional live smoke -> SmokeCapabilityCheckedBeforeKeySkip: 101 -> 0
+
+Headless/seat/ACP assertions inspect stdout/stderr AND actual session log/blob
+bytes. The seat mutation exposes its failure in stored data even when its
+compact terminal projection does not print the entire tool output. GUI replay
+checks the projected transcript; GUI smoke compares actual offscreen PNG bytes
+against explicit redaction. The smoke witness checks the invalid-file refusal
+before the isolated no-provider-key skip. The child-test wrapper has a distinct
+assertion name, so its generic failure cannot masquerade as the inner proof.
+Every mutation requires one running test, exit 101, failed-test output and the
+named assertion, then exact source restoration and a successful exact test.
+The canonical scripts/test.py command remains unchanged and invokes all cases.
+tests/gui_gate.py enables test-fixtures so the live witness also runs in its
+ordinary GUI suite.
+
+Committed receipts: .bboxy/runs/2026-11-01-capability-side-b-followups-controls.json
+SHA256: b901acab3714a9fd81b33565403354fe41c090ebb51cf1ce3981322dbfdabb25
+The receipts include exact commands, names, exits and restored source hashes.
+Complete local red/green logs: target/capability-control/<case>-{red,green}.log
+
+3. File-path-specific case (c)
+tests/capability_delivery.rs:407 adds a real echo_env server test for profile,
+ACP and launcher origins. The fixture reports a capability_file_present boolean
+and names, never values. The configured reserved file key is also attempted.
+Profile and ACP observations explicitly require BBOXY_CAPABILITY_FILE absent
+and an empty BBOXY_* namespace. Launcher --mcp-config explicitly requires that
+file variable present. Every origin also executes a real bash tool: printenv,
+cat "$BBOXY_CAPABILITY_FILE" and printenv BBOXY_CAPABILITY_FILE yield no reserved
+environment/path/value; literal-path output is redacted, including stored data.
+The legacy variable is absent from all three MCP process environments.
+tests/bin/mcp_fixture.rs adds only that observation boolean.
+
+4. Quiet when unset
+src/capability.rs:99 and src/redact.rs:63 distinguish absent configuration from
+failed validation. Unset marks initialization complete with no value/refusal;
+there is no IO or Notice. A supplied invalid path still runs the existing
+descriptor-validated consumer and produces its safe typed refusal.
+tests/capability_delivery.rs:321 asserts silent headless startup when unset and
+a completed turn, plus typed path/value-free Notices and continuation for set
+missing/symlink/mode/content/type failures. The GUI Bridge::replay child test at
+:537 covers valid, unset and supplied invalid input; only the invalid case has
+a Notice. Its valid case separately checks redaction before projection.
+Refusal checks, lowercase canonical format, file ownership/lifetime, redaction
+and the launcher MCP exception remain as in the accepted Side B implementation.
+
+5. ICD citation for the Architect
+The ICD seat-capability-delivery.md §4 harness row should cite
+tests/capability_delivery.rs for the new case (c), live Bridge::create pre-Host
+witness, GUI Bridge::replay and per-face control evidence above. At this base
+the row already cites that file for PR #18 but marks these follow-ups pending.
+The Architect owns updating that row and its pending labels; no ICD was edited.
+The base ICD already incorporates the Oracle's quiet-when-unset ruling.
+
+Formal evidence and limits
+tests/formal/models.rs adds distinct unset/valid/invalid input classes, a silent
+prepared state and notice_emitted. QuietWhenUnset has its own broken control,
+BrokenHarnessMcpServerE, which emits a Notice for unset input. The existing
+legacy-reader control D still violates NoUnredactedCapability. Nonvacuity tests
+reach valid registered output, invalid degraded Notice and silent unset output,
+and require both named control violations. Contracts/corpus/coverage updated.
+69 variants: all reachable state sets, transition sets and expected verdicts
+match native/TLC. HarnessMcpServer: 534 states/1701 edges, TLC 0/pass.
+BrokenHarnessMcpServerD: 534/1701, TLC 12/safety (NoUnredactedCapability).
+BrokenHarnessMcpServerE: 534/1701, TLC 12/safety (QuietWhenUnset).
+Committed summary: .bboxy/runs/2026-11-01-capability-side-b-followups-formal.json
+SHA256: e37d6dfaecf8a4c5accf4b85781b53490bce7d8aeb5f47830965cf2c54644d59
+Full local graph archive: verification/evidence/<that SHA256>/, untracked.
+The finite model does not prove filesystem syscalls, environment byte matching,
+UI scheduling/pixels or arbitrary Rust refinement. Those boundaries are explicit
+in coverage.toml and covered by the implementation witnesses. Redaction still
+does not protect against an active same-uid reader or deliberately transformed
+secret bytes; the existing ICD non-claim is unchanged.
+
+Commands and actual results
+make test -> 0, default concurrency, no new exclusions or wall-clock gates.
+Launch: env -u BBOXY_CAPABILITY -u BBOXY_CAPABILITY_FILE make test. This removes
+the real seat's admission from the test runner; fixtures supply only private
+files. Existing canonical seat/PTY process isolation is unchanged and executes
+its cases separately; those commands also exit 0.
+.bboxy/runs/test-current.json: PASS, source 1201697, 17 command exits 0.
+.bboxy/runs/gui-gate.json: same source, four command exits 0.
+Full local log: target/followups-make-test.log
+SHA256: 2c6235ce95f322771afa9d5217b491b512db947a30bcd6bf73b1e42c89864f74
+Focused all-feature capability + formal-nonvacuity run: 0, 10 + 14 tests pass.
+All-target/all-feature clippy -D warnings: 0.
+Headers, inventory shape and secrets checks: 0.
+Explicit eight-control run: 0; canonical eight-control rerun: 0.
+Development-only attempts: one focused build exited 101 for a moved fixture cwd
+reference (fixed); the first control wrapper exited 1 because the seat storage
+failure still had the shared assertion label (fixed). Neither counts as final
+101 -> 0 evidence. There is no unresolved failure.
+
+Headless smoke: 22 visible items, 15 kinds, three approval buttons, semantic and
+structural assertions and scrolled viewport pass; screenshot inspected. Unset
+startup displays Offline replay without a capability warning.
+.bboxy/runs/gui-smoke.png SHA256:
+35190c587b927411aca81050e1ed7e4313211d64e1380e5ff42566d37ea8df39
+.bboxy/runs/gui-smoke-scrolled.png SHA256:
+5372911c7d28d153ddb72eb5e7fe864b8f5ba33a3d09e9fda3b863f3cc69c892
+
+All changed paths are within src/, tests/, scripts/, verification/ and
+.bboxy/runs/. No dependency or publication change, no merge. The full-gate source
+is the explicit signed 1201697 commit above. This report/evidence commit changes
+only .bboxy/runs; gate input hashes were checked identical. Fresh current-head
+formal parity/receipt and the final signed pushed head are supplied in task_report.
