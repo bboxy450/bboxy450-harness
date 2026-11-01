@@ -15,7 +15,7 @@ created: 2026-11-01T04:02:29.290Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:846dd1ab39ee20ff6578dc3be70abbd7492396ea6f7441444c665f7f70011c18
+digest: sha256:b8a3a61b371649592e64b3f30372b5e849ac1bd56284aa6a11750629f6815d8a
 digest_grade: observed
 for: []
 grade: inferred
@@ -180,22 +180,86 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/git/ref
   ts: '1793510043848'
+- before_digest: sha256:846dd1ab39ee20ff6578dc3be70abbd7492396ea6f7441444c665f7f70011c18
+  commit: 5f2c65f07d231a47d95f8f36173c3c54f1782b59
+  digest: sha256:ae21941b692115d9903cf6c851bd0914e998c95d8edc69387bd88d8178b1e8ad
+  event_hash: 377f6725109e84597efd9ad6deed774ae4a74fc0cd939d25bdb2c5851aa5c1ca
+  generation: null
+  grade: inferred
+  id: 01M6ASAEJT8Z0QP8ENGRARVD5P
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:refs/heads/e1b-hardening
+  seat: null
+  sequence: '8856'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793510947252'
+- before_digest: sha256:ae21941b692115d9903cf6c851bd0914e998c95d8edc69387bd88d8178b1e8ad
+  commit: 1400c1effab85e9aeaee17f1d5cae054bc61b585
+  digest: sha256:c7d0f65282b6b2536ed609754bda22c0690da28dffebf38d5fd77fc678ada4ff
+  event_hash: 13fce099222758c43d70c36637d3cb6d23aef5aa3cfeb44180bb620f05cc92b5
+  generation: null
+  grade: inferred
+  id: 01M6ASPGQWMD17FZ4WS2JWNM4Y
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:refs/heads/e1b-hardening
+  seat: null
+  sequence: '9139'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793511342812'
+- before_digest: sha256:c7d0f65282b6b2536ed609754bda22c0690da28dffebf38d5fd77fc678ada4ff
+  commit: 0bab268354f0c1a04adf17e5abe592758660ca58
+  digest: sha256:9110cd5a7c1fa8e66e07c454300407b3910d28e8cc47f54232839e7556afe2cd
+  event_hash: 92029e720d68d15e2668a56d48effee47af8d0fe1c0e1fa9974150c483b59cbf
+  generation: null
+  grade: inferred
+  id: 01M6AT0F2D71WXRBYRWEQDN2YG
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:refs/heads/e1b-hardening
+  seat: null
+  sequence: '9257'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793511668518'
+- before_digest: sha256:9110cd5a7c1fa8e66e07c454300407b3910d28e8cc47f54232839e7556afe2cd
+  commit: abc7e953940972724676300a30e0b90adf0ba878
+  digest: sha256:b8a3a61b371649592e64b3f30372b5e849ac1bd56284aa6a11750629f6815d8a
+  event_hash: 7157fad1302284561661978fa5769ba71eb5efeb36a1c9a3ed6e68db3a4f795f
+  generation: null
+  grade: inferred
+  id: 01M6ATR5HXSVFFY86284GR33NW
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:refs/heads/e1b-hardening
+  seat: null
+  sequence: '9397'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793512443916'
 id: 01M6AMBT98XKF8A16QBJAACKJH
 kind: other
-last_observation_sequence: '8427'
+last_observation_sequence: '9397'
 number: 1127
 observation_reason: git-ref-value; authorship unverified
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:9a274d973ff8b140f55eabab01955520d74ce81c5fa73a168255b9f0d2445978
-  log: .bboxy/log/2026-11-01.jsonl#8428
-  sig: Q4Oaf9823cCgqat6PL69PVRaM4pq8HlZLRtGdKE+G8F3nlRlffXgotu32queez8VYbcLRDXSRO2fOVZVBjtFAw==
+  frontmatter_digest: sha256:e976234561d226cf3e7788a9330731d12dc10fac41670eeb1fe54dd22041988d
+  log: .bboxy/log/2026-11-01.jsonl#9398
+  sig: 2a4IP4+ktF3qkUhtbnsx8hExdDOf1Cv6DtWhLwFsMxTn0MhLHh60b3hVgBMo3VnSfJ7KwSLfNU+z42yzrQEXAQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: git:refs/heads/e1b-hardening
 type: artifact
-updated: 2026-11-01T05:14:03.968Z
+updated: 2026-11-01T05:54:05.502Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

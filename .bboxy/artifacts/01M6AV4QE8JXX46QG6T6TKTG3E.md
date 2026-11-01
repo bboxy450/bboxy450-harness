@@ -1,0 +1,59 @@
+---
+aliases: []
+attribution_candidates: []
+attribution_reason: no-active-seat
+authorship:
+  custody: dev custody
+  device_id: 01M6490ZTZMBBC0EPWJVH83796
+  kind: local-dev
+  public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  root_fingerprint: null
+  signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+bytes: 1400
+claimed: false
+created: 2026-11-01T06:00:57.035Z
+created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+deleted: false
+derived_from: []
+digest: sha256:b65337dd88ac64955c09fdd6fa62ab7a21ebe7007e9ab14885f66933d80419b9
+digest_grade: observed
+for: []
+grade: inferred
+history:
+- before_digest: null
+  commit: null
+  digest: sha256:b65337dd88ac64955c09fdd6fa62ab7a21ebe7007e9ab14885f66933d80419b9
+  event_hash: bfc690cf6e54c165a0e5d7982ca7cf5c58cce2e7c372d4820e40d48eefbd5ccf
+  generation: null
+  grade: inferred
+  id: 01M6AV4QE8ZTS7RA5HDNBSZK8N
+  kind: created
+  previous_ref: null
+  reason: null
+  ref: .bboxy/runs/hardening/item08-fence-red.log
+  seat: null
+  sequence: '9611'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793512796042'
+id: 01M6AV4QE8JXX46QG6T6TKTG3E
+kind: file
+last_observation_sequence: '9611'
+number: 1615
+observation_reason: null
+observed: true
+produced_by: null
+provenance:
+  digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
+  frontmatter_digest: sha256:55a46c8998068472e45497b70cfad85cd2d21eb1f407e425522a3a8d6c2158ad
+  log: .bboxy/log/2026-11-01.jsonl#9612
+  sig: 6NBqlRRqBanUlPP+hPFN7dMCLeGy4Dz2Cj8N3SxdY8644pY3mVvGFAaGjApp75GjYO5VAYTIzRhRdNx9WpJSBw==
+  signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+ref: .bboxy/runs/hardening/item08-fence-red.log
+type: artifact
+updated: 2026-11-01T06:00:57.035Z
+updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+---
+# Observed artifact
+
+Responsibility and observation evidence are recorded in the frontmatter.

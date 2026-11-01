@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6AMBPG3XD3CMJWHQCKWAG7M
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 12143
+bytes: null
 claimed: false
 created: 2026-11-01T04:50:11.816Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:2160d7a43dd49785a3211778fc2e405e478fae357521e2d7190c83b608808138
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -53,22 +52,54 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793510542630'
+- before_digest: sha256:2160d7a43dd49785a3211778fc2e405e478fae357521e2d7190c83b608808138
+  commit: null
+  digest: sha256:6c857413fa8ba922c8f0d47148f152ba1e756d730deb474ab92d9f9cebdbbf1b
+  event_hash: 11a19a0c01248faef78ff7f432023e4285a6df13fe19189f007a9d43dc5a5e5d
+  generation: '1'
+  grade: inferred
+  id: 01M6AS5HCYX7QNAGC54K24VBCE
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/verification/contracts.toml
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '8729'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793510786001'
+- before_digest: sha256:6c857413fa8ba922c8f0d47148f152ba1e756d730deb474ab92d9f9cebdbbf1b
+  commit: null
+  digest: null
+  event_hash: 085f4eabbe73b3505c6d1a9e211cc13715d41ceb61e42819e7b246b5f9b624d7
+  generation: null
+  grade: inferred
+  id: 01M6AV8H9E5H2KBQQ49KP81G1Z
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/verification/contracts.toml
+  seat: null
+  sequence: '10514'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793512871183'
 id: 01M6AQ35Q7NAPRCQWSDDFN5SC7
 kind: file
-last_observation_sequence: '8573'
+last_observation_sequence: '10514'
 number: 1433
 observation_reason: null
 observed: true
-produced_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:1a997cd56c5729aec5d5699d77ba1afe503362e068c79d650bb69345eb75df85
-  log: .bboxy/log/2026-11-01.jsonl#8574
-  sig: cUQLpEE6fy9VUFaXky9Dk+uZ/pHoacqXpToxEXnY2XRtpglYEnjlEI+/Ez3rB5EGmDdqR0VIvOB53caxYzEqBA==
+  frontmatter_digest: sha256:92b118b3f34eee04608d50c189b96a87e98c1cf5aaa763f13c30bd9edf877258
+  log: .bboxy/log/2026-11-01.jsonl#10515
+  sig: noDxXkkDSjlNJsVOkBKm2xOUana+N5jRXaA7c4iXFYhpmUlKa5EJfVRmeHx0RjFv26FDu95ka5usiXIpxJYdDw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/verification/contracts.toml
 type: artifact
-updated: 2026-11-01T05:22:23.225Z
+updated: 2026-11-01T06:03:01.808Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

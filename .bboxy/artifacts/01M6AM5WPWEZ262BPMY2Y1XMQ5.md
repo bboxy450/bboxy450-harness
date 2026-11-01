@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6AC3D2ECK4W3F8495PAQTS3
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 2609
+bytes: null
 claimed: false
 created: 2026-11-01T03:59:15.164Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:35707198e7473ee19f9cb8a38b5c83905da376fb252fe8c685eb58d2c3194db5
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -37,22 +36,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793505552671'
+- before_digest: sha256:35707198e7473ee19f9cb8a38b5c83905da376fb252fe8c685eb58d2c3194db5
+  commit: null
+  digest: null
+  event_hash: c51c25de103b12976c585021f6c241e6529752065fd3578b920ba5b0526016ef
+  generation: null
+  grade: inferred
+  id: 01M6AV58DFTNYE9ZBATX3EERS1
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: .bboxy/runs/smoke-live-2026-10-31.json
+  seat: null
+  sequence: '9771'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793512796049'
 id: 01M6AM5WPWEZ262BPMY2Y1XMQ5
 kind: file
-last_observation_sequence: '4591'
+last_observation_sequence: '9771'
 number: 1014
 observation_reason: null
 observed: true
-produced_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:e92b3c195589d8e069260768535b5818113fd583cbdc9bf67466b0a77cb54fb7
-  log: .bboxy/log/2026-11-01.jsonl#4592
-  sig: syWg+FL8XGwZmM52i6UovFnHWshYhSoK8ll63RFV7aDX5LCDoJ2AHQy02gew+i3XMutHJpE30bTOkcM7edXjBw==
+  frontmatter_digest: sha256:57d139234df5c508b9c427774b3634c0f70b52eec12e22ad4b25b2b1fa9b44f7
+  log: .bboxy/log/2026-11-01.jsonl#9772
+  sig: HWoupz5+ebdBzsbDlMEQYQwIhbn6IIZkS3e6spJVVraRVjyIjKasibtPzqSlD7ifUQ4r0UobsIUH3NokX79JCA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: .bboxy/runs/smoke-live-2026-10-31.json
 type: artifact
-updated: 2026-11-01T03:59:15.164Z
+updated: 2026-11-01T06:01:14.416Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

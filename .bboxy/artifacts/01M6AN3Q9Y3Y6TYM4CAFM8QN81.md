@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 839
+bytes: null
 claimed: false
 created: 2026-11-01T04:15:32.672Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:2069c23eff7d98703526ea943e787f93796ba51d1b4a6a93d3f3133fe5b2286b
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -164,22 +164,54 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793509464943'
+- before_digest: sha256:2069c23eff7d98703526ea943e787f93796ba51d1b4a6a93d3f3133fe5b2286b
+  commit: null
+  digest: sha256:9dc0859d197c1fd1af6d0bb3218c743b1e38183a2c13065fa9f8413ad04ad56f
+  event_hash: 41229ecb2e30c8f7a95b37b218dcf0798dd07c32e5cbd38278b88d99c19fb77a
+  generation: '1'
+  grade: inferred
+  id: 01M6AS6EK9MRR74WC71FK8T6TH
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-gate.json
+  seat: 01M6AMBPG3XD3CMJWHQCKWAG7M
+  sequence: '8753'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793510816201'
+- before_digest: sha256:9dc0859d197c1fd1af6d0bb3218c743b1e38183a2c13065fa9f8413ad04ad56f
+  commit: null
+  digest: null
+  event_hash: c13b7716cdf9610ef9c8e8fb7d88a8a798c700e82250257cefb0f92391109af8
+  generation: null
+  grade: inferred
+  id: 01M6AV6GK2XHCMDGSWNF76Y10A
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-gate.json
+  seat: null
+  sequence: '10068'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793512871105'
 id: 01M6AN3Q9Y3Y6TYM4CAFM8QN81
 kind: file
-last_observation_sequence: '8126'
+last_observation_sequence: '10068'
 number: 1207
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:1a2a754e73954cf85def8c8d33a1f187e01f64c4c3459252ea2dd5a98641a4dd
-  log: .bboxy/log/2026-11-01.jsonl#8127
-  sig: cwbP8cpRsHTGh+vUIOq+5FZFgEwR/dhow7TkBDvYyKtAICxpdPVCl6vLdjQUbXzM30UO1xvCyGQu8416mFDYBQ==
+  frontmatter_digest: sha256:3f44756985423d86a96597de6f1cedc5165c8bc40c0efe011fb655501f66c530
+  log: .bboxy/log/2026-11-01.jsonl#10069
+  sig: Hv/8cNL1CqzQYoS7t2b40Oq7YX/29VbKJi/jRXD3hODRuUK70d8V51SOEORGvDg1ukO5Pdz8W1XpS4fxeaXwDw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/gui-gate.json
 type: artifact
-updated: 2026-11-01T05:04:58.154Z
+updated: 2026-11-01T06:01:55.557Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6AMBPG3XD3CMJWHQCKWAG7M
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 8454
+bytes: null
 claimed: false
 created: 2026-11-01T04:37:08.991Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:b895638c33e3ea446b050a9f6411da7a9a11336a6219398d225f7a579a22f3e8
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -37,22 +36,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793507828527'
+- before_digest: sha256:b895638c33e3ea446b050a9f6411da7a9a11336a6219398d225f7a579a22f3e8
+  commit: null
+  digest: null
+  event_hash: bfab049a8c234f1b50da7f14f81c55e11cf87d9be980796cda976df459511dbb
+  generation: null
+  grade: inferred
+  id: 01M6AV66J51ST3X8S7PAVR541F
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/e3-make-test-rt-lateness-failure.log
+  seat: null
+  sequence: '9981'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793512871103'
 id: 01M6APB97YDXYA2ETN29VKMR56
 kind: file
-last_observation_sequence: '6705'
+last_observation_sequence: '9981'
 number: 1302
 observation_reason: null
 observed: true
-produced_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:6f83490bfd579e0138ba5d9e80190fd33c04fece3306416910006109c3dfcc46
-  log: .bboxy/log/2026-11-01.jsonl#6706
-  sig: vuslm5U91P8C0ymj/u5xJ23G4WRwSY9ONspmcDcRRI66l8rHa4N7ZkPwMmJsPstmFmrQEuP3UAeOV+knKXuVAw==
+  frontmatter_digest: sha256:660bf071bfb49bf361e6c45c4d0d41a98acedd45c8d02f871760adcf93cacde5
+  log: .bboxy/log/2026-11-01.jsonl#9982
+  sig: gMNgII9thAhhNLoCgP9+kHAcnxP41wRf30cRAoqLrqG8/Ms+OEHqbM8eQECbIwgqawnbrKUclrzpplbXlC2rBQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/e3-make-test-rt-lateness-failure.log
 type: artifact
-updated: 2026-11-01T04:37:08.991Z
+updated: 2026-11-01T06:01:45.286Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

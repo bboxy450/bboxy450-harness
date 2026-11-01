@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6AMBPG3XD3CMJWHQCKWAG7M
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 360
+bytes: null
 claimed: false
 created: 2026-11-01T04:47:28.922Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:98928366471e6cba2a6b8fe8a7e9e1da97d88fb6ef43b406ced2679379bc496d
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -53,22 +52,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793508461794'
+- before_digest: sha256:98928366471e6cba2a6b8fe8a7e9e1da97d88fb6ef43b406ced2679379bc496d
+  commit: null
+  digest: null
+  event_hash: 6d6871099a4df04dc10f43d6e375fe2a936e5e3d5b0fb89a7ce49046c2a6ef60
+  generation: null
+  grade: inferred
+  id: 01M6AV653C80FR9018RM96J0D6
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/e3-clippy-all.log
+  seat: null
+  sequence: '9969'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793512871103'
 id: 01M6APY6MPCFZ58B4EVBDMB5AS
 kind: file
-last_observation_sequence: '7354'
+last_observation_sequence: '9969'
 number: 1377
 observation_reason: null
 observed: true
-produced_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:48bc0319b75a3764eb663e6e94ec062beb594a750eb197b6b8d2dbd186b96d26
-  log: .bboxy/log/2026-11-01.jsonl#7355
-  sig: O5QKKN+ZkiY/G0VBX2l7BSRr07WvFkPiw0q/ixK6aXbZmY8Z7rYP+wWg/gLfQOu1uxsOR4j+wNXGLK552vhACw==
+  frontmatter_digest: sha256:5aaccd0a380c521d0bdabded279ab00463344bb44ee216efa696e9e9fe2c0116
+  log: .bboxy/log/2026-11-01.jsonl#9970
+  sig: ppDD08YhrNGuJIFkTqnHRDyM8HHr+XnPsJEJNJMuCZzc8zx6RednEDYLZ5CDInjo+0g63Rg6t8shelgpqnnvAQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/e3-clippy-all.log
 type: artifact
-updated: 2026-11-01T04:47:41.997Z
+updated: 2026-11-01T06:01:43.789Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

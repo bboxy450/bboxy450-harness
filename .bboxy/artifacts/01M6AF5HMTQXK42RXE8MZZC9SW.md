@@ -9,13 +9,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 6308
+bytes: 8773
 claimed: false
 created: 2026-11-01T03:43:13.761Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:85fd4c3c880978f2e8df4235eda79fe60de807f4324500216806a9f6f7b814a4
+digest: sha256:5995ca7d4f269f975da9b02e4a04a8270b4bc58669458114972e942f02693330
 digest_grade: observed
 for: []
 grade: inferred
@@ -148,22 +148,86 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793507430852'
+- before_digest: sha256:85fd4c3c880978f2e8df4235eda79fe60de807f4324500216806a9f6f7b814a4
+  commit: null
+  digest: sha256:afc6bf291ade5294fafc9decea33406b09d7fe5622772c9fff4543a1a2626a01
+  event_hash: ef98dca42f1e16a9b2b0660dc693bdfe12f097513c0034c404a6ab1c0c2553a7
+  generation: '1'
+  grade: inferred
+  id: 01M6AS8BPFTKNW4YWWX915GEW1
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/cancel_process.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '8789'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793510878811'
+- before_digest: sha256:afc6bf291ade5294fafc9decea33406b09d7fe5622772c9fff4543a1a2626a01
+  commit: null
+  digest: sha256:b866910de9aa1a4963bf247cbb528609c911cb9e46d1e52f296ca95b49d32243
+  event_hash: 5857a4ecd420a9f7c58affb54a7cad0dd7227c95ede5ed7933b7dd54d0df73c2
+  generation: '1'
+  grade: inferred
+  id: 01M6ASADVA7KAQR3VT83GTGGGH
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/cancel_process.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '8850'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793510946177'
+- before_digest: sha256:b866910de9aa1a4963bf247cbb528609c911cb9e46d1e52f296ca95b49d32243
+  commit: null
+  digest: sha256:3be42b6a180949f2d52ecbee42a3844aa6abe829f2f974f903eb09bb3aece471
+  event_hash: 1b517a40823fae254b8b1f53374794fb3b112649d9a753f8f141b7bfa0c01ff6
+  generation: '1'
+  grade: inferred
+  id: 01M6ASFHZKPED3C0H3GP3FQEKW
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/cancel_process.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '8985'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793511114278'
+- before_digest: sha256:3be42b6a180949f2d52ecbee42a3844aa6abe829f2f974f903eb09bb3aece471
+  commit: null
+  digest: sha256:5995ca7d4f269f975da9b02e4a04a8270b4bc58669458114972e942f02693330
+  event_hash: 154d1211a1de7af81bd8a81756b898062135f6f2b88bb4203a418c8c51c52a6a
+  generation: null
+  grade: inferred
+  id: 01M6ASJE8CZ06HR5529N4VG79B
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/cancel_process.rs
+  seat: null
+  sequence: '9076'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793511192359'
 id: 01M6AF5HMTQXK42RXE8MZZC9SW
 kind: file
-last_observation_sequence: '6494'
+last_observation_sequence: '9076'
 number: 739
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:e544a980a4ce7278322691e610e9526d75b75b969bb437190ab17202258d9d02
-  log: .bboxy/log/2026-11-01.jsonl#6495
-  sig: CGqwRab0ePj6Pgl76EDDCDSQJIsROLE0T8GUJ5lHrm16yoQQJ978uqBoUyP15P0VyvItSEmErvThgXvBMeRvDw==
+  frontmatter_digest: sha256:8f5916527cd081acfe5ed1bf909799a7c1fd90b636dca12a265ae5a40684d33d
+  log: .bboxy/log/2026-11-01.jsonl#9077
+  sig: dkroOGThj37cWdisIYl1Thg9XTkc4DMUbD0eUZZhTngY4aYaq5vLAcjvQP3d3zzz0cGXoBCPULMl1fmF2/7ICQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/cancel_process.rs
 type: artifact
-updated: 2026-11-01T04:31:21.282Z
+updated: 2026-11-01T05:33:29.230Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

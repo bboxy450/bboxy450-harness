@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6AMBPG3XD3CMJWHQCKWAG7M
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 8510
+bytes: null
 claimed: false
 created: 2026-11-01T04:54:00.904Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:173b2fa4a0ca4efe81f3909ec6090250662b87ed276967881fed182c128e8c73
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -101,22 +100,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793509186923'
+- before_digest: sha256:173b2fa4a0ca4efe81f3909ec6090250662b87ed276967881fed182c128e8c73
+  commit: null
+  digest: null
+  event_hash: b4fa9d0f6750c091949f518187610f3ccab248681f5fc473712e877c82df85a5
+  generation: null
+  grade: inferred
+  id: 01M6AV664C426R80GYGJFQG07F
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/e3-make-test-current.log
+  seat: null
+  sequence: '9978'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793512871103'
 id: 01M6AQA5E653MJCARRCCC9NKFJ
 kind: file
-last_observation_sequence: '7980'
+last_observation_sequence: '9978'
 number: 1447
 observation_reason: null
 observed: true
-produced_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:1501812d03b677e0caaa28862c0947f681e5ec1fcdb5c031e9af832286cde422
-  log: .bboxy/log/2026-11-01.jsonl#7981
-  sig: Es2naaSddYU5vMaWlswjIdIGkdx9BJkRRGeGzqebn+V0T+BqzrPFlqaMJsg6hjyrkhIEp39JkEEMcmjf5JO6Cw==
+  frontmatter_digest: sha256:d15c50bf5c310d9488e560cccc5681f82c28037f2c43c121f8821b353ab8aaeb
+  log: .bboxy/log/2026-11-01.jsonl#9979
+  sig: +ldcIGX3jtzoSZxiTVEzOaOzLvmFLCu1ov2y0lOadkv7riBsop101TAgfCcucCYozDzJWIjfxaGRzR/W4QvzDg==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/e3-make-test-current.log
 type: artifact
-updated: 2026-11-01T04:59:47.116Z
+updated: 2026-11-01T06:01:44.845Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

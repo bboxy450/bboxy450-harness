@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 1084
+bytes: null
 claimed: false
 created: 2026-11-01T03:59:28.336Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:c7fcfc6d8920fbe1ef6f9c950a29a9300d4eebe3ca757a3f7841fd2a10aa1c02
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -36,22 +36,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793505552677'
+- before_digest: sha256:c7fcfc6d8920fbe1ef6f9c950a29a9300d4eebe3ca757a3f7841fd2a10aa1c02
+  commit: null
+  digest: null
+  event_hash: be639e4a9f8ac34e9ce9e08cadaca685170bab274c51c81da9d5ca421057173e
+  generation: null
+  grade: inferred
+  id: 01M6AV5FB3RHVNAGZBY4Y1NY7A
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: src/runtime.rs
+  seat: null
+  sequence: '9843'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793512796052'
 id: 01M6AM69JEG4BAJNW72D08VN6V
 kind: file
-last_observation_sequence: '4722'
+last_observation_sequence: '9843'
 number: 1052
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:d53d3782322a7c4e64721358beede9455ebd7a9cdb03059684052a0f4ca4a356
-  log: .bboxy/log/2026-11-01.jsonl#4723
-  sig: 6s6IBrxdW2/nSaT1JrptE5jQKdahclI56EXAWZXhybdGdl2Cqh5qhpmQctlKcof8O+4Cx5zNPeC1SZNP7ULZDA==
+  frontmatter_digest: sha256:c537b45bea43385cba2136f747f9bbf3425e7bae7502cb164001173a7f5bbb43
+  log: .bboxy/log/2026-11-01.jsonl#9844
+  sig: XjFJ0whwMzHiAy7dUEJ/YW1gq4kjZxJ9egK0bGIm2SO4HWIrO43WvFGP2pC+C2U/DHU0E6UtYk7yBjigrLolDw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: src/runtime.rs
 type: artifact
-updated: 2026-11-01T03:59:28.336Z
+updated: 2026-11-01T06:01:21.508Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

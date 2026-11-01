@@ -1,8 +1,7 @@
 ---
 aliases: []
-attribution_candidates:
-- 01M6AC3D2ECK4W3F8495PAQTS3
-attribution_reason: null
+attribution_candidates: []
+attribution_reason: no-active-seat
 authorship:
   custody: dev custody
   device_id: 01M6490ZTZMBBC0EPWJVH83796
@@ -10,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 21792
+bytes: null
 claimed: false
 created: 2026-11-01T04:01:49.996Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:fbb16f71a1a9222390c0fd6967eb5dc9c35ecb1d2faa86c124ad1244cd601881
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -101,22 +100,118 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793510616355'
+- before_digest: sha256:fbb16f71a1a9222390c0fd6967eb5dc9c35ecb1d2faa86c124ad1244cd601881
+  commit: null
+  digest: sha256:c2254f2b423f0e4e6c070f2bf1960aed4fe85071f70e602bac7f383f73f280a9
+  event_hash: cc532ae9c5e44c70eb660dbb866c2c8a492e6a4ef3456f0c4dce3b7effd43c0f
+  generation: null
+  grade: inferred
+  id: 01M6AT530A42XJPAC43XFHVC2C
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/tasks/2026-10-31-harness-core-hardening.md
+  seat: null
+  sequence: '9293'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793511803485'
+- before_digest: sha256:c2254f2b423f0e4e6c070f2bf1960aed4fe85071f70e602bac7f383f73f280a9
+  commit: null
+  digest: sha256:e4e267d618cf862803fe2a63353b28cf0cd91d3c1db40093bb99eae5dcfa3366
+  event_hash: b4600bf508580ecc58aec7f725dff3d14a2e52f9a9033d058c194d25803f9e0c
+  generation: null
+  grade: inferred
+  id: 01M6AT5F6DXV5NMDF16TRAPQ6K
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/tasks/2026-10-31-harness-core-hardening.md
+  seat: null
+  sequence: '9301'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793511832371'
+- before_digest: sha256:e4e267d618cf862803fe2a63353b28cf0cd91d3c1db40093bb99eae5dcfa3366
+  commit: null
+  digest: sha256:5860f3f43f72158b5eb160b868fc731baa10e6999c7de3e0c3ed86529fe2031a
+  event_hash: 6c977ecbc380c6bec132e674f22cedda07ccb400ed8cc78ab9843b2dd706f83a
+  generation: '1'
+  grade: inferred
+  id: 01M6AT933SAQ367R9278C92TAK
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/tasks/2026-10-31-harness-core-hardening.md
+  seat: 01M6AC3D2ECK4W3F8495PAQTS3
+  sequence: '9318'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793511951217'
+- before_digest: sha256:5860f3f43f72158b5eb160b868fc731baa10e6999c7de3e0c3ed86529fe2031a
+  commit: null
+  digest: sha256:707a3d516d54ae765ca583e4ce08ae437cfb630f1132ca874060088e78ef2937
+  event_hash: 516bba8f5e4453a246f934b936124ef8066ca1482e68a47846ead2ee0fb5a5f9
+  generation: null
+  grade: inferred
+  id: 01M6ATY7BWKVMAVD58F3514GGS
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/tasks/2026-10-31-harness-core-hardening.md
+  seat: null
+  sequence: '9479'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793512619087'
+- before_digest: sha256:707a3d516d54ae765ca583e4ce08ae437cfb630f1132ca874060088e78ef2937
+  commit: null
+  digest: sha256:8f07fec772298857c0ea981f326df7b4dd0b820f59bc454634dfbc7442b4affe
+  event_hash: a88302e109888ead452234c7691a8a2fb78087003cac9b7188b05c4d5293b314
+  generation: null
+  grade: inferred
+  id: 01M6ATYC7TMVEJEQ3ZHWN0PE1Q
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: .bboxy/tasks/2026-10-31-harness-core-hardening.md
+  seat: null
+  sequence: '9487'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793512648763'
+- before_digest: sha256:8f07fec772298857c0ea981f326df7b4dd0b820f59bc454634dfbc7442b4affe
+  commit: null
+  digest: null
+  event_hash: 38baa925362a750f14a13108006a69a9ed73512bf57ebefb00d197d33a8a85ca
+  generation: null
+  grade: inferred
+  id: 01M6AV4C8G6DYMHZD00HQCWP57
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: .bboxy/tasks/2026-10-31-harness-core-hardening.md
+  seat: null
+  sequence: '9508'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793512796014'
 id: 01M6AMAKXBX7P09EFWR3H0YDQ1
 kind: markdown
-last_observation_sequence: '8581'
+last_observation_sequence: '9508'
 number: 1118
 observation_reason: null
 observed: true
-produced_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
+produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:134cef21121c3ad9a4dc0397b5eb4efa192f6638fea916ef20e3d7176061548b
-  log: .bboxy/log/2026-11-01.jsonl#8582
-  sig: 3W0YRiiC4ETbcmZb9bblxQ5iteNKjdrnxOWnimakudluDqqWnWvcxfQLh9JIocW5nQzzo4UoeNEXgGias9U7Dg==
+  frontmatter_digest: sha256:977a075676bc4b5526e2d28300b44b7526060e6214215c6df59040979409c2f5
+  log: .bboxy/log/2026-11-01.jsonl#9509
+  sig: ggLsvPakpnpIlq1j+1Tq24AaWxRs/sQ3maO29op4aeZW7HT7RqVDUg3BIH04vn/xmuHYK6K/HZXYzxqdKK+nCg==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: .bboxy/tasks/2026-10-31-harness-core-hardening.md
 type: artifact
-updated: 2026-11-01T05:23:36.657Z
+updated: 2026-11-01T06:00:45.593Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact
