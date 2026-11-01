@@ -4,7 +4,6 @@ authorship:
   process_generation: '1'
   public_key: P3GP9IyoirOSFR2nldtE6AwDCz5KotZs5p5M1iD6OLQ=
   signer: seat:01M6AC7H87H9S94Y1D45PSQVH6
-created: 2026-11-01T06:14:16.145Z
 created_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 id: 01M6AVX3PM1GNYFG7D52X7KMYS
 links:
@@ -22,15 +21,15 @@ links:
   to: '[[never-block]]'
 number: 1988
 provenance:
-  digest: sha256:434bfb10a0caca1b06201b4465c3681667800f174d8958c8036fcc14cdc26976
-  frontmatter_digest: sha256:f8c67977fb8b5fb2ad85fbdecb90ab3727b7c41fb4990958fed00646bee5ff55
-  log: .bboxy/log/2026-11-01.jsonl#11419
-  sig: ApDzvum2YBAmeqNTVRPqQkVQejTXIkXN1LyvboMcmZp/k19n7jezfsm0pNIyc9OWVWGY5XqFWy3qEeD6F7ReDw==
+  digest: sha256:6200ad9197598f78144a820ee024814f9dd6492b6f443adf53492a52c2a39a61
+  frontmatter_digest: sha256:7b266392e31b25c6401f9133167f19cf1acb070dd39a1691d5ce321619e14299
+  log: .bboxy/log/2026-11-01.jsonl#12514
+  sig: X+aqJpfox2ywSCK69Nc4ufqsi9SbfoFHR4EyutJSoUktLET3grumZLLlqJc50vbFy9TvTxbrqh+bOOOpLSuxBw==
   signer: seat:01M6AC7H87H9S94Y1D45PSQVH6
 status: baselined
 title: 'ICD: MCP client — session-lived servers, registry, policy, degradation (v0.1)'
 type: interface
-updated: 2026-11-01T06:14:16.145Z
+updated: 2026-11-01T06:31:02.901Z
 updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 ---
 # ICD: MCP client
