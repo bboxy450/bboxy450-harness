@@ -122,3 +122,10 @@ frontend="project"
 name="BrokenHarnessProfileLoad"
 expected="safety"
 frontend="project"
+
+[[model]]
+name="HarnessForkMaterialize"
+expected="pass"
+[[model]]
+name="BrokenHarnessForkMaterialize"
+expected="safety"

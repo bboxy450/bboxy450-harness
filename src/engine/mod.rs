@@ -131,7 +131,7 @@ impl SessionActor {
         {
             config.meta = meta.clone();
         }
-        if store.events.len() == 1 {
+        if store.fresh {
             if let Some(message) = &config.profile_error {
                 let item = ItemId::new();
                 store
@@ -311,6 +311,8 @@ impl SessionActor {
         let cancel = CancellationToken::new();
         let (steer, rx) = mpsc::channel(64);
         self.publish(Event::TurnStarted { turn }, None).await?;
+        let (messages, stable_prefix) =
+            crate::context::replay(&self.store.events, &self.store.blobs).await?;
         let ctx = turn_loop::Context {
             turn,
             generation,
@@ -318,7 +320,8 @@ impl SessionActor {
             cancel: cancel.clone(),
             provider: self.config.provider.clone(),
             model: self.config.model.clone(),
-            messages: history::to_wire(&self.store.events),
+            messages,
+            stable_prefix,
             tools: self.tools.clone(),
             cwd: self.config.meta.cwd.clone(),
             blobs: self.store.blobs.clone(),
@@ -673,12 +676,39 @@ impl SessionActor {
         Ok(())
     }
     async fn compact(&mut self, id: OpId) -> std::io::Result<()> {
-        let wire = history::to_wire(&self.store.events);
-        if wire.is_empty() {
+        let latest = crate::context::latest(&self.store.events);
+        let r0 = latest.map(|(_, r)| r).unwrap_or(Seq(0));
+        let r = self.store.events.iter().rev().find_map(|e| {
+            matches!(e.event, Event::TurnEnded { .. })
+                .then_some(e.seq)
+                .flatten()
+        });
+        let Some(replaced_through) = r.filter(|r| *r > r0) else {
             return self.reject(id, Rejection::NothingToCompact).await;
-        }
+        };
+        let prev = if let Some((blob, _)) = latest {
+            Some(
+                String::from_utf8(self.store.blobs.get(blob).await?)
+                    .map_err(std::io::Error::other)?,
+            )
+        } else {
+            None
+        };
+        let window = self
+            .store
+            .events
+            .iter()
+            .filter(|e| e.seq.is_some_and(|s| s > r0 && s <= replaced_through))
+            .cloned()
+            .collect::<Vec<_>>();
+        let digest = crate::runtime::blocking(move || {
+            Ok::<_, std::io::Error>(crate::context::compact::compact_summary(
+                prev.as_deref(),
+                &window,
+            ))
+        })
+        .await?;
         let item = ItemId::new();
-        let replaced_through = self.store.head();
         self.publish(
             Event::ItemStarted {
                 turn: None,
@@ -692,7 +722,7 @@ impl SessionActor {
         let summary = self
             .store
             .blobs
-            .put(serde_json::to_vec(&wire)?, "application/json")
+            .put(digest.into_bytes(), "text/markdown")
             .await?;
         self.publish(
             Event::ItemCompleted {

@@ -36,6 +36,11 @@ InProc admission; a UnixClient awaits the server's correlated response.
 gateway or binding the session socket. Idle subscriptions get a 15-second
 heartbeat. Seat text streams as snapshots arrive and prints each prefix once.
 
+`Compact` writes a deterministic, capped Markdown digest without inference;
+subsequent requests replace the old prefix with that stored summary. Forks
+materialize a quiescent parent prefix and its blobs before publishing the child
+log, so deleting the parent does not break the child. Neither rewrites history.
+
 `make test` creates a private HOME and runs fmt, strict clippy, unit/process/e2e
 checks, formal verification, a credential-shape scan and source-header checks.
 Inference is mocked. Java TLC is a pinned development reference, downloaded

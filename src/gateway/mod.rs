@@ -33,6 +33,7 @@ pub enum Refused {
     Version { server: Version },
     Closed,
     SessionExists,
+    BadFork,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Subscribe {
@@ -204,7 +205,7 @@ pub(crate) struct Hub {
     state: ArcSwap<Projection>,
     subs: ArcSwap<Vec<Weak<Subscriber>>>,
     pub redactor: Set,
-    pending: std::sync::Mutex<BTreeMap<ItemId, Instant>>,
+    pending: std::sync::Mutex<BTreeMap<ItemId, (Instant, Vec<Delta>)>>,
 }
 impl Hub {
     pub fn new(meta: SessionMeta, epoch: Epoch, events: &[Envelope], redactor: Set) -> Self {
@@ -264,20 +265,22 @@ impl Hub {
     }
     pub fn publish(&self, e: Envelope) {
         let e = self.redactor.sanitize(&e).expect("envelope sanitizes");
+        let mut pending = self.pending.lock().unwrap();
+        if let Event::ItemDelta { item, delta } = &e.event {
+            pending
+                .entry(*item)
+                .or_insert_with(|| (Instant::now(), vec![]))
+                .1
+                .push(delta.clone());
+            return;
+        }
         let mut state = (**self.state.load()).clone();
         Self::reduce(&mut state, &e);
         self.state.store(Arc::new(state));
-        if let Event::ItemDelta { item, .. } = e.event {
-            self.pending
-                .lock()
-                .unwrap()
-                .entry(item)
-                .or_insert_with(Instant::now);
-            return;
-        }
         if let Event::ItemCompleted { item, .. } = e.event {
-            self.pending.lock().unwrap().remove(&item);
+            pending.remove(&item);
         }
+        drop(pending);
         for sub in self.subs.load().iter().filter_map(Weak::upgrade) {
             if e.seq.is_some() || sub.ephemeral {
                 sub.push(e.clone());
@@ -285,17 +288,23 @@ impl Hub {
         }
     }
     pub fn flush_deltas(&self) {
-        let ready = self
-            .pending
-            .lock()
-            .unwrap()
+        let mut pending = self.pending.lock().unwrap();
+        let ready = pending
             .iter()
-            .filter_map(|(i, at)| (at.elapsed() >= Duration::from_millis(50)).then_some(*i))
+            .filter_map(|(i, (at, _))| (at.elapsed() >= Duration::from_millis(50)).then_some(*i))
             .collect::<Vec<_>>();
-        let state = self.state.load_full();
+        if ready.is_empty() {
+            return;
+        }
+        // Copy the growing body once per coalescing interval, never per token.
+        let mut state = (**self.state.load()).clone();
+        let mut envelopes = vec![];
         for item in ready {
-            self.pending.lock().unwrap().remove(&item);
-            if let Some((_, _, body)) = state.open.get(&item) {
+            let (_, deltas) = pending.remove(&item).unwrap();
+            if let Some((_, _, body)) = state.open.get_mut(&item) {
+                for delta in deltas {
+                    body.apply(&delta);
+                }
                 let e = Envelope {
                     v: PROTOCOL,
                     session: state.hello.meta.session,
@@ -309,15 +318,20 @@ impl Hub {
                         partial: self.redactor.sanitize(body).expect("snapshot redacts"),
                     },
                 };
-                for sub in self
-                    .subs
-                    .load()
-                    .iter()
-                    .filter_map(Weak::upgrade)
-                    .filter(|s| s.ephemeral)
-                {
-                    sub.push(e.clone());
-                }
+                envelopes.push(e);
+            }
+        }
+        self.state.store(Arc::new(state));
+        drop(pending);
+        for e in envelopes {
+            for sub in self
+                .subs
+                .load()
+                .iter()
+                .filter_map(Weak::upgrade)
+                .filter(|s| s.ephemeral)
+            {
+                sub.push(e.clone());
             }
         }
     }
@@ -336,7 +350,16 @@ impl Hub {
         }
     }
     pub fn projection(&self) -> Arc<Projection> {
-        self.state.load_full()
+        let pending = self.pending.lock().unwrap();
+        let mut state = (**self.state.load()).clone();
+        for (item, (_, deltas)) in pending.iter() {
+            if let Some((_, _, body)) = state.open.get_mut(item) {
+                for delta in deltas {
+                    body.apply(delta);
+                }
+            }
+        }
+        Arc::new(state)
     }
 }
 #[derive(Clone)]
@@ -477,7 +500,7 @@ impl Gateway for InProc {
         });
         // Registration precedes the atomic projection read. Live seqs at/below this
         // captured head are filtered at receive, joining replay and live exactly once.
-        let state = self.hub.state.load_full();
+        let state = self.hub.projection();
         let after = req.after.map(|(_, s)| s).unwrap_or(Seq(0));
         let hello = state.hello.clone();
         let mut replay = VecDeque::new();

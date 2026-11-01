@@ -56,6 +56,7 @@ pub(crate) struct Context {
     pub provider: Arc<dyn Provider>,
     pub model: String,
     pub messages: Vec<WireMessage>,
+    pub stable_prefix: usize,
     pub tools: Registry,
     pub cwd: PathBuf,
     pub blobs: Blobs,
@@ -309,7 +310,7 @@ impl TurnRunner {
                 .collect(),
             tool_choice: ToolChoice::Auto,
             max_tokens: None,
-            stable_prefix: 1,
+            stable_prefix: self.ctx.stable_prefix,
         };
         let provider = self.ctx.provider.clone();
         let cancel = self.group.cancel.child_token();

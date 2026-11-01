@@ -546,6 +546,52 @@ fn profile_load(b: bool) -> Model {
     progress(&mut m, "ClosedServicesJoin", eq(1, 1), eq(0, 4), vec![3, 7]);
     m
 }
+// Materialized fork: a finite fixed prefix, with parent appends and crashes
+// before the atomic publication. Actual rename/fsync/blob bytes are API witnesses.
+fn fork_materialize(b: bool) -> Model {
+    let mut m = base::<5>(
+        "ForkMaterialize",
+        b,
+        &[
+            ("phase", 3, 0),
+            ("blobs_ready", 1, 0),
+            ("copied_at", 1, 0),
+            ("visible", 1, 0),
+            ("parent_head", 2, 1),
+        ],
+    );
+    act(&mut m, "CopyBlobs", eq(0, 0), &[(0, Int(1)), (1, Int(1))]);
+    act(
+        &mut m,
+        "WriteFixedPrefix",
+        eq(0, 1),
+        &[(0, Int(2)), (2, Int(1))],
+    );
+    act(
+        &mut m,
+        "AtomicPublish",
+        if b { eq(0, 0) } else { eq(0, 2) },
+        &[(0, Int(3)), (3, Int(1))],
+    );
+    act(
+        &mut m,
+        "CrashBeforePublish",
+        Var(0).lt(Int(3)),
+        &[(0, Int(0)), (1, Int(0)), (2, Int(0))],
+    );
+    act(
+        &mut m,
+        "ParentAppends",
+        Var(4).lt(Int(2)),
+        &[(4, Var(4).plus(Int(1)))],
+    );
+    safe(
+        &mut m,
+        "VisibleChildHasBlobsAndFixedPrefix",
+        eq(3, 0).or(all([eq(0, 3), eq(1, 1), eq(2, 1)])),
+    );
+    m
+}
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![];
     for b in [false, true] {
@@ -562,6 +608,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
             replay_healthy(b),
             stream_to_view(b),
             profile_load(b),
+            fork_materialize(b),
         ] {
             let expected = if !b {
                 "pass"

@@ -81,7 +81,15 @@ impl Host {
         config.meta.profile = profile;
         let (gateway, task) = SessionActor::load(config, op.op_id, None)
             .await
-            .map_err(|_| Refused::Closed)?;
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::AlreadyExists {
+                    Refused::SessionExists
+                } else if e.kind() == std::io::ErrorKind::InvalidInput {
+                    Refused::BadFork
+                } else {
+                    Refused::Closed
+                }
+            })?;
         state.loaded = Some(Loaded {
             gateway: gateway.clone(),
             start: op.op_id,

@@ -63,10 +63,13 @@ impl Set {
         walk(self, &mut value);
         value
     }
-    pub fn sanitize<T: serde::Serialize + serde::de::DeserializeOwned>(
+    pub fn sanitize<T: serde::Serialize + serde::de::DeserializeOwned + Clone>(
         &self,
         v: &T,
     ) -> Result<T, serde_json::Error> {
+        if self.0.read().unwrap().is_empty() {
+            return Ok(v.clone());
+        }
         serde_json::from_value(self.value(serde_json::to_value(v)?))
     }
 }

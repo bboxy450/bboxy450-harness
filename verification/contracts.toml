@@ -118,3 +118,13 @@ implementation_tests=["tests/profile_lifecycle.rs","tests/gateway_host.rs"]
 assumptions="One profile operation, three births, one held completion. Named weak fairness on joining/retiring. Filesystem scheduling and kernel process-group timing remain implementation witnesses."
 property="A stale or closed profile slot never changes session configuration; Close eventually joins it."
 checks=["make test-formal","make test"]
+
+[[contract]]
+name="HarnessForkMaterialize"
+title="Publish a complete fixed parent prefix and its blobs atomically"
+models=["HarnessForkMaterialize","BrokenHarnessForkMaterialize"]
+sources=["src/store.rs","src/store/fork.rs","tests/formal/models.rs"]
+implementation_tests=["tests/store_fork.rs"]
+assumptions="One fixed fork point, two parent heads, four materialization phases; crash may repeat forever, so no liveness claim. Actual rename, fsync, blob hashes, credentials and filesystem scheduling are implementation-only witnesses."
+property="Visible child implies its blobs and fixed parent prefix are complete, regardless of subsequent parent appends."
+checks=["make test-formal","make test"]

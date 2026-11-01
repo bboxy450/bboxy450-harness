@@ -6,6 +6,7 @@
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 use crate::{protocol::*, redact::Set, runtime::blocking};
 use sha2::{Digest, Sha256};
+mod fork;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{File, OpenOptions},
@@ -67,6 +68,7 @@ pub struct Store {
     pub events: Vec<Envelope>,
     pub blobs: Blobs,
     pub closed: bool,
+    pub(crate) fresh: bool,
     redactor: Set,
 }
 impl Store {
@@ -79,8 +81,14 @@ impl Store {
         let session = meta.session;
         let path = root.join(format!("{session}.jsonl"));
         let r = redactor.clone();
-        let (file, events) = blocking(move || -> io::Result<_> {
+        let fork_root = root.clone();
+        let fork_meta = redactor.sanitize(&meta).map_err(io::Error::other)?;
+        let (file, events, created_fork) = blocking(move || -> io::Result<_> {
             std::fs::create_dir_all(path.parent().unwrap())?;
+            let created_fork = !path.exists() && fork_meta.fork.is_some();
+            if created_fork {
+                fork::materialize(&fork_root, &path, &fork_meta, cause)?;
+            }
             let mut f = OpenOptions::new()
                 .read(true)
                 .append(true)
@@ -115,13 +123,16 @@ impl Store {
                 f.set_len(valid as u64)?;
                 f.flush()?;
             }
-            Ok((f, events))
+            Ok((f, events, created_fork))
         })
         .await?;
         let closed = events
             .last()
             .is_some_and(|e| matches!(e.event, Event::SessionClosed));
-        let epoch = if closed {
+        let fresh = events.is_empty() || created_fork;
+        let epoch = if created_fork {
+            Epoch(1)
+        } else if closed {
             events.last().unwrap().epoch
         } else {
             Epoch(
@@ -145,11 +156,12 @@ impl Store {
             events,
             blobs,
             closed,
+            fresh,
             redactor,
         };
         if store.events.is_empty() {
             store.append(Event::SessionStarted { meta }, cause).await?;
-        } else if !store.closed {
+        } else if !store.closed && !created_fork {
             store.recover().await?;
         }
         Ok(store)
