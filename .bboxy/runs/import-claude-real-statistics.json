@@ -1,0 +1,18 @@
+{
+  "elapsed_seconds": 2.321,
+  "items_by_kind": {
+    "agent_message": 348,
+    "compaction": 2,
+    "file_change": 12,
+    "image": 7,
+    "notice": 5038,
+    "reasoning": 64,
+    "subagent": 35,
+    "terminal": 376,
+    "tool_call": 732,
+    "turn_diff": 12,
+    "usage": 1481,
+    "user_message": 208
+  },
+  "unknown_count": 4698
+}

@@ -1,0 +1,173 @@
+bboxy450-harness — Claude Code import
+Task #4935 / 01M6CJ3RQK3Q9S9MJ3VH9Y365J
+.bboxy/tasks/2026-11-01-harness-import-claude.md
+Executor: E3 harness-gui / 01M6AMBPG3XD3CMJWHQCKWAG7M
+Date: 2026-11-01
+Repository: https://github.com/bboxy450/bboxy450-harness
+Worktree: /Users/feral/mydev/bboxy450-harness-capability-side-b
+Branch: import-claude
+Base: origin/main fafcc8cc78ddb75f4db3ef3b2c5a2deeb11b2f14
+Tested source: 3d0a5881837130ec55d9304c032b10dacbc6b037
+Signature grade: G
+Signer fingerprint: 9B07E849480C68328CA20684844ECC0587DE7AB0
+
+Result
+make test exited 0 unattended on the final source: all 19 core commands and
+four GUI commands passed. All 73 native/TLC variants match across one crate
+and 26 contracts. The two importer controls go 101 -> 0 at named assertions.
+The real-session CLI import and its separate check-transcript both exited 0.
+
+API and mechanism
+src/import/claude.rs:132 — convert(BufRead + Send + 'static) returns Conversion,
+a Stream<Item = Result<Envelope, ImportError>>. convert_with takes an optional
+Set, blob_root and supplied-redactor-only option; metrics() exposes structural
+counters. Configured capability/profile secrets are resolved before projection.
+Sixteen-envelope preparation batches release their worker permit before async
+delivery through the one-envelope channel. Paused consumers cannot occupy all
+preparation workers; dropping a stream releases its owned reader.
+src/import/mod.rs:10 and main.rs dispatch import claude SESSION.jsonl [-o FILE].
+Stdout is the default. -o creates a new 0600 output file and sanitized text
+sidecars under <output parent>/<session>/blobs/<digest>; it refuses overwrite.
+Canonical JSON recursively sorts objects, including under ACP preserve_order.
+time 0.3.55, already in Cargo.lock, is now a direct parsing dependency.
+
+Mapping (also the module doc table)
+| Claude Code input | Harness protocol |
+| --- | --- |
+| user text | UserMessage |
+| assistant text | AgentMessage; large text split without byte loss |
+| thinking / redacted_thinking | Reasoning / safe withheld-content Notice |
+| tool_use + tool_result | paired ToolCall; explicit failure/interruption status |
+| Bash | Terminal child with command, exit and sanitized output blob; live snapshot before completion |
+| Edit / Write / MultiEdit | FileChange + TurnDiff; recorded structuredPatch positions/context, replacement-argument fallback when absent |
+| TodoWrite | Plan entries/status/priority; large lists split into bounded items |
+| image | Image MIME/size/hash metadata; no image bytes persisted |
+| sidechain / Task / Agent | Subagent with a deterministic session identity |
+| summary / compact_boundary / isCompactSummary | Compaction, summary blob and readable summary Notice |
+| message usage | Usage with input/output/cache-read/reasoning counts when supplied |
+| request / end_turn / max_tokens / EOF | TurnQueued/Started/Ended; unfinished tool results synthesized before ending |
+| RFC3339/numeric timestamp | ts_ms; source instants retained, missing/invalid uses preceding instant or zero with invalid-value Notice |
+| unknown/malformed/oversized/truncated | explicit Notice, never raw parser diagnostics |
+
+src/import/claude/engine.rs:312,413,510,715,830 owns pending calls and source
+projection. Duplicate/orphan calls and missing results receive explicit repairs.
+A mixed result/new-request record pairs its old result before starting the new
+turn. A per-line turn discriminator keeps a first-record orphan repair distinct
+from that record's new request. IDs use stable hashes and ordinals, with no
+randomness or wall clock. Golden comparisons prove repeatability with fixed
+redaction configuration and across the default/ACP feature combinations.
+
+Bounds and readable content
+Raw lines are bounded at 1 MiB; oversized lines are drained and reported.
+Pending state is capped at 32 tools and 4 MiB of retained argument/identity data.
+The oldest pending call is explicitly closed when admission exceeds a budget.
+Tool identities are hashed, so an unusually large provider ID cannot evade the
+pending-byte budget. Structured arguments remain available for mapping even
+when their display needs continuation cards. Input/output continuations retain
+their text. Large diff display is an announced excerpt; full argument text stays
+in continuation Notices. Well-formed metadata-only blob references are emitted without a
+sidecar root; readable tool/summary text is also present in items.
+
+tests/import_claude.rs:237 measured an actual 100,000,640-byte synthetic file:
+12,136 lines; peak source line 8,240 bytes; peak emitted queue 3; delivery batch
+16; pending bytes/tools 0. An independently observed BufRead consumed 65,920
+bytes at the first delivered envelope, below the fixed batch read-ahead bound.
+The complete result also passes check_transcript. Separate 1,000-call and
+40 x 400,000-byte-argument tests exercise both count and byte admission limits,
+with complete pairing at EOF. Six paused streams prove worker-permit release
+and reader disposal. These are structural checks, without a latency percentile.
+Committed measurement: .bboxy/runs/import-claude-budget.json
+
+Privacy
+src/redact.rs:47 applies exact registered values plus OpenAI/Anthropic sk-family,
+GitHub, AWS, Slack and Google credential shapes to every source string and key.
+Matches are found on original bytes and merged, so replacement markers are not
+rescanned and overlapping/short values do not leave a suffix or expand markers.
+Capability-file checks reuse the existing validated consumer. Harness/kittens
+profiles reuse Profile::key, including !cmd/env resolution and its unattended
+key-source guard. All mapping and blob materialization follow this pass.
+Planted shapes, a configured value and a capability are absent from envelopes
+and sidecars. Opaque thinking signatures are not copied; images are metadata.
+No real-log content was committed as fixtures, goldens, screenshots or output.
+The fixture is hand-written synthetic JSONL; fake credential placeholders are
+expanded only in tests. The golden and screenshots contain synthetic data only.
+
+Real-log CLI run (statistics only)
+The newest nonempty root session JSONL by filesystem modification time was
+selected locally. Import stdout was held only in a private 0600 temporary file
+for check-transcript, then deleted with its private directory. No name, path,
+identifier, text or converted payload from that session is retained here.
+CLI exit 0; check-transcript exit 0; elapsed 2.321 seconds (measurement, no gate).
+| Item kind | Count |
+| --- | ---: |
+| AgentMessage | 348 |
+| Compaction | 2 |
+| FileChange | 12 |
+| Image | 7 |
+| Notice | 5038 |
+| Reasoning | 64 |
+| Subagent | 35 |
+| Terminal | 376 |
+| ToolCall | 732 |
+| TurnDiff | 12 |
+| Usage | 1481 |
+| UserMessage | 208 |
+Unknown count: 4698. Unsupported metadata remains labelled, rather than hidden.
+Machine-readable counts/time only: .bboxy/runs/import-claude-real-statistics.json
+
+Verification and controls
+make test -> 0; local full log target/import-make-test-final.log
+SHA256: 9b638042eaa10619061e27fe9f910b91a192f03ddddadf672b3880992d95f9a6
+Launch removed the actual seat's two capability environment names; test runners
+use private homes and credentials. No test filter/jobs override was passed to
+make. Existing canonical seat/PTY process isolation remains and runs its cases.
+.bboxy/runs/test-current.json and gui-gate.json bind the successful source above.
+Thirteen importer tests pass in both core feature suites, including canonical
+goldens, every mapped kind, error/EOF/duplicate/orphan repairs, escaped large
+payloads, recorded hunk positions, large argument paths and all 2,000 plan entries.
+The converted synthetic offscreen smoke passes: 49 visible items, 13 mapped
+kinds, readable per-kind content, geometry and actual Metal pixels. No display
+interaction, operator or model. Screenshot: .bboxy/runs/import-claude-smoke.png
+PNG SHA256: da5b61feab297058ff1c60775c15c008bdb3d47b5dd3e1f00184cb3fd27e1423
+
+scripts/test-import-controls.py is in the canonical stack. Dropping import_value
+fails ImportSecretShapesRedacted (101), restoring passes (0). Making unknown()
+panic fails ImportUnknownNeverPanics (101), restoring passes (0). Compilation
+failure/generic wrapper failure cannot count as red. Exact commands/restoration
+hashes are committed in .bboxy/runs/2026-11-01-import-claude-controls.json.
+The existing eight capability controls also pass unchanged in the full gate.
+
+Formal
+HarnessClaudeImport models redaction before projection, result/EOF pairing,
+unknown-record progress, a delivery slot and early consumer drop. It has three
+safety controls: open tool at EOF, sensitive projection, and unknown panic.
+Good: 15 states / 20 edges, TLC 0/pass. A: 15/20, B: 28/37, C: 12/17;
+all three TLC 12/expected safety; native/TLC states, edges and verdicts match.
+Nonvacuity reaches normal result, repaired EOF, unknown Notice and consumer drop.
+Full corpus: 73 variants / 26 contracts / one crate, all graph_equal=true.
+Committed summary: .bboxy/runs/2026-11-01-import-claude-formal.json
+SHA256: 49a143ef4a395644148b65c58f39b6ee4c078d805cb22758fdae66e216638189
+Full local graph archive: verification/evidence/<that digest>/ (untracked).
+Coverage explicitly leaves JSON/UTF-8, credential bytes, hashes/IDs/timestamps,
+byte limits, blobs and GUI pixels to implementation tests. Arbitrarily blocked
+caller-provided readers are outside the fair-IO assumption. No arbitrary Rust
+refinement or complete TLC replacement claim.
+
+Retained failure and follow-up verification
+The first make test exited 2 on unchanged tests/support/seat_shutdown.rs:225,
+pty_master_close_kills_owned_groups_before_escalation_and_resume_recovers:
+owned group survived supervisor escalation. Local log
+target/import-make-test-first.log, SHA256
+ab5e946253aa0cea7c21cd152f022e20e0d9295029a61ca4dc8bcb412207a323.
+The exact witness rerun exited 0 (target/import-seat-witness.log), and subsequent
+unfiltered full gates exited 0. No process/shutdown test, timeout or implementation
+was changed; no failure was waived. A successful pre-turn-fix full run is retained
+as target/import-make-test-before-turn-fix.log. The final run above includes the
+same-line turn-ID regression. No remaining failed check.
+
+Handoff
+Only authorized src/, tests/, scripts/, verification/, Cargo files and runs changed.
+All source commits are signed. The evidence-only commit changes no tested input;
+source hashes were checked against the full-gate receipt. Fresh current-head
+formal evidence, signed branch head and open PR are supplied in task_report.
+No merge or release. The separate bboxybook page is outside this assignment.

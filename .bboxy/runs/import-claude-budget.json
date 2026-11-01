@@ -1,0 +1,16 @@
+{
+  "synthetic_only": true,
+  "input_bytes": 100000640,
+  "lines": 12136,
+  "observed_first_consumed_bytes": 65920,
+  "peak_line_bytes": 8240,
+  "peak_pending_tools": 0,
+  "peak_pending_bytes": 0,
+  "peak_queued_envelopes": 3,
+  "peak_delivery_batch": 16,
+  "line_limit": 1048576,
+  "pending_tool_limit": 32,
+  "pending_byte_limit": 4194304,
+  "delivery_batch_limit": 16,
+  "wall_clock_gate": false
+}
