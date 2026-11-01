@@ -15,7 +15,7 @@ created: 2026-11-01T03:41:30.076Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:9269db2e3074f1f7e583620eb94e5a521e385a359118effaf955ee386e8b1f91
+digest: sha256:fabd9b994d422f48c491fda18978a6c5ce50126f04e31aa1fccfc4082706a8e4
 digest_grade: observed
 for: []
 grade: inferred
@@ -180,22 +180,54 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/git/ref
   ts: '1793504481070'
+- before_digest: sha256:9269db2e3074f1f7e583620eb94e5a521e385a359118effaf955ee386e8b1f91
+  commit: 732f0b6336fdce2cf0a4dd46d982db47b63964fc
+  digest: sha256:1f39188fe73a336993eec12ac4a52da7c1d07cb058bb5fd59df11389785a2e09
+  event_hash: d95360fe499149830f107dfccebc5771e95efe7966ac56fc06449ca486471082
+  generation: null
+  grade: inferred
+  id: 01M6AKE8NN2JVZPY32GQBTJGSV
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/refs/remotes/origin/HEAD
+  seat: null
+  sequence: '3576'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793504780936'
+- before_digest: sha256:1f39188fe73a336993eec12ac4a52da7c1d07cb058bb5fd59df11389785a2e09
+  commit: 71a4d95c92ec23dad98c42c8c8871330c8dd510f
+  digest: sha256:fabd9b994d422f48c491fda18978a6c5ce50126f04e31aa1fccfc4082706a8e4
+  event_hash: 31a70b3cb876e87fbf8ad137cc2333d81fb19965daf4500b5c6dbd3a96382b23
+  generation: null
+  grade: inferred
+  id: 01M6AM9PKVBPRPCJYT11CQ1ND4
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/refs/remotes/origin/HEAD
+  seat: null
+  sequence: '4928'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793505679932'
 id: 01M6AE0CQBCCP0FARTDKR636W7
 kind: other
-last_observation_sequence: '1350'
+last_observation_sequence: '4928'
 number: 435
 observation_reason: git-ref-value; authorship unverified
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:b06dcd4a61a5060dc0a56222a3515570fbde3438f778661eb93acacd7ccc94c1
-  log: .bboxy/log/2026-11-01.jsonl#3488
-  sig: 3frilng60gcPFy/aReSXXyvEvPSk+snvkzWlHp6aCL0hK1pHQQgmTbOumkNNr/+RwY9POAWpKvPwaiTTGrnlBg==
+  frontmatter_digest: sha256:eb99fabece9ccb1b02687a67bb07d425b526e025ea65fe887b24319b35905574
+  log: .bboxy/log/2026-11-01.jsonl#4929
+  sig: iMA9pYYfC2F8JIYTven4BtLyDyqq8J7YS9EXDvc83JuSrAt601Eag2cadUCTkFvxk88C+XWpMCNPWBFYXRgfAA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: git:worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/refs/remotes/origin/HEAD
 type: artifact
-updated: 2026-11-01T03:44:28.657Z
+updated: 2026-11-01T04:01:19.997Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

@@ -10,6 +10,10 @@ allowed_paths:
 - README.md
 - .bboxy/runs/
 - .bboxy/tasks/2026-10-31-harness-core.md
+artifacts:
+- '[[01M6AKVSFC8K7WNPQA8Y95Y61W]]'
+- '[[01M6AGP92W2FFTB7MJG4P7RYVV]]'
+- '[[01M6AKX0TDJW6Z6M5QQXMW3Z9Z]]'
 assignee: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 authorship:
   kind: seat
@@ -22,19 +26,38 @@ delegated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 id: 01M6ADSZHWN6SMV968JZKTPEE1
 number: 48
 provenance:
-  digest: sha256:c2e87681f557baa5e5f4428006c26e44357e51905be2e8ebe2d12bda7227dd4a
-  frontmatter_digest: sha256:acc97e61f1b06a7ec19582b007e6edf766d197af1b74ee06735f3609165deed0
-  log: .bboxy/log/2026-11-01.jsonl#209
-  sig: qlZ+5McxgOWJyn0Odww+HzIGw12jXkURMyutjr/RrJIX0QvLizKdAM4Kfq9c15pibXoqtZff/DMB6cmPCha2AA==
+  digest: sha256:47d1adccc2a9332436267a2ccc1f9ab604cc0bb7ed80cdad21891e4eb9db8d6f
+  frontmatter_digest: sha256:8413addba4a36e94001d846a8fa64801ccd7123069ed1045bddb71a7a72909bc
+  log: .bboxy/log/2026-11-01.jsonl#4940
+  sig: ZX/YdGE/UfCFFKYiTqf5ec4/SjSfNmHVOlfb61OBl+FEW6yslUjOht1hZzPOUXi0z+ft0iiTIJJ0RJ3JIuEQAQ==
   signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
+report:
+  commit: b1ccc7c4304b0fa564fc13a30984c97ab0b8eeed
+  op_id: 01M6AKX11WC90D1D1F4M97BZMJ
+  reported_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+  summary: 'E1 implemented and pushed on e1-core. [PR #1](https://github.com/bboxy450/bboxy450-harness/pull/1). [Full committed report](https://github.com/bboxy450/bboxy450-harness/blob/b1ccc7c4304b0fa564fc13a30984c97ab0b8eeed/.bboxy/runs/2026-10-31-harness-core-report.log). make test: exit 0 (56 Rust tests, 27 native/Java models); make smoke-live: exit 0, PASS with 3 requests/read 1/edit 1/laws held. Final-HEAD parity and strict receipt check: exit 0; receipt SHA256 541ce524906c6db524ea8644c463bbc58dd85fdaa108ea0f6cd78f76a833e519. Signed head verified; all tracked files clean, local untracked verification/evidence archives retained. Prior profile timeout, scope limits and all per-outcome evidence are in the report. No merge.'
 role: executor
-status: claimed
+status: accepted
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E1: bboxy450-harness core — protocol, engine, provider, tools, store, gateway, headless, formal models, live smoke'
 type: task
-updated: 2026-11-01T02:08:24.158Z
+updated: 2026-11-01T04:01:23.916Z
 updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 verify: make test
+verify_result:
+  command: make test
+  evidence:
+  - criterion: 1 Package skeleton, pinned toolkit dependencies and exact headers
+    reference: Cargo.toml:1; scripts/checks.py; .bboxy/runs/test-current.json — fmt/clippy/headers exit 0. Skeleton pushed at 364b92a.
+  - criterion: 2 Exact protocol, schema, golden fixtures and transcript laws pushed early
+    reference: src/protocol/laws.rs:23; tests/protocol_golden.rs:295; protocol.schema.json; tests/fixtures/protocol/*.jsonl; early commit e438e2e.
+  - criterion: 3 Engine, provider, tools, policy, store, gateway and frontends
+    reference: .bboxy/runs/2026-10-31-harness-core-report.log — numbered outcome 3 gives file:line mechanisms; .bboxy/runs/test-output-current.log — 56 Rust tests exit 0, including real cancellation/PTY/Unix/compaction/fork witnesses.
+  - criterion: 4 Native formal models, broken controls, pinned Java parity and fail-closed inventory
+    reference: verification/coverage.toml; verification/contracts.toml; verification/corpus.toml; verification/evidence/541ce524906c6db524ea8644c463bbc58dd85fdaa108ea0f6cd78f76a833e519/evidence.json — 27 complete state/edge/verdict comparisons, 13 broken controls; final HEAD b1ccc7c; make check-formal-evidence exit 0.
+  - criterion: 5 Bounded, redacted live smoke
+    reference: .bboxy/runs/smoke-live-2026-10-31.json — make smoke-live exit 0, outcome PASS, requests 3, read_calls 1, edit_calls 1, file_changed true, ending end_turn, check_transcript true; only !cmd source copied.
+  exit_code: 0
 ---
 # E1: bboxy450-harness core
 
@@ -105,3 +128,41 @@ The ICDs and invariants are the law. If code and an ICD disagree, the ICD wins. 
 - the branch and head commit, which must be signed
 
 Blockers that stop all work: at most 3 lines to the Oracle.
+
+
+## Report from seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+
+E1 implemented and pushed on e1-core. [PR #1](https://github.com/bboxy450/bboxy450-harness/pull/1). [Full committed report](https://github.com/bboxy450/bboxy450-harness/blob/b1ccc7c4304b0fa564fc13a30984c97ab0b8eeed/.bboxy/runs/2026-10-31-harness-core-report.log). make test: exit 0 (56 Rust tests, 27 native/Java models); make smoke-live: exit 0, PASS with 3 requests/read 1/edit 1/laws held. Final-HEAD parity and strict receipt check: exit 0; receipt SHA256 541ce524906c6db524ea8644c463bbc58dd85fdaa108ea0f6cd78f76a833e519. Signed head verified; all tracked files clean, local untracked verification/evidence archives retained. Prior profile timeout, scope limits and all per-outcome evidence are in the report. No merge.
+
+```json
+{
+  "commit": "b1ccc7c4304b0fa564fc13a30984c97ab0b8eeed",
+  "op_id": "01M6AKX11WC90D1D1F4M97BZMJ",
+  "verify_result": {
+    "command": "make test",
+    "evidence": [
+      {
+        "criterion": "1 Package skeleton, pinned toolkit dependencies and exact headers",
+        "reference": "Cargo.toml:1; scripts/checks.py; .bboxy/runs/test-current.json — fmt/clippy/headers exit 0. Skeleton pushed at 364b92a."
+      },
+      {
+        "criterion": "2 Exact protocol, schema, golden fixtures and transcript laws pushed early",
+        "reference": "src/protocol/laws.rs:23; tests/protocol_golden.rs:295; protocol.schema.json; tests/fixtures/protocol/*.jsonl; early commit e438e2e."
+      },
+      {
+        "criterion": "3 Engine, provider, tools, policy, store, gateway and frontends",
+        "reference": ".bboxy/runs/2026-10-31-harness-core-report.log — numbered outcome 3 gives file:line mechanisms; .bboxy/runs/test-output-current.log — 56 Rust tests exit 0, including real cancellation/PTY/Unix/compaction/fork witnesses."
+      },
+      {
+        "criterion": "4 Native formal models, broken controls, pinned Java parity and fail-closed inventory",
+        "reference": "verification/coverage.toml; verification/contracts.toml; verification/corpus.toml; verification/evidence/541ce524906c6db524ea8644c463bbc58dd85fdaa108ea0f6cd78f76a833e519/evidence.json — 27 complete state/edge/verdict comparisons, 13 broken controls; final HEAD b1ccc7c; make check-formal-evidence exit 0."
+      },
+      {
+        "criterion": "5 Bounded, redacted live smoke",
+        "reference": ".bboxy/runs/smoke-live-2026-10-31.json — make smoke-live exit 0, outcome PASS, requests 3, read_calls 1, edit_calls 1, file_changed true, ending end_turn, check_transcript true; only !cmd source copied."
+      }
+    ],
+    "exit_code": 0
+  }
+}
+```

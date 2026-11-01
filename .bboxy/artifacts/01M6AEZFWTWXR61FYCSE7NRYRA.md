@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 13457
+bytes: null
 claimed: false
 created: 2026-11-01T03:43:09.275Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:10b4dc8b678ab2660abdf39682f50e27b4ae8b7153e97c59319dbc8ad362f1a5
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -36,22 +36,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793500056454'
+- before_digest: sha256:10b4dc8b678ab2660abdf39682f50e27b4ae8b7153e97c59319dbc8ad362f1a5
+  commit: null
+  digest: null
+  event_hash: e6f881cc5ee8093a04900fe1eac907fce38d4911ca64cd4373f1bfd846c17b30
+  generation: null
+  grade: inferred
+  id: 01M6AM3PFAJZYSNQJC4D7V4R45
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bboxybook/src/main.rs
+  seat: null
+  sequence: '3869'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793505472036'
 id: 01M6AEZFWTWXR61FYCSE7NRYRA
 kind: file
-last_observation_sequence: '882'
+last_observation_sequence: '3869'
 number: 723
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:c9d01fc1032927b34ae83de4095184c4a3598cb435090676cca5b65e9c15aef3
-  log: .bboxy/log/2026-11-01.jsonl#2637
-  sig: lAicJZvYn7YrLDXejQFwsHmiffgzB4x6YLsqcmYwm+GyKKFYBQbDNYXOsUpt7kadk8hylsl6QvCdfmUKIUvmCg==
+  frontmatter_digest: sha256:8139cd78607ac5144c5316be5fae068a11b12bd9bab246aefd87c34be26f7437
+  log: .bboxy/log/2026-11-01.jsonl#3870
+  sig: 2oZD+IS3Xvq/+vpJW/q17p0u1OoFqeCJp+4cH5JD81Rzw6v9sDtaiOrbyGqalUepg2sPxpYt3SlHdsOaZQ8FBQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bboxybook/src/main.rs
 type: artifact
-updated: 2026-11-01T03:43:09.275Z
+updated: 2026-11-01T03:58:03.243Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 8552
+bytes: null
 claimed: false
 created: 2026-11-01T03:43:01.090Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:a88ca2617f964cf76bd6112e0a0c194b2eefe2bf5ac91c062c7321b1c38c4ce9
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -36,22 +36,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793500056413'
+- before_digest: sha256:a88ca2617f964cf76bd6112e0a0c194b2eefe2bf5ac91c062c7321b1c38c4ce9
+  commit: null
+  digest: null
+  event_hash: f1bf4db976543060a1d79c3779c483246503eb8474536ed4b751fdbd7e4427e3
+  generation: null
+  grade: inferred
+  id: 01M6AM3GJB3PBY3YDMVB4R0PZ9
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bboxy450-desktop-notifications-windows/ATTRIBUTION.md
+  seat: null
+  sequence: '3791'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793505472032'
 id: 01M6AEZ45TKSWXZN4SRM2ZJE1X
 kind: markdown
-last_observation_sequence: '836'
+last_observation_sequence: '3791'
 number: 704
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:5fbdfc25fde9b1ac00dca5582a766588c434295e11a4c5f4c67967767f3024e2
-  log: .bboxy/log/2026-11-01.jsonl#2545
-  sig: GIz3P9va64U2ijD3rGgXLdiFhNhfg0Af57wNrj0u9oBaaLifY7ey9XfcP8f0wSWjsFL0qip85tXfsw1fUUGxDg==
+  frontmatter_digest: sha256:a84697da5cc4c10e99b6c1af0b10ad7413f6aebee2164ca125ff5f06627b735e
+  log: .bboxy/log/2026-11-01.jsonl#3792
+  sig: AKbsDSZp31hDz7i4Qtms1FnwUhbkTl7YHWccc/zXaL9nfiMhbQC/D70S6dq9uobUoDmc+oHYlxlgFJnKBpopCg==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bboxy450-desktop-notifications-windows/ATTRIBUTION.md
 type: artifact
-updated: 2026-11-01T03:43:01.090Z
+updated: 2026-11-01T03:57:57.197Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

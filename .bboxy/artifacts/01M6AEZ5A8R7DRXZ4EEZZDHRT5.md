@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 8552
+bytes: null
 claimed: false
 created: 2026-11-01T03:43:02.336Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:a88ca2617f964cf76bd6112e0a0c194b2eefe2bf5ac91c062c7321b1c38c4ce9
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -36,22 +36,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793500056451'
+- before_digest: sha256:a88ca2617f964cf76bd6112e0a0c194b2eefe2bf5ac91c062c7321b1c38c4ce9
+  commit: null
+  digest: null
+  event_hash: 543cb0acec7611b9fcb446dd04ffac83cbe3ccd4fb1ae157284b1c351ac9ff6c
+  generation: null
+  grade: inferred
+  id: 01M6AM3JTTYBQXBWBHKC0XAMTV
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bboxy450-term-desktop/ATTRIBUTION.md
+  seat: null
+  sequence: '3824'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793505472033'
 id: 01M6AEZ5A8R7DRXZ4EEZZDHRT5
 kind: markdown
-last_observation_sequence: '843'
+last_observation_sequence: '3824'
 number: 707
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:6224ed4f4076c83a57e00914de695e41dc841a2a157e3771105a20af8a7b4103
-  log: .bboxy/log/2026-11-01.jsonl#2559
-  sig: jbj863NmABG9gNupLBBdFHsrVnCuhTr+yCPzZVdhvMHdJ+E1b3SKiVtE9KQXDp08ZMWdhEIAjB2fZC0nY4ePAQ==
+  frontmatter_digest: sha256:ce2c3fafe8b7c0caeb91bc51e21f6de35c30193d4de1ff06fb8e302188681be2
+  log: .bboxy/log/2026-11-01.jsonl#3825
+  sig: GA8oZ56031JoTI6P1yfXl1aipPJHJ2dSsPzzyxYZ+uWiDigb/Rdn7HKiPHIyle2mg8uElRnQezfK+vP+8XpgDA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bboxy450-term-desktop/ATTRIBUTION.md
 type: artifact
-updated: 2026-11-01T03:43:02.336Z
+updated: 2026-11-01T03:57:59.514Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 8526
+bytes: null
 claimed: false
 created: 2026-11-01T03:42:59.708Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:50719fb676206f22f6820264b40e70adc4533f2e1c84899babd36ffbccd81192
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -36,22 +36,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793500056392'
+- before_digest: sha256:50719fb676206f22f6820264b40e70adc4533f2e1c84899babd36ffbccd81192
+  commit: null
+  digest: null
+  event_hash: 742613508ddf01f86c44acb0da79b02c2df2781e382c102a880bc41ff5ebdf09
+  generation: null
+  grade: inferred
+  id: 01M6AM47TMNS8323GK87N9YJAE
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/verification/corpus.toml
+  seat: null
+  sequence: '4097'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793505472048'
 id: 01M6AEZ24FNCDFGDN4YHVRTQHP
 kind: file
-last_observation_sequence: '828'
+last_observation_sequence: '4097'
 number: 702
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:342325ef883150ebc092de678510694574a921ce0ad4cd878cd6921b285331ed
-  log: .bboxy/log/2026-11-01.jsonl#2529
-  sig: JGbK0Jk6NTB5OkNFCLR0dJei40ouXQuAFR/6aJHwtbKwBiuDif5qQv6YMrvUCVAmtTnQZhz9+9FVjwtVBjxgBw==
+  frontmatter_digest: sha256:9778c589a775c09d48ffa8cceed58008360b1a165408d2e36daf4e40b5e7c014
+  log: .bboxy/log/2026-11-01.jsonl#4098
+  sig: Vr0LAb/iBpYskyeSAi4sXUUQSMlTuoTDZUseCEtjGb1uk+euCNez8tz7mnWic2fqkH2TnKJzvpprVVEJJMjKBw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/verification/corpus.toml
 type: artifact
-updated: 2026-11-01T03:42:59.708Z
+updated: 2026-11-01T03:58:21.019Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

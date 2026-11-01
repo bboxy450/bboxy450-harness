@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 20149
+bytes: null
 claimed: false
 created: 2026-11-01T03:43:06.428Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:c5fccfbbf8d5a7ec1e8accb5c0758bd5215694f9b8bfbad533a00bbebe791913
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -36,22 +36,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793500056460'
+- before_digest: sha256:c5fccfbbf8d5a7ec1e8accb5c0758bd5215694f9b8bfbad533a00bbebe791913
+  commit: null
+  digest: null
+  event_hash: a18da8c9d42e22b78c7ceab986d1c96f7c0d91b6d968fb27d053621430a45d85
+  generation: null
+  grade: inferred
+  id: 01M6AM45WPY6KGH0XDNYR3MSG8
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bbt-ui/README.md
+  seat: null
+  sequence: '4070'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793505472047'
 id: 01M6AEZA415BQ7QS0G0PEM01XB
 kind: markdown
-last_observation_sequence: '866'
+last_observation_sequence: '4070'
 number: 712
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:099dba9cf6fdeef2cbcd658cd9161eb049c940ad91d6345c5237355e86723e11
-  log: .bboxy/log/2026-11-01.jsonl#2605
-  sig: 4wWyyTAMeZ9AO4QGHolAzxZGnqOHjbi7wUXzT5XvjW0HTD+lrmfrBNBg0FrNtG6L36wdoirh/BBYunyDCR7YAw==
+  frontmatter_digest: sha256:422264fdb9b36b2c25fa51c5d93c1e06141a5945c2c2cd98dc44183b33d3f42a
+  log: .bboxy/log/2026-11-01.jsonl#4071
+  sig: RJfYWvvWzGpopfFQadyAEbWvZmjrVbp7dheXfNdFerrLHbkH1ddZxhEqnqNIEwx8/Lj+UO6Fr1fJkwa4WHMKDQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bbt-ui/README.md
 type: artifact
-updated: 2026-11-01T03:43:06.428Z
+updated: 2026-11-01T03:58:19.031Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact
