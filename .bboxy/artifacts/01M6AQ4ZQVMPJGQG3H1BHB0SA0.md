@@ -15,7 +15,7 @@ created: 2026-11-01T04:51:11.229Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:eadb1ce72bc0f236ed2bb0c9007001d53bae947c7326c34c067ca253e07c8eac
+digest: sha256:b71f6575502968e7d2b4fc0f5eb0a660e7c156a123be0d8ec7d53d5e2aa4f7db
 digest_grade: observed
 for: []
 grade: inferred
@@ -100,22 +100,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/git/ref
   ts: '1793511447109'
+- before_digest: sha256:eadb1ce72bc0f236ed2bb0c9007001d53bae947c7326c34c067ca253e07c8eac
+  commit: d89094ceed177f0bfedb126c9a29f9ed3aca02dc
+  digest: sha256:b71f6575502968e7d2b4fc0f5eb0a660e7c156a123be0d8ec7d53d5e2aa4f7db
+  event_hash: bb8f0811d908790165b62433c163589dd73d55b4d432eb8c633153fe5172e932
+  generation: null
+  grade: inferred
+  id: 01M6AVXENS3KFYXNFW118NNKE5
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:refs/remotes/origin/e3-gui
+  seat: null
+  sequence: '11428'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793513667196'
 id: 01M6AQ4ZQVMPJGQG3H1BHB0SA0
 kind: other
-last_observation_sequence: '9214'
+last_observation_sequence: '11428'
 number: 1443
 observation_reason: git-ref-value; authorship unverified
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:48d95f056478741cff50c2a485d977eca6c35635ee587dab861cd6a9e1db9104
-  log: .bboxy/log/2026-11-01.jsonl#9215
-  sig: TSF+jV+A8poWXxWB8u7PRi0nSDmZWnWHccutOhZVLdp/lpfN9hT2Z+Qfd0XgbRNED7x4//livUr+Ky5idlBvBw==
+  frontmatter_digest: sha256:8e9f117d7dcdaa110bad540d4ed200ae148393517461d269692dbbb6b22df443
+  log: .bboxy/log/2026-11-01.jsonl#11429
+  sig: isdJOJi1aqu5lwxaJ2o3knJ9bKQxTbbj+LvrrAwxNtHZmn4EhfTXRToMfu9Ekm+pkQpjlbfm9Lul1K4zL4ZVBQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: git:refs/remotes/origin/e3-gui
 type: artifact
-updated: 2026-11-01T05:37:27.156Z
+updated: 2026-11-01T06:14:27.259Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact
