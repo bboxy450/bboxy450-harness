@@ -61,3 +61,15 @@ No assigned gap. The tests cover the specified environment-reference channels,
 not arbitrary intentional disclosure by trusted launcher code. No real
 credential bytes are in these logs. Final record commit changes evidence only;
 signed final SHA and current-head formal receipt are in task_report / PR.
+
+Integrated-main refresh
+Main advanced to 1b1d39e (merged E3d GUI PR #10). Rebased onto it, resolving
+only the coverage inventory by retaining E3d's row and the new MCP row.
+Exactly make test ran again, no env prefix, exit 0 on signed source
+e2890a1b41715b8c0c4387e5286c1c5501a2ae5b. All 11 canonical layers, 64 native/TLC
+models, and the updated GUI structural smoke (22 cards, 8 disclosures) pass.
+post-rebase-test-current.json and post-rebase-gui-gate.json give every status and
+134 input hashes. post-rebase-console.log is a console capture; one tool chunk
+was truncated, so the structured gate records are the authoritative layer list.
+All functional source/control changes are identical across this rebase; only
+E3d GUI inputs and the combined coverage inventory changed.

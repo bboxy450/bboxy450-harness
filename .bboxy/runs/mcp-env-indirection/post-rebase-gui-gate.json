@@ -1,0 +1,63 @@
+{
+  "source": "e2890a1b41715b8c0c4387e5286c1c5501a2ae5b",
+  "private_home": true,
+  "operator_input": false,
+  "commands": [
+    {
+      "command": [
+        "python3",
+        "-I",
+        "tests/gui_dependencies.py"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--all-features",
+        "--lib",
+        "--bin",
+        "bboxy450-harness",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--features",
+        "standalone",
+        "--test",
+        "gui_rich",
+        "--test",
+        "gui_render",
+        "--test",
+        "gui_bridge",
+        "--test",
+        "gui_fixtures",
+        "--test",
+        "gui_budget",
+        "--test",
+        "gui_cli",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "make",
+        "test-gui-smoke"
+      ],
+      "exit_code": 0
+    }
+  ]
+}
