@@ -54,6 +54,8 @@ updated: "2026-10-31T00:00:00Z"
 | R17 | Formal: every model passes, every broken control is rejected, native = Java TLC | `make test-formal-native` (in `cargo test`), `make test-formal` (Java parity), `make check-formal-evidence` | `make test` |
 | R18 | Live provider works | `make smoke-live`: one turn with one `read` tool call against the profile's model. **PASS** needs `TurnEnded{EndTurn}`, a paired tool call and `check_transcript` OK. A missing or timed-out key prints **SKIP**; 429 past the 90 s deadline prints **UNAVAILABLE** | manual and night, **not** `make test` |
 | R19 | No test needs the operator | the harness `make test` runs with `HOME=$(mktemp -d)`, no network (the scripted provider), no Keychain | `make test` |
+| R20 | Compaction is deterministic and the model never sees replaced items | `tests/context_compact.rs` ([[protocol]] §4b); implementation-only coverage (a pure function), named in `verification/coverage.toml` | `make test` |
+| R21 | A fork is a self-contained log identical to the parent prefix | `tests/store_fork.rs` ([[protocol]] §4c); implementation-only coverage (single-writer atomic create over an append-only prefix), named in `verification/coverage.toml` | `make test` |
 
 ## Formal models
 
