@@ -31,6 +31,9 @@ async fn run() {
         #[allow(clippy::zombie_processes)]
         let child = std::process::Command::new(std::env::current_exe().unwrap())
             .arg("stubborn_member")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .spawn()
             .unwrap();
         let path = std::env::var("MCP_GROUP").unwrap();

@@ -7,7 +7,7 @@
 //! Stable ACP v1 JSONL dispatcher; prompt responses never hold the reader.
 use crate::{
     engine::{Config, task_group::TaskGroup},
-    gateway::{Gateway, Host, InProc, Subscribe, TryRecv},
+    gateway::{Gateway, Host, InProc, Subscribe, Subscription, TryRecv},
     protocol::*,
     provider::profile::Unattended,
     store::Blobs,
@@ -58,6 +58,40 @@ struct Face {
     cancel: CancellationToken,
     next: AtomicU64,
     unknown: AtomicU64,
+}
+fn admission_events(
+    mut sub: Subscription,
+) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = Envelope> + Send>> {
+    Box::pin(async_stream::stream! {while let Some(event)=sub.recv().await {yield event;}})
+}
+async fn await_prompt_admission(
+    gateway: &InProc,
+    op_id: OpId,
+    mut events: std::pin::Pin<Box<dyn futures_core::Stream<Item = Envelope> + Send>>,
+    cancel: &CancellationToken,
+) -> Option<Envelope> {
+    use futures_util::StreamExt;
+    loop {
+        let event =
+            tokio::select! {biased;_=cancel.cancelled()=>return None,event=events.next()=>event};
+        let event = event?;
+        if let Event::Lagged { resume_after } = event.event {
+            // The first caused event can be beyond the subscriber's retained
+            // tail. Recover it from durable history before the next input.
+            let sub = gateway
+                .subscribe(Subscribe {
+                    session: gateway.session(),
+                    after: Some((event.epoch, resume_after)),
+                    ephemeral: false,
+                })
+                .ok()?;
+            events = admission_events(sub);
+            continue;
+        }
+        if event.cause == Some(op_id) {
+            return Some(event);
+        }
+    }
 }
 impl Face {
     fn spawn(&self, future: impl std::future::Future<Output = ()> + Send + 'static) {
@@ -188,7 +222,7 @@ impl Face {
                 match self.input(&session, &params["prompt"]).await {
                     Ok(blocks) => {
                         let op_id = OpId::new();
-                        let mut admission = session
+                        let admission = session
                             .gateway
                             .subscribe(Subscribe {
                                 session: session.gateway.session(),
@@ -226,15 +260,13 @@ impl Face {
                             // Ack is lane admission, not durable consumption. The
                             // control lane drains first, so a following cancel
                             // must wait for this prompt's first durable outcome.
-                            loop {
-                                let e = tokio::select! {biased;_=self.cancel.cancelled()=>break,e=admission.recv()=>e};
-                                let Some(e) = e else {
-                                    break;
-                                };
-                                if e.cause == Some(op_id) {
-                                    break;
-                                }
-                            }
+                            await_prompt_admission(
+                                &session.gateway,
+                                op_id,
+                                admission_events(admission),
+                                &self.cancel,
+                            )
+                            .await;
                         }
                     }
                     Err(message) => self.error(id, -32602, &message, None).await,
@@ -930,6 +962,128 @@ pub async fn serve_cancelled<
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn admission_lag_replays_the_durable_prompt_before_next_input() {
+        let meta = SessionMeta {
+            session: SessionId::new(),
+            cwd: std::env::temp_dir(),
+            profile: None,
+            fork: None,
+            protocol: PROTOCOL,
+            harness: "test".into(),
+            created_ms: 0,
+        };
+        let session = meta.session;
+        let start = Envelope {
+            v: PROTOCOL,
+            session,
+            epoch: Epoch(1),
+            seq: Some(Seq(1)),
+            at: Seq(1),
+            ts_ms: 0,
+            cause: None,
+            event: Event::SessionStarted { meta: meta.clone() },
+        };
+        let hub = Arc::new(crate::gateway::Hub::new(
+            meta,
+            Epoch(1),
+            std::slice::from_ref(&start),
+            crate::redact::Set::default(),
+        ));
+        let (work, _work) = mpsc::channel(1);
+        let (control, _control) = mpsc::channel(1);
+        let gateway = InProc::new(hub.clone(), work, control, OpId::new());
+        let mut sub = gateway
+            .subscribe(Subscribe {
+                session,
+                after: Some((Epoch(1), Seq(1))),
+                ephemeral: false,
+            })
+            .unwrap();
+        let mut log = vec![start];
+        let mut seq = 1;
+        let mut publish = |event, cause| {
+            seq += 1;
+            let event = Envelope {
+                v: PROTOCOL,
+                session,
+                epoch: Epoch(1),
+                seq: Some(Seq(seq)),
+                at: Seq(seq),
+                ts_ms: 0,
+                cause,
+                event,
+            };
+            hub.publish(event.clone());
+            log.push(event);
+        };
+        // Overflow the actual 4096-slot gateway queue before the prompt's
+        // durable outcome. Replay must recover that outcome from the real hub.
+        for _ in 0..2050 {
+            let item = ItemId::new();
+            publish(
+                Event::ItemStarted {
+                    turn: None,
+                    item,
+                    kind: ItemKind::Notice,
+                    parent: None,
+                    head: None,
+                },
+                None,
+            );
+            publish(
+                Event::ItemCompleted {
+                    item,
+                    status: ItemStatus::Completed,
+                    body: Item::Notice {
+                        level: Level::Info,
+                        text: "prior event".into(),
+                    },
+                },
+                None,
+            );
+        }
+        let op_id = OpId::new();
+        let turn = TurnId::new();
+        publish(Event::TurnQueued { turn }, Some(op_id));
+        publish(
+            Event::TurnEnded {
+                turn,
+                reason: StopReason::Cancelled,
+                usage: None,
+            },
+            None,
+        );
+        publish(Event::SessionClosed, None);
+        let lagged = Arc::new(AtomicU64::new(0));
+        let seen = lagged.clone();
+        let held_eof = Box::pin(async_stream::stream! {
+            while let Some(event)=sub.recv().await {
+                let is_lagged=matches!(event.event,Event::Lagged {..});
+                if is_lagged {seen.fetch_add(1,Ordering::Relaxed);}
+                yield event;
+                // InProc currently closes after Lagged. Hold that EOF to prove
+                // recovery follows Lagged itself, without relying on closure.
+                if is_lagged {std::future::pending::<()>().await;}
+            }
+        });
+        let cancel = CancellationToken::new();
+        let admitted = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            await_prompt_admission(&gateway, op_id, held_eof, &cancel),
+        )
+        .await
+        .expect("admission-lag hung without replay")
+        .expect("prompt outcome missing after lag");
+        assert_eq!(
+            lagged.load(Ordering::Relaxed),
+            1,
+            "real gateway did not lag"
+        );
+        assert_eq!(admitted.cause, Some(op_id));
+        assert!(matches!(admitted.event,Event::TurnQueued {turn:t} if t==turn));
+        crate::protocol::laws::check_transcript(&log).unwrap();
+    }
     struct HeldFinish {
         inner: crate::provider::ScriptedProvider,
         release: Arc<tokio::sync::Notify>,

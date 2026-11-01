@@ -1182,7 +1182,10 @@ fn acp_flow(mode: u8) -> Model {
         ],
     );
     if mode > 0 {
-        m.name = format!("BrokenHarnessAcpFlow{}", if mode == 1 { 'A' } else { 'B' });
+        m.name = format!(
+            "BrokenHarnessAcpFlow{}",
+            ['A', 'B', 'C'][(mode - 1) as usize]
+        );
     }
     act(
         &mut m,
@@ -1223,10 +1226,19 @@ fn acp_flow(mode: u8) -> Model {
         &[(2, Int(1)), (11, Var(3))],
     );
     let emit = m.actions.len();
+    // EngineNeverWaits means ENABLED EngineEmit whenever another log event is
+    // due. Share its real guard, so coupling emit to stdout capacity is checked
+    // over writer_queue, rather than an independently maintained "bad" flag.
+    let emit_due = all([eq(1, 1), eq(3, 1), Var(4).lt(Int(2)), eq(8, 1)]);
+    let emit_ready = emit_due.clone().and(if mode == 3 {
+        Var(6).lt(Int(2))
+    } else {
+        Bool(true)
+    });
     act(
         &mut m,
         "EngineEmit",
-        all([eq(1, 1), eq(3, 1), Var(4).lt(Int(2)), eq(8, 1)]),
+        emit_ready.clone(),
         &[(4, Var(4).plus(Int(1)))],
     );
     let end = m.actions.len();
@@ -1314,10 +1326,11 @@ fn acp_flow(mode: u8) -> Model {
         eq(2, 0).or(Int(0).lt(Var(11))),
     );
     safe(&mut m, "CloseOnlyOnEof", eq(8, 1).or(eq(9, 0)));
+    let emit_enabled = m.actions[emit].guard.clone();
     safe(
         &mut m,
         "EngineNeverWaits",
-        eq(9, 0).or(eq(3, 1).negate()).or(eq(4, 2)).or(eq(8, 1)),
+        emit_due.negate().or(emit_enabled),
     );
     progress(
         &mut m,
@@ -1624,6 +1637,67 @@ fn mcp_server(mode: u8) -> Model {
     );
     m
 }
+fn mcp_group_close(leader_only: bool) -> Model {
+    // Close owns a leader and two members. SIGTERM is ignored; the grace
+    // expires before SIGKILL, and leader wait completes only after that signal.
+    let mut m = base::<5>(
+        "McpGroupClose",
+        leader_only,
+        &[
+            ("leader_alive", 1, 1),
+            ("members_alive", 2, 2),
+            ("close", 3, 0),
+            ("term_sent", 1, 0),
+            ("leader_reaped", 1, 0),
+        ],
+    );
+    act(
+        &mut m,
+        "CloseSendsIgnoredTerm",
+        eq(2, 0),
+        &[(2, Int(1)), (3, Int(1))],
+    );
+    act(
+        &mut m,
+        "GraceExpiresAndKill",
+        eq(2, 1),
+        &[
+            (0, Int(0)),
+            (1, if leader_only { Var(1) } else { Int(0) }),
+            (2, Int(2)),
+        ],
+    );
+    act(
+        &mut m,
+        "ReapAndCompleteClose",
+        all([eq(2, 2), eq(0, 0)]),
+        &[(2, Int(3)), (4, Int(1))],
+    );
+    act(
+        &mut m,
+        "MemberExits",
+        all([Var(2).lt(Int(3)), Int(0).lt(Var(1))]),
+        &[(1, Var(1).minus(Int(1)))],
+    );
+    safe(
+        &mut m,
+        "NoMemberAfterClose",
+        eq(2, 3).negate().or(all([eq(0, 0), eq(1, 0)])),
+    );
+    safe(
+        &mut m,
+        "ReapAfterKill",
+        eq(4, 0).or(all([eq(0, 0), eq(2, 3)])),
+    );
+    progress(
+        &mut m,
+        "CloseEventuallyCompletes",
+        Int(0).lt(Var(2)),
+        eq(2, 3),
+        vec![1, 2],
+    );
+    m
+}
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![];
     for b in [false, true] {
@@ -1685,6 +1759,9 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
     out.push((acp_flow(0), "pass"));
     out.push((acp_flow(1), "safety"));
     out.push((acp_flow(2), "safety"));
+    out.push((acp_flow(3), "safety"));
+    out.push((mcp_group_close(false), "pass"));
+    out.push((mcp_group_close(true), "safety"));
     out.push((steer_mode(false, true), "safety"));
     let mut registration = replay_base(false);
     registration.name = "HarnessSubscriberReplayRegistration".into();

@@ -225,10 +225,21 @@ checks = ["make test-formal", "make test"]
 [[contract]]
 name = "HarnessAcpFlow"
 title = "Session admission is FIFO, and a paused writer cannot close the face or hold the engine."
-models = ["HarnessAcpFlow", "BrokenHarnessAcpFlowA", "BrokenHarnessAcpFlowB"]
-controls = [{name="BrokenHarnessAcpFlowA",expected="safety"},{name="BrokenHarnessAcpFlowB",expected="safety"}]
+models = ["HarnessAcpFlow", "BrokenHarnessAcpFlowA", "BrokenHarnessAcpFlowB", "BrokenHarnessAcpFlowC"]
+controls = [{name="BrokenHarnessAcpFlowA",expected="safety"},{name="BrokenHarnessAcpFlowB",expected="safety"},{name="BrokenHarnessAcpFlowC",expected="safety"}]
 sources = ["src/frontends/acp.rs", "src/engine/task_group.rs", "src/gateway/mod.rs", "tests/formal/models.rs"]
 implementation_tests = ["tests/acp_face.rs", "tests/formal_nonvacuity.rs"]
-assumptions = "One prompt followed by cancel; two engine events and two connection replies, queue 0..2 abstracts capacity 256. Reading resumes under weak fairness, with a drain opportunity in every nonempty readable interval. Fair admission, engine, projection and writer actions; finite inbound burst. Wire bytes, actual OS scheduling, dropped-delta repair and multi-session dispatch remain API witnesses. Pairing remains HarnessTurnLifecycle; no Rust refinement claim."
+assumptions = "One prompt followed by cancel; two engine events and two connection replies, queue 0..2 abstracts capacity 256. EngineNeverWaits is enabledness of the actual EngineEmit guard, including writer capacity in broken C; its witness compares actual successor edges at full capacity. Reading resumes under weak fairness, with a drain opportunity in every nonempty readable interval. Fair admission, engine, projection and writer actions; finite inbound burst. Durable prompt admission abstracts lag recovery; actual 4096-slot overflow and held-EOF replay are unit witnesses in src/frontends/acp.rs. Wire bytes, actual OS scheduling, dropped-delta repair and multi-session dispatch remain API witnesses. Pairing remains HarnessTurnLifecycle; no Rust refinement claim."
 property = "CancelHitsItsPrompt, CloseOnlyOnEof, EngineNeverWaits and PromptEventuallyResponds."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessMcpGroupClose"
+title = "Close joins every member of its process group even when SIGTERM is ignored."
+models = ["HarnessMcpGroupClose", "BrokenHarnessMcpGroupClose"]
+controls = [{name="BrokenHarnessMcpGroupClose",expected="safety"}]
+sources = ["src/mcp.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/mcp_client.rs", "tests/bin/mcp_fixture.rs", "tests/formal_nonvacuity.rs"]
+assumptions = "One unreaped leader and zero to two members; SIGTERM is ignored. Grace expiry abstracts the timer and sends SIGKILL, then leader wait completes Close. Members may exit independently before completion. Weak fairness on kill/reap after Close begins. Group ownership and pgid reuse remain HarnessProcessLifecycle; OS signals, EOF and reaping are process witnesses, not arbitrary Rust refinement. Maps to src/mcp.rs::finish_child and the stubborn_group fixture."
+property = "NoMemberAfterClose and ReapAfterKill; CloseEventuallyCompletes. Broken control kills only the leader, leaving a live member at completed Close."
 checks = ["make test-formal", "make test"]

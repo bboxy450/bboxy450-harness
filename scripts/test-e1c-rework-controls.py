@@ -6,6 +6,7 @@
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 """Focused PR #6 rejection controls; restore every production mutation."""
 import fcntl
+import argparse
 import hashlib
 import json
 import os
@@ -20,7 +21,12 @@ def region(source, start, end, replacement):
 def once(source,before,after):
     if source.count(before)!=1:raise ValueError('mutation anchor drift: '+before)
     return source.replace(before,after)
-def main():
+def leader_only(source):
+    start=source.index('async fn finish_child(');end=source.index('async fn supervise(',start)
+    body=source[start:end];before='libc::kill(-(pid as i32),'
+    if body.count(before)!=2:raise ValueError('group-signal mutation anchor drift')
+    return source[:start]+body.replace(before,'libc::kill(pid as i32,')+source[end:]
+def main(selected=None):
     cases=[
         ('backpressure','src/frontends/acp.rs','acp_face','slow_reader_resumes_without_losing_the_turn','slow reader lost the ACP connection',
          lambda s:region(s,'    async fn emit(','    async fn response(','''    async fn emit(&self,value:Value) {
@@ -47,11 +53,35 @@ def main():
          lambda s:once(s,'"content":summary','"content":format!("{summary} [{}]",log.last().unwrap().at.0)')),
         ('trim-only','src/engine/mod.rs','context_auto','trimming_alone_fits_without_a_following_summary','summary followed a sufficient trim',
          lambda s:once(s,'if auto::fits(','if false && auto::fits(')),
+        ('acp-engine-writer','tests/formal/models.rs','formal_nonvacuity','acp_engine_emit_stays_enabled_with_a_full_writer','EngineNeverWaits',
+         lambda s:once(s,'and(if mode == 3 {','and(if mode == 0 || mode == 3 {')),
+        ('mcp-close-model','tests/formal/models.rs','formal_nonvacuity','mcp_close_joins_members_even_when_term_is_ignored','NoMemberAfterClose',
+         lambda s:once(s,'if leader_only { Var(1) } else { Int(0) }','if true { Var(1) } else { Int(0) }')),
+        ('admission-lag','src/frontends/acp.rs','lib','frontends::acp::tests::admission_lag_replays_the_durable_prompt_before_next_input','admission-lag hung without replay',
+         lambda s:region(s,'async fn await_prompt_admission(','impl Face {', '''async fn await_prompt_admission(
+    _gateway: &InProc,op_id:OpId,
+    mut events:std::pin::Pin<Box<dyn futures_core::Stream<Item=Envelope>+Send>>,
+    cancel:&CancellationToken,
+) -> Option<Envelope> {
+    use futures_util::StreamExt;
+    loop {
+        let event=tokio::select! {biased;_=cancel.cancelled()=>return None,event=events.next()=>event};
+        let event=event?;
+        if event.cause==Some(op_id) {return Some(event);}
+    }
+}
+''')),
+        ('leader-only','src/mcp.rs','mcp_client','close_kills_a_server_and_member_that_ignore_eof_and_term','MCP server group survived Close: orphaned member',leader_only),
     ]
+    if selected:
+        unknown=set(selected)-{row[0] for row in cases}
+        if unknown:raise ValueError('unknown controls: '+str(sorted(unknown)))
+        cases=[row for row in cases if row[0] in selected]
     OUT.mkdir(parents=True,exist_ok=True);records=[]
     for name,path,suite,test,expected,mutate in cases:
         file=ROOT/path;source=file.read_text()
-        command=['cargo','test','--offline','--locked','--quiet','--features','acp,test-fixtures','--test',suite,test,'--','--exact']
+        target=['--lib'] if suite=='lib' else ['--test',suite]
+        command=['cargo','test','--offline','--locked','--quiet','--features','acp,test-fixtures',*target,test,'--','--exact']
         row={'name':name,'source':path,'source_sha256':hashlib.sha256(source.encode()).hexdigest(),'command':command,'red_assertion':expected}
         try:
             file.write_text(mutate(source))
@@ -73,4 +103,6 @@ if __name__=='__main__':
         try:fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:raise SystemExit('another mutation pass owns this worktree')
         f.seek(0);f.truncate();f.write(str(os.getpid())+'\n');f.flush()
-        raise SystemExit(main())
+        parser=argparse.ArgumentParser();parser.add_argument('--case',action='append');parser.add_argument('--out',type=Path,default=OUT)
+        args=parser.parse_args();OUT=args.out
+        raise SystemExit(main(args.case))
