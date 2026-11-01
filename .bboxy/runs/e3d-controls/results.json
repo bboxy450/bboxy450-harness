@@ -1,0 +1,74 @@
+[
+  {
+    "control": "disclosure",
+    "source": "src/frontends/gui/view.rs",
+    "assertion": "DisclosureAtLeastCapHeight",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--features",
+      "standalone",
+      "--test",
+      "gui_render",
+      "structural_layout_smoke_checks_restored_geometry",
+      "--",
+      "--exact",
+      "--nocapture"
+    ],
+    "red_exit": 101,
+    "green_exit": 0,
+    "restored_sha256": "49b6e7e514eccef4df98ab34616a69bf3e8133c118bfe4a3d3e56ae944fac108",
+    "private_home": true,
+    "operator_input": false
+  },
+  {
+    "control": "gutters",
+    "source": "src/frontends/gui/view.rs",
+    "assertion": "CardGuttersSymmetric",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--features",
+      "standalone",
+      "--test",
+      "gui_render",
+      "structural_layout_smoke_checks_restored_geometry",
+      "--",
+      "--exact",
+      "--nocapture"
+    ],
+    "red_exit": 101,
+    "green_exit": 0,
+    "restored_sha256": "49b6e7e514eccef4df98ab34616a69bf3e8133c118bfe4a3d3e56ae944fac108",
+    "private_home": true,
+    "operator_input": false
+  },
+  {
+    "control": "shape-list",
+    "source": "src/frontends/gui/view.rs",
+    "assertion": "ContentlessShapePatternsStayExplicit",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--features",
+      "standalone",
+      "--test",
+      "gui_render",
+      "structural_layout_smoke_checks_restored_geometry",
+      "--",
+      "--exact",
+      "--nocapture"
+    ],
+    "red_exit": 101,
+    "green_exit": 0,
+    "restored_sha256": "49b6e7e514eccef4df98ab34616a69bf3e8133c118bfe4a3d3e56ae944fac108",
+    "private_home": true,
+    "operator_input": false
+  }
+]

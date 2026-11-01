@@ -6,7 +6,7 @@
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 
 //! Structural smoke contracts over solved, restored geometry, before painting.
-use super::view::{PreparedRows, context};
+use super::view::{PreparedRows, context, find};
 use bbt_ui::{
     self as ui,
     components::{Layout, LayoutKind},
@@ -19,6 +19,8 @@ pub struct Checked {
     pub accordion_headers: usize,
     pub inline_rows: usize,
     pub painted_boxes: usize,
+    pub cards: usize,
+    pub disclosures: usize,
 }
 fn inside(inner: Rect, outer: Rect) -> bool {
     inner.x >= outer.x - 0.5
@@ -62,6 +64,7 @@ pub fn check(prepared: &PreparedRows, frame: &Layout) -> Result<Checked, String>
         card: Option<Rect>,
         path: &str,
         checked: &mut Checked,
+        canvas_width: f32,
     ) -> Result<(), String> {
         let mut card = card;
         let mut path = path;
@@ -76,6 +79,14 @@ pub fn check(prepared: &PreparedRows, frame: &Layout) -> Result<Checked, String>
                 .is_some_and(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()))
             {
                 card = Some(n.rect);
+                checked.cards += 1;
+                let left = n.rect.x;
+                let right = canvas_width - n.rect.right();
+                if left <= 0. || right + 0.5 < left || (right - left).abs() > 0.5 {
+                    return Err(format!(
+                        "CardGuttersSymmetric: {name} left={left} right={right}"
+                    ));
+                }
             }
             if name.starts_with("mdblock/") {
                 checked.markdown_blocks += 1;
@@ -94,6 +105,63 @@ pub fn check(prepared: &PreparedRows, frame: &Layout) -> Result<Checked, String>
                 if !nodes.iter().any(|node| matches!(&node.kind, LayoutKind::Box {style, ..} if style.fill == surface && inside(n.rect, node.rect))) {
                     return Err(format!("AccordionHeaderFillCoversRow: {name} {:?}", n.rect));
                 }
+                let key = name.strip_suffix("/toggle").unwrap();
+                let label =
+                    find(n, &format!("{key}/head/sname")).ok_or("missing accordion label")?;
+                let glyph = find(n, &format!("{key}/head/right/swatch"))
+                    .ok_or("missing disclosure glyph")?;
+                let mut label_nodes = vec![];
+                descendants(label, &mut label_nodes);
+                let em = label_nodes
+                    .iter()
+                    .filter_map(|node| {
+                        if let LayoutKind::Text { runs, .. } = &node.kind {
+                            Some(runs.iter().map(|r| r.style.size).fold(0., f32::max))
+                        } else {
+                            None
+                        }
+                    })
+                    .fold(0., f32::max);
+                let mut glyph_nodes = vec![];
+                descendants(glyph, &mut glyph_nodes);
+                // One em is a conservative upper bound for this header font's
+                // cap height. Check actual filled path ink as well as its slot.
+                let ink = glyph_nodes
+                    .iter()
+                    .filter_map(|node| {
+                        if let LayoutKind::Path {
+                            points,
+                            scale,
+                            fill: Some(fill),
+                            ..
+                        } = &node.kind
+                        {
+                            use bbt_ui_model::draw::PathCommand;
+                            let ys: Vec<_> = points
+                                .iter()
+                                .filter_map(|p| match p {
+                                    PathCommand::Move(p) | PathCommand::Line(p) => Some(p[1]),
+                                    _ => None,
+                                })
+                                .collect();
+                            if !ys.is_empty() && fill[3] > 0. {
+                                return Some(
+                                    (ys.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+                                        - ys.iter().copied().fold(f32::INFINITY, f32::min))
+                                        * scale,
+                                );
+                            }
+                        }
+                        None
+                    })
+                    .fold(0., f32::max);
+                if em <= 0. || glyph.rect.h + 0.01 < em || ink + 0.01 < em {
+                    return Err(format!(
+                        "DisclosureAtLeastCapHeight: {key} glyph={:?} ink={ink} label_em={em}",
+                        glyph.rect
+                    ));
+                }
+                checked.disclosures += 1;
             }
             if name.starts_with("inline/") || name == "toolbar" {
                 checked.inline_rows += 1;
@@ -139,19 +207,21 @@ pub fn check(prepared: &PreparedRows, frame: &Layout) -> Result<Checked, String>
             }
         }
         for child in &n.children {
-            walk(child, card, path, checked)?;
+            walk(child, card, path, checked, canvas_width)?;
         }
         Ok(())
     }
     let mut checked = Checked::default();
     for layout in prepared.layouts() {
-        walk(layout, None, "prepared", &mut checked)?;
+        walk(layout, None, "prepared", &mut checked, prepared.width)?;
     }
-    walk(frame, None, "frame", &mut checked)?;
+    walk(frame, None, "frame", &mut checked, prepared.width)?;
     if checked.markdown_blocks == 0
         || checked.accordion_headers == 0
         || checked.inline_rows == 0
         || checked.painted_boxes == 0
+        || checked.cards == 0
+        || checked.disclosures == 0
     {
         return Err(format!("structural smoke lacks witnesses: {checked:?}"));
     }
