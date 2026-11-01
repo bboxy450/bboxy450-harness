@@ -9,13 +9,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 845
+bytes: 846
 claimed: false
 created: 2026-11-01T07:33:30.156Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:6187a5e3ef7282c5fdb81dfce7d8ec0ca39c0273114c0a6fe5d18a8b3289186b
+digest: sha256:db43b600992c37d4ce217182ce5f6c03b80f3905c6e360c708c1f1d251812f33
 digest_grade: observed
 for: []
 grade: inferred
@@ -52,22 +52,134 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793518600533'
+- before_digest: sha256:6187a5e3ef7282c5fdb81dfce7d8ec0ca39c0273114c0a6fe5d18a8b3289186b
+  commit: null
+  digest: sha256:93ccf5bf5e8ee2a88045fa081ecec66df635544ac3ef4a708433a85e44c63f01
+  event_hash: 7df9db2000ad694efabcbb56fcb11c469dfa23212fe693510d5df0d1d3101e77
+  generation: '1'
+  grade: inferred
+  id: 01M6B1FS7RNB58DGJARK3JM8M4
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/timeout-red.log
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '15757'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793519510590'
+- before_digest: sha256:93ccf5bf5e8ee2a88045fa081ecec66df635544ac3ef4a708433a85e44c63f01
+  commit: null
+  digest: sha256:9343e1a3c589412aa1f5967733295d9b074113b0fe7903463a09a169b7f7290b
+  event_hash: f33ce0996376d2f7ce4e9bd153e27f62b328324774695144cac2facf8ff70216
+  generation: '1'
+  grade: inferred
+  id: 01M6B1NZGZAZN09RP1Q1786EKW
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/timeout-red.log
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '15892'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793519713294'
+- before_digest: sha256:9343e1a3c589412aa1f5967733295d9b074113b0fe7903463a09a169b7f7290b
+  commit: null
+  digest: sha256:dba74b1d16051dd0c079e2593c4ef1af3b8741132904bb0e0e03a107d28530c0
+  event_hash: 00e1bd2652549b0e26e1876fbe025005ff9c1c0175f9b602019ad154a3145ba9
+  generation: '1'
+  grade: inferred
+  id: 01M6B1V8F88T86E0W1E33HP357
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/timeout-red.log
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '15997'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793519886191'
+- before_digest: sha256:dba74b1d16051dd0c079e2593c4ef1af3b8741132904bb0e0e03a107d28530c0
+  commit: null
+  digest: sha256:17d8d64f696aa2a6bcd3599f9ee515269ae1ed52826e104d1060daf119cb6398
+  event_hash: 210f84ebfaacfede09d92af9b5589d92528b6ef4becc56e121f00241ede1d5ea
+  generation: '1'
+  grade: inferred
+  id: 01M6B2PSZS0MCH7V5C2T4KSFV6
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/timeout-red.log
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '16697'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793520789008'
+- before_digest: sha256:17d8d64f696aa2a6bcd3599f9ee515269ae1ed52826e104d1060daf119cb6398
+  commit: null
+  digest: sha256:f56f947fa2e2c893ce5e7615bf3e8a1753c7708251ced6cebc59a9446ef2e857
+  event_hash: a7414bed51f27377745cfe4212b5610782e4a60684f1ca60526b7e68b63c39a0
+  generation: '1'
+  grade: inferred
+  id: 01M6B32M0BRJSHHBNWZXWPQRF0
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/timeout-red.log
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '16775'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793521176064'
+- before_digest: sha256:f56f947fa2e2c893ce5e7615bf3e8a1753c7708251ced6cebc59a9446ef2e857
+  commit: null
+  digest: sha256:60328558c014c3ccd3d255e513bde3a84e5e5325f32d3efcf640f2cbf332e629
+  event_hash: e31f69578d4041f465300238c49ab5802e7abd4494692a84ff17712c920cd3c3
+  generation: '1'
+  grade: inferred
+  id: 01M6B41B17BRZZJG8PWMRWAAZ6
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/timeout-red.log
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '17825'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793522183069'
+- before_digest: sha256:60328558c014c3ccd3d255e513bde3a84e5e5325f32d3efcf640f2cbf332e629
+  commit: null
+  digest: sha256:db43b600992c37d4ce217182ce5f6c03b80f3905c6e360c708c1f1d251812f33
+  event_hash: f75c15c387d6071d40879cb3aaaf8d6ffa9b071a550d768c03afc74926b86cf4
+  generation: null
+  grade: inferred
+  id: 01M6B4H0XWA6HZ0WW3TN4CH2Y3
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/timeout-red.log
+  seat: null
+  sequence: '18551'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793522668790'
 id: 01M6B0E6DAAHZZ2TQPK0W1VW14
 kind: file
-last_observation_sequence: '15382'
+last_observation_sequence: '18551'
 number: 2571
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:e4243b85f4a68233c97fcae32022a1395cf6c84b79280292298344eac8e0f4eb
-  log: .bboxy/log/2026-11-01.jsonl#15383
-  sig: oXaPpMdPP82Tnai04e5lw+zw8i7l8M55zrU2rarQx5ANPN7+PMwwbTBl2GgBLQHvDu5THWSN+d//0DwbDVjsDA==
+  frontmatter_digest: sha256:fce525da37408fbe117c4ee6f48cefe421b67dbab304ba84cbd4366093ca2769
+  log: .bboxy/log/2026-11-01.jsonl#18552
+  sig: DjADJjAAeRIRRZ41hEdoKtG8P3MwLtppUeIEBtFE/PBLsoRyG22r35VFBmP1OhnzlcjGJact1bBH1wYYohpyAA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/.bboxy/runs/e1c/timeout-red.log
 type: artifact
-updated: 2026-11-01T07:37:52.621Z
+updated: 2026-11-01T08:44:57.149Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

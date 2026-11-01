@@ -10,13 +10,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 13772
+bytes: 14255
 claimed: false
 created: 2026-11-01T03:58:36.623Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:7e4d30c7be0d1a0a712ee945cb51e23e9389dbdfd634f3ae338b00d5fb7c7a3f
+digest: sha256:dd460c98d5ac7cc516fb506dd04865cb0f7eba534db4b6a1a6d4b84df0d82489
 digest_grade: observed
 for: []
 grade: inferred
@@ -165,22 +165,54 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793518555620'
+- before_digest: sha256:7e4d30c7be0d1a0a712ee945cb51e23e9389dbdfd634f3ae338b00d5fb7c7a3f
+  commit: null
+  digest: sha256:91b7c8470857ba0a540503d63737895c6ef41d3ebe087ad88816fb9378515a03
+  event_hash: 6a06dbbad05048793a4dcf79a76c4198e0c137d513ab7b8ff294952509c1064b
+  generation: '1'
+  grade: inferred
+  id: 01M6B15WY4DQ4SFAG1V64JK8SH
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bbt-ui/tests/toolkit.rs
+  seat: 01M6ADTVVZS36VS43P2PG15HRQ
+  sequence: '15574'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793519185922'
+- before_digest: sha256:91b7c8470857ba0a540503d63737895c6ef41d3ebe087ad88816fb9378515a03
+  commit: null
+  digest: sha256:dd460c98d5ac7cc516fb506dd04865cb0f7eba534db4b6a1a6d4b84df0d82489
+  event_hash: 88f4cd424a256d771f9119be9749be3ebebf85c5b435dbfe0cad399d3df57b9a
+  generation: '1'
+  grade: inferred
+  id: 01M6B167D1AX64GMNBQV1HBBC1
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bbt-ui/tests/toolkit.rs
+  seat: 01M6ADTVVZS36VS43P2PG15HRQ
+  sequence: '15592'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793519196163'
 id: 01M6AM4Q2D2B0V677HEW1RGB4C
 kind: file
-last_observation_sequence: '15342'
+last_observation_sequence: '15592'
 number: 945
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTVVZS36VS43P2PG15HRQ
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:de356eb7b7ff6d20db4136c6178c3919cb32fbe0a2ac9e5fb781a1d457c22bd6
-  log: .bboxy/log/2026-11-01.jsonl#15343
-  sig: NFwaWj674N9FFuzG6ANtu/5sApM4kmy5SG08MUVi3N7ol/yYiV1LbIuqtIxQh7B8vhnQZ++M5xgY+2bCOKIbAw==
+  frontmatter_digest: sha256:ad394dec7ca6c84a93c31c681db90a001551f79e015bf34885231f6826838f52
+  log: .bboxy/log/2026-11-01.jsonl#15593
+  sig: I6G7gcMPpLAPayKZQKyiS+jGOzmZ/CHXDMsjZJ9UAK+6zusfrfzSWKf4ahJ+YXx30o0U8ZWyvBRlu5x3v/qBBg==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bbt-ui/tests/toolkit.rs
 type: artifact
-updated: 2026-11-01T07:35:59.672Z
+updated: 2026-11-01T07:46:37.604Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

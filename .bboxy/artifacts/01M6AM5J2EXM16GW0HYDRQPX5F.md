@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 8552
+bytes: null
 claimed: false
 created: 2026-11-01T03:59:04.272Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:a88ca2617f964cf76bd6112e0a0c194b2eefe2bf5ac91c062c7321b1c38c4ce9
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -36,22 +36,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793505472091'
+- before_digest: sha256:a88ca2617f964cf76bd6112e0a0c194b2eefe2bf5ac91c062c7321b1c38c4ce9
+  commit: null
+  digest: null
+  event_hash: 6cb0c72ff3f368f1c1be1227db5a76021de5bf9290a6f9f613624b9291f25baa
+  generation: null
+  grade: inferred
+  id: 01M6B3TMRYAATSZHVXM3AMW8R8
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bbt-render/ATTRIBUTION.md
+  seat: null
+  sequence: '17071'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793521938204'
 id: 01M6AM5J2EXM16GW0HYDRQPX5F
 kind: markdown
-last_observation_sequence: '4506'
+last_observation_sequence: '17071'
 number: 991
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:610aa42f4a2c8a008692eab4c4a5af0e8ac7b91e93cbdfc707f5790e7089bb9d
-  log: .bboxy/log/2026-11-01.jsonl#4507
-  sig: yMWHrcb+/IfGzlr/a3gvZd21/AdoF63ix+3BcTo4fjqk5gn6AH2vFTai4B6ZTAV5t8+MtrGIDLmniV986rhgCA==
+  frontmatter_digest: sha256:2b8bc87b5bf8e270ea83df48d3c21506c4d92d1f97f7f5ff5dd1cbba5ce8cfa2
+  log: .bboxy/log/2026-11-01.jsonl#17072
+  sig: I7dk7ZPK8I8/97lJryzRM7IULyngwBCQYMH74NlB4zeO2Kz2UJkdBzPD6F3gk2Z2cVNbDx4RqgVU7bLWU/IhAA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/crates/bbt-render/ATTRIBUTION.md
 type: artifact
-updated: 2026-11-01T03:59:04.272Z
+updated: 2026-11-01T08:32:43.807Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

@@ -10,13 +10,13 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 6582
+bytes: 7759
 claimed: false
 created: 2026-11-01T03:43:15.713Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:880a55d4794786a29f6933280564d6e87f82f2911a829254ba61fed2faa9c980
+digest: sha256:531c11f28d5d39643a9bacfc9a74225e860b900f661c92b092083f1048743a39
 digest_grade: observed
 for: []
 grade: inferred
@@ -149,22 +149,54 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793503264124'
+- before_digest: sha256:880a55d4794786a29f6933280564d6e87f82f2911a829254ba61fed2faa9c980
+  commit: null
+  digest: sha256:e548d4bd87f453034c0d1a8d6d29a108fef53d4b0836a3324457f7b52c7c65fd
+  event_hash: 11a5471d0d3fea6ceec2a123d30759edcf79042a0fd763676d6b3f638890c5fa
+  generation: '1'
+  grade: inferred
+  id: 01M6B1F4NZP99Y25S8Q19JT4Z3
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/secrets.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '15739'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793519489512'
+- before_digest: sha256:e548d4bd87f453034c0d1a8d6d29a108fef53d4b0836a3324457f7b52c7c65fd
+  commit: null
+  digest: sha256:531c11f28d5d39643a9bacfc9a74225e860b900f661c92b092083f1048743a39
+  event_hash: f890f9d1a1d17fe825f50bdcb0b7557edfab6c6c95b9cc0aae88e0d4ad070e02
+  generation: '1'
+  grade: inferred
+  id: 01M6B1F62YF9EKA117FXPFT9DE
+  kind: modified
+  previous_ref: null
+  reason: null
+  ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/secrets.rs
+  seat: 01M6ADTTF9QWWFZFVZJHJ3DD8E
+  sequence: '15748'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793519490124'
 id: 01M6AF5K9B9KWE9508QEE46VJV
 kind: file
-last_observation_sequence: '1183'
+last_observation_sequence: '15748'
 number: 749
 observation_reason: null
 observed: true
 produced_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:6c016e7ddbdc598dbfbec343aa9c77e8f60c9b49724e0234ef10015e9220e0cf
-  log: .bboxy/log/2026-11-01.jsonl#3199
-  sig: KhbB+oZCvdh5RgoRBQT6ol/2QIQ/6FbJQQkq2iPQlzhZt1y/ftX4JJq2/N8XulI4pLL3J6JpQ0hpVuWdyd9sDw==
+  frontmatter_digest: sha256:379c2dd4164089683a9a54740d0a82fd7d618e20d239cbf39575fe4dedc01002
+  log: .bboxy/log/2026-11-01.jsonl#15749
+  sig: SdLUn4LL5NWonIfxe0hKq5s+EYwvmDxWDoIuEcC5stH/EwVwAa4TfqLYuQnqTPMf7u8aAbEJDgF6vOlDJ4GXDw==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:98f0b32f75b85fe27c52f0ba16ae375415b8ece8fc92b5c65d2817ec29bbd792/tests/secrets.rs
 type: artifact
-updated: 2026-11-01T03:44:00.697Z
+updated: 2026-11-01T07:51:31.168Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

@@ -9,6 +9,8 @@ allowed_paths:
 - Cargo.lock
 - protocol.schema.json
 - .bboxy/runs/
+artifacts:
+- '[[01M6B4VRVDQ78D0RTR1293ECB7]]'
 assignee: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 authorship:
   kind: seat
@@ -21,19 +23,68 @@ delegated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 id: 01M6AVYEXPZB5SF1JCQ5V3A2S3
 number: 1992
 provenance:
-  digest: sha256:9ecc6f9ce3b1ff769c26313a8e511c882ee8209f281b7c7638292574b9a1f94f
-  frontmatter_digest: sha256:2010830eb4424936ba8303c5bbf8f9cf0e1e54b6be27c2ec355aa5ef314c8fd0
-  log: .bboxy/log/2026-11-01.jsonl#11478
-  sig: hHd1OsOy+8EcMjOAsJUO3WlNU33Pv35n7E8KOWUGwrMLGCJsymZ6tYS0A1VSLt1VHU34IXuEvisI1yP1IcEgDw==
+  digest: sha256:6d431e96ee2ef46599be41620d5a62e211d8f9c35ffd9495af8fad64b89bbd5d
+  frontmatter_digest: sha256:be6ae223304dfebdc3c0a6f0e57786f4ca4b1a3b86c71a425d9ff76ae6e3f842
+  log: .bboxy/log/2026-11-01.jsonl#19089
+  sig: nxLlOiPowz9w3QOqSpgoarDukQJy5XHp/5qm7FEzJmh07QK4R1btGKZbV+yh5Aol7tFB8ghQFMJdmvYlN6OHCw==
   signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
+rejection:
+  by: seat:01M6AC3D2ECK4W3F8495PAQTS3
+  reason: |-
+    PR #6 (4834a35) is rejected for one focused round. Verified good, keep as is: MCP policy gating (readOnlyHint never bypasses decide; the liar test), timeouts, generation guard, the auto-compaction trigger, Usage voiding and frontier law, the 7 formal controls (stated over state), the acp-1.12 diff, and the d2400 GUI hunks (E3 approved them). Rebase onto main first; main is now past cc7cab1.
+
+    MUST
+    1. **BLOCKER: ACP backpressure tears down the connection.** At `acp.rs:56-65,748`, `emit()` uses a 256-entry queue with `try_send`; when the queue is full it cancels, and the connection closes. A slow client during a streaming turn therefore kills the session. acp.md §5 allows teardown only on EOF or a broken stdout.
+       - Fix: output must never cause teardown. Either wait (bounded) on the writer task only, never on the reader or engine path, or coalesce updates.
+       - Add a test with a client that stops reading for a while, then resumes. The turn must complete, and `check_transcript` must hold.
+    2. **ACP per-session ordering.** At `acp.rs:784`, every line is spawned as its own task, so a `session/cancel` can overtake its `session/prompt`: the Interrupt reaches no turn, and the prompt then runs to completion. Requests for one session must be processed in order. Add a test that sends prompt and then cancel back to back with no wait, and assert `TurnEnded{Cancelled}`.
+    3. **`tool_call_update` overwrites earlier content.** At `acp.rs:618` vs `:621/627`, the completion update replaces the diff and terminal content. Merge the content instead of replacing it, per acp.md. Fix the vacuous assertion at `acp_face.rs:173`. Stop sorting in `canonical()` (`acp_face.rs:341`), so the golden comparison checks order.
+    4. **Finish d2019.** Fix the pidfile waits at `store_recovery.rs:198/219-233` and `profile_lifecycle.rs:16/25-33` with the same temp-file-and-rename pattern. Attach the logs: 200 consecutive passing runs each of `seat_process`, `store_recovery` and `profile_lifecycle`.
+    5. **The MCP server group kill is untested.** Deleting `killpg` (`mcp.rs:394-408`) keeps all tests green. Add a fixture server that ignores stdin EOF and forks a group member, plus a control with `killpg` removed that must fail.
+    6. **The cache-prefix test cannot fail.** At `context_auto.rs:166-175`, assert that between reduction items the prefix is byte-identical and longer than the system prompt. Also add a test where trimming alone fits and no summary follows (the `auto::fits` early return).
+    7. **MCP close margin.** At `mcp_client.rs:269/286`, the deadline is 2 s, but `finish_child` sleeps 1 s. Gate on observed group exit (ESRCH polling with a generous hang guard), not on a 2 s wall clock.
+
+    SHOULD: do the cheap ones; list the rest as gaps
+    - ICD §6 witnesses: ACP MaxTokens, MaxRounds and Error stop reasons; permission `cancelled`; disconnect while a permission is pending; late response after Interrupt (assert something); EOF mid-turn followed by `check_transcript`. MCP: Interrupt during a slow call; a stale-generation response is dropped; the crash Notice is asserted; name truncation and collision; stderr excerpt scrubbing; a secret grep over blobs and the session directory.
+    - `acp.rs:277-280`: on a cwd failure, close the started session.
+    - `mcp.rs:230-234`: a stale call's reason. `turn_loop.rs:840`: a Deny must carry the rule's reason.
+    - The HarnessAutoCompact model is too narrow: `ended_through` is never advanced, and a trim is never enough on its own. Widen it so the trim-only path and the summary-without-trim path are both explored.
+    - `seat_process.rs:71-75` no longer exercises the PTY-master-close path. Restore it, or record the gap.
+
+    Verify: `make test` exits 0, unattended. Show red→green for 1, 2, 3, 5 and 6. Run `make smoke-live` once and record the real outcome. Report via `task_report`.
+report:
+  commit: 4834a3564dba706373f1d9b78c9b65d226719603
+  op_id: 01M6B5NDHD98H9PMN02WEFAS7H
+  reported_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+  summary: 'E1c implemented and pushed on e1c-acp-mcp-compaction. PR #6 OPEN: https://github.com/bboxy450/bboxy450-harness/pull/6 ; no merge. Signed head 4834a3564dba706373f1d9b78c9b65d226719603 (Boxy, key 9B07E849480C68328CA20684844ECC0587DE7AB0). Full committed report: Report: [[e1c-report]] (#3022), .bboxy/runs/e1c-report.md. make test exited 0 unattended on a757963; the final records-only commit changes no verification inputs. Final-head native/TLC parity and strict receipt each exited 0: 52 models, 21 contracts, one crate, receipt 798cd045cde97946193ed86e0c61f5ccadef3dfd2c35b918ce0eb0d38de24192. All seven new model controls fail the named properties; five production process controls each show 101→0. One make smoke-live invocation exited 0: PASS for headless and ACP, exactly three requests each, one read/one edit/file changed/transcript laws held. Source tree clean; refreshed formal-native receipt and local proof/log archives are run outputs. E3 review of the three listed GUI display locations and derived smoke expectations is required by d2400 before merge. Initial gate failures and their fixes are retained in the report.'
 role: executor
-status: claimed
+status: rejected
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E1c: ACP face, MCP client, automatic compaction (protocol v0.3)'
 type: task
-updated: 2026-11-01T06:15:03.252Z
+updated: 2026-11-01T09:08:53.643Z
 updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 verify: make test
+verify_result:
+  command: CARGO_BUILD_JOBS=2 make test
+  evidence:
+  - criterion: 1 ACP pin checked against schema 1.12.0 before coding; no unstable features
+    reference: .bboxy/runs/acp-1.12-diff.md; signed pre-code commit ed99393; Cargo.toml/Cargo.lock
+  - criterion: 2 ACP stdio face, independent sessions, permission provenance, load replay, full tool/diff/terminal and Plan witness, transcript laws
+    reference: src/frontends/acp.rs; src/gateway/host.rs; tests/acp_face.rs (8 passing); tests/fixtures/acp/*.jsonl; forced-drop repair test in src/frontends/acp.rs; .bboxy/runs/e1c/make-test.log
+  - criterion: 3 Session-lived MCP clients, concurrent reads, policy/trust separation, timeout/crash/restart/re-list shutdown and secret scrubbing
+    reference: src/mcp.rs; tests/bin/mcp_fixture.rs; tests/mcp_client.rs (11 passing); .bboxy/runs/e1c/process-controls.json and adjacent red/green logs (five controls 101→0)
+  - criterion: 4 Protocol 0.4 automatic compaction, exact wire accounting, cache prefix, durable recovery and safe queued-cancellation frontier
+    reference: src/context/auto.rs; src/context/mod.rs; src/engine/mod.rs; protocol.schema.json; tests/context_auto.rs; tests/protocol_laws.rs; .bboxy/runs/e1c/queued-cancel-{red,green}.log (101→0); signed ICD 237f441/72d6549
+  - criterion: 5 State-based HarnessAutoCompact and HarnessMcpServer; all seven broken controls fail correctly under native and TLC
+    reference: .bboxy/runs/e1c/model-controls.json; .bboxy/runs/e1c/formal-code.json; tests/formal_nonvacuity.rs; verification/{corpus,contracts,coverage}.toml
+  - criterion: 6 Live smoke really PASS on both faces, exit 0; ACP at most three extra requests
+    reference: .bboxy/runs/smoke-live-2026-11-01.json; .bboxy/runs/e1c/smoke-live.log; headless=3 requests and ACP=3, both read_calls=1/edit_calls=1/file_changed=true/check_transcript=true
+  - criterion: Canonical unattended stack, GUI owner-review scope and exact per-layer exits
+    reference: .bboxy/runs/e1c/make-test.log; .bboxy/runs/test-current.json; .bboxy/runs/gui-gate.json; .bboxy/runs/e1c-report.md; decision d2400; GUI smoke PASS with 22 visible items/15 kinds/3 approval buttons/scrolled viewport
+  - criterion: Final signed HEAD and current-source native/TLC proof receipt
+    reference: 4834a3564dba706373f1d9b78c9b65d226719603; git verify-commit HEAD exit 0; make test-formal-parity exit 0; make check-formal-evidence exit 0; verification/evidence/798cd045cde97946193ed86e0c61f5ccadef3dfd2c35b918ce0eb0d38de24192/evidence.json; .bboxy/runs/e1c/final-head-formal.log
+  exit_code: 0
 ---
 # E1c: ACP face, MCP client and automatic compaction
 
@@ -91,3 +142,53 @@ The ICD wins over this brief.
 
 ## Report
 Send one `task_report`. Include files and mechanisms, commands with exit codes, and the branch with its signed head.
+
+
+## Report from seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+
+E1c implemented and pushed on e1c-acp-mcp-compaction. PR #6 OPEN: https://github.com/bboxy450/bboxy450-harness/pull/6 ; no merge. Signed head 4834a3564dba706373f1d9b78c9b65d226719603 (Boxy, key 9B07E849480C68328CA20684844ECC0587DE7AB0). Full committed report: Report: [[e1c-report]] (#3022), .bboxy/runs/e1c-report.md. make test exited 0 unattended on a757963; the final records-only commit changes no verification inputs. Final-head native/TLC parity and strict receipt each exited 0: 52 models, 21 contracts, one crate, receipt 798cd045cde97946193ed86e0c61f5ccadef3dfd2c35b918ce0eb0d38de24192. All seven new model controls fail the named properties; five production process controls each show 101→0. One make smoke-live invocation exited 0: PASS for headless and ACP, exactly three requests each, one read/one edit/file changed/transcript laws held. Source tree clean; refreshed formal-native receipt and local proof/log archives are run outputs. E3 review of the three listed GUI display locations and derived smoke expectations is required by d2400 before merge. Initial gate failures and their fixes are retained in the report.
+
+```json
+{
+  "commit": "4834a3564dba706373f1d9b78c9b65d226719603",
+  "op_id": "01M6B5NDHD98H9PMN02WEFAS7H",
+  "verify_result": {
+    "command": "CARGO_BUILD_JOBS=2 make test",
+    "evidence": [
+      {
+        "criterion": "1 ACP pin checked against schema 1.12.0 before coding; no unstable features",
+        "reference": ".bboxy/runs/acp-1.12-diff.md; signed pre-code commit ed99393; Cargo.toml/Cargo.lock"
+      },
+      {
+        "criterion": "2 ACP stdio face, independent sessions, permission provenance, load replay, full tool/diff/terminal and Plan witness, transcript laws",
+        "reference": "src/frontends/acp.rs; src/gateway/host.rs; tests/acp_face.rs (8 passing); tests/fixtures/acp/*.jsonl; forced-drop repair test in src/frontends/acp.rs; .bboxy/runs/e1c/make-test.log"
+      },
+      {
+        "criterion": "3 Session-lived MCP clients, concurrent reads, policy/trust separation, timeout/crash/restart/re-list shutdown and secret scrubbing",
+        "reference": "src/mcp.rs; tests/bin/mcp_fixture.rs; tests/mcp_client.rs (11 passing); .bboxy/runs/e1c/process-controls.json and adjacent red/green logs (five controls 101→0)"
+      },
+      {
+        "criterion": "4 Protocol 0.4 automatic compaction, exact wire accounting, cache prefix, durable recovery and safe queued-cancellation frontier",
+        "reference": "src/context/auto.rs; src/context/mod.rs; src/engine/mod.rs; protocol.schema.json; tests/context_auto.rs; tests/protocol_laws.rs; .bboxy/runs/e1c/queued-cancel-{red,green}.log (101→0); signed ICD 237f441/72d6549"
+      },
+      {
+        "criterion": "5 State-based HarnessAutoCompact and HarnessMcpServer; all seven broken controls fail correctly under native and TLC",
+        "reference": ".bboxy/runs/e1c/model-controls.json; .bboxy/runs/e1c/formal-code.json; tests/formal_nonvacuity.rs; verification/{corpus,contracts,coverage}.toml"
+      },
+      {
+        "criterion": "6 Live smoke really PASS on both faces, exit 0; ACP at most three extra requests",
+        "reference": ".bboxy/runs/smoke-live-2026-11-01.json; .bboxy/runs/e1c/smoke-live.log; headless=3 requests and ACP=3, both read_calls=1/edit_calls=1/file_changed=true/check_transcript=true"
+      },
+      {
+        "criterion": "Canonical unattended stack, GUI owner-review scope and exact per-layer exits",
+        "reference": ".bboxy/runs/e1c/make-test.log; .bboxy/runs/test-current.json; .bboxy/runs/gui-gate.json; .bboxy/runs/e1c-report.md; decision d2400; GUI smoke PASS with 22 visible items/15 kinds/3 approval buttons/scrolled viewport"
+      },
+      {
+        "criterion": "Final signed HEAD and current-source native/TLC proof receipt",
+        "reference": "4834a3564dba706373f1d9b78c9b65d226719603; git verify-commit HEAD exit 0; make test-formal-parity exit 0; make check-formal-evidence exit 0; verification/evidence/798cd045cde97946193ed86e0c61f5ccadef3dfd2c35b918ce0eb0d38de24192/evidence.json; .bboxy/runs/e1c/final-head-formal.log"
+      }
+    ],
+    "exit_code": 0
+  }
+}
+```

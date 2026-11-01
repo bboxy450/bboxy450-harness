@@ -9,14 +9,14 @@ authorship:
   public_key: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   root_fingerprint: null
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-bytes: 13631
+bytes: null
 claimed: false
 created: 2026-11-01T06:04:44.427Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
-deleted: false
+deleted: true
 derived_from: []
-digest: sha256:4b22cdd8c62938085ef9d90b8c9bc34aca2962dc002e3f1b8df3997837c9035e
-digest_grade: observed
+digest: null
+digest_grade: unavailable
 for: []
 grade: inferred
 history:
@@ -116,22 +116,38 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/filesystem
   ts: '1793518584663'
+- before_digest: sha256:4b22cdd8c62938085ef9d90b8c9bc34aca2962dc002e3f1b8df3997837c9035e
+  commit: null
+  digest: null
+  event_hash: ceda8f7f24ff669f130161fdb1704adc4012a6fa7fe50e9b4a9652c90d28806d
+  generation: null
+  grade: inferred
+  id: 01M6B1XGPZCJY4E6EG4CXM6SG4
+  kind: deleted
+  previous_ref: null
+  reason: null
+  ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/test-current.json
+  seat: null
+  sequence: '16162'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/filesystem
+  ts: '1793519946382'
 id: 01M6AVBNG90ERREFJB2E3RDS9Q
 kind: file
-last_observation_sequence: '15376'
+last_observation_sequence: '16162'
 number: 1966
 observation_reason: null
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:3dcab490a19703c3ee776ae005aa5a36579e0fd56dc7b4eb6bdef4648466eabd
-  log: .bboxy/log/2026-11-01.jsonl#15377
-  sig: rdirGzKT5ThfBoVKzN9Bjcp3DPcjzApkNPG3kAEQr8L87+q0AcaC+rpZ/xI2BEODilIb2G+m2DoD3dtKNh2+BA==
+  frontmatter_digest: sha256:290858d0beab7fa0a281efb2d7050fa92e216c5033c00e0ccf6e14398092c565
+  log: .bboxy/log/2026-11-01.jsonl#16163
+  sig: rvLXFu+j5QD/ytQ7PaitX8iSHMqtXD5eBp3ZC5Pk+HES7qihquENp0ahWpScmPcY+jGsT4RwqeMWld93vVc2DQ==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: worktree:3eae5768f6f057c9e0bc97d80723b51284d6149474e84f07337b807138474a54/.bboxy/runs/test-current.json
 type: artifact
-updated: 2026-11-01T07:37:43.512Z
+updated: 2026-11-01T07:59:20.802Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

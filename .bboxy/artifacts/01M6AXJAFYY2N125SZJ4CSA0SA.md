@@ -15,7 +15,7 @@ created: 2026-11-01T06:43:19.679Z
 created_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 deleted: false
 derived_from: []
-digest: sha256:b41f5706d23cea60d1577aef677c58370b3a80c1290d589b3170cff28753b758
+digest: sha256:b6a5abf9a3c2a429fcf7c9c5ec1bf267691aa8ddbc59e6f1222cc3e031d1ff6c
 digest_grade: observed
 for: []
 grade: inferred
@@ -164,22 +164,54 @@ history:
   signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
   source: provenance/git/ref
   ts: '1793516369851'
+- before_digest: sha256:b41f5706d23cea60d1577aef677c58370b3a80c1290d589b3170cff28753b758
+  commit: 8e88618f5f0af62f94d752c2f67d169ee92a8593
+  digest: sha256:2ddfc92bb1fcf9dc5cee3cdc39b3f4687b47810b82ae591d3bfed0321dbdb8d0
+  event_hash: d29dbf1e138ad33946d26aa4b9a34ce2e1865a1e813a7bf29bd1310c265052b2
+  generation: null
+  grade: inferred
+  id: 01M6B3XSHXA85TR99QVB31J1SV
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/refs/heads/cx/landall
+  seat: null
+  sequence: '17495'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793522062077'
+- before_digest: sha256:2ddfc92bb1fcf9dc5cee3cdc39b3f4687b47810b82ae591d3bfed0321dbdb8d0
+  commit: c30fdf9e7754add20812a3685ccd2f8499895f88
+  digest: sha256:b6a5abf9a3c2a429fcf7c9c5ec1bf267691aa8ddbc59e6f1222cc3e031d1ff6c
+  event_hash: e8377f68b77d78da4ebd8414add824cf27828ff1d823bf33d7e138aaa5b2be9e
+  generation: null
+  grade: inferred
+  id: 01M6B5KBF7WWDB3ZW0TRP3Y5D9
+  kind: modified
+  previous_ref: null
+  reason: git-ref-value; authorship unverified
+  ref: git:worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/refs/heads/cx/landall
+  seat: null
+  sequence: '19034'
+  signer: D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
+  source: provenance/git/ref
+  ts: '1793523820627'
 id: 01M6AXJAFYY2N125SZJ4CSA0SA
 kind: other
-last_observation_sequence: '13752'
+last_observation_sequence: '19034'
 number: 2370
 observation_reason: git-ref-value; authorship unverified
 observed: true
 produced_by: null
 provenance:
   digest: sha256:2af9542bc0897ec83fdfe4b798cce2234c243ce18003db5f629e1b254d3dcb30
-  frontmatter_digest: sha256:c8f765c78d4b327e4ddaf0594095eab51d3a830387e3584f1286bf5896758c37
-  log: .bboxy/log/2026-11-01.jsonl#13753
-  sig: gSeeb970ncfw31mSLB84vadv0nrFTgn1enPVYLrtkZU4fRpuNTfY/rBAx5PJpMsTLGDqE7ilnEf5xuxXjdC7CA==
+  frontmatter_digest: sha256:e324b129dcd3397db795b77ab06177bf4ef8d087c349ae95422feec3dd65b75d
+  log: .bboxy/log/2026-11-01.jsonl#19035
+  sig: lQjgzTHcxDx62r4Zezg9zSobpmmF+QYk2K+1lOcGx8ohMhBj2cnyfvciQhkQZYempjlMDUxbfRA18y9n1L6WAA==
   signer: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ref: git:worktree:a2ebe33d8dd032151036bb72ff61aa45bf2616eb3c79818d25d230dd838dd749/refs/heads/cx/landall
 type: artifact
-updated: 2026-11-01T06:59:30.059Z
+updated: 2026-11-01T09:03:42.056Z
 updated_by: observer:local-dev:D7+Zj49LpR7UbFgCmXRoB5vOYHgu53RVZsBstY4l634=
 ---
 # Observed artifact

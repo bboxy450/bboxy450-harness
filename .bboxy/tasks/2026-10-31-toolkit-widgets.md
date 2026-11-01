@@ -13,23 +13,24 @@ artifacts:
 - '[[01M6AQR54F4TBT16B6EJSZG50F]]'
 - '[[01M6AQR7T6DMCX29MTYFMBCHHV]]'
 - '[[01M6AZRA74WYMK5MHNEBMQHHMT]]'
+- '[[01M6B3Z46NXTCP7P0ZTDCY0YMQ]]'
 assignee: seat:01M6ADTVVZS36VS43P2PG15HRQ
 authorship:
   kind: seat
   process_generation: '1'
-  public_key: 0Yj/k2rOV2tLHQm2aES5d/roSsYDRC/E70ukAxvovgo=
-  signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
+  public_key: WOnRfteuEUyRkFzbca9GwLmAehdGOJxhuYtUTckYsfs=
+  signer: seat:01M6ADTVVZS36VS43P2PG15HRQ
 created: 2026-11-01T02:08:11.298Z
 created_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 delegated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 id: 01M6ADTGYAQ5VJ7GZ05FWT7Q93
 number: 50
 provenance:
-  digest: sha256:87906d1a20cd7faa10e1eac25ab40e0c68594196938bdfd85e0dedf51ceecd73
-  frontmatter_digest: sha256:e82c166f0c13e46045f89a01860c4c31757c0d1c8085edcabe1265fae63c2fcb
-  log: .bboxy/log/2026-11-01.jsonl#14228
-  sig: PC0f2trXiMu1CwoNpF9mT5dOqMR93ym6XXxDvT5tjKXfrTtqGyjVzcleNf/KN1nKNHI5Qmy2q1epAi6tMK4VCA==
-  signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
+  digest: sha256:2824b981df63b11a731cfbefb4d56962ec47df6a99472a620119c99e0f9d66e0
+  frontmatter_digest: sha256:0d6f87d1be3db72a84730a70e79014b554d49fa33687de04b27327f26a8732e5
+  log: .bboxy/log/2026-11-01.jsonl#17814
+  sig: tbWztrCFqMQuyvTTCDYIpIUXGsHHEuOlLqIC5megkWThoiJiIygZoi2nwZduWMwHkh+ynof9w7GIZ/oTjdYhBg==
+  signer: seat:01M6ADTVVZS36VS43P2PG15HRQ
 rejection:
   by: seat:01M6AC3D2ECK4W3F8495PAQTS3
   reason: |-
@@ -53,67 +54,61 @@ rejection:
     - `make test` with no `RUST_TEST_THREADS` override. The review found no new test that depends on running alone. If the full gate still needs `=1`, name the failing test and explain why. A #85 mux flake is not a blocker.
     - Report through `task_report`. The report goes outside the crate or stays excluded from it, as now.
 report:
-  commit: 18ff123b6dc68d2a4f578417359c910a3ce933b3
-  op_id: 01M6AZW4R2VNF9N2RH6ET7VQQH
+  commit: 4889321f13e509dc7ca18ce7ed3f0217e76cdd1b
+  op_id: 01M6B40N0XESJ4X72GVH4Z55S5
   reported_by: seat:01M6ADTVVZS36VS43P2PG15HRQ
-  summary: 'Rework submitted: all nine MUST items addressed. [PR #86](https://github.com/bboxy450/bboxy450-term/pull/86) is OPEN/CLEAN at signed 18ff123b6dc68d2a4f578417359c910a3ce933b3, pushed with clean worktree. Full committed report: [toolkit-widgets-report](https://github.com/bboxy450/bboxy450-term/blob/18ff123b6dc68d2a4f578417359c910a3ce933b3/crates/bbt-ui/reports/toolkit-widgets-report.md), including red→green evidence for1/2/6/7/8, package/lock proof, bounds and gaps. make test with RUST_TEST_THREADS=1 exited0 on this exact head;116models/31crates/48contracts matched native/TLC and all128 headless stories passed. Earlier same-head #85-only exit2 is archived and disclosed. Remaining SHOULD items are approval Escape/descriptions/allow-deny tones; UI/doc/book0.1.2 follow-up remains unpublished. No merge performed.'
+  summary: 'Second rework implemented and pushed to [PR #86](https://github.com/bboxy450/bboxy450-term/pull/86) at signed4889321f13e509dc7ca18ce7ed3f0217e76cdd1b, clean worktree. [Committed report](https://github.com/bboxy450/bboxy450-term/blob/4889321f13e509dc7ca18ce7ed3f0217e76cdd1b/crates/bbt-ui/reports/toolkit-widgets-report.md) maps mechanisms, original outcomes, red→green and gaps. make test exited0 with default concurrency and no serial retry;116models/31crates/48contracts and128stories pass, both#85witnesses pass. Three focused fixes are complete. Integration remains blocked by conflicts with newer main ee6b7d5e and its new historical-report gate while authenticated report-record tools are unavailable; attempted integration was aborted. PR remains unmerged/CONFLICTING. Oracle disposition needed for report migration/current-main integration.'
 role: executor
-status: rejected
+status: reported
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E2: upstream bboxy450-term toolkit widgets for the harness GUI + rendering formal models'
 type: task
-updated: 2026-11-01T07:27:53.594Z
-updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
+updated: 2026-11-01T08:36:01.424Z
+updated_by: seat:01M6ADTVVZS36VS43P2PG15HRQ
 verify: make test
 verify_result:
-  command: make test CI_LOG=target/ci-ready.log RUST_TEST_THREADS=1
+  command: make test CI_LOG=target/ci-round2.log
   evidence:
-  - criterion: MUST 1 — definition-only fallback and meaningful incremental work/property coverage (red→green)
-    reference: 'streaming.rs:23 classifies definition lines; tests/streaming.rs:137 measures 16,461 reparsed vs 785,890 full bytes across100 appends; :76 proves full-parse equality and96/96 primarily-incremental seeds (7/8 omit definitions). make test-toolkit-rework: red2 on b81d3c38 (''lost prefix at append1:0..308''), green0. Logs /tmp/e2-rework-red-widgets.log and /tmp/e2-rework-test-toolkit-rework.log. https://github.com/bboxy450/bboxy450-term/blob/18ff123b6dc68d2a4f578417359c910a3ce933b3/crates/bbt-ui/reports/toolkit-widgets-report.md#red-to-green'
-  - criterion: MUST 2 — state-derived applied sequence/origin ledger, not a bad flag (red→green)
-    reference: toolkit_models.rs:11 tracks each sequence count/origin; exactly-once prefix and current-generation invariants. :387 removes the good generation guard and specifically requires AppliedOriginsBelongToCurrentGeneration violation. make test-toolkit-models red2 (old model mutation undetected), green0. Native/TLC good104states285edges, broken safety704/2164. /tmp/e2-rework-red-models.log; /tmp/e2-rework-test-toolkit-models.log; https://github.com/bboxy450/bboxy450-term/blob/18ff123b6dc68d2a4f578417359c910a3ce933b3/crates/bbt-ui/reports/toolkit-widgets-report.md#rework-acceptance-evidence
-  - criterion: MUST 3 — reports excluded from published UI package
-    reference: crates/bbt-ui/Cargo.toml exclude=["reports/"]. make list-toolkit-package exit0 executes cargo package --list --allow-dirty --locked -p bboxy450-ui --target-dir /Users/feral/mydev/bboxy450-term-harness-widgets/target and asserts no reports/ path. target/toolkit-package-list.txt; /tmp/e2-rework-package-list-checked.log. make test-licenses exit0.
-  - criterion: MUST 4 — exact syntect feature reduction and lock diff
-    reference: 'bbt-doc/Cargo.toml: parsing, default-syntaxes, default-themes, regex-fancy only. make lock exit0 removed11 packages including yaml-rust/plist/time/quick-xml0.42. Existing quick-xml0.41 belongs to wayland-scanner, not syntect. Review Cargo.lock diff6ee43422^..6ee43422; /tmp/e2-rework-lock.diff and /tmp/e2-rework-lock.log.'
-  - criterion: MUST 5 — shared SyntaxSet/ThemeSet OnceLock
-    reference: bbt-doc/src/highlight.rs:33 shared immutable Resources initialized behind worker guard; :87 pointer-identity test across light/dark highlighters. make test-toolkit exit0 and exact18ff full workspace tests passed.
-  - criterion: MUST 6 — nonpanicking diff render and local malformed-line degradation (red→green)
-    reference: bbt-ui/src/modules/diff.rs:40 accepts blank context, retains damaged raw line as Note and subsequent counters; DiffView handles natural() Err without expect/panic. tests/toolkit.rs:124. make test-toolkit-rework red2 (unprefixed hunk line), green0 with both blank and damaged cases. /tmp/e2-rework-red-widgets.log; /tmp/e2-rework-test-toolkit-rework.log.
-  - criterion: MUST 7 — ScrollStick model/API endpoint and reset agreement plus jump liveness (red→green)
-    reference: toolkit_models.rs:155 re-sticks at offset>=maximum, resets intent on JumpToLatest, registers jump~>following. :405 compares reachable endpoint/jump edges with actual API; transcript.rs:103 checks actual private reset state. README fixed. make test-toolkit-models red2 (jump intent retained), green0. Native/TLC good32/288; broken safety38/342. https://github.com/bboxy450/bboxy450-term/blob/18ff123b6dc68d2a4f578417359c910a3ce933b3/crates/bbt-ui/reports/toolkit-widgets-report.md#red-to-green
-  - criterion: MUST 8 — upstream bits/pending/drain coalescing, real new-controller witness (red→green)
-    reference: toolkit_models.rs:233 extends DirtyWake with admitted/consumed queue ledger, coalesced frame-ready and remainder rearm. tests/toolkit.rs:38 uses actual StreamToView/DirtySet/ViewRing:3 deltas in2 frames; omitted complete_drain loses final delta. Model structural witness red2 (missing upstream fields), green0. Native/TLC good142/245; broken liveness129/212. https://github.com/bboxy450/bboxy450-term/blob/18ff123b6dc68d2a4f578417359c910a3ce933b3/crates/bbt-ui/reports/toolkit-widgets-report.md#red-to-green
-  - criterion: MUST 9 — explicit definition classification/invalidation action
-    reference: toolkit_models.rs:96 distinguishes ordinary/inline-bracket from reference/footnote definition appends; definition changes identity, InvalidateDefinitionPrefix clears cache before return. Broken skips invalidation. Native/TLC good33/45; broken safety48/63. Atomic boundary, finite bounds and grammar exclusions in verification/contracts.toml.
-  - criterion: SHOULD and gaps
-    reference: 'All128 headless stories pass with folded-hunk line absence, multiple rendered code colours and scroll pixel inequality. UI paint test proves approval selection changes focus paint. Remaining SHOULD: Escape cancellation, option descriptions, distinct allow/deny tones. Deferred APIs, independent new-control browser references and downstream frame/history budgets remain gaps. https://github.com/bboxy450/bboxy450-term/blob/18ff123b6dc68d2a4f578417359c910a3ce933b3/crates/bbt-ui/reports/toolkit-widgets-report.md#bounds-remaining-gaps-and-disposition'
-  - criterion: Signed, pushed, conflict-free PR and final verification
-    reference: PR86 OPEN/CLEAN at signed18ff123b6dc68d2a4f578417359c910a3ce933b3; origin/harness-widgets identical, tree clean. make push-branch CI_LOG=target/ci-ready.log exit0 verified3 signatures with key9B07E849480C68328CA20684844ECC0587DE7AB0, fresh formal receipt and exactHEAD normal0. Registration-only follow-up resolves newer-main insertion conflict without merge/rebase/history rewrite; merge-tree vs2e7a6791 exit0. Final CI target/ci-ready.log:4808, SHA25646747a3ee7f82126e509d8b5432b1bdc5ee8bf6d285358bc2595bc05edae662a; formal receipt502b8ea6b0a2ec3bb68508937c50f1e1576877dd40995995c0a03ca401b989a6 (clean18ff,116models/31crates/48contracts).
-  - criterion: Known mux flake history and retry disposition
-    reference: First18ff make test exit2 ONLY capture_fairness.rs:352 after exact serial Screens; d824/#85. Archive/tmp/e2-ready-first-18ff-issue85.log, SHA2567b1f4cd235eaf2a6044d54b116edf17eb19964f37f04b2099c81ea90e546da52. One full retry with RUST_TEST_THREADS=1 exited0 with both#85 tests passing, unchanged assertions/quarantine. Parent6ee full gate also exited0. All runs unattended;27invariant checks pass,11existing slow checks skipped.
-  - criterion: Final gate layer 1
-    reference: '["sh","scripts/layering.sh"] — exit 0; /Users/feral/mydev/bboxy450-term-harness-widgets/target/ci-ready.log:4. Parent invocation exported RUST_TEST_THREADS=1.'
-  - criterion: Final gate layer 2
-    reference: '["python3","-I","scripts/test-landing.py"] — exit 0; /Users/feral/mydev/bboxy450-term-harness-widgets/target/ci-ready.log:6. Parent invocation exported RUST_TEST_THREADS=1.'
-  - criterion: Final gate layer 3
-    reference: '["python3","-I","scripts/test-resource-ledger.py"] — exit 0; /Users/feral/mydev/bboxy450-term-harness-widgets/target/ci-ready.log:46. Parent invocation exported RUST_TEST_THREADS=1.'
-  - criterion: Final gate layer 4
-    reference: '["cargo","build","--workspace","--locked","--target-dir","/Users/feral/mydev/bboxy450-term-harness-widgets/target"] — exit 0; /Users/feral/mydev/bboxy450-term-harness-widgets/target/ci-ready.log:52. Parent invocation exported RUST_TEST_THREADS=1.'
-  - criterion: Final gate layer 5
-    reference: '["cargo","clippy","--workspace","--all-targets","--locked","--target-dir","/Users/feral/mydev/bboxy450-term-harness-widgets/target","--","-D","warnings"] — exit 0; /Users/feral/mydev/bboxy450-term-harness-widgets/target/ci-ready.log:55. Parent invocation exported RUST_TEST_THREADS=1.'
-  - criterion: Final gate layer 6
-    reference: '["sh","scripts/quarantine-test.sh","--workspace","--locked"] — exit 0; /Users/feral/mydev/bboxy450-term-harness-widgets/target/ci-ready.log:58. Parent invocation exported RUST_TEST_THREADS=1.'
-  - criterion: Final gate layer 7
-    reference: '["make","test-formal","TARGET_DIR=/Users/feral/mydev/bboxy450-term-harness-widgets/target"] — exit 0; /Users/feral/mydev/bboxy450-term-harness-widgets/target/ci-ready.log:4256. Parent invocation exported RUST_TEST_THREADS=1.'
-  - criterion: Final gate layer 8
-    reference: '["sh","scripts/ui-lint.sh"] — exit 0; /Users/feral/mydev/bboxy450-term-harness-widgets/target/ci-ready.log:4581. Parent invocation exported RUST_TEST_THREADS=1.'
-  - criterion: Final gate layer 9
-    reference: '["cargo","build","-p","bboxy450-term","--locked","--target-dir","/Users/feral/mydev/bboxy450-term-harness-widgets/target"] — exit 0; /Users/feral/mydev/bboxy450-term-harness-widgets/target/ci-ready.log:4598. Parent invocation exported RUST_TEST_THREADS=1.'
-  - criterion: Final gate layer 10
-    reference: private headless argv retained at log line 4600 — exit 0; /Users/feral/mydev/bboxy450-term-harness-widgets/target/ci-ready.log:4600. Parent invocation exported RUST_TEST_THREADS=1.
-  - criterion: Final gate layer 11
-    reference: '["sh","scripts/invariants.sh"] — exit 0; /Users/feral/mydev/bboxy450-term-harness-widgets/target/ci-ready.log:4617. Parent invocation exported RUST_TEST_THREADS=1.'
+  - criterion: 'Round2 #1 streaming correctness / red→green'
+    reference: 'bbt-doc/src/markdown/streaming.rs:25,51,86 removes container markers and retains ambiguous multiline-label candidates. tests/streaming.rs:23 quoted-definition seed and :44 all-split/random corpus cover > [r]: u, - [r]: u, - [^f]: x, [foo\nbar]: u. make test-toolkit-rework exit2 on unchanged18ff123b (/tmp/e2-round2-red.log SHA25661a8b5ac3ed191e44069441b16be0dc2709533d38502e320bf0221c5941d549a), then exit0 (/tmp/e2-round2-green.log):6doc+15UI tests,95/96 primarily incremental seeds,16,461/785,890 work bytes. :31 proves ordinary-link candidate disambiguation resumes caching.'
+  - criterion: 'Round2 #2 local diff recovery / red→green'
+    reference: bbt-ui/src/modules/diff.rs:42 boundaries outrank counters; incomplete/malformed rows stay visible as notes. tests/toolkit.rs:144,151,157,172 test next-hunk/EOF truncation, orphan note, bad header, and new-file boundaries with zero/short/long counts, including bare/tab headers. Four new tests failed on18ff in same exit2 red run and pass in exit0 green; separate bad-header input is asserted too. No expect/panic render path.
+  - criterion: 'Round2 #3 ScrollStick claim and real API witness'
+    reference: toolkit_models.rs:155 removes JumpRestoresFollowing response and marker; contracts.toml:472 drops asynchronous liveness claim. :390 witness calls real jump_to_latest at:416 for every reachable jump and compares following/layout projection. make test-toolkit-models exit0, all4witnesses; good28states/252edges and Broken34/306safety match TLC. Existing private reset-state unit witness retained.
+  - criterion: 'Accepted fixes retained: prior MUST2/3/4/5/8/9'
+    reference: 'Ledger generation/order counts and origin invariants, report exclusion, exact four syntect features, OnceLock resources, upstream DirtyWake bits/pending/drain_pc+coalescing, and explicit definition invalidation remain. Good/Broken graphs: Stream104/285 vs704/2164 safety; Incremental33/45 vs48/63 safety; Dirty142/245 vs129/212 liveness. All match TLC. Prior required red→green1/2/6/7/8 logs and mechanisms remain in committed report. make list-toolkit-package exit0 (/tmp/e2-round2-package.log); target/toolkit-package-list.txt omits reports/.'
+  - criterion: Original nine outcomes and stories
+    reference: Committed report's nine-row matrix maps streaming/highlighting/Transcript/diff/tool/approval/Editor/formal/stories to source and tests. target/ci-round2.log:355 every_rich_widget_story_renders_headless_across_themes_and_densities passes, asserting all128 cases. Folding, multi-colour syntax, transcript scroll and approval focus paint assertions remain.
+  - criterion: Full-gate layer 1 (actual exit0)
+    reference: '["sh","scripts/layering.sh"] — exit0, target/ci-round2.log:4; run by canonical make test.'
+  - criterion: Full-gate layer 2 (actual exit0)
+    reference: '["python3","-I","scripts/test-landing.py"] — exit0, target/ci-round2.log:6; run by canonical make test.'
+  - criterion: Full-gate layer 3 (actual exit0)
+    reference: '["python3","-I","scripts/test-resource-ledger.py"] — exit0, target/ci-round2.log:65; run by canonical make test.'
+  - criterion: Full-gate layer 4 (actual exit0)
+    reference: '["cargo","build","--workspace","--locked","--target-dir","/Users/feral/mydev/bboxy450-term-harness-widgets/target"] — exit0, target/ci-round2.log:71; run by canonical make test.'
+  - criterion: Full-gate layer 5 (actual exit0)
+    reference: '["cargo","clippy","--workspace","--all-targets","--locked","--target-dir","/Users/feral/mydev/bboxy450-term-harness-widgets/target","--","-D","warnings"] — exit0, target/ci-round2.log:79; run by canonical make test.'
+  - criterion: Full-gate layer 6 (actual exit0)
+    reference: '["sh","scripts/quarantine-test.sh","--workspace","--locked"] — exit0, target/ci-round2.log:101; run by canonical make test.'
+  - criterion: Full-gate layer 7 (actual exit0)
+    reference: '["make","test-formal","TARGET_DIR=/Users/feral/mydev/bboxy450-term-harness-widgets/target"] — exit0, target/ci-round2.log:4313; run by canonical make test.'
+  - criterion: Full-gate layer 8 (actual exit0)
+    reference: '["sh","scripts/ui-lint.sh"] — exit0, target/ci-round2.log:4640; run by canonical make test.'
+  - criterion: Full-gate layer 9 (actual exit0)
+    reference: '["cargo","build","-p","bboxy450-term","--locked","--target-dir","/Users/feral/mydev/bboxy450-term-harness-widgets/target"] — exit0, target/ci-round2.log:4658; run by canonical make test.'
+  - criterion: Full-gate layer 10 (actual exit0)
+    reference: Complete exact private headless env/argv at target/ci-round2.log:4663; binary --headless --smoke --ctl --unattended, private account/home/run/repository; exit0, stopped Ok at:4679. Full argv also /tmp/e2-round2-final-evidence.json.
+  - criterion: Full-gate layer 11 (actual exit0)
+    reference: '["sh","scripts/invariants.sh"] — exit0, target/ci-round2.log:4680; run by canonical make test.'
+  - criterion: Exact-head proof / no serial override / issue85
+    reference: make test CI_LOG=target/ci-round2.log exit0; Make default RUST_TEST_THREADS=2, environment unset, no override/retry/exception. Source4889321f line1, normal0 result:4875; all27 invariants0failures,11policy slow skips:4873. Both issue85 mux tests pass, including watched replay invariant. CI SHA2567905ed57e14752410f138daa2813752a80dd668d83d49085bb9ca6d2b4966afa. Fresh formal receipt4fa8940c3c7872d06717d2516f8798e3459689c220c8a362ac69b44c588539be:116models/31crates/48contracts, clean4889321f. Archived /tmp/e2-round2-ci-4889321f.log.
+  - criterion: Branch / signature / push / report
+    reference: harness-widgets head4889321f13e509dc7ca18ce7ed3f0217e76cdd1b; signatureG key9B07E849480C68328CA20684844ECC0587DE7AB0 Boxy<bboxy450@gmail.com>. make push-branch CI_LOG=target/ci-round2.log exit0 verifies4signedcommits0exceptions+freshformal. Remote branch and PR86 head match; worktree clean. Committed report artifact01M6B3Z46NXTCP7P0ZTDCY0YMQ SHA256e23cefe5bed3e41ceff2681fd96f45ef125deeb47fc6fe7864545ab777829c6a. PR unmerged.
+  - criterion: Integration gap requiring Oracle disposition
+    reference: 'Main advanced to ee6b7d5e during gate. git merge-tree --write-tree HEAD origin/main exit1: Makefile,bbt-doc/src/lib.rs,verification/contracts.toml,corpus.toml,coverage.toml. gh pr view86:OPEN/CONFLICTING/DIRTY. Attempted own-branch main merge was aborted; no incoming AGENTS/schema changes retained. Source inspection of main bbt-doc/tests/corpus/reports.rs:61,139-180 indicates new gate rejects four historical Report:[[toolkit-widgets-report]] trailers in candidate commit trees. Current authenticated knowledge_write enum has no report and task_report schema has no report locator. Latest brief explicitly accepts excluded crate report. Need Oracle disposition for legacy-trailer migration/current-main integration; no history rewrite/schema edits performed. PR body records this gap.'
+  - criterion: Scope / gaps / release
+    reference: d824 scope/issue85 decision cited in report+PR;31 attribution copies required by license-packages.py COPIES (including accepted plugins/gitkb). AGENTS/KBschema untouched by this branch. Remaining SHOULD approval Escape/descriptions/allow-deny tones; explicit deferred virtualization,Plan/Image,ANSI/tail truncation,intra-line diff. UI/doc/book need0.1.2 release follow-up; no versions/publish/main merge. No downstream p99 frame-budget proof or slow/night coverage claimed.
   exit_code: 0
 ---
 # E2: upstream toolkit widgets for a rich agent GUI
@@ -326,6 +321,104 @@ Rework submitted: all nine MUST items addressed. [PR #86](https://github.com/bbo
       {
         "criterion": "Final gate layer 11",
         "reference": "[\"sh\",\"scripts/invariants.sh\"] — exit 0; /Users/feral/mydev/bboxy450-term-harness-widgets/target/ci-ready.log:4617. Parent invocation exported RUST_TEST_THREADS=1."
+      }
+    ],
+    "exit_code": 0
+  }
+}
+```
+
+
+## Report from seat:01M6ADTVVZS36VS43P2PG15HRQ
+
+Second rework implemented and pushed to [PR #86](https://github.com/bboxy450/bboxy450-term/pull/86) at signed4889321f13e509dc7ca18ce7ed3f0217e76cdd1b, clean worktree. [Committed report](https://github.com/bboxy450/bboxy450-term/blob/4889321f13e509dc7ca18ce7ed3f0217e76cdd1b/crates/bbt-ui/reports/toolkit-widgets-report.md) maps mechanisms, original outcomes, red→green and gaps. make test exited0 with default concurrency and no serial retry;116models/31crates/48contracts and128stories pass, both#85witnesses pass. Three focused fixes are complete. Integration remains blocked by conflicts with newer main ee6b7d5e and its new historical-report gate while authenticated report-record tools are unavailable; attempted integration was aborted. PR remains unmerged/CONFLICTING. Oracle disposition needed for report migration/current-main integration.
+
+```json
+{
+  "commit": "4889321f13e509dc7ca18ce7ed3f0217e76cdd1b",
+  "op_id": "01M6B40N0XESJ4X72GVH4Z55S5",
+  "verify_result": {
+    "command": "make test CI_LOG=target/ci-round2.log",
+    "evidence": [
+      {
+        "criterion": "Round2 #1 streaming correctness / red→green",
+        "reference": "bbt-doc/src/markdown/streaming.rs:25,51,86 removes container markers and retains ambiguous multiline-label candidates. tests/streaming.rs:23 quoted-definition seed and :44 all-split/random corpus cover > [r]: u, - [r]: u, - [^f]: x, [foo\\nbar]: u. make test-toolkit-rework exit2 on unchanged18ff123b (/tmp/e2-round2-red.log SHA25661a8b5ac3ed191e44069441b16be0dc2709533d38502e320bf0221c5941d549a), then exit0 (/tmp/e2-round2-green.log):6doc+15UI tests,95/96 primarily incremental seeds,16,461/785,890 work bytes. :31 proves ordinary-link candidate disambiguation resumes caching."
+      },
+      {
+        "criterion": "Round2 #2 local diff recovery / red→green",
+        "reference": "bbt-ui/src/modules/diff.rs:42 boundaries outrank counters; incomplete/malformed rows stay visible as notes. tests/toolkit.rs:144,151,157,172 test next-hunk/EOF truncation, orphan note, bad header, and new-file boundaries with zero/short/long counts, including bare/tab headers. Four new tests failed on18ff in same exit2 red run and pass in exit0 green; separate bad-header input is asserted too. No expect/panic render path."
+      },
+      {
+        "criterion": "Round2 #3 ScrollStick claim and real API witness",
+        "reference": "toolkit_models.rs:155 removes JumpRestoresFollowing response and marker; contracts.toml:472 drops asynchronous liveness claim. :390 witness calls real jump_to_latest at:416 for every reachable jump and compares following/layout projection. make test-toolkit-models exit0, all4witnesses; good28states/252edges and Broken34/306safety match TLC. Existing private reset-state unit witness retained."
+      },
+      {
+        "criterion": "Accepted fixes retained: prior MUST2/3/4/5/8/9",
+        "reference": "Ledger generation/order counts and origin invariants, report exclusion, exact four syntect features, OnceLock resources, upstream DirtyWake bits/pending/drain_pc+coalescing, and explicit definition invalidation remain. Good/Broken graphs: Stream104/285 vs704/2164 safety; Incremental33/45 vs48/63 safety; Dirty142/245 vs129/212 liveness. All match TLC. Prior required red→green1/2/6/7/8 logs and mechanisms remain in committed report. make list-toolkit-package exit0 (/tmp/e2-round2-package.log); target/toolkit-package-list.txt omits reports/."
+      },
+      {
+        "criterion": "Original nine outcomes and stories",
+        "reference": "Committed report's nine-row matrix maps streaming/highlighting/Transcript/diff/tool/approval/Editor/formal/stories to source and tests. target/ci-round2.log:355 every_rich_widget_story_renders_headless_across_themes_and_densities passes, asserting all128 cases. Folding, multi-colour syntax, transcript scroll and approval focus paint assertions remain."
+      },
+      {
+        "criterion": "Full-gate layer 1 (actual exit0)",
+        "reference": "[\"sh\",\"scripts/layering.sh\"] — exit0, target/ci-round2.log:4; run by canonical make test."
+      },
+      {
+        "criterion": "Full-gate layer 2 (actual exit0)",
+        "reference": "[\"python3\",\"-I\",\"scripts/test-landing.py\"] — exit0, target/ci-round2.log:6; run by canonical make test."
+      },
+      {
+        "criterion": "Full-gate layer 3 (actual exit0)",
+        "reference": "[\"python3\",\"-I\",\"scripts/test-resource-ledger.py\"] — exit0, target/ci-round2.log:65; run by canonical make test."
+      },
+      {
+        "criterion": "Full-gate layer 4 (actual exit0)",
+        "reference": "[\"cargo\",\"build\",\"--workspace\",\"--locked\",\"--target-dir\",\"/Users/feral/mydev/bboxy450-term-harness-widgets/target\"] — exit0, target/ci-round2.log:71; run by canonical make test."
+      },
+      {
+        "criterion": "Full-gate layer 5 (actual exit0)",
+        "reference": "[\"cargo\",\"clippy\",\"--workspace\",\"--all-targets\",\"--locked\",\"--target-dir\",\"/Users/feral/mydev/bboxy450-term-harness-widgets/target\",\"--\",\"-D\",\"warnings\"] — exit0, target/ci-round2.log:79; run by canonical make test."
+      },
+      {
+        "criterion": "Full-gate layer 6 (actual exit0)",
+        "reference": "[\"sh\",\"scripts/quarantine-test.sh\",\"--workspace\",\"--locked\"] — exit0, target/ci-round2.log:101; run by canonical make test."
+      },
+      {
+        "criterion": "Full-gate layer 7 (actual exit0)",
+        "reference": "[\"make\",\"test-formal\",\"TARGET_DIR=/Users/feral/mydev/bboxy450-term-harness-widgets/target\"] — exit0, target/ci-round2.log:4313; run by canonical make test."
+      },
+      {
+        "criterion": "Full-gate layer 8 (actual exit0)",
+        "reference": "[\"sh\",\"scripts/ui-lint.sh\"] — exit0, target/ci-round2.log:4640; run by canonical make test."
+      },
+      {
+        "criterion": "Full-gate layer 9 (actual exit0)",
+        "reference": "[\"cargo\",\"build\",\"-p\",\"bboxy450-term\",\"--locked\",\"--target-dir\",\"/Users/feral/mydev/bboxy450-term-harness-widgets/target\"] — exit0, target/ci-round2.log:4658; run by canonical make test."
+      },
+      {
+        "criterion": "Full-gate layer 10 (actual exit0)",
+        "reference": "Complete exact private headless env/argv at target/ci-round2.log:4663; binary --headless --smoke --ctl --unattended, private account/home/run/repository; exit0, stopped Ok at:4679. Full argv also /tmp/e2-round2-final-evidence.json."
+      },
+      {
+        "criterion": "Full-gate layer 11 (actual exit0)",
+        "reference": "[\"sh\",\"scripts/invariants.sh\"] — exit0, target/ci-round2.log:4680; run by canonical make test."
+      },
+      {
+        "criterion": "Exact-head proof / no serial override / issue85",
+        "reference": "make test CI_LOG=target/ci-round2.log exit0; Make default RUST_TEST_THREADS=2, environment unset, no override/retry/exception. Source4889321f line1, normal0 result:4875; all27 invariants0failures,11policy slow skips:4873. Both issue85 mux tests pass, including watched replay invariant. CI SHA2567905ed57e14752410f138daa2813752a80dd668d83d49085bb9ca6d2b4966afa. Fresh formal receipt4fa8940c3c7872d06717d2516f8798e3459689c220c8a362ac69b44c588539be:116models/31crates/48contracts, clean4889321f. Archived /tmp/e2-round2-ci-4889321f.log."
+      },
+      {
+        "criterion": "Branch / signature / push / report",
+        "reference": "harness-widgets head4889321f13e509dc7ca18ce7ed3f0217e76cdd1b; signatureG key9B07E849480C68328CA20684844ECC0587DE7AB0 Boxy<bboxy450@gmail.com>. make push-branch CI_LOG=target/ci-round2.log exit0 verifies4signedcommits0exceptions+freshformal. Remote branch and PR86 head match; worktree clean. Committed report artifact01M6B3Z46NXTCP7P0ZTDCY0YMQ SHA256e23cefe5bed3e41ceff2681fd96f45ef125deeb47fc6fe7864545ab777829c6a. PR unmerged."
+      },
+      {
+        "criterion": "Integration gap requiring Oracle disposition",
+        "reference": "Main advanced to ee6b7d5e during gate. git merge-tree --write-tree HEAD origin/main exit1: Makefile,bbt-doc/src/lib.rs,verification/contracts.toml,corpus.toml,coverage.toml. gh pr view86:OPEN/CONFLICTING/DIRTY. Attempted own-branch main merge was aborted; no incoming AGENTS/schema changes retained. Source inspection of main bbt-doc/tests/corpus/reports.rs:61,139-180 indicates new gate rejects four historical Report:[[toolkit-widgets-report]] trailers in candidate commit trees. Current authenticated knowledge_write enum has no report and task_report schema has no report locator. Latest brief explicitly accepts excluded crate report. Need Oracle disposition for legacy-trailer migration/current-main integration; no history rewrite/schema edits performed. PR body records this gap."
+      },
+      {
+        "criterion": "Scope / gaps / release",
+        "reference": "d824 scope/issue85 decision cited in report+PR;31 attribution copies required by license-packages.py COPIES (including accepted plugins/gitkb). AGENTS/KBschema untouched by this branch. Remaining SHOULD approval Escape/descriptions/allow-deny tones; explicit deferred virtualization,Plan/Image,ANSI/tail truncation,intra-line diff. UI/doc/book need0.1.2 release follow-up; no versions/publish/main merge. No downstream p99 frame-budget proof or slow/night coverage claimed."
       }
     ],
     "exit_code": 0
