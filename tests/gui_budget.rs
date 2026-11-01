@@ -8,7 +8,8 @@
 #![cfg(feature = "embedded")]
 use bboxy450_harness::{
     frontends::gui::{
-        budget::{self, Clock, Work},
+        bridge::Bridge,
+        budget::{Clock, Work},
         model::Transcript,
         view::Preparer,
     },
@@ -118,55 +119,83 @@ fn fixture() -> (std::collections::VecDeque<Envelope>, ItemId) {
     queue.push_back(complete);
     (queue, item)
 }
-#[test]
-fn injected_clock_stops_at_300us_defers_and_loses_no_envelope() {
-    let (mut queue, item) = fixture();
-    let expected = queue.len();
-    let clock = InjectedClock::default();
-    let mut model = Transcript::default();
-    let mut applied = 0;
-    let mut frames = 0;
-    while !queue.is_empty() {
-        let before = queue.len();
-        let drained = budget::drain(
-            &clock,
-            Duration::from_micros(300),
-            || queue.pop_front(),
-            |e| {
-                model.apply(&e);
-                applied += 1;
-            },
-        );
-        assert!(drained.spent <= Duration::from_micros(300));
-        assert_eq!(before - queue.len(), drained.received);
-        if !queue.is_empty() {
-            assert_eq!(drained.received, 3);
-            assert_eq!(drained.spent, Duration::from_micros(300));
-        }
-        frames += 1;
+#[tokio::test]
+async fn injected_clock_stops_at_300us_defers_and_loses_no_envelope() {
+    let (queue, item) = fixture();
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("replay.jsonl");
+    let mut data = Vec::new();
+    for event in &queue {
+        serde_json::to_writer(&mut data, event).unwrap();
+        data.push(b'\n');
     }
-    assert_eq!(applied, expected);
+    std::fs::write(&path, data).unwrap();
+    let mut bridge = Bridge::new(Arc::new(Wake::default()));
+    bridge.replay(path);
+    async fn publication(bridge: &Bridge, after: u64) {
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while bridge.published_revision() <= after {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+    publication(&bridge, 0).await;
+    // Exercise real worker publications, fill the UI notification queue and
+    // leave all draining to Bridge's production path.
+    for i in 0..15 {
+        let revision = bridge.published_revision();
+        bridge.set_width(if i % 2 == 0 { 1000. } else { 1120. });
+        publication(&bridge, revision).await;
+    }
+    let expected_revision = bridge.published_revision();
+    let clock = InjectedClock::default();
+    assert!(bridge.drain_with_clock(Duration::from_micros(300), &clock));
+    assert_eq!(clock.now(), Duration::from_micros(300));
+    assert!(
+        bridge.pending_notices(),
+        "the production drain must defer queued work"
+    );
+    let mut frames = 1;
+    while bridge.pending_notices() {
+        let before = clock.now();
+        bridge.drain_with_clock(Duration::from_micros(300), &clock);
+        assert!(clock.now() - before <= Duration::from_micros(300));
+        frames += 1;
+        assert!(frames <= 8);
+    }
+    assert_eq!(bridge.state.revision, expected_revision);
+    let model = &bridge.state.transcript;
     assert_eq!(model.duplicate_durable, 0);
     assert_eq!(model.cursor, Seq(5));
+    assert_eq!(model.items.len(), 2);
     assert_eq!(
         model.items[&item].body,
         Item::AgentMessage {
             markdown: "x".repeat(100_000)
         }
     );
+    bridge.detach().unwrap().await.unwrap();
     println!(
-        "gui-budget: 100000 deltas, {frames} deterministic frames, 300us limit, {applied} envelopes applied exactly once, zero loss"
+        "gui-budget: real Bridge, 100000 deltas, {frames} injected-clock frames, 300us limit, deferred notifications and zero projection loss"
     );
 }
 #[tokio::test]
 async fn completed_layouts_are_retained_and_large_blocks_prepare_off_ui() {
     bbt_rt::register_ui_thread();
     let ui_thread = std::thread::current().id();
-    let (queue, _) = fixture();
+    let (queue, item) = fixture();
     let mut model = Transcript::default();
     for e in queue {
         model.apply(&e);
     }
+    model.items.get_mut(&item).unwrap().body = Item::AgentMessage {
+        markdown: "x".repeat(64 * 1024),
+    };
+    assert!(
+        matches!(&model.items[&item].body, Item::AgentMessage { markdown } if markdown.len() == 64 * 1024)
+    );
     let source = Arc::new(model);
     let (large, on_ui, first, second, thread) = bboxy450_harness::runtime::blocking(move || {
         let mut preparer = Preparer::default();

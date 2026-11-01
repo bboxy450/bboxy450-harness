@@ -18,7 +18,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicU32, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -26,6 +26,7 @@ use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Default)]
 pub struct FrameState {
+    pub revision: u64,
     pub transcript: Arc<Transcript>,
     pub gateway: Option<InProc>,
     pub error: Option<String>,
@@ -40,6 +41,8 @@ struct Mailbox {
     pending_turns: arc_swap::ArcSwap<im::OrdSet<OpId>>,
     width: AtomicU32,
     resized: tokio::sync::Notify,
+    published: AtomicU64,
+    blobs: arc_swap::ArcSwapOption<crate::store::Blobs>,
 }
 impl Mailbox {
     fn pending(&self, op: OpId, insert: bool) {
@@ -53,11 +56,14 @@ impl Mailbox {
             Arc::new(next)
         });
     }
-    fn publish(&self, state: FrameState) {
+    fn publish(&self, mut state: FrameState) {
+        state.revision = self.published.load(Ordering::Acquire) + 1;
+        let revision = state.revision;
         self.latest.publish(state);
         // A saturated notification queue is harmless: Latest holds the complete
         // current state and its own dirty source, including all durable items.
         let _ = self.notices.try_send(UiMsg::Changed { source: 0 });
+        self.published.store(revision, Ordering::Release);
     }
 }
 pub struct Bridge {
@@ -79,6 +85,8 @@ impl Bridge {
                 pending_turns: arc_swap::ArcSwap::from_pointee(im::OrdSet::new()),
                 width: AtomicU32::new(1120f32.to_bits()),
                 resized: tokio::sync::Notify::new(),
+                published: AtomicU64::new(0),
+                blobs: arc_swap::ArcSwapOption::empty(),
             }),
             messages,
             dirty,
@@ -87,13 +95,21 @@ impl Bridge {
             worker: None,
         }
     }
+    pub fn published_revision(&self) -> u64 {
+        self.mailbox.published.load(Ordering::Acquire)
+    }
+    pub fn pending_notices(&self) -> bool {
+        !self.messages.is_empty()
+    }
     /// IO is scheduled, never awaited by the caller/frame owner.
     pub fn replay(&mut self, path: PathBuf) {
         let mailbox = self.mailbox.clone();
         let detach = self.detach.clone();
         self.worker = Some(bbt_rt::handle().spawn(async move {
+            let root = path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
             match read_replay(path).await {
                 Ok(transcript) => {
+                    if let Some(session) = transcript.session { mailbox.blobs.store(Some(Arc::new(crate::store::Blobs { dir: root.join(session.to_string()).join("blobs"), redactor: Default::default() }))); }
                     let state = FrameState { transcript: Arc::new(transcript), replay: true, ready: true, ..Default::default() };
                     let mut preparer = Preparer::default();
                     loop {
@@ -119,6 +135,10 @@ impl Bridge {
         let detach = self.detach.clone();
         self.worker = Some(bbt_rt::handle().spawn(async move {
             let session = config.meta.session;
+            mailbox.blobs.store(Some(Arc::new(crate::store::Blobs {
+                dir: config.sessions.join(session.to_string()).join("blobs"),
+                redactor: config.redactor.clone(),
+            })));
             let op = Op::StartSession {
                 cwd: config.meta.cwd.clone(),
                 profile: config.meta.profile.clone(),
@@ -141,11 +161,15 @@ impl Bridge {
                     drop(host);
                 }
                 Err(error) => mailbox.publish(FrameState {
-                    error: Some(format!("Session could not start: {error:?}")),
+                    error: Some(format!("Session could not start: {}", refusal_text(&error))),
                     ..Default::default()
                 }),
             }
         }));
+    }
+    pub fn attach_with_blobs(&mut self, gateway: InProc, blobs: crate::store::Blobs) {
+        self.mailbox.blobs.store(Some(Arc::new(blobs)));
+        self.attach(gateway);
     }
     pub fn attach(&mut self, gateway: InProc) {
         let mailbox = self.mailbox.clone();
@@ -232,6 +256,9 @@ struct Preparer;
 async fn publish_frame(mut state: FrameState, mailbox: &Mailbox, preparer: &mut Preparer) {
     #[cfg(feature = "embedded")]
     {
+        if let Some(blobs) = mailbox.blobs.load_full() {
+            load_terminal_outputs(&state.transcript, &blobs, preparer).await;
+        }
         let mut owned = std::mem::take(preparer);
         let source = state.transcript.clone();
         let width = f32::from_bits(mailbox.width.load(Ordering::Acquire));
@@ -296,7 +323,7 @@ async fn consume(gateway: InProc, mailbox: Arc<Mailbox>, detach: CancellationTok
             Err(error) => {
                 mailbox.publish(FrameState {
                     transcript: Arc::new(model),
-                    error: Some(format!("Subscription ended: {error:?}")),
+                    error: Some(format!("Subscription ended: {}", refusal_text(&error))),
                     ..Default::default()
                 });
                 return;
@@ -407,4 +434,49 @@ pub async fn read_replay(path: PathBuf) -> Result<Transcript, String> {
         Ok(model)
     })
     .await
+}
+
+/// Terminal blobs are checked and read on runtime workers before row layout.
+#[cfg(feature = "embedded")]
+pub async fn load_terminal_outputs(
+    model: &Transcript,
+    blobs: &crate::store::Blobs,
+    preparer: &mut super::view::Preparer,
+) {
+    preparer.scope(model);
+    for row in model.items.values() {
+        if row.completed.is_some()
+            && !preparer.has_terminal_output(&row.id)
+            && let Item::Terminal {
+                output: Some(blob), ..
+            } = &row.body
+        {
+            let text = if blob.len == 0 {
+                "(no output)".into()
+            } else {
+                match blobs.get(blob).await {
+                    Ok(bytes) => {
+                        let text = String::from_utf8_lossy(&bytes);
+                        let mut start = text.len().saturating_sub(4096);
+                        while !text.is_char_boundary(start) {
+                            start += 1;
+                        }
+                        text[start..].to_owned()
+                    }
+                    Err(_) => "Output unavailable: blob could not be read".into(),
+                }
+            };
+            preparer.terminal_output(row.id, text);
+        }
+    }
+}
+pub fn refusal_text(error: &Refused) -> &'static str {
+    match error {
+        Refused::Busy => "session busy",
+        Refused::UnknownSession => "session unavailable",
+        Refused::Version { .. } => "protocol version mismatch",
+        Refused::Closed => "session closed",
+        Refused::SessionExists => "session already exists",
+        Refused::BadFork => "fork unavailable",
+    }
 }

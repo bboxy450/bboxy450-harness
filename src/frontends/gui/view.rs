@@ -134,6 +134,15 @@ pub struct Frame {
     pub max_scroll: f32,
     pub timings: [std::time::Duration; 5],
 }
+impl Frame {
+    pub fn item_text(&self, id: ItemId) -> Option<String> {
+        self.layout
+            .as_ref()
+            .and_then(|l| find(l, &format!("item/{id}")))
+            .map(layout_text)
+    }
+}
+
 // Retain identity ownership as well as content. A retired prepared snapshot's
 // allocation cannot be reused for an A -> B -> A resize before replacement.
 type CacheKey = (
@@ -264,7 +273,7 @@ impl HarnessView {
                 if state.replay {
                     "Offline replay".into()
                 } else {
-                    format!("{:?}", model.phase)
+                    phase_text(&model.phase)
                 }
             });
         let controls_key = format!("{draft}{status}{}", state.ready);
@@ -439,7 +448,8 @@ impl HarnessView {
                         }
                         Err(error) => {
                             self.notice = Some(format!(
-                                "Message not admitted: {error:?}. Your draft is retained."
+                                "Message not admitted: {}. Your draft is retained.",
+                                super::bridge::refusal_text(&error)
                             ))
                         }
                     }
@@ -457,7 +467,7 @@ impl HarnessView {
                 self.notice = bridge
                     .send(op)
                     .err()
-                    .map(|e| format!("Action not admitted: {e:?}"));
+                    .map(|e| format!("Action not admitted: {}", super::bridge::refusal_text(&e)));
             }
         }
         self.invalidate();
@@ -493,8 +503,8 @@ fn append_paint(list: &mut DrawList, paint: c::Paint) -> Result<(), String> {
                 mask,
             });
         }
-        c::Paint::Material { kind, .. } => {
-            return Err(format!("unexpected material in plain transcript: {kind:?}"));
+        c::Paint::Material { .. } => {
+            return Err("Unsupported transcript material".into());
         }
     }
     Ok(())
@@ -525,7 +535,95 @@ pub fn kind_label(kind: ItemKind) -> &'static str {
         ItemKind::Unknown => "Unknown item",
     }
 }
-fn display_body(row: &ViewItem) -> String {
+fn phase_text(phase: &Phase) -> String {
+    match phase {
+        Phase::Idle => "Ready".into(),
+        Phase::Queued { turns } => format!("{turns} turns queued"),
+        Phase::Thinking => "Thinking".into(),
+        Phase::Streaming => "Writing".into(),
+        Phase::Tool { .. } => "Running tool".into(),
+        Phase::Approval { .. } => "Approval needed".into(),
+        Phase::Retrying { attempt, wait_ms } => format!("Retry {attempt} in {wait_ms} ms"),
+        Phase::Closed => "Session closed".into(),
+        Phase::Unknown => "Status unavailable".into(),
+    }
+}
+fn status_text(status: &ItemStatus) -> String {
+    match status {
+        ItemStatus::Completed => "Completed".into(),
+        ItemStatus::Failed { reason } => format!("Failed: {reason}"),
+        ItemStatus::Cancelled => "Cancelled".into(),
+        ItemStatus::Interrupted => "Interrupted".into(),
+        ItemStatus::Unknown => "Status unavailable".into(),
+    }
+}
+fn role(kind: ItemKind) -> &'static str {
+    match kind {
+        ItemKind::UserMessage => "user",
+        ItemKind::AgentMessage | ItemKind::Reasoning | ItemKind::Plan => "assistant",
+        ItemKind::ToolCall | ItemKind::Terminal | ItemKind::FileChange | ItemKind::TurnDiff => {
+            "tool"
+        }
+        ItemKind::Subagent => "subagent",
+        _ => "system",
+    }
+}
+fn arguments(raw: &str) -> String {
+    fn readable(value: &serde_json::Value) -> String {
+        match value {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Object(fields) => fields
+                .iter()
+                .map(|(k, v)| format!("{k}: {}", readable(v)))
+                .collect::<Vec<_>>()
+                .join("; "),
+            serde_json::Value::Array(values) => {
+                values.iter().map(readable).collect::<Vec<_>>().join(", ")
+            }
+            serde_json::Value::Null => "none".into(),
+            serde_json::Value::Bool(b) => b.to_string(),
+            serde_json::Value::Number(n) => n.to_string(),
+        }
+    }
+    serde_json::from_str(raw)
+        .map(|v| readable(&v))
+        .unwrap_or_else(|_| {
+            if raw.is_empty() {
+                "Waiting for arguments".into()
+            } else {
+                format!("Arguments streaming ({} bytes)", raw.len())
+            }
+        })
+}
+/// Visible solved glyph text, used by headless semantic witnesses.
+pub fn layout_text(layout: &c::Layout) -> String {
+    fn collect(layout: &c::Layout, out: &mut Vec<String>) {
+        if let c::LayoutKind::Text { runs, .. } = &layout.kind {
+            let mut text = String::new();
+            let mut previous: Option<(f32, f32)> = None;
+            for run in runs {
+                if previous.is_some_and(|(right, baseline)| {
+                    (run.baseline - baseline).abs() > 0.5 || run.rect.x - right > 1.
+                }) {
+                    text.push(' ');
+                }
+                text.push_str(&run.text);
+                previous = Some((run.rect.right(), run.baseline));
+            }
+            out.push(text);
+        }
+        for child in &layout.children {
+            collect(child, out);
+        }
+    }
+    let mut out = vec![];
+    collect(layout, &mut out);
+    out.join(" ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+fn display_body(row: &ViewItem, terminal_output: Option<&String>) -> String {
     let text = match &row.body {
         Item::AgentMessage { markdown } => markdown.clone(),
         Item::Reasoning { summary, .. } => summary.clone(),
@@ -533,23 +631,113 @@ fn display_body(row: &ViewItem) -> String {
             .iter()
             .map(|b| match b {
                 InputBlock::Text { text } => text.clone(),
-                _ => format!("{b:?}"),
+                InputBlock::Image { blob } => format!("Image: {} · {} bytes", blob.mime, blob.len),
+                InputBlock::Mention { path } => format!("Mention: {}", path.display()),
+                InputBlock::Unknown => "Unsupported input".into(),
             })
             .collect::<Vec<_>>()
             .join("\n"),
+        Item::ToolCall {
+            name,
+            input_raw,
+            output,
+            ..
+        } => {
+            let output = output
+                .iter()
+                .map(|b| match b {
+                    OutputBlock::Text { text } => text.clone(),
+                    OutputBlock::Image { blob } => {
+                        format!("Image: {} · {} bytes", blob.mime, blob.len)
+                    }
+                    OutputBlock::Json { value } => arguments(&value.to_string()),
+                    OutputBlock::Diff { path, unified } => format!("{}\n{unified}", path.display()),
+                    OutputBlock::Error { text } => format!("Error: {text}"),
+                    OutputBlock::Unknown => "Unsupported tool output".into(),
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!("{name}\nArguments: {}\n{output}", arguments(input_raw))
+        }
         Item::Terminal {
             command,
             exit,
+            signal,
             output,
             ..
+        } => {
+            let result = exit.map_or_else(
+                || "Exit code: pending".into(),
+                |c| format!("Exit code: {c}"),
+            );
+            let signal = signal.map_or(String::new(), |s| format!(" · Signal: {s}"));
+            let tail = terminal_output.map(String::as_str).unwrap_or_else(|| {
+                if !row.terminal_tail.is_empty() {
+                    &row.terminal_tail
+                } else if output.as_ref().is_some_and(|b| b.len == 0) {
+                    "(no output)"
+                } else {
+                    "Output pending"
+                }
+            });
+            format!("{command}\n{result}{signal}\n{tail}")
+        }
+        Item::FileChange { path, unified, .. } => format!("{}\n{unified}", path.display()),
+        Item::TurnDiff { unified } => unified.clone(),
+        Item::Plan { entries } => entries
+            .iter()
+            .map(|e| {
+                let status = match e.status {
+                    PlanStatus::Pending => "Pending",
+                    PlanStatus::InProgress => "In progress",
+                    PlanStatus::Completed => "Completed",
+                    PlanStatus::Cancelled => "Cancelled",
+                    PlanStatus::Unknown => "Unknown",
+                };
+                format!("{status}: {}", e.text)
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Item::Approval {
+            subject, decision, ..
+        } => {
+            let result = match decision {
+                None => "Awaiting decision",
+                Some(ApprovalDecision::Allow) => "Allowed",
+                Some(ApprovalDecision::AllowAlways) => "Always allowed",
+                Some(ApprovalDecision::Deny { .. }) => "Denied",
+                _ => "Decision unavailable",
+            };
+            let paths = subject
+                .paths
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "{}\n{}\n{paths}\n{result}",
+                subject.summary,
+                subject.command.as_deref().unwrap_or("")
+            )
+        }
+        Item::Image { mime, blob } => format!("Image: {mime} · {} bytes", blob.len),
+        Item::Compaction {
+            summary,
+            replaced_through,
         } => format!(
-            "{command}\n{}\nExit: {exit:?} · Output: {output:?}",
-            row.terminal_tail
+            "Compacted through event {} · summary {} bytes",
+            replaced_through.0, summary.len
+        ),
+        Item::Usage { usage } => format!(
+            "Input: {} tokens · Output: {} tokens\nCached: {} tokens · Reasoning: {} tokens",
+            usage.input_tokens,
+            usage.output_tokens,
+            usage.cached_input_tokens.unwrap_or(0),
+            usage.reasoning_tokens.unwrap_or(0)
         ),
         Item::Notice { text, .. } => text.clone(),
-        // Phase 1: the published toolkit has no rich harness-specific atoms.
-        // Keep the complete typed payload; only the plain visible preview is capped.
-        body => serde_json::to_string_pretty(body).unwrap_or_else(|_| "Unknown item".into()),
+        Item::Subagent { session } => format!("Session: {session}"),
+        Item::Unknown => "Unsupported item".into(),
     };
     let mut end = text.len().min(4096);
     while !text.is_char_boundary(end) {
@@ -618,18 +806,32 @@ pub struct Preparer {
     rows: im::HashMap<ItemId, Arc<CachedRow>>,
     scope: Option<(Option<SessionId>, Epoch)>,
     layout_builds: usize,
+    terminal_outputs: std::collections::HashMap<ItemId, String>,
 }
 impl Preparer {
+    /// Blob loading is completed before preparation, on the background path.
+    pub fn has_terminal_output(&self, id: &ItemId) -> bool {
+        self.terminal_outputs.contains_key(id)
+    }
+    pub fn terminal_output(&mut self, id: ItemId, text: String) {
+        self.terminal_outputs.insert(id, text);
+        self.rows.remove(&id);
+    }
+
+    pub(crate) fn scope(&mut self, model: &Transcript) {
+        let scope = (model.session, model.epoch);
+        if self.scope != Some(scope) {
+            self.rows.clear();
+            self.terminal_outputs.clear();
+            self.scope = Some(scope);
+        }
+    }
     /// Caller must use the bounded runtime::blocking preparation pool.
     pub fn prepare(&mut self, source: Arc<Transcript>, width: f32) -> Result<PreparedRows, String> {
         let ctx = context();
         let model = &source;
         let width = width.max(240.);
-        let scope = (model.session, model.epoch);
-        if self.scope != Some(scope) {
-            self.rows.clear();
-            self.scope = Some(scope);
-        }
+        self.scope(model);
         let mut total_height = 0.;
         bbt_rt::assert_not_ui_thread();
         for (index, id) in model.order.iter().enumerate() {
@@ -645,12 +847,9 @@ impl Preparer {
             }
             let message = Message {
                 from: kind_label(row.kind).into(),
-                role: "executor".into(),
-                text: display_body(row),
-                time: row
-                    .status
-                    .as_ref()
-                    .map_or("Streaming".into(), |s| format!("{s:?}")),
+                role: role(row.kind).into(),
+                text: display_body(row, self.terminal_outputs.get(id)),
+                time: row.status.as_ref().map_or("Streaming".into(), status_text),
                 message_ids: vec![id.to_string()],
                 ..Default::default()
             };

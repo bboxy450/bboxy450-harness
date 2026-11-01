@@ -201,3 +201,114 @@ async fn replay_resize_publishes_current_width_and_invalidates_frame_cache() {
     assert!(frame.visible.iter().all(|(_, _, r)| r.right() <= 800.));
     bridge.detach().unwrap().await.unwrap();
 }
+
+#[tokio::test]
+async fn cards_show_readable_content_instead_of_serialized_payloads() {
+    let model = read_replay("tests/fixtures/protocol/all-items.jsonl".into())
+        .await
+        .unwrap();
+    let mut state = FrameState {
+        transcript: Arc::new(model),
+        ready: true,
+        replay: true,
+        ..Default::default()
+    };
+    state.prepared = Some(Arc::new(
+        Preparer::default()
+            .prepare(state.transcript.clone(), 1120.)
+            .unwrap(),
+    ));
+    let mut view = HarnessView::default();
+    let frame = view.render(&state, [1120., 7000.]).unwrap();
+    let text = bboxy450_harness::frontends::gui::view::layout_text(frame.layout.as_ref().unwrap());
+    assert!(
+        !text.contains("\"kind\":"),
+        "raw JSON is not a readable card: {text}"
+    );
+    assert!(
+        text.contains("Exit code: 0"),
+        "terminal exit must be explicit readable text"
+    );
+    assert!(!text.contains("Some("));
+}
+
+#[tokio::test]
+async fn live_terminal_heads_snapshots_and_completed_blob_reach_the_view() {
+    use bboxy450_harness::gateway::Gateway;
+    let command = "printf stream-head; sleep 0.3; printf stream-tail";
+    let first = format!("data: {}\n\ndata: [DONE]\n\n", serde_json::json!({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"gui-terminal","type":"function","function":{"name":"bash","arguments":serde_json::json!({"command":command}).to_string()}}]},"finish_reason":"tool_calls"}]})).into_bytes();
+    let session = support::session(vec![first, support::sse("text")], true).await;
+    let blobs = bboxy450_harness::store::Blobs {
+        dir: session
+            .temp
+            .path()
+            .join("sessions")
+            .join(session.gateway.hello().meta.session.to_string())
+            .join("blobs"),
+        redactor: Default::default(),
+    };
+    let mut observer = support::subscribe(&session.gateway, true);
+    let mut bridge = Bridge::new(Arc::new(Wake));
+    bridge.attach_with_blobs(session.gateway.clone(), blobs);
+    session
+        .gateway
+        .send(support::prompt(&session.gateway, "run command"))
+        .unwrap();
+    let mut projection = Transcript::default();
+    let mut saw_head = false;
+    let mut saw_live = false;
+    let mut terminal_id = None;
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while let Some(e) = observer.recv().await {
+            projection.apply(&e);
+            match e.event {
+                Event::ItemStarted { item, kind: ItemKind::Terminal, .. } => {
+                    terminal_id = Some(item);
+                    assert!(matches!(&projection.items[&item].body, Item::Terminal { command: c, .. } if c == command), "live Envelope head must name the command before completion");
+                    saw_head = true;
+                }
+                Event::ItemSnapshot { item, partial: Item::Terminal { .. } } => {
+                    let live = serde_json::to_value(&e.event).unwrap();
+                    let expected = live.pointer("/partial/live").and_then(serde_json::Value::as_str).unwrap_or("");
+                    if !expected.is_empty() { assert_eq!(projection.items[&item].terminal_tail, expected); saw_live = true; }
+                }
+                Event::TurnEnded { .. } => break,
+                _ => {}
+            }
+        }
+    }).await.unwrap();
+    let terminal_id = terminal_id.expect("real bash created a terminal");
+    tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            bridge.drain(Duration::from_micros(300));
+            if bridge.state.prepared.is_some()
+                && bridge
+                    .state
+                    .transcript
+                    .items
+                    .get(&terminal_id)
+                    .is_some_and(|r| r.completed.is_some())
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let mut view = HarnessView::default();
+    let frame = view.render(&bridge.state, [1120., 7000.]).unwrap();
+    let text = frame.item_text(terminal_id).unwrap();
+    assert!(text.contains(command));
+    assert!(text.contains("Exit code: 0"));
+    assert!(
+        text.contains("stream-headstream-tail"),
+        "completed blob must supply output, not just the command: {text}"
+    );
+    assert!(
+        saw_head && saw_live,
+        "live gateway must deliver v0.2 identity and coalesced output snapshots"
+    );
+    bridge.detach().unwrap().await.unwrap();
+    support::close(session).await;
+}

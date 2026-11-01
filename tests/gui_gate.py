@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix='harness-gui-tests-', dir='/tmp') as own
     env['TMPDIR'] = own
     for command in [
         ['cargo', 'clippy', '--offline', '--locked', '--all-features', '--lib', '--bin', 'bboxy450-harness', '--', '-D', 'warnings'],
-        ['cargo', 'test', '--offline', '--locked', '--features', 'standalone', '--test', 'gui_render', '--test', 'gui_budget', '--test', 'gui_cli', '--', '--nocapture'],
+        ['cargo', 'test', '--offline', '--locked', '--features', 'standalone', '--test', 'gui_render', '--test', 'gui_bridge', '--test', 'gui_fixtures', '--test', 'gui_budget', '--test', 'gui_cli', '--', '--nocapture'],
         ['make', 'test-gui-smoke'],
     ]:
         print('gui-test: ' + ' '.join(command), flush=True)

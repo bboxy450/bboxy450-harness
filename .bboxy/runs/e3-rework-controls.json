@@ -1,0 +1,53 @@
+[
+  {
+    "control": "budget",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--features",
+      "standalone",
+      "--test",
+      "gui_budget",
+      "injected_clock_stops",
+      "--",
+      "--nocapture"
+    ],
+    "exit_code": 101
+  },
+  {
+    "control": "snapshot",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--features",
+      "standalone",
+      "--test",
+      "gui_fixtures",
+      "snapshot_repairs_dropped",
+      "--",
+      "--nocapture"
+    ],
+    "exit_code": 101
+  },
+  {
+    "control": "approval",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--features",
+      "standalone",
+      "--test",
+      "gui_bridge",
+      "rendered_approval",
+      "--",
+      "--nocapture"
+    ],
+    "exit_code": 101
+  }
+]

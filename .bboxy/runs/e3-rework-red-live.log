@@ -1,0 +1,22 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.89s
+     Running tests/gui_render.rs (target/debug/deps/gui_render-8d7300d3afcb5fcd)
+
+running 1 test
+test live_terminal_heads_snapshots_and_completed_blob_reach_the_view ... FAILED
+
+failures:
+
+---- live_terminal_heads_snapshots_and_completed_blob_reach_the_view stdout ----
+
+thread 'live_terminal_heads_snapshots_and_completed_blob_reach_the_view' (113257977) panicked at tests/gui_render.rs:283:21:
+live Envelope head must name the command before completion
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    live_terminal_heads_snapshots_and_completed_blob_reach_the_view
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.36s
+
+error: test failed, to rerun pass `--test gui_render`

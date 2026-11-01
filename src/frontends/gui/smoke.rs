@@ -8,13 +8,31 @@
 //! Offscreen Metal frame witness. No window, display permission or model.
 use super::{
     bridge::{FrameState, read_replay},
-    view::HarnessView,
+    view::{Action, HarnessView, layout_text},
 };
 use bbt_render::{chrome::ChromeRenderer, device::DeviceContext};
 use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
 pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
-    let model = read_replay(replay).await?;
+    let mut model = read_replay(replay).await?;
+    // The completed replay proves all kinds; an open copy also proves the
+    // actionable approval state in the same offscreen frame.
+    for id in model.order.clone() {
+        let row = model.items.get_mut(&id).unwrap();
+        if let crate::protocol::Item::Approval {
+            decision, options, ..
+        } = &mut row.body
+        {
+            *decision = None;
+            *options = vec![
+                crate::protocol::ApprovalDecisionKind::Allow,
+                crate::protocol::ApprovalDecisionKind::AllowAlways,
+                crate::protocol::ApprovalDecisionKind::Deny,
+            ];
+            row.status = None;
+            row.completed = None;
+        }
+    }
     let context = DeviceContext::new().await.map_err(|e| e.to_string())?;
     crate::runtime::blocking(move || {
         let mut state = FrameState {
@@ -51,6 +69,34 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
                 "not every item is visible: expected {expected:?}, got {actual:?}"
             ));
         }
+        use crate::protocol::ItemKind;
+        for row in state.transcript.items.values() {
+            let expected = match row.kind {
+                ItemKind::UserMessage => "Read two files", ItemKind::AgentMessage => "I’ll read both files.",
+                ItemKind::Reasoning => "Compare the current contents.", ItemKind::ToolCall => "Arguments: path: hello.txt",
+                ItemKind::FileChange => "+hello world", ItemKind::TurnDiff => "+++ b/hello.txt",
+                ItemKind::Terminal => "printf ok", ItemKind::Plan => "In progress: Update greeting",
+                ItemKind::Approval => "Edit hello.txt", ItemKind::Image => "Image: image/png",
+                ItemKind::Usage => "Input: 0 tokens", ItemKind::Compaction => "Compacted through event 1",
+                ItemKind::Notice => "fixture complete", ItemKind::Subagent => "Session: 00000000000000000000000009",
+                ItemKind::Unknown => return Err("unexpected unknown fixture item".into()),
+            };
+            if let crate::protocol::Item::ToolCall { name, .. } = &row.body
+                && !frame.item_text(row.id).is_some_and(|text| text.contains(name)) { return Err(format!("tool card {} lacks its name", row.id)); }
+            if !frame.item_text(row.id).is_some_and(|text| text.contains(expected)) { return Err(format!("card {} lacks {expected}", row.id)); }
+        }
+        let text = layout_text(frame.layout.as_ref().ok_or("missing solved layout")?);
+        let required = [
+            "Read two files and update hello.txt", "I’ll read both files.",
+            "Compare the current contents.", "Arguments: path: hello.txt", "printf ok", "Exit code: 0",
+            "--- a/hello.txt", "+hello world", "In progress: Update greeting", "Edit hello.txt",
+            "Image: image/png", "0 bytes", "Input: 0 tokens", "Output: 0 tokens",
+            "Session: 00000000000000000000000009", "Compacted through event 1", "fixture complete",
+        ];
+        for expected in required { if !text.contains(expected) { return Err(format!("missing readable content: {expected}; actual text: {text}")); } }
+        if text.contains("\"kind\":") || text.contains("Some(") { return Err("serialized payload reached a card".into()); }
+        let approval_count = frame.actions.iter().filter(|(_, a)| matches!(a, Action::Approval(_, _))).count();
+        if approval_count != 3 || !["Allow", "Always", "Deny"].iter().all(|s| text.contains(s)) { return Err("approval buttons missing".into()); }
         let mut bottom = 0.;
         for (id, kind, r) in &frame.visible {
             if r.y < bottom - 0.5 {
@@ -110,10 +156,25 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
             .write_header()
             .and_then(|mut w| w.write_image_data(&rgba))
             .map_err(|e| e.to_string())?;
+        let item_count = frame.visible.len();
+        let kinds_count = actual.len();
+        let frame = view.render(&state, [1120., 860.])?;
+        let max = frame.max_scroll;
+        if max <= 0. { return Err("smoke needs a scrollable viewport".into()); }
+        view.scroll.wheel(max, max, -max / 2.);
+        view.invalidate();
+        let frame = view.render(&state, [1120., 860.])?;
+        if frame.scroll <= 0. || frame.scroll >= max || frame.visible.is_empty() || frame.visible.len() >= item_count { return Err("scrolled viewport did not virtualize visible rows".into()); }
+        if layout_text(frame.layout.as_ref().ok_or("scrolled layout missing")?).is_empty() { return Err("scrolled viewport has no readable text".into()); }
+        let scrolled = renderer.render_to_rgba(&frame.list, 1120, 860, 1.).map_err(|e| e.to_string())?;
+        let scrolled_path = screenshot.with_file_name("gui-smoke-scrolled.png");
+        let file = std::fs::File::create(scrolled_path).map_err(|e| e.to_string())?;
+        let mut encoder = png::Encoder::new(file, 1120, 860); encoder.set_color(png::ColorType::Rgba); encoder.set_depth(png::BitDepth::Eight);
+        encoder.write_header().and_then(|mut w| w.write_image_data(&scrolled)).map_err(|e| e.to_string())?;
         println!(
-            "gui-smoke: PASS · {} visible items, {} kinds, Metal {}×{} · {}",
-            frame.visible.len(),
-            actual.len(),
+            "gui-smoke: PASS · {} visible items, {} kinds, readable payloads, 3 approval buttons, scrolled viewport, Metal {}×{} · {}",
+            item_count,
+            kinds_count,
             width,
             height,
             screenshot.display()

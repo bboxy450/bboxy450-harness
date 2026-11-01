@@ -85,8 +85,9 @@ async fn background_subscription_and_detach_preserves_run() {
     assert!(wake.0.load(Ordering::Relaxed) > 0);
     support::close(s).await;
 }
+#[cfg(feature = "embedded")]
 #[tokio::test]
-async fn approval_actions_use_control_lane() {
+async fn rendered_approval_actions_use_control_lane() {
     for decision in [
         ApprovalDecision::Allow,
         ApprovalDecision::AllowAlways,
@@ -121,12 +122,22 @@ async fn approval_actions_use_control_lane() {
             .find(|r| r.kind == ItemKind::Approval)
             .unwrap()
             .id;
-        bridge
-            .send(Op::ResolveApproval {
-                approval: id,
-                decision: decision.clone(),
+        let mut view = bboxy450_harness::frontends::gui::view::HarnessView::default();
+        let frame = view.render(&bridge.state, [1120., 7000.]).unwrap();
+        let action = frame
+            .actions
+            .iter()
+            .find_map(|(_, a)| match a {
+                bboxy450_harness::frontends::gui::view::Action::Approval(item, d)
+                    if *item == id && d == &decision =>
+                {
+                    Some(a.clone())
+                }
+                _ => None,
             })
-            .unwrap();
+            .expect("approval decision must be a rendered button");
+        view.activate(action, &bridge);
+        assert!(view.notice.is_none());
         let events = support::end(&mut observer).await;
         assert!(events.iter().any(|e| matches!(&e.event, Event::ItemCompleted { body: Item::Approval { decision: Some(d), .. }, .. } if d == &decision)));
         let job = bridge.detach().unwrap();

@@ -1,0 +1,602 @@
+    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
+error: use of a disallowed method `std::sync::mpsc::Receiver::recv_timeout`
+  --> tests/seat_process.rs:69:8
+   |
+69 |     rx.recv_timeout(Duration::from_secs(5)).unwrap();
+   |        ^^^^^^^^^^^^
+   |
+   = note: UI must use try_recv
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+   = note: `-D clippy::disallowed-methods` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::disallowed_methods)]`
+
+error: use of a disallowed method `std::thread::sleep`
+  --> tests/seat_process.rs:71:5
+   |
+71 |     std::thread::sleep(Duration::from_millis(50));
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = note: UI must not sleep
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::thread::sleep`
+  --> tests/seat_process.rs:81:9
+   |
+81 |         std::thread::sleep(Duration::from_millis(5));
+   |         ^^^^^^^^^^^^^^^^^^
+   |
+   = note: UI must not sleep
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::sync::mpsc::Receiver::recv_timeout`
+   --> tests/seat_process.rs:106:21
+    |
+106 |     let output = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    |                     ^^^^^^^^^^^^
+    |
+    = note: UI must use try_recv
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::thread::sleep`
+   --> tests/seat_process.rs:114:9
+    |
+114 |         std::thread::sleep(Duration::from_millis(5));
+    |         ^^^^^^^^^^^^^^^^^^
+    |
+    = note: UI must not sleep
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::create_dir_all`
+   --> tests/seat_process.rs:124:5
+    |
+124 |     std::fs::create_dir_all(&profiles).unwrap();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: UI must use bbt-rt for IO
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::write`
+   --> tests/seat_process.rs:126:5
+    |
+126 |     std::fs::write(profiles.join("slow.md"),format!("---\nname: slow\nmodel: unused\nendpoint: http://127.0.0.1:9/v1\napi_key: '!ec...
+    |     ^^^^^^^^^^^^^^
+    |
+    = note: UI must use bbt-rt for IO
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::process::Command::spawn`
+   --> tests/seat_process.rs:134:10
+    |
+134 |         .spawn()
+    |          ^^^^^
+    |
+    = note: use bbt_rt::spawn_command
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::thread::sleep`
+   --> tests/seat_process.rs:139:9
+    |
+139 |         std::thread::sleep(Duration::from_millis(5));
+    |         ^^^^^^^^^^^^^^^^^^
+    |
+    = note: UI must not sleep
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::read_to_string`
+   --> tests/seat_process.rs:141:21
+    |
+141 |     let pgid: i32 = std::fs::read_to_string(pid)
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: UI must use bbt-rt for IO
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::thread::sleep`
+   --> tests/seat_process.rs:154:9
+    |
+154 |         std::thread::sleep(Duration::from_millis(5));
+    |         ^^^^^^^^^^^^^^^^^^
+    |
+    = note: UI must not sleep
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: could not compile `bboxy450-harness` (test "seat_process") due to 11 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: use of a disallowed method `std::process::Command::output`
+  --> tests/gui_cli.rs:14:60
+   |
+14 |     let output = Command::new(exe).args(["gui", "--help"]).output().unwrap();
+   |                                                            ^^^^^^
+   |
+   = note: use bbt_rt::spawn_command
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+   = note: `-D clippy::disallowed-methods` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::disallowed_methods)]`
+
+error: use of a disallowed method `std::process::Command::output`
+  --> tests/gui_cli.rs:20:10
+   |
+20 |         .output()
+   |          ^^^^^^
+   |
+   = note: use bbt_rt::spawn_command
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::process::Command::output`
+  --> tests/gui_cli.rs:27:10
+   |
+27 |         .output()
+   |          ^^^^^^
+   |
+   = note: use bbt_rt::spawn_command
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: could not compile `bboxy450-harness` (test "gui_cli") due to 3 previous errors
+error: use of a disallowed method `std::fs::write`
+  --> tests/support/mod.rs:38:5
+   |
+38 |     std::fs::write(temp.path().join("input.txt"), "before\n").unwrap();
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+   = note: `-D clippy::disallowed-methods` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::disallowed_methods)]`
+
+error: use of a disallowed method `std::fs::write`
+  --> tests/support/mod.rs:39:5
+   |
+39 |     std::fs::write(temp.path().join("other.txt"), "other\n").unwrap();
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::read_to_string`
+   --> tests/support/mod.rs:114:15
+    |
+114 |     let log = std::fs::read_to_string(path)
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: UI must use bbt-rt for IO
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::read`
+   --> tests/support/mod.rs:127:5
+    |
+127 |     std::fs::read(
+    |     ^^^^^^^^^^^^^
+    |
+    = note: UI must use bbt-rt for IO
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::create_dir_all`
+  --> tests/profile_lifecycle.rs:14:5
+   |
+14 |     std::fs::create_dir_all(&profiles).unwrap();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::write`
+  --> tests/profile_lifecycle.rs:16:5
+   |
+16 |     std::fs::write(profiles.join("slow.md"),format!("---\nname: slow\nmodel: unused\nendpoint: http://127.0.0.1:9/v1\napi_key: '!sle...
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::read_to_string`
+  --> tests/profile_lifecycle.rs:29:21
+   |
+29 |     let pgid: i32 = std::fs::read_to_string(pid)
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+  --> tests/profile_lifecycle.rs:73:6
+   |
+73 |     );
+   |      ^
+   |
+   = note: UI must spawn onto bbt-rt
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::create_dir_all`
+  --> tests/profile_lifecycle.rs:79:5
+   |
+79 |     std::fs::create_dir_all(&profiles).unwrap();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::write`
+  --> tests/profile_lifecycle.rs:80:5
+   |
+80 |     std::fs::write(profiles.join("next.md"),"---\nname: next\nmodel: next-model\nendpoint: http://127.0.0.1:9/v1\napi_key: '!printf ...
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+  --> tests/profile_lifecycle.rs:99:28
+   |
+99 |     support::close(s).await;
+   |                            ^
+   |
+   = note: UI must spawn onto bbt-rt
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::write`
+  --> tests/tools.rs:45:5
+   |
+45 |     std::fs::write(t.path().join("a"), "hello\nhello\n").unwrap();
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+   = note: `-D clippy::disallowed-methods` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::disallowed_methods)]`
+
+error: use of a disallowed method `std::fs::read_to_string`
+  --> tests/tools.rs:56:9
+   |
+56 |         std::fs::read_to_string(t.path().join("a")).unwrap(),
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::write`
+  --> tests/tools.rs:59:5
+   |
+59 |     std::fs::write(t.path().join("b"), "before").unwrap();
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::read_to_string`
+  --> tests/tools.rs:63:9
+   |
+63 |         std::fs::read_to_string(t.path().join("b")).unwrap(),
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+  --> tests/tools.rs:74:96
+   |
+74 |     assert!(matches!(&e.changes[0],Item::FileChange{unified,..} if unified.contains("+after")));
+   |                                                                                                ^
+   |
+   = note: UI must spawn onto bbt-rt
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::write`
+   --> tests/tools.rs:100:5
+    |
+100 |     std::fs::write(t.path().join("a.txt"), "find me\n").unwrap();
+    |     ^^^^^^^^^^^^^^
+    |
+    = note: UI must use bbt-rt for IO
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::read_to_string`
+   --> tests/tools.rs:125:16
+    |
+125 |     let text = std::fs::read_to_string(t.path().join("same")).unwrap();
+    |                ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: UI must use bbt-rt for IO
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+   --> tests/tools.rs:126:68
+    |
+126 |     assert!(text == "a".repeat(10000) || text == "b".repeat(10000));
+    |                                                                    ^
+    |
+    = note: UI must spawn onto bbt-rt
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: could not compile `bboxy450-harness` (test "profile_lifecycle") due to 11 previous errors
+error: could not compile `bboxy450-harness` (test "tools") due to 8 previous errors
+error: use of a disallowed method `std::fs::read_to_string`
+  --> tests/policy_gate.rs:29:9
+   |
+29 |         std::fs::read_to_string(s.temp.path().join("input.txt")).unwrap(),
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+  --> tests/policy_gate.rs:38:28
+   |
+38 |     support::close(s).await;
+   |                            ^
+   |
+   = note: UI must spawn onto bbt-rt
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::read_to_string`
+  --> tests/policy_gate.rs:76:9
+   |
+76 |         std::fs::read_to_string(s.temp.path().join("input.txt")).unwrap(),
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+  --> tests/policy_gate.rs:79:28
+   |
+79 |     support::close(s).await;
+   |                            ^
+   |
+   = note: UI must spawn onto bbt-rt
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::sync::Mutex::lock`
+  --> tests/context_compact.rs:33:23
+   |
+33 |         self.requests.lock().unwrap().push(r.clone());
+   |                       ^^^^
+   |
+   = note: UI must use try_lock
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: could not compile `bboxy450-harness` (test "policy_gate") due to 8 previous errors
+error: use of a disallowed method `std::fs::write`
+  --> tests/context_compact.rs:50:9
+   |
+50 |         std::fs::write(&path, &digest).unwrap();
+   |         ^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::read_to_string`
+  --> tests/context_compact.rs:52:24
+   |
+52 |     assert_eq!(digest, std::fs::read_to_string(path).unwrap());
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::read_to_string`
+   --> tests/context_compact.rs:185:15
+    |
+185 |     let raw = std::fs::read_to_string(root.join(format!("{id}.jsonl"))).unwrap();
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: UI must use bbt-rt for IO
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::sync::Mutex::lock`
+   --> tests/context_compact.rs:194:29
+    |
+194 |     let captured = requests.lock().unwrap();
+    |                             ^^^^
+    |
+    = note: UI must use try_lock
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+   --> tests/context_compact.rs:216:6
+    |
+216 |     );
+    |      ^
+    |
+    = note: UI must spawn onto bbt-rt
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::read_to_string`
+  --> tests/gateway_host.rs:61:17
+   |
+61 |     let count = std::fs::read_to_string(t.path().join("sessions").join(format!("{session}.jsonl")))
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+  --> tests/gateway_host.rs:70:70
+   |
+70 |     assert!(matches!(host.open(session).await, Err(Refused::Closed)));
+   |                                                                      ^
+   |
+   = note: UI must spawn onto bbt-rt
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::create_dir`
+  --> tests/gateway_host.rs:82:5
+   |
+82 |     std::fs::create_dir(&root).unwrap();
+   |     ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::write`
+  --> tests/gateway_host.rs:88:5
+   |
+88 |     std::fs::write(root.join(format!("{session}.jsonl")), prefix).unwrap();
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::read_to_string`
+   --> tests/gateway_host.rs:104:17
+    |
+104 |     let bytes = std::fs::read_to_string(root.join(format!("{session}.jsonl"))).unwrap();
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: UI must use bbt-rt for IO
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+   --> tests/gateway_host.rs:135:38
+    |
+135 |     while sub.recv().await.is_some() {}
+    |                                      ^^
+    |
+    = note: UI must spawn onto bbt-rt
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::write`
+   --> tests/gateway_host.rs:154:5
+    |
+154 |     std::fs::write(root.join(format!("{bad}.jsonl")), "not JSON\n").unwrap();
+    |     ^^^^^^^^^^^^^^
+    |
+    = note: UI must use bbt-rt for IO
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::read_to_string`
+   --> tests/gateway_host.rs:156:20
+    |
+156 |     let original = std::fs::read_to_string(root.join(format!("{session}.jsonl"))).unwrap();
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: UI must use bbt-rt for IO
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `std::fs::write`
+   --> tests/gateway_host.rs:169:5
+    |
+169 |     std::fs::write(root.join(format!("{bad}.jsonl")), repaired).unwrap();
+    |     ^^^^^^^^^^^^^^
+    |
+    = note: UI must use bbt-rt for IO
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+   --> tests/gateway_host.rs:186:35
+    |
+186 |     reloaded.join().await.unwrap();
+    |                                   ^
+    |
+    = note: UI must spawn onto bbt-rt
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+   --> tests/gateway_host.rs:230:34
+    |
+230 |     socket.close().await.unwrap();
+    |                                  ^
+    |
+    = note: UI must spawn onto bbt-rt
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: could not compile `bboxy450-harness` (test "context_compact") due to 10 previous errors
+error: use of a disallowed method `std::fs::metadata`
+  --> tests/gateway_unix.rs:31:9
+   |
+31 |         std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+   |         ^^^^^^^^^^^^^^^^^
+   |
+   = note: UI must use bbt-rt for IO
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+  --> tests/gateway_unix.rs:49:28
+   |
+49 |     support::close(s).await;
+   |                            ^
+   |
+   = note: UI must spawn onto bbt-rt
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: could not compile `bboxy450-harness` (test "gateway_host") due to 15 previous errors
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+   --> tests/gateway_unix.rs:130:26
+    |
+130 |     server.await.unwrap();
+    |                          ^
+    |
+    = note: UI must spawn onto bbt-rt
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+   --> tests/gateway_unix.rs:174:26
+    |
+174 |     server.await.unwrap();
+    |                          ^
+    |
+    = note: UI must spawn onto bbt-rt
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+  --> tests/provider_stream.rs:56:7
+   |
+56 |       ] {
+   |  _______^
+57 | |         let provider = ScriptedProvider::new(vec![support::sse(name)]);
+58 | |         let events = provider
+59 | |             .stream(request(), CancellationToken::new())
+...  |
+81 | |         );
+82 | |     }
+   | |_____^
+   |
+   = note: UI must spawn onto bbt-rt
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+   --> tests/provider_stream.rs:107:7
+    |
+107 |     ));
+    |       ^
+    |
+    = note: UI must spawn onto bbt-rt
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+   --> tests/provider_stream.rs:131:6
+    |
+131 |     );
+    |      ^
+    |
+    = note: UI must spawn onto bbt-rt
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+   --> tests/provider_stream.rs:151:43
+    |
+151 |     assert!(stream.next().await.is_none());
+    |                                           ^
+    |
+    = note: UI must spawn onto bbt-rt
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+   --> tests/provider_stream.rs:165:71
+    |
+165 |     assert!(parse_retry_after("2").unwrap() >= Duration::from_secs(2));
+    |                                                                       ^
+    |
+    = note: UI must spawn onto bbt-rt
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: use of a disallowed method `tokio::runtime::Runtime::block_on`
+   --> tests/provider_stream.rs:190:7
+    |
+190 |     ));
+    |       ^
+    |
+    = note: UI must spawn onto bbt-rt
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#disallowed_methods
+
+error: could not compile `bboxy450-harness` (test "gateway_unix") due to 8 previous errors
+error: could not compile `bboxy450-harness` (test "provider_stream") due to 10 previous errors

@@ -257,6 +257,36 @@ proptest! {
         prop_assert_eq!(&full, &lossy);
     }
 }
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 128, failure_persistence: None, ..Default::default() })]
+    #[test]
+    fn snapshot_repairs_dropped_and_coalesced_deltas_before_completion(chunks in prop::collection::vec("[a-z]{1,32}", 3..40), choices in prop::collection::vec(any::<u8>(), 1..40), kind in 0u8..4) {
+        let item = ItemId::new();
+        let k = match kind { 0 => ItemKind::AgentMessage, 1 => ItemKind::Reasoning, _ => ItemKind::ToolCall };
+        let start = envelope(started(item, k), Some(1), 1, 1);
+        let mut full = Transcript::default(); let mut lossy = Transcript::default(); full.apply(&start); lossy.apply(&start);
+        let delta = |append: String| match kind { 0 => Delta::Text { append }, 1 => Delta::Reasoning { append }, 2 => Delta::ToolInput { append }, _ => Delta::Output { append, stream: Stream::Stdout } };
+        let mid = chunks.len()/2;
+        let mut batch = String::new();
+        for (i, chunk) in chunks[..mid].iter().enumerate() {
+            full.apply(&envelope(Event::ItemDelta { item, delta: delta(chunk.clone()) }, None, 1, 1));
+            // Always drop the first nonempty chunk; randomly drop/coalesce others.
+            if i > 0 && choices[i % choices.len()] & 1 != 0 { batch.push_str(chunk); }
+        }
+        lossy.apply(&envelope(Event::ItemDelta { item, delta: delta(batch) }, None, 1, 1));
+        prop_assert_ne!(&full.items, &lossy.items, "broken control: loss without a snapshot must differ");
+        let snapshot = envelope(Event::ItemSnapshot { item, partial: full.items[&item].body.clone() }, None, 1, 1);
+        full.apply(&snapshot); lossy.apply(&snapshot);
+        prop_assert_eq!(&full, &lossy);
+        prop_assert!(lossy.items[&item].completed.is_none());
+        for chunk in &chunks[mid..] {
+            let e = envelope(Event::ItemDelta { item, delta: delta(chunk.clone()) }, None, 1, 1);
+            full.apply(&e); lossy.apply(&e);
+            prop_assert_eq!(&full, &lossy);
+            prop_assert!(lossy.items[&item].completed.is_none());
+        }
+    }
+}
 #[test]
 fn stick_and_release() {
     let mut scroll = bboxy450_harness::frontends::gui::chat_scroll::State::default();
