@@ -4,7 +4,6 @@ authorship:
   process_generation: '1'
   public_key: P3GP9IyoirOSFR2nldtE6AwDCz5KotZs5p5M1iD6OLQ=
   signer: seat:01M6AC7H87H9S94Y1D45PSQVH6
-created: 2026-11-01T06:13:06.714Z
 created_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 id: 01M6AVTZZ1J8WKRH8H8Y00BHWF
 links:
@@ -18,15 +17,15 @@ links:
   to: '[[mcp]]'
 number: 1982
 provenance:
-  digest: sha256:f57c6b17a8dac15d02fbe49803c9ae31909401220fbac1f8b9bdd87cc226dbc9
-  frontmatter_digest: sha256:94016e491ca58edcba476cfa7564bb5f6db329df80cd9ea1651087ab7fd09c78
-  log: .bboxy/log/2026-11-01.jsonl#11370
-  sig: Px8h1bdS4p15f6QtoM4rWPXDqEz3YMcLAtk07ClpRa0aRDJqNg+POFi2+3T9RRyKDYOthRFfReknUb+zn2lTBA==
+  digest: sha256:37d9d267e391e5d883f5dccd9517407f0c44b790a2a5916e4e296cbf46c0853b
+  frontmatter_digest: sha256:7f5e3ab52c7fd0fe8af4a0b856d1b3ecf317e38751975473fd9eb37f13f18c68
+  log: .bboxy/log/2026-11-01.jsonl#12464
+  sig: VMrk9gHH+BneFjVRbEgo2Wnbc/UXJnTvv+QN9EcC9qXrveRZ6nirDwu0gsOgIOF5AO+mmgeqEuV4p1qCuWesBQ==
   signer: seat:01M6AC7H87H9S94Y1D45PSQVH6
 status: baselined
 title: 'ICD: ACP face — Agent Client Protocol v1 over stdio (v0.1)'
 type: interface
-updated: 2026-11-01T06:13:06.714Z
+updated: 2026-11-01T06:30:09.944Z
 updated_by: seat:01M6AC7H87H9S94Y1D45PSQVH6
 ---
 # ICD: ACP face
