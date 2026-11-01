@@ -15,6 +15,7 @@ artifacts:
 - '[[01M6AZRA74WYMK5MHNEBMQHHMT]]'
 - '[[01M6B3Z46NXTCP7P0ZTDCY0YMQ]]'
 - '[[01M6B71XE74M655P2RS6DMVQ64]]'
+- '[[01M6B71XE74M655P2RS6DMVQ64]]'
 assignee: seat:01M6ADTVVZS36VS43P2PG15HRQ
 authorship:
   kind: seat
@@ -27,10 +28,10 @@ delegated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 id: 01M6ADTGYAQ5VJ7GZ05FWT7Q93
 number: 50
 provenance:
-  digest: sha256:2824b981df63b11a731cfbefb4d56962ec47df6a99472a620119c99e0f9d66e0
-  frontmatter_digest: sha256:14f3db092b657f0648ac52bf353b36087d590b2145e82823bfc48eb3186936f6
-  log: .bboxy/log/2026-11-01.jsonl#20307
-  sig: xCAWO0WeEXb+kSUL2H4FP7YbE7FlCuyoF692uMCHexQCMwgiEBfBxQWwapeLZE6DZYucKqLLtXXS4LBUwNcSDQ==
+  digest: sha256:ac6a6065705544842de0707ee2c78f198eb1ad1c86fa538cac56cb055072c953
+  frontmatter_digest: sha256:87b3a3300c1017271e0a135a5f8094257f8e2cc8051f34b957a2339966d266ee
+  log: .bboxy/log/2026-11-01.jsonl#24362
+  sig: JglZKYtAngQSFjRXHkPOekjJkFbwelB3dGCrKlUA4CibQJ0UcQzDxk4GGdrwZii59Ei2msW3cFoYdBudh2m4Cw==
   signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
 rejection:
   by: seat:01M6AC3D2ECK4W3F8495PAQTS3
@@ -54,61 +55,27 @@ rejection:
     - Run `make test-kb-reports` on that same merge. It is expected to fail only on the old Report trailers, which the squash landing removes.
     - Push, then send a `task_report` naming the final head and the merge commit.
 report:
-  commit: 4889321f13e509dc7ca18ce7ed3f0217e76cdd1b
-  op_id: 01M6B40N0XESJ4X72GVH4Z55S5
+  commit: 92fb33df6060a18442270c2487f311147fad934c
+  op_id: 01M6BGC2QJ1DTMHBJC15TJWM6R
   reported_by: seat:01M6ADTVVZS36VS43P2PG15HRQ
-  summary: 'Second rework implemented and pushed to [PR #86](https://github.com/bboxy450/bboxy450-term/pull/86) at signed4889321f13e509dc7ca18ce7ed3f0217e76cdd1b, clean worktree. [Committed report](https://github.com/bboxy450/bboxy450-term/blob/4889321f13e509dc7ca18ce7ed3f0217e76cdd1b/crates/bbt-ui/reports/toolkit-widgets-report.md) maps mechanisms, original outcomes, red→green and gaps. make test exited0 with default concurrency and no serial retry;116models/31crates/48contracts and128stories pass, both#85witnesses pass. Three focused fixes are complete. Integration remains blocked by conflicts with newer main ee6b7d5e and its new historical-report gate while authenticated report-record tools are unavailable; attempted integration was aborted. PR remains unmerged/CONFLICTING. Oracle disposition needed for report migration/current-main integration.'
+  summary: 'Round 4 complete. Final head and merge commit: signed 92fb33df6060a18442270c2487f311147fad934c, pushed to harness-widgets. Report: [.bboxy/runs/2026-11-01-toolkit-widgets-report.log](../runs/2026-11-01-toolkit-widgets-report.log). All three MUST items and both SHOULD items are addressed with exact 4889321f red-to-green evidence. Full make test passed at default concurrency: 124 models, 31 crates, 52 contracts and 128 headless stories. The separate report check failed only on the four expected historical trailers, handled by the Oracle''s squash landing. The Oracle confirms PR #86 landed as signed squash 59dedc64 through land.sh with all gates and round-4 review passed.'
 role: executor
-status: rejected
+status: accepted
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E2: upstream bboxy450-term toolkit widgets for the harness GUI + rendering formal models'
 type: task
-updated: 2026-11-01T09:29:53.361Z
+updated: 2026-11-01T12:12:02.309Z
 updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 verify: make test
 verify_result:
-  command: make test CI_LOG=target/ci-round2.log
+  command: make test
   evidence:
-  - criterion: 'Round2 #1 streaming correctness / red→green'
-    reference: 'bbt-doc/src/markdown/streaming.rs:25,51,86 removes container markers and retains ambiguous multiline-label candidates. tests/streaming.rs:23 quoted-definition seed and :44 all-split/random corpus cover > [r]: u, - [r]: u, - [^f]: x, [foo\nbar]: u. make test-toolkit-rework exit2 on unchanged18ff123b (/tmp/e2-round2-red.log SHA25661a8b5ac3ed191e44069441b16be0dc2709533d38502e320bf0221c5941d549a), then exit0 (/tmp/e2-round2-green.log):6doc+15UI tests,95/96 primarily incremental seeds,16,461/785,890 work bytes. :31 proves ordinary-link candidate disambiguation resumes caching.'
-  - criterion: 'Round2 #2 local diff recovery / red→green'
-    reference: bbt-ui/src/modules/diff.rs:42 boundaries outrank counters; incomplete/malformed rows stay visible as notes. tests/toolkit.rs:144,151,157,172 test next-hunk/EOF truncation, orphan note, bad header, and new-file boundaries with zero/short/long counts, including bare/tab headers. Four new tests failed on18ff in same exit2 red run and pass in exit0 green; separate bad-header input is asserted too. No expect/panic render path.
-  - criterion: 'Round2 #3 ScrollStick claim and real API witness'
-    reference: toolkit_models.rs:155 removes JumpRestoresFollowing response and marker; contracts.toml:472 drops asynchronous liveness claim. :390 witness calls real jump_to_latest at:416 for every reachable jump and compares following/layout projection. make test-toolkit-models exit0, all4witnesses; good28states/252edges and Broken34/306safety match TLC. Existing private reset-state unit witness retained.
-  - criterion: 'Accepted fixes retained: prior MUST2/3/4/5/8/9'
-    reference: 'Ledger generation/order counts and origin invariants, report exclusion, exact four syntect features, OnceLock resources, upstream DirtyWake bits/pending/drain_pc+coalescing, and explicit definition invalidation remain. Good/Broken graphs: Stream104/285 vs704/2164 safety; Incremental33/45 vs48/63 safety; Dirty142/245 vs129/212 liveness. All match TLC. Prior required red→green1/2/6/7/8 logs and mechanisms remain in committed report. make list-toolkit-package exit0 (/tmp/e2-round2-package.log); target/toolkit-package-list.txt omits reports/.'
-  - criterion: Original nine outcomes and stories
-    reference: Committed report's nine-row matrix maps streaming/highlighting/Transcript/diff/tool/approval/Editor/formal/stories to source and tests. target/ci-round2.log:355 every_rich_widget_story_renders_headless_across_themes_and_densities passes, asserting all128 cases. Folding, multi-colour syntax, transcript scroll and approval focus paint assertions remain.
-  - criterion: Full-gate layer 1 (actual exit0)
-    reference: '["sh","scripts/layering.sh"] — exit0, target/ci-round2.log:4; run by canonical make test.'
-  - criterion: Full-gate layer 2 (actual exit0)
-    reference: '["python3","-I","scripts/test-landing.py"] — exit0, target/ci-round2.log:6; run by canonical make test.'
-  - criterion: Full-gate layer 3 (actual exit0)
-    reference: '["python3","-I","scripts/test-resource-ledger.py"] — exit0, target/ci-round2.log:65; run by canonical make test.'
-  - criterion: Full-gate layer 4 (actual exit0)
-    reference: '["cargo","build","--workspace","--locked","--target-dir","/Users/feral/mydev/bboxy450-term-harness-widgets/target"] — exit0, target/ci-round2.log:71; run by canonical make test.'
-  - criterion: Full-gate layer 5 (actual exit0)
-    reference: '["cargo","clippy","--workspace","--all-targets","--locked","--target-dir","/Users/feral/mydev/bboxy450-term-harness-widgets/target","--","-D","warnings"] — exit0, target/ci-round2.log:79; run by canonical make test.'
-  - criterion: Full-gate layer 6 (actual exit0)
-    reference: '["sh","scripts/quarantine-test.sh","--workspace","--locked"] — exit0, target/ci-round2.log:101; run by canonical make test.'
-  - criterion: Full-gate layer 7 (actual exit0)
-    reference: '["make","test-formal","TARGET_DIR=/Users/feral/mydev/bboxy450-term-harness-widgets/target"] — exit0, target/ci-round2.log:4313; run by canonical make test.'
-  - criterion: Full-gate layer 8 (actual exit0)
-    reference: '["sh","scripts/ui-lint.sh"] — exit0, target/ci-round2.log:4640; run by canonical make test.'
-  - criterion: Full-gate layer 9 (actual exit0)
-    reference: '["cargo","build","-p","bboxy450-term","--locked","--target-dir","/Users/feral/mydev/bboxy450-term-harness-widgets/target"] — exit0, target/ci-round2.log:4658; run by canonical make test.'
-  - criterion: Full-gate layer 10 (actual exit0)
-    reference: Complete exact private headless env/argv at target/ci-round2.log:4663; binary --headless --smoke --ctl --unattended, private account/home/run/repository; exit0, stopped Ok at:4679. Full argv also /tmp/e2-round2-final-evidence.json.
-  - criterion: Full-gate layer 11 (actual exit0)
-    reference: '["sh","scripts/invariants.sh"] — exit0, target/ci-round2.log:4680; run by canonical make test.'
-  - criterion: Exact-head proof / no serial override / issue85
-    reference: make test CI_LOG=target/ci-round2.log exit0; Make default RUST_TEST_THREADS=2, environment unset, no override/retry/exception. Source4889321f line1, normal0 result:4875; all27 invariants0failures,11policy slow skips:4873. Both issue85 mux tests pass, including watched replay invariant. CI SHA2567905ed57e14752410f138daa2813752a80dd668d83d49085bb9ca6d2b4966afa. Fresh formal receipt4fa8940c3c7872d06717d2516f8798e3459689c220c8a362ac69b44c588539be:116models/31crates/48contracts, clean4889321f. Archived /tmp/e2-round2-ci-4889321f.log.
-  - criterion: Branch / signature / push / report
-    reference: harness-widgets head4889321f13e509dc7ca18ce7ed3f0217e76cdd1b; signatureG key9B07E849480C68328CA20684844ECC0587DE7AB0 Boxy<bboxy450@gmail.com>. make push-branch CI_LOG=target/ci-round2.log exit0 verifies4signedcommits0exceptions+freshformal. Remote branch and PR86 head match; worktree clean. Committed report artifact01M6B3Z46NXTCP7P0ZTDCY0YMQ SHA256e23cefe5bed3e41ceff2681fd96f45ef125deeb47fc6fe7864545ab777829c6a. PR unmerged.
-  - criterion: Integration gap requiring Oracle disposition
-    reference: 'Main advanced to ee6b7d5e during gate. git merge-tree --write-tree HEAD origin/main exit1: Makefile,bbt-doc/src/lib.rs,verification/contracts.toml,corpus.toml,coverage.toml. gh pr view86:OPEN/CONFLICTING/DIRTY. Attempted own-branch main merge was aborted; no incoming AGENTS/schema changes retained. Source inspection of main bbt-doc/tests/corpus/reports.rs:61,139-180 indicates new gate rejects four historical Report:[[toolkit-widgets-report]] trailers in candidate commit trees. Current authenticated knowledge_write enum has no report and task_report schema has no report locator. Latest brief explicitly accepts excluded crate report. Need Oracle disposition for legacy-trailer migration/current-main integration; no history rewrite/schema edits performed. PR body records this gap.'
-  - criterion: Scope / gaps / release
-    reference: d824 scope/issue85 decision cited in report+PR;31 attribution copies required by license-packages.py COPIES (including accepted plugins/gitkb). AGENTS/KBschema untouched by this branch. Remaining SHOULD approval Escape/descriptions/allow-deny tones; explicit deferred virtualization,Plan/Image,ANSI/tail truncation,intra-line diff. UI/doc/book need0.1.2 release follow-up; no versions/publish/main merge. No downstream p99 frame-budget proof or slow/night coverage claimed.
+  - criterion: Full report
+    reference: .bboxy/runs/2026-11-01-toolkit-widgets-report.log — complete files/mechanisms, per-item evidence, commands/exits, red-to-green, bounds, gaps and release follow-up. Signed harness report commit 969a9e940841b006caf73f11c495c70a15a3b530; SHA256 0728aa84c9ac5a03d835406a2df39afdebdee5b758ec752301382a1c76b614c8.
+  - criterion: Exact-head verification
+    reference: make test CI_LOG=target/ci-round4.log exited 0 on 92fb33df6060a18442270c2487f311147fad934c, no RUST_TEST_THREADS override. Exact-source normal0 at target/ci-round4.log:4885; CI SHA256 0a4b5f9a72a659780b6b6be2df547d8b62825421d7f77ffc5f7442a3bb62f900. Fresh formal receipt b724a59e47cfa5adcda6abd01c9a9591fe0b969ee857ce415ef3586026fdb56b:124 models/31 crates/52 contracts. All128stories, headless smoke and27normal invariants passed;11existing slow checks skipped.
+  - criterion: Expected report check and landing disposition
+    reference: SIGNED_RANGE=origin/main..HEAD make test-kb-reports exited2 only on old Report trailers in4889321f/18ff123b/6ee43422/b81d3c38;7other corpus tests passed. No gate/history workaround. Oracle message01M6BGACSPRFT8J2EVPF0K12AP confirms signed squash59dedc64 landed through land.sh with all gates and round4review passed.
   exit_code: 0
 ---
 # E2: upstream toolkit widgets for a rich agent GUI
@@ -419,6 +386,36 @@ Second rework implemented and pushed to [PR #86](https://github.com/bboxy450/bbo
       {
         "criterion": "Scope / gaps / release",
         "reference": "d824 scope/issue85 decision cited in report+PR;31 attribution copies required by license-packages.py COPIES (including accepted plugins/gitkb). AGENTS/KBschema untouched by this branch. Remaining SHOULD approval Escape/descriptions/allow-deny tones; explicit deferred virtualization,Plan/Image,ANSI/tail truncation,intra-line diff. UI/doc/book need0.1.2 release follow-up; no versions/publish/main merge. No downstream p99 frame-budget proof or slow/night coverage claimed."
+      }
+    ],
+    "exit_code": 0
+  }
+}
+```
+
+
+## Report from seat:01M6ADTVVZS36VS43P2PG15HRQ
+
+Round 4 complete. Final head and merge commit: signed 92fb33df6060a18442270c2487f311147fad934c, pushed to harness-widgets. Report: [.bboxy/runs/2026-11-01-toolkit-widgets-report.log](../runs/2026-11-01-toolkit-widgets-report.log). All three MUST items and both SHOULD items are addressed with exact 4889321f red-to-green evidence. Full make test passed at default concurrency: 124 models, 31 crates, 52 contracts and 128 headless stories. The separate report check failed only on the four expected historical trailers, handled by the Oracle's squash landing. The Oracle confirms PR #86 landed as signed squash 59dedc64 through land.sh with all gates and round-4 review passed.
+
+```json
+{
+  "commit": "92fb33df6060a18442270c2487f311147fad934c",
+  "op_id": "01M6BGC2QJ1DTMHBJC15TJWM6R",
+  "verify_result": {
+    "command": "make test",
+    "evidence": [
+      {
+        "criterion": "Full report",
+        "reference": ".bboxy/runs/2026-11-01-toolkit-widgets-report.log — complete files/mechanisms, per-item evidence, commands/exits, red-to-green, bounds, gaps and release follow-up. Signed harness report commit 969a9e940841b006caf73f11c495c70a15a3b530; SHA256 0728aa84c9ac5a03d835406a2df39afdebdee5b758ec752301382a1c76b614c8."
+      },
+      {
+        "criterion": "Exact-head verification",
+        "reference": "make test CI_LOG=target/ci-round4.log exited 0 on 92fb33df6060a18442270c2487f311147fad934c, no RUST_TEST_THREADS override. Exact-source normal0 at target/ci-round4.log:4885; CI SHA256 0a4b5f9a72a659780b6b6be2df547d8b62825421d7f77ffc5f7442a3bb62f900. Fresh formal receipt b724a59e47cfa5adcda6abd01c9a9591fe0b969ee857ce415ef3586026fdb56b:124 models/31 crates/52 contracts. All128stories, headless smoke and27normal invariants passed;11existing slow checks skipped."
+      },
+      {
+        "criterion": "Expected report check and landing disposition",
+        "reference": "SIGNED_RANGE=origin/main..HEAD make test-kb-reports exited2 only on old Report trailers in4889321f/18ff123b/6ee43422/b81d3c38;7other corpus tests passed. No gate/history workaround. Oracle message01M6BGACSPRFT8J2EVPF0K12AP confirms signed squash59dedc64 landed through land.sh with all gates and round4review passed."
       }
     ],
     "exit_code": 0

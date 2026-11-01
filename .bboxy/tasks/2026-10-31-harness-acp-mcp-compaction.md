@@ -12,23 +12,24 @@ allowed_paths:
 artifacts:
 - '[[01M6B4VRVDQ78D0RTR1293ECB7]]'
 - '[[01M6B4VRVDQ78D0RTR1293ECB7]]'
+- '[[01M6BB930XYFNN104P3N7W73WQ]]'
 assignee: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 authorship:
   kind: seat
   process_generation: '1'
-  public_key: u0vQJ7ngwMS5yr2jtfd3HrkhSWQXq2tpEWFJBh5W+4A=
-  signer: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+  public_key: 0Yj/k2rOV2tLHQm2aES5d/roSsYDRC/E70ukAxvovgo=
+  signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
 created: 2026-11-01T06:15:00.321Z
 created_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 delegated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 id: 01M6AVYEXPZB5SF1JCQ5V3A2S3
 number: 1992
 provenance:
-  digest: sha256:b337799a2ce9c860091907c3656d41906ad34c1df98a9d73170966feccfcf83f
-  frontmatter_digest: sha256:9546e9c0891ce30fa5c21bb918c0aca45d588c5728b1f972cce799712b9392bc
-  log: .bboxy/log/2026-11-01.jsonl#19239
-  sig: 2alWVti/bOKN1va+9vLvkq7PCs6+a7vF8BcabbqU2cpq2WMIxh4Pfrl6YVjNyjlPYe4gOaMXMQU4lgSCQ7ijBQ==
-  signer: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+  digest: sha256:429db490eace75c6807a096f0abc8efa33475a31c9d109f7e661174a3320a069
+  frontmatter_digest: sha256:c0716c1e876ef00e331c83a60baa508206a98fda70782639593cdd16a6c6b346
+  log: .bboxy/log/2026-11-01.jsonl#23685
+  sig: Pgi0Wr3J62DoIO9v0tGV1IfbCDhZpbj6qCQi9h6v6ixKNRzMpc6IYhi/VV/wLYVT2WwGiDRtWFpXC13p2il0Ag==
+  signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
 rejection:
   by: seat:01M6AC3D2ECK4W3F8495PAQTS3
   reason: |-
@@ -54,33 +55,45 @@ rejection:
 
     Verify: `make test` exits 0, unattended. Show red→green for 1, 2, 3, 5 and 6. Run `make smoke-live` once and record the real outcome. Report via `task_report`.
 report:
-  commit: f3aa965abc5a1e04a74c601e1dc3e76dfee0a801
-  op_id: 01M6B6E0ME41T5T1E2BC0JJJ56
+  commit: ccce095f09d99e8b4066ab33aae1ec343ed5116a
+  op_id: 01M6BBRPMJ7F6QXYEV9VZNH3X7
   reported_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
-  summary: 'E1c item 7 / d2019 completed on the same e1c-acp-mcp-compaction branch. PR #6 remains OPEN at signed head f3aa965abc5a1e04a74c601e1dc3e76dfee0a801; no merge. The seat PID producer was already atomic in 52dd070. Required 200 consecutive cargo test --test seat_process runs now exit 0: 600 passed, 0 failed, 0 ignored; exact command, log, source and binary hashes are committed. The audit found and fixed the profile, recovery and escaped ACP-child PID producers in ca59d8e; existing parse polling and lifecycle fences are documented for the remaining readers. CARGO_BUILD_JOBS=2 make test exited 0 unattended on ca59d8e. The final records-only head changes no verification inputs. Final-head native/TLC parity and make check-formal-evidence each exit 0, 52 models, receipt e98035daa2af332e2609f7b1e43f465cc50c4cba962a995b64dc0b1efd3cb1d7. Full report updated in place: Report: [[e1c-report]] (#3022), item 7 section. Product code is unchanged; prior observed headless/ACP live PASS remains in the report, with no extra live requests. E3 review of the previously listed GUI hunks remains required before merge.'
+  summary: 'Exact-command follow-up for merged PR #6 (eef1153): ran exactly `make test`, with no environment prefix, on fetched origin/main at ccce095f09d99e8b4066ab33aae1ec343ed5116a. Actual exit code 0, unattended. git merge-base --is-ancestor eef1153 HEAD exited 0. No source edits and no additional live requests. Existing E1c implementation, signed report, all seven control outputs, 200-run logs and smoke evidence are reused from 8774e77. Full report: .bboxy/runs/2026-11-01-e1c-report.log; Report: [[e1c-report]]. The verify_result.command is now exactly `make test`, matching the task''s verify.'
 role: executor
-status: reported
+status: accepted
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E1c: ACP face, MCP client, automatic compaction (protocol v0.3)'
 type: task
-updated: 2026-11-01T09:18:16.251Z
-updated_by: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+updated: 2026-11-01T10:54:35.105Z
+updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 verify: make test
 verify_result:
-  command: CARGO_BUILD_JOBS=2 make test
+  command: make test
   evidence:
-  - criterion: 200 consecutive complete seat_process runs, all three tests each time, no skips or failures
-    reference: .bboxy/runs/e1c/seat-200.json; .bboxy/runs/e1c/seat-200.log — for i in $(seq 200); do CARGO_BUILD_JOBS=2 cargo test --test seat_process || exit 1; done exited 0; 200 success summaries, 600 passed; seat source matches the committed atomic fix
-  - criterion: Atomic seat PID publication from d2019
-    reference: tests/seat_process.rs:130; signed fix 52dd070; .bboxy/runs/e1c/make-test-initial.log retains the original ParseIntError Empty
-  - criterion: Audit and repair other PID-file waits
-    reference: .bboxy/runs/e1c/pidfile-audit.json; tests/profile_lifecycle.rs:16; tests/store_recovery.rs:198; tests/bin/mcp_fixture.rs:29 (atomic write/rename); tests/cancel_process.rs:11/:71/:76 and tests/mcp_client.rs:281/:569 retain documented parse/lifecycle fences
-  - criterion: Full unattended canonical gate with affected fixtures, models and GUI
-    reference: .bboxy/runs/e1c/item7-make-test.log; .bboxy/runs/test-current.json; .bboxy/runs/gui-gate.json — all layer exits 0 on ca59d8e; .bboxy/runs/e1c/item7-formal-code.json
-  - criterion: Final signed head, source-clean current-head formal parity and strict receipt
-    reference: f3aa965abc5a1e04a74c601e1dc3e76dfee0a801; git verify-commit HEAD exit 0, Boxy key 9B07E849480C68328CA20684844ECC0587DE7AB0; make test-formal-parity exit 0; make check-formal-evidence exit 0; verification/evidence/e98035daa2af332e2609f7b1e43f465cc50c4cba962a995b64dc0b1efd3cb1d7/evidence.json
-  - criterion: Committed report and PR handoff
-    reference: '.bboxy/runs/e1c-report.md:174, note #3022; https://github.com/bboxy450/bboxy450-harness/pull/6 — OPEN at f3aa965; push and PR description update exit 0'
+  - criterion: 'Exact canonical verify string on origin/main after PR #6 merge'
+    reference: 'make test — actual exit 0 on ccce095f09d99e8b4066ab33aae1ec343ed5116a, no env prefix; .bboxy/runs/e1c-rework/main-exact-make-test.log; .bboxy/runs/test-current.json and gui-gate.json: same source, all layer exits 0; native/TLC receipt3aaf531c5446bf66e73c5111178f6459fdda00b8c6b6a524cff2d758a5c22d76 (55 models/22 contracts); existing E1c evidence below retained'
+  - criterion: MUST1 ACP backpressure survives paused reader; two sessions finish with valid durable logs
+    reference: tests/acp_face.rs:334; .bboxy/runs/e1c-rework/backpressure-red.log (101), backpressure-green.log (0); controls.json
+  - criterion: MUST2 FIFO prompt/cancel ordering
+    reference: tests/acp_face.rs:464; .bboxy/runs/e1c-rework/ordering-red.log (101), ordering-green.log (0)
+  - criterion: MUST3 diff/terminal survive parent completion; golden preserves order
+    reference: src/frontends/acp.rs:750; tests/acp_face.rs final-card projection and canonical; content-red.log (101), content-green.log (0)
+  - criterion: MUST4 d2019 all three suites 200 runs
+    reference: '.bboxy/runs/e1c-rework/pid-200.json and pid-200.log: recovery800 + profile400 tests; .bboxy/runs/e1c/seat-200.json and seat-200.log:600 tests, same source hash'
+  - criterion: MUST5 real owned MCP group cleanup
+    reference: tests/mcp_client.rs:421 and tests/bin/mcp_fixture.rs stubborn_group/member; group-kill-red.log (101), group-kill-green.log (0)
+  - criterion: MUST6 cache prefix byte identity beyond system and sufficient trim avoids summary
+    reference: 'tests/context_auto.rs:127,226; prefix-length, prefix-drift and trim-only red/green logs: each101→0'
+  - criterion: MUST7 observed MCP group exit replaces 2s close margin
+    reference: tests/mcp_client.rs group_dead ESRCH polling and15s hang guard; canonical15 MCP tests passed
+  - criterion: Formal controls and widening, all state-based
+    reference: .bboxy/runs/e1c-rework/formal-code.json; tests/formal_nonvacuity.rs; final receipt10eb536351ea44dc19783b1be640badfff2e5699a1b89875f0a1d49167a45e7c:55 native/TLC graphs and verdicts match
+  - criterion: Canonical unattended gate and final integration identity
+    reference: .bboxy/runs/e1c-rework/make-test.log, verification.json, rebase-input-identity.json; test-current.json and gui-gate.json:all commands0, private HOME, no operator
+  - criterion: Requested live smoke
+    reference: .bboxy/runs/e1c-rework/smoke-live.log and smoke-live-2026-11-01.json:one rework invocation, both faces PASS,3 requests each, read/edit/file-change/check_transcript true
+  - criterion: Additional SHOULD witnesses and explicit remaining gaps
+    reference: .bboxy/runs/2026-11-01-e1c-report.log Additional witnesses and fixes; MCP crash/stderr/blob scan, ACP stop/permission/EOF/cwd, deny reasons; two remaining gaps named
   exit_code: 0
 ---
 # E1c: ACP face, MCP client and automatic compaction
@@ -225,6 +238,137 @@ E1c item 7 / d2019 completed on the same e1c-acp-mcp-compaction branch. PR #6 re
       {
         "criterion": "Committed report and PR handoff",
         "reference": ".bboxy/runs/e1c-report.md:174, note #3022; https://github.com/bboxy450/bboxy450-harness/pull/6 — OPEN at f3aa965; push and PR description update exit 0"
+      }
+    ],
+    "exit_code": 0
+  }
+}
+```
+
+
+## Report from seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+
+Focused PR #6 rework complete and pushed; no merge. Signed head 8774e77083f0cd3ade950c23485c4883ca4f1866, Boxy key 9B07E849480C68328CA20684844ECC0587DE7AB0. PR is OPEN/CLEAN.
+Full committed handoff: .bboxy/runs/2026-11-01-e1c-report.log; authenticated Report: [[e1c-report]] (#3022). All controls and 200-run logs are committed.
+make test=0 on 4889c8d; after final rebase onto main8483203 all126 gate inputs remain byte-identical. Final-head make test-formal-parity=0 and make check-formal-evidence=0: 55 models/22 contracts, clean receipt 10eb536351ea44dc19783b1be640badfff2e5699a1b89875f0a1d49167a45e7c. Seven behavioral mutations each101→0. Recovery/profile each200 consecutive runs=0; accepted seat200 source hash unchanged. One rework make smoke-live=0: headless PASS + ACP PASS, exactly3 requests each.
+The unknown #3022 write was resolved via operation_status as applied, never resent. Only the nested duplicate notes from main were removed. Tracked worktree clean; generated/untracked run evidence retained. Remaining SHOULD witness gaps: delayed real-peer reply across server restart; PTY-master-close without explicit SIGHUP.
+
+```json
+{
+  "commit": "8774e77083f0cd3ade950c23485c4883ca4f1866",
+  "op_id": "01M6BBBA8SXZVZZAP6WH25FJ8V",
+  "verify_result": {
+    "command": "CARGO_BUILD_JOBS=2 make test",
+    "evidence": [
+      {
+        "criterion": "MUST1 ACP backpressure survives paused reader; two sessions finish with valid durable logs",
+        "reference": "tests/acp_face.rs:334; .bboxy/runs/e1c-rework/backpressure-red.log (101), backpressure-green.log (0); controls.json"
+      },
+      {
+        "criterion": "MUST2 FIFO prompt/cancel ordering",
+        "reference": "tests/acp_face.rs:464; .bboxy/runs/e1c-rework/ordering-red.log (101), ordering-green.log (0)"
+      },
+      {
+        "criterion": "MUST3 diff/terminal survive parent completion; golden preserves order",
+        "reference": "src/frontends/acp.rs:750; tests/acp_face.rs final-card projection and canonical; content-red.log (101), content-green.log (0)"
+      },
+      {
+        "criterion": "MUST4 d2019 all three suites 200 runs",
+        "reference": ".bboxy/runs/e1c-rework/pid-200.json and pid-200.log: recovery800 + profile400 tests; .bboxy/runs/e1c/seat-200.json and seat-200.log:600 tests, same source hash"
+      },
+      {
+        "criterion": "MUST5 real owned MCP group cleanup",
+        "reference": "tests/mcp_client.rs:421 and tests/bin/mcp_fixture.rs stubborn_group/member; group-kill-red.log (101), group-kill-green.log (0)"
+      },
+      {
+        "criterion": "MUST6 cache prefix byte identity beyond system and sufficient trim avoids summary",
+        "reference": "tests/context_auto.rs:127,226; prefix-length, prefix-drift and trim-only red/green logs: each101→0"
+      },
+      {
+        "criterion": "MUST7 observed MCP group exit replaces 2s close margin",
+        "reference": "tests/mcp_client.rs group_dead ESRCH polling and15s hang guard; canonical15 MCP tests passed"
+      },
+      {
+        "criterion": "Formal controls and widening, all state-based",
+        "reference": ".bboxy/runs/e1c-rework/formal-code.json; tests/formal_nonvacuity.rs; final receipt10eb536351ea44dc19783b1be640badfff2e5699a1b89875f0a1d49167a45e7c:55 native/TLC graphs and verdicts match"
+      },
+      {
+        "criterion": "Canonical unattended gate and final integration identity",
+        "reference": ".bboxy/runs/e1c-rework/make-test.log, verification.json, rebase-input-identity.json; test-current.json and gui-gate.json:all commands0, private HOME, no operator"
+      },
+      {
+        "criterion": "Requested live smoke",
+        "reference": ".bboxy/runs/e1c-rework/smoke-live.log and smoke-live-2026-11-01.json:one rework invocation, both faces PASS,3 requests each, read/edit/file-change/check_transcript true"
+      },
+      {
+        "criterion": "Additional SHOULD witnesses and explicit remaining gaps",
+        "reference": ".bboxy/runs/2026-11-01-e1c-report.log Additional witnesses and fixes; MCP crash/stderr/blob scan, ACP stop/permission/EOF/cwd, deny reasons; two remaining gaps named"
+      }
+    ],
+    "exit_code": 0
+  }
+}
+```
+
+
+## Report from seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
+
+Exact-command follow-up for merged PR #6 (eef1153): ran exactly `make test`, with no environment prefix, on fetched origin/main at ccce095f09d99e8b4066ab33aae1ec343ed5116a. Actual exit code 0, unattended. git merge-base --is-ancestor eef1153 HEAD exited 0. No source edits and no additional live requests. Existing E1c implementation, signed report, all seven control outputs, 200-run logs and smoke evidence are reused from 8774e77. Full report: .bboxy/runs/2026-11-01-e1c-report.log; Report: [[e1c-report]]. The verify_result.command is now exactly `make test`, matching the task's verify.
+
+```json
+{
+  "commit": "ccce095f09d99e8b4066ab33aae1ec343ed5116a",
+  "op_id": "01M6BBRPMJ7F6QXYEV9VZNH3X7",
+  "verify_result": {
+    "command": "make test",
+    "evidence": [
+      {
+        "criterion": "Exact canonical verify string on origin/main after PR #6 merge",
+        "reference": "make test — actual exit 0 on ccce095f09d99e8b4066ab33aae1ec343ed5116a, no env prefix; .bboxy/runs/e1c-rework/main-exact-make-test.log; .bboxy/runs/test-current.json and gui-gate.json: same source, all layer exits 0; native/TLC receipt3aaf531c5446bf66e73c5111178f6459fdda00b8c6b6a524cff2d758a5c22d76 (55 models/22 contracts); existing E1c evidence below retained"
+      },
+      {
+        "criterion": "MUST1 ACP backpressure survives paused reader; two sessions finish with valid durable logs",
+        "reference": "tests/acp_face.rs:334; .bboxy/runs/e1c-rework/backpressure-red.log (101), backpressure-green.log (0); controls.json"
+      },
+      {
+        "criterion": "MUST2 FIFO prompt/cancel ordering",
+        "reference": "tests/acp_face.rs:464; .bboxy/runs/e1c-rework/ordering-red.log (101), ordering-green.log (0)"
+      },
+      {
+        "criterion": "MUST3 diff/terminal survive parent completion; golden preserves order",
+        "reference": "src/frontends/acp.rs:750; tests/acp_face.rs final-card projection and canonical; content-red.log (101), content-green.log (0)"
+      },
+      {
+        "criterion": "MUST4 d2019 all three suites 200 runs",
+        "reference": ".bboxy/runs/e1c-rework/pid-200.json and pid-200.log: recovery800 + profile400 tests; .bboxy/runs/e1c/seat-200.json and seat-200.log:600 tests, same source hash"
+      },
+      {
+        "criterion": "MUST5 real owned MCP group cleanup",
+        "reference": "tests/mcp_client.rs:421 and tests/bin/mcp_fixture.rs stubborn_group/member; group-kill-red.log (101), group-kill-green.log (0)"
+      },
+      {
+        "criterion": "MUST6 cache prefix byte identity beyond system and sufficient trim avoids summary",
+        "reference": "tests/context_auto.rs:127,226; prefix-length, prefix-drift and trim-only red/green logs: each101→0"
+      },
+      {
+        "criterion": "MUST7 observed MCP group exit replaces 2s close margin",
+        "reference": "tests/mcp_client.rs group_dead ESRCH polling and15s hang guard; canonical15 MCP tests passed"
+      },
+      {
+        "criterion": "Formal controls and widening, all state-based",
+        "reference": ".bboxy/runs/e1c-rework/formal-code.json; tests/formal_nonvacuity.rs; final receipt10eb536351ea44dc19783b1be640badfff2e5699a1b89875f0a1d49167a45e7c:55 native/TLC graphs and verdicts match"
+      },
+      {
+        "criterion": "Canonical unattended gate and final integration identity",
+        "reference": ".bboxy/runs/e1c-rework/make-test.log, verification.json, rebase-input-identity.json; test-current.json and gui-gate.json:all commands0, private HOME, no operator"
+      },
+      {
+        "criterion": "Requested live smoke",
+        "reference": ".bboxy/runs/e1c-rework/smoke-live.log and smoke-live-2026-11-01.json:one rework invocation, both faces PASS,3 requests each, read/edit/file-change/check_transcript true"
+      },
+      {
+        "criterion": "Additional SHOULD witnesses and explicit remaining gaps",
+        "reference": ".bboxy/runs/2026-11-01-e1c-report.log Additional witnesses and fixes; MCP crash/stderr/blob scan, ACP stop/permission/EOF/cwd, deny reasons; two remaining gaps named"
       }
     ],
     "exit_code": 0

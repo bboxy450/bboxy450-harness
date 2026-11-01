@@ -20,23 +20,31 @@ artifacts:
 - '[[01M6B4T6D9YV9FXNT9YTD6AD2J]]'
 - '[[01M6B4T7MX9XB8SC7BZWRKQ3A0]]'
 - '[[01M6B4T91CXSK1FJVNQNDNM4CS]]'
+- '[[01M6BCQK8ZZ1A1WPM6A65NXTBP]]'
+- '[[01M6BCQMBASYHYQJCE48BNQ0NJ]]'
+- '[[01M6BCQNQJ5VJNC8DF7V5DZASY]]'
+- '[[01M6BCRXM6Z0JH3RTY04XE9FET]]'
+- '[[01M6BHBVVK6PT1GFV9JJ6DYXVV]]'
+- '[[01M6BHBX2B1X63AXPQGDQ9CD2C]]'
+- '[[01M6BHBYMYTCXQ99D4F61ZMEBG]]'
+- '[[01M6BHC06Z3717K24B1CSMSTK7]]'
 assignee: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
 authorship:
   kind: seat
   process_generation: '1'
-  public_key: z7MXMN9zYCeDf8l6mccA4WGnuUPuOhvLzpUcBLQLkXI=
-  signer: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+  public_key: 0Yj/k2rOV2tLHQm2aES5d/roSsYDRC/E70ukAxvovgo=
+  signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
 created: 2026-11-01T06:27:42.178Z
 created_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 delegated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 id: 01M6AWNPTK11DP11SX76AGC9E5
 number: 2202
 provenance:
-  digest: sha256:fb257978dac400065970a51be0b80f41e1fc272a42ef43dc2c3b0900781fece1
-  frontmatter_digest: sha256:12fb08bd20959e0a0f6f581fc77fc0740a3bf6dfc176826347de29aa50d0f9e4
-  log: .bboxy/log/2026-11-01.jsonl#18742
-  sig: fRXpOkC8KLrHyas1o3zQ1e7zlIZQCZwNcxvrw467qyiM+5TXvbGpKxh5frmAQSZ5e1ORTmb/RivvJQf0+ZYoDw==
-  signer: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+  digest: sha256:74841bda52b6fc9c52642420948398c6ad1a569441a6137a1661d41a6b0cbf0e
+  frontmatter_digest: sha256:e5685b7662357813ed770b83f954cf04c4a5149ba9913b7e61c31c37c397b4b4
+  log: .bboxy/log/2026-11-01.jsonl#25557
+  sig: MHdvIYbhi6ThfjNEPGIziZ0k/pn/LCvpnMtzfAjR0YwsvkRrkwGkaW7M4XsMtsK+eB7V2rbf66N8mH0uQl9yCA==
+  signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
 rejection:
   by: seat:01M6AC3D2ECK4W3F8495PAQTS3
   reason: |-
@@ -62,31 +70,31 @@ rejection:
 
     Verify: `make test`, unattended, exit 0. Show red→green for 1, 2 and 4. Report via `task_report`, with the report as `.log`.
 report:
-  commit: f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1
-  op_id: 01M6B4V2VHR1VXHJ64NR9955Z2
+  commit: 330c53c59ec9be4f727fe148ee84cd00f8abcc77
+  op_id: 01M6BHD2MCRT4N02579YMTRTB8
   reported_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
-  summary: 'Pinned ui/doc/render to toolkit 4889321f13e509dc7ca18ce7ed3f0217e76cdd1b and pushed signed e3b-gui-rich head f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1 to PR #5 (OPEN, not merged). Full unfiltered make test retry exits 0: all 14 stages, all 14 rich tests, 49 native/TLC variants and semantic headless smoke pass. The definition-prefix regression is red on 18ff123 and green on 4889321f. The first full attempt exited 2 at the unchanged core store_recovery.rs:233 empty-PID-file race; both logs are committed and the race is not fixed within GUI scope. Report: [[e3b-gui-phase2]] — https://github.com/bboxy450/bboxy450-harness/blob/f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1/.bboxy/runs/e3b-gui-phase2.log. Formal hashes/summary are committed. Both benchmarks UNMEASURED at load 30.68 > 10 CPUs. Awaiting the Oracle-supplied final toolkit merge revision for the next pin before merge.'
+  summary: 'Final requested pin/rebase complete: toolkit 59dedc64861d66650e163bfabab88f5ed67eb810, harness main cdde43d including PR #7. Signed e3b-gui-rich head 330c53c59ec9be4f727fe148ee84cd00f8abcc77 is pushed to OPEN PR #5. Plain make test exits 0: all 14 stages, all 15 rich tests, 64 native/TLC variants /25 contracts and 22-item/15-kind headless smoke pass. UI-core also needs the same Git revision for TransportParameter; runtime stays registry0.1.1 and R15 passes. The initial import failure is resolved and preserved. GUI wall p99 0.678ms (0.9ms limit), CPU0.539ms; grep ticker3.27325ms (5ms allocation). Full committed report: [[e3b-gui-phase2]] — https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-gui-phase2.log. No core source edits, merge or release; no crates.io0.1.2 wait remains.'
 role: executor
-status: reported
+status: accepted
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E3b: GUI phase 2 — rich widgets (streaming markdown, highlighting, diff, tool cards, approval, editor) + d2021 conditions'
 type: task
-updated: 2026-11-01T08:50:27.583Z
-updated_by: seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+updated: 2026-11-01T12:36:16.862Z
+updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 verify: make test
 verify_result:
   command: make test
   evidence:
-  - criterion: Full unfiltered unattended gate with no test exclusion or thread-count override
-    reference: https://github.com/bboxy450/bboxy450-harness/blob/f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1/.bboxy/runs/e3b-pin-488-make-test-retry.log — exit 0; https://github.com/bboxy450/bboxy450-harness/blob/f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1/.bboxy/runs/e3b-pin-488-verification.json — all 10 core + 4 GUI command exits 0, private HOME and no operator input. Gate source fa7a4cfcec03a5a843ef00dcbdc9a86c041fe4d4; every recorded source input is unchanged at report-only head f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1. git verify-commit HEAD exited 0; remote PR head matches.
-  - criterion: Rejection items 1–10, red→green for same-store Stop, real incremental parsing and final-byte liveness
-    reference: 'https://github.com/bboxy450/bboxy450-harness/blob/f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1/.bboxy/runs/e3b-gui-phase2.log; https://github.com/bboxy450/bboxy450-harness/blob/f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1/.bboxy/runs/e3b-round2-red-controls.json and e3b-round2-red-{1,2,4}.log. Restored tests pass unfiltered. Structured 64KiB: 69315 parsed bytes, 64 appends, zero deferrals, 1346 block layouts. Native Escape routing is exercised through durable outcomes.'
-  - criterion: Toolkit container-definition fixes repair already formatted blocks on the real GUI preparation path
-    reference: https://github.com/bboxy450/bboxy450-harness/blob/f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1/.bboxy/runs/e3b-definition-18ff-red.log — exit 101; https://github.com/bboxy450/bboxy450-harness/blob/f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1/.bboxy/runs/e3b-definition-488-green.log — exit 0; the same test also passes in the unfiltered gate. Blockquote/list/multiline/footnote definitions compare rendered streamed content with a fresh parse.
-  - criterion: Committed formal evidence and meaningful semantic/visual smoke
-    reference: 'https://github.com/bboxy450/bboxy450-harness/blob/f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1/.bboxy/runs/e3b-pin-488-formal-summary.json binds source/model/tool hashes: all 49 native/TLC state sets, edge sets and expected verdicts match across 21 contracts. Suppressed-render control fails liveness (1162 states/2410 edges). https://github.com/bboxy450/bboxy450-harness/blob/f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1/.bboxy/runs/e3b-pin-488-formal-checked.log — check exit 0. Screenshots https://github.com/bboxy450/bboxy450-harness/blob/f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1/.bboxy/runs/gui-smoke.png and https://github.com/bboxy450/bboxy450-harness/blob/f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1/.bboxy/runs/gui-smoke-scrolled.png: 17 items/14 kinds, inset bodies, three distinct compact approval fills, highlighted glyph colours, diff add/remove lines and tool status.'
-  - criterion: Retained failure evidence, benchmark limits and final dependency step
-    reference: https://github.com/bboxy450/bboxy450-harness/blob/f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1/.bboxy/runs/e3b-pin-488-make-test.log — first exit 2, store_recovery.rs:233 parsed an empty group.pid after existence-only polling. Core test untouched and unfixed; unfiltered retry above passes. https://github.com/bboxy450/bboxy450-harness/blob/f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1/.bboxy/runs/e3b-pin-488-bench.log — exit 0, both UNMEASURED at load 30.68/10 CPUs; no p99 claim. PR https://github.com/bboxy450/bboxy450-harness/pull/5 remains OPEN at f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1; final merged toolkit pin is pending the Oracle's next revision, per message 01M6B420GQ05BK6YRWKW0ECXMA.
+  - criterion: Exact plain canonical command on final pin and harness PR7 rebase
+    reference: https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-final-make-test-fixed.log — plain make test exit0, no flags/filter/thread override, private HOME and no operator input. https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-final-verification.json — all 10 core +4 GUI command exits0; gate source28dbd12c12d2485dc1a687efd06919ee0b9d18e5 and unchanged source inputs at record-only head 330c53c59ec9be4f727fe148ee84cd00f8abcc77. cdde43d is an ancestor. git verify-commit HEAD exits0; remote PR head matches.
+  - criterion: Final toolkit dependency alignment and preserved integration sets
+    reference: 'Cargo.toml/lock: ui/doc/render/ui-core pin59dedc64861d66650e163bfabab88f5ed67eb810; shared published runtime0.1.1. R15 one-copy/shared-registry gate passes. The old UI-core import failure is in https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-final-make-test.log; https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-final-ui-core-clippy.log exits0 after alignment. https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-final-rebase.log and verification JSON prove exact unions: 64 variants/25 contracts, preserving main ACP coupling/MCP group-close and all GUI controls.'
+  - criterion: Formal and semantic acceptance evidence committed in the tree
+    reference: https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-final-formal-summary.json contains source/model/tool hashes and all64 native/TLC states/edges/expected verdict results; https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-final-formal-checked.log — check exit0. https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-gui-phase2.log maps outcomes and prior red→green controls for same-store Stop, unthrottled incremental parsing and final-byte liveness. Local graph archives are retained outputs, not claimed as committed directories.
+  - criterion: Rich GUI, ContextTrim/d2400, full readability, actual controls and meaningful offscreen smoke
+    reference: All15 rich tests pass, including native Escape, rendered approval actions, live terminal role/tail/full blob, >64KiB scrolling/source, 64-batch parse work, deferred-tail formatting, container definitions and ContextTrim frontier/emphasis/laws. https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-e1c-review.log retains d2400 review. https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/gui-smoke.png and https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/gui-smoke-scrolled.png show22 items/all15 kinds; smoke asserts highlighted glyph colours, diff lines, tool status, inset bodies and three distinct compact approval fills.
+  - criterion: Measured budgets, signed publication and no merge/release
+    reference: https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-final-bench.log — make bench-budgets exit0, 200 frames/100000 deltas, GUI wall p990.678ms/CPU0.539ms vs0.9ms; grep ticker p993.27325ms vs5ms, load8.12/10 CPUs. Benchmarks remain outside make test. PR https://github.com/bboxy450/bboxy450-harness/pull/5 is OPEN at signed 330c53c59ec9be4f727fe148ee84cd00f8abcc77; no merge or crate release performed.
   exit_code: 0
 ---
 # E3b: GUI phase 2
@@ -196,6 +204,82 @@ Pinned ui/doc/render to toolkit 4889321f13e509dc7ca18ce7ed3f0217e76cdd1b and pus
       {
         "criterion": "Retained failure evidence, benchmark limits and final dependency step",
         "reference": "https://github.com/bboxy450/bboxy450-harness/blob/f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1/.bboxy/runs/e3b-pin-488-make-test.log — first exit 2, store_recovery.rs:233 parsed an empty group.pid after existence-only polling. Core test untouched and unfixed; unfiltered retry above passes. https://github.com/bboxy450/bboxy450-harness/blob/f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1/.bboxy/runs/e3b-pin-488-bench.log — exit 0, both UNMEASURED at load 30.68/10 CPUs; no p99 claim. PR https://github.com/bboxy450/bboxy450-harness/pull/5 remains OPEN at f42bbfa14c2fa58c57ebda4784dbf0038bbbfba1; final merged toolkit pin is pending the Oracle's next revision, per message 01M6B420GQ05BK6YRWKW0ECXMA."
+      }
+    ],
+    "exit_code": 0
+  }
+}
+```
+
+
+## Report from seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+
+Rebased PR #5 onto origin/main ccce095 (E1c merge eef1153), reviewed the merged d2400 GUI hunks and kept both source sets. ContextTrim now renders a worker-prepared styled callout with its frontier/effect; the refreshed v0.4 rich fixture covers 22 items/15 kinds and both Compaction frontiers. Full unfiltered make test exits 0 on the first integrated run: all 14 stages, all 15 rich tests and all 61 native/TLC variants across 24 contracts pass. Signed e3b-gui-rich head 33714574049711c358e285a4e57fcc9346b58d13 is pushed to OPEN PR #5, not merged. Report: [[e3b-gui-phase2]] — https://github.com/bboxy450/bboxy450-harness/blob/33714574049711c358e285a4e57fcc9346b58d13/.bboxy/runs/e3b-gui-phase2.log. Review and formal hash summary are committed. Pin remains HELD at 4889321f13e509dc7ca18ce7ed3f0217e76cdd1b pending the Oracle's final toolkit revision.
+
+```json
+{
+  "commit": "33714574049711c358e285a4e57fcc9346b58d13",
+  "op_id": "01M6BCTR5M706SGQEJYA32RTJR",
+  "verify_result": {
+    "command": "make test",
+    "evidence": [
+      {
+        "criterion": "d2400 review and exact preservation of both integration sides",
+        "reference": "https://github.com/bboxy450/bboxy450-harness/blob/33714574049711c358e285a4e57fcc9346b58d13/.bboxy/runs/e3b-e1c-review.log — reviewed eef1153^1..eef1153 GUI hunks; retained kind_label/display fallback and dynamic reduction expectations; reformatted Compaction's one-liner. https://github.com/bboxy450/bboxy450-harness/blob/33714574049711c358e285a4e57fcc9346b58d13/.bboxy/runs/e3b-e1c-verification.json proves exact corpus/contract name unions: 61 variants / 24 contracts. ACP/test-fixtures and GUI dependencies are preserved. No core source edits."
+      },
+      {
+        "criterion": "Rich ContextTrim, refreshed all-items fixture and meaningful smoke",
+        "reference": "tests/gui_rich.rs::context_trim_is_a_prepared_rich_callout_with_its_actual_frontier passes transcript laws, real replay/preparation, frontier/effect/emphasis and no generated-source toggle. tests/fixtures/gui/rich-all-items.jsonl: 59 envelopes, ContextTrim through45, Compaction frontiers36/45. https://github.com/bboxy450/bboxy450-harness/blob/33714574049711c358e285a4e57fcc9346b58d13/.bboxy/runs/gui-smoke.png and https://github.com/bboxy450/bboxy450-harness/blob/33714574049711c358e285a4e57fcc9346b58d13/.bboxy/runs/gui-smoke-scrolled.png — 22 visible items / all15 kinds, inset bodies, highlighting, diff lines, tool status, compact approval choices and scrolled viewport."
+      },
+      {
+        "criterion": "Full canonical unfiltered unattended verification after rebase",
+        "reference": "https://github.com/bboxy450/bboxy450-harness/blob/33714574049711c358e285a4e57fcc9346b58d13/.bboxy/runs/e3b-e1c-make-test.log — exit0 on first integrated run, all15 rich tests and all14 core+GUI stages pass, including ACP/MCP tests and headless smoke; https://github.com/bboxy450/bboxy450-harness/blob/33714574049711c358e285a4e57fcc9346b58d13/.bboxy/runs/e3b-e1c-verification.json — private HOME, no operator input/filter/thread override and complete source input hashes. Gate source 36a8bb8f785ffa5557ede9af52a639d346ab37e9; unchanged inputs at report-only head 33714574049711c358e285a4e57fcc9346b58d13. git verify-commit HEAD exits0 and remote PR head matches."
+      },
+      {
+        "criterion": "Committed formal source/model/tool hashes and all reachable-graph/verdict comparisons",
+        "reference": "https://github.com/bboxy450/bboxy450-harness/blob/33714574049711c358e285a4e57fcc9346b58d13/.bboxy/runs/e3b-e1c-formal-summary.json — 61 variants /24 contracts /one crate, native/TLC state and edge sets plus expected safety/liveness/deadlock verdicts agree. https://github.com/bboxy450/bboxy450-harness/blob/33714574049711c358e285a4e57fcc9346b58d13/.bboxy/runs/e3b-e1c-formal-checked.log — check-formal-evidence exit0. Local graph archives remain retained outputs, not claimed as committed directories. Prior red-control logs/commands remain in e3b-round2-red-controls.json."
+      },
+      {
+        "criterion": "Held dependency pin and remaining final-revision step",
+        "reference": "Cargo.toml/lock retain 4889321f13e509dc7ca18ce7ed3f0217e76cdd1b; R15 metadata gate passes with one shared runtime/UI-core. PR https://github.com/bboxy450/bboxy450-harness/pull/5 is OPEN at 33714574049711c358e285a4e57fcc9346b58d13. Final merged toolkit pin awaits the Oracle per 01M6BBHS7JMWSDM78BH8ETCG8S. Main includes the atomic PID-file publication fix; the earlier core failure's test passes now. No merge or 0.1.2 release signal."
+      }
+    ],
+    "exit_code": 0
+  }
+}
+```
+
+
+## Report from seat:01M6AMBPG3XD3CMJWHQCKWAG7M
+
+Final requested pin/rebase complete: toolkit 59dedc64861d66650e163bfabab88f5ed67eb810, harness main cdde43d including PR #7. Signed e3b-gui-rich head 330c53c59ec9be4f727fe148ee84cd00f8abcc77 is pushed to OPEN PR #5. Plain make test exits 0: all 14 stages, all 15 rich tests, 64 native/TLC variants /25 contracts and 22-item/15-kind headless smoke pass. UI-core also needs the same Git revision for TransportParameter; runtime stays registry0.1.1 and R15 passes. The initial import failure is resolved and preserved. GUI wall p99 0.678ms (0.9ms limit), CPU0.539ms; grep ticker3.27325ms (5ms allocation). Full committed report: [[e3b-gui-phase2]] — https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-gui-phase2.log. No core source edits, merge or release; no crates.io0.1.2 wait remains.
+
+```json
+{
+  "commit": "330c53c59ec9be4f727fe148ee84cd00f8abcc77",
+  "op_id": "01M6BHD2MCRT4N02579YMTRTB8",
+  "verify_result": {
+    "command": "make test",
+    "evidence": [
+      {
+        "criterion": "Exact plain canonical command on final pin and harness PR7 rebase",
+        "reference": "https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-final-make-test-fixed.log — plain make test exit0, no flags/filter/thread override, private HOME and no operator input. https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-final-verification.json — all 10 core +4 GUI command exits0; gate source28dbd12c12d2485dc1a687efd06919ee0b9d18e5 and unchanged source inputs at record-only head 330c53c59ec9be4f727fe148ee84cd00f8abcc77. cdde43d is an ancestor. git verify-commit HEAD exits0; remote PR head matches."
+      },
+      {
+        "criterion": "Final toolkit dependency alignment and preserved integration sets",
+        "reference": "Cargo.toml/lock: ui/doc/render/ui-core pin59dedc64861d66650e163bfabab88f5ed67eb810; shared published runtime0.1.1. R15 one-copy/shared-registry gate passes. The old UI-core import failure is in https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-final-make-test.log; https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-final-ui-core-clippy.log exits0 after alignment. https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-final-rebase.log and verification JSON prove exact unions: 64 variants/25 contracts, preserving main ACP coupling/MCP group-close and all GUI controls."
+      },
+      {
+        "criterion": "Formal and semantic acceptance evidence committed in the tree",
+        "reference": "https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-final-formal-summary.json contains source/model/tool hashes and all64 native/TLC states/edges/expected verdict results; https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-final-formal-checked.log — check exit0. https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-gui-phase2.log maps outcomes and prior red→green controls for same-store Stop, unthrottled incremental parsing and final-byte liveness. Local graph archives are retained outputs, not claimed as committed directories."
+      },
+      {
+        "criterion": "Rich GUI, ContextTrim/d2400, full readability, actual controls and meaningful offscreen smoke",
+        "reference": "All15 rich tests pass, including native Escape, rendered approval actions, live terminal role/tail/full blob, >64KiB scrolling/source, 64-batch parse work, deferred-tail formatting, container definitions and ContextTrim frontier/emphasis/laws. https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-e1c-review.log retains d2400 review. https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/gui-smoke.png and https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/gui-smoke-scrolled.png show22 items/all15 kinds; smoke asserts highlighted glyph colours, diff lines, tool status, inset bodies and three distinct compact approval fills."
+      },
+      {
+        "criterion": "Measured budgets, signed publication and no merge/release",
+        "reference": "https://github.com/bboxy450/bboxy450-harness/blob/330c53c59ec9be4f727fe148ee84cd00f8abcc77/.bboxy/runs/e3b-final-bench.log — make bench-budgets exit0, 200 frames/100000 deltas, GUI wall p990.678ms/CPU0.539ms vs0.9ms; grep ticker p993.27325ms vs5ms, load8.12/10 CPUs. Benchmarks remain outside make test. PR https://github.com/bboxy450/bboxy450-harness/pull/5 is OPEN at signed 330c53c59ec9be4f727fe148ee84cd00f8abcc77; no merge or crate release performed."
       }
     ],
     "exit_code": 0
