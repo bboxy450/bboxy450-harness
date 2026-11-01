@@ -1,10 +1,10 @@
 {
-  "source": "ca59d8e5d0ac177b8d2725397c1d44ea20ffda6f",
+  "source": "4889c8df51be330a26e2a540cd7defe5b3e9ec38",
   "input_sha256": {
-    ".bboxy/interfaces/acp.md": "8544f6def1f314149e7af57084a35228ee2305f81fb5385708397f9aeefffb7d",
+    ".bboxy/interfaces/acp.md": "dd1fd0ca08ad38909569086559ec41b0ce505e29058403624f81d3eb38e5c074",
     ".bboxy/interfaces/embed-seat.md": "144f9c3eecf85232e445dec43cf39004c73a27aef12014f696c8f1070be4c774",
     ".bboxy/interfaces/gateway.md": "c8e9f7b2e1bee4765a0fc008d0c528e1407423d535edc793ee0e69495577c63f",
-    ".bboxy/interfaces/interfaces.md": "a8330e66d5f6efda70ce74c5b661c20681b67ec5fd98ab6718f9f80a383daebd",
+    ".bboxy/interfaces/interfaces.md": "c8c6888af99422b033700e6271e1286fb66489a3e7fdc2c525c8e600bae845c4",
     ".bboxy/interfaces/mcp.md": "8728b5601ce65d0cc0dbb3cc1afc7e31443908af60350251a596e2aeeea7d46f",
     ".bboxy/interfaces/protocol.md": "16cf4e17e9e559b2c47b788faf1c79c738896dee7c76cbc76603be5a07094f9a",
     ".bboxy/interfaces/provider.md": "8c58c8a4386b88f7f8e41e41c691dc56745d939052539ef02bd0b63108f0da1e",
@@ -25,7 +25,8 @@
     "scripts/formal.py": "7bd64ace2a79bc92d689ed64480938c2b9882d3dbb6f1c19ef23e0daa56d7cff",
     "scripts/hardening-controls.py": "ae83ceca439064dec5d07fe3dd8a55f3276d5b6d4cf5a3276294a4498b314c6c",
     "scripts/smoke-live.py": "688396f814ce8bf1c8ccf0cd1bd241a6af451707636d5989561067767b798eea",
-    "scripts/test-e1c-controls.py": "571ad78da89581e3058909cf9d865114eab33eaab32f0664cd26784f4b7fe17e",
+    "scripts/test-e1c-controls.py": "6191bb3d57c708243357a2ffa245820e20ddc1867a9bfb78449b1391bfcae67b",
+    "scripts/test-e1c-rework-controls.py": "c902ab4f9a1fe28f63915b9afe960b7ae33898350697541ff809edfcb7265cb0",
     "scripts/test-formal.py": "7d123846f22e30f108175e050a07d9be37c333866932a20488ef7cf4ffb4a1cf",
     "scripts/test-hardening.py": "e0104e0712cf46281c787587294188a4dfad78c0953e16981dc10ca561f72d43",
     "scripts/test.py": "f2c7a7bc36e2070984f70b0b76a22ef542c76012444ce3cdcc549245be011ba4",
@@ -33,10 +34,10 @@
     "src/context/compact.rs": "ace4de06457032249dc29afd7c3eeabea45dda8fc2ae13f0560034d4fc698142",
     "src/context/mod.rs": "23bfffbd3855acb190c75d8cc9514f1c34417eb6acd1b0ce6674a41f6ec0d8a3",
     "src/engine/history.rs": "28bdf97337c7af0308a287c435134824ab269faed523bb6e52ac913a5581d6db",
-    "src/engine/mod.rs": "cb03eac1f6028c679ebf5d109a96b2cf88d95caa8d06dd7a46bf5112fc5eb30b",
-    "src/engine/task_group.rs": "d9d9a02ca439e6caa77e17531867b431df61def01cda31fa95bb845fa8d24a98",
-    "src/engine/turn_loop.rs": "cbfa16da9b4ed9fb6201d3b3eb596d62ce8371c1eb1294078d9702e56d12d574",
-    "src/frontends/acp.rs": "a455a92f4184e9c8ea3b30009aebd8bedfd8cd22d46c7907558d43c719699c50",
+    "src/engine/mod.rs": "0553e80c5bde732686381fa9f06657ce36ff52d49e0bd4b838a48f212faa9c19",
+    "src/engine/task_group.rs": "48c04c8bf8683535f2f14a778a4d61a6e0fee38997a9665e44c7d5250c155ac1",
+    "src/engine/turn_loop.rs": "e6683dba876a082bfb34b9ebc674631f28fff6c798378a209767d0563f98695a",
+    "src/frontends/acp.rs": "8654e1515a802ac06e2c12b6f270cc8337932b6bcdd2d54988e6c5d50e348599",
     "src/frontends/gui/assets.rs": "e1cf43d8a4fa0c9d62f56967138f77bf19a3df132e979513801ba82951c1479e",
     "src/frontends/gui/bridge.rs": "dc897adb9828f075a60b5de8d6d60c7228b1d95f3c900db6c125889d2a5be9b6",
     "src/frontends/gui/budget.rs": "b512da690312db193425244fb6404f4d3cd710c67dc72b79f249034935241fb5",
@@ -57,7 +58,7 @@
     "src/gateway/unix.rs": "8e8c12406c0eafce23d364e9dfb99df7e5276facb0dd517d7cfa599255b81bac",
     "src/lib.rs": "0fad68a1928effd23670a24aa2001cd268e7cf0969f3b77ca423fdbbd243a9b0",
     "src/main.rs": "e8692543448eba7ce925eac72bc7b3f532cc2ba866e511a07d5e6196c5e85247",
-    "src/mcp.rs": "e9a96c11b49028d8b95ce0538366d71e224216fe96411ab0b3ca83c29d64a109",
+    "src/mcp.rs": "3fce8308adc774cea08e4aca29772389c71627b54bfd266464cc0c0a90aa0c36",
     "src/policy.rs": "4a88c7dd75ed079340d74cbc70fb7f5ffef871f9dffb51c004fdd9d61e16cae7",
     "src/process.rs": "fd9f6540729825e46fe3b6eece294f8f63f41cb45962efad76d0ff9430b66ea7",
     "src/protocol/laws.rs": "74ef636edec3e1ae7e2c67dfc4f14d152a0ae0346a4f32e0f0d6ee845a08d47b",
@@ -70,16 +71,16 @@
     "src/store.rs": "6cab1a7029c3fd7a95505a24476530fe8378145d69d71baac882f25736983f8d",
     "src/store/fork.rs": "778faff5f5302a2597a0ca5a1e29b7a7431efa3a114cba9482c775664f6a575c",
     "src/tools.rs": "11f4923f040bb1bad3154d6a74e82eb5bdc5093b5dfc32e5d06c3591c177da19",
-    "tests/acp_face.rs": "d4e0f295bc4bff0f371a159fb7319316244f2c71f2983ea77398b5aa967e68af",
-    "tests/bin/mcp_fixture.rs": "ce65faeb490a2227804febe8c48168470c5ab710b55f661242c7c165e3cd8c73",
+    "tests/acp_face.rs": "894490f988cf42c69da842fdd046f0254c696bbf8d92f6e374487e82f47341c4",
+    "tests/bin/mcp_fixture.rs": "82ba8985709506e34191a4767b1c70f818a31723372d989f9f4ce5db0aaab9f2",
     "tests/cancel_process.rs": "5995ca7d4f269f975da9b02e4a04a8270b4bc58669458114972e942f02693330",
     "tests/cli_headless.rs": "83a2eb17818eddff50846e58d51e78ec2cedb2a05e2303e654bea0823c842c1c",
-    "tests/context_auto.rs": "806a53d8992353d168ce5d7422e35176678f763c1e56d4bb6633c4ed4677fb69",
+    "tests/context_auto.rs": "ff02a582c86c6573ab831f335232d8efe0bae869e841289de7330be13bd9e754",
     "tests/context_compact.rs": "4ff53a6bd1dee33102a2db4b4de5e395459ca85d2906b413f0db3314e4a3bbed",
     "tests/e2e_scripted.rs": "e03f186a0983c6a294d5b356fe3dda04fd03911d54e4dd4f22dac8b9011050fb",
     "tests/exec_stream.rs": "0284f3ed899e2db585c84ca482c560cae5a4430d3f3b888b08027dc7e3516e75",
-    "tests/fixtures/acp/loaded-all-items.jsonl": "6ea19b77b3a578011e53b43a757dbd46e49f4b0e0ab0928f3184b4b98e6032dc",
-    "tests/fixtures/acp/scripted-turn.jsonl": "838b6e1af6708634c6e055dddcb5d58026a93628bfe3817b73c88b7b8264ced3",
+    "tests/fixtures/acp/loaded-all-items.jsonl": "fdef7499cae54e54c2ffef7a27d4ebd9c164d6668f0b869395d20587cde60e3b",
+    "tests/fixtures/acp/scripted-turn.jsonl": "a00ef7a591d5d23b894c889ddb96e994933100db1377d773fc72c805e760cbe6",
     "tests/fixtures/compact/all-items.md": "747bbc3c10c30ceae7eb077ea626f623ef77411f00ad5f89860b4672af32610d",
     "tests/fixtures/gui/v0_2-identity-terminal.jsonl": "f4d7fe14ee2dd5c1c87703868c62274f2fc544a9b492f00fb865fd713367f635",
     "tests/fixtures/protocol/all-items.jsonl": "a74077590627509daccc7bd4ef30e36f8eeec4b59d60df28d08211cd7c8518e4",
@@ -105,10 +106,10 @@
     "tests/fixtures/sse/text.sse": "453671a2fac9a73b2595b9453e5213e428c3e4b9ba2cf543a7226d90109587c1",
     "tests/fixtures/sse/tools.sse": "c20ac4fd0863f68faa8cda4018b8ba5afbe96303c1fa8b16cacd232cd4fb0771",
     "tests/fixtures/sse/utf8-split.sse": "df1684e41815d2ffe11033e2ec019de614439dbb1d9bb7ef507a75a1d1e0e073",
-    "tests/formal/export.rs": "8ab287a9d74e58b5bf3533ff5097896e3ed4c5e021fe9202cd16b5b982b0fd81",
-    "tests/formal/models.rs": "fe2d5cc44ffebfe89c02080167ee0544a100e0bd28e100c385f8766d1d0e5d0d",
+    "tests/formal/export.rs": "8c7222a2575965b19f1a7b8add2fa176ef16d2d4033048ce1790125e5935cb95",
+    "tests/formal/models.rs": "6e0beec6dac9d00fdcd247ee3f3980782afb2185d53edf2280f038423f687a29",
     "tests/formal_models.rs": "ce809fcbe081559a25f046e65e894f24d59bdad654ee95d92604066befe95fd7",
-    "tests/formal_nonvacuity.rs": "dd659175ce8fea40b4f6daeb659f785825f053cbddd0aa8a886a1dddfc34c01c",
+    "tests/formal_nonvacuity.rs": "b3e5b7f8dd7ffbb72f96b28da119da5427815e4299ffb42adb686d624eb4d155",
     "tests/gateway_host.rs": "9a88dbc6e0792f5dd65f318d46bac3f0dc26bacd43f34d6feb49fac4f7b9eab3",
     "tests/gateway_lag.rs": "7483c5a3c013c615e8c885d61ba743ecb48e38bf62b6568d485d4eba6b3981ee",
     "tests/gateway_ops.rs": "0ac333bb286fb98840f9c14ec3f070fb52d7440c9d1879f304ab993b62bb27b7",
@@ -121,8 +122,8 @@
     "tests/gui_fixtures.rs": "56072922bc11a25d56dafdedda47168f308b700029487a8305738b48b4db0d7f",
     "tests/gui_gate.py": "94c17c99105165841eec4205fa7dfb67b481c8737a4a102e7e1893d00580f263",
     "tests/gui_render.rs": "07b75f733c8607bb47731acce132a2189e5da1dde02e526912de018917385d41",
-    "tests/mcp_client.rs": "5121894c565b96913953dcd9057500247d1178826bc23d2d778fcf1a77796a69",
-    "tests/policy_gate.rs": "961354e46ed2b6e27e9784274b9ffeb10bc2138879aeaf227660b3b628c03c64",
+    "tests/mcp_client.rs": "4dacee8b87031e76971199b92cdb9503b0d0125629bddd35e0f294d26523f5c7",
+    "tests/policy_gate.rs": "700c6fefb150022e1c81c822deb811b2ca7d6710ed2b72e061056cccaa0f6c4e",
     "tests/profile_lifecycle.rs": "b15ce1fac0bf24d4ebeb58e7f22ef48d8dcbe38c8676298ecc52a9789f38ae4b",
     "tests/protocol_golden.rs": "f7c04e7d2d3b2e40c9a5bc4d061ddd80f1951df549a66b268df76234792a579f",
     "tests/protocol_laws.rs": "24ea9cde614fa073f9dd07e9f917b397286b14ed1ea513a0c42425c2aa158286",
@@ -138,9 +139,9 @@
     "tests/support/setsid.py": "494b864d2df3524ce69fdf57f05ce253c46f90a743d8159386ab7a5689d7f040",
     "tests/support/sse_server.rs": "dc7c6e2fc1281af3f93c9a6b511a24b83e29660b0af7d92b5bc53464ddb657ec",
     "tests/tools.rs": "eb3dc1cc3f0ac60ee64bde39d6d330b1efb681b7cbabf5b501ad0752e836dbde",
-    "verification/contracts.toml": "e8d3d6f5e179c1ae6805b65048b635757ae84420a834495ff9a8d3e2aa667624",
-    "verification/corpus.toml": "905a05fb402225155e338f10558998590feb85ec8a264c3e1b792cbd15ebd4ae",
-    "verification/coverage.toml": "ff33628d3a2634479289798f2abbe3b9602435d9169f612562425ec8f2331f3b",
+    "verification/contracts.toml": "b6d8f3f6bcddd8d0cf2a99011fc616ce5d463a7bc5e7e2f95bb6d46c5f84ac84",
+    "verification/corpus.toml": "bfc7438eac7f9d27188831a22cd3198de4a83e30d2482780fd5b4dcf85e221fa",
+    "verification/coverage.toml": "2a955a22077578eeebbaa3d354b8846283806aa94b344ae8da5d788dcec0de6c",
     "verification/tools.lock.json": "45d8a35d0b533e53689efc46542315cf91713ee5821a2f002289cc0b8bc7a8dd",
     "verification/upstream-sources.json": "ff6ba970c7eaba23643502453ddf59215efed8459c611806e07602dbc335a9e3",
     "verification/upstream/crates-bboxy450-tlc-examples-verify.rs": "8451a8b06b9356f77b0bb04004f91cef2b1450941c520d4ca2c9f2dad97ca23b",
@@ -321,7 +322,7 @@
     {
       "name": "HarnessAutoCompact",
       "expected": "pass",
-      "states": 44
+      "states": 320
     },
     {
       "name": "HarnessMcpServer",
@@ -331,7 +332,7 @@
     {
       "name": "BrokenHarnessAutoCompactA",
       "expected": "safety",
-      "states": 44
+      "states": 256
     },
     {
       "name": "BrokenHarnessMcpServerA",
@@ -341,7 +342,7 @@
     {
       "name": "BrokenHarnessAutoCompactB",
       "expected": "safety",
-      "states": 88
+      "states": 700
     },
     {
       "name": "BrokenHarnessMcpServerB",
@@ -351,7 +352,7 @@
     {
       "name": "BrokenHarnessAutoCompactC",
       "expected": "liveness",
-      "states": 36
+      "states": 280
     },
     {
       "name": "BrokenHarnessMcpServerC",
@@ -361,7 +362,22 @@
     {
       "name": "BrokenHarnessAutoCompactD",
       "expected": "safety",
-      "states": 96
+      "states": 628
+    },
+    {
+      "name": "HarnessAcpFlow",
+      "expected": "pass",
+      "states": 1148
+    },
+    {
+      "name": "BrokenHarnessAcpFlowA",
+      "expected": "safety",
+      "states": 1484
+    },
+    {
+      "name": "BrokenHarnessAcpFlowB",
+      "expected": "safety",
+      "states": 1296
     },
     {
       "name": "BrokenHarnessSteerQueueDelivery",
