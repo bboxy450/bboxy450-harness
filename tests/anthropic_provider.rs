@@ -877,7 +877,10 @@ async fn existing_profiles_keep_openai_request_bytes() {
     req.tools = tools();
     req.tool_choice = ToolChoice::Required;
     req.stable_prefix = 1;
-    let expected = json!({"model":"mock","messages":req.messages,"tools":tools_wire(&req.tools),"tool_choice":"required","stream":true,"stream_options":{"include_usage":true},"reasoning":{"exclude":false}});
+    // Frozen legacy construction order: optional tools followed the base body.
+    // ACP enables preserve_order globally; deserialize the same baseline bytes
+    // under either map backend instead of assuming alphabetical serialization.
+    let expected: Value = serde_json::from_str(r#"{"model":"mock","messages":[{"role":"user","content":"Hello"}],"stream":true,"stream_options":{"include_usage":true},"reasoning":{"exclude":false},"tools":[{"type":"function","function":{"name":"read","description":"Read a file","parameters":{"type":"object"}}},{"type":"function","function":{"name":"glob","description":"List files","parameters":{"type":"object"}}}],"tool_choice":"required"}"#).unwrap();
     let out = provider
         .stream(req, CancellationToken::new())
         .collect::<Vec<_>>()
