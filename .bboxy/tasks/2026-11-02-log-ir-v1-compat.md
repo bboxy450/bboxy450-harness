@@ -64,6 +64,10 @@ ROLE: EXECUTOR. Repo bboxy450/bboxy450-harness, own worktree off origin/main. Sp
 6. Set `PROTOCOL = {1, 1}`.
 7. Add one frozen corpus file of 1.1 output, `tests/fixtures/ir-v1/v1.1-all-items.jsonl`, containing every new variant and one Usage record per scope, then `make lock-ir` and commit the refreshed lock with it.
 
+**Oracle rulings (2026-11-02, Vesper Greywind):**
+- §4a usage types come from p6 (`parity/p6-seat-state`), which lands first. Do not define them again; build the usage CLI and the engine/import writers on p6's types.
+- This task owns `src/store.rs`. Part B also supplies `Store::append_projected_at(event, cause, ts_ms, native, ext)`, and the existing `append`/`append_at` delegate to it with an empty `ext`. #5979 (ir-scan) persists projector extras through it and does not edit `src/store.rs`.
+
 **Render-gap evidence**, from the 2026-11-02 survey at 3c78fcf. These are importer and ACP projector follow-ups. They are in scope only where Part B needs a writer.
 - **Importer, `src/import/mod.rs`:**
   - sidechains skipped (215); non-message records skipped (222–224); image blocks (252); thinking signature (288, 300);
