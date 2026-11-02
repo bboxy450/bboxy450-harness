@@ -42,5 +42,13 @@
    "mean_abs_diff": 0.033,
    "row_structure_mismatch": 0.4973
   }
- }
+ },
+ "lab_sha256": "30cbc06b4e1c2c61f06cbddbdf0eaee23af43e58cb1f64f762a32c3e93eb7f27",
+ "lab_files": [
+  "lab.css",
+  "tokens.js",
+  "lab.js",
+  "components.js",
+  "harness.js"
+ ]
 }

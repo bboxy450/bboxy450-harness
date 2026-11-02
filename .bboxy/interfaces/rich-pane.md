@@ -21,9 +21,9 @@ updated: 2026-11-02T23:30:00Z
 
 | | |
 |---|---|
-| Side A | bboxy450-term: pane model (`bbt-ui-model/src/model/window.rs:75` `PaneBody`), scene (`bboxy450-term/src/scene.rs:1803-1822`), App frame loop (`main.rs:7806` `redraw`), logic input guard (`bbt-mux/src/logic.rs:8669` `guarded_input`), hook observation (`wake-up/src/observe.rs:380`) |
+| Side A | bboxy450-term: pane model (`bbt-ui-model/src/model/window.rs:75` `PaneBody`), scene (`bboxy450-term/src/scene.rs:1803-1822`), App frame loop (`main.rs:7806` `redraw`), logic input guard (`bbt-mux/src/logic.rs:8669` `guarded_input`), launch kit (`wake-up/src/launch.rs:515`) |
 | Side B | bboxy450-harness: `seat` face (`src/frontends/seat.rs`), Unix gateway (`src/gateway/unix.rs`, [[gateway]] §1a/§4), `gui::view::HarnessView` + `gui::bridge::Bridge` under feature `embedded` |
-| Crosses | OSC 7502 session announcements (B → A, on the PTY); NDJSON `Subscribe`/`Hello`/`Envelope`/`OpEnvelope`/ack over `~/.bboxy450-harness/run/<session>.sock` (both ways); the `bboxy450-harness` crate linked into term (build time) |
+| Crosses | `--socket <path>` in the seat argv (A → B); NDJSON `Subscribe`/`Hello`/`Envelope`/`OpEnvelope`/ack over that socket (both ways, [[gateway]] §4); the `bboxy450-harness` crate linked into term (build time, [[d5977-rich-view-dependency-direction]]) |
 
 ## 1. Decisions this ICD makes
 
@@ -32,26 +32,22 @@ updated: 2026-11-02T23:30:00Z
 3. **The log is the interface.** The rich face renders [[protocol]] envelopes only ([[d5972-our-log-format-is-the-center]]). Term never parses the PTY text of a harness seat, and never reads or writes the session's files except blobs, read-only (§3).
 4. **Messages are ops, not keystrokes.** Delivery to a harness seat (`seat_input_text`, composer submit) is `Op::UserTurn{mode: Queue}` over the socket. It never falls back to PTY bytes.
 
-## 2. Session discovery (B → A)
+## 2. The seat socket (A chooses the path, B binds it)
 
-The seat face binds `run/<session>.sock` (mode 0600, peer uid checked) as soon as `Host::create`/`open` returns. **Today only `headless` binds (`src/frontends/headless.rs:347`); `seat` must too.** The socket is removed on `SessionClosed` and on exit.
+Term chooses the path, so nothing has to be discovered.
 
-It then writes one hook frame to its PTY, in the existing #348 hook format (`wake-up/src/hook.rs:165`, ≤ 4096 bytes, attributed to the PTY it arrives on, so it carries no capability):
-
-```
-ESC ] 7502 ; v=1:seat=<BBOXY_SEAT_ID>:ev=HarnessSession:d=<base64 {"raw":{"session":"<ulid>","socket":"<abs path>","epoch":<n>,"protocol":{"major":M,"minor":m}}}> ESC \
-```
-
-- **Emitted** at start, after every `Host::switch` (a switch makes a *new* session: new id, new socket), and after a restart (`--resume`, new epoch).
-- **Term** records `{session, socket, epoch}` as the seat's current harness session. It persists `harness_session_id`, which is the phase 1b row of [[embed-seat]], and drops any view or delivery bound to an older session.
-- **Line mode** ([[embed-seat]] §2) is amended: exactly this OSC 7502 frame is allowed in addition to SGR and OSC 8.
+- **Argv.** The launch kit adds `--socket <abs path>` to the seat argv (`wake-up/src/launch.rs:515`, beside `--mcp-config`). The path is in term's own runtime directory and is at most 96 bytes (macOS `sun_path` is 104), e.g. `<runtime>/h-<seat ulid>.sock`. Without the flag the seat binds `~/.bboxy450-harness/run/<session>.sock` as `headless` does today (`src/frontends/headless.rs:347`); **`seat` binds nothing today and must.**
+- **Bind.** Mode 0600, peer uid checked, bound as soon as `Host::create`/`open` returns and before the first prompt is shown. The per-session socket is bound as well, unchanged.
+- **Switch.** `Host::switch` makes a new session. The seat closes the listener, unlinks the path and binds it again on the new session's gateway. Subscribers of the old session receive `SessionClosed`; a reconnect to the same path gets the new session's `Hello`. The old per-session socket goes away with the old session.
+- **Resume** (`seat --resume`, new epoch) and **restart** bind the same path again.
+- **Exit** unlinks the path.
+- **Term** learns the session id from `Hello.meta.session` and persists it as `harness_session_id` (the phase 1b row of [[embed-seat]]) for `--resume`. Nothing on the PTY changes: line mode ([[embed-seat]] §2) is untouched.
 
 | State (per seat, Side A) | Meaning |
 |---|---|
-| `NoSession` | no announcement yet; the rich face shows "starting…" and delivery refuses `harness-session-unknown` |
-| `Announced{session, socket, epoch}` | connect allowed |
-| `Connected{…, head}` | `Hello` received ([[gateway]] §2); delivery allowed |
-| `Closed` | `SessionClosed` seen, or the socket is gone; the next announcement moves the seat back to `Announced` |
+| `Unbound` | connect fails (`ENOENT`, `ECONNREFUSED`): the rich face shows "starting…"; delivery refuses `harness-socket-unavailable` |
+| `Connected{session, epoch, head}` | `Hello` received ([[gateway]] §2); delivery allowed |
+| `Closed` | `SessionClosed` or EOF: reconnect with backoff, at most one attempt per 2 s. A successful reconnect is a new `Connected`, possibly on a new session |
 
 ## 3. The rich face (Side A renders, Side B supplies the view)
 
@@ -59,6 +55,7 @@ ESC ] 7502 ; v=1:seat=<BBOXY_SEAT_ID>:ev=HarnessSession:d=<base64 {"raw":{"sessi
 - **Bridge over Unix.** Today `Bridge` attaches only `InProc` (`src/frontends/gui/bridge.rs:251`). Side B adds `Bridge::connect(socket, after)`, which runs `UnixClient` on `bbt_rt`, never on the UI thread. It feeds the same `Mailbox`/`FrameState` that `InProc` does. `HarnessView::render(&FrameState, size)` is unchanged.
 - **Equality.** The view must produce the same `Frame` for a log, whether it is fed by InProc or Unix.
 - **Blobs.** Read-only from `sessions/<id>/blobs` through `store::Blobs` (same user, same machine). A remote seat (ssh or cloud) has no blob path; images show their placeholder until a blob fetch op exists (a [[log-ir-v1]] addition, not in this version).
+- **Direction.** Term depending on the harness crate is a two-repo lockstep on every toolkit bump. It is accepted for phase 1 and has a recorded exit: [[d5977-rich-view-dependency-direction]].
 - **Scene.** The pane rect that `scene.rs:1803-1822` fills with the PTY grid is filled with the view's `Frame` instead when `face == HarnessRich`. The face toggle is a per-pane UI preference, persisted with the layout. The default is `HarnessRich` for `bboxy450-harness` seats with a session announced, otherwise `Terminal`.
 
 ## 4. Input routing
@@ -70,11 +67,11 @@ ESC ] 7502 ; v=1:seat=<BBOXY_SEAT_ID>:ev=HarnessSession:d=<base64 {"raw":{"sessi
 
 - No key reaches the PTY while the rich face is focused.
 - Both faces are approvers. The first `ResolveApproval` wins, and the second gets `AlreadyResolved`.
-- `/profile NAME` in the rich composer sends the switch through the seat process: an `Op::SetProfile` the seat face handles with `Host::switch`. A new `HarnessSession` announcement follows.
+- `/profile NAME` in the rich composer sends the switch through the seat process: an `Op::SetProfile` the seat face handles with `Host::switch`, then it rebinds the seat socket (§2).
 
 ## 5. Delivery and readiness (`seat_input_text` for harness seats)
 
-**Readiness.** Positive readiness for a harness seat means **admission**, not idleness: the logic owner holds a `Connected` subscription whose last frame (an envelope or the 15 s heartbeat) is younger than 20 s. It replaces the PTY composer-ready proof for this kind only. `guarded_input` dispatches on kind before the PTY arbiter (`logic.rs:8669`).
+**Readiness.** Positive readiness for a harness seat means **admission**, not idleness: the logic owner holds a `Connected` connection to the seat socket (§2) whose last frame (an envelope or the 15 s heartbeat) is younger than 20 s. It replaces the PTY composer-ready proof for this kind only. `guarded_input` dispatches on kind before the PTY arbiter (`logic.rs:8669`).
 
 **Delivery.**
 - The logic owner sends `OpEnvelope{op_id, op: UserTurn{blocks: [Text], mode: Queue}}`.
@@ -87,11 +84,11 @@ ESC ] 7502 ; v=1:seat=<BBOXY_SEAT_ID>:ev=HarnessSession:d=<base64 {"raw":{"sessi
 | `Ack{duplicate}` | submitted (same effect) |
 | `Refused::Busy` | `not_submitted`, cause `harness-busy`, retryable |
 | `Refused::Closed` / `UnknownSession` | `not_submitted`, cause `harness-session-closed` |
-| no `Connected` state | `not_submitted`, cause `harness-session-unknown` or `harness-socket-unavailable` |
+| socket unbound, or no `Hello` yet | `not_submitted`, cause `harness-socket-unavailable` |
 | ack timeout (5 s, [[gateway]] §1a) | `unknown`; the same op_id may be resent and never produces a second turn |
 
 - Zero PTY bytes are written in every row.
-- A delivery is bound to the session it was admitted for. After a switch (A → B), a resend for the old message goes to A's socket and is refused `Closed`. It is never re-aimed at B, because B's turn would need a new message.
+- A delivery names the session of the `Hello` it was admitted under (`OpEnvelope.session`). After a switch (A → B) the same path serves B, so a resend for the old message is refused `UnknownSession` by construction and reported `harness-session-closed`. It is never re-aimed at B, because B's turn would need a new message.
 - A → B → A (switch and switch back) creates a *third* session, so old op_ids cannot collide.
 
 ## 6. Lifecycle
@@ -101,7 +98,7 @@ ESC ] 7502 ; v=1:seat=<BBOXY_SEAT_ID>:ev=HarnessSession:d=<base64 {"raw":{"sessi
 | Window close / Cmd-Q (detach) | keeps running | dropped (detach) | keeps running (logic survives GUI detach) |
 | Reopen / reattach | — | resubscribes `after = (epoch, last seq)`; `Reset` → refetch ([[gateway]] §2) | — |
 | Cmd-Option-Q / `ctl app stop` | SIGHUP → SIGKILL 250 ms ([[embed-seat]] §3); groups killed | dropped | dropped |
-| Seat restart (generation + 1) | `seat --resume <session>` → new epoch → announcement | resubscribes on the announcement | reconnects |
+| Seat restart (generation + 1) | `seat --resume <session>` → new epoch, same socket path | reconnects; `Reset` handling | reconnects |
 | `Lagged` | — | resubscribe from `resume_after` | resubscribe |
 | Socket vanishes / harness crash | exited process | "session ended" banner, Terminal face still shows the PTY | `Closed` |
 
@@ -128,7 +125,7 @@ These are the harness's existing single-page shares, now made **aggregate**. Mor
 
 | Clause | Evidence | Side |
 |---|---|---|
-| §2 seat binds the socket (0600, removed on close) and announces on start, switch and resume | `tests/seat_process.rs`: socket mode and lifetime; PTY byte capture contains exactly one valid `ev=HarnessSession` frame per (start, switch, resume) with the current session id; line-mode CSI scan still clean | B |
+| §2 seat binds `--socket` (0600), rebinds on switch, unlinks on exit | `tests/seat_process.rs`: mode and lifetime; after `/profile` the same path answers `Hello` with the new session id and the old session's subscriber saw `SessionClosed`; connect during the rebind window fails then succeeds within 2 s; line-mode CSI scan unchanged | B |
 | §3 Unix bridge = InProc bridge | `tests/gui_bridge.rs`: for each `tests/fixtures/ir-v1/*.jsonl`, `layout_text` of a Unix-fed view equals the InProc-fed view | B |
 | §3 one toolkit copy | R15 inside term | A |
 | §3 visual parity | R27 `parity-gate.py`, plus term's offscreen capture of a rich pane on the same fixture: `row_structure_mismatch` vs the harness native capture ≤ 0.01 | A+B |
@@ -140,16 +137,16 @@ These are the harness's existing single-page shares, now made **aggregate**. Mor
 ## 10. Changes by side
 
 **Side B (harness):**
-1. `seat` binds the socket and emits announcements (§2).
+1. `seat --socket <path>`: bind, rebind on switch, unlink on exit (§2).
 2. `Bridge::connect` over `UnixClient` (§3).
-3. Seat face handles `SetProfile` via `Host::switch` and re-announces.
+3. Seat face handles `SetProfile` via `Host::switch` and rebinds.
 4. The `HarnessSocketDelivery` model.
 5. The tests in §9.
 
 **Side A (term, #348 owner):**
 1. `PaneBody`/pane face toggle.
 2. Scene fill from `HarnessView`.
-3. Observe `ev=HarnessSession` (`observe.rs:380` hook parse) and persist `harness_session_id`.
+3. Launch kit passes `--socket`; logic connects and persists `harness_session_id` from `Hello`.
 4. Logic delivery client and `guarded_input` kind dispatch with the §5 causes.
 5. The `bboxy450-harness` dependency with the toolkit patch.
 6. Budget rows.
@@ -159,6 +156,7 @@ These are the harness's existing single-page shares, now made **aggregate**. Mor
 
 ## Change log
 
+- v0.1 second pass, 2026-11-02, at the operator's request ("rethink your choices"). Session discovery by an OSC 7502 frame on the PTY is replaced by a term-chosen `--socket` path. It removes the announcement channel, the line-mode amendment, the `observe.rs` change and two Side A states, and makes the stale-session rule hold by construction (the rebound path serves the new session; an old `OpEnvelope.session` is `UnknownSession`). The rejected in-band frame was more moving parts for the same fact. Added the dependency-direction decision.
 - v0.1 proposed, 2026-11-02, Lumen Foxglove <ARCHITECT>, at the Oracle's request (message 01M6F48FNBWWFJVGS7W3K0DYST). Alternatives rejected:
   - **a new non-PTY seat kind.** It would change d20 and the supervisor's ownership for every harness seat, for a view concern.
   - **term parsing the line-mode screen.** That is lossy and violates [[d5972-our-log-format-is-the-center]].

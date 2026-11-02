@@ -34,6 +34,7 @@ updated: 2026-11-02T23:00:00Z
 | E6 | **Only the author serializes.** A component that stores, forwards, forks or replays an envelope it did not create passes on the original line bytes. Unknown fields and variants therefore survive store → replay → fork → socket in any build | `tests/ir_v1_corpus.rs` future-data case (brief) |
 | E7 | **Retired names are never reused.** Removing a name is impossible (E2). A name that is deprecated stays readable forever; writers may stop writing it only if it is optional. Its name goes into `retired` in the lock, and the gate refuses any new use of it | `ir-compat check` |
 | E8 | **Old logs are immutable.** `tests/fixtures/ir-v1/*.jsonl` is the frozen corpus. A file is never edited. Each minor adds a new `v<maj>.<min>-*.jsonl` file | `ir-compat check` (sha256 per file); `tests/ir_v1_corpus.rs` parses every line |
+| E9 | **Readers take durability from `seq`.** A read envelope is durable iff `seq` is `Some`. `Event::is_durable()` is a writer-side function and is never applied to a parsed event. Otherwise one new durable event kind makes every older build refuse to open newer logs, which is what `src/store.rs:144` and `:215` do today | `tests/ir_v1_corpus.rs` future-data case: a log with an unknown durable event (with `seq`) opens, replays and forks (brief) |
 
 **Unknown fields** are ignored by readers (serde default), and preserved by E6 rather than by a field-level map on every struct.
 
@@ -42,7 +43,8 @@ updated: 2026-11-02T23:00:00Z
 - `Version { major, minor }` on every envelope is the writer's version.
 - **Minor.** Bumped once per release that adds anything. A reader at any minor reads every log of its major: newer data arrives as `Unknown` or as ignored fields (E4), older data has `None` or defaults.
 - **Major** means a different IR. It is created only by an Architect decision that names a reader for every older major, with no loss. There is no planned major 2.
-- **0.x is v1.** The 0.4 surface is exactly the locked baseline, so 0.4 logs are v1 logs. Readers accept `major ∈ {0, 1}`. A reader refuses (`Refused::Version`) only a major greater than its own. When the v1.0 additions (§4) land, `PROTOCOL` becomes `{1, 0}`.
+- **0.x is v1.** The 0.4 surface is exactly the locked baseline, so 0.4 logs are v1 logs. Readers accept `major ∈ {0, 1}`. A reader refuses (`Refused::Version`) only a major greater than its own.
+- **1.0 is the lock, not a feature.** `PROTOCOL` becomes `{1, 0}` with no schema change, in the same cut that makes readers compatible by construction (brief Part A). The §4 additions are **1.1**. From then on, each minor is one release of additions, and "1.x" reads as "locked".
 - **Re-lock.** The Architect re-locks only after `ir-compat check` passes on the new schema. Additions become part of the baseline; nothing already locked can leave it. A re-lock is recorded in this spec's change log with the commit.
 
 ## 3. Extension slot and provenance
@@ -55,7 +57,7 @@ updated: 2026-11-02T23:00:00Z
 - **`Envelope.native: Option<Native { id: String, parent: Option<String>, ts_ms: Option<u64> }>`**: the source record's identity, for import and watch.
 - **`SessionMeta.source: Option<Source { harness: String, native_id: Option<String>, version: Option<String>, parser_revision: Option<u32> }>`**: which harness wrote the original session.
 
-## 4. v1.0 additions (all additive; the gate already admits them)
+## 4. v1.1 additions (all additive; the gate already admits them)
 
 These come from the render-gap survey (2026-11-02, file:line evidence in [[2026-11-02-log-ir-v1-compat]]). Each is optional or a new variant.
 
@@ -96,14 +98,15 @@ Totals across sessions are computed offline, never written.
 - `request_id: Option<String>`.
 - `context_used: Option<u64>`, `context_window: Option<u64>`: as reported (ACP `usage_update.used`/`size`).
 - `cost: Option<Cost>`, where `Cost { amount_micros: u64, currency: String, source: NumberSource, price_source: Option<String> }`. The currency is ISO 4217. `price_source` names the price table and its date, e.g. `anthropic-pricing@2026-11-01`, or `provider` when the bill came with the response. When the currency is USD, `cost_micros_usd` is still written with the same value, for 0.x readers.
-- `sources: Option<BTreeMap<String, NumberSource>>`: provenance per number, keyed by field name (`input_tokens`, `cached_input_tokens`, …). `NumberSource` is `reported | derived | estimated | absent | unknown`.
+- `source: Option<NumberSource>`: where the token numbers of this record came from. `NumberSource` is `reported | derived | estimated | unknown`. One record has one source: a provider response is `reported`, a turn total summed from calls is `derived`, a number from a price table or a tokenizer is `estimated`. Cost has its own `source` (above) because it is the number most often estimated while the tokens are reported.
+- `unreported: Vec<String>` (skip if empty): the names of required numbers that were written `0` because nothing was reported.
 
-**Never invented.** An optional number that was not reported is written as `None`. `input_tokens` and `output_tokens` cannot be `None` (E2), so an unreported one is written `0` with `sources[field] = absent`.
+**Never invented.** An optional number that was not reported is written as `None`. `input_tokens` and `output_tokens` cannot be `None` (E2), so an unreported one is written `0` and named in `unreported`. A record with nothing reported at all is not written.
 
 | Writer version | Requirement |
 |---|---|
-| ≥ 1.0 | must write `scope`, `backend` and a `sources` entry for every number it writes |
-| 0.x logs | read with provenance `unknown`. The corpus has `input_tokens: 0, output_tokens: 0` with nothing reported (`tests/fixtures/ir-v1/v0.4-all-items.jsonl`); exactly this case is why `absent` exists |
+| ≥ 1.1 | must write `scope`, `backend` and `source`; `unreported` whenever a required number is a placeholder |
+| ≤ 1.0 logs | read with `source = unknown`. The corpus has `input_tokens: 0, output_tokens: 0` with nothing reported (`tests/fixtures/ir-v1/v0.4-all-items.jsonl`); that is exactly what `unreported` names |
 
 **Preservation.** Usage is ordinary durable data, so it travels with the log:
 - Store, replay and socket carry it by E6.
@@ -111,10 +114,13 @@ Totals across sessions are computed offline, never written.
 - A switch or handoff forks the log, so the new session carries the old session's usage below the fork point and adds its own above it. The cost report counts a forked prefix once, by `(fork session, seq)`.
 - Import writes it from the native records. It is never dropped as "metadata".
 
-**Offline query.** `bboxy450-harness usage [--json] PATH…` reads session directories or JSONL files and prints totals by `backend.kind/name`, `model`, `currency` and `NumberSource`. Forked prefixes are deduplicated. Rows where any number is `estimated`, `absent` or `unknown` are counted separately, never folded into reported totals.
+**Offline query.** `bboxy450-harness usage [--json] PATH…` reads session directories or JSONL files and prints totals by `backend.kind/name`, `model`, `currency` and `source`. Rules:
+- **Scopes are never added together.** Per turn, use the finest scope present: the sum of its `call` records if any, else the `turn` record, else nothing. `session` records are cumulative, so a session contributes the last one only when it has no `call` or `turn` records at all.
+- Forked prefixes are counted once, by `(fork session, seq)`.
+- Placeholders (`unreported`) count as missing, not as zero. Rows with `source ≠ reported` are reported separately, never folded into reported totals.
 
 **Checks** (brief [[2026-11-02-log-ir-v1-compat]]):
-- `laws::check_authored` enforces the ≥ 1.0 writer rules.
+- `laws::check_authored` enforces the ≥ 1.1 writer rules.
 - `tests/ir_v1_corpus.rs` checks that usage survives fork: the totals of a forked log's prefix equal the parent's at the fork point.
 - The usage report over the frozen corpus equals a committed expected JSON.
 - A broken control (a fork that drops `Item::Usage`) must fail.
@@ -132,8 +138,13 @@ The render rule for every addition: a face that predates it shows the item kind'
 **What the gate does not prove.**
 - Semantics (E3), which is a review rule.
 - serde behaviour that the schema does not express, e.g. `#[serde(default)]` without `skip_serializing_if`. Byte-level round trip is `tests/protocol_golden.rs`.
-- E5 and E6 until [[2026-11-02-log-ir-v1-compat]] lands. Until then fork re-serializes (`src/store/fork.rs:173`) and the GUI drops major ≠ 0 (`src/frontends/gui/model.rs:110`); both are **known violations**.
+- E5, E6 and E9 until [[2026-11-02-log-ir-v1-compat]] lands. **Known violations** today: fork re-serializes (`src/store/fork.rs:173`); the GUI drops major ≠ 0 (`src/frontends/gui/model.rs:110`); the store refuses to open a log with an unknown event kind (`src/store.rs:144`, `:215`, `is_durable()` applied on read).
+
+## 6. Where the IR lives
+
+The IR is the contract of the whole suite, not of one consumer. Its home is a crate in the bboxy450-term workspace (d5087), consumed by the harness the way it consumes `bbt-ui`. The move is sequenced in [[d5977-rich-view-dependency-direction]]; until then the types, the lock, the corpus and the gate stay in this repository and move together.
 
 ## Change log
 
 - 2026-11-02, Lumen Foxglove <ARCHITECT>, on the operator's direction relayed by the Oracle: v1 law and gate; locked from 0.4 at 3c78fcf; corpus = the 5 protocol fixtures + 5 real ACP sessions.
+- 2026-11-02, second pass at the operator's request ("rethink your choices"). Found by reading the store: E9 (readers take durability from `seq`; `store.rs:144`/`:215` violate it). 1.0 is now the lock and the additions are 1.1. Usage provenance simplified from a per-field map to one `source` per record plus `unreported`; the report never adds scopes together. §6 names the IR's future home.
