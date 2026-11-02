@@ -129,7 +129,7 @@ impl Documents {
             };
             let highlights = Highlights::prepare(&fragment, highlighter);
             let mut element =
-                fragment.highlighted_body_element(&highlights, context(), metrics, width);
+                fragment.transcript_body_element(&highlights, context(), metrics, width);
             super::view::flat(&mut element);
             let layout = element.layout(Rect::new(0., 0., width, 0.), context(), metrics)?;
             doc.blocks.push((block.source.clone(), Arc::new(layout)));
