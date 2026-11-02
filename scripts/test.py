@@ -37,10 +37,7 @@ def main():
             ['cargo','test','--offline','--locked','--all-targets','--','--skip','non_pty_spawn_does_not_keep_a_sibling_master_alive'],
             # Keep launcher process bursts separate from PTY lifecycle deadlines.
             # Every case still runs; neither the deadline nor product scheduling changes.
-            ['cargo','test','--offline','--locked','--all-targets','--features','acp,test-fixtures','--','--skip','seat_launch::','--skip','seat_shutdown::','--skip','non_pty_spawn_does_not_keep_a_sibling_master_alive'],
-            # PTY shutdown witnesses retain their 250ms/2s contract budgets.
-            # Give each its own spawn/kill/reap interval, outside launcher bursts.
-            ['cargo','test','--offline','--locked','--features','acp,test-fixtures','--test','seat_process','seat_shutdown::','--','--test-threads=1'],
+            ['cargo','test','--offline','--locked','--all-targets','--features','acp,test-fixtures','--','--skip','seat_launch::','--skip','non_pty_spawn_does_not_keep_a_sibling_master_alive'],
             ['cargo','test','--offline','--locked','--features','acp,test-fixtures','--test','seat_process','seat_launch::'],
             # This case deliberately clears CLOEXEC. Its test process must have
             # no concurrent test that could fork while the master is exposed.

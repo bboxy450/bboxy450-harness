@@ -194,6 +194,8 @@ fn supervisor_case(signal: Option<i32>) {
         group_pid(root, "mcp-group.pid").unwrap(),
     ];
     assert!(groups.iter().all(|p| !group_dead(*p)));
+    let log = events(root);
+    let session = log[0].session.to_string();
     if let Some(signal) = signal {
         assert_eq!(
             unsafe { libc::kill(seat.child.process_id().unwrap() as i32, signal) },
@@ -228,76 +230,6 @@ fn supervisor_case(signal: Option<i32>) {
         let status = seat.exit(Duration::from_secs(5));
         eprintln!("seat supervisor observed exit: {status:?}");
     }
-    let log = events(root);
-    if matches!(log.last().map(|e| &e.event), Some(Event::SessionClosed)) {
-        // ICD embed-seat §3 permits finishing the graceful path before the
-        // supervisor's escalation. Keep that valid log, and exercise recovery
-        // with an actual SIGKILL of a separate, still-pending owned seat.
-        check_transcript(&log).unwrap();
-        let abrupt = crash_fixture();
-        assert_recovery(abrupt.path());
-    } else {
-        assert_recovery(root);
-    }
-}
-fn crash_fixture() -> tempfile::TempDir {
-    let temp = fixture();
-    let root = temp.path();
-    // Crash the shared core through the headless face. It has the same durable
-    // log without introducing a second PTY/session-leader teardown race.
-    let child = std::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
-        .env_clear()
-        .env("HOME", root)
-        .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
-        .args(["--json", "--yolo", "-p", "start a tool", "--cwd"])
-        .arg(root)
-        .arg("--sessions")
-        .arg(root.join("sessions"))
-        .arg("--scripted")
-        .arg(root.join("tool.sse"))
-        .arg("--mcp-config")
-        .arg(root.join("mcp.json"))
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .unwrap();
-    let mut seat = Seat {
-        root: root.into(),
-        master: None,
-        input: None,
-        child: Box::new(child),
-        reaped: false,
-    };
-    wait_for(
-        || group_pid(root, "group.pid").is_some() && group_pid(root, "mcp-group.pid").is_some(),
-        Duration::from_secs(10),
-        "crash fixture groups did not start",
-    );
-    let groups = [
-        group_pid(root, "group.pid").unwrap(),
-        group_pid(root, "mcp-group.pid").unwrap(),
-    ];
-    assert_eq!(
-        unsafe { libc::kill(seat.child.process_id().unwrap() as i32, libc::SIGKILL) },
-        0
-    );
-    // SIGKILL cannot run the harness's handler; the fixture owns cleanup.
-    for pgid in groups {
-        unsafe {
-            libc::kill(-pgid, libc::SIGKILL);
-        }
-    }
-    assert!(!seat.exit(Duration::from_secs(5)).success());
-    drop(seat);
-    wait_for(
-        || groups.iter().all(|p| group_dead(*p)),
-        Duration::from_secs(2),
-        "crash fixture cleanup left an owned group",
-    );
-    temp
-}
-fn assert_recovery(root: &Path) {
     assert!(
         !matches!(
             events(root).last().map(|e| &e.event),
@@ -305,7 +237,6 @@ fn assert_recovery(root: &Path) {
         ),
         "fixture must exercise abrupt recovery"
     );
-    let session = events(root)[0].session.to_string();
     let mut resumed = Seat::spawn(root, Some(&session), false);
     wait_for(
         || {
@@ -333,11 +264,6 @@ fn assert_recovery(root: &Path) {
     let log = events(root);
     check_transcript(&log).unwrap();
     assert!(matches!(log.last().unwrap().event, Event::SessionClosed));
-}
-#[test]
-fn graceful_supervisor_exit_retains_a_real_crash_recovery_witness() {
-    let abrupt = crash_fixture();
-    assert_recovery(abrupt.path());
 }
 #[test]
 fn hup_kills_owned_groups_before_supervisor_escalation_and_resume_recovers() {
