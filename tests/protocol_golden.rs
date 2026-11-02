@@ -360,7 +360,8 @@ fn canonical_json_sorts_nested_objects_in_arrays() {
     assert_eq!(canonical_json(&value), r#"{"a":1,"z":[{"a":0,"b":1}]}"#);
 }
 
-#[cfg(not(feature = "acp"))]
+// Either ACP feature unifies serde_json's preserve_order feature.
+#[cfg(not(any(feature = "acp", feature = "acp-agent")))]
 #[test]
 fn default_json_maps_iterate_sorted() {
     let mut map = serde_json::Map::new();
