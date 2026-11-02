@@ -1,5 +1,5 @@
 {
- "source": "1cdc7d3",
+ "source": "86c09c0",
  "lab": "bboxy450-term 55f50175 lab/web",
  "size": [
   900,
@@ -9,27 +9,27 @@
  "fixtures": {
   "acp-claude-acp": {
    "sha256": "7a9f96c75aae1aa6d4b3da377a5ec75d2337040a4095266a817b1f9b7240f436",
-   "mean_abs_diff": 0.0085,
+   "mean_abs_diff": 0.0082,
    "row_structure_mismatch": 0.0373
   },
   "acp-codex-acp": {
    "sha256": "4efaaf9347d0777008d23c5ea0b5798ec795a5e2a58674e59938aeb0455d3221",
-   "mean_abs_diff": 0.0077,
+   "mean_abs_diff": 0.0075,
    "row_structure_mismatch": 0.0336
   },
   "acp-omp": {
    "sha256": "b4995a80b27465699c6d97de72ee46555b0a6c0c00072cb386e52e8bb8fbad76",
-   "mean_abs_diff": 0.0085,
+   "mean_abs_diff": 0.0084,
    "row_structure_mismatch": 0.0191
   },
   "acp-opencode": {
    "sha256": "935ef1f3e1276b32b9d893c4d644e18bcffd01bb4df71d1908445af26d1a6c40",
-   "mean_abs_diff": 0.0337,
+   "mean_abs_diff": 0.0335,
    "row_structure_mismatch": 0.39
   },
   "acp-pi": {
    "sha256": "48e703c0f632b96b94c30046bc0a343c8157805ca401a1b310c487f6bb09b184",
-   "mean_abs_diff": 0.0079,
+   "mean_abs_diff": 0.0078,
    "row_structure_mismatch": 0.0264
   },
   "glyph-atlas": {
