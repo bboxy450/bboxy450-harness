@@ -51,6 +51,10 @@ async fn claude_profile_has_no_endpoint_or_credential_resolver() {
             .class,
         ErrorClass::Auth
     );
+    assert!(
+        Profile::parse("---\nname: api\nendpoint: https://example.invalid/v1\n---\n").is_err(),
+        "API profiles still require their model before resolving credentials"
+    );
     for field in [
         "api_key: '!touch must-not-execute'",
         "api_key_env: CLAUDE_CODE_OAUTH_TOKEN",
@@ -124,7 +128,7 @@ impl Seat {
         let temp = tempfile::tempdir_in("/tmp").unwrap();
         let profiles = temp.path().join(".bboxy450-harness/profiles");
         std::fs::create_dir_all(&profiles).unwrap();
-        std::fs::write(profiles.join("code.md"), "---\nname: code\nprovider: claude-code\nmodel: sonnet\npermission_mode: dontAsk\n---\n").unwrap();
+        std::fs::write(profiles.join("code.md"), "---\nname: code\nprovider: claude-code\nmodel: sonnet\npermission_mode: dontAsk\npolicy: yolo\n---\n").unwrap();
         // A credential fixture is never readable by the instrumented harness.
         std::fs::create_dir_all(temp.path().join(".claude")).unwrap();
         std::fs::write(
@@ -404,6 +408,12 @@ async fn cancellation_joins_the_group_in_two_seconds_and_a_to_b_to_a_resumes() {
         s.request(Op::Interrupt { turn: None }).await;
         assert_eq!(s.end().await, StopReason::Cancelled);
         assert!(before.elapsed() < Duration::from_secs(2));
+        if prompt == "late" {
+            assert!(
+                s.trace().iter().any(|v| v["late_emitted"] == true),
+                "the late-event producer did not run during cancel grace"
+            );
+        }
         for member in s.trace().iter().filter_map(|v| v["leader"].as_i64()) {
             assert_eq!(
                 unsafe { libc::kill(-(member as i32), 0) },

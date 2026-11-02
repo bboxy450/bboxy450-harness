@@ -117,6 +117,12 @@ impl Profile {
                 ));
             }
         } else {
+            if p.model.is_empty() {
+                return Err(ProviderError::new(
+                    ErrorClass::Config,
+                    "model required for API providers",
+                ));
+            }
             validate_endpoint(&p.endpoint)?;
         }
         Ok(p)
