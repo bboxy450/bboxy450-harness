@@ -5,25 +5,24 @@ type: report
 title: p7-import-usage — native usage and bounded blob previews
 status: complete
 created: 2026-11-02T22:32:54.655375+00:00
-implementation: f2682f547b408e2d66e65c5fb64aab9d0867969f
-updated: 2026-11-02T23:19:20.978727+00:00
+implementation: cb769fb4fc6fe0575bfdf5c3bfb3cd6f39268861
+updated: 2026-11-02T23:40:20.333287+00:00
 ---
 
-COMPLETE — p7-import-usage, including the Oracle update to rebase and follow log IR v1 §4a. Worktree `/Users/feral/mydev/bboxy450-harness-p7-import-usage`, branch `parity/p7-import-usage`. Rebased onto origin/main snapshot `26ebcf178a571acaf5a80d682d0d6fd316df5f2b`; current implementation `f2682f547b408e2d66e65c5fb64aab9d0867969f`. Rebase conflicts retained both upstream ACP formal models and p7 models. Every rewritten task commit is signed by Boxy <bboxy450@gmail.com> using `9B07E849480C68328CA20684844ECC0587DE7AB0`. No push or merge.
+COMPLETE — Oracle review reworks for p7-import-usage. Worktree `/Users/feral/mydev/bboxy450-harness-p7-import-usage`, branch `parity/p7-import-usage`. Implementation `cb769fb4fc6fe0575bfdf5c3bfb3cd6f39268861` is a signed squash of only p7's work, made on its own merge-base 26ebcf178a571acaf5a80d682d0d6fd316df5f2b and then rebased onto origin/main `ecfd1e67b4ad8a128b52893ee2b60cb1327e13a2` after p6 landed. No push or merge.
 
-Read the binding spec from origin/main, now available as `.bboxy/specs/log-ir-v1.md`. `make test-ir` passes: 37 locked definitions preserved, nine forbidden controls refused and three permitted additions accepted. The lock and frozen `tests/fixtures/ir-v1/*` are untouched. Only optional Usage fields/tolerant enum definitions were added to the wire schema; existing fields retain their types and meanings. The branch includes 7da3091. The parity script retains `--use-mock-keychain --password-store=basic`; p7 launched no Chrome process.
+Both requested reworks are complete:
 
-Files and acceptance evidence:
+1. All former raw-artifact commits were removed from the p7 branch history by the squash. The p7 diff under `.bboxy/runs/` contains exactly one small summary: `p7-import-usage.json` (commands, exits, hashes, counts). There is no bulk JSON, log, evidence dump, screenshot, .tla/.edges copy, or bulk-check.py in the task commits. The disposable bulk driver and all raw output live outside Git under `/tmp/p7-review-evidence-jul7x57c`. Regenerated `.bboxy/runs/formal-native.json` is copied there and restored to the upstream baseline before handoff. The bulk checker is a one-off verification driver, not a shipped tool.
+2. P6 landed squashed as `4c9f37d4788eed04546238f6caeb8278b1ebc36c`, subject “Report seat readiness and preserve typed ACP session usage”; `39683ae` locked its 42 definitions. The requested “Write ACP session usage” subject/hash was rewritten during p6's squash. Main's actual shared Usage/Backend/Cost definitions and ACP writer were inspected before rebasing. P7 defines no protocol types and changes neither `src/protocol/mod.rs` nor `protocol.schema.json`. P7's only adaptation is constructing p6's `Option<Box<Backend>>`; the accepted import logic is retained.
 
-- `src/protocol/mod.rs:403` — optional `scope`, `model`, `backend`, `request_id`, `context_used`, `context_window`, `source`, and default-empty `unreported`; typed `UsageScope`, `Backend`, `BackendKind`, `NumberSource`, each enum with Unknown. `protocol.schema.json` is freshly generated; frozen logs and the lock were not edited.
-- `src/import/mod.rs:184` — Claude usage counted once by message/request aliases, with UUID fallback. It records exact reported model/request identity and native `version`, with canonical input including reported cache tiers. `src/import/mod.rs:238` — Codex last-call counters are call scope; cumulative totals are separate session scope, deduplicated by cumulative snapshot, with resets preserved. CLI version comes from `session_meta.cli_version`. A cumulative-only record never invents a model call or a turn. Session totals do not claim the current model billed all previous calls.
-- `src/import/mod.rs:162`, `:603`, `:642` — every native call/session record has `backend.kind=import`, native backend name, and `source=reported`. Summed turn totals are `scope=turn`, `source=derived`, with no request ID. Unknown optional numbers stay None. Missing required numbers use zero plus their exact names in `unreported`; reported zero has no missing marker. Empty usage produces no record. A reported context window alone produces session scope with named required placeholders. Unrepresentable turn sums stay unknown. No prices, costs or token estimates are fabricated.
-- `src/import/spill.rs:42`, `src/import/watch.rs` — both import and live watch persist full oversized text before appending bounded UTF-8 previews. Tool output sets `ToolCall.spill`; other large text carries a visible blob digest. JSON-escaped size is considered; redaction precedes truncation, and failed blob writes publish no dangling reference.
-- `src/context/auto.rs:69`, `tests/context_auto.rs:510` — session/turn totals and unreported call counts cannot become context-size anchors. Legacy unscoped anchors retain their behavior. `src/provider/parser.rs` defaults new optional fields. `src/provider/http.rs` and `src/frontends/gui/model.rs` box internal parser/turn-state payloads after the larger Usage triggered Clippy's enum-size gate; wire fields were not boxed or retyped.
-- `tests/import_native.rs:115`, `:192`, `:260`, `:336`, `:375`, `:451`, `:466`, `:538`, `:589` — 13 passing import/watch tests cover deduplication, scopes, provenance, native versions, exact model/request IDs, absent versus reported zero, context-only records, overflow, Unicode/control-character spills, blob bytes, live append, failed writes, redaction and continue-on-ACP handoff. Fixtures: `tests/fixtures/native/{claude,codex}-{usage,spill}.jsonl`. Existing frozen/golden logs remain unchanged.
-- `tests/formal/models.rs`, `tests/formal_nonvacuity.rs`, `verification/{contracts,corpus,coverage}.toml`, `verification/README.md` — native usage and spill contracts plus the new scope-mixing control are inventoried. The usage model keeps two call identities across two endings, and three independent cumulative snapshots 1→3→1. Snapshots cannot increase call/turn totals. Required-number labels, byte arithmetic and parsing remain implementation witnesses. `ATTRIBUTION.md` and source headers retain the policy.
+Usage mechanism: `src/import/mod.rs:162` (turn aggregation), `:184` (Claude), `:238` (Codex), `:603` (partial counter parsing), `:642` (derived sums) counts Claude message/request aliases once and deduplicates Codex cumulative snapshots without collapsing distinct equal-sized calls. Imported call records have scope `call`, `backend{kind: import, name: claude-code|codex, version if reported}`, exact known model/request identity and source `reported`. Raw native cumulative snapshots stay session scope and reported; cumulative-only data never fabricates a call. `TurnEnded.usage` totals calls with scope `turn`, source `derived`. Source is one scalar per record; there is no per-field source map. Missing required counts are zero placeholders named in `unreported`; reported zero remains distinct. Unknown optional counters/costs stay absent. The importer does not fabricate a missing counter or drop a partial record.
 
-Actual final gate results (private HOME, real CARGO_HOME/RUSTUP_HOME, empty RUSTC_WRAPPER, unattended):
+Spill mechanism: `src/import/spill.rs:42` persists oversized text before appending its bounded preview, sets typed tool spill references, preserves UTF-8 boundaries, considers JSON escaping and redacts before truncation. `src/import/watch.rs` uses this same writer for live records and close-time completions. Failed blob writes publish no dangling reference.
+
+Changed files: `src/import/{mod,spill,watch}.rs`; `tests/import_native.rs`; four synthetic native usage/spill fixtures (`tests/import_native.rs:115`, `:192`, `:260`, `:336`, `:451`); `tests/formal/models.rs`, `tests/formal_nonvacuity.rs`; `verification/{README.md,contracts.toml,corpus.toml,coverage.toml}`; `ATTRIBUTION.md`; this report and the single small summary. Source/type/schema/provider/GUI/context changes now belong entirely to p6/main, not p7. Rebase conflicts retained the upstream seat/grace models plus p7's usage/spill/scope controls. The merged inventory has 90 models and 32 contracts.
+
+Actual verification after p6 landed and the rebase completed (all tests unattended, private HOME, real CARGO_HOME/RUSTUP_HOME, empty RUSTC_WRAPPER; local TCP/Metal/TLC run outside sandbox):
 
 | Command | Exit |
 |---|---:|
@@ -31,17 +30,19 @@ Actual final gate results (private HOME, real CARGO_HOME/RUSTUP_HOME, empty RUST
 | `cargo fmt --check` | 0 |
 | `cargo clippy --offline --locked --all-features --all-targets -- -D warnings` | 0 |
 | `cargo clippy --offline --locked --all-features --lib --bin bboxy450-harness -- -D warnings` | 0 |
-| `cargo test --offline --locked --features standalone --test import_native --test protocol_golden --test protocol_laws --test context_auto --test anthropic_provider` | 0 |
+| `cargo test --offline --locked --features standalone --test import_native --test protocol_golden --test protocol_laws --test context_auto --test anthropic_provider --test acp_agent` | 0 |
 | `cargo test --offline --locked --features standalone --test gui_render --test gui_rich --test gui_bridge --test gui_fixtures --test gui_cli` | 0 |
-| `cargo run --offline --locked --features standalone -- gui --replay tests/fixtures/gui/rich-all-items.jsonl --headless --screenshot /Users/feral/mydev/bboxy450-harness-p7-import-usage/target/p7-evidence/smoke.png` | 0 |
+| `cargo run --offline --locked --features standalone -- gui --replay tests/fixtures/gui/rich-all-items.jsonl --headless --screenshot /tmp/p7-review-evidence-jul7x57c/smoke.png` | 0 |
 | `python3 -I scripts/checks.py headers` | 0 |
 | `python3 -I scripts/checks.py kb-records` | 0 |
 | `git diff --check` | 0 |
 | `make test-formal` | 0 |
-| `python3 -I .bboxy/runs/p7-import-formal/check.py` | 0 |
-| `python3 -I .bboxy/runs/p7-import-gates/bulk-check.py` | 0 |
+| `python3 -I /tmp/p7-review-evidence-jul7x57c/formal-check.py` | 0 |
+| `python3 -I /tmp/p7-review-evidence-jul7x57c/bulk-check.py` | 0 |
 
-The combined import/provider/context/protocol command passed 19 provider + 9 context + 13 import + 3 golden + 3 law tests. The GUI command passed 40 tests. Actual offscreen Metal smoke passed with 22 visible items, 15 kinds, three approval buttons and scrolled viewport. `make test-formal` passed all 86 native variants, the nonvacuity witnesses and the shared Yarn reactor projection. Targeted Java TLC compared complete reachable state and labeled-transition sets, with exact parity for all five p7 variants:
+The targeted run passed ACP 13, Anthropic 19, context 10, import 13, protocol golden 3 and protocol-law 3 tests. GUI checks passed 40 tests; actual Metal headless smoke passed 22 visible items, 15 kinds, three approval buttons and scrolled viewport. `make test-ir` preserves all 42 locked definitions and passes nine refused/three allowed controls. The frozen IR corpus and lock are byte-identical to main. No old label assertions were changed. `make test-formal` passed 90 native model variants, 18 nonvacuity witnesses and the shared Yarn projection. Full `make test` remains the Oracle integration gate under COMMON.md; it is not claimed here.
+
+Fresh exact native/Java graph and verdict evidence:
 
 | Model | States | Transitions | Java verdict / exit |
 |---|---:|---:|---|
@@ -51,23 +52,17 @@ The combined import/provider/context/protocol command passed 19 provider + 9 con
 | BrokenHarnessNativeSpill | 8 | 7 | safety / 12 |
 | BrokenHarnessNativeUsageScopes | 68 | 207 | safety / 12 |
 
-Expected safety exits are successful broken controls, not tool errors. Fairness is local ending/put/append only; native IO fairness is not assumed. Models do not prove arbitrary Rust refinement, parsing, token arithmetic, actual filesystem durability or pixels. Full `make test` and whole-corpus Java parity remain the Oracle integration gate under COMMON.md; no such run is claimed.
+Usage bounds: two identified calls over two turn endings and three independent cumulative snapshots 1→3→1. The scope control deliberately adds session counters to call totals and is rejected. Spill bounds: one pending small/large record, blob success/failure, persistence before reference. Fairness is local ending/put/append, never arbitrary native IO. Models do not prove Rust refinement, parsing, numeric/UTF-8/JSON byte arithmetic, kernel durability or pixels; the real import/watch tests cover those implementation paths. Expected safety exit 12 is not a tool error.
 
-Fresh bulk run 2026-11-02T23:01:44.249237+00:00 through 2026-11-02T23:03:02.844348+00:00: newest 40 files per native harness by modification time, using private stable copies removed on exit. Every import and `check-transcript` command exited 0. Independent native-record token checks, scope/backend/source assertions, per-turn sums, envelope bounds and typed spill SHA256/length checks all passed. Source files were read only. Raw native/imported transcripts were not committed.
+Fresh 80-file check, 2026-11-02T23:36:10.736459+00:00 through 2026-11-02T23:37:15.845029+00:00: newest 40 per harness by modification time, using private stable copies. Each import and `check-transcript` exited 0. All backend/scope/source assertions, independent native counter totals, per-turn sums, serialized limits, and typed spill hash/length checks passed. Source logs were read only; raw transcripts are not committed.
 
-| Harness | Import/check pass | Fail | Call input | Call output | Total input + output | Call records | Session snapshots |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Claude Code | 40/40 | 0 | 8,960,684,005 | 13,218,626 | **8,973,902,631** | 20,048 | 0 |
-| Codex | 40/40 | 0 | 2,461,853,224 | 9,148,046 | **2,471,001,270** | 11,033 | 11,033 |
+| Harness | Import/check pass | Fail | Call input | Call output | Total input + output |
+|---|---:|---:|---:|---:|---:|
+| Claude Code | 40/40 | 0 | 8,974,650,692 | 13,239,319 | **8,987,890,011** |
+| Codex | 40/40 | 0 | 2,393,487,734 | 8,982,619 | **2,402,470,353** |
 
-Only call scopes contribute to these totals. Derived turn totals and cumulative session snapshots are never added again. Known reported cache/reasoning subcounters remain in the bulk JSON. Claude produced four tool spill references/seven unique blobs; Codex produced 29 tool spill references/29 blobs. Largest serialized envelope: 51,913 bytes, below 262,144.
+Only call scopes contribute to these totals; derived turns and cumulative sessions are not added again. Largest serialized envelope: 51,913 bytes, below 262,144. Full per-file counts, cache/reasoning subcounters and blob checks are in `/tmp/p7-review-evidence-jul7x57c/bulk.json`; source/model/tool hashes and graphs are under `/tmp/p7-review-evidence-jul7x57c/formal/`, and native evidence is `/tmp/p7-review-evidence-jul7x57c/native.json`. Git retains only the small summary.
 
-Committed evidence is limited to the small command/result/hash summary `.bboxy/runs/p7-import-usage.json`, as required by the revised COMMON.md. Raw logs, five TLA/config/state/edge sets, bulk output and screenshot are preserved outside Git under `/tmp/p7-import-usage-evidence-n_yn712z`. The summary binds their hashes; all archived source/model/gate artifact hashes were verified after copying. The pre-existing generated `.bboxy/runs/formal-native.json` is restored to the rebase baseline, rather than committing a regenerated run. Before/after side.png and score.json are N/A for this importer task; no visual layout or labels were changed by p7.
+Before/after side.png and score.json are N/A for this importer task; no visual layout was changed. Offscreen smoke is `/tmp/p7-review-evidence-jul7x57c/smoke.png`. No Chrome was launched. Any manual Chrome command must use `--use-mock-keychain --password-store=basic --user-data-dir=$(mktemp -d)`; LAB is `/Users/feral/mydev/bboxy450-term-harness-ref/lab/web`.
 
-Resolved gate failures: the larger metadata exposed two enum-size warnings, fixed by internal boxing. Sandboxed provider fixtures could not bind local TCP listeners; all final gates passed outside the sandbox with private homes and actual Metal access. Earlier sandbox sccache/Metal/TLC restrictions and the nullable-metadata bulk-checker issue were already resolved unattended. No operator click, Keychain prompt, pane authorization or physical probe was used.
-
-Remaining scope limits: global protocol 1.0/1.1 promotion, all-backend authored validation, cost/price records and the offline usage CLI belong to the separate IR task. File rotation/truncation semantics are unchanged. Generic text blob markers are visible; automatic full-text expansion and fork-copying those generic marker blobs are not added. Typed tool spills retain the existing blob/fork path. Sparse native identities permit only metadata-supported deduplication. No assigned check is blocked. Report: [[p7-import-usage]].
-
-COMMON.md was re-read after the Oracle correction. The reference is `LAB=/Users/feral/mydev/bboxy450-term-harness-ref/lab/web`. Any manual headless Chrome invocation must include `--use-mock-keychain --password-store=basic --user-data-dir=$(mktemp -d)`. No Chrome was launched for p7. Implementation and checked model sources are unchanged by the evidence-packaging correction.
-
-Oracle amendment audit (2026-11-02T23:19:20.978727+00:00): re-read log IR §4a from `c4246de2a64a8b25bcd8dfe2f18dd2b77d18ecf8`. The existing implementation already has one scalar `Usage.source: Option<NumberSource>` and `unreported: Vec<String>`, with no per-field source map (`src/protocol/mod.rs:403`). Native call/session records are reported; summed turn records are derived. Required missing counts are named zero placeholders and reported zero is distinct (`src/import/mod.rs:603`, `:642`). P7 emits no unreported Cost record; any authored Cost has its separate source under §4a. No implementation change was necessary. Re-ran `cargo test --offline --locked --features standalone --test import_native partial_usage_names_absent_required_counts_and_preserves_reported_zero` (exit 0, one test covering both native formats), `make test-ir` (exit 0), and explicit schema assertions for scalar source/string-array unreported/no sources map (exit 0). Raw audit logs are under `/tmp/p7-import-usage-evidence-n_yn712z`; their hashes are in the sole small summary. Checked source/model inputs remain unchanged.
+One merge helper initially failed while combining inventory text; it was corrected before final verification. The merged TOML, conflict-marker scan, inventory shape and IR gate were validated before the signed source squash was amended. No verification was bypassed. There are no remaining review blockers. Generic text spill expansion/fork-copying, file rotation/truncation semantics and global IR-version/usage-CLI work remain outside this accepted task scope.
