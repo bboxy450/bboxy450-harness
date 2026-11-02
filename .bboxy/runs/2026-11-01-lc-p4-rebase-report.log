@@ -1,0 +1,54 @@
+# Copyright 2026 Boxy (bboxy450) and contributors.
+# SPDX-License-Identifier: LicenseRef-Respectful-Slop-1.0-Draft
+# Project: bboxy450-harness — https://github.com/bboxy450/bboxy450-harness
+# License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
+# Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
+# Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+
+Task: #5098 tasks/2026-11-01-lc-p4-codex-term.md
+Oracle followup: 01M6D40DHHYSSGV02NJK0DKWYR
+Author: seat:01M6CKGX6ME342X90F0N1YA5TE (E5 lc-probe)
+Source worktree: /Users/feral/mydev/bboxy450-term-lc-p4
+Source branch: lc-p4-codex
+Current local signed head: 4d5518e7dcc9e9d3f5f7544d7a885618b588b3db
+Parent: origin/log-converter 1067033e5b20a0728c9928f28ca0fe13b1f45364
+
+The Oracle requested rebasing onto the updated log-converter branch and running
+only the converter crate gate now. Full make test is expressly held until PR
+#91 lands and PR #95 is retargeted to main. The immutable typed report in the
+term commit and the original run report remain historical evidence; this
+followup records the newer local head without claiming a new full gate.
+
+Commands and actual exits:
+- git rebase --gpg-sign origin/log-converter — exit 0.
+- make test-log-converter — exit 0 at 4d5518e7. Format, strict all-feature
+  Clippy, dependency/provenance guards and 51 active crate tests passed;
+  three native/full-only tests remained ignored in ordinary Cargo tests.
+- git range-diff f03e7736^..f03e7736 origin/log-converter..HEAD — exit 0,
+  reports the P4 patch equal (f03e7736 = 4d5518e7).
+- git verify-commit HEAD — exit 0, approved Boxy key
+  9B07E849480C68328CA20684844ECC0587DE7AB0.
+- scripts/verify-signatures.py origin/main..HEAD — exit 0, seven candidate
+  commits verified, zero historical exceptions.
+- git status --porcelain — empty after the crate check.
+
+Crate log: /tmp/lc-p4-followup.oNniuG/crate.log
+SHA256: f33a1ea683d403970134285769e12a927afdbcf22e2f28c1259c24b0ebbd04aa
+The first retest ended 2 while its redirected target log disappeared; no pass
+is claimed for that attempt. The observed target directory had been cleared.
+The successful repeat stores its log outside the build directory. Previous raw
+logs under target are no longer present; their recorded hashes/results remain
+in the original signed report, and formal evidence remains in the common Git
+bboxy-formal-evidence archive.
+
+Publication and remaining work:
+PR #95 is still OPEN at the previously gated f03e7736. The local rebased head
+has not been pushed: Makefile:1795 requires an exact-current-HEAD full CI result
+and formal receipt, whereas the Oracle has deferred the full gate. No stale
+receipt or fabricated CI line was used. After #91 lands/retargeting, rebase as
+needed, run the full current-source gate, refresh/verify formal evidence and
+use the gated branch publication workflow. No real branch merge or landing was
+performed. The old full make test 0 and 209-model receipt apply to f03e7736,
+not to 4d5518e7. The original task report was recorded successfully under
+operation 01M6D3ZRY78A4PQ3PTSQRVCS7H; no second task_report is sent for this
+interim crate-only state.
