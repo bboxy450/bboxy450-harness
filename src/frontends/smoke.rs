@@ -61,6 +61,7 @@ async fn smoke(acp_mode: bool) -> Result<(Value, i32), Box<dyn std::error::Error
         api_key: Some(command),
         api_key_env: None,
         retry_deadline: Some(90),
+        max_tokens: None,
         on_unattended: Unattended::Deny,
         policy: None,
     };

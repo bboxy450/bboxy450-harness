@@ -90,3 +90,14 @@ charges 50us per received UI publication/notification and state replacement, and
 A real worker witness checks retained completed layouts and >4KiB preparation
 away from the UI thread. `make bench-budgets` includes `bench-gui-budget`; its
 real-clock p99 is observational and prints UNMEASURED when load exceeds ncpu.
+
+Anthropic uses the same HTTP retry/read-stall/cancellation implementation as
+OpenAiCompat (`src/provider/http.rs`). `HarnessProviderStream` adds the previously
+unmodeled provider boundary: two attempts, zero to two calls, an output bit,
+six absent/known/unknown stop-reason states and eleven terminal classes. Its
+three controls allow a retry after output, a Stop with tool calls, or a second
+terminal. The good native graph has 242 states; controls reach 278, 242 and 423
+states respectively. Weak fairness on cancellation guarantees eventual
+termination when external IO never completes; no fairness of external IO is
+assumed. `tests/anthropic_provider.rs` supplies byte-level HTTP, signed/redacted
+replay, cache-placement, token-count, real profile and transcript witnesses.

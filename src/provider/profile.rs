@@ -26,6 +26,8 @@ pub struct Profile {
     pub api_key_env: Option<String>,
     #[serde(default)]
     pub retry_deadline: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
     #[serde(default)]
     pub on_unattended: Unattended,
     #[serde(default)]
@@ -104,7 +106,7 @@ impl Profile {
             .and_then(|s| s.split_once("\n---"))
             .map(|(s, _)| s)
             .ok_or_else(|| ProviderError::new(ErrorClass::Config, "missing profile frontmatter"))?;
-        let p: Self = serde_yaml::from_str(yaml)
+        let mut p: Self = serde_yaml::from_str(yaml)
             .map_err(|_| ProviderError::new(ErrorClass::Config, "invalid profile frontmatter"))?;
         if p.is_acp_agent() {
             // the agent brings its own model and transport; it needs a command instead
@@ -120,6 +122,9 @@ impl Profile {
                     ErrorClass::Config,
                     "profile needs model",
                 ));
+            }
+            if p.provider.as_deref() == Some("anthropic") && p.endpoint.is_empty() {
+                p.endpoint = super::anthropic::DEFAULT_ENDPOINT.into();
             }
             validate_endpoint(&p.endpoint)?;
         }
@@ -176,6 +181,26 @@ impl Profile {
             crate::policy::Policy::allow_all(self.on_unattended)
         } else {
             crate::policy::Policy::new(self.on_unattended)
+        }
+    }
+    /// Every face uses this dispatch, including idle profile changes and ACP factories.
+    pub fn build_provider(
+        &self,
+        key: Secret,
+        redactor: Set,
+        options: Options,
+    ) -> Result<Arc<dyn Provider>, ProviderError> {
+        if self.provider.as_deref() == Some("anthropic") {
+            let mut client = Anthropic::new(&self.endpoint, key, redactor, options)?;
+            client.max_tokens = self.max_tokens;
+            Ok(Arc::new(client))
+        } else {
+            Ok(Arc::new(OpenAiCompat::new(
+                &self.endpoint,
+                key,
+                redactor,
+                options,
+            )?))
         }
     }
 }

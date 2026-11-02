@@ -323,12 +323,7 @@ impl Host {
                 retry_deadline: profile.retry_deadline.map(std::time::Duration::from_secs),
                 ..Default::default()
             };
-            let provider = crate::provider::OpenAiCompat::new(
-                &profile.endpoint,
-                key,
-                config.redactor.clone(),
-                options,
-            )?;
+            let provider = profile.build_provider(key, config.redactor.clone(), options)?;
             Ok::<_, ProviderError>((profile, provider))
         }
         .await;
@@ -336,7 +331,7 @@ impl Host {
             Ok((profile, provider)) => {
                 config.model = profile.model.clone();
                 config.policy = profile.policy();
-                config.provider = Arc::new(provider);
+                config.provider = provider;
                 config.profile_error = None;
             }
             Err(_) => {

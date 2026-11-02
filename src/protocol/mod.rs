@@ -404,6 +404,8 @@ pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cached_input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_creation_input_tokens: Option<u64>,
     pub reasoning_tokens: Option<u64>,
     pub cost_micros_usd: Option<u64>,
 }

@@ -116,6 +116,7 @@ impl SseParser {
                 input_tokens: u["prompt_tokens"].as_u64().unwrap_or(0),
                 output_tokens: u["completion_tokens"].as_u64().unwrap_or(0),
                 cached_input_tokens: u["prompt_tokens_details"]["cached_tokens"].as_u64(),
+                cache_creation_input_tokens: None,
                 reasoning_tokens: u["completion_tokens_details"]["reasoning_tokens"].as_u64(),
                 cost_micros_usd: u["cost"].as_f64().map(|n| (n * 1_000_000.) as u64),
             }));

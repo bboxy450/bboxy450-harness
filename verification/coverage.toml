@@ -8,6 +8,7 @@
 name = "bboxy450-harness"
 status = "contract-model"
 models = [
+    "HarnessProviderStream",
     "HarnessMcpGroupClose",
     "HarnessAcpFlow",
     "HarnessAutoCompact",
@@ -64,6 +65,9 @@ sources = [
     "src/protocol/laws.rs",
     "src/protocol/mod.rs",
     "src/provider/mod.rs",
+    "src/provider/http.rs",
+    "src/provider/anthropic.rs",
+    "src/provider/anthropic_parser.rs",
     "src/provider/parser.rs",
     "src/provider/profile.rs",
     "src/redact.rs",
@@ -89,6 +93,7 @@ sources = [
     "src/backend/acp_agent.rs",
 ]
 implementation_only = [
+    "Anthropic request mapping, SSE bytes, signed/redacted block replay, cache markers and token arithmetic: tests/anthropic_provider.rs. HarnessProviderStream abstracts shared retry ownership and finish/error classes; actual network scheduling, wall-clock stalls, redaction and serialization remain implementation witnesses.",
     "Seat-capability file syscalls and exact bytes: O_NOFOLLOW/O_NONBLOCK, pre-open metadata and fstat regular/euid/exact0600 checks, 64 lowercase hex plus newline, safe refusal text; src/capability.rs unit witnesses. HarnessMcpServer abstracts a valid versus unavailable file and registration before projection, not kernel/filesystem correctness.",
     "Seat capability environment projection: real headless/seat/ACP tool processes, profile/ACP MCP env and resolved-value refusals, launcher inheritance exception, stored output and GUI smoke rendering in tests/capability_delivery.rs and tests/support/seat_launch.rs. Environment bytes, actual value matching and pixels are implementation witnesses.",
     "Capability startup degradation and GUI worker ownership: shared redactor bootstrap runs before providers/MCP, is silent when unset, records safe Notice on supplied invalid files, and GUI replay/creation use preparation workers. Live creation observes the actual pre-Host boundary, and per-face mutation controls cover every loader. tests/capability_delivery.rs; no arbitrary Rust refinement claim.",

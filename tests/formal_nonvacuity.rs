@@ -21,6 +21,39 @@ fn variable(m: &bbt_tlc::Model, name: &str) -> usize {
         .unwrap_or_else(|| panic!("missing state variable {name}"))
 }
 #[test]
+fn provider_controls_reach_retry_after_output_wrong_finish_and_double_ending() {
+    let good = model("HarnessProviderStream");
+    let checked = good.check(100_000).unwrap();
+    assert!(checked.violations.is_empty());
+    let phase = variable(&good, "phase");
+    let calls = variable(&good, "calls");
+    let output = variable(&good, "output");
+    let outcome = variable(&good, "outcome");
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[calls] == 2 && s[outcome] == 2)
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[phase] == 2 && s[output] == 0)
+    );
+    for (name, property) in [
+        ("BrokenHarnessProviderRetry", "RetryOnlyBeforeOutput"),
+        ("BrokenHarnessProviderFinish", "StopAgreesWithCalls"),
+        ("BrokenHarnessProviderEnding", "OneTerminal"),
+    ] {
+        let bad = model(name).check(100_000).unwrap();
+        assert!(
+            bad.violations.iter().any(|v| v.property == property),
+            "{name}"
+        );
+    }
+}
+#[test]
 fn capability_bootstrap_covers_valid_and_degraded_faces_and_legacy_read_leaks() {
     let good = model("HarnessMcpServer");
     let registered = variable(&good, "capability_registered");

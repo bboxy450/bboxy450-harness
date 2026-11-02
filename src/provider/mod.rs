@@ -17,6 +17,10 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tokio_util::sync::CancellationToken;
+mod anthropic;
+mod anthropic_parser;
+mod http;
+pub use anthropic::Anthropic;
 pub mod parser;
 pub mod profile;
 #[derive(Clone, Debug)]
@@ -121,12 +125,9 @@ pub trait Provider: Send + Sync {
 }
 #[derive(Clone)]
 pub struct OpenAiCompat {
-    client: reqwest::Client,
-    endpoint: String,
-    key: Arc<Secret>,
+    http: http::Http,
     pub redactor: Set,
     pub options: Options,
-    requests: Arc<std::sync::atomic::AtomicU32>,
 }
 #[derive(Clone, Debug)]
 pub struct Options {
@@ -147,7 +148,7 @@ impl Default for Options {
 }
 impl OpenAiCompat {
     pub fn request_count(&self) -> u32 {
-        self.requests.load(std::sync::atomic::Ordering::Relaxed)
+        self.http.request_count()
     }
     pub fn new(
         endpoint: &str,
@@ -157,15 +158,13 @@ impl OpenAiCompat {
     ) -> Result<Self, ProviderError> {
         profile::validate_endpoint(endpoint)?;
         Ok(Self {
-            client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(60))
-                .build()
-                .map_err(|_| ProviderError::new(ErrorClass::Internal, "HTTP client unavailable"))?,
-            endpoint: format!("{}/chat/completions", endpoint.trim_end_matches('/')),
-            key: Arc::new(key),
+            http: http::Http::new(
+                format!("{}/chat/completions", endpoint.trim_end_matches('/')),
+                key,
+                http::Format::OpenAi,
+            )?,
             redactor,
             options,
-            requests: Arc::default(),
         })
     }
 }
@@ -183,53 +182,21 @@ impl Provider for OpenAiCompat {
         req: ModelRequest,
         cancel: CancellationToken,
     ) -> Pin<Box<dyn Stream<Item = ModelEvent> + Send>> {
-        let this = self.clone();
-        Box::pin(async_stream::stream! {
-             let choice=match req.tool_choice{ToolChoice::Auto=>json!("auto"),ToolChoice::None=>json!("none"),ToolChoice::Required=>json!("required"),ToolChoice::Named(name)=>json!({"type":"function","function":{"name":name}})};
-             let mut body=json!({"model":req.model,"messages":this.redactor.value(json!(req.messages)),"stream":true,"stream_options":{"include_usage":true},"reasoning":{"exclude":false}});
-             if !req.tools.is_empty(){body["tools"]=tools_wire(&req.tools);body["tool_choice"]=choice;}
-             if let Some(max)=req.max_tokens{body["max_tokens"]=json!(max);}
-             let started=tokio::time::Instant::now();let mut attempt=0u32;
-             loop {
-              if this.options.max_requests.is_some_and(|max|this.requests.try_update(std::sync::atomic::Ordering::AcqRel,std::sync::atomic::Ordering::Acquire,|n|(n<max).then_some(n+1)).is_err()) {yield ModelEvent::Failed(ProviderError::new(ErrorClass::Transient,"request budget exhausted"));return;}
-        if this.options.max_requests.is_none(){this.requests.fetch_add(1,std::sync::atomic::Ordering::Relaxed);}
-        attempt+=1;
-              let result=tokio::select!{biased;_=cancel.cancelled()=>{yield ModelEvent::Failed(ProviderError::new(ErrorClass::Cancelled,"cancelled"));return;},r=this.client.post(&this.endpoint).bearer_auth(this.key.expose()).json(&body).send()=>r};
-              let mut response=match result {
-               Ok(response) if response.status().is_success()=>response,
-               result=>{
-                let (class,retry_after,status)=match result {
-                 Ok(r)=>{let n=r.status().as_u16();let c=match n{429=>ErrorClass::RateLimited,408|500|502|503|504=>ErrorClass::Transient,401|403=>ErrorClass::Auth,_=>ErrorClass::BadRequest};let after=r.headers().get("retry-after").and_then(|v|v.to_str().ok()).and_then(parse_retry_after);(c,after,n)},
-                 Err(_)=>(ErrorClass::Transient,None,0),
-                };
-                if !matches!(class,ErrorClass::Transient|ErrorClass::RateLimited){yield ModelEvent::Failed(ProviderError::new(class,format!("provider request refused (HTTP {})",status)));return;}
-                let base=this.options.backoff.saturating_mul(2u32.saturating_pow((attempt-1).min(16))).min(Duration::from_secs(600));
-                let jitter=Duration::from_millis((ulid::Ulid::new().0%250) as u64);let wait=retry_after.unwrap_or_default().max((base+jitter).min(Duration::from_secs(600)));
-                if this.options.max_requests.is_some_and(|n|attempt>=n)||this.options.retry_deadline.is_some_and(|d|started.elapsed()+wait>d){yield ModelEvent::Failed(ProviderError::new(class,"retry budget exhausted"));return;}
-                yield ModelEvent::Retrying{attempt,wait_ms:wait.as_millis() as u64,class};
-                tokio::select!{biased;_=cancel.cancelled()=>{yield ModelEvent::Failed(ProviderError::new(ErrorClass::Cancelled,"cancelled"));return;},_=tokio::time::sleep(wait)=>{}}
-                continue;
-               }
-              };
-              let mut parser=parser::SseParser::default();let mut output=false;let mut terminal=false;
-              loop {
-               let chunk=tokio::select! {biased;
-                _=cancel.cancelled()=>{yield ModelEvent::Failed(ProviderError::new(ErrorClass::Cancelled,"cancelled"));return;},
-                r=tokio::time::timeout(this.options.read_stall,response.chunk())=>r,
-               };
-               match chunk {
-                Ok(Ok(Some(bytes)))=>{for event in parser.feed(&bytes){output|=matches!(event,ModelEvent::Text(_)|ModelEvent::Reasoning(_)|ModelEvent::ReasoningOpaque(_)|ModelEvent::ToolCallDelta{..});terminal|=matches!(event,ModelEvent::Failed(_)|ModelEvent::Finish(_));yield event;}if terminal{return;}},
-                Ok(Ok(None))=>{for e in parser.end(){yield e;}return;},
-                _=>{if output {yield ModelEvent::Failed(ProviderError::new(ErrorClass::MidStream,"provider stream interrupted"));return;}break;}
-               }
-              }
-              if this.options.max_requests.is_some_and(|n|attempt>=n){yield ModelEvent::Failed(ProviderError::new(ErrorClass::Transient,"retry budget exhausted"));return;}
-              let wait=this.options.backoff.saturating_mul(2u32.saturating_pow((attempt-1).min(16))).min(Duration::from_secs(600));
-              if this.options.retry_deadline.is_some_and(|d|started.elapsed()+wait>d){yield ModelEvent::Failed(ProviderError::new(ErrorClass::Transient,"retry budget exhausted"));return;}
-              yield ModelEvent::Retrying{attempt,wait_ms:wait.as_millis() as u64,class:ErrorClass::Transient};
-              tokio::select!{_=cancel.cancelled()=>{yield ModelEvent::Failed(ProviderError::new(ErrorClass::Cancelled,"cancelled"));return;},_=tokio::time::sleep(wait)=>{}}
-             }
-            })
+        let choice = match req.tool_choice {
+            ToolChoice::Auto => json!("auto"),
+            ToolChoice::None => json!("none"),
+            ToolChoice::Required => json!("required"),
+            ToolChoice::Named(name) => json!({"type":"function","function":{"name":name}}),
+        };
+        let mut body = json!({"model":req.model,"messages":self.redactor.value(json!(req.messages)),"stream":true,"stream_options":{"include_usage":true},"reasoning":{"exclude":false}});
+        if !req.tools.is_empty() {
+            body["tools"] = tools_wire(&req.tools);
+            body["tool_choice"] = choice;
+        }
+        if let Some(max) = req.max_tokens {
+            body["max_tokens"] = json!(max);
+        }
+        self.http.stream(body, self.options.clone(), cancel)
     }
 }
 pub fn parse_retry_after(value: &str) -> Option<Duration> {

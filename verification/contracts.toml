@@ -284,3 +284,14 @@ implementation_tests = ["tests/gui_bridge.rs", "tests/gui_rich.rs"]
 assumptions = "Three distinct sequential prompt ItemIds; replacement retires the previous prompt. Capture and dispatch are separate actions. Concurrent independent prompts and actual FIFO gateway delivery are implementation witnesses."
 property = "NoRetiredPromptDispatch"
 checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessProviderStream"
+title = "Shared HTTP retry before output, one terminal event and Anthropic finish/error translation."
+models = ["HarnessProviderStream", "BrokenHarnessProviderRetry", "BrokenHarnessProviderFinish", "BrokenHarnessProviderEnding"]
+controls = [{name="BrokenHarnessProviderRetry",expected="safety"},{name="BrokenHarnessProviderFinish",expected="safety"},{name="BrokenHarnessProviderEnding",expected="safety"}]
+sources = ["src/provider/http.rs", "src/provider/mod.rs", "src/provider/anthropic.rs", "src/provider/anthropic_parser.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/provider_stream.rs", "tests/anthropic_provider.rs", "tests/formal_nonvacuity.rs"]
+assumptions = "Two attempts, zero to two tool calls, one output bit, absent/stop/tools/length/refusal/unknown reason and eleven outcomes. HTTP classes and stream error types abstract bytes; weak fairness on cancellation guarantees termination if the finite request/stream never completes. Cancellation is atomic; no fairness is assumed for arbitrary external IO. Broken controls retry after output, accept stop with calls or emit a second terminal. Exact SSE order, UTF-8, cache bytes, signatures, real timers and redaction remain real-HTTP/process witnesses; no arbitrary Rust refinement claim."
+property = "RetryOnlyBeforeOutput, OneTerminal, StopAgreesWithCalls, ToolsAgreesWithCalls, AfterOutputErrorsAreMidStream; RequestEventuallyTerminates."
+checks = ["make test-formal", "make test"]

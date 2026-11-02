@@ -362,3 +362,23 @@ frontend = "project"
 name = "BrokenHarnessMcpLostChild"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessProviderStream"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessProviderRetry"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessProviderFinish"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessProviderEnding"
+expected = "safety"
+frontend = "project"

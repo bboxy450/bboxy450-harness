@@ -195,14 +195,14 @@ async fn run_cli(
             Ok(p) if defer_acp_profile => {
                 // Advertise capabilities without executing a credential command.
                 // Host resolves the real provider inside its cancellable factory.
-                let client = provider::OpenAiCompat::new(
-                    &p.endpoint,
-                    crate::redact::Secret::new(String::new(), &redactor),
-                    redactor.clone(),
-                    Default::default(),
-                )
-                .map_err(|e| e.message)?;
-                (Arc::new(client), p.model.clone(), p.policy())
+                let client = p
+                    .build_provider(
+                        crate::redact::Secret::new(String::new(), &redactor),
+                        redactor.clone(),
+                        Default::default(),
+                    )
+                    .map_err(|e| e.message)?;
+                (client, p.model.clone(), p.policy())
             }
             Ok(p) => match p.key(&redactor, stop.child_token()).await {
                 Ok(key) => {
@@ -210,10 +210,10 @@ async fn run_cli(
                         retry_deadline: p.retry_deadline.map(std::time::Duration::from_secs),
                         ..Default::default()
                     };
-                    let client =
-                        provider::OpenAiCompat::new(&p.endpoint, key, redactor.clone(), options)
-                            .map_err(|e| e.message)?;
-                    (Arc::new(client), p.model.clone(), p.policy())
+                    let client = p
+                        .build_provider(key, redactor.clone(), options)
+                        .map_err(|e| e.message)?;
+                    (client, p.model.clone(), p.policy())
                 }
                 Err(e) => (
                     Arc::new(FailedProvider(ProviderError::new(

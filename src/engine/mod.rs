@@ -1015,8 +1015,8 @@ impl SessionActor {
                 profile.name=name;
                 let key=profile.key(&redactor,cancel.clone()).await.map_err(|e|Rejection::ProfileInvalid{detail:e.message})?;
                 let options=crate::provider::Options{retry_deadline:profile.retry_deadline.map(std::time::Duration::from_secs),..Default::default()};
-                let provider=crate::provider::OpenAiCompat::new(&profile.endpoint,key,redactor,options).map_err(|e|Rejection::ProfileInvalid{detail:e.message})?;
-                Ok((profile,Arc::new(provider) as Arc<dyn Provider>))
+                let provider=profile.build_provider(key,redactor,options).map_err(|e|Rejection::ProfileInvalid{detail:e.message})?;
+                Ok((profile,provider))
             }).catch_unwind().await.unwrap_or_else(|_|Err(Rejection::ProfileInvalid{detail:"profile worker panicked".into()}));
             let _=task_group::send(&output,Internal::ProfileReady{op:id,result:resolve},&cancel).await;
         });

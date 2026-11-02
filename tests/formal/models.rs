@@ -2092,6 +2092,156 @@ fn acp_agent_turn(b: bool) -> Model {
     }
     m
 }
+// Shared HTTP retry/terminal ownership and Anthropic stop-reason translation.
+// Wire framing and token arithmetic are separate real-HTTP witnesses.
+fn provider_stream(mode: u8) -> Model {
+    let mut m = base::<7>(
+        "ProviderStream",
+        false,
+        &[
+            ("phase", 3, 0), // idle, reading, backoff, terminal
+            ("attempt", 2, 0),
+            ("output", 1, 0),
+            ("calls", 2, 0),
+            ("reason", 5, 0),   // absent, stop, tools, length, refusal, unknown
+            ("outcome", 11, 0), // four finishes, malformed, midstream, cancel, auth, bad, transient, rate
+            ("endings", 2, 0),
+        ],
+    );
+    m.name = match mode {
+        0 => "HarnessProviderStream",
+        1 => "BrokenHarnessProviderRetry",
+        2 => "BrokenHarnessProviderFinish",
+        _ => "BrokenHarnessProviderEnding",
+    }
+    .into();
+    act(
+        &mut m,
+        "StartRequest",
+        eq(0, 0),
+        &[(0, Int(1)), (1, Int(1))],
+    );
+    act(
+        &mut m,
+        "TextThinkingSignatureOrOpaque",
+        all([eq(0, 1), eq(4, 0)]),
+        &[(2, Int(1))],
+    );
+    act(
+        &mut m,
+        "ToolUse",
+        all([eq(0, 1), eq(4, 0), Var(3).lt(Int(2))]),
+        &[(2, Int(1)), (3, Var(3).plus(Int(1)))],
+    );
+    for reason in 1..=5 {
+        act(
+            &mut m,
+            "MessageDeltaReason",
+            all([eq(0, 1), eq(4, 0)]),
+            &[(4, Int(reason))],
+        );
+    }
+    for reason in 0..=5 {
+        for calls in 0..=2 {
+            let consistent = reason != 0 && reason != 5 && ((reason == 2) == (calls > 0));
+            let outcome = if consistent || mode == 2 && reason == 1 {
+                reason
+            } else {
+                5
+            };
+            act(
+                &mut m,
+                "MessageStop",
+                all([eq(0, 1), eq(4, reason), eq(3, calls)]),
+                &[(0, Int(3)), (5, Int(outcome)), (6, Int(1))],
+            );
+        }
+    }
+    for class in [10, 11] {
+        act(
+            &mut m,
+            "RetryTransientOrRateLimited",
+            all([
+                eq(0, 1),
+                Var(1).lt(Int(2)),
+                if mode == 1 { Bool(true) } else { eq(2, 0) },
+            ]),
+            &[(0, Int(2)), (5, Int(class))],
+        );
+    }
+    act(
+        &mut m,
+        "BackoffCompletes",
+        eq(0, 2),
+        &[
+            (0, Int(1)),
+            (1, Var(1).plus(Int(1))),
+            (4, Int(0)),
+            (5, Int(0)),
+        ],
+    );
+    for class in [8, 9, 10, 11] {
+        act(
+            &mut m,
+            "ErrorBeforeOutputOrRetryExhausted",
+            all([eq(0, 1), eq(2, 0)]),
+            &[(0, Int(3)), (5, Int(class)), (6, Int(1))],
+        );
+    }
+    act(
+        &mut m,
+        "ErrorAfterOutput",
+        all([eq(0, 1), eq(2, 1)]),
+        &[(0, Int(3)), (5, Int(6)), (6, Int(1))],
+    );
+    let cancel = m.actions.len();
+    act(
+        &mut m,
+        "CancelReadingOrWaiting",
+        Var(0).lt(Int(3)),
+        &[(0, Int(3)), (5, Int(7)), (6, Int(1))],
+    );
+    act(
+        &mut m,
+        "TerminalIgnoresLaterFrames",
+        eq(0, 3),
+        if mode == 3 { &[(6, Int(2))] } else { &[] },
+    );
+    safe(
+        &mut m,
+        "RetryOnlyBeforeOutput",
+        eq(0, 2).negate().or(eq(2, 0)),
+    );
+    safe(
+        &mut m,
+        "OneTerminal",
+        Var(6).le(Int(1)).and(eq(0, 3).negate().or(eq(6, 1))),
+    );
+    safe(
+        &mut m,
+        "StopAgreesWithCalls",
+        all([eq(0, 3), eq(5, 1)]).negate().or(eq(3, 0)),
+    );
+    safe(
+        &mut m,
+        "ToolsAgreesWithCalls",
+        all([eq(0, 3), eq(5, 2)]).negate().or(Int(0).lt(Var(3))),
+    );
+    safe(
+        &mut m,
+        "AfterOutputErrorsAreMidStream",
+        all([eq(0, 3), Int(8).le(Var(5))]).negate().or(eq(2, 0)),
+    );
+    progress(
+        &mut m,
+        "RequestEventuallyTerminates",
+        Bool(true),
+        eq(0, 3),
+        vec![cancel],
+    );
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
         (gui_markdown(0), "pass"),
@@ -2182,6 +2332,12 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
     out.push((process_lifecycle(4), "safety"));
     out.push((process_lifecycle(5), "safety"));
     out.push((mcp_group_close_mode(false, true), "safety"));
+    for mode in 0..=3 {
+        out.push((
+            provider_stream(mode),
+            if mode == 0 { "pass" } else { "safety" },
+        ));
+    }
     use bbt_yarn::reactor_model;
     let mut projected = bboxy450_harness::harness_turn_topology!(
         reactor_model,
