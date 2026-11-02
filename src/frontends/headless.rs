@@ -299,7 +299,7 @@ async fn run_cli(
             fork: config.meta.fork,
         },
     };
-    let gateway = if resume.is_some() {
+    let mut gateway = if resume.is_some() {
         host.open(session)
             .await
             .map_err(|_| "session could not be opened")?
@@ -327,9 +327,10 @@ async fn run_cli(
             Err(_) => return Err("session socket unavailable".into()),
         }
     }
-    let socket = crate::gateway::unix::UnixServer::bind(socket_path, gateway.clone())
+    let mut socket = crate::gateway::unix::UnixServer::bind(socket_path, gateway.clone())
         .await
         .map_err(|_| "session socket unavailable")?;
+    let mut session = session;
     let mut subscription = gateway
         .subscribe(Subscribe {
             session,
@@ -346,7 +347,7 @@ async fn run_cli(
     let mut stopping = false;
     let mut running = false;
     let mut failed = false;
-    let op = |op| OpEnvelope {
+    let op = |session, op| OpEnvelope {
         v: PROTOCOL,
         session,
         op_id: OpId::new(),
@@ -354,25 +355,53 @@ async fn run_cli(
     };
     if let Some(prompt) = prompt {
         gateway
-            .send(op(Op::UserTurn {
-                blocks: vec![InputBlock::Text { text: prompt }],
-                mode: TurnMode::Queue,
-            }))
+            .send(op(
+                session,
+                Op::UserTurn {
+                    blocks: vec![InputBlock::Text { text: prompt }],
+                    mode: TurnMode::Queue,
+                },
+            ))
             .map_err(|_| "turn refused")?;
     }
     loop {
         tokio::select! {biased;
-         _=stop.cancelled(),if !stopping=>{let _=gateway.send(op(Op::Close));stopping=true;},
-         _=tokio::signal::ctrl_c()=>{if running{let _=gateway.send(op(Op::Interrupt{turn:None}));}},
+         _=stop.cancelled(),if !stopping=>{let _=gateway.send(op(session,Op::Close));stopping=true;},
+         _=tokio::signal::ctrl_c()=>{if running{let _=gateway.send(op(session,Op::Interrupt{turn:None}));}},
          line=input.next_line(),if seat&&!stopping=>{match line{Ok(Some(text))=>{
             if let Some(command)=text.trim().strip_prefix('/'){
-                let (request,mut reply)=seat_command(command,&profiles_root);
-                if let Some(request)=request&&gateway.send(op(request)).is_err(){reply="refused\n".into();}
-                if stdout.write_all(reply.as_bytes()).await.is_err(){let _=gateway.send(op(Op::Close));break;}let _=stdout.flush().await;
-            }else if !text.is_empty(){let _=gateway.send(op(Op::UserTurn{blocks:vec![InputBlock::Text{text}],mode:TurnMode::Queue}));}},_=>{if stdin_was_tty && stdin_hung_up(){crate::process::kill_owned_groups();}let _=gateway.send(op(Op::Close));stopping=true;}}},
-         event=subscription.recv()=>{let Some(event)=event else{break;};match &event.event{Event::TurnStarted{..}=>running=true,Event::TurnEnded{reason,..}=>{running=false;failed|=matches!(reason,StopReason::Error{..});if !seat&&!stopping{let _=gateway.send(op(Op::Close));stopping=true;}},_=>{}}
+                let reply = if let Some(name) = switch_target(command) {
+                    // any backend to any backend: fork at head onto NAME, follow the new session
+                    if running {
+                        "finish or /interrupt the turn before switching\n".to_owned()
+                    } else {
+                        match host.switch(&gateway, name.to_owned()).await {
+                            Ok(next) => {
+                                let _ = socket.close().await;
+                                let hello = next.hello();
+                                session = hello.meta.session;
+                                socket = crate::gateway::unix::UnixServer::bind(root.join("run").join(format!("{session}.sock")), next.clone())
+                                    .await
+                                    .map_err(|_| "session socket unavailable")?;
+                                subscription = next
+                                    .subscribe(Subscribe { session, after: Some((hello.epoch, hello.head)), ephemeral: seat && !json })
+                                    .map_err(|_| "subscribe refused")?;
+                                gateway = next;
+                                format!("switched to profile {name} · session {session}\n")
+                            }
+                            Err(error) => format!("could not switch to {name}: {error:?}\n"),
+                        }
+                    }
+                } else {
+                    let (request,mut reply)=seat_command(command,&profiles_root);
+                    if let Some(request)=request&&gateway.send(op(session,request)).is_err(){reply="refused\n".into();}
+                    reply
+                };
+                if stdout.write_all(reply.as_bytes()).await.is_err(){let _=gateway.send(op(session,Op::Close));break;}let _=stdout.flush().await;
+            }else if !text.is_empty(){let _=gateway.send(op(session,Op::UserTurn{blocks:vec![InputBlock::Text{text}],mode:TurnMode::Queue}));}},_=>{if stdin_was_tty && stdin_hung_up(){crate::process::kill_owned_groups();}let _=gateway.send(op(session,Op::Close));stopping=true;}}},
+         event=subscription.recv()=>{let Some(event)=event else{break;};match &event.event{Event::TurnStarted{..}=>running=true,Event::TurnEnded{reason,..}=>{running=false;failed|=matches!(reason,StopReason::Error{..});if !seat&&!stopping{let _=gateway.send(op(session,Op::Close));stopping=true;}},_=>{}}
           let bytes=if json {let mut b=serde_json::to_vec(&event).map_err(|_|"event serialization failed")?;b.push(b'\n');b}else{line_projection.render(&event)};
-          if stdout.write_all(&bytes).await.is_err(){let _=gateway.send(op(Op::Close));break;}let _=stdout.flush().await;
+          if stdout.write_all(&bytes).await.is_err(){let _=gateway.send(op(session,Op::Close));break;}let _=stdout.flush().await;
           if matches!(event.event,Event::SessionClosed){break;}
          }
         }
@@ -432,15 +461,18 @@ fn tty_hung_up(terminal: libc::c_int) -> bool {
 }
 
 /// Seat slash commands: `/profile NAME` switches the live session's profile, `/profiles` lists them.
+/// `/profile NAME`: the profile a seat switches to (handled by Host::switch).
+fn switch_target(command: &str) -> Option<&str> {
+    let mut words = command.split_whitespace();
+    match (words.next(), words.next(), words.next()) {
+        (Some("profile"), Some(name), None) => Some(name),
+        _ => None,
+    }
+}
 fn seat_command(command: &str, root: &std::path::Path) -> (Option<Op>, String) {
     let mut words = command.split_whitespace();
     match (words.next(), words.next()) {
-        (Some("profile"), Some(name)) => (
-            Some(Op::SetProfile {
-                profile: name.into(),
-            }),
-            format!("switching to profile {name}\n"),
-        ),
+        (Some("profile"), Some(name)) => (None, format!("switching to profile {name}\n")),
         (Some("profiles" | "profile"), None) => {
             let mut names: Vec<String> = std::fs::read_dir(root)
                 .map(|d| {
