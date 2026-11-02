@@ -28,7 +28,7 @@ verify: make test
 created: 2026-11-02T23:59:00Z
 updated: 2026-11-02T23:59:00Z
 ---
-ROLE: EXECUTOR. Repo bboxy450/bboxy450-harness, own worktree off origin/main. Spec: `.bboxy/specs/log-ir-v1.md` §7 and §8 (binding), decision d5978. **Depends on #5975**: it owns `src/protocol/` and adds `Item::Native{provider, record_type, raw, blob}` and payload-carrying `Unknown(raw)` in its Part B. Start after #5975 Part B lands, or coordinate through the Oracle if it is still open. You do not edit `src/protocol/`, the lock or the frozen corpus.
+ROLE: EXECUTOR. Repo bboxy450/bboxy450-harness, own worktree off origin/main. Spec: `.bboxy/specs/log-ir-v1.md` §7 and §8 (binding), decision d5978. **Depends on #5975**: it owns `src/protocol/` and adds `Item::Native{provider, record_type, raw, blob}` and payload-carrying `Unknown(raw)` in its Part B. Start after #5975 Part B lands, or coordinate through the Oracle if it is still open. You do not edit `src/protocol/`, the lock by hand, or any existing frozen corpus file.
 
 ## Part A: the edge never drops (spec §7)
 
@@ -44,7 +44,7 @@ ROLE: EXECUTOR. Repo bboxy450/bboxy450-harness, own worktree off origin/main. Sp
 7. **`--propose DIR`**: per fingerprint, write a schema fragment (additive only), a projector-arm skeleton, a fixture line into `tests/fixtures/ir-v1/pending/`, and a task record in the brief format (`.bboxy/tasks/<date>-ir-extend-<fingerprint>.md`, frontmatter with id and number). Run `python3 -I scripts/ir-compat.py check` against the fragment applied to a copy of the schema; a refusal is a scanner bug and the test for it fails.
 8. **Session close hook**: after `SessionClosed`, scan that session's log on `bbt_rt`, ≤ 1 ms CPU between awaits, bounded by log size; a new fingerprint emits one Info notice. Never on the UI thread; never delays close (law never-block).
 9. **`make test`**: `scripts/test.py` runs `ir-scan --propose <tmp> tests/fixtures/` as a dry run and fails when a fixture holds an unknown with no pending proposal in `tests/fixtures/ir-v1/pending/`.
-10. **`scripts/land.sh`**: when `ir-compat check` passes and the schema changed, run `ir-compat lock` and include the lock in the landing commit, so an addition lands without an Architect step. A failing `check` still blocks.
+10. **Lock refresh is self-service.** The harness has no `land.sh`; the merge gate is `make test`. `make lock-ir` (exists) refuses anything non-additive, so the executor who lands an addition runs it and commits the lock with the change. Make `make test-ir` fail with the hint `run make lock-ir` when the schema has additions the lock does not yet carry, so a stale lock cannot land.
 11. **`tests/ir_scan.rs`**: a fixture with two unknown shapes yields two fingerprints, two proposals that pass `ir-compat`, and a task record that passes `scripts/checks.py kb-records`. **Broken controls:** (a) a proposal generator that renames an existing field must be refused by the gate and the test must fail; (b) the session-close hook with the budget removed must fail the budget assertion.
 12. Record contracts in `verification/contracts.toml` (edge rule: implementation witness `tests/ir_edge.rs`; scanner: `tests/ir_scan.rs`) and coverage for the new sources.
 

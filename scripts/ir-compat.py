@@ -8,7 +8,7 @@
 
   python3 -I scripts/ir-compat.py check      protocol.schema.json against verification/protocol-v1.lock.json
   python3 -I scripts/ir-compat.py control    each forbidden mutation of the current schema must be refused
-  python3 -I scripts/ir-compat.py lock       rewrite the lock (an Architect act: record the reason in the spec)
+  python3 -I scripts/ir-compat.py lock       refresh the lock (`make lock-ir`); refused unless additive over the old lock
 
 The surface is flattened from the schemars export: every definition, every field with its type
 signature and required flag, every variant of a tagged union or string enum. Allowed: a new
@@ -216,15 +216,27 @@ def control():
 
 
 def lock():
+    """Refresh the lock. Refused unless the current schema is an addition over the existing lock
+    (so a re-lock can never enshrine a removal or rename) and every frozen corpus file is intact."""
     old = json.loads(LOCK.read_text()) if LOCK.exists() else {}
-    corpus = sorted(old.get('corpus', {})) or sorted(str(p) for p in Path('tests/fixtures/ir-v1').glob('*.jsonl'))
+    surface = flatten(json.loads(SCHEMA.read_text()))
+    if old:
+        bad = compare(old, surface)
+        for p, h in old.get('corpus', {}).items():
+            if not Path(p).is_file() or corpus_hashes([p])[p] != h:
+                bad.append(f'{p}: frozen corpus file missing or changed')
+        if bad:
+            for line in bad: print('FAIL', line)
+            print('ir-compat lock: REFUSED, the change is not additive over the existing lock')
+            return 1
+    corpus = sorted(set(old.get('corpus', {})) | {str(p) for p in Path('tests/fixtures/ir-v1').glob('*.jsonl')})
     out = {
         'ir': 'bboxy log IR',
         'version': {'major': 1, 'minor': 0},
         'spec': '.bboxy/specs/log-ir-v1.md',
         'retired': old.get('retired', []),
         'corpus': corpus_hashes(corpus),
-        'surface': flatten(json.loads(SCHEMA.read_text())),
+        'surface': surface,
     }
     LOCK.write_text(json.dumps(out, indent=1, sort_keys=True) + '\n')
     print(f'locked {len(out["surface"])} definitions, {len(corpus)} corpus files')

@@ -7,7 +7,7 @@
 """Rich-face parity gate (verification matrix R27): runs scripts/parity-web.sh on every
 tests/fixtures/parity fixture and turns the scores into an exit code.
 
-  python3 -I scripts/parity-gate.py OUT [--target]     env LAB=<bboxy450-term>/lab/web BIN=...
+  python3 -I scripts/parity-gate.py OUT [--target] [--ratchet]     env LAB=<bboxy450-term>/lab/web BIN=...
 
 Exit 0: every fixture matches its baseline hash, both PNGs are 900x1100 and no score is worse
 than baseline + tolerance. With --target, every score must also meet its target.
@@ -18,6 +18,10 @@ The baseline was measured against one web reference (the lab files, hashed). Whe
 moved since, a regression against the old reference is not measurable: the gate prints
 REFERENCE MOVED, skips only the no-regression comparison, still enforces sizes, hashes and
 targets, and writes OUT/baseline-candidate.json for the Architect to adopt.
+
+--ratchet, after a landed cut: with no regression and the same reference, lower each baseline score to
+the measured one. It never raises a score and never changes the fixtures or the reference, so anyone
+may run it; the slack an improvement would otherwise leave behind is removed.
 
 rows_aligned is a diagnostic: the row-structure mismatch after the best global vertical shift
 within ±24 px. A large gap between it and the raw score means one offset, not many defects.
@@ -60,7 +64,7 @@ def rows_aligned(web, nat):
 
 
 def main():
-    out, want_target = sys.argv[1], '--target' in sys.argv[2:]
+    out, want_target, ratchet = sys.argv[1], '--target' in sys.argv[2:], '--ratchet' in sys.argv[2:]
     base = json.load(open(BASELINE))
     w, h = base['size']
     moved = base.get('lab_sha256') != lab_hash()
@@ -104,6 +108,17 @@ def main():
     for line in bad: print('FAIL', line)
     for line in missed: print('TARGET', line)
     if bad: return 1
+    if ratchet and not moved:
+        tightened = 0
+        for n, c in candidate.items():
+            for k in TOLERANCE:
+                if c[k] < base['fixtures'][n][k]:
+                    print(f'RATCHET {n} {k} {base["fixtures"][n][k]} -> {c[k]}'); base['fixtures'][n][k] = c[k]; tightened += 1
+        if tightened:
+            head = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], capture_output=True, text=True).stdout.strip()
+            base['source'] = head or base['source']
+            json.dump(base, open(BASELINE, 'w'), indent=1)
+            print(f'parity-gate: baseline tightened ({tightened} scores) at {head}')
     if want_target and missed: return 2
     print('parity-gate: no regression' + (', targets met' if want_target else '') + (' (reference moved)' if moved else ''))
     return 0

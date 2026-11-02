@@ -105,7 +105,7 @@ updated: "2026-11-02T22:00:00Z"
 
 **Rules.**
 - Changing a fixture, the web reference commit or a target is an Architect re-baseline: a new baseline file and a recorded reason.
-- A tolerance is never widened to pass a cut.
+- A tolerance is never widened to pass a cut. After a landed improvement, `parity-gate.py OUT --ratchet` lowers the baseline scores to the measured ones (never raises them, never on a moved reference), so slack does not accumulate; anyone may run it.
 - The instrument resizes a wrongly sized native frame before scoring, so the gate checks the PNG sizes itself.
 - Not covered: interaction states (hover, popover, scroll), light theme, other sizes. Those stay manual until fixtures exist for them.
 

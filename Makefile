@@ -4,7 +4,7 @@
 # License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 # Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
-.PHONY: test test-ir test-formal test-formal-native test-formal-parity check-formal-evidence smoke-live bench-budgets test-licenses test-secrets
+.PHONY: test test-ir lock-ir test-formal test-formal-native test-formal-parity check-formal-evidence smoke-live bench-budgets test-licenses test-secrets
 TARGET_DIR ?= target
 
 test:
@@ -130,3 +130,7 @@ release: app
 test-ir:
 	python3 -I scripts/ir-compat.py check
 	python3 -I scripts/ir-compat.py control
+
+# Refresh the IR lock after an addition; refused unless the schema is additive over the old lock.
+lock-ir:
+	python3 -I scripts/ir-compat.py lock

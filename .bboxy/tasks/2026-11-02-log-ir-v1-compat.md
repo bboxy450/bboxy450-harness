@@ -29,7 +29,7 @@ updated: 2026-11-02T23:00:00Z
 ---
 ROLE: EXECUTOR. Repo bboxy450/bboxy450-harness, own worktree off origin/main. Spec: `.bboxy/specs/log-ir-v1.md` (binding). Decision: `.bboxy/decisions/d5974-log-ir-v1-only-add.md`. The Oracle dispatches and may split this into Part A and Part B; **Part A lands first**.
 
-**Hard rule.** `make test-ir` must stay green on every commit. Never edit `verification/protocol-v1.lock.json` or `tests/fixtures/ir-v1/*`; those belong to the Architect. If the gate refuses your change, the change is wrong (spec E1/E2). Message the Architect only if you believe the gate is wrong, and give evidence.
+**Hard rule.** `make test-ir` must stay green on every commit. Never edit `verification/protocol-v1.lock.json` by hand or any existing `tests/fixtures/ir-v1/*` file. After an addition, refresh the lock with `make lock-ir` (it refuses anything that is not additive) and commit the result with the change. If the gate refuses your change, the change is wrong (spec E1/E2). Message the Architect only if you believe the gate is wrong, and give evidence.
 
 ## Part A: compatible by construction (no wire change)
 
@@ -62,7 +62,7 @@ ROLE: EXECUTOR. Repo bboxy450/bboxy450-harness, own worktree off origin/main. Sp
    - **broken control:** a fork that drops `Item::Usage` changes the totals and must fail.
 5. `laws::check_authored` enforces §4a: a writer at ≥ 1.1 writes `scope`, `backend` and `source`, and names every placeholder in `unreported`. Scopes are never summed together by the report.
 6. Set `PROTOCOL = {1, 1}`.
-7. Add one frozen corpus file of 1.1 output, `tests/fixtures/ir-v1/v1.1-all-items.jsonl`, containing every new variant and one Usage record per scope. The Architect then re-locks; hand the file over in your report and do **not** edit the lock.
+7. Add one frozen corpus file of 1.1 output, `tests/fixtures/ir-v1/v1.1-all-items.jsonl`, containing every new variant and one Usage record per scope, then `make lock-ir` and commit the refreshed lock with it.
 
 **Render-gap evidence**, from the 2026-11-02 survey at 3c78fcf. These are importer and ACP projector follow-ups. They are in scope only where Part B needs a writer.
 - **Importer, `src/import/mod.rs`:**
