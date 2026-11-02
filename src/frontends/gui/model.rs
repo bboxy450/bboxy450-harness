@@ -37,7 +37,7 @@ pub enum TurnState {
     Running,
     Ended {
         reason: StopReason,
-        usage: Option<Usage>,
+        usage: Option<Box<Usage>>,
     },
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -152,7 +152,7 @@ impl Transcript {
                     *turn,
                     TurnState::Ended {
                         reason: reason.clone(),
-                        usage: usage.clone(),
+                        usage: usage.clone().map(Box::new),
                     },
                 );
             }

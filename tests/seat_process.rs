@@ -35,6 +35,17 @@ fn launch(
     Box<dyn portable_pty::MasterPty + Send>,
     Box<dyn portable_pty::Child + Send + Sync>,
 ) {
+    launch_options(script, true, false)
+}
+fn launch_options(
+    script: &str,
+    yolo: bool,
+    json: bool,
+) -> (
+    tempfile::TempDir,
+    Box<dyn portable_pty::MasterPty + Send>,
+    Box<dyn portable_pty::Child + Send + Sync>,
+) {
     let temp = tempfile::Builder::new()
         .prefix("harness-")
         .tempdir_in("/tmp")
@@ -48,7 +59,7 @@ fn launch(
         })
         .unwrap();
     let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_bboxy450-harness"));
-    command.args(["seat", "--yolo", "--cwd"]);
+    command.args(["seat", "--profile", "seat-test", "--cwd"]);
     command.arg(temp.path());
     command.arg("--sessions");
     command.arg(temp.path().join("sessions"));
@@ -59,9 +70,205 @@ fn launch(
     );
     command.env("HOME", temp.path());
     command.env("BBOXY_SOCK", temp.path().join("not-there"));
+    if yolo {
+        command.arg("--yolo");
+    }
+    if json {
+        command.arg("--json");
+    }
     let child = pty.slave.spawn_command(command).unwrap();
     drop(pty.slave);
     (temp, pty.master, child)
+}
+
+struct ReportingSeat {
+    temp: tempfile::TempDir,
+    _master: Box<dyn portable_pty::MasterPty + Send>,
+    child: Box<dyn portable_pty::Child + Send + Sync>,
+    writer: Box<dyn Write + Send>,
+    receive: std::sync::mpsc::Receiver<Vec<u8>>,
+    output: Vec<u8>,
+}
+impl ReportingSeat {
+    fn spawn(script: &str, yolo: bool, json: bool) -> Self {
+        let (temp, master, child) = launch_options(script, yolo, json);
+        let writer = master.take_writer().unwrap();
+        let mut reader = master.try_clone_reader().unwrap();
+        let (send, receive) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut bytes = [0; 4096];
+            while let Ok(n) = reader.read(&mut bytes) {
+                if n == 0 || send.send(bytes[..n].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+        Self {
+            temp,
+            _master: master,
+            child,
+            writer,
+            receive,
+            output: vec![],
+        }
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        self.writer.write_all(bytes).unwrap();
+        self.writer.flush().unwrap();
+    }
+    fn until(&mut self, predicate: impl Fn(&[u8]) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !predicate(&self.output) {
+            let chunk = self
+                .receive
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "seat output {e}: {:?}",
+                        String::from_utf8_lossy(&self.output)
+                    )
+                });
+            self.output.extend_from_slice(&chunk);
+        }
+    }
+    fn close(&mut self) -> Vec<bboxy450_harness::protocol::Envelope> {
+        self.write(b"\x04");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                assert!(status.success());
+                break;
+            }
+            assert!(Instant::now() < deadline, "seat did not close after Ctrl-D");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let path = std::fs::read_dir(self.temp.path().join("sessions"))
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| p.extension().is_some_and(|e| e == "jsonl"))
+            .unwrap();
+        let log: Vec<_> = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        bboxy450_harness::protocol::laws::check_transcript(&log).unwrap();
+        log
+    }
+}
+impl Drop for ReportingSeat {
+    fn drop(&mut self) {
+        if self.child.try_wait().ok().flatten().is_none() {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+}
+fn contains(bytes: &[u8], needle: &[u8]) -> bool {
+    bytes.windows(needle.len()).any(|w| w == needle)
+}
+fn report_count(bytes: &[u8]) -> usize {
+    bytes
+        .windows(b"\x1b]7501;state=".len())
+        .filter(|w| *w == b"\x1b]7501;state=")
+        .count()
+}
+
+#[test]
+fn tty_seat_answers_a_probe_without_enter_and_filters_it_out_of_the_turn() {
+    use bboxy450_harness::protocol::{Event, InputBlock, Item};
+    let mut seat = ReportingSeat::spawn("text", true, false);
+    seat.until(|out| contains(out, b"state=idle:title="));
+    let reports = report_count(&seat.output);
+    seat.write(b"hel\x1b]7501;");
+    seat.write(b"?\x07");
+    seat.until(|out| report_count(out) > reports);
+    assert!(
+        !contains(&seat.output, b"state=working"),
+        "the probe must not submit a turn"
+    );
+    seat.write(b"lo\n");
+    seat.until(|out| contains(out, b"Done") && report_count(out) >= reports + 3);
+    assert!(contains(&seat.output, b"state=working:title="));
+    let last_report = seat.output.split(|b| *b == 0x1b).next_back().unwrap();
+    assert!(last_report.starts_with(b"]7501;state=idle:title="));
+    seat.write(b"fail next\n");
+    seat.until(|out| contains(out, b"state=error:title="));
+    let reports = report_count(&seat.output);
+    seat.write(b"\x1b]7501;?\x07");
+    seat.until(|out| report_count(out) > reports);
+    assert!(
+        seat.output
+            .split(|b| *b == 0x1b)
+            .next_back()
+            .unwrap()
+            .starts_with(b"]7501;state=error:")
+    );
+    let log = seat.close();
+    let users: Vec<_> = log
+        .iter()
+        .filter_map(|e| match &e.event {
+            Event::ItemCompleted {
+                body: Item::UserMessage { blocks },
+                ..
+            } => Some(blocks),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        matches!(&users[..], [a, b] if matches!(&a[..], [InputBlock::Text { text }] if text == "hello")
+        && matches!(&b[..], [InputBlock::Text { text }] if text == "fail next"))
+    );
+}
+
+#[test]
+fn tty_seat_reports_a_pending_permission_and_resumes_after_unattended_denial() {
+    let mut seat = ReportingSeat::spawn("bash", false, false);
+    seat.until(|out| contains(out, b"state=idle:title="));
+    seat.write(b"run a tool\n");
+    seat.until(|out| contains(out, b":kind=permission\x07") && contains(out, b"state=error"));
+    let text = String::from_utf8_lossy(&seat.output);
+    let blocked = text.find("state=blocked").unwrap();
+    assert!(
+        text[blocked..].contains("state=working"),
+        "approval completion restores working"
+    );
+    seat.close();
+}
+
+#[test]
+fn json_seat_never_emits_state_reports_even_on_a_tty() {
+    let mut seat = ReportingSeat::spawn("text", true, true);
+    seat.until(|out| contains(out, b"session_started"));
+    seat.write(b"hi\n");
+    seat.until(|out| contains(out, b"turn_ended"));
+    assert_eq!(report_count(&seat.output), 0);
+    seat.close();
+}
+
+#[test]
+fn piped_seat_never_emits_state_reports() {
+    let temp = tempfile::tempdir_in("/tmp").unwrap();
+    let mut child = spawn_without_sibling_fds(
+        std::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
+            .args(["seat", "--scripted"])
+            .arg(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("tests/fixtures/sse/text.sse"),
+            )
+            .env("HOME", temp.path())
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped()),
+    );
+    child.stdin.take().unwrap().write_all(b"hello\n").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(report_count(&output.stdout), 0);
 }
 #[test]
 fn hangup_stops_without_an_operator() {

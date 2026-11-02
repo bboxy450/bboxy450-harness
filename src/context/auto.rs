@@ -66,7 +66,15 @@ pub fn estimate(
         } = &e.event
         {
             match body {
-                Item::Usage { usage } => anchor = e.seq.map(|s| (s, usage)),
+                Item::Usage { usage }
+                    if usage.scope != Some(UsageScope::Session)
+                        && !usage
+                            .unreported
+                            .iter()
+                            .any(|field| field == "input_tokens" || field == "output_tokens") =>
+                {
+                    anchor = e.seq.map(|s| (s, usage));
+                }
                 Item::ContextTrim { .. } | Item::Compaction { .. } => anchor = None,
                 _ => {}
             }

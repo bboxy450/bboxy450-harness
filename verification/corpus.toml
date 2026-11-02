@@ -398,3 +398,23 @@ expected = "liveness"
 [[model]]
 name = "BrokenHarnessAgentPathChildEnv"
 expected = "safety"
+
+[[model]]
+name = "HarnessSeatReport"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessSeatReportState"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessSeatReportProbe"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessAcpAgentGrace"
+expected = "safety"
+frontend = "project"

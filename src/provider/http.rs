@@ -155,7 +155,7 @@ fn http_class(status: u16, format: Format) -> ErrorClass {
 }
 enum Parser {
     OpenAi(super::parser::SseParser),
-    Anthropic(super::anthropic_parser::Parser),
+    Anthropic(Box<super::anthropic_parser::Parser>),
 }
 impl Parser {
     fn new(format: Format) -> Self {

@@ -33,7 +33,7 @@ updated: 2026-11-02T22:00:00Z
 - **Profile.** `AgentSpec { command: Vec<String>, env: BTreeMap }` (`src/provider/profile.rs:48`). `command[0]` is exec'd with no shell in the session cwd through `OwnedChild` (own process group). Launchers pin exact versions (`npx pkg@x.y.z`); a floating version is a profile defect, not a runtime choice.
 - **Environment.** The child **inherits the harness environment** and the profile's `env` is layered on top (`Command::envs`). A value starting `!` is a command resolved at spawn; its trimmed output is registered with the redactor before use. The profile never holds a secret literal.
 - **Auth.** The harness never calls `authenticate` and advertises no `auth.terminal`. An error with code `-32000` or text containing "auth" ends the turn `Error{class: Auth}` with the hint "authenticate the agent in a terminal (API key, console login, Bedrock or Vertex)". **Never** offered, selected or triggered: `claude-ai-login` (Anthropic terms, research correction 10). Claude agents run on `ANTHROPIC_API_KEY`, console login, Bedrock or Vertex only.
-- **Model.** The profile `model:` is matched against the `session/new` result's config option with `category == "model"` (or `id == "model"`): exact value, else a value ending `/<model>` (`pick_model`). Match ≠ current → `session/set_config_option {configId: "model"}` before the first prompt; refused → Warn notice, the turn runs on the agent's model. Not offered → Warn notice naming the agent's current model. There is no `session/set_model` (stable has none).
+- **Model.** The profile `model:` is matched against the `session/new` result's config option with `category == "model"` (or `id == "model"`): exact value, else a value ending `/<model>`, else an offered alias equal to a whole `-`, `/` or `.` separated token of the requested model (`claude-haiku-5-5` matches `haiku`; `pick_model`). Match ≠ current → `session/set_config_option {configId: "model"}` before the first prompt; refused → Warn notice, the turn runs on the agent's model. Not offered → Warn notice naming the agent's current model. There is no `session/set_model` (stable has none).
 - **Lazy start.** The agent is spawned by the first `UserTurn`, not by `StartSession`. Spawn failure ends that turn `Error{class: Config}`; the next turn tries again.
 
 ## 2. Op → wire
@@ -41,7 +41,7 @@ updated: 2026-11-02T22:00:00Z
 | Op | Wire | Notes |
 |---|---|---|
 | `UserTurn` | queued (cap 64, else `InvalidInput`); when idle: `initialize` → `session/new {cwd, mcpServers: []}` → [`set_config_option`] → `session/prompt` | ACP has no steering: a turn sent while one runs waits its turn (`TurnQueued`) |
-| `Interrupt` running | `session/cancel` + every pending permission answered `{"outcome":"cancelled"}` | grace `CANCEL_GRACE = 5 s`, §4 |
+| `Interrupt` running | `session/cancel` + every pending permission answered `{"outcome":"cancelled"}` | grace defaults to `CANCEL_GRACE = 5 s` (test override `BBOXY450_ACP_CANCEL_GRACE_MS`), §4 |
 | `Interrupt` queued | none | the queued turn emits `TurnStarted` + `TurnEnded{Interrupted}` |
 | `ResolveApproval` | `request_permission` reply | §3 |
 | `SetProfile` | none | refused `InvalidInput`: an ACP session keeps its agent. Switching is `Host::switch` (fork + handoff, [[d5972-our-log-format-is-the-center]] §3) |
@@ -70,7 +70,7 @@ States per prompt: `queued → starting (initialize/new/set_model) → prompting
 
 1. **One ending.** Each `TurnStarted` gets exactly one `TurnEnded`; no item is open after it (`end_turn` settles permissions, flushes text, closes tools — unreported tools `Interrupted` or the failure status — and completes the plan).
 2. **Cancel.** After `session/cancel` the harness answers every pending permission `cancelled` and keeps applying `session/update`s until the prompt response. `stopReason: cancelled` → `Interrupted` if a face interrupted, else `Cancelled`. If the prompt was never sent, the turn ends `Interrupted` locally.
-3. **Grace.** If the agent has not ended the prompt `CANCEL_GRACE` after cancel, its process group is killed, a Warn notice is written and the turn ends `Interrupted`.
+3. **Grace.** If the agent has not ended the prompt within the cancel grace after cancel (default `CANCEL_GRACE`, overridden by a valid unsigned millisecond value in `BBOXY450_ACP_CANCEL_GRACE_MS`, sampled once at actor load; invalid values retain the default), its process group is killed, a Warn notice is written and the turn ends `Interrupted`.
 4. **Stop reasons.** `end_turn` → EndTurn; `max_tokens` → MaxTokens; `max_turn_requests` → MaxRounds; `refusal` → `Error{BadRequest}`; anything else → `Error{Malformed}`.
 
 ## 5. Update → Item
@@ -80,7 +80,8 @@ States per prompt: `queued → starting (initialize/new/set_model) → prompting
 | `agent_message_chunk` / `agent_thought_chunk` | `AgentMessage` / reasoning, streamed as deltas, one item per run of chunks |
 | `tool_call` / `tool_call_update` | `ToolCall` keyed by `toolCallId`; kind via `tool_kind`; content → `OutputBlock` (`content`, `diff` as unified diff, `terminal` id); `locations` display-only |
 | `plan` | `Plan`, replaced whole on each update |
-| `available_commands_update`, `current_mode_update`, `config_option_update`, `session_info_update`, `usage_update`, `user_message_chunk` | ignored |
+| `usage_update` | `Item::Usage` with `scope=session`, `source=reported`, `context_used=used`, `context_window=size`, backend agent name/version from initialize (command fallback), and model from the agent model config when known. Cost is reported, currency-preserving, rounded to nearest micro-unit with `price_source=provider`; USD also writes legacy `cost_micros_usd`. Unknown call input/output are 0 and named in `unreported`. Empty/malformed unreported values are omitted, and an update with no valid number creates no item. Accepted even between turns (idle item), per [[log-ir-v1]] §4a |
+| `available_commands_update`, `current_mode_update`, `config_option_update`, `session_info_update`, `user_message_chunk` | ignored |
 | anything else | one Warn `Notice` per unknown kind (`warned` set) |
 
 **Handoff.** A fresh agent on a session that already has turns gets `handoff()` text (user/assistant messages and one line per tool call, newest kept, 24 KiB budget, `[earlier turns omitted]` marker) prepended to its first prompt, and an Info notice counting the turns. The log, not the agent, is the session's memory.
@@ -104,10 +105,10 @@ Nothing on this boundary blocks a face: ops are admitted by the gateway lanes, t
 | Claim | Evidence |
 |---|---|
 | one ending; cancel answers every pending permission; cancelled turn ends | model `HarnessAcpAgentTurn` + `BrokenHarnessAcpAgentTurn` (`tests/formal/models.rs:2011`), contract in `verification/contracts.toml:194` |
-| mapping, approvals, `-32601`, unattended `reject_once`, interrupt keeps late updates, crash restart, malformed line, handoff on switch, model matching | `tests/acp_agent.rs` (scripted agent, 8 tests) |
+| mapping, approvals, `-32601`, unattended `reject_once`, interrupt keeps late updates, crash restart, malformed line, handoff on switch, model matching | `tests/acp_agent.rs` (scripted agent, including usage retention and kill-after-grace group witness) |
 | a real agent end to end | not in `make test` (needs a key). Night run: one turn on `claude-agent-acp` and `codex-acp` with `check_transcript` OK; **SKIP** without a key, never PASS |
 
-**Gaps (unproven).** The kill-after-grace path (§4.3) has no witness: `tests/acp_agent.rs:263` asserts the agent ended *before* the grace. `usage_update` is dropped, so ACP turns record no usage. No test that `claude-ai-login` is never sent beyond the absence of any `authenticate` call.
+**Remaining gap (unproven).** No test that `claude-ai-login` is never sent beyond the absence of any `authenticate` call.
 
 ## 8. Versioning
 
@@ -117,5 +118,7 @@ Nothing on this boundary blocks a face: ops are admitted by the gateway lanes, t
 - New update kinds are additive: they become a Notice until mapped. A newly mapped kind is a §5 row change.
 
 ## Change log
+
+- p6-seat-state, 2026-11-02, Executor under the Oracle brief: alias matching, additive session usage mapping and a test-only grace override close the assigned gaps. `tests/acp_agent.rs` witnesses an ignored cancel, Interrupted ending, Warn notice and `kill(-pgid, 0) == ESRCH` for an agent with a live child. Usage field meanings checked against the [ACP v1 prompt-turn source](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/protocol/v1/prompt-turn.mdx). On the Oracle update after rebasing onto c4246de, usage uses log IR v1 §4a: new optional Usage fields and definitions; existing names, types and meanings stay unchanged. The earlier Info Notice representation is superseded.
 
 - v0.1, 2026-11-02, Lumen Foxglove <ARCHITECT>: baselined from 3d76710 and [[acp-protocol-and-adapters]].

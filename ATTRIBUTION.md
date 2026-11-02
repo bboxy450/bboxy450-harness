@@ -57,6 +57,9 @@ A distinctive implementation adapted from elsewhere carries its own `// Adapted 
   - the Zed Agent Client Protocol
   - the Model Context Protocol
 - **Built on** the bboxy450-term toolkit crates (https://github.com/bboxy450/bboxy450-term), used as dependencies under their own terms.
+- **Inspired by bboxy450-term** OSC 7501 seat observation grammar and text limits
+  (`crates/bboxy450-harness-wake-up/src/observe.rs`); the harness emits compatible
+  state reports. https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md.
 - **Adapted from bboxy450-term** (https://github.com/bboxy450/bboxy450-term),
   `Makefile` bundle/signing/archive recipes and `packaging/macos/Info.plist`.
   Upstream reuse policy: https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md.

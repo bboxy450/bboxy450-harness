@@ -16,7 +16,7 @@ use crate::{
     redact::Set,
 };
 use std::{path::PathBuf, sync::Arc};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
 pub async fn cli() -> i32 {
     let result=async {
@@ -386,7 +386,23 @@ async fn run_cli(
     let mut line_projection =
         super::seat::LineProjection::new(super::seat::Style::detect(seat && stdin_was_tty));
     let mut stdout = tokio::io::stdout();
-    let mut input = tokio::io::BufReader::new(tokio::io::stdin()).lines();
+    let report_state =
+        seat && !json && stdin_was_tty && unsafe { libc::isatty(libc::STDOUT_FILENO) } == 1;
+    let _terminal_input = report_state
+        .then(super::seat::TerminalInput::enable)
+        .transpose()
+        .map_err(|_| "terminal input unavailable")?;
+    let mut state = super::seat::StateReporter::default();
+    if report_state {
+        stdout
+            .write_all(&state.report())
+            .await
+            .map_err(|_| "output unavailable")?;
+        stdout.flush().await.map_err(|_| "output unavailable")?;
+    }
+    let mut input = tokio::io::stdin();
+    let mut input_bytes = [0; 4096];
+    let mut input_filter = super::seat::InputFilter::default();
     ready.store(true, std::sync::atomic::Ordering::Release);
     let mut stopping = false;
     let mut running = false;
@@ -411,8 +427,30 @@ async fn run_cli(
     loop {
         tokio::select! {biased;
          _=stop.cancelled(),if !stopping=>{let _=gateway.send(op(session,Op::Close));stopping=true;},
-         _=tokio::signal::ctrl_c()=>{if running{let _=gateway.send(op(session,Op::Interrupt{turn:None}));}},
-         line=input.next_line(),if seat&&!stopping=>{match line{Ok(Some(text))=>{
+         _=tokio::signal::ctrl_c()=>{input_filter.interrupt();if running{let _=gateway.send(op(session,Op::Interrupt{turn:None}));}},
+         read=input.read(&mut input_bytes),if seat&&!stopping=>{
+           let actions = match read {
+               Ok(n) if n > 0 => input_filter.feed(&input_bytes[..n], report_state),
+               _ => input_filter.finish(),
+           };
+           for action in actions {
+            let text = match action {
+                super::seat::InputAction::Line(text) => text,
+                super::seat::InputAction::Probe => {
+                    if report_state { let _=stdout.write_all(&state.report()).await; let _=stdout.flush().await; }
+                    continue;
+                }
+                super::seat::InputAction::Echo(bytes) => {
+                    let _=stdout.write_all(&bytes).await;
+                    let _=stdout.flush().await;
+                    continue;
+                }
+                super::seat::InputAction::Eof => {
+                    if stdin_was_tty && stdin_hung_up(){crate::process::kill_owned_groups();}
+                    let _=gateway.send(op(session,Op::Close));stopping=true;
+                    break;
+                }
+            };
             if let Some(command)=text.trim().strip_prefix('/'){
                 let reply = if let Some(name) = switch_target(command) {
                     // any backend to any backend: fork at head onto NAME, follow the new session
@@ -431,6 +469,15 @@ async fn run_cli(
                                     .subscribe(Subscribe { session, after: Some((hello.epoch, hello.head)), ephemeral: seat && !json })
                                     .map_err(|_| "subscribe refused")?;
                                 gateway = next;
+                                if report_state {
+                                    // switch subscriptions begin at head, so their ProfileChanged
+                                    // is already in hello's durable prefix rather than replayed.
+                                    state = super::seat::StateReporter::default();
+                                    for event in &gateway.hub.projection().log {
+                                        state.apply(&event.event);
+                                    }
+                                    let _=stdout.write_all(&state.report()).await;
+                                }
                                 format!("switched to profile {name} · session {session}\n")
                             }
                             Err(error) => format!("could not switch to {name}: {error:?}\n"),
@@ -442,10 +489,15 @@ async fn run_cli(
                     reply
                 };
                 if stdout.write_all(reply.as_bytes()).await.is_err(){let _=gateway.send(op(session,Op::Close));break;}let _=stdout.flush().await;
-            }else if !text.is_empty(){let _=gateway.send(op(session,Op::UserTurn{blocks:vec![InputBlock::Text{text}],mode:TurnMode::Queue}));}},_=>{if stdin_was_tty && stdin_hung_up(){crate::process::kill_owned_groups();}let _=gateway.send(op(session,Op::Close));stopping=true;}}},
+            }else if !text.is_empty(){let _=gateway.send(op(session,Op::UserTurn{blocks:vec![InputBlock::Text{text}],mode:TurnMode::Queue}));}}
+         },
          event=subscription.recv()=>{let Some(event)=event else{break;};match &event.event{Event::TurnStarted{..}=>running=true,Event::TurnEnded{reason,..}=>{running=false;failed|=matches!(reason,StopReason::Error{..});if !seat&&!stopping{let _=gateway.send(op(session,Op::Close));stopping=true;}},_=>{}}
           let bytes=if json {let mut b=serde_json::to_vec(&event).map_err(|_|"event serialization failed")?;b.push(b'\n');b}else{line_projection.render(&event)};
           if stdout.write_all(&bytes).await.is_err(){let _=gateway.send(op(session,Op::Close));break;}let _=stdout.flush().await;
+          if report_state && let Some(bytes) = state.apply(&event.event) {
+              if stdout.write_all(&bytes).await.is_err(){let _=gateway.send(op(session,Op::Close));break;}
+              let _=stdout.flush().await;
+          }
           if matches!(event.event,Event::SessionClosed){break;}
          }
         }

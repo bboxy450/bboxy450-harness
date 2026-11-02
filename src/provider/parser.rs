@@ -119,6 +119,7 @@ impl SseParser {
                 cache_creation_input_tokens: None,
                 reasoning_tokens: u["completion_tokens_details"]["reasoning_tokens"].as_u64(),
                 cost_micros_usd: u["cost"].as_f64().map(|n| (n * 1_000_000.) as u64),
+                ..Default::default()
             }));
         }
         let Some(choices) = v.get("choices").and_then(Value::as_array) else {

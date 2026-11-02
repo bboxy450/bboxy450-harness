@@ -383,6 +383,48 @@ fn acp_fifo_and_paused_writer_are_reachable_and_the_controls_are_real() {
     }
 }
 #[test]
+fn seat_probes_and_stubborn_acp_agents_have_nonvacuous_controls() {
+    let m = model("HarnessSeatReport");
+    let report = m.check(100_000).unwrap();
+    assert!(report.violations.is_empty());
+    let phase = variable(&m, "phase");
+    let profile = variable(&m, "profile");
+    let probe = variable(&m, "probe");
+    assert!(
+        report
+            .states
+            .iter()
+            .any(|s| s[phase] == 2 && s[profile] == 2 && s[probe] == 1)
+    );
+    let m = model("HarnessAcpAgentTurn");
+    let report = m.check(100_000).unwrap();
+    assert!(report.violations.is_empty());
+    let phase = variable(&m, "phase");
+    let stubborn = variable(&m, "stubborn");
+    let alive = variable(&m, "agent_alive");
+    assert!(
+        report
+            .states
+            .iter()
+            .any(|s| s[phase] == 4 && s[stubborn] == 1 && s[alive] == 0)
+    );
+    for (name, property) in [
+        ("BrokenHarnessSeatReportState", "ReportMatchesState"),
+        ("BrokenHarnessSeatReportProbe", "ProbeNeverBecomesInput"),
+        (
+            "BrokenHarnessAcpAgentGrace",
+            "StubbornAgentKilledBeforeEnding",
+        ),
+    ] {
+        let report = model(name).check(100_000).unwrap();
+        assert!(
+            report.violations.iter().any(|v| v.property == property),
+            "{name}: {:#?}",
+            report.violations
+        );
+    }
+}
+#[test]
 fn acp_engine_emit_stays_enabled_with_a_full_writer() {
     for (name, blocked) in [("HarnessAcpFlow", false), ("BrokenHarnessAcpFlowC", true)] {
         let m = model(name);

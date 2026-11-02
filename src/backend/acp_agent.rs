@@ -47,6 +47,13 @@ use tokio::{
 pub const MAX_LINE: usize = 8 * 1024 * 1024;
 /// After `session/cancel`, the agent has this long to end the prompt before its group is killed.
 pub const CANCEL_GRACE: Duration = Duration::from_secs(5);
+fn cancel_grace() -> Duration {
+    std::env::var("BBOXY450_ACP_CANCEL_GRACE_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(Duration::from_millis)
+        .unwrap_or(CANCEL_GRACE)
+}
 const STDERR_TAIL: usize = 2048;
 static LOGIN_PATH: tokio::sync::OnceCell<OsString> = tokio::sync::OnceCell::const_new();
 
@@ -125,6 +132,9 @@ struct Agent {
     /// whole lines, written in order by the writer task
     out: mpsc::UnboundedSender<String>,
     session: Option<String>,
+    backend: Backend,
+    model: Option<String>,
+    pending_model: Option<String>,
     next_id: u64,
     calls: HashMap<u64, Call>,
     stderr: Arc<Mutex<String>>,
@@ -179,6 +189,7 @@ pub struct AcpAgentActor {
     /// Earlier turns of this log (a reopened or forked session), handed to the next
     /// fresh agent with its first prompt: the agent's own context starts empty.
     handoff: Option<String>,
+    cancel_grace: Duration,
 }
 
 impl AcpAgentActor {
@@ -245,6 +256,7 @@ impl AcpAgentActor {
             resolved: HashSet::new(),
             warned: HashSet::new(),
             handoff,
+            cancel_grace: cancel_grace(),
         };
         let task = bbt_rt::handle().spawn(actor.run());
         Ok((gateway, task))
@@ -553,7 +565,7 @@ impl AcpAgentActor {
             return Ok(());
         }
         r.interrupted = true;
-        r.cancel_at = Some(Instant::now() + CANCEL_GRACE);
+        r.cancel_at = Some(Instant::now() + self.cancel_grace);
         let sent = r.prompt_sent;
         let pending: Vec<ItemId> = r.permissions.keys().copied().collect();
         if !sent {
@@ -583,8 +595,8 @@ impl AcpAgentActor {
         self.notice(
             Level::Warn,
             format!(
-                "ACP agent did not stop within {}s of cancel; its process group was killed",
-                CANCEL_GRACE.as_secs()
+                "ACP agent did not stop within {}ms of cancel; its process group was killed",
+                self.cancel_grace.as_millis()
             ),
         )
         .await?;
@@ -724,6 +736,13 @@ impl AcpAgentActor {
             child,
             out,
             session: None,
+            backend: Backend {
+                kind: BackendKind::AcpAgent,
+                name: self.spec.command.first().cloned().unwrap_or_default(),
+                version: None,
+            },
+            model: None,
+            pending_model: None,
             next_id: 0,
             calls: HashMap::new(),
             stderr,
@@ -837,6 +856,7 @@ impl AcpAgentActor {
             let message = format!("ACP agent refused {}: {text}{hint}", call_name(&call_kind));
             return match call_kind {
                 Call::SetModel if self.running.is_some() => {
+                    self.agent.as_mut().expect("agent").pending_model = None;
                     // the turn still runs, on the agent's own model
                     self.notice(Level::Warn, message).await?;
                     self.send_prompt()
@@ -875,6 +895,17 @@ impl AcpAgentActor {
                 }
                 let cwd = self.config.meta.cwd.display().to_string();
                 let agent = self.agent.as_mut().expect("agent");
+                if let Some(name) = result
+                    .pointer("/agentInfo/name")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                {
+                    agent.backend.name = name.to_owned();
+                }
+                agent.backend.version = result
+                    .pointer("/agentInfo/version")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
                 call(
                     agent,
                     Call::NewSession,
@@ -890,11 +921,16 @@ impl AcpAgentActor {
                 };
                 let session = session.to_owned();
                 self.agent.as_mut().expect("agent").session = Some(session.clone());
+                self.agent.as_mut().expect("agent").model = model_option(&result)
+                    .and_then(|option| option.get("currentValue"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
                 if let Some(wanted) = self.model.clone() {
                     match pick_model(&result, &wanted) {
                         ModelChoice::Current => {}
                         ModelChoice::Set(value) => {
                             let agent = self.agent.as_mut().expect("agent");
+                            agent.pending_model = Some(value.clone());
                             let params = json!({ "sessionId": session, "configId": "model", "value": value });
                             return call(
                                 agent,
@@ -917,7 +953,11 @@ impl AcpAgentActor {
                 }
                 self.send_prompt()
             }
-            Call::SetModel => self.send_prompt(),
+            Call::SetModel => {
+                let agent = self.agent.as_mut().expect("agent");
+                agent.model = agent.pending_model.take();
+                self.send_prompt()
+            }
             Call::Prompt => {
                 let stop = result
                     .get("stopReason")
@@ -1156,6 +1196,16 @@ impl AcpAgentActor {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_owned();
+        // Usage is a session gauge and can arrive after the prompt response.
+        if kind == "usage_update" {
+            if let Some(agent) = &self.agent
+                && let Some(usage) = session_usage(&u, agent.backend.clone(), agent.model.clone())
+            {
+                self.record(self.running.as_ref().map(|r| r.turn), Item::Usage { usage })
+                    .await?;
+            }
+            return Ok(());
+        }
         if self.running.is_none() {
             // between turns only metadata may arrive; content without a turn is not ours to show
             return Ok(());
@@ -1281,7 +1331,6 @@ impl AcpAgentActor {
             | "current_mode_update"
             | "config_option_update"
             | "session_info_update"
-            | "usage_update"
             | "user_message_chunk" => Ok(()),
             other => {
                 if self.warned.insert(other.to_owned()) {
@@ -1449,24 +1498,69 @@ impl AcpAgentActor {
 }
 
 // ---------- pure mapping ----------
+/// ACP usage_update is cumulative session context/cost, not call billing.
+/// Log IR v1 §4a keeps provenance and labels required-token placeholders.
+pub fn session_usage(update: &Value, backend: Backend, model: Option<String>) -> Option<Usage> {
+    let context_used = update.get("used").and_then(Value::as_u64);
+    let context_window = update.get("size").and_then(Value::as_u64);
+    let cost = update.get("cost").and_then(|cost| {
+        let currency = cost.get("currency")?.as_str()?;
+        if currency.len() != 3 || !currency.bytes().all(|b| b.is_ascii_uppercase()) {
+            return None;
+        }
+        let amount = cost.get("amount")?.as_f64()?;
+        // Convert the reported amount to the IR's nearest micro-unit. Reject
+        // invalid/overflowing numbers rather than saturating a bill to u64::MAX.
+        let micros = (amount * 1_000_000.).round();
+        if amount < 0. || !micros.is_finite() || micros >= u64::MAX as f64 {
+            return None;
+        }
+        Some(Cost {
+            amount_micros: micros as u64,
+            currency: currency.to_owned(),
+            source: NumberSource::Reported,
+            price_source: Some("provider".into()),
+        })
+    });
+    if context_used.is_none() && context_window.is_none() && cost.is_none() {
+        return None;
+    }
+    Some(Usage {
+        scope: Some(UsageScope::Session),
+        backend: Some(Box::new(backend)),
+        model,
+        context_used,
+        context_window,
+        cost_micros_usd: cost
+            .as_ref()
+            .filter(|c| c.currency == "USD")
+            .map(|c| c.amount_micros),
+        cost: cost.map(Box::new),
+        source: Some(NumberSource::Reported),
+        unreported: vec!["input_tokens".into(), "output_tokens".into()],
+        ..Default::default()
+    })
+}
+fn model_option(new_session: &Value) -> Option<&Value> {
+    new_session
+        .get("configOptions")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|o| {
+            o.get("category").and_then(Value::as_str) == Some("model")
+                || o.get("id").and_then(Value::as_str) == Some("model")
+        })
+}
 pub enum ModelChoice {
     Current,
     Set(String),
     NotOffered(Option<String>),
 }
 /// Match a profile model against the agent's `model` config option (session/new result):
-/// an exact value, or a value ending in `/<model>` (provider-prefixed ids).
+/// Exact value, provider-prefixed suffix, then an offered alias matching a whole
+/// '-', '/' or '.' separated token of the wanted model (e.g. haiku).
 pub fn pick_model(new_session: &Value, wanted: &str) -> ModelChoice {
-    let Some(option) = new_session
-        .get("configOptions")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .find(|o| {
-            o.get("category").and_then(Value::as_str) == Some("model")
-                || o.get("id").and_then(Value::as_str) == Some("model")
-        })
-    else {
+    let Some(option) = model_option(new_session) else {
         return ModelChoice::NotOffered(None);
     };
     let current = option
@@ -1484,7 +1578,12 @@ pub fn pick_model(new_session: &Value, wanted: &str) -> ModelChoice {
     let found = values
         .iter()
         .find(|v| **v == wanted)
-        .or_else(|| values.iter().find(|v| v.ends_with(&suffix)));
+        .or_else(|| values.iter().find(|v| v.ends_with(&suffix)))
+        .or_else(|| {
+            values
+                .iter()
+                .find(|v| !v.is_empty() && wanted.split(['-', '/', '.']).any(|token| token == **v))
+        });
     match found {
         Some(v) if current.as_deref() == Some(*v) => ModelChoice::Current,
         Some(v) => ModelChoice::Set((*v).to_owned()),

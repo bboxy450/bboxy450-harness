@@ -541,3 +541,241 @@ fn a_profile_model_matches_the_agents_model_option_exactly_or_by_provider_suffix
         ModelChoice::NotOffered(None)
     ));
 }
+
+#[test]
+fn model_aliases_match_whole_tokens_after_exact_and_provider_suffix() {
+    use bboxy450_harness::backend::acp_agent::{ModelChoice, pick_model};
+    let offered = serde_json::json!({"configOptions": [{"id": "model", "currentValue": "sonnet",
+        "options": [{"value": "haiku"}, {"value": "sonnet"}, {"value": "opus"}]}]});
+    for model in ["claude-haiku-5-5", "anthropic/haiku/5", "claude.haiku.5"] {
+        assert!(matches!(pick_model(&offered, model), ModelChoice::Set(v) if v == "haiku"));
+    }
+    assert!(matches!(
+        pick_model(&offered, "claude-sonnet-5"),
+        ModelChoice::Current
+    ));
+    for model in ["claude-haikus-5", "claudeHaiku", "notopus", ""] {
+        assert!(matches!(
+            pick_model(&offered, model),
+            ModelChoice::NotOffered(_)
+        ));
+    }
+    let offered = serde_json::json!({"configOptions": [{"category": "model", "currentValue": "opus",
+        "options": [{"value": "haiku"}, {"value": "vendor/claude-haiku-5-5"}, {"value": "claude-haiku-5-5"}]}]});
+    assert!(
+        matches!(pick_model(&offered, "claude-haiku-5-5"), ModelChoice::Set(v) if v == "claude-haiku-5-5")
+    );
+    let offered = serde_json::json!({"configOptions": [{"category": "model", "currentValue": "opus",
+        "options": [{"value": "haiku"}, {"value": "vendor/claude-haiku-5-5"}]}]});
+    assert!(
+        matches!(pick_model(&offered, "claude-haiku-5-5"), ModelChoice::Set(v) if v == "vendor/claude-haiku-5-5")
+    );
+}
+
+#[tokio::test]
+async fn usage_updates_are_session_scope_ir_with_reported_numbers_and_missing_tokens() {
+    let f = fake("usage", Unattended::Deny).await;
+    let mut sub = subscribe(&f.gateway, false);
+    f.gateway
+        .send(support::prompt(&f.gateway, "usage"))
+        .unwrap();
+    until_end(&mut sub).await;
+    let idle_item = loop {
+        if let Event::ItemCompleted {
+            item,
+            body: Item::Usage { usage },
+            ..
+        } = next(&mut sub).await.event
+            && usage.context_used == Some(55000)
+        {
+            break item;
+        }
+    };
+    let log = close(f).await;
+    let values: Vec<Usage> = completed(&log)
+        .into_iter()
+        .filter_map(|(_, body)| {
+            if let Item::Usage { usage } = body {
+                Some(usage)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(values.len(), 3);
+    for usage in &values {
+        assert_eq!(usage.scope, Some(UsageScope::Session));
+        assert_eq!(usage.source, Some(NumberSource::Reported));
+        assert_eq!(
+            usage.backend,
+            Some(Box::new(Backend {
+                kind: BackendKind::AcpAgent,
+                name: "fixture-agent".into(),
+                version: Some("1.2.3".into())
+            }))
+        );
+        assert_eq!(usage.model.as_deref(), Some("reported-model"));
+        assert_eq!(usage.context_window, Some(200000));
+        assert_eq!((usage.input_tokens, usage.output_tokens), (0, 0));
+        assert_eq!(usage.unreported, ["input_tokens", "output_tokens"]);
+        assert_eq!(usage.cached_input_tokens, None);
+        assert_eq!(usage.reasoning_tokens, None);
+        assert_eq!(usage.cost.as_ref().unwrap().source, NumberSource::Reported);
+        assert_eq!(
+            usage.cost.as_ref().unwrap().price_source.as_deref(),
+            Some("provider")
+        );
+        assert_eq!(
+            serde_json::from_value::<Usage>(serde_json::to_value(usage).unwrap()).unwrap(),
+            *usage
+        );
+    }
+    assert_eq!(
+        values.iter().map(|u| u.context_used).collect::<Vec<_>>(),
+        [Some(53000), Some(54000), Some(55000)]
+    );
+    assert_eq!(
+        values[0].cost,
+        Some(Box::new(Cost {
+            amount_micros: 45000,
+            currency: "USD".into(),
+            source: NumberSource::Reported,
+            price_source: Some("provider".into())
+        }))
+    );
+    assert_eq!(values[0].cost_micros_usd, Some(45000));
+    assert_eq!(values[1].cost.as_ref().unwrap().currency, "EUR");
+    assert_eq!(values[1].cost.as_ref().unwrap().amount_micros, 100000);
+    assert_eq!(values[1].cost_micros_usd, None);
+    assert_eq!(values[2].cost_micros_usd, Some(2));
+    assert!(log.iter().any(|e| matches!(e.event, Event::ItemStarted { item, turn: None, kind: ItemKind::Usage, .. } if item == idle_item)), "post-prompt accounting is an idle session item");
+    assert_eq!(ended(&log), vec![StopReason::EndTurn]);
+}
+
+#[test]
+fn empty_or_invalid_usage_never_fabricates_counters_or_a_bill() {
+    use bboxy450_harness::backend::acp_agent::session_usage;
+    let backend = Backend {
+        kind: BackendKind::AcpAgent,
+        name: "test".into(),
+        version: None,
+    };
+    for value in [
+        serde_json::json!({}),
+        serde_json::json!({"used":null,"size":-1}),
+        serde_json::json!({"cost":{"amount":-1,"currency":"USD"}}),
+        serde_json::json!({"cost":{"amount":1e100,"currency":"USD"}}),
+        serde_json::json!({"cost":{"amount":1,"currency":"unknown"}}),
+    ] {
+        assert!(
+            session_usage(&value, backend.clone(), None).is_none(),
+            "{value}"
+        );
+    }
+    let usage = session_usage(&serde_json::json!({"used":0}), backend.clone(), None).unwrap();
+    assert_eq!(usage.context_used, Some(0));
+    assert_eq!(usage.context_window, None);
+    assert_eq!(usage.cost, None);
+    assert_eq!(usage.model, None);
+    let usage = session_usage(
+        &serde_json::json!({"cost":{"amount":0.1,"currency":"EUR"}}),
+        backend,
+        None,
+    )
+    .unwrap();
+    assert_eq!(usage.context_used, None);
+    assert_eq!(usage.context_window, None);
+    assert_eq!(usage.cost.unwrap().amount_micros, 100000);
+    assert_eq!(usage.cost_micros_usd, None);
+    assert_eq!(usage.unreported, ["input_tokens", "output_tokens"]);
+}
+
+#[tokio::test]
+async fn cancel_grace_kills_an_unresponsive_agents_whole_process_group() {
+    // Isolate the test override in a subprocess: no mutation of the parallel
+    // test runner's environment and no dependence on an operator's profile.
+    if std::env::var_os("BBOXY450_ACP_GRACE_WITNESS").is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "cancel_grace_kills_an_unresponsive_agents_whole_process_group",
+                "--nocapture",
+            ])
+            .env("BBOXY450_ACP_GRACE_WITNESS", "1")
+            .env("BBOXY450_ACP_CANCEL_GRACE_MS", "50")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let f = fake("ignore-cancel", Unattended::Deny).await;
+    let mut sub = subscribe(&f.gateway, false);
+    f.gateway.send(support::prompt(&f.gateway, "work")).unwrap();
+    loop {
+        if matches!(
+            next(&mut sub).await.event,
+            Event::ItemSnapshot {
+                partial: Item::AgentMessage { .. },
+                ..
+            }
+        ) {
+            break;
+        }
+    }
+    let pids: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(f.temp.path().join("agent-group.json")).unwrap(),
+    )
+    .unwrap();
+    let group = pids["group"].as_i64().unwrap() as i32;
+    assert_eq!(pids["leader"].as_i64().unwrap(), i64::from(group));
+    assert_eq!(
+        unsafe { libc::kill(-group, 0) },
+        0,
+        "the group must exist before cancel"
+    );
+    let started = std::time::Instant::now();
+    f.gateway
+        .send(support::op(&f.gateway, Op::Interrupt { turn: None }))
+        .unwrap();
+    until_end(&mut sub).await;
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "test grace override was not used"
+    );
+    assert!(
+        f.temp.path().join("cancel-seen").exists(),
+        "the agent received session/cancel and ignored it"
+    );
+    let log = close(f).await;
+    assert_eq!(ended(&log), vec![StopReason::Interrupted]);
+    assert!(completed(&log).iter().any(
+        |(_, body)| matches!(body, Item::Notice { level: Level::Warn, text }
+        if text.contains("50ms of cancel") && text.contains("process group was killed"))
+    ));
+    assert!(
+        completed(&log)
+            .iter()
+            .any(|(status, body)| matches!(status, ItemStatus::Interrupted)
+                && matches!(body, Item::ToolCall { name, .. } if name == "Still working"))
+    );
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        if unsafe { libc::kill(-group, 0) } == -1 {
+            assert_eq!(
+                std::io::Error::last_os_error().raw_os_error(),
+                Some(libc::ESRCH)
+            );
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "owned ACP group {group} survived kill-after-grace: {pids}"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}

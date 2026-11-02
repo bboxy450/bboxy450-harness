@@ -99,6 +99,36 @@
       ],
       "type": "object"
     },
+    "Backend": {
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/BackendKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "type": "object"
+    },
+    "BackendKind": {
+      "enum": [
+        "engine",
+        "acp_agent",
+        "import",
+        "unknown"
+      ],
+      "type": "string"
+    },
     "BlobRef": {
       "properties": {
         "len": {
@@ -187,6 +217,33 @@
           "type": "object"
         }
       ]
+    },
+    "Cost": {
+      "properties": {
+        "amount_micros": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "price_source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/NumberSource"
+        }
+      },
+      "required": [
+        "amount_micros",
+        "currency",
+        "source"
+      ],
+      "type": "object"
     },
     "Delta": {
       "oneOf": [
@@ -1365,6 +1422,15 @@
       ],
       "type": "object"
     },
+    "NumberSource": {
+      "enum": [
+        "reported",
+        "derived",
+        "estimated",
+        "unknown"
+      ],
+      "type": "string"
+    },
     "Op": {
       "oneOf": [
         {
@@ -2232,6 +2298,16 @@
     },
     "Usage": {
       "properties": {
+        "backend": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Backend"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "cache_creation_input_tokens": {
           "format": "uint64",
           "minimum": 0,
@@ -2248,6 +2324,32 @@
             "null"
           ]
         },
+        "context_used": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "context_window": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cost"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "cost_micros_usd": {
           "format": "uint64",
           "minimum": 0,
@@ -2261,6 +2363,12 @@
           "minimum": 0,
           "type": "integer"
         },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "output_tokens": {
           "format": "uint64",
           "minimum": 0,
@@ -2273,6 +2381,38 @@
             "integer",
             "null"
           ]
+        },
+        "request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UsageScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NumberSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "unreported": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -2280,6 +2420,16 @@
         "output_tokens"
       ],
       "type": "object"
+    },
+    "UsageScope": {
+      "description": "Log IR v1 §4a: counters from calls, turn totals and cumulative sessions must\nnever be summed together. Missing required counters are named in unreported.",
+      "enum": [
+        "call",
+        "turn",
+        "session",
+        "unknown"
+      ],
+      "type": "string"
     },
     "Version": {
       "properties": {

@@ -17,7 +17,218 @@
 //! https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
 use super::face_core::{self as core, Tok, Verdict};
 use crate::protocol::*;
-use std::collections::{HashMap, HashSet, VecDeque};
+use base64::{Engine, engine::general_purpose::STANDARD};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+
+/// Trusted OSC 7501 metadata, kept separate from the escape-stripping transcript.
+/// Text fields use term's base64 grammar and UTF-8 byte limits.
+#[derive(Default)]
+pub struct StateReporter {
+    title: String,
+    turns: BTreeSet<TurnId>,
+    permissions: BTreeMap<ItemId, String>,
+    error: Option<String>,
+}
+impl StateReporter {
+    pub fn report(&self) -> Vec<u8> {
+        let (state, detail) = if let Some(error) = &self.error {
+            ("error", Some(error.as_str()))
+        } else if let Some(subject) = self.permissions.values().next() {
+            ("blocked", Some(subject.as_str()))
+        } else if self.turns.is_empty() {
+            ("idle", None)
+        } else {
+            ("working", None)
+        };
+        let mut text = format!("\x1b]7501;state={state}");
+        if !self.title.is_empty() {
+            text.push_str(&format!(":title={}", encode_text(&self.title, 192)));
+        }
+        if let Some(detail) = detail {
+            text.push_str(&format!(":msg={}", encode_text(detail, 2048)));
+        }
+        if state == "blocked" {
+            text.push_str(":kind=permission");
+        }
+        text.push('\x07');
+        text.into_bytes()
+    }
+    pub fn apply(&mut self, event: &Event) -> Option<Vec<u8>> {
+        let before = self.report();
+        let force = matches!(event, Event::TurnStarted { .. } | Event::TurnEnded { .. });
+        match event {
+            Event::ProfileChanged { profile, model } => self.title = format!("{profile} · {model}"),
+            Event::TurnStarted { turn } => {
+                self.turns.insert(*turn);
+                self.error = None;
+            }
+            Event::TurnEnded { turn, reason, .. } => {
+                self.turns.remove(turn);
+                self.error = match reason {
+                    StopReason::Error { message, .. } => Some(message.clone()),
+                    _ => None,
+                };
+            }
+            Event::ItemSnapshot {
+                item,
+                partial:
+                    Item::Approval {
+                        subject,
+                        decision: None,
+                        ..
+                    },
+            } => {
+                self.permissions.insert(*item, subject.summary.clone());
+            }
+            Event::Status {
+                phase: Phase::Approval { item },
+            } => {
+                self.permissions.entry(*item).or_default();
+            }
+            Event::ItemCompleted {
+                item,
+                body: Item::Approval { .. },
+                ..
+            } => {
+                self.permissions.remove(item);
+            }
+            _ => {}
+        }
+        let after = self.report();
+        (force || before != after).then_some(after)
+    }
+}
+fn encode_text(text: &str, limit: usize) -> String {
+    let mut end = text.len().min(limit);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    STANDARD.encode(&text.as_bytes()[..end])
+}
+
+pub const STATE_PROBE: &[u8] = b"\x1b]7501;?\x07";
+pub enum InputAction {
+    Line(String),
+    Probe,
+    Echo(Vec<u8>),
+    Eof,
+}
+/// A probe may split at any read boundary or interrupt a partially typed line.
+/// Only the exact probe is consumed; ordinary escape bytes retain their input meaning.
+#[derive(Default)]
+pub struct InputFilter {
+    line: Vec<u8>,
+    probe: usize,
+}
+impl InputFilter {
+    pub fn interrupt(&mut self) {
+        self.line.clear();
+        self.probe = 0;
+    }
+    pub fn feed(&mut self, bytes: &[u8], interactive: bool) -> Vec<InputAction> {
+        let mut actions = vec![];
+        for &byte in bytes {
+            if byte == STATE_PROBE[self.probe] {
+                self.probe += 1;
+                if self.probe == STATE_PROBE.len() {
+                    self.probe = 0;
+                    actions.push(InputAction::Probe);
+                }
+                continue;
+            }
+            let prefix = self.probe;
+            self.probe = 0;
+            for &byte in &STATE_PROBE[..prefix] {
+                self.ordinary(byte, interactive, &mut actions);
+            }
+            if byte == STATE_PROBE[0] {
+                self.probe = 1;
+            } else {
+                self.ordinary(byte, interactive, &mut actions);
+            }
+        }
+        actions
+    }
+    fn ordinary(&mut self, byte: u8, interactive: bool, actions: &mut Vec<InputAction>) {
+        match byte {
+            b'\n' => {
+                if self.line.last() == Some(&b'\r') {
+                    self.line.pop();
+                }
+                actions.push(InputAction::Line(
+                    String::from_utf8_lossy(&self.line).into_owned(),
+                ));
+                self.line.clear();
+                if interactive {
+                    actions.push(InputAction::Echo(vec![b'\n']));
+                }
+            }
+            4 if interactive => {
+                if self.line.is_empty() {
+                    actions.push(InputAction::Eof);
+                }
+            }
+            8 | 127 if interactive => {
+                if let Some(mut last) = self.line.pop() {
+                    while last & 0xc0 == 0x80 {
+                        let Some(byte) = self.line.pop() else {
+                            break;
+                        };
+                        last = byte;
+                    }
+                    actions.push(InputAction::Echo(b"\x08 \x08".to_vec()));
+                }
+            }
+            _ => {
+                self.line.push(byte);
+                if interactive && (byte >= 0x20 && byte != 0x7f || byte == b'\t') {
+                    actions.push(InputAction::Echo(vec![byte]));
+                }
+            }
+        }
+    }
+    pub fn finish(&mut self) -> Vec<InputAction> {
+        self.line.extend_from_slice(&STATE_PROBE[..self.probe]);
+        self.probe = 0;
+        let mut actions = vec![];
+        if !self.line.is_empty() {
+            actions.push(InputAction::Line(
+                String::from_utf8_lossy(&self.line).into_owned(),
+            ));
+            self.line.clear();
+        }
+        actions.push(InputAction::Eof);
+        actions
+    }
+}
+
+/// Noncanonical input makes a probe readable without Enter. ISIG stays enabled
+/// for Ctrl-C; this face supplies line echo/editing and restores termios on exit.
+pub struct TerminalInput(libc::termios);
+impl TerminalInput {
+    pub fn enable() -> std::io::Result<Self> {
+        let mut original = std::mem::MaybeUninit::uninit();
+        if unsafe { libc::tcgetattr(libc::STDIN_FILENO, original.as_mut_ptr()) } != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let original = unsafe { original.assume_init() };
+        let mut input = original;
+        input.c_lflag &= !(libc::ICANON | libc::ECHO | libc::ECHONL);
+        input.c_cc[libc::VMIN] = 1;
+        input.c_cc[libc::VTIME] = 0;
+        if unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &input) } != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(Self(original))
+    }
+}
+impl Drop for TerminalInput {
+    fn drop(&mut self) {
+        unsafe {
+            libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &self.0);
+        }
+    }
+}
 
 /// How many output lines a card body shows before "… N more lines".
 const BODY: usize = 8;

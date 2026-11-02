@@ -408,6 +408,68 @@ pub struct Usage {
     pub cache_creation_input_tokens: Option<u64>,
     pub reasoning_tokens: Option<u64>,
     pub cost_micros_usd: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<UsageScope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend: Option<Box<Backend>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_used: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<Box<Cost>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<NumberSource>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unreported: Vec<String>,
+}
+/// Log IR v1 §4a: counters from calls, turn totals and cumulative sessions must
+/// never be summed together. Missing required counters are named in unreported.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum UsageScope {
+    Call,
+    Turn,
+    Session,
+    #[serde(other)]
+    Unknown,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Backend {
+    pub kind: BackendKind,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BackendKind {
+    Engine,
+    AcpAgent,
+    Import,
+    #[serde(other)]
+    Unknown,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NumberSource {
+    Reported,
+    Derived,
+    Estimated,
+    #[serde(other)]
+    Unknown,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Cost {
+    pub amount_micros: u64,
+    pub currency: String,
+    pub source: NumberSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price_source: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]

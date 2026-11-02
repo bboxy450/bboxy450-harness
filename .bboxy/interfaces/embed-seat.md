@@ -37,7 +37,7 @@ updated: "2026-11-01T00:00:00Z"
 
 ## 2. Line mode: the definition of "not a TUI"
 
-- Output is append-only UTF-8 lines. The only escapes allowed are SGR (colour and bold) and OSC 8 (links). There is no cursor addressing, no alt-screen, no clearing and no redraw. Native scrollback is the transcript.
+- Output is append-only UTF-8 lines. The only output escapes allowed are SGR (colour and bold), OSC 8 (links), and trusted OSC 7501 state metadata in a TTY seat (the p6 Side B extension below). Model/tool text still cannot supply escapes. There is no cursor addressing, no alt-screen, no clearing and no redraw. Native scrollback is the transcript.
 - **It is a projection of the protocol, item by item.**
   - `AgentMessage` deltas are written as they arrive.
   - A `ToolCall` is one header line `▸ name args…` and one result line `✓|✗ <first output line> (n lines[, blob <sha256>])`.
@@ -45,7 +45,7 @@ updated: "2026-11-01T00:00:00Z"
   - Not shown: `Usage`, `TurnDiff`, `Image`, `Compaction`, `ContextTrim`, `Subagent`, `Unknown` (protocol v0.4). The log still holds them.
   - `Approval` prints its options and reads one key line.
   - `TurnEnded` prints `— reason` followed by the prompt `› `.
-- Input is cooked line mode. `Ctrl-C` sends `Op::Interrupt` while a turn runs and does nothing at the prompt. `Ctrl-D` at an empty prompt sends `Op::Close`.
+- Input is line-oriented. A reporting TTY temporarily disables kernel canonical input and echo so probes are readable without Enter; the face buffers/echoes lines, handles erase and empty-prompt Ctrl-D, preserves ISIG, and restores termios on exit. Non-reporting input retains its original terminal discipline. `Ctrl-C` sends `Op::Interrupt` while a turn runs and does nothing at the prompt. `Ctrl-D` at an empty prompt sends `Op::Close`.
 - The renderer is `src/frontends/seat.rs`, about 300 lines, and is a pure function `Envelope → Vec<u8>`. It is golden-tested against the protocol fixtures. It has no event loop of its own.
 
 ## 3. Lifecycle
@@ -85,6 +85,18 @@ There is no new `WakeMethod` and no change to d20 in phase 1a. Phase 1b adds a s
 | §4 Side A, phase 1a | bboxy450-term `make test-harness-native` `bboxy450-harness` case (E4): spawn under the supervisor; a line written to the PTY becomes a turn that reaches `TurnEnded`; a guarded `seat_input_text` gets the typed refusal `composer-readiness-missing`, zero PTY bytes are written, and it is not retried; seat close gives `kill(-pgid, 0) == ESRCH` for every harness-owned group within 2 s, the observed exit is recorded, and a manual `--resume` of that session recovers with `check_transcript` passing |
 | phase 1b: readiness, session-id persistence, resume | **unproven**; needs its own #348 amendment (logic scope, d20) |
 | EmbedLifecycle | model EmbedLifecycle (reuses LifecycleOwnership's shape) |
+
+## p6 Side B extension: OSC 7501 state (2026-11-02)
+
+Authorized by the Oracle's p6-seat-state brief. In `seat` mode with both stdin and stdout TTYs, and without `--json`, Side B writes `ESC ] 7501 ; state=<idle|working|blocked|error> [:title=<base64>][:msg=<base64>][:kind=permission] BEL`. The field order is state, title, msg, kind; no spaces are added. Text is standard base64 of UTF-8, capped at 192 title bytes and 2048 detail bytes without splitting a character, matching Side A `observe.rs::parse_7501/decode_text`.
+
+- Ready and successful/interrupted turn endings report idle; a turn start reports working. Errors report error and retain it through idle heartbeats/probes until the next turn. An ending for a queued turn cannot mark a different running turn idle.
+- Pending approvals report blocked with kind=permission; each completion removes only its own approval. Once all permissions settle, the state returns to working (or idle when no turn runs).
+- ProfileChanged sets title to `<profile> · <model>` and reports the current state with that title. Profile switches hydrate from the new gateway prefix because their subscription begins at head.
+- `ESC ] 7501 ; ? BEL` on stdin returns the current report immediately, without Enter, and contributes zero user-input bytes. Read boundaries and partially typed lines do not change this rule.
+- `--json`, headless, and redirected/non-TTY seats emit no OSC 7501 reports. The ordinary transcript renderer remains escape-free.
+
+Verification: `tests/seat_golden.rs` exact bytes, split probes, text bounds; `tests/seat_process.rs` real unattended PTY reply without Enter, filtered saved UserMessage, state transitions and JSON/pipe exclusion; model HarnessSeatReport with state/probe broken controls and A-B-A profile generations. Side A guard readiness, persistence and resume acceptance remain outside this task; this extension makes no new claim for those phase 1b clauses.
 
 ## 7. Amendment to bboxy450-term ICD #348 (phase 1a, landed)
 

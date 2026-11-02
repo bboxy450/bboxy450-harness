@@ -507,6 +507,63 @@ async fn sigkill_between_rounds_rebuilds_the_identical_model_request() {
     bboxy450_harness::protocol::laws::check_transcript(&sub_log(&config)).unwrap();
 }
 #[test]
+fn session_context_and_missing_call_counters_cannot_anchor_a_rebuilt_request() {
+    let mut log = include_str!("fixtures/protocol/all-items.jsonl")
+        .lines()
+        .map(|s| serde_json::from_str::<Envelope>(s).unwrap())
+        .collect::<Vec<_>>();
+    log.retain(|e| {
+        !matches!(
+            e.event,
+            Event::ItemCompleted {
+                body: Item::Compaction { .. } | Item::ContextTrim { .. },
+                ..
+            }
+        )
+    });
+    let messages = vec![json!({"role":"user","content":"a rebuilt request after an ACP handoff"})];
+    let mut without_usage = log.clone();
+    without_usage.retain(|e| {
+        !matches!(
+            e.event,
+            Event::ItemCompleted {
+                body: Item::Usage { .. },
+                ..
+            }
+        )
+    });
+    let expected = auto::estimate(&without_usage, &messages, &[]);
+    assert!(expected > 0);
+    for (scope, unreported) in [
+        (UsageScope::Session, vec![]),
+        (
+            UsageScope::Session,
+            vec!["input_tokens".into(), "output_tokens".into()],
+        ),
+        (
+            UsageScope::Call,
+            vec!["input_tokens".into(), "output_tokens".into()],
+        ),
+    ] {
+        for event in &mut log {
+            if let Event::ItemCompleted {
+                body: Item::Usage { usage },
+                ..
+            } = &mut event.event
+            {
+                *usage = Usage {
+                    scope: Some(scope),
+                    context_used: Some(60000),
+                    context_window: Some(200000),
+                    unreported: unreported.clone(),
+                    ..Default::default()
+                };
+            }
+        }
+        assert_eq!(auto::estimate(&log, &messages, &[]), expected);
+    }
+}
+#[test]
 fn usage_anchors_count_exact_new_messages_and_reductions_void_them() {
     let mut log = include_str!("fixtures/protocol/all-items.jsonl")
         .lines()

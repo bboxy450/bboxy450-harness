@@ -6,6 +6,9 @@
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 """A scripted ACP agent over stdio for tests/acp_agent.rs. argv[1] picks the scenario."""
 import json
+import os
+from pathlib import Path
+import subprocess
 import sys
 
 SCENARIO = sys.argv[1] if len(sys.argv) > 1 else "text"
@@ -92,6 +95,26 @@ def prompt(rid, text):
                 CANCELLED.append(True)
         chunk("agent_message_chunk", " (late update after cancel)")
         return "cancelled"
+    if SCENARIO == "ignore-cancel":
+        member = subprocess.Popen([sys.executable, "-I", "-c",
+                                   "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                                   "signal.signal(signal.SIGHUP, signal.SIG_IGN); time.sleep(600)"])
+        Path("agent-group.json").write_text(json.dumps({"leader": os.getpid(), "member": member.pid,
+                                                       "group": os.getpgrp()}))
+        update({"sessionUpdate": "tool_call", "toolCallId": "stubborn", "title": "Still working",
+                "kind": "execute", "status": "in_progress"})
+        chunk("agent_message_chunk", "Ignoring cancellation")
+        while True:
+            m = read()
+            if m.get("method") == "session/cancel":
+                Path("cancel-seen").write_text("session/cancel")
+    if SCENARIO == "usage":
+        update({"sessionUpdate": "usage_update", "used": 53000, "size": 200000,
+                "cost": {"amount": 0.045, "currency": "USD"}, "_meta": {"future": "kept"}})
+        update({"sessionUpdate": "usage_update", "used": 54000, "size": 200000,
+                "cost": {"amount": 0.1, "currency": "EUR"}})
+        chunk("agent_message_chunk", "Usage reported")
+        return "end_turn"
     if SCENARIO == "crash":
         chunk("agent_message_chunk", "About to fail")
         sys.stderr.write("fake agent: boom\n")
@@ -115,12 +138,20 @@ while True:
     m = read()
     method, rid = m.get("method"), m.get("id")
     if method == "initialize":
-        send({"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": 1, "agentCapabilities": {}, "authMethods": []}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": 1, "agentCapabilities": {}, "authMethods": [],
+              "agentInfo": {"name": "fixture-agent", "version": "1.2.3"}}})
     elif method == "session/new":
-        send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": SESSION}})
+        result = {"sessionId": SESSION}
+        if SCENARIO == "usage":
+            result["configOptions"] = [{"id": "model", "category": "model", "currentValue": "reported-model", "options": []}]
+        send({"jsonrpc": "2.0", "id": rid, "result": result})
     elif method == "session/prompt":
         text = " ".join(b.get("text", "") for b in m["params"]["prompt"])
         stop = prompt(rid, text)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": stop}})
+        if SCENARIO == "usage":
+            # Session accounting remains meaningful after the prompt has ended.
+            update({"sessionUpdate": "usage_update", "used": 55000, "size": 200000,
+                    "cost": {"amount": 0.0000015, "currency": "USD"}})
     elif method == "session/cancel":
         CANCELLED.append(True)

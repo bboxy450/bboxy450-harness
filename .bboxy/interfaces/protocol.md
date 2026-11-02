@@ -387,3 +387,5 @@ Phase 1 fork **materializes** the parent prefix into the child's own log. A chil
 - **2026-11-01, at E1's report** (message 01M6AZNEWVXZTQC6311C4MT1MR). v0.3 and v0.4 broke GUI exhaustiveness (`ContextTrim`, `Effect::Read`). The change rule now says a minor change lands with display-only arms in every in-repo face. Who edits the GUI files for this instance is the Oracle's scope call.
 
 Owner: Nyx Copperwing <ARCHITECT>. Side A: E1. Side B: E2.
+
+- **2026-11-02, p6-seat-state Oracle update.** Adds optional `Usage.scope`, `model`, `backend`, `request_id`, `context_used`, `context_window`, `cost`, `source`, and default-empty skipped `unreported`, plus UsageScope/Backend/BackendKind/Cost/NumberSource exactly as baselined in [[log-ir-v1]] §4a. Existing counters retain token units and `cost_micros_usd` retains micro-USD units; ACP context gauges never populate call counters. New data is session-scoped and carries reported provenance; unavailable required counters are explicitly named as placeholders. This scoped change does not perform the separate IR version/reader migration assigned by [[2026-11-02-log-ir-v1-compat]].

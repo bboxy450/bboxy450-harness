@@ -193,10 +193,11 @@ checks = ["make test-formal", "make test"]
 [[contract]]
 name = "HarnessAcpAgentTurn"
 title = "ACP agent backend: one TurnEnded per prompt; after session/cancel no permission stays pending; a cancelled turn ends."
-models = ["HarnessAcpAgentTurn", "BrokenHarnessAcpAgentTurn"]
+models = ["HarnessAcpAgentTurn", "BrokenHarnessAcpAgentTurn", "BrokenHarnessAcpAgentGrace"]
+controls = [{name="BrokenHarnessAcpAgentTurn",expected="safety"},{name="BrokenHarnessAcpAgentGrace",expected="safety"}]
 sources = ["src/backend/acp_agent.rs", "tests/formal/models.rs"]
 implementation_tests = ["tests/acp_agent.rs"]
-assumptions = "One prompt in flight, at most one permission request per prompt, a face answer only while awaited, the agent ends its prompt only when not awaiting an answer (it blocks on request_permission), turn end settles open permissions. Weak fairness on the agent ending its prompt and on TurnEnded. The kill-after-grace path (CANCEL_GRACE), child crashes, malformed lines and -32601 replies are implementation witnesses in tests/acp_agent.rs."
+assumptions = "One prompt in flight, at most one permission request per prompt, a face answer only while awaited, the agent ends its prompt only when not awaiting an answer (it blocks on request_permission), turn end settles open permissions. An agent may ignore cancel permanently; weak fairness on the union of agent completion and grace expiry, and on TurnEnded, guarantees cancellation progress without agent cooperation. Grace expiry kills the agent before ending. Real deadlines (including BBOXY450_ACP_CANCEL_GRACE_MS), process-group signals/reaping, child crashes, malformed lines and -32601 replies are implementation witnesses in tests/acp_agent.rs."
 property = "A freshly ended turn is the only ending of its prompt; a cancel answers every pending permission cancelled; a cancelled turn ends."
 checks = ["make test-formal", "make test"]
 
@@ -305,4 +306,15 @@ sources = ["src/backend/acp_agent.rs", "tests/formal/models.rs"]
 implementation_tests = ["tests/acp_agent.rs"]
 assumptions = "Two independent sessions, one cache (empty/probing/shell/fallback), one probe counter 0..2, child PATH identity 0..2. A shell may complete, fail or never answer. Weak fairness on beginning a requested probe, the deadline and each spawn ensures startup progresses without shell fairness. OnceCell is process-wide; profile changes do not invalidate it. Absolute/slash commands bypass this path. Real shell bytes, three-second wall clock, executable lookup, process-group cleanup and absolute-command behavior remain implementation witnesses."
 property = "At most one shell probe; each requested startup eventually spawns with the cached PATH even if the shell never answers."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessSeatReport"
+title = "Seat reports its state and current profile; probes are answered without becoming user input."
+models = ["HarnessSeatReport", "BrokenHarnessSeatReportState", "BrokenHarnessSeatReportProbe"]
+controls = [{name="BrokenHarnessSeatReportState",expected="safety"},{name="BrokenHarnessSeatReportProbe",expected="safety"}]
+sources = ["src/frontends/seat.rs", "src/frontends/headless.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/seat_golden.rs", "tests/seat_process.rs", "tests/cli_headless.rs", "tests/formal_nonvacuity.rs"]
+assumptions = "One turn, one permission, idle/working/blocked/error, three profile generations A-B-A, one pending probe. Event application and reporting are atomic. Weak fairness only on replying to a received probe. No fairness on OS IO; real PTY termios, split byte reads, UTF-8/base64 caps, concurrent turns/permissions and TTY-only emission are implementation witnesses."
+property = "ReportMatchesState, TitleMatchesProfile, ProbeNeverBecomesInput; ProbeEventuallyAnswered."
 checks = ["make test-formal", "make test"]

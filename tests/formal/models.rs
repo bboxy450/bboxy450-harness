@@ -2008,13 +2008,92 @@ fn folded_card(b: bool) -> Model {
     );
     m
 }
+// Seat state: initial idle, one turn/permission, profile generations A-B-A.
+// Applying an event and reporting its state is atomic. Probe receipt/reply are
+// separate actions; only the reply is weakly fair. Bytes/termios are PTY witnesses.
+fn seat_report(mode: u8) -> Model {
+    let mut m = base::<6>(
+        "SeatReport",
+        false,
+        &[
+            ("phase", 3, 0),
+            ("reported", 3, 0),
+            ("profile", 2, 0),
+            ("title", 2, 0),
+            ("probe", 1, 0),
+            ("probe_as_input", 1, 0),
+        ],
+    );
+    m.name = match mode {
+        0 => "HarnessSeatReport",
+        1 => "BrokenHarnessSeatReportState",
+        _ => "BrokenHarnessSeatReportProbe",
+    }
+    .into();
+    act(
+        &mut m,
+        "TurnStarts",
+        eq(0, 0).or(eq(0, 3)),
+        &[(0, Int(1)), (1, Int(1))],
+    );
+    act(
+        &mut m,
+        "PermissionPending",
+        eq(0, 1),
+        &[(0, Int(2)), (1, Int(if mode == 1 { 1 } else { 2 }))],
+    );
+    act(
+        &mut m,
+        "PermissionResolved",
+        eq(0, 2),
+        &[(0, Int(1)), (1, Int(1))],
+    );
+    act(
+        &mut m,
+        "TurnEnds",
+        eq(0, 1).or(eq(0, 2)),
+        &[(0, Int(0)), (1, Int(0))],
+    );
+    act(
+        &mut m,
+        "TurnErrors",
+        eq(0, 1).or(eq(0, 2)),
+        &[(0, Int(3)), (1, Int(3))],
+    );
+    act(
+        &mut m,
+        "ProfileChanges",
+        Var(2).lt(Int(2)),
+        &[(2, Var(2).plus(Int(1))), (3, Var(2).plus(Int(1)))],
+    );
+    act(&mut m, "ProbeReceived", eq(4, 0), &[(4, Int(1))]);
+    let reply = m.actions.len();
+    act(
+        &mut m,
+        "ProbeAnswered",
+        eq(4, 1),
+        &[(4, Int(0)), (5, Int(i64::from(mode == 2)))],
+    );
+    safe(&mut m, "ReportMatchesState", Var(0).eq(Var(1)));
+    safe(&mut m, "TitleMatchesProfile", Var(2).eq(Var(3)));
+    safe(&mut m, "ProbeNeverBecomesInput", eq(5, 0));
+    progress(
+        &mut m,
+        "ProbeEventuallyAnswered",
+        eq(4, 1),
+        eq(4, 0),
+        vec![reply],
+    );
+    m
+}
 // ACP agent backend (src/backend/acp_agent.rs): one prompt in flight. After
 // session/cancel the client must answer every pending request_permission
 // `cancelled`; the agent then ends the prompt itself. One TurnEnded per prompt.
 // phase: 0 idle, 1 prompting, 2 awaiting permission, 3 cancelling, 4 ended
 // perm: 0 none, 1 pending, 2 answered
-fn acp_agent_turn(b: bool) -> Model {
-    let mut m = base::<5>(
+fn acp_agent_turn(mode: u8) -> Model {
+    let b = mode == 1;
+    let mut m = base::<7>(
         "AcpAgentTurn",
         b,
         &[
@@ -2023,8 +2102,13 @@ fn acp_agent_turn(b: bool) -> Model {
             ("cancel", 1, 0),
             ("agent_done", 1, 0),
             ("ends", 2, 0),
+            ("agent_alive", 1, 1),
+            ("stubborn", 1, 0),
         ],
     );
+    if mode == 2 {
+        m.name = "BrokenHarnessAcpAgentGrace".into();
+    }
     act(&mut m, "Prompt", eq(0, 0), &[(0, Int(1))]);
     act(
         &mut m,
@@ -2059,7 +2143,7 @@ fn acp_agent_turn(b: bool) -> Model {
     act(
         &mut m,
         "AgentEndsPrompt",
-        all([eq(0, 1).or(eq(0, 3)), eq(1, 1).negate(), eq(3, 0)]),
+        all([eq(0, 1).or(eq(0, 3)), eq(1, 1).negate(), eq(3, 0), eq(6, 0)]),
         &[(3, Int(1))],
     );
     act(
@@ -2079,7 +2163,22 @@ fn acp_agent_turn(b: bool) -> Model {
             (2, Int(0)),
             (3, Int(0)),
             (4, Int(0)),
+            (5, Int(1)),
+            (6, Int(0)),
         ],
+    );
+    act(
+        &mut m,
+        "AgentIgnoresCancel",
+        all([eq(0, 3), eq(3, 0), eq(6, 0)]),
+        &[(6, Int(1))],
+    );
+    let grace = m.actions.len();
+    act(
+        &mut m,
+        "CancelGraceExpires",
+        all([eq(0, 3), eq(3, 0)]),
+        &[(3, Int(1)), (5, Int(i64::from(mode == 2)))],
     );
     safe(&mut m, "OneTurnEndedPerPrompt", Var(4).lt(Int(2)));
     safe(
@@ -2087,8 +2186,20 @@ fn acp_agent_turn(b: bool) -> Model {
         "NoPermissionPendingAfterCancel",
         eq(2, 0).or(eq(1, 1).negate()),
     );
-    if !b {
-        progress(&mut m, "CancelledTurnEnds", eq(2, 1), eq(0, 4), vec![5, 6]);
+    safe(
+        &mut m,
+        "StubbornAgentKilledBeforeEnding",
+        all([eq(0, 4), eq(6, 1)]).negate().or(eq(5, 0)),
+    );
+    if mode == 0 {
+        progress(
+            &mut m,
+            "CancelledTurnEnds",
+            eq(2, 1),
+            eq(0, 4),
+            vec![5, grace],
+        );
+        m.weak_fair.push(vec![6]);
     }
     m
 }
@@ -2345,6 +2456,10 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (gui_markdown(3), "liveness"),
         (gui_choice(false), "pass"),
         (gui_choice(true), "safety"),
+        (seat_report(0), "pass"),
+        (seat_report(1), "safety"),
+        (seat_report(2), "safety"),
+        (acp_agent_turn(2), "safety"),
     ];
     for b in [false, true] {
         for m in [
@@ -2362,7 +2477,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
             stream_to_view(b),
             dirty_wake_frame(b),
             scroll_stick(b),
-            acp_agent_turn(b),
+            acp_agent_turn(u8::from(b)),
             folded_card(b),
             embed_lifecycle(b),
             profile_load(b),
