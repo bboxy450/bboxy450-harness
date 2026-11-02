@@ -5,6 +5,7 @@ allowed_paths:
 - scripts/
 - verification/
 - .bboxy/
+assignee: seat:01M6ADTTF9QWWFZFVZJHJ3DD8E
 authorship:
   kind: seat
   process_generation: '2'
@@ -17,15 +18,16 @@ id: 01M6CSPGDM9Z8J1WT9NDTQDKHJ
 number: 5117
 provenance:
   digest: sha256:0caeb6bf5b7d6c093d5377100841abb244aa4ed6f27a48bc9be679d23af3fe2d
-  frontmatter_digest: sha256:336e46c480c37678a2b445da0ea73e00f2e1d37458e7531716ee1a0c8d2370da
-  log: .bboxy/log/2026-11-02.jsonl#33752
-  sig: KIu85GJofKBBGDCXHMHjpnxOyMZItV1pF9/3EdVRdDkfWu0NevfDzPAmg0+RXg7mG3htcEXPboB3aOdpvd+FBg==
+  frontmatter_digest: sha256:d615910694cf2650514a249bf418452fe97a0b6be8f53bb56861d2f9a6ea58ff
+  log: .bboxy/log/2026-11-02.jsonl#33786
+  sig: hJf4XN6Oubtkp7yGpAvppfn2PYz9ePo5ztp68hRNE9hUDXciIr+4IVPyzUhldZC6SLsQWRNXRPJtjD5yCUOHDQ==
   signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
-status: open
+role: executor
+status: claimed
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E1h: fix resource-ledger child-start vs SIGTERM-handler race (bboxy450-term)'
 type: task
-updated: 2026-11-02T00:14:12.381Z
+updated: 2026-11-02T00:16:45.030Z
 updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 verify: make test
 ---
