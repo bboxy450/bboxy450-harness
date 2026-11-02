@@ -50,7 +50,19 @@ async fn run_cli(
     let mut json = false;
     let mut seat = false;
     let mut acp = false;
-    let mut profile = "nemotron".to_owned();
+    // Default profile: BBOXY450_HARNESS_PROFILE, then ~/.bboxy450-harness/default-profile, then nemotron.
+    let mut profile = std::env::var("BBOXY450_HARNESS_PROFILE")
+        .ok()
+        .filter(|p| !p.trim().is_empty())
+        .or_else(|| {
+            let home = std::env::var_os("HOME")?;
+            let text = std::fs::read_to_string(
+                PathBuf::from(home).join(".bboxy450-harness/default-profile"),
+            )
+            .ok()?;
+            Some(text.trim().to_owned()).filter(|t| !t.is_empty())
+        })
+        .unwrap_or_else(|| "nemotron".to_owned());
     let mut cwd = std::env::current_dir().map_err(|_| "working directory unavailable")?;
     let mut sessions = None;
     let mut scripts = vec![];
@@ -111,7 +123,7 @@ async fn run_cli(
             }
             "--help" | "-h" => {
                 println!(
-                    "bboxy450-harness -p PROMPT --json [--profile NAME] [--cwd DIR]\nbboxy450-harness --json --resume CLOSED_SESSION\nbboxy450-harness seat [--resume SESSION] [--cwd DIR] [--append-system-prompt TEXT] [--mcp-config PATH]\n--scripted SSE (repeat for rounds) --sessions DIR --yolo"
+                    "bboxy450-harness -p PROMPT --json [--profile NAME] [--cwd DIR]\nbboxy450-harness --json --resume CLOSED_SESSION\nbboxy450-harness seat [--profile NAME] [--resume SESSION] [--cwd DIR]   (in a seat: /profiles, /profile NAME) [--append-system-prompt TEXT] [--mcp-config PATH]\n--scripted SSE (repeat for rounds) --sessions DIR --yolo"
                 );
                 return Ok(0);
             }
@@ -325,6 +337,7 @@ async fn run_cli(
             ephemeral: seat && !json,
         })
         .map_err(|_| "subscribe refused")?;
+    let profiles_root = root.join("profiles");
     let mut line_projection = super::seat::LineProjection::default();
     let mut stdout = tokio::io::stdout();
     let stdin_was_tty = unsafe { libc::isatty(libc::STDIN_FILENO) } == 1;
@@ -351,7 +364,12 @@ async fn run_cli(
         tokio::select! {biased;
          _=stop.cancelled(),if !stopping=>{let _=gateway.send(op(Op::Close));stopping=true;},
          _=tokio::signal::ctrl_c()=>{if running{let _=gateway.send(op(Op::Interrupt{turn:None}));}},
-         line=input.next_line(),if seat&&!stopping=>{match line{Ok(Some(text))=>{if !text.is_empty(){let _=gateway.send(op(Op::UserTurn{blocks:vec![InputBlock::Text{text}],mode:TurnMode::Queue}));}},_=>{if stdin_was_tty && stdin_hung_up(){crate::process::kill_owned_groups();}let _=gateway.send(op(Op::Close));stopping=true;}}},
+         line=input.next_line(),if seat&&!stopping=>{match line{Ok(Some(text))=>{
+            if let Some(command)=text.trim().strip_prefix('/'){
+                let (request,mut reply)=seat_command(command,&profiles_root);
+                if let Some(request)=request{if gateway.send(op(request)).is_err(){reply="refused\n".into();}}
+                if stdout.write_all(reply.as_bytes()).await.is_err(){let _=gateway.send(op(Op::Close));break;}let _=stdout.flush().await;
+            }else if !text.is_empty(){let _=gateway.send(op(Op::UserTurn{blocks:vec![InputBlock::Text{text}],mode:TurnMode::Queue}));}},_=>{if stdin_was_tty && stdin_hung_up(){crate::process::kill_owned_groups();}let _=gateway.send(op(Op::Close));stopping=true;}}},
          event=subscription.recv()=>{let Some(event)=event else{break;};match &event.event{Event::TurnStarted{..}=>running=true,Event::TurnEnded{reason,..}=>{running=false;failed|=matches!(reason,StopReason::Error{..});if !seat&&!stopping{let _=gateway.send(op(Op::Close));stopping=true;}},_=>{}}
           let bytes=if json {let mut b=serde_json::to_vec(&event).map_err(|_|"event serialization failed")?;b.push(b'\n');b}else{line_projection.render(&event)};
           if stdout.write_all(&bytes).await.is_err(){let _=gateway.send(op(Op::Close));break;}let _=stdout.flush().await;
@@ -469,5 +487,39 @@ mod tty_tests {
             tty_hung_up(fd),
             "physical PTY EOF was classified as cooked Ctrl-D"
         );
+    }
+}
+
+/// Seat slash commands: `/profile NAME` switches the live session's profile, `/profiles` lists them.
+fn seat_command(command: &str, root: &std::path::Path) -> (Option<Op>, String) {
+    let mut words = command.split_whitespace();
+    match (words.next(), words.next()) {
+        (Some("profile"), Some(name)) => (
+            Some(Op::SetProfile {
+                profile: name.into(),
+            }),
+            format!("switching to profile {name}\n"),
+        ),
+        (Some("profiles" | "profile"), None) => {
+            let mut names: Vec<String> = std::fs::read_dir(root)
+                .map(|d| {
+                    d.filter_map(|e| {
+                        let path = e.ok()?.path();
+                        (path.extension()? == "md")
+                            .then(|| path.file_stem().map(|s| s.to_string_lossy().into_owned()))
+                            .flatten()
+                    })
+                    .collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            let reply = if names.is_empty() {
+                format!("no profiles in {}\n", root.display())
+            } else {
+                format!("profiles: {} · /profile NAME switches\n", names.join(", "))
+            };
+            (None, reply)
+        }
+        _ => (None, "commands: /profiles · /profile NAME · /help\n".into()),
     }
 }
