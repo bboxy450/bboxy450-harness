@@ -34,6 +34,125 @@ async fn prepare(
     *preparer = next;
     result.unwrap()
 }
+
+#[tokio::test]
+async fn completion_surface_occludes_acp_error_notice_and_red_turn_receipt() {
+    use bboxy450_harness::frontends::gui::model::{TurnState, ViewItem};
+    let item = ItemId::new();
+    let turn = TurnId::new();
+    let mut transcript = Transcript {
+        profile: Some(("fake-acp".into(), "acp:fixture-agent".into())),
+        ..Default::default()
+    };
+    transcript.order.push_back(item);
+    transcript.items.insert(
+        item,
+        ViewItem {
+            id: item,
+            turn: Some(turn),
+            parent: None,
+            started: Seq(1),
+            completed: Some(Seq(2)),
+            kind: ItemKind::Notice,
+            body: Item::Notice {
+                level: Level::Error,
+                text: "ACP agent failed to start.\nNo such file or directory (os error 2).".into(),
+            },
+            status: Some(ItemStatus::Completed),
+            terminal_tail: String::new(),
+            started_ms: 0,
+            completed_ms: Some(1),
+        },
+    );
+    transcript.turns.insert(
+        turn,
+        TurnState::Ended {
+            reason: StopReason::Error {
+                class: ErrorClass::Config,
+                message: "agent exited".into(),
+            },
+            usage: None,
+        },
+    );
+    let mut populated = FrameState {
+        transcript: Arc::new(transcript),
+        ready: true,
+        replay: true,
+        ..Default::default()
+    };
+    populated.prepared = Some(Arc::new(
+        prepare(&mut Preparer::default(), populated.transcript.clone(), 900.).await,
+    ));
+    let mut empty = (*populated.transcript).clone();
+    empty.order.clear();
+    empty.items.clear();
+    let mut empty = FrameState {
+        transcript: Arc::new(empty),
+        prepared: None,
+        ..populated.clone()
+    };
+    empty.prepared = Some(Arc::new(
+        prepare(&mut Preparer::default(), empty.transcript.clone(), 900.).await,
+    ));
+    let context = bbt_render::device::DeviceContext::new().await.unwrap();
+    bboxy450_harness::runtime::blocking(move || {
+        let mut view = HarnessView::default();
+        view.render(&populated, [900., 1100.]).unwrap();
+        view.edit(bbt_ui::text_edit::Command::Insert("/".into()));
+        assert!(view.completion_open());
+        let mut renderer = bbt_render::chrome::ChromeRenderer::with_context(context,
+            bboxy450_harness::frontends::gui::assets::icons()).unwrap();
+        let frame = view.render(&populated, [900., 1100.]).unwrap();
+        let popup = frame.list.primitives.iter().find_map(|p| match p {
+            bbt_ui_model::draw::Prim::Rect { rect, fill, .. }
+                if rect.x == 12. && rect.y == 40. && rect.w == 320. && fill.0[3] == 1. => Some(*rect),
+            _ => None,
+        });
+        let without_surface = |list: &bbt_ui_model::draw::DrawList| {
+            let mut list = list.clone();
+            list.primitives.retain(|p| !matches!(p,
+                bbt_ui_model::draw::Prim::Rect { rect, .. } if Some(*rect) == popup));
+            list
+        };
+        let full = renderer.render_to_rgba(&frame.list, 900, 1100, 1.).unwrap();
+        let broken_full = renderer.render_to_rgba(&without_surface(&frame.list), 900, 1100, 1.).unwrap();
+        let frame = view.render(&empty, [900., 1100.]).unwrap();
+        let blank = renderer.render_to_rgba(&frame.list, 900, 1100, 1.).unwrap();
+        let broken_blank = renderer.render_to_rgba(&without_surface(&frame.list), 900, 1100, 1.).unwrap();
+        assert!(view.cancel_prompt(&Bridge::new(Arc::new(Wake))));
+        let frame = view.render(&populated, [900., 1100.]).unwrap();
+        let transcript = renderer.render_to_rgba(&frame.list, 900, 1100, 1.).unwrap();
+        if let Some(out) = std::env::var_os("HARNESS_RENDER_EVIDENCE") {
+            let out = std::path::PathBuf::from(out);
+            std::fs::create_dir_all(&out).unwrap();
+            for (name, bytes) in [("completion-populated.png", &full), ("completion-empty.png", &blank), ("completion-broken-populated.png", &broken_full), ("completion-broken-empty.png", &broken_blank), ("transcript.png", &transcript)] {
+                let mut encoder = png::Encoder::new(std::fs::File::create(out.join(name)).unwrap(), 900, 1100);
+                encoder.set_color(png::ColorType::Rgba);
+                encoder.set_depth(png::BitDepth::Eight);
+                encoder.write_header().unwrap().write_image_data(bytes).unwrap();
+            }
+        }
+        let popup = popup.expect("completion overlay must have an opaque surface");
+        let mut covered_ink = 0;
+        let mut leaked_ink = 0;
+        let mut red_ink = 0;
+        // The rounded outer edge deliberately exposes the backdrop; every
+        // interior pixel must be independent of transcript notices/receipts.
+        for y in (popup.y + 12.) as usize..(popup.bottom() - 12.) as usize {
+            for x in (popup.x + 12.) as usize..(popup.right() - 12.) as usize {
+                let p = (y * 900 + x) * 4;
+                assert_eq!(&full[p..p + 4], &blank[p..p + 4], "transcript overdraw at {x},{y}");
+                covered_ink += usize::from(full[p..p + 4] != transcript[p..p + 4]);
+                leaked_ink += usize::from(broken_full[p..p + 4] != broken_blank[p..p + 4]);
+                red_ink += usize::from(transcript[p] > transcript[p + 1].saturating_add(40));
+            }
+        }
+        assert!(covered_ink > 1000, "witness must actually cover transcript ink");
+        assert!(leaked_ink > 100, "transparent-popover control must leak transcript ink");
+        assert!(red_ink > 30, "ACP error and receipt must paint red beneath the popover");
+        println!("completion occlusion: {popup:?}; {covered_ink} changed pixels; {red_ink} underlying red pixels; zero transcript-dependent interior pixels; transparent control leaks {leaked_ink} pixels");
+    }).await;
+}
 #[tokio::test]
 async fn actual_layout_sticks_releases_and_renders_approval_actions() {
     let mut model = read_replay("tests/fixtures/protocol/all-items.jsonl".into())

@@ -6,14 +6,23 @@
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 """Launcher argument/default-profile contracts, isolated from all user state."""
 from pathlib import Path
+import plistlib
 import shutil
 import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+plist = plistlib.loads((ROOT / 'packaging/macos/Info.plist').read_bytes())
+assert plist['CFBundleName'] == plist['CFBundleDisplayName'] == 'bboxy450-harness'
+assert plist['CFBundleIdentifier'] == 'com.bboxy450.harness'
+assert '.with_title("bboxy450-harness")' in (ROOT / 'src/frontends/gui/window.rs').read_text()
+bundle = subprocess.run(['make', '-s', '-f', 'Makefile', '-f', '-', 'print-bundle'],
+                        input='print-bundle:\n\t@echo "$(BUNDLE)"\n', cwd=ROOT,
+                        capture_output=True, text=True, check=True, timeout=10).stdout.strip()
+assert bundle == 'target/bboxy450-harness.app', bundle
 with tempfile.TemporaryDirectory(prefix='harness launcher ') as private:
     root = Path(private)
-    macos = root / 'Bboxy Harness.app/Contents/MacOS'
+    macos = root / 'bboxy450-harness.app/Contents/MacOS'
     macos.mkdir(parents=True)
     launcher = macos / 'launcher'
     shutil.copyfile(ROOT / 'packaging/macos/launcher.sh', launcher)
@@ -70,4 +79,4 @@ with tempfile.TemporaryDirectory(prefix='harness launcher ') as private:
     assert result.returncode != 0, result
     assert len(calls.read_text().splitlines()) == 1, 'failed signing continued'
     assert f'--sign {identity} ' in calls.read_text(), 'signing used another identity'
-print('app-packaging: PASS; default precedence, spaced paths, CLI passthrough, signing refusals')
+print('app-packaging: PASS; canonical app name, default precedence, spaced paths, CLI passthrough, signing refusals')

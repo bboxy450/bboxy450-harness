@@ -295,3 +295,14 @@ implementation_tests = ["tests/provider_stream.rs", "tests/anthropic_provider.rs
 assumptions = "Two attempts, zero to two tool calls, one output bit, absent/stop/tools/length/refusal/unknown reason and eleven outcomes. Length/refusal can retire pending calls without dispatch; only tool_use releases them. HTTP classes and stream error types abstract bytes; weak fairness on cancellation guarantees termination if the finite request/stream never completes. Cancellation is atomic; no fairness is assumed for arbitrary external IO. Broken controls retry after output, accept stop with calls or emit a second terminal. Exact SSE order, UTF-8, cache bytes, signatures, real timers and redaction remain real-HTTP/process witnesses; no arbitrary Rust refinement claim."
 property = "RetryOnlyBeforeOutput, OneTerminal, StopAgreesWithCalls, ToolsAgreesWithCalls, AfterOutputErrorsAreMidStream; RequestEventuallyTerminates."
 checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessAgentPath"
+title = "Concurrent ACP startups share one bounded login-shell PATH probe and pass its result to each child"
+models = ["HarnessAgentPath", "BrokenHarnessAgentPathDuplicateProbe", "BrokenHarnessAgentPathNoDeadline", "BrokenHarnessAgentPathChildEnv"]
+controls = [{ name = "BrokenHarnessAgentPathDuplicateProbe", expected = "safety" }, { name = "BrokenHarnessAgentPathNoDeadline", expected = "liveness" }, { name = "BrokenHarnessAgentPathChildEnv", expected = "safety" }]
+sources = ["src/backend/acp_agent.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/acp_agent.rs"]
+assumptions = "Two independent sessions, one cache (empty/probing/shell/fallback), one probe counter 0..2, child PATH identity 0..2. A shell may complete, fail or never answer. Weak fairness on beginning a requested probe, the deadline and each spawn ensures startup progresses without shell fairness. OnceCell is process-wide; profile changes do not invalidate it. Absolute/slash commands bypass this path. Real shell bytes, three-second wall clock, executable lookup, process-group cleanup and absolute-command behavior remain implementation witnesses."
+property = "At most one shell probe; each requested startup eventually spawns with the cached PATH even if the shell never answers."
+checks = ["make test-formal", "make test"]

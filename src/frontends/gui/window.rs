@@ -72,7 +72,7 @@ impl App {
             event_loop
                 .create_window(
                     Window::default_attributes()
-                        .with_title("bboxy450 harness")
+                        .with_title("bboxy450-harness")
                         .with_inner_size(LogicalSize::new(1120., 860.)),
                 )
                 .map_err(|e| e.to_string())?,

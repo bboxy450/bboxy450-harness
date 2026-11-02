@@ -484,10 +484,19 @@ impl HarnessView {
             }
         }
         if let Some(popover) = &self.completion {
-            let popup =
-                popover
-                    .element(ctx)
-                    .layout(Rect::new(12., 40., 320., 0.), ctx, &self.metrics)?;
+            // Completion choices are transparent toolkit controls. Give the
+            // final overlay an opaque surface so transcript ink cannot show
+            // through the gaps or idle buttons beneath it.
+            let mut style = ui::Style::new(ui::Preset::Card);
+            style.overrides.fill = Some(ui::Paint::solid(ui::Color::Rgba(
+                Color::hex(ctx.theme.palette().surface).0,
+            )));
+            style.overrides.material = Some(ui::Material::Flat);
+            let popup = named(
+                "completion-overlay",
+                c::Element::Box(c::Box::new(style, vec![popover.element(ctx).into()])),
+            )
+            .layout(Rect::new(12., 40., 320., 0.), ctx, &self.metrics)?;
             for (i, choice) in popover.choices.options.iter().enumerate() {
                 if let Some(node) = find(&popup, &format!("completion/{i}")) {
                     frame.actions.insert(

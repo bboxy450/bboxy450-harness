@@ -7,6 +7,7 @@
 """Real bundled replay and empty-HOME launch, with no credentials or UI input."""
 import json
 from pathlib import Path
+import plistlib
 import signal
 import subprocess
 import sys
@@ -21,6 +22,10 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / 'evidence.json').unlink(missing_ok=True)
     binary = bundle / 'Contents/MacOS/bboxy450-harness'
+    assert bundle.name == 'bboxy450-harness.app', bundle
+    plist = plistlib.loads((bundle / 'Contents/Info.plist').read_bytes())
+    assert plist['CFBundleName'] == plist['CFBundleDisplayName'] == 'bboxy450-harness'
+    assert plist['CFBundleIdentifier'] == 'com.bboxy450.harness'
     subprocess.run(['codesign', '--verify', '--strict', str(bundle)], check=True)
     with tempfile.TemporaryDirectory(prefix='harness-app-', dir='/tmp') as private:
         home = Path(private)
@@ -64,6 +69,7 @@ def main():
                   'screenshot': str(screenshot), 'screenshot_bytes': screenshot.stat().st_size,
                   'launcher_alive_seconds': 3, 'launcher_exit_code': process.returncode,
                   'cwd': meta['cwd'], 'profile': meta['profile'], 'notice': True,
+                  'bundle': str(bundle), 'app_name': plist['CFBundleDisplayName'],
                   'codesign_exit_code': 0, 'transcript_exit_code': 0}
         (out / 'evidence.json').write_text(json.dumps(record, indent=2) + '\n')
         print('smoke-app: PASS; bundled PNG, empty-HOME notice, 3s live GUI, SIGTERM/reap, strict codesign')

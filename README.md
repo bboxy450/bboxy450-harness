@@ -31,7 +31,7 @@ gpg --fingerprint 9B07E849480C68328CA20684844ECC0587DE7AB0
 gpg --verify "$ARCHIVE.asc" "$ARCHIVE" &&
 shasum -a 256 -c "$ARCHIVE.sha256" &&
 ditto -x -k "$ARCHIVE" . &&
-open "Bboxy Harness.app"
+open "bboxy450-harness.app"
 ```
 
 The signing fingerprint must be `9B07 E849 480C 6832 8CA2 0684 844E CC05 87DE 7AB0`.
@@ -58,7 +58,7 @@ on_unattended: deny
 With `OPENROUTER_API_KEY` set in your shell, launch explicitly in a project:
 
 ```sh
-"Bboxy Harness.app/Contents/MacOS/launcher" gui --profile nemotron --cwd "$PWD"
+"bboxy450-harness.app/Contents/MacOS/launcher" gui --profile nemotron --cwd "$PWD"
 ```
 
 The GUI loads the selected profile in the background. Shell environment
@@ -66,7 +66,7 @@ variables are available on the explicit launch; Finder uses its own environment.
 Profiles also support an `api_key: '!command'` source for an unattended credential
 helper. After adding a missing profile, relaunch the app.
 
-From source, `make app` builds `target/Bboxy Harness.app` in release mode with
+From source, `make app` builds `target/bboxy450-harness.app` in release mode with
 the approved Apple signature and fails if that identity is unavailable.
 `make app-unsigned` uses an ad-hoc signature. `make smoke-app` checks that test
 bundle with an offline rendered replay and a three-second empty-HOME launch,

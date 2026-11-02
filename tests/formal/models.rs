@@ -2245,8 +2245,100 @@ fn provider_stream(mode: u8) -> Model {
     m
 }
 
+// Finder PATH recovery: two concurrent ACP sessions share one bounded probe.
+// OS process cleanup, actual PATH bytes and executable permissions are process
+// witnesses in tests/acp_agent.rs, not claims about arbitrary shell behavior.
+fn agent_path(mode: u8) -> Model {
+    let mut m = base::<6>(
+        "AgentPath",
+        mode != 0,
+        &[
+            ("cache", 3, 0), // empty, probing, shell PATH, fallback PATH
+            ("probes", 2, 0),
+            ("session_a", 2, 0), // absent, waiting, spawned
+            ("session_b", 2, 0),
+            ("path_a", 2, 0), // inherited, shell, fallback
+            ("path_b", 2, 0),
+        ],
+    );
+    if mode != 0 {
+        m.name = match mode {
+            1 => "BrokenHarnessAgentPathDuplicateProbe",
+            2 => "BrokenHarnessAgentPathNoDeadline",
+            _ => "BrokenHarnessAgentPathChildEnv",
+        }
+        .into();
+    }
+    for session in [2, 3] {
+        act(&mut m, "RequestAgent", eq(session, 0), &[(session, Int(1))]);
+    }
+    let probe = m.actions.len();
+    act(
+        &mut m,
+        "BeginProbe",
+        all([eq(0, 0), eq(2, 1).or(eq(3, 1))]),
+        &[(0, Int(1)), (1, Var(1).plus(Int(1)))],
+    );
+    if mode == 1 {
+        act(
+            &mut m,
+            "DuplicateProbe",
+            all([eq(0, 1), eq(1, 1), eq(2, 1), eq(3, 1)]),
+            &[(1, Int(2))],
+        );
+    }
+    act(&mut m, "ShellSucceeded", eq(0, 1), &[(0, Int(2))]);
+    act(&mut m, "ShellFailedOrEmpty", eq(0, 1), &[(0, Int(3))]);
+    let deadline = m.actions.len();
+    act(
+        &mut m,
+        "ProbeDeadline",
+        if mode == 2 { Bool(false) } else { eq(0, 1) },
+        &[(0, Int(3))],
+    );
+    for (session, child_path) in [(2, 4), (3, 5)] {
+        let spawn = m.actions.len();
+        act(
+            &mut m,
+            "SpawnAgent",
+            all([eq(session, 1), eq(0, 2).or(eq(0, 3))]),
+            &[
+                (session, Int(2)),
+                (
+                    child_path,
+                    if mode == 3 {
+                        Int(0)
+                    } else {
+                        Var(0).minus(Int(1))
+                    },
+                ),
+            ],
+        );
+        safe(
+            &mut m,
+            &format!("Child{session}UsesResolvedPath"),
+            eq(session, 2)
+                .negate()
+                .or(Var(child_path).eq(Var(0).minus(Int(1)))),
+        );
+        progress(
+            &mut m,
+            &format!("Session{session}StartupProgress"),
+            eq(session, 1),
+            eq(session, 2),
+            vec![probe, deadline, spawn],
+        );
+    }
+    safe(&mut m, "LoginShellProbedOnce", Var(1).lt(Int(2)));
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (agent_path(0), "pass"),
+        (agent_path(1), "safety"),
+        (agent_path(2), "liveness"),
+        (agent_path(3), "safety"),
         (gui_markdown(0), "pass"),
         (gui_markdown(1), "safety"),
         (gui_markdown(2), "safety"),

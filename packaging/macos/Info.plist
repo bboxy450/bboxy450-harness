@@ -11,8 +11,8 @@ https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md -->
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key><string>com.bboxy450.harness</string>
-    <key>CFBundleName</key><string>Bboxy Harness</string>
-    <key>CFBundleDisplayName</key><string>Bboxy Harness</string>
+    <key>CFBundleName</key><string>bboxy450-harness</string>
+    <key>CFBundleDisplayName</key><string>bboxy450-harness</string>
     <key>CFBundleExecutable</key><string>launcher</string>
     <key>CFBundleIconFile</key><string>bboxy.icns</string>
     <key>CFBundlePackageType</key><string>APPL</string>

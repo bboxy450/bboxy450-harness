@@ -21,6 +21,41 @@ fn variable(m: &bbt_tlc::Model, name: &str) -> usize {
         .unwrap_or_else(|| panic!("missing state variable {name}"))
 }
 #[test]
+fn agent_path_controls_witness_duplicate_probe_missing_deadline_and_child_env() {
+    let good = model("HarnessAgentPath");
+    let checked = good.check(100_000).unwrap();
+    assert!(checked.violations.is_empty());
+    let cache = variable(&good, "cache");
+    let a = variable(&good, "session_a");
+    let b = variable(&good, "session_b");
+    for path in [2, 3] {
+        assert!(
+            checked
+                .states
+                .iter()
+                .any(|s| s[cache] == path && s[a] == 2 && s[b] == 2)
+        );
+    }
+    for (name, property) in [
+        (
+            "BrokenHarnessAgentPathDuplicateProbe",
+            "LoginShellProbedOnce",
+        ),
+        (
+            "BrokenHarnessAgentPathNoDeadline",
+            "Session2StartupProgress",
+        ),
+        ("BrokenHarnessAgentPathChildEnv", "Child2UsesResolvedPath"),
+    ] {
+        let checked = model(name).check(100_000).unwrap();
+        assert!(
+            checked.violations.iter().any(|v| v.property == property),
+            "{name}: {:?}",
+            checked.violations
+        );
+    }
+}
+#[test]
 fn provider_controls_reach_retry_after_output_wrong_finish_and_double_ending() {
     let good = model("HarnessProviderStream");
     let checked = good.check(100_000).unwrap();

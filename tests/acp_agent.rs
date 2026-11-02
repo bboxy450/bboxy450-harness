@@ -25,16 +25,31 @@ struct Fake {
     session: SessionId,
 }
 async fn fake(scenario: &str, unattended: Unattended) -> Fake {
+    fake_command(scenario, unattended, None).await
+}
+async fn fake_command(
+    scenario: &str,
+    unattended: Unattended,
+    command: Option<Vec<String>>,
+) -> Fake {
     let temp = tempfile::tempdir().unwrap();
     let profiles = temp.path().join("profiles");
     std::fs::create_dir_all(&profiles).unwrap();
     let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/acp-agent/fake_agent.py");
+    let command = command.unwrap_or_else(|| {
+        vec![
+            "python3".into(),
+            "-I".into(),
+            script.display().to_string(),
+            scenario.into(),
+        ]
+    });
+    let command = serde_json::to_string(&command).unwrap();
     std::fs::write(
         profiles.join("fake.md"),
         format!(
-            "---\nname: fake\nprovider: acp-agent\nagent:\n  command: [python3, -I, {}, {scenario}]\non_unattended: {}\n---\n",
-            script.display(),
+            "---\nname: fake\nprovider: acp-agent\nagent:\n  command: {command}\non_unattended: {}\n---\n",
             if matches!(unattended, Unattended::Allow) { "allow" } else { "deny" }
         ),
     )
@@ -141,6 +156,148 @@ fn ended(log: &[Envelope]) -> Vec<StopReason> {
             _ => None,
         })
         .collect()
+}
+
+#[test]
+fn bare_agent_uses_login_shell_path_and_cached_fallback() {
+    const CHILD: &str = "HARNESS_PATH_WITNESS";
+    if let Ok(case) = std::env::var(CHILD) {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/acp-agent/fake_agent.py");
+            let program = if case == "absolute" {
+                std::env::var("WITNESS_AGENT").unwrap()
+            } else {
+                "fixture-agent".into()
+            };
+            let command = vec![
+                program,
+                "-I".into(),
+                script.display().to_string(),
+                "text".into(),
+            ];
+            let a = fake_command("text", Unattended::Deny, Some(command.clone())).await;
+            let b = fake_command("text", Unattended::Deny, Some(command)).await;
+            let mut sa = subscribe(&a.gateway, false);
+            let mut sb = subscribe(&b.gateway, false);
+            a.gateway.send(support::prompt(&a.gateway, "hi")).unwrap();
+            b.gateway.send(support::prompt(&b.gateway, "hi")).unwrap();
+            tokio::join!(until_end(&mut sa), until_end(&mut sb));
+            for log in [close(a).await, close(b).await] {
+                assert_eq!(ended(&log), vec![StopReason::EndTurn], "{log:?}");
+                assert!(completed(&log).iter().any(|(_, body)| matches!(body,
+                    Item::AgentMessage { markdown } if markdown == "Hello from the fake agent.")));
+            }
+        });
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let python = std::process::Command::new("python3")
+        .args(["-I", "-c", "import sys; print(sys.executable)"])
+        .output()
+        .unwrap();
+    assert!(python.status.success());
+    let python = String::from_utf8(python.stdout).unwrap();
+    for case in ["login", "missing", "failed", "empty", "timeout", "absolute"] {
+        let home = tempfile::tempdir_in("/tmp").unwrap();
+        let bin = home.path().join(if case == "login" || case == "absolute" {
+            "login bin"
+        } else if case == "empty" {
+            ".cargo/bin"
+        } else {
+            ".local/bin"
+        });
+        std::fs::create_dir_all(&bin).unwrap();
+        let agent = bin.join("fixture-agent");
+        let interpreter = if case == "absolute" {
+            python.trim()
+        } else {
+            "path-python"
+        };
+        std::fs::write(&agent, format!("#!/bin/sh\nprintf '%s\\n' \"$PATH\" >> \"$HOME/child-path\"\nexec {interpreter} \"$@\"\n")).unwrap();
+        std::fs::set_permissions(&agent, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::os::unix::fs::symlink(python.trim(), bin.join("path-python")).unwrap();
+        let shell = home.path().join("login-shell");
+        let path = format!("{}:/usr/bin:/bin", bin.display());
+        if case != "missing" {
+            let body = match case {
+                "failed" => "exit 7\n",
+                "empty" => "exit 0\n",
+                "timeout" => "echo $$ > \"$HOME/shell-pid\"\nexec /bin/sleep 30\n",
+                _ => "printf 'startup banner\\n%s' \"$WITNESS_LOGIN_PATH\"\n",
+            };
+            std::fs::write(&shell, format!("#!/bin/sh\n[ \"$1\" = -ilc ] && [ \"$2\" = 'printf %s \"$PATH\"' ] || exit 19\nprintf 'probe\\n' >> \"$HOME/probes\"\n{body}")).unwrap();
+            std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        // Two sessions race the once-only probe in a fresh process. No test
+        // changes the parent process's environment or consults its real shell.
+        let started = std::time::Instant::now();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "bare_agent_uses_login_shell_path_and_cached_fallback",
+                "--nocapture",
+            ])
+            .env_clear()
+            .env(CHILD, case)
+            .env("HOME", home.path())
+            .env("PATH", "/usr/bin:/bin")
+            .env("SHELL", &shell)
+            .env("WITNESS_LOGIN_PATH", &path)
+            .env("WITNESS_AGENT", &agent)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{case}: {}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "{case}: shell deadline did not bound startup"
+        );
+        let probes = std::fs::read_to_string(home.path().join("probes")).unwrap_or_default();
+        assert_eq!(
+            probes.lines().count(),
+            usize::from(!["missing", "absolute"].contains(&case)),
+            "{case}: probe was not cached"
+        );
+        let child_path = std::fs::read_to_string(home.path().join("child-path")).unwrap();
+        assert_eq!(child_path.lines().count(), 2);
+        for child_path in child_path.lines() {
+            if case == "absolute" {
+                assert_eq!(child_path, "/usr/bin:/bin");
+            } else if case == "login" {
+                assert_eq!(child_path, path);
+            } else {
+                for dir in [
+                    "/opt/homebrew/bin".into(),
+                    "/usr/local/bin".into(),
+                    home.path().join(".local/bin"),
+                    home.path().join(".cargo/bin"),
+                ] {
+                    assert!(
+                        std::env::split_paths(child_path).any(|p| p == dir),
+                        "{case}: missing {}",
+                        dir.display()
+                    );
+                }
+            }
+        }
+        if case == "timeout" {
+            let pid: i32 = std::fs::read_to_string(home.path().join("shell-pid"))
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap();
+            assert_eq!(
+                unsafe { libc::kill(pid, 0) },
+                -1,
+                "timed-out shell survived"
+            );
+        }
+    }
 }
 
 #[tokio::test]

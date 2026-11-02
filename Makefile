@@ -56,7 +56,7 @@ bench-gui-budget:
 # Adapted from bboxy450-term Makefile bundle/release recipes:
 # https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
 APP := bboxy450-harness
-BUNDLE := $(TARGET_DIR)/Bboxy Harness.app
+BUNDLE := $(TARGET_DIR)/$(APP).app
 DIST_DIR := $(TARGET_DIR)/release-artifacts
 APP_VERSION = $(shell python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
 ARCHIVE = $(DIST_DIR)/$(APP)-$(APP_VERSION)-macos-arm64.zip

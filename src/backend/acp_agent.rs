@@ -30,6 +30,9 @@ use crate::{
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    ffi::{OsStr, OsString},
+    os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -45,6 +48,66 @@ pub const MAX_LINE: usize = 8 * 1024 * 1024;
 /// After `session/cancel`, the agent has this long to end the prompt before its group is killed.
 pub const CANCEL_GRACE: Duration = Duration::from_secs(5);
 const STDERR_TAIL: usize = 2048;
+static LOGIN_PATH: tokio::sync::OnceCell<OsString> = tokio::sync::OnceCell::const_new();
+
+/// Finder does not inherit the terminal's PATH. Probe once, off the UI thread,
+/// with the same bounded, owned process-group capture used by profile resolvers.
+async fn login_path() -> &'static OsStr {
+    LOGIN_PATH
+        .get_or_init(|| async {
+            if let Some(shell) = std::env::var_os("SHELL") {
+                let output = crate::process::capture_stdout(
+                    crate::process::Request {
+                        program: shell.to_string_lossy().into_owned(),
+                        args: vec!["-ilc".into(), "printf %s \"$PATH\"".into()],
+                        stdin: None,
+                        cwd: std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| "/".into()),
+                        timeout: Duration::from_secs(3),
+                        spill_dir: PathBuf::new(),
+                        cap: 64 * 1024,
+                        redactor: Default::default(),
+                    },
+                    tokio_util::sync::CancellationToken::new(),
+                )
+                .await;
+                if let Ok(output) = output
+                    && output.code == Some(0)
+                    && !output.cancelled
+                    && output.bytes.len() < 64 * 1024
+                    && let Ok(path) = String::from_utf8(output.bytes)
+                    // A shell startup banner may precede printf's final line.
+                    && let Some(path) = path.lines().last().filter(|p| !p.is_empty() && !p.contains('\0'))
+                {
+                    return OsString::from(path);
+                }
+            }
+            let inherited = std::env::var_os("PATH")
+                .unwrap_or_else(|| "/usr/bin:/bin:/usr/sbin:/sbin".into());
+            let mut dirs: Vec<_> = std::env::split_paths(&inherited).collect();
+            dirs.extend([PathBuf::from("/opt/homebrew/bin"), "/usr/local/bin".into()]);
+            if let Some(home) = std::env::var_os("HOME") {
+                dirs.extend([Path::new(&home).join(".local/bin"), Path::new(&home).join(".cargo/bin")]);
+            }
+            std::env::join_paths(dirs).unwrap_or(inherited)
+        })
+        .await
+}
+
+async fn find_agent(program: &str, path: &OsStr, cwd: &Path) -> std::io::Result<PathBuf> {
+    for dir in std::env::split_paths(path) {
+        let candidate = cwd.join(dir).join(program);
+        if let Ok(meta) = tokio::fs::metadata(&candidate).await
+            && meta.is_file()
+            && meta.permissions().mode() & 0o111 != 0
+        {
+            return Ok(candidate);
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        format!("ACP agent executable {program:?} was not found in the login-shell PATH"),
+    ))
+}
 
 enum Wire {
     Message(Value),
@@ -620,7 +683,16 @@ impl AcpAgentActor {
         let program = argv
             .next()
             .ok_or_else(|| std::io::Error::other("agent.command is empty"))?;
-        let mut command = tokio::process::Command::new(program);
+        let path = if program.contains('/') {
+            None
+        } else {
+            Some(login_path().await)
+        };
+        let resolved = match path {
+            Some(path) => find_agent(program, path, &self.config.meta.cwd).await?,
+            None => PathBuf::from(program),
+        };
+        let mut command = tokio::process::Command::new(resolved);
         command
             .args(argv)
             .envs(env)
@@ -628,6 +700,9 @@ impl AcpAgentActor {
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
+        if let Some(path) = path {
+            command.env("PATH", path);
+        }
         let mut child = OwnedChild::spawn(command)?;
         let stdin = child
             .stdin()

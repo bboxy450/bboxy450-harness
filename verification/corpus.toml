@@ -382,3 +382,19 @@ frontend = "project"
 name = "BrokenHarnessProviderEnding"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessAgentPath"
+expected = "pass"
+
+[[model]]
+name = "BrokenHarnessAgentPathDuplicateProbe"
+expected = "safety"
+
+[[model]]
+name = "BrokenHarnessAgentPathNoDeadline"
+expected = "liveness"
+
+[[model]]
+name = "BrokenHarnessAgentPathChildEnv"
+expected = "safety"

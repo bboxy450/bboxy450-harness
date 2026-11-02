@@ -4,7 +4,7 @@ The native backend is crates.io `bboxy450-tlc =0.1.1`, using its finite integer
 and Boolean Model/Variable/Action API. Yarn 0.1.1 projects the production
 `harness_turn_topology!` declaration. This repository contains no checker fork.
 
-The corpus has 77 model variants mapped to 28 contracts, including the shared
+The corpus has 81 model variants mapped to 29 contracts, including the shared
 Yarn scheduling projection.
 It explores two queued turns, two tools/rounds, three birth generations (A-B-A),
 a two-slot stand-in for the bounded work lane, and a three-entry replay log.
@@ -101,3 +101,13 @@ states respectively. Weak fairness on cancellation guarantees eventual
 termination when external IO never completes; no fairness of external IO is
 assumed. `tests/anthropic_provider.rs` supplies byte-level HTTP, signed/redacted
 replay, cache-placement, token-count, real profile and transcript witnesses.
+
+Finder-launched ACP agents use the process-wide `HarnessAgentPath` cache model:
+two concurrent startups, one login-shell probe, shell/fallback PATH identities,
+and a deadline that needs no shell fairness. Controls duplicate the probe, omit
+the deadline or fail to export the resolved PATH. `tests/acp_agent.rs` runs two
+real sessions per isolated process under a PATH missing the agent directory,
+including shell failure, empty output, timeout/reaping and absolute commands.
+The completion overlay is a pure layout/paint change; `gui_render` compares
+actual Metal pixels with and without the ACP error notice and red receipt under
+the opaque popover. Pixels and OS behavior remain implementation witnesses.
