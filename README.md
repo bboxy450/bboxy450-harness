@@ -2,9 +2,9 @@
 
 One Rust package for the bboxy450-term coding-agent core. Protocol v0.1, the
 session actor, provider, tools, JSONL store and gateway are implemented here.
-The GUI face and toolkit widgets are separate assignments. `standalone`,
-`embedded` and `acp` are declared integration features; this core change does
-not supply their window or ACP adapter.
+The standalone macOS GUI uses the same dark bboxy450-ui toolkit as
+bboxy450-term and also runs on its own. Headless, embedded and ACP clients
+consume the same protocol.
 
 ```sh
 cargo run -- -p "Inspect this project" --json --profile nemotron
@@ -12,6 +12,69 @@ cargo run -- seat --profile nemotron --cwd .
 make test
 make smoke-live
 ```
+
+## Run standalone
+
+Download the Apple Silicon app and its checksum/signature from
+[GitHub Releases](https://github.com/bboxy450/bboxy450-harness/releases).
+For example, from a directory where you want to unpack the app:
+
+```sh
+VERSION=0.1.0
+ARCHIVE="bboxy450-harness-$VERSION-macos-arm64.zip"
+for FILE in "$ARCHIVE" "$ARCHIVE.sha256" "$ARCHIVE.asc"; do
+    curl -fLO "https://github.com/bboxy450/bboxy450-harness/releases/download/v$VERSION/$FILE"
+done
+curl -fLO https://raw.githubusercontent.com/bboxy450/bboxy450-harness/main/packaging/macos/release-signing-key.asc
+gpg --import release-signing-key.asc
+gpg --fingerprint 9B07E849480C68328CA20684844ECC0587DE7AB0
+gpg --verify "$ARCHIVE.asc" "$ARCHIVE" &&
+shasum -a 256 -c "$ARCHIVE.sha256" &&
+ditto -x -k "$ARCHIVE" . &&
+open "Bboxy Harness.app"
+```
+
+The signing fingerprint must be `9B07 E849 480C 6832 8CA2 0684 844E CC05 87DE 7AB0`.
+Run each verification successfully before opening the app. The bundle uses
+the approved Apple Development identity (team `UQB3368A84`); it is not notarized.
+It needs no bboxy450-term installation.
+
+Finder/Dock launch opens the GUI in your home directory. The default profile
+is `BBOXY450_HARNESS_PROFILE`, then the name in
+`~/.bboxy450-harness/default-profile`, then `nemotron`. With no profile installed,
+the window stays open and shows a profile notice. To configure a profile, create
+`~/.bboxy450-harness/profiles/nemotron.md`, for example:
+
+```yaml
+---
+name: nemotron
+model: nvidia/nemotron-3.5-super-vl:free
+endpoint: https://openrouter.ai/api/v1/chat/completions
+api_key_env: OPENROUTER_API_KEY
+on_unattended: deny
+---
+```
+
+With `OPENROUTER_API_KEY` set in your shell, launch explicitly in a project:
+
+```sh
+"Bboxy Harness.app/Contents/MacOS/launcher" gui --profile nemotron --cwd "$PWD"
+```
+
+The GUI loads the selected profile in the background. Shell environment
+variables are available on the explicit launch; Finder uses its own environment.
+Profiles also support an `api_key: '!command'` source for an unattended credential
+helper. After adding a missing profile, relaunch the app.
+
+From source, `make app` builds `target/Bboxy Harness.app` in release mode with
+the approved Apple signature and fails if that identity is unavailable.
+`make app-unsigned` uses an ad-hoc signature. `make smoke-app` checks that test
+bundle with an offline rendered replay and a three-second empty-HOME launch,
+without credentials or operator input. `make release-dry` packages the ad-hoc
+test bundle and verifies its GPG signature/checksum in `target/release-artifacts/`;
+it creates no tag or release. The Oracle uses `make release` on verified, clean
+`main` to build the Apple-signed bundle, sign the archive, push a signed tag and
+publish the three assets.
 
 Profiles are YAML frontmatter in `~/.bboxy450-harness/profiles/<name>.md`.
 They select `model`, `endpoint` and an `api_key` command beginning with `!`,

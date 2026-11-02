@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2026 Boxy (bboxy450) and contributors.
+SPDX-License-Identifier: LicenseRef-Respectful-Slop-1.0-Draft
+Project: bboxy450-harness — https://github.com/bboxy450/bboxy450-harness
+License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
+Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
+Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+Adapted from bboxy450-term packaging/macos/Info.plist:
+https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key><string>com.bboxy450.harness</string>
+    <key>CFBundleName</key><string>Bboxy Harness</string>
+    <key>CFBundleDisplayName</key><string>Bboxy Harness</string>
+    <key>CFBundleExecutable</key><string>launcher</string>
+    <key>CFBundleIconFile</key><string>bboxy.icns</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>0.1.0</string>
+    <key>CFBundleVersion</key><string>1</string>
+    <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>

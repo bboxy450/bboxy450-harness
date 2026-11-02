@@ -35,7 +35,64 @@ async fn wait(bridge: &mut Bridge, predicate: impl Fn(&Bridge) -> bool) {
         }
     })
     .await
-    .unwrap();
+    .unwrap_or_else(|_| panic!("GUI wait timed out: {:?}", bridge.state.transcript));
+}
+#[tokio::test]
+async fn standalone_start_resolves_profile_and_missing_profile_keeps_notice() {
+    use bboxy450_harness::{
+        engine::Config,
+        policy::Policy,
+        provider::{FailedProvider, ProviderError, profile::Unattended},
+        redact::Set,
+    };
+    for configured in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let profiles = temp.path().join("profiles");
+        std::fs::create_dir(&profiles).unwrap();
+        if configured {
+            std::fs::write(
+                profiles.join("own-profile.md"),
+                "---\nname: own-profile\nmodel: fixture-model\nendpoint: http://127.0.0.1:1/v1/chat/completions\napi_key: '!printf fixture-token'\n---\n",
+            )
+            .unwrap();
+        }
+        let mut meta = support::meta(temp.path().into());
+        meta.profile = Some("own-profile".into());
+        let mut bridge = Bridge::new(Arc::new(Wake::default()));
+        bridge.create(Config {
+            meta,
+            profiles,
+            sessions: temp.path().join("sessions"),
+            provider: Arc::new(FailedProvider(ProviderError::new(
+                ErrorClass::Config,
+                "profile not loaded",
+            ))),
+            model: "unconfigured".into(),
+            profile_error: Some("profile not loaded".into()),
+            policy: Policy::new(Unattended::Deny),
+            redactor: Set::default(),
+            max_rounds: 50,
+        });
+        wait(&mut bridge, |b| {
+            b.state.ready
+                && if configured {
+                    b.state.transcript.profile
+                        == Some(("own-profile".into(), "fixture-model".into()))
+                } else {
+                    b.state.transcript.items.values().any(|row| {
+                        matches!(&row.body, Item::Notice { text, .. } if text == "profile could not be resolved")
+                    })
+                }
+        })
+        .await;
+        assert!(bridge.state.error.is_none());
+        bridge.send(Op::Close).unwrap();
+        wait(&mut bridge, |b| b.state.transcript.closed).await;
+        tokio::time::timeout(Duration::from_secs(8), bridge.detach().unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+    }
 }
 #[tokio::test]
 async fn background_subscription_and_detach_preserves_run() {

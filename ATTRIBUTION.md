@@ -57,3 +57,13 @@ A distinctive implementation adapted from elsewhere carries its own `// Adapted 
   - the Zed Agent Client Protocol
   - the Model Context Protocol
 - **Built on** the bboxy450-term toolkit crates (https://github.com/bboxy450/bboxy450-term), used as dependencies under their own terms.
+- **Adapted from bboxy450-term** (https://github.com/bboxy450/bboxy450-term),
+  `Makefile` bundle/signing/archive recipes and `packaging/macos/Info.plist`.
+  Upstream reuse policy: https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md.
+- **Copied from bboxy450's identity artwork**, `~/.agents/identity/bboxy.png`
+  (canonical source identifier: `bboxy450/dotagents:identity/bboxy.png`), as
+  `packaging/macos/bboxy.png`. SHA256:
+  `bc5cc774612f29a452967a5a4fa993292092a59b58dfd03dfb7ddb6b3286c370`.
+  `packaging/macos/bboxy.icns` is adapted from that exact image using macOS
+  `sips` and `iconutil`; no replacement artwork was generated. Keep this credit
+  and the project's absolute attribution policy URL with reuse of the icon.
