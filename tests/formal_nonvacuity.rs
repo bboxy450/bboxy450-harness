@@ -21,6 +21,76 @@ fn variable(m: &bbt_tlc::Model, name: &str) -> usize {
         .unwrap_or_else(|| panic!("missing state variable {name}"))
 }
 #[test]
+fn native_import_controls_expose_duplicate_accounting_and_references_before_blobs() {
+    let m = model("HarnessNativeUsage");
+    let turn = variable(&m, "turn");
+    let seen = variable(&m, "seen_a");
+    let finished = variable(&m, "finished_usage");
+    let checked = m.check(100_000).unwrap();
+    assert!(checked.violations.is_empty());
+    let step = variable(&m, "session_step");
+    let tokens = variable(&m, "session_tokens");
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[step] == 3 && s[tokens] == 1),
+        "cumulative reset A-B-A is reachable"
+    );
+    assert!(
+        model("BrokenHarnessNativeUsageScopes")
+            .check(100_000)
+            .unwrap()
+            .violations
+            .iter()
+            .any(|v| v.property == "OnlyReportedTokens")
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[turn] == 1 && s[seen] == 1 && s[finished] == 1)
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[turn] == 2 && s[finished] == 3)
+    );
+    let m = model("HarnessNativeSpill");
+    let phase = variable(&m, "phase");
+    let blob = variable(&m, "blob");
+    let reference = variable(&m, "reference");
+    let checked = m.check(100_000).unwrap();
+    assert!(checked.violations.is_empty());
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[phase] == 3 && s[blob] == 1 && s[reference] == 1)
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[phase] == 4 && s[reference] == 0)
+    );
+    for (name, property) in [
+        ("BrokenHarnessNativeUsage", "OneUsagePerCall"),
+        ("BrokenHarnessNativeSpill", "ReferenceOnlyAfterBlob"),
+    ] {
+        assert!(
+            model(name)
+                .check(100_000)
+                .unwrap()
+                .violations
+                .iter()
+                .any(|v| v.property == property),
+            "{name}"
+        );
+    }
+}
+#[test]
 fn agent_path_controls_witness_duplicate_probe_missing_deadline_and_child_env() {
     let good = model("HarnessAgentPath");
     let checked = good.check(100_000).unwrap();

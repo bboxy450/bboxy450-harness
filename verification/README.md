@@ -4,7 +4,7 @@ The native backend is crates.io `bboxy450-tlc =0.1.1`, using its finite integer
 and Boolean Model/Variable/Action API. Yarn 0.1.1 projects the production
 `harness_turn_topology!` declaration. This repository contains no checker fork.
 
-The corpus has 85 model variants mapped to 30 contracts, including the shared
+The corpus has 90 model variants mapped to 32 contracts, including the shared
 Yarn scheduling projection.
 It explores two queued turns, two tools/rounds, three birth generations (A-B-A),
 a two-slot stand-in for the bounded work lane, and a three-entry replay log.
@@ -111,3 +111,15 @@ including shell failure, empty output, timeout/reaping and absolute commands.
 The completion overlay is a pure layout/paint change; `gui_render` compares
 actual Metal pixels with and without the ACP error notice and red receipt under
 the opaque popover. Pixels and OS behavior remain implementation witnesses.
+
+Native imports add `HarnessNativeUsage` (two identified calls, repeated across
+two turn boundaries) and `HarnessNativeSpill` (small/large text, persistence
+success/failure, blob before reference), each with a rejected safety control.
+`tests/import_native.rs` witnesses the actual Claude message IDs, Codex
+cumulative snapshots/resets, cache/reasoning counts, model changes, live file
+append, failed writes, redaction, exact blob bytes and JSON/UTF-8 preview bounds.
+Neither model proves parsing, byte arithmetic or filesystem durability.
+
+Native usage also separates three cumulative session snapshots (1-3-1) from
+call and turn totals; `BrokenHarnessNativeUsageScopes` deliberately sums both
+scopes. Provenance and absent-number labels are parser/API witnesses.

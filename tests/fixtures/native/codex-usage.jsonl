@@ -1,0 +1,15 @@
+{"type":"session_meta","payload":{"cwd":"/work/usage","cli_version":"codex-fixture-3"}}
+{"type":"turn_context","payload":{"model":"codex-one"}}
+{"type":"event_msg","payload":{"type":"task_started"}}
+{"type":"event_msg","payload":{"type":"token_count","info":null}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"output_tokens":4,"cached_input_tokens":3,"reasoning_output_tokens":1,"cache_write_input_tokens":2},"last_token_usage":{"input_tokens":10,"output_tokens":4,"cached_input_tokens":3,"reasoning_output_tokens":1,"cache_write_input_tokens":2}}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"output_tokens":4,"cached_input_tokens":3,"reasoning_output_tokens":1,"cache_write_input_tokens":2},"last_token_usage":{"input_tokens":10,"output_tokens":4,"cached_input_tokens":3,"reasoning_output_tokens":1,"cache_write_input_tokens":2}}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":20,"output_tokens":8,"cached_input_tokens":6,"reasoning_output_tokens":2,"cache_write_input_tokens":4},"last_token_usage":{"input_tokens":10,"output_tokens":4,"cached_input_tokens":3,"reasoning_output_tokens":1,"cache_write_input_tokens":2}}}}
+{"type":"event_msg","payload":{"type":"task_complete"}}
+{"type":"turn_context","payload":{"model":"codex-two"}}
+{"type":"event_msg","payload":{"type":"task_started"}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":25,"output_tokens":10,"cached_input_tokens":8,"reasoning_output_tokens":3,"cache_write_input_tokens":4}}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":25,"output_tokens":10,"cached_input_tokens":8,"reasoning_output_tokens":3,"cache_write_input_tokens":4}}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":3,"output_tokens":1,"cached_input_tokens":0,"reasoning_output_tokens":0,"cache_write_input_tokens":0},"last_token_usage":{"input_tokens":3,"output_tokens":1,"cached_input_tokens":0,"reasoning_output_tokens":0,"cache_write_input_tokens":0}}}}
+{"type":"event_msg","payload":{"type":"task_complete"}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{}}}}

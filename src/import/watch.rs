@@ -10,7 +10,7 @@
 //! face renders another harness's running session. It is read-only: a turn is refused
 //! with a pointer to `/profile`, which forks the session onto our engine or an ACP agent
 //! (with the conversation handed over) to continue it.
-use super::{Native, Projector};
+use super::{Native, Projector, spill};
 use crate::{
     engine::Config,
     gateway::{Admitted, Hub, InProc},
@@ -99,7 +99,7 @@ pub(crate) async fn load(
                             let events = p.push(&record);
                             let at = p.ts_ms.unwrap_or_else(crate::store::now_ms);
                             for event in events {
-                                let e = store.append_at(event, None, at).await?;
+                                let e = spill::append(&mut store, event, at).await?;
                                 g.hub.publish(e);
                             }
                         }
@@ -152,7 +152,7 @@ async fn recv_any(
 }
 
 async fn publish(store: &mut Store, hub: &Hub, event: Event) -> std::io::Result<()> {
-    let e = store.append(event, None).await?;
+    let e = spill::append(store, event, crate::store::now_ms()).await?;
     hub.publish(e);
     Ok(())
 }

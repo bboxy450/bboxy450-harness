@@ -12,11 +12,12 @@
 //! A projector is pure and streaming: `push` one native JSONL record, get the events it
 //! adds; `finish` closes whatever is still open. Records it does not understand (metadata,
 //! API bookkeeping, subagent side chains) add nothing. The result passes check_transcript.
+mod spill;
 pub mod watch;
 
 use crate::protocol::*;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Which native format a file holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,6 +67,12 @@ pub struct Projector {
     native: Native,
     turn: Option<TurnId>,
     tools: BTreeMap<String, OpenTool>,
+    usage: Option<Usage>,
+    usage_overflowed: bool,
+    claude_messages: BTreeSet<String>,
+    codex_total: Option<Usage>,
+    native_version: Option<String>,
+    context_window: Option<u64>,
     /// The native session's working directory, once a record names it.
     pub cwd: Option<String>,
     pub model: Option<String>,
@@ -78,6 +85,12 @@ impl Projector {
             native,
             turn: None,
             tools: BTreeMap::new(),
+            usage: None,
+            usage_overflowed: false,
+            claude_messages: BTreeSet::new(),
+            codex_total: None,
+            native_version: None,
+            context_window: None,
             cwd: None,
             model: None,
             ts_ms: None,
@@ -133,8 +146,153 @@ impl Projector {
         out.push(Event::TurnEnded {
             turn,
             reason,
-            usage: None,
+            usage: self.usage.take(),
         });
+        self.usage_overflowed = false;
+    }
+    fn set_model(&mut self, model: &str, out: &mut Vec<Event>) {
+        if self.model.as_deref() != Some(model) {
+            self.model = Some(model.to_owned());
+            out.push(Event::ProfileChanged {
+                profile: self.native.label().into(),
+                model: model.to_owned(),
+            });
+        }
+    }
+    fn record_usage(&mut self, usage: Usage, out: &mut Vec<Event>) {
+        if !self.usage_overflowed {
+            self.usage = match self.usage.take() {
+                Some(total) => add_usage(&total, &usage),
+                None => Some(usage.clone()),
+            };
+            self.usage_overflowed = self.usage.is_none();
+            if let Some(total) = &mut self.usage {
+                total.scope = Some(UsageScope::Turn);
+                total.source = Some(NumberSource::Derived);
+                total.request_id = None;
+            }
+        }
+        self.record(Item::Usage { usage }, out);
+    }
+    fn usage_backend(&self) -> Backend {
+        Backend {
+            kind: BackendKind::Import,
+            name: self.native.label().into(),
+            version: self.native_version.clone(),
+        }
+    }
+    fn claude_usage(&mut self, r: &Value, message: &Value, out: &mut Vec<Event>) {
+        let Some(u) = message.get("usage") else {
+            return;
+        };
+        let Some(mut usage) = parse_usage(u, "cache_read_input_tokens", None) else {
+            return;
+        };
+        // Anthropic reports uncached input separately; our input includes all cache tiers,
+        // just as the native Anthropic provider does. Optional absent counts stay unknown.
+        if !usage.unreported.iter().any(|n| n == "input_tokens") {
+            let Some(input) = usage
+                .input_tokens
+                .checked_add(usage.cached_input_tokens.unwrap_or(0))
+                .and_then(|n| n.checked_add(usage.cache_creation_input_tokens.unwrap_or(0)))
+            else {
+                return;
+            };
+            usage.input_tokens = input;
+        }
+        usage.scope = Some(UsageScope::Call);
+        usage.backend = Some(Box::new(self.usage_backend()));
+        usage.model = message
+            .get("model")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        usage.request_id = r
+            .get("requestId")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let mut keys: Vec<String> = message
+            .get("id")
+            .and_then(Value::as_str)
+            .map(|s| format!("message:{s}"))
+            .into_iter()
+            .chain(
+                r.get("requestId")
+                    .and_then(Value::as_str)
+                    .map(|s| format!("request:{s}")),
+            )
+            .collect();
+        if keys.is_empty() {
+            keys.extend(
+                r.get("uuid")
+                    .and_then(Value::as_str)
+                    .map(|s| format!("record:{s}")),
+            );
+        }
+        let duplicate = keys.iter().any(|key| self.claude_messages.contains(key));
+        self.claude_messages.extend(keys);
+        if duplicate {
+            return;
+        }
+        self.record_usage(usage, out);
+    }
+    fn codex_usage(&mut self, p: &Value, out: &mut Vec<Event>) {
+        let Some(info) = p.get("info").filter(|i| i.is_object()) else {
+            return;
+        };
+        let total = info
+            .get("total_token_usage")
+            .and_then(|u| parse_usage(u, "cached_input_tokens", Some("reasoning_output_tokens")));
+        let repeated = total.is_some() && total == self.codex_total;
+        let window = info.get("model_context_window").and_then(Value::as_u64);
+        // Only last_token_usage identifies a reported model call. A cumulative
+        // snapshot is session scope, never an invented call or turn total (§4a).
+        if !repeated
+            && let Some(mut usage) = info.get("last_token_usage").and_then(|u| {
+                parse_usage(u, "cached_input_tokens", Some("reasoning_output_tokens"))
+            })
+        {
+            usage.scope = Some(UsageScope::Call);
+            usage.backend = Some(Box::new(self.usage_backend()));
+            usage.model = self.model.clone();
+            usage.request_id = p
+                .get("request_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            self.record_usage(usage, out);
+        }
+        let session = total.clone().or_else(|| {
+            window.map(|_| Usage {
+                source: Some(NumberSource::Reported),
+                unreported: vec!["input_tokens".into(), "output_tokens".into()],
+                ..Usage::default()
+            })
+        });
+        if ((total.is_some() && !repeated) || window != self.context_window)
+            && let Some(mut usage) = session
+        {
+            usage.scope = Some(UsageScope::Session);
+            usage.backend = Some(Box::new(self.usage_backend()));
+            // Cumulative counters can span models; the current model is not a
+            // billed identity for all preceding calls.
+            usage.context_window = window;
+            let item = ItemId::new();
+            out.push(Event::ItemStarted {
+                turn: self.turn,
+                item,
+                kind: ItemKind::Usage,
+                parent: None,
+                head: None,
+            });
+            out.push(Event::ItemCompleted {
+                item,
+                status: ItemStatus::Completed,
+                body: Item::Usage { usage },
+            });
+        }
+        if total.is_some() {
+            self.codex_total = total;
+        }
+        self.context_window = window;
     }
     fn record(&mut self, body: Item, out: &mut Vec<Event>) {
         let turn = self.begin_turn(out);
@@ -215,6 +373,9 @@ impl Projector {
         if r.get("isSidechain").and_then(Value::as_bool) == Some(true) {
             return; // a subagent's own conversation
         }
+        if let Some(version) = r.get("version").and_then(Value::as_str) {
+            self.native_version = Some(version.to_owned());
+        }
         if let Some(cwd) = r.get("cwd").and_then(Value::as_str) {
             self.cwd.get_or_insert_with(|| cwd.to_owned());
         }
@@ -223,7 +384,7 @@ impl Projector {
             return;
         };
         if let Some(model) = message.get("model").and_then(Value::as_str) {
-            self.model = Some(model.to_owned());
+            self.set_model(model, out);
         }
         match kind {
             "user" => {
@@ -300,6 +461,7 @@ impl Projector {
                         _ => {}
                     }
                 }
+                self.claude_usage(r, message, out);
                 if message.get("stop_reason").and_then(Value::as_str) == Some("end_turn")
                     && self.tools.is_empty()
                 {
@@ -336,13 +498,16 @@ impl Projector {
         let ptype = p.get("type").and_then(Value::as_str).unwrap_or("");
         match r.get("type").and_then(Value::as_str).unwrap_or("") {
             "session_meta" => {
+                if let Some(version) = p.get("cli_version").and_then(Value::as_str) {
+                    self.native_version = Some(version.to_owned());
+                }
                 if let Some(cwd) = p.get("cwd").and_then(Value::as_str) {
                     self.cwd = Some(cwd.to_owned());
                 }
             }
             "turn_context" => {
                 if let Some(model) = p.get("model").and_then(Value::as_str) {
-                    self.model = Some(model.to_owned());
+                    self.set_model(model, out);
                 }
             }
             "event_msg" => match ptype {
@@ -352,6 +517,7 @@ impl Projector {
                 }
                 "task_complete" => self.end_turn(StopReason::EndTurn, out),
                 "turn_aborted" => self.end_turn(StopReason::Interrupted, out),
+                "token_count" => self.codex_usage(&p, out),
                 _ => {}
             },
             "response_item" => match ptype {
@@ -431,6 +597,92 @@ impl Projector {
             _ => {}
         }
     }
+}
+
+/// §4a: required-but-unreported counts are named placeholders, never fabricated facts.
+fn parse_usage(u: &Value, cached: &str, reasoning: Option<&str>) -> Option<Usage> {
+    let input = u.get("input_tokens").and_then(Value::as_u64);
+    let output = u.get("output_tokens").and_then(Value::as_u64);
+    let cached = u.get(cached).and_then(Value::as_u64);
+    let creation = u
+        .get("cache_creation_input_tokens")
+        .or_else(|| u.get("cache_write_input_tokens"))
+        .and_then(Value::as_u64);
+    let reasoning = reasoning
+        .and_then(|key| u.get(key))
+        .and_then(Value::as_u64)
+        .or_else(|| {
+            u.pointer("/output_tokens_details/thinking_tokens")
+                .and_then(Value::as_u64)
+        });
+    if [input, output, cached, creation, reasoning]
+        .iter()
+        .all(Option::is_none)
+    {
+        return None;
+    }
+    let mut unreported = vec![];
+    if input.is_none() {
+        unreported.push("input_tokens".into());
+    }
+    if output.is_none() {
+        unreported.push("output_tokens".into());
+    }
+    Some(Usage {
+        input_tokens: input.unwrap_or(0),
+        output_tokens: output.unwrap_or(0),
+        cached_input_tokens: cached,
+        cache_creation_input_tokens: creation,
+        reasoning_tokens: reasoning,
+        source: Some(NumberSource::Reported),
+        unreported,
+        ..Usage::default()
+    })
+}
+fn add_usage(a: &Usage, b: &Usage) -> Option<Usage> {
+    let optional = |a: Option<u64>, b: Option<u64>| a.zip(b).and_then(|(a, b)| a.checked_add(b));
+    let unreported: Vec<String> = a
+        .unreported
+        .iter()
+        .chain(&b.unreported)
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let mut backend = a.backend.clone();
+    if let Some(backend) = &mut backend
+        && b.backend.as_ref().and_then(|b| b.version.as_ref()) != backend.version.as_ref()
+    {
+        backend.version = None;
+    }
+    Some(Usage {
+        input_tokens: if unreported.iter().any(|n| n == "input_tokens") {
+            0
+        } else {
+            a.input_tokens.checked_add(b.input_tokens)?
+        },
+        output_tokens: if unreported.iter().any(|n| n == "output_tokens") {
+            0
+        } else {
+            a.output_tokens.checked_add(b.output_tokens)?
+        },
+        cached_input_tokens: optional(a.cached_input_tokens, b.cached_input_tokens),
+        cache_creation_input_tokens: optional(
+            a.cache_creation_input_tokens,
+            b.cache_creation_input_tokens,
+        ),
+        reasoning_tokens: optional(a.reasoning_tokens, b.reasoning_tokens),
+        scope: Some(UsageScope::Turn),
+        source: Some(NumberSource::Derived),
+        backend,
+        model: if a.model == b.model {
+            a.model.clone()
+        } else {
+            None
+        },
+        unreported,
+        ..Usage::default()
+    })
 }
 
 fn tool_body(t: OpenTool, output: Vec<OutputBlock>) -> Item {
@@ -513,15 +765,14 @@ pub async fn import_file(
         .append(
             Event::ProfileChanged {
                 profile: native.label().into(),
-                model: p.model.clone().unwrap_or_else(|| native.label().into()),
+                model: native.label().into(),
             },
             None,
         )
         .await
         .map_err(|e| e.to_string())?;
     for (e, at) in events {
-        store
-            .append_at(e, None, at)
+        spill::append(&mut store, e, at)
             .await
             .map_err(|e| e.to_string())?;
     }

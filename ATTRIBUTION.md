@@ -40,6 +40,9 @@ A distinctive implementation adapted from elsewhere carries its own `// Adapted 
 
 ## Lineage and credits
 
+- Native-log usage accounting and blob previews in `src/import/` are project-owned
+  implementations under the license and attribution policy above.
+
 - **Inspired by Gonzih/kittens** (https://github.com/Gonzih/kittens), the predecessor Rust harness by the same authors. Ideas carried over:
   - the turn-end guarantee
   - tool-call pairing

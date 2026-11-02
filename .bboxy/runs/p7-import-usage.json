@@ -1,0 +1,164 @@
+{
+  "task": "p7-import-usage",
+  "status": "complete",
+  "implementation": "f2682f547b408e2d66e65c5fb64aab9d0867969f",
+  "rebase_target": "26ebcf178a571acaf5a80d682d0d6fd316df5f2b",
+  "report": ".bboxy/reports/p7-import-usage.md",
+  "archive": "/tmp/p7-import-usage-evidence-n_yn712z",
+  "commands": [
+    {
+      "command": "make test-ir",
+      "exit": 0
+    },
+    {
+      "command": "cargo fmt --check",
+      "exit": 0
+    },
+    {
+      "command": "cargo clippy --offline --locked --all-features --all-targets -- -D warnings",
+      "exit": 0
+    },
+    {
+      "command": "cargo clippy --offline --locked --all-features --lib --bin bboxy450-harness -- -D warnings",
+      "exit": 0
+    },
+    {
+      "command": "cargo test --offline --locked --features standalone --test import_native --test protocol_golden --test protocol_laws --test context_auto --test anthropic_provider",
+      "exit": 0
+    },
+    {
+      "command": "cargo test --offline --locked --features standalone --test gui_render --test gui_rich --test gui_bridge --test gui_fixtures --test gui_cli",
+      "exit": 0
+    },
+    {
+      "command": "cargo run --offline --locked --features standalone -- gui --replay tests/fixtures/gui/rich-all-items.jsonl --headless --screenshot /Users/feral/mydev/bboxy450-harness-p7-import-usage/target/p7-evidence/smoke.png",
+      "exit": 0
+    },
+    {
+      "command": "python3 -I scripts/checks.py headers",
+      "exit": 0
+    },
+    {
+      "command": "python3 -I scripts/checks.py kb-records",
+      "exit": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit": 0
+    },
+    {
+      "command": "make test-formal",
+      "exit": 0
+    }
+  ],
+  "formal": {
+    "native_models": 86,
+    "java_native_exact_graphs": 5,
+    "driver_exit": 0,
+    "models": [
+      {
+        "name": "HarnessNativeUsage",
+        "states": 68,
+        "transitions": 207,
+        "verdict": "pass"
+      },
+      {
+        "name": "HarnessNativeSpill",
+        "states": 7,
+        "transitions": 6,
+        "verdict": "pass"
+      },
+      {
+        "name": "BrokenHarnessNativeUsage",
+        "states": 204,
+        "transitions": 509,
+        "verdict": "safety"
+      },
+      {
+        "name": "BrokenHarnessNativeSpill",
+        "states": 8,
+        "transitions": 7,
+        "verdict": "safety"
+      },
+      {
+        "name": "BrokenHarnessNativeUsageScopes",
+        "states": 68,
+        "transitions": 207,
+        "verdict": "safety"
+      }
+    ]
+  },
+  "bulk": {
+    "exit": 0,
+    "summary": {
+      "claude-code": {
+        "files": 40,
+        "pass": 40,
+        "fail": 0,
+        "tokens": {
+          "input_tokens": 8960684005,
+          "output_tokens": 13218626,
+          "cached_input_tokens": 8904557211,
+          "cache_creation_input_tokens": 56031012,
+          "reasoning_tokens": 3451740,
+          "total_tokens": 8973902631
+        },
+        "tool_spills": 4,
+        "blob_count": 7
+      },
+      "codex": {
+        "files": 40,
+        "pass": 40,
+        "fail": 0,
+        "tokens": {
+          "input_tokens": 2461853224,
+          "output_tokens": 9148046,
+          "cached_input_tokens": 2441950976,
+          "cache_creation_input_tokens": 0,
+          "reasoning_tokens": 6202504,
+          "total_tokens": 2471001270
+        },
+        "tool_spills": 29,
+        "blob_count": 29
+      }
+    },
+    "all_provenance_valid": true,
+    "max_envelope_bytes": 51913
+  },
+  "sha256": {
+    "formal_receipt": "8d4e8557611edcf4b59e46a4c2c718c6fb1a95e186fc5a3f80f07a7574dcf8a4",
+    "native_receipt": "44fe99db64c1c6bacb5633405523163ddceb199d6dcfae8f7fe0717172422016",
+    "bulk": "26978a476f71668f4968be13e097cc85c40da7b3b0402d433554a6e80e294429",
+    "smoke": "6a4219633a4a722e25b01d9f26d136984d23671a40cf60342949d23ed3f68eff",
+    "inputs": "1b4681b3ee6dc6a5b7f364b58196e90a98bdf811e18fd9b8a780dd2c4b2728ed"
+  },
+  "common_read": "2026-11-02T23:13:49.278965+00:00",
+  "lab": "/Users/feral/mydev/bboxy450-term-harness-ref/lab/web",
+  "manual_chrome_flags": [
+    "--use-mock-keychain",
+    "--password-store=basic",
+    "--user-data-dir=$(mktemp -d)"
+  ],
+  "chrome_invocations": 0,
+  "packaging_checks": {
+    "exit": 0,
+    "commands": [
+      "make test-ir",
+      "python3 -I scripts/checks.py headers",
+      "python3 -I scripts/checks.py kb-records",
+      "python3 -I scripts/checks.py secrets",
+      "git diff --cached --check"
+    ],
+    "log_sha256": "603de8333e806c8ee5fad792b5bff2159f86b85b6f59e9b194b098d48838b7a4"
+  },
+  "amendment_audit": {
+    "spec": "c4246de2a64a8b25bcd8dfe2f18dd2b77d18ecf8",
+    "result": "already matches: one Usage.source plus unreported Vec<String>; no per-field map",
+    "cost": "not emitted by p7 when unreported; Cost.source applies to authored Cost records",
+    "import_test_exit": 0,
+    "test_ir_exit": 0,
+    "wire_schema_check_exit": 0,
+    "test_log_sha256": "2e0f8d1e7d3db9db2b394da773f688eb04e4d05320787a1d33fce9f8da743ef5",
+    "ir_log_sha256": "9fadbde36130bcdc01abef7b33d5b3056f6e093773d410e369b3e2a35d45e24a"
+  }
+}

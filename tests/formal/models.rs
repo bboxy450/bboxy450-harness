@@ -2444,6 +2444,179 @@ fn agent_path(mode: u8) -> Model {
     m
 }
 
+// Native-log accounting: two identified calls (one and two tokens), repeated in
+// either order across two turn boundaries. Seen identities outlive turn totals.
+// Missing usage has no accounting action. No fairness is assumed of native IO.
+fn native_usage(mode: u8) -> Model {
+    let mut m = base::<10>(
+        "NativeUsage",
+        mode != 0,
+        &[
+            ("turn", 2, 0),
+            ("seen_a", 1, 0),
+            ("seen_b", 1, 0),
+            ("items_a", 2, 0),
+            ("items_b", 2, 0),
+            ("turn_usage", 6, 0),
+            ("finished_usage", 6, 0),
+            ("total", 9, 0),
+            ("session_step", 3, 0),
+            ("session_tokens", 3, 0),
+        ],
+    );
+    if mode == 2 {
+        m.name = "BrokenHarnessNativeUsageScopes".into();
+    }
+    // Native cumulative A -> B -> A snapshots persist separately and are not
+    // added to calls or turn totals. The control incorrectly adds both scopes.
+    for (step, tokens) in [(0, 1), (1, 3), (2, 1)] {
+        act(
+            &mut m,
+            "SessionSnapshot",
+            eq(8, step),
+            &[
+                (8, Int(step + 1)),
+                (9, Int(tokens)),
+                (
+                    7,
+                    if mode == 2 {
+                        Var(7).plus(Int(tokens))
+                    } else {
+                        Var(7)
+                    },
+                ),
+            ],
+        );
+    }
+    for (seen, items, tokens) in [(1, 3, 1), (2, 4, 2)] {
+        act(
+            &mut m,
+            "AccountNewCall",
+            all([Var(0).lt(Int(2)), eq(seen, 0)]),
+            &[
+                (seen, Int(1)),
+                (items, Int(1)),
+                (5, Var(5).plus(Int(tokens))),
+                (7, Var(7).plus(Int(tokens))),
+            ],
+        );
+        act(
+            &mut m,
+            "RepeatedBlockOrSnapshot",
+            all([Var(0).lt(Int(2)), eq(seen, 1), Var(items).lt(Int(2))]),
+            if mode == 1 {
+                vec![
+                    (items, Var(items).plus(Int(1))),
+                    (5, Var(5).plus(Int(tokens))),
+                    (7, Var(7).plus(Int(tokens))),
+                ]
+            } else {
+                vec![]
+            }
+            .as_slice(),
+        );
+    }
+    let end = m.actions.len();
+    act(
+        &mut m,
+        "EndTurn",
+        Var(0).lt(Int(2)),
+        &[
+            (0, Var(0).plus(Int(1))),
+            (6, Var(6).plus(Var(5))),
+            (5, Int(0)),
+        ],
+    );
+    safe(
+        &mut m,
+        "OneUsagePerCall",
+        Var(3).eq(Var(1)).and(Var(4).eq(Var(2))),
+    );
+    safe(
+        &mut m,
+        "TurnTotalsConserveUsage",
+        Var(7).eq(Var(5).plus(Var(6))),
+    );
+    safe(
+        &mut m,
+        "OnlyReportedTokens",
+        Var(7).eq(Var(1).plus(Var(2)).plus(Var(2))),
+    );
+    progress(
+        &mut m,
+        "FiniteImportEnds",
+        Var(0).lt(Int(2)),
+        eq(0, 2),
+        vec![end],
+    );
+    m
+}
+
+// The import/watch writer owns a pending event. A large text blob must be
+// durable before an event names it; a failed write publishes no reference.
+fn native_spill(b: bool) -> Model {
+    let mut m = base::<5>(
+        "NativeSpill",
+        b,
+        &[
+            ("phase", 4, 0), // idle, pending, blob ready, published, failed
+            ("large", 1, 0),
+            ("blob", 1, 0),
+            ("reference", 1, 0),
+            ("wire_size", 2, 0), // empty, bounded preview, oversized native text
+        ],
+    );
+    for large in 0..=1 {
+        act(
+            &mut m,
+            "ReceiveNativeText",
+            eq(0, 0),
+            &[(0, Int(1)), (1, Int(large))],
+        );
+    }
+    let put = m.actions.len();
+    act(
+        &mut m,
+        "PersistBlob",
+        all([eq(0, 1), eq(1, 1)]),
+        &[(0, Int(2)), (2, Int(1))],
+    );
+    act(
+        &mut m,
+        "BlobWriteFails",
+        all([eq(0, 1), eq(1, 1)]),
+        &[(0, Int(4))],
+    );
+    let publish_small = m.actions.len();
+    act(
+        &mut m,
+        "AppendSmall",
+        all([eq(0, 1), eq(1, 0)]),
+        &[(0, Int(3)), (4, Int(1))],
+    );
+    let publish_large = m.actions.len();
+    act(
+        &mut m,
+        "AppendLarge",
+        if b {
+            eq(0, 1).or(eq(0, 2)).and(eq(1, 1))
+        } else {
+            eq(0, 2)
+        },
+        &[(0, Int(3)), (3, Int(1)), (4, Int(1))],
+    );
+    safe(&mut m, "ReferenceOnlyAfterBlob", eq(3, 0).or(eq(2, 1)));
+    safe(&mut m, "EnvelopeBounded", Var(4).lt(Int(2)));
+    progress(
+        &mut m,
+        "PendingSettles",
+        eq(0, 1),
+        eq(0, 3).or(eq(0, 4)),
+        vec![put, publish_small, publish_large],
+    );
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
         (agent_path(0), "pass"),
@@ -2478,6 +2651,8 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
             dirty_wake_frame(b),
             scroll_stick(b),
             acp_agent_turn(u8::from(b)),
+            native_usage(if b { 1 } else { 0 }),
+            native_spill(b),
             folded_card(b),
             embed_lifecycle(b),
             profile_load(b),
@@ -2548,6 +2723,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
             if mode == 0 { "pass" } else { "safety" },
         ));
     }
+    out.push((native_usage(2), "safety"));
     use bbt_yarn::reactor_model;
     let mut projected = bboxy450_harness::harness_turn_topology!(
         reactor_model,

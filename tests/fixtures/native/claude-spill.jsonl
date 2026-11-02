@@ -1,0 +1,4 @@
+{"type":"user","sessionId":"spill","message":{"content":"__LARGE_TEXT__"}}
+{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"__LARGE_TEXT__"},{"type":"tool_use","id":"large","name":"Bash","input":{"command":"__LARGE_TEXT__"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"large","content":"__LARGE_TEXT__","is_error":true}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"__LARGE_TEXT__"}],"stop_reason":"end_turn"}}

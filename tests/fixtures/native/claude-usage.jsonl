@@ -1,0 +1,12 @@
+{"type":"user","sessionId":"usage","version":"claude-fixture-2","message":{"content":"First turn"}}
+{"type":"assistant","requestId":"request-a","uuid":"a-block-1","message":{"id":"message-a","model":"claude-one","content":[{"type":"thinking","thinking":"First block"}],"usage":{"input_tokens":2,"output_tokens":3,"cache_read_input_tokens":10,"cache_creation_input_tokens":20,"output_tokens_details":{"thinking_tokens":1}}}}
+{"type":"assistant","requestId":"request-a","uuid":"a-block-2","message":{"id":"message-a","model":"claude-one","content":[{"type":"tool_use","id":"tool-a","name":"Bash","input":{"command":"true"}}],"usage":{"input_tokens":2,"output_tokens":3,"cache_read_input_tokens":10,"cache_creation_input_tokens":20,"output_tokens_details":{"thinking_tokens":1}}}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool-a","content":"ok"}]}}
+{"type":"assistant","requestId":"request-b","message":{"id":"message-b","model":"claude-one","content":[{"type":"text","text":"Done"}],"usage":{"input_tokens":4,"output_tokens":7,"cache_read_input_tokens":5,"cache_creation_input_tokens":6,"output_tokens_details":{"thinking_tokens":2}},"stop_reason":"end_turn"}}
+{"type":"user","message":{"content":"Second turn"}}
+{"type":"assistant","requestId":"request-c","uuid":"c-block-1","message":{"model":"claude-two","content":[{"type":"text","text":"Done again"}],"usage":{"input_tokens":1,"output_tokens":2},"stop_reason":"end_turn"}}
+{"type":"assistant","requestId":"request-c","uuid":"c-block-2","message":{"model":"claude-two","content":[],"usage":{"input_tokens":1,"output_tokens":2}}}
+{"type":"assistant","requestId":"request-c","uuid":"c-block-3","message":{"id":"message-c","model":"claude-two","content":[],"usage":{"input_tokens":1,"output_tokens":2}}}
+{"type":"assistant","uuid":"c-block-4","message":{"id":"message-c","model":"claude-two","content":[],"usage":{"input_tokens":1,"output_tokens":2}}}
+{"type":"assistant","isSidechain":true,"message":{"id":"side","model":"ignored-model","content":[],"usage":{"input_tokens":9999,"output_tokens":9999}}}
+{"type":"assistant","message":{"id":"missing","content":[],"usage":{}}}

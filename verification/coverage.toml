@@ -35,6 +35,8 @@ models = [
     "HarnessScrollStick",
     "HarnessFoldedCard",
     "HarnessAcpAgentTurn",
+    "HarnessNativeUsage",
+    "HarnessNativeSpill",
     "HarnessSeatReport",
     "HarnessEmbedLifecycle",
     "HarnessGuiMarkdownBudget",
@@ -96,11 +98,12 @@ sources = [
     "src/backend/mod.rs",
     "src/backend/acp_agent.rs",
     "src/import/mod.rs",
+    "src/import/spill.rs",
     "src/import/watch.rs",
 ]
 implementation_only = [
     "OSC 7501 seat reports: exact base64/UTF-8 bytes, streaming probe filtering and unattended PTY input/termios in tests/seat_golden.rs and tests/seat_process.rs. ACP usage_update maps context/cost/currency to additive log IR v1 session Usage with source/backend/unreported provenance, including between turns. Serialization, decimal-to-micro rounding, invalid/empty updates and reported agent/model identity are implementation witnesses in tests/acp_agent.rs and tests/protocol_golden.rs; no new arbitration state. tests/context_auto.rs proves session gauges and unreported call counters cannot anchor a rebuilt engine request after handoff.",
-    "Native log import (src/import): Claude Code and Codex records project into protocol events checked by check_transcript; the watch actor tails a file, refuses turns and closes an open native turn before SessionClosed. Parsing, projection and tailing are implementation witnesses in tests/import_native.rs (one-shot import, live append, switch with handoff); no model covers file growth or truncation.",
+    "Native log import: HarnessNativeUsage models two call identities repeated across two turns plus separate cumulative session snapshots; HarnessNativeSpill models blob-before-reference and failed writes. JSON parsing, reported/derived scope labels, import backend/model/version identity, named absent required counts, cache/reasoning arithmetic, cumulative reset interpretation, UTF-8/JSON-escaped previews, actual blob bytes/durability, file growth and truncation remain implementation witnesses in tests/import_native.rs (one-shot import, live append, switch with handoff). No arbitrary Rust refinement claim.",
     "Anthropic request mapping, SSE bytes, signed/redacted block replay, cache markers and token arithmetic: tests/anthropic_provider.rs. HarnessProviderStream abstracts shared retry ownership and finish/error classes; actual network scheduling, wall-clock stalls, redaction and serialization remain implementation witnesses.",
     "Seat-capability file syscalls and exact bytes: O_NOFOLLOW/O_NONBLOCK, pre-open metadata and fstat regular/euid/exact0600 checks, 64 lowercase hex plus newline, safe refusal text; src/capability.rs unit witnesses. HarnessMcpServer abstracts a valid versus unavailable file and registration before projection, not kernel/filesystem correctness.",
     "Seat capability environment projection: real headless/seat/ACP tool processes, profile/ACP MCP env and resolved-value refusals, launcher inheritance exception, stored output and GUI smoke rendering in tests/capability_delivery.rs and tests/support/seat_launch.rs. Environment bytes, actual value matching and pixels are implementation witnesses.",

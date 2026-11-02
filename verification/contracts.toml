@@ -4,6 +4,27 @@
 # License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 # Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+
+[[contract]]
+name = "HarnessNativeUsage"
+title = "Native usage counts each identified model call once across turn boundaries."
+models = ["HarnessNativeUsage", "BrokenHarnessNativeUsage", "BrokenHarnessNativeUsageScopes"]
+controls = [{name="BrokenHarnessNativeUsage", expected="safety"}, {name="BrokenHarnessNativeUsageScopes", expected="safety"}]
+sources = ["src/import/mod.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/import_native.rs"]
+assumptions = "Two identified calls carrying one and two abstract tokens, arbitrarily repeated before/after two endings, plus three independent cumulative session snapshots (1-3-1); identities persist and only turn totals reset. Weak fairness of local EndTurn only; no fairness of native IO. Field parsing, cache tiers, model changes, cumulative snapshots/resets and integer overflow are implementation-only; no Rust refinement proof."
+property = "Exactly one usage item per known call; each turn's sum plus finished totals equals reported unique calls, without adding cumulative session snapshots."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessNativeSpill"
+title = "Imported and watched text persists its blob before publishing a bounded preview."
+models = ["HarnessNativeSpill", "BrokenHarnessNativeSpill"]
+sources = ["src/import/mod.rs", "src/import/watch.rs", "src/import/spill.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/import_native.rs"]
+assumptions = "One pending small/large event, one blob, success/failure of persistence; local put/append weak fairness settles pending work. Atomic durability is abstract; actual fsync, hash/redaction, JSON escaping and UTF-8 are implementation-only; no Rust refinement proof."
+property = "Every published spill reference has an already-persisted blob; envelopes stay bounded and failed writes publish no reference."
+checks = ["make test-formal", "make test"]
 [[contract]]
 name = "HarnessTurnLifecycle"
 title = "Exactly one ending; paired results at end; replay never redispatches; every queued turn eventually ends under weak fairness."
