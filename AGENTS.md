@@ -37,6 +37,20 @@ What it does not authorize:
 - Publishing under another identity.
 - Merging in other repositories, unless that repository records its own authorization. The toolkit crates live in bboxy450-term, and publishing them as bboxy450 is covered by the publish permission above. Merges there follow bboxy450-term's own rules.
 
+## Autonomous operation (recorded 2026-11-02)
+
+The operator said: "yes land it just merge it, auto merge, work autonomously, dont ask me for permissions". The same rule holds in bboxy450-term.
+
+- **Never ask for permission.** Verified work is landed, merged and deployed by the agent that did it, then reported. Asking "should I land?" at the end of finished work is a defect.
+- **Verification still decides.** Merge only what passes the rules above: signed commits, the task's `verify` command, `make test-formal`, and unit, integration and smoke tests run unattended. A red gate is fixed or reported, never bypassed.
+- **Ask only for what is physical or irreversible**, say why, and keep everything else moving meanwhile.
+
+## Unattended operation
+
+Every unit, smoke, e2e and agent test runs with nobody at the machine. Use private accounts, homes, sockets and scripted controls. No operator Keychain prompt, login, click, pane authorization or physical probe may be required.
+
+Drive the harness through its flags, sockets, `--replay`, `--capture` and scripted providers (`--scripted`). Never inject OS keystrokes/clicks or screen-capture the operator's desktop. Kill only exact PIDs you started and recorded; delete only directories you created. Never use broad process kills or clean up peers' targets/worktrees.
+
 ## Roles
 
 | Role | Who | Does |
