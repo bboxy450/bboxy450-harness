@@ -25,6 +25,7 @@ models = [
     "HarnessSubscriberReplay",
     "HarnessSubscriberReplayRegistration",
     "HarnessProcessLifecycle",
+    "HarnessSeatShutdown",
     "HarnessSubscriberReplayDrop",
     "HarnessSubscriberReplayHealthy",
     "HarnessStreamToView",

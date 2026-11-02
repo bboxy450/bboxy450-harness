@@ -18,6 +18,12 @@ use crate::{
 use std::{path::PathBuf, sync::Arc};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
+// Preserve I/O errors as teardown observations; cleanup must not depend on
+// a later snapshot of terminal readiness.
+fn stop_cli(stop: &CancellationToken) {
+    crate::process::kill_owned_groups();
+    stop.cancel();
+}
 pub async fn cli() -> i32 {
     let result=async {
         crate::process::install_shutdown_handlers().map_err(|_|"signal handler failed".to_string())?;
@@ -25,12 +31,23 @@ pub async fn cli() -> i32 {
         let mut hup=tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()).map_err(|_|"signal handler failed".to_string())?;
         let mut term=tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).map_err(|_|"signal handler failed".to_string())?;
         let mut interrupt=tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).map_err(|_|"signal handler failed".to_string())?;
+        let tty=unsafe {libc::isatty(libc::STDIN_FILENO)}==1;
+        let mut shutdown_watch=tokio::time::interval(std::time::Duration::from_millis(5));
+        shutdown_watch.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let run=run_cli(stop.clone(),ready.clone());tokio::pin!(run);
         loop {tokio::select!{biased;
             result=&mut run=>break result,
             _=hup.recv()=>stop.cancel(),
             _=term.recv()=>stop.cancel(),
             _=interrupt.recv(),if !ready.load(std::sync::atomic::Ordering::Acquire)=>stop.cancel(),
+            // Observe physical EOF even while the face awaits a full stdout.
+            // Keep signalling registered groups: a fork already in progress
+            // can publish a member after the handler's first killpg snapshot.
+            _=shutdown_watch.tick(),if tty||stop.is_cancelled()=>{
+                if stop.is_cancelled()||(tty&&stdin_hung_up()) {
+                    stop_cli(&stop);
+                }
+            },
         }}
     }.await;
     match result {
@@ -447,11 +464,12 @@ async fn run_cli(
             ))
             .map_err(|_| "turn refused")?;
     }
-    loop {
+    'events: loop {
         tokio::select! {biased;
          _=stop.cancelled(),if !stopping=>{let _=gateway.send(op(session,Op::Close));stopping=true;},
          _=tokio::signal::ctrl_c()=>{input_filter.interrupt();if running{let _=gateway.send(op(session,Op::Interrupt{turn:None}));}},
          read=input.read(&mut input_bytes),if seat&&!stopping=>{
+           if read.is_err(){stop_cli(&stop);}
            let actions = match read {
                Ok(n) if n > 0 => input_filter.feed(&input_bytes[..n], report_state),
                _ => input_filter.finish(),
@@ -460,16 +478,19 @@ async fn run_cli(
             let text = match action {
                 super::seat::InputAction::Line(text) => text,
                 super::seat::InputAction::Probe => {
-                    if report_state { let _=stdout.write_all(&state.report()).await; let _=stdout.flush().await; }
+                    if report_state && (stdout.write_all(&state.report()).await.is_err()||stdout.flush().await.is_err()) {
+                        stop_cli(&stop);let _=gateway.send(op(session,Op::Close));break 'events;
+                    }
                     continue;
                 }
                 super::seat::InputAction::Echo(bytes) => {
-                    let _=stdout.write_all(&bytes).await;
-                    let _=stdout.flush().await;
+                    if stdout.write_all(&bytes).await.is_err()||stdout.flush().await.is_err() {
+                        stop_cli(&stop);let _=gateway.send(op(session,Op::Close));break 'events;
+                    }
                     continue;
                 }
                 super::seat::InputAction::Eof => {
-                    if stdin_was_tty && stdin_hung_up(){crate::process::kill_owned_groups();}
+                    if stdin_was_tty && stdin_hung_up(){stop_cli(&stop);}
                     let _=gateway.send(op(session,Op::Close));stopping=true;
                     break;
                 }
@@ -499,7 +520,7 @@ async fn run_cli(
                                     for event in &gateway.hub.projection().log {
                                         state.apply(&event.event);
                                     }
-                                    let _=stdout.write_all(&state.report()).await;
+                                    if stdout.write_all(&state.report()).await.is_err(){stop_cli(&stop);let _=gateway.send(op(session,Op::Close));break 'events;}
                                 }
                                 format!("switched to profile {name} · session {session}\n")
                             }
@@ -511,16 +532,15 @@ async fn run_cli(
                     if let Some(request)=request&&gateway.send(op(session,request)).is_err(){reply="refused\n".into();}
                     reply
                 };
-                if stdout.write_all(reply.as_bytes()).await.is_err(){let _=gateway.send(op(session,Op::Close));break;}let _=stdout.flush().await;
+                if stdout.write_all(reply.as_bytes()).await.is_err()||stdout.flush().await.is_err(){stop_cli(&stop);let _=gateway.send(op(session,Op::Close));break 'events;}
             }else if !text.is_empty(){let _=gateway.send(op(session,Op::UserTurn{blocks:vec![InputBlock::Text{text}],mode:TurnMode::Queue}));}}
          },
          event=subscription.recv()=>{let Some(event)=event else{break;};match &event.event{Event::TurnStarted{..}=>running=true,Event::TurnEnded{reason,..}=>{running=false;failed|=matches!(reason,StopReason::Error{..});if !seat&&!stopping{let _=gateway.send(op(session,Op::Close));stopping=true;}},_=>{}}
           let bytes=if json {event.wire_bytes().map_err(|_|"event serialization failed")?}else{line_projection.render(&event)};
-          if stdout.write_all(&bytes).await.is_err(){let _=gateway.send(op(session,Op::Close));break;}let _=stdout.flush().await;
-          if report_state && let Some(bytes) = state.apply(&event.event) {
-              if stdout.write_all(&bytes).await.is_err(){let _=gateway.send(op(session,Op::Close));break;}
-              let _=stdout.flush().await;
-          }
+          if stdout.write_all(&bytes).await.is_err()||stdout.flush().await.is_err(){stop_cli(&stop);let _=gateway.send(op(session,Op::Close));break 'events;}
+          if report_state && let Some(bytes) = state.apply(&event.event)
+              && (stdout.write_all(&bytes).await.is_err()||stdout.flush().await.is_err())
+          {stop_cli(&stop);let _=gateway.send(op(session,Op::Close));break 'events;}
           if matches!(event.event,Event::SessionClosed){break;}
          }
         }

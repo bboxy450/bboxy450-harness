@@ -884,6 +884,129 @@ fn replay_tail(mode: u8) -> Model {
     );
     m
 }
+// Shutdown's bounded scheduling abstraction: one fork can be in progress at
+// the first killpg. It publishes before a second watch opportunity; signalled
+// processes exit before escalation. Real 5ms/250ms timing stays a process
+// witness, not a claim that fairness supplies a wall-clock deadline.
+fn seat_shutdown(mode: u8) -> Model {
+    let mut m = base::<7>(
+        "SeatShutdown",
+        false,
+        &[
+            ("leader", 3, 0), // alive, signalled, exited/waitable, reaped
+            ("member", 3, 0),
+            ("fork", 2, 0), // absent, in progress, published
+            ("closing", 1, 0),
+            ("source", 3, 0), // none, signal, physical EOF, terminal I/O error
+            ("output_blocked", 1, 0),
+            ("phase", 5, 0), // first watch, fork settles, second watch, exit, escalation
+        ],
+    );
+    act(
+        &mut m,
+        "BeginFork",
+        all([eq(4, 0), eq(2, 0)]),
+        &[(2, Int(1))],
+    );
+    act(&mut m, "BlockOutput", eq(4, 0), &[(5, Int(1))]);
+    act(
+        &mut m,
+        "SignalHandlerKillsPublishedMembers",
+        eq(4, 0),
+        &[(4, Int(1)), (3, Int(1)), (0, Int(1)), (1, Int(1))],
+    );
+    act(&mut m, "PhysicalEOFWithoutSignal", eq(4, 0), &[(4, Int(2))]);
+    act(&mut m, "TerminalIOError", eq(4, 0), &[(4, Int(3))]);
+    let mut fair = Vec::new();
+    for phase in [0, 2] {
+        for source in [1, 2, 3] {
+            for blocked in [0, 1] {
+                let observes = !(mode == 2 && source != 1 && blocked == 1);
+                let signals = observes && (phase == 0 || mode != 1);
+                fair.push(m.actions.len());
+                act(
+                    &mut m,
+                    &format!("Watch{phase}Source{source}Blocked{blocked}"),
+                    all([eq(6, phase), eq(4, source), eq(5, blocked)]),
+                    &[
+                        (6, Int(phase + 1)),
+                        (3, if observes { Int(1) } else { Var(3) }),
+                        (0, if signals { Int(1) } else { Var(0) }),
+                        (1, if signals { Int(1) } else { Var(1) }),
+                    ],
+                );
+            }
+        }
+    }
+    fair.push(m.actions.len());
+    act(
+        &mut m,
+        "InFlightForkPublishesAfterFirstKill",
+        all([eq(6, 1), eq(2, 1)]),
+        &[(2, Int(2)), (1, Int(0))],
+    );
+    fair.push(m.actions.len());
+    act(
+        &mut m,
+        "ForkHasSettledBeforeNextWatch",
+        all([eq(6, 1), eq(2, 1).negate()]),
+        &[(6, Int(2))],
+    );
+    for leader in 0..=1 {
+        for member in 0..=1 {
+            fair.push(m.actions.len());
+            act(
+                &mut m,
+                &format!("KernelExitsSignalled{leader}{member}"),
+                all([eq(6, 3), eq(0, leader), eq(1, member)]),
+                &[(6, Int(4)), (0, Int(leader * 2)), (1, Int(member * 2))],
+            );
+        }
+    }
+    fair.push(m.actions.len());
+    act(&mut m, "SupervisorEscalates", eq(6, 4), &[(6, Int(5))]);
+    for (index, name) in [(0, "Leader"), (1, "Member")] {
+        let reap = m.actions.len();
+        act(
+            &mut m,
+            &format!("Reap{name}"),
+            eq(index, 2),
+            &[(index, Int(3))],
+        );
+        progress(
+            &mut m,
+            &format!("{name}EventuallyReaped"),
+            eq(index, 2),
+            eq(index, 3),
+            vec![reap],
+        );
+    }
+    safe(
+        &mut m,
+        "ShutdownObservationIndependentOfOutput",
+        eq(6, 0).or(eq(3, 1)),
+    );
+    safe(
+        &mut m,
+        "NoExecutableMembersAfterSupervisorKill",
+        eq(6, 5)
+            .negate()
+            .or(all([Int(2).le(Var(0)), Int(2).le(Var(1))])),
+    );
+    progress(
+        &mut m,
+        "WatchEventuallyReachesEscalation",
+        eq(4, 0).negate(),
+        eq(6, 5),
+        fair,
+    );
+    match mode {
+        1 => m.name = "BrokenHarnessSeatShutdownSingleKill".into(),
+        2 => m.name = "BrokenHarnessSeatShutdownBlockedOutput".into(),
+        _ => {}
+    }
+    m
+}
 fn process_lifecycle(mode: u8) -> Model {
     let mut m = base::<10>(
         "ProcessLifecycle",
@@ -2789,6 +2912,9 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
     out.push((process_lifecycle(3), "safety"));
     out.push((process_lifecycle(4), "safety"));
     out.push((process_lifecycle(5), "safety"));
+    out.push((seat_shutdown(0), "pass"));
+    out.push((seat_shutdown(1), "safety"));
+    out.push((seat_shutdown(2), "safety"));
     out.push((mcp_group_close_mode(false, true), "safety"));
     for mode in 0..=3 {
         out.push((

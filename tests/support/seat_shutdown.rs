@@ -64,6 +64,9 @@ fn events(root: &Path) -> Vec<Envelope> {
 }
 impl Seat {
     fn spawn(root: &Path, resume: Option<&str>, mcp: bool) -> Self {
+        Self::spawn_with_tty(root, resume, mcp, true)
+    }
+    fn spawn_with_tty(root: &Path, resume: Option<&str>, mcp: bool, controlling_tty: bool) -> Self {
         let pty = native_pty_system()
             .openpty(PtySize {
                 rows: 24,
@@ -73,6 +76,7 @@ impl Seat {
             })
             .unwrap();
         let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_bboxy450-harness"));
+        command.set_controlling_tty(controlling_tty);
         command.env_clear();
         command.env("HOME", root);
         command.env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
@@ -106,11 +110,14 @@ impl Seat {
         input.flush().unwrap();
     }
     fn wait_prompt(&self) {
+        self.wait_output("› ");
+    }
+    fn wait_output(&self, needle: &str) {
         let fd = self.master.as_ref().unwrap().as_raw_fd().unwrap();
         let end = Instant::now() + Duration::from_secs(10);
         let mut output = Vec::new();
-        while !String::from_utf8_lossy(&output).contains("› ") {
-            assert!(Instant::now() < end, "seat prompt did not become ready");
+        while !String::from_utf8_lossy(&output).contains(needle) {
+            assert!(Instant::now() < end, "seat output did not reach {needle:?}");
             let mut poll = libc::pollfd {
                 fd,
                 events: libc::POLLIN,
@@ -180,9 +187,14 @@ fn fixture() -> tempfile::TempDir {
     temp
 }
 fn supervisor_case(signal: Option<i32>) {
+    supervisor_case_with_output(signal, false);
+}
+fn supervisor_case_with_output(signal: Option<i32>, backpressured: bool) {
     let temp = fixture();
     let root = temp.path();
-    let mut seat = Seat::spawn(root, None, true);
+    // A PTY without a controlling session delivers EOF without a kernel HUP.
+    // This deterministically exercises the fallback seen in the load failures.
+    let mut seat = Seat::spawn_with_tty(root, None, true, !backpressured);
     seat.write(b"start a tool\n");
     wait_for(
         || group_pid(root, "group.pid").is_some() && group_pid(root, "mcp-group.pid").is_some(),
@@ -194,6 +206,17 @@ fn supervisor_case(signal: Option<i32>) {
         group_pid(root, "mcp-group.pid").unwrap(),
     ];
     assert!(groups.iter().all(|p| !group_dead(*p)));
+    if backpressured {
+        let profiles = root.join(".bboxy450-harness/profiles");
+        std::fs::create_dir_all(&profiles).unwrap();
+        for i in 0..10_000 {
+            std::fs::write(profiles.join(format!("{i:05}-{}.md", "p".repeat(240))), "").unwrap();
+        }
+        seat.write(b"/profiles\n");
+        // Exceed both Tokio's 2MiB stdout buffer and the kernel terminal queue.
+        // Reading only the prefix leaves write_all pending, before its flush.
+        seat.wait_output("profiles: ");
+    }
     if let Some(signal) = signal {
         assert_eq!(
             unsafe { libc::kill(seat.child.process_id().unwrap() as i32, signal) },
@@ -358,6 +381,14 @@ fn term_kills_owned_groups_before_supervisor_escalation_and_resume_recovers() {
 #[test]
 fn pty_master_close_kills_owned_groups_before_escalation_and_resume_recovers() {
     supervisor_case(None);
+}
+#[test]
+fn pty_close_with_backpressured_stdout_still_retires_owned_groups() {
+    supervisor_case_with_output(None, true);
+}
+#[test]
+fn hup_with_backpressured_stdout_still_retires_owned_groups() {
+    supervisor_case_with_output(Some(libc::SIGHUP), true);
 }
 #[test]
 fn control_d_at_the_prompt_closes_and_fsyncs_gracefully() {

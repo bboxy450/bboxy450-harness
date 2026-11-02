@@ -163,6 +163,18 @@ name="HarnessProcessLifecycle"
 expected="pass"
 
 [[model]]
+name="HarnessSeatShutdown"
+expected="pass"
+
+[[model]]
+name="BrokenHarnessSeatShutdownSingleKill"
+expected="safety"
+
+[[model]]
+name="BrokenHarnessSeatShutdownBlockedOutput"
+expected="safety"
+
+[[model]]
 name="BrokenHarnessProcessDrain"
 expected="liveness"
 

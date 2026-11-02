@@ -87,6 +87,8 @@ def main(selected=None):
          lambda s:once(s,'if mode == 5 { Var(9) } else { Int(0) }','if mode == 0 || mode == 5 { Var(9) } else { Int(0) }')),
         ('seat-hangup','src/process.rs','seat_process','seat_shutdown::hup_kills_owned_groups_before_supervisor_escalation_and_resume_recovers','owned group survived supervisor escalation',
          lambda s:region(s,'pub(crate) fn kill_owned_groups()','extern "C" fn shutdown_signal','pub(crate) fn kill_owned_groups() {}\n')),
+        ('seat-shutdown-watch','src/frontends/headless.rs','seat_process','seat_shutdown::pty_close_with_backpressured_stdout_still_retires_owned_groups','owned group survived supervisor escalation',
+         lambda s:region(s,'fn stop_cli(','pub async fn cli()','fn stop_cli(_stop:&CancellationToken) {}\n')),
         ('seat-hangup-model','tests/formal/models.rs','formal_nonvacuity','synchronous_hangup_kill_precedes_the_supervisors_unjoinable_exit','NoOwnedMemberAfterSupervisorKill',
          lambda s:once(s,'if mode == 4 { Var(1) } else { Int(0) }','if mode == 0 || mode == 4 { Var(1) } else { Int(0) }')),
         ('leader-only','src/process.rs','mcp_client','close_kills_a_server_and_member_that_ignore_eof_and_term','MCP server group survived Close: orphaned member',leader_only),

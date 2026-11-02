@@ -616,6 +616,54 @@ fn mcp_controls_reach_aba_deadlock_and_silent_inflight() {
 }
 
 #[test]
+fn shutdown_watch_covers_a_late_fork_and_output_blocked_physical_eof() {
+    let m = model("HarnessSeatShutdown");
+    let member = variable(&m, "member");
+    let fork = variable(&m, "fork");
+    let phase = variable(&m, "phase");
+    let closing = variable(&m, "closing");
+    let source = variable(&m, "source");
+    let blocked = variable(&m, "output_blocked");
+    let checked = m.check(100_000).unwrap();
+    assert!(checked.violations.is_empty(), "{:?}", checked.violations);
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[fork] == 2 && s[closing] == 1 && s[member] == 0)
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[source] == 2 && s[blocked] == 1 && s[phase] == 5)
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[source] == 3 && s[blocked] == 1 && s[phase] == 5)
+    );
+    assert!(checked.states.iter().any(|s| s[member] == 3));
+    for (name, property) in [
+        (
+            "BrokenHarnessSeatShutdownSingleKill",
+            "NoExecutableMembersAfterSupervisorKill",
+        ),
+        (
+            "BrokenHarnessSeatShutdownBlockedOutput",
+            "ShutdownObservationIndependentOfOutput",
+        ),
+    ] {
+        let checked = model(name).check(100_000).unwrap();
+        assert!(
+            checked.violations.iter().any(|v| v.property == property),
+            "{name}: {:?}",
+            checked.violations
+        );
+    }
+}
+#[test]
 fn synchronous_hangup_kill_precedes_the_supervisors_unjoinable_exit() {
     let m = model("HarnessProcessLifecycle");
     let alive = variable(&m, "seat_alive");
