@@ -68,8 +68,8 @@ for line in sys.stdin:
         assistant([{"type": "text", "text": "after unknown"}])
         result()
     elif prompt == "tools":
-        assistant([{"type": "tool_use", "id": "external-call", "name": "Write",
-                    "input": {"file_path": "must-not-be-written", "content": "external only"}}])
+        assistant([{"type": "tool_use", "id": "external-call", "name": "write",
+                    "input": {"path": "must-not-be-written", "content": "external only"}}])
         emit({"type": "user", "session_id": sid, "message": {"role": "user", "content": [
             {"type": "tool_result", "tool_use_id": "external-call", "content": "CLI handled the tool"}]}})
         assistant([{"type": "text", "text": "tool finished"}, {"type": "text", "text": "!"}])
@@ -89,7 +89,9 @@ for line in sys.stdin:
         sys.exit(17)
     elif prompt in ("cancel", "late"):
         signal.signal(signal.SIGINT, signal.SIG_IGN)
-        member = subprocess.Popen([sys.executable, "-c", "import signal,time; signal.signal(signal.SIGINT,signal.SIG_IGN); signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(60)"])
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        member = subprocess.Popen([sys.executable, "-c", "import signal,time; signal.signal(signal.SIGINT,signal.SIG_IGN); signal.signal(signal.SIGTERM,signal.SIG_IGN); print('ready',flush=True); time.sleep(60)"], stdout=subprocess.PIPE)
+        assert member.stdout.readline() == b"ready\n"
         trace({"member": member.pid, "leader": os.getpid()})
         assistant([{"type": "tool_use", "id": "pending-tool", "name": "Bash", "input": {"command": "pending"}}])
         if prompt == "late":
@@ -97,6 +99,7 @@ for line in sys.stdin:
             assistant([{"type": "text", "text": "stale output must disappear"}])
             result()
             result()
+            trace({"late_emitted": True, "pid": os.getpid()})
         time.sleep(60)
     elif prompt == "duplicate":
         assistant([{"type": "text", "text": "one answer"}])
