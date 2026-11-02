@@ -499,3 +499,31 @@ fn reap_identity_is_retired_and_both_mcp_notifications_complete() {
             .any(|v| v.property == "NoMemberAfterClose" && v.cycle.is_empty())
     );
 }
+
+#[test]
+fn claude_code_keeps_a_cancelled_completion_through_a_to_b_to_a() {
+    let m = model("HarnessClaudeCodeSession");
+    let r = m.check(100_000).unwrap();
+    assert!(r.violations.is_empty());
+    let birth = variable(&m, "birth");
+    let held = variable(&m, "held");
+    let old = variable(&m, "held_birth");
+    assert!(
+        r.states
+            .iter()
+            .any(|s| s[birth] == 2 && s[held] == 1 && s[old] == 0)
+    );
+    for (name, property) in [
+        ("BrokenHarnessClaudeCodeSessionFence", "NoLateApply"),
+        ("BrokenHarnessClaudeCodeSessionResume", "ResumeIdPersists"),
+    ] {
+        assert!(
+            model(name)
+                .check(100_000)
+                .unwrap()
+                .violations
+                .iter()
+                .any(|v| v.property == property)
+        );
+    }
+}

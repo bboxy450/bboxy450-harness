@@ -192,7 +192,7 @@ async fn run_cli(
         let loaded =
             tokio::select! {biased;_=stop.cancelled()=>return Ok(0),p=Profile::load(&p)=>p};
         match loaded {
-            Ok(p) if defer_acp_profile => {
+            Ok(p) if defer_acp_profile && !p.is_claude_code() => {
                 // Advertise capabilities without executing a credential command.
                 // Host resolves the real provider inside its cancellable factory.
                 let client = provider::OpenAiCompat::new(
@@ -204,17 +204,8 @@ async fn run_cli(
                 .map_err(|e| e.message)?;
                 (Arc::new(client), p.model.clone(), p.policy())
             }
-            Ok(p) => match p.key(&redactor, stop.child_token()).await {
-                Ok(key) => {
-                    let options = provider::Options {
-                        retry_deadline: p.retry_deadline.map(std::time::Duration::from_secs),
-                        ..Default::default()
-                    };
-                    let client =
-                        provider::OpenAiCompat::new(&p.endpoint, key, redactor.clone(), options)
-                            .map_err(|e| e.message)?;
-                    (Arc::new(client), p.model.clone(), p.policy())
-                }
+            Ok(p) => match p.build_provider(&redactor, stop.child_token()).await {
+                Ok(client) => (client, p.model.clone(), p.policy()),
                 Err(e) => (
                     Arc::new(FailedProvider(ProviderError::new(
                         ErrorClass::Config,

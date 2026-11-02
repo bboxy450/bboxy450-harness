@@ -2008,8 +2008,159 @@ fn folded_card(b: bool) -> Model {
     );
     m
 }
+// Three process births (public A-B-A), two possible session IDs, three turns.
+// IO bytes, wall-clock cancellation and the OS group are process witnesses.
+fn claude_code(mode: u8) -> Model {
+    let mut m = base::<12>(
+        "ClaudeCodeSession",
+        false,
+        &[
+            ("phase", 4, 0), // idle, turn, cancelling, exited, resuming
+            ("birth", 2, 0),
+            ("turn", 3, 0),
+            ("ends", 4, 0),
+            ("session_id", 2, 0),
+            ("saved_id", 2, 0),
+            ("resume_arg", 2, 0),
+            ("held_birth", 2, 0),
+            ("held", 1, 0),
+            ("applied_birth", 3, 3), // 3 = no applied completion
+            ("held_turn", 3, 0),
+            ("applied_turn", 3, 0),
+        ],
+    );
+    if mode != 0 {
+        m.name = format!(
+            "BrokenHarnessClaudeCodeSession{}",
+            if mode == 1 { "Fence" } else { "Resume" }
+        );
+    }
+    for id in 1..=2 {
+        act(
+            &mut m,
+            "Init",
+            all([eq(0, 0), eq(4, 0)]),
+            &[(4, Int(id)), (5, Int(id))],
+        );
+    }
+    act(
+        &mut m,
+        "StartTurn",
+        all([
+            eq(0, 0),
+            Int(0).lt(Var(4)),
+            Var(2).lt(Int(3)),
+            Var(2).eq(Var(3)),
+        ]),
+        &[(0, Int(1)), (2, Var(2).plus(Int(1))), (9, Int(3))],
+    );
+    act(
+        &mut m,
+        "HoldCompletion",
+        all([eq(0, 1), eq(8, 0)]),
+        &[(7, Var(1)), (10, Var(2)), (8, Int(1))],
+    );
+    act(&mut m, "Cancel", eq(0, 1), &[(0, Int(2))]);
+    let result = m.actions.len();
+    act(
+        &mut m,
+        "Result",
+        eq(0, 1),
+        &[(0, Int(0)), (3, Var(3).plus(Int(1)))],
+    );
+    let crash = m.actions.len();
+    act(
+        &mut m,
+        "Crash",
+        eq(0, 1),
+        &[(0, Int(3)), (3, Var(3).plus(Int(1)))],
+    );
+    let cancel = m.actions.len();
+    act(
+        &mut m,
+        "JoinCancelledGroup",
+        eq(0, 2),
+        &[(0, Int(3)), (3, Var(3).plus(Int(1)))],
+    );
+    act(
+        &mut m,
+        "IdleExit",
+        all([eq(0, 0), Int(0).lt(Var(4))]),
+        &[(0, Int(3))],
+    );
+    act(
+        &mut m,
+        "Restart",
+        all([eq(0, 3), Var(1).lt(Int(2))]),
+        &[
+            (0, Int(4)),
+            (1, Var(1).plus(Int(1))),
+            (6, if mode == 2 { Int(0) } else { Var(5) }),
+            (9, Int(3)),
+        ],
+    );
+    let resume = m.actions.len();
+    act(&mut m, "ResumeInit", eq(0, 4), &[(0, Int(0)), (4, Var(5))]);
+    act(
+        &mut m,
+        "DuplicateOrLateCompletion",
+        all([
+            eq(8, 1),
+            if mode == 1 {
+                Bool(true)
+            } else {
+                all([eq(0, 1), Var(7).eq(Var(1)), Var(10).eq(Var(2))])
+            },
+        ]),
+        &[
+            (8, Int(0)),
+            (9, Var(7)),
+            (11, Var(10)),
+            (0, Int(0)),
+            (3, Var(3).plus(Int(1))),
+        ],
+    );
+    act(&mut m, "DiscardOldEvent", eq(8, 1), &[(8, Int(0))]);
+    safe(
+        &mut m,
+        "OneTerminalPerTurn",
+        Var(3)
+            .le(Var(2))
+            .and(eq(0, 3).or(eq(0, 0)).negate().or(Var(3).eq(Var(2)))),
+    );
+    safe(
+        &mut m,
+        "NoLateApply",
+        eq(9, 3).or(Var(9).eq(Var(1)).and(Var(11).eq(Var(2)))),
+    );
+    safe(
+        &mut m,
+        "ResumeIdPersists",
+        Var(4)
+            .eq(Var(5))
+            .and(eq(0, 4).negate().or(Var(6).eq(Var(5)))),
+    );
+    progress(
+        &mut m,
+        "TurnEventuallyEnds",
+        Var(3).lt(Var(2)),
+        Var(3).eq(Var(2)),
+        vec![result, crash, cancel],
+    );
+    progress(
+        &mut m,
+        "ResumeEventuallyReady",
+        eq(0, 4),
+        eq(0, 0),
+        vec![resume],
+    );
+    m
+}
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (claude_code(0), "pass"),
+        (claude_code(1), "safety"),
+        (claude_code(2), "safety"),
         (gui_markdown(0), "pass"),
         (gui_markdown(1), "safety"),
         (gui_markdown(2), "safety"),

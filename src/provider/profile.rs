@@ -13,8 +13,12 @@ use std::{
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Profile {
     pub name: String,
+    #[serde(default)]
     pub model: String,
+    #[serde(default)]
     pub endpoint: String,
+    #[serde(default)]
+    pub permission_mode: Option<String>,
     #[serde(default)]
     pub provider: Option<String>,
     #[serde(default)]
@@ -83,7 +87,38 @@ impl Profile {
             .ok_or_else(|| ProviderError::new(ErrorClass::Config, "missing profile frontmatter"))?;
         let p: Self = serde_yaml::from_str(yaml)
             .map_err(|_| ProviderError::new(ErrorClass::Config, "invalid profile frontmatter"))?;
-        validate_endpoint(&p.endpoint)?;
+        if p.is_claude_code() {
+            if p.model.starts_with('-') || p.model.len() > 256 {
+                return Err(ProviderError::new(
+                    ErrorClass::Config,
+                    "invalid Claude Code model",
+                ));
+            }
+            if p.api_key.is_some() || p.api_key_env.is_some() {
+                return Err(ProviderError::new(
+                    ErrorClass::Config,
+                    "claude-code uses its own login; remove api_key and api_key_env",
+                ));
+            }
+            if let Some(mode) = &p.permission_mode
+                && ![
+                    "default",
+                    "acceptEdits",
+                    "plan",
+                    "dontAsk",
+                    "bypassPermissions",
+                    "auto",
+                ]
+                .contains(&mode.as_str())
+            {
+                return Err(ProviderError::new(
+                    ErrorClass::Config,
+                    "invalid Claude Code permission mode",
+                ));
+            }
+        } else {
+            validate_endpoint(&p.endpoint)?;
+        }
         Ok(p)
     }
     pub async fn load(path: &Path) -> Result<Self, ProviderError> {
@@ -113,7 +148,41 @@ impl Profile {
             name,
         )
     }
+    pub fn is_claude_code(&self) -> bool {
+        self.provider.as_deref() == Some("claude-code")
+    }
+    /// Select the agent before touching any credential source or HTTP client.
+    pub async fn build_provider(
+        &self,
+        set: &Set,
+        cancel: CancellationToken,
+    ) -> Result<Arc<dyn Provider>, ProviderError> {
+        if self.is_claude_code() {
+            return Ok(Arc::new(super::claude_code::AgentProvider(
+                super::claude_code::Options {
+                    model: self.model.clone(),
+                    permission_mode: self.permission_mode.clone(),
+                },
+            )));
+        }
+        let key = self.key(set, cancel).await?;
+        Ok(Arc::new(OpenAiCompat::new(
+            &self.endpoint,
+            key,
+            set.clone(),
+            super::Options {
+                retry_deadline: self.retry_deadline.map(Duration::from_secs),
+                ..Default::default()
+            },
+        )?))
+    }
     pub async fn key(&self, set: &Set, cancel: CancellationToken) -> Result<Secret, ProviderError> {
+        if self.is_claude_code() {
+            return Err(ProviderError::new(
+                ErrorClass::Auth,
+                "Claude Code owns authentication; use claude /login or claude setup-token",
+            ));
+        }
         let value = if let Some(source) = &self.api_key {
             if let Some(cmd) = source.strip_prefix('!') {
                 resolve_command(cmd, cancel).await?

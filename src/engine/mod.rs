@@ -30,6 +30,7 @@ use tokio::{
     task::JoinSet,
 };
 use tokio_util::sync::CancellationToken;
+mod claude_code;
 pub mod history;
 pub mod task_group;
 pub mod turn_loop;
@@ -126,6 +127,7 @@ pub struct SessionActor {
     window_warned: bool,
     mcp: crate::mcp::Manager,
     append_system_prompt: String,
+    claude_code: Option<claude_code::Handle>,
 }
 impl SessionActor {
     pub async fn open(
@@ -283,6 +285,7 @@ impl SessionActor {
             enabled: profile.as_ref().is_none_or(|p| p.auto_compact),
             window: profile.as_ref().and_then(|p| p.context_tokens),
         };
+        let external = config.provider.claude_code();
         let servers = profile
             .as_ref()
             .map(|p| p.mcp_servers.clone())
@@ -291,7 +294,11 @@ impl SessionActor {
             crate::mcp::select_sources(servers, overrides, launch.mcp_servers);
         let mut services = task_group::TaskGroup::new(CancellationToken::new());
         let mcp = crate::mcp::Manager::start(
-            servers,
+            if external.is_some() {
+                Default::default()
+            } else {
+                servers
+            },
             config.redactor.clone(),
             output.clone(),
             &mut services,
@@ -311,6 +318,27 @@ impl SessionActor {
                 .await;
             });
         }
+        let selected_profile = store
+            .events
+            .iter()
+            .rev()
+            .find_map(|e| match &e.event {
+                Event::ProfileChanged { profile, .. } => Some(profile.clone()),
+                _ => None,
+            })
+            .or_else(|| config.meta.profile.clone())
+            .unwrap_or_default();
+        let claude_code = external.map(|options| {
+            claude_code::Handle::start(
+                options,
+                selected_profile,
+                config.meta.cwd.clone(),
+                &store.events,
+                config.redactor.clone(),
+                output.clone(),
+                &mut services,
+            )
+        });
         let window_warned=store.events.iter().any(|e|matches!(&e.event,Event::ItemCompleted {status:ItemStatus::Completed,body:Item::Notice {text,..},..} if text=="context window unknown; automatic compaction off"));
         gateway.set_unattended(config.policy.on_unattended);
         let actor = Self {
@@ -336,6 +364,7 @@ impl SessionActor {
             auto,
             window_warned,
             append_system_prompt: launch.append_system_prompt,
+            claude_code,
         };
         Ok(actor)
     }
@@ -416,6 +445,27 @@ impl SessionActor {
         let cancel = CancellationToken::new();
         let (steer, rx) = mpsc::channel(64);
         self.publish(Event::TurnStarted { turn }, None).await?;
+        if let Some(agent) = self.claude_code.clone() {
+            self.running = Some(Running {
+                turn,
+                generation,
+                cancel: cancel.clone(),
+                steer,
+                pending: VecDeque::new(),
+                cause: None,
+            });
+            self.tasks.spawn_on(
+                async move {
+                    // Steering is retained by SessionActor and queued after the CLI's
+                    // current turn; no second input races its own tools or loop.
+                    let _steer = rx;
+                    agent.turn(turn, generation, blocks, cancel).await;
+                    (turn, generation)
+                },
+                bbt_rt::handle(),
+            );
+            return Ok(());
+        }
         let (messages, _) = crate::context::replay(&self.store.events, &self.store.blobs).await?;
         let (definitions, bindings, warnings) = self.mcp.snapshot();
         for text in warnings {
@@ -605,6 +655,15 @@ impl SessionActor {
                 }
             }
             Op::SetProfile { profile } => self.set_profile(profile, id).await?,
+            Op::Compact if self.claude_code.is_some() => {
+                self.reject(
+                    id,
+                    Rejection::InvalidInput {
+                        detail: "Claude Code owns its context and compaction".into(),
+                    },
+                )
+                .await?
+            }
             Op::Compact => self.queue.push_back(Queued::Compact(id)),
             _ => {
                 self.reject(
@@ -649,6 +708,20 @@ impl SessionActor {
                 match result {
                     Err(reason) => self.reject(op, reason).await?,
                     Ok((profile, provider)) => {
+                        if let Some(mut old) = self.claude_code.take() {
+                            old.close().await;
+                        }
+                        self.claude_code = provider.claude_code().map(|options| {
+                            claude_code::Handle::start(
+                                options,
+                                profile.name.clone(),
+                                self.config.meta.cwd.clone(),
+                                &self.store.events,
+                                self.config.redactor.clone(),
+                                self.output.clone(),
+                                &mut self.services,
+                            )
+                        });
                         self.auto = crate::context::auto::Options {
                             enabled: profile.auto_compact,
                             window: profile.context_tokens,
@@ -1013,10 +1086,8 @@ impl SessionActor {
                 let text=tokio::select!{biased;_=cancel.cancelled()=>return Err(Rejection::ProfileInvalid{detail:"cancelled".into()}),text=tokio::fs::read_to_string(path)=>text.map_err(|_|Rejection::UnknownProfile{name:name.clone()})?};
                 let mut profile=Profile::parse(&text).map_err(|e|Rejection::ProfileInvalid{detail:e.message})?;
                 profile.name=name;
-                let key=profile.key(&redactor,cancel.clone()).await.map_err(|e|Rejection::ProfileInvalid{detail:e.message})?;
-                let options=crate::provider::Options{retry_deadline:profile.retry_deadline.map(std::time::Duration::from_secs),..Default::default()};
-                let provider=crate::provider::OpenAiCompat::new(&profile.endpoint,key,redactor,options).map_err(|e|Rejection::ProfileInvalid{detail:e.message})?;
-                Ok((profile,Arc::new(provider) as Arc<dyn Provider>))
+                let provider=profile.build_provider(&redactor,cancel.clone()).await.map_err(|e|Rejection::ProfileInvalid{detail:e.message})?;
+                Ok((profile,provider))
             }).catch_unwind().await.unwrap_or_else(|_|Err(Rejection::ProfileInvalid{detail:"profile worker panicked".into()}));
             let _=task_group::send(&output,Internal::ProfileReady{op:id,result:resolve},&cancel).await;
         });

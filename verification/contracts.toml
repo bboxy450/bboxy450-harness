@@ -274,3 +274,14 @@ implementation_tests = ["tests/gui_bridge.rs", "tests/gui_rich.rs"]
 assumptions = "Three distinct sequential prompt ItemIds; replacement retires the previous prompt. Capture and dispatch are separate actions. Concurrent independent prompts and actual FIFO gateway delivery are implementation witnesses."
 property = "NoRetiredPromptDispatch"
 checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessClaudeCodeSession"
+title = "Claude Code turns end once and restarts preserve identity while retiring late completions"
+models = ["HarnessClaudeCodeSession", "BrokenHarnessClaudeCodeSessionFence", "BrokenHarnessClaudeCodeSessionResume"]
+controls = [{name="BrokenHarnessClaudeCodeSessionFence",expected="safety"}, {name="BrokenHarnessClaudeCodeSessionResume",expected="safety"}]
+sources = ["src/engine/claude_code.rs", "src/provider/claude_code.rs", "src/engine/mod.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/claude_code_agent.rs", "tests/formal_nonvacuity.rs"]
+assumptions = "Three births (public A-B-A), three sequential turns, finite CLI session IDs 0..2. Init atomically persists the ID before restart; completion can be held across cancel and two restarts. Fair terminal/join and resume steps; no OS scheduling or IO fairness claim. The pinned CLI emits unique UUIDs per event; identical-UUID duplicates are retired, and no new-UUID prior-turn result follows a terminal within a healthy process. Real process restart, idle draining, group cancellation, time bounds and hostile bytes remain implementation witnesses."
+property = "OneTerminalPerTurn, NoLateApply, ResumeIdPersists; TurnEventuallyEnds and ResumeEventuallyReady under named weak fairness."
+checks = ["make test-formal", "make test"]
