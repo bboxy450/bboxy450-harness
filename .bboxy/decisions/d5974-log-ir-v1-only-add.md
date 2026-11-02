@@ -28,7 +28,7 @@ updated: 2026-11-02T23:00:00Z
 - **CBOR with integer keys** ([[lc-ir]], [[log-converter-sota]]). Rejected as the store format. It would put a second format beside the JSONL every face already reads. JSON gives the same evolution properties under E1–E8, and the gate enforces them.
 - **Protobuf/IDL as the source of truth.** Rejected. Generating Rust from an IDL means a toolchain in the build, and serde plus the schemars export plus a lock gives the same "only add" check with no new dependency.
 - **A field-level `extra: Map` on every struct** for unknown-field preservation. Rejected. It is invasive on 37 definitions; byte pass-through (E6) preserves everything at the unit that is actually stored and forwarded, the line.
-- **Starting fresh at 1.0 with a cleaned-up shape.** Rejected. It breaks every existing log for cosmetic gains. The few awkward shapes, such as the `fork` tuple, stay forever.
+- **Starting fresh at 1.0 with a cleaned-up shape.** Rejected. It breaks every existing log for cosmetic gains. The few awkward shapes, such as the `fork` tuple, stay for the life of major 1; only a major bump (below) retires them.
 
 **Consequences.**
 - Every future protocol change is either a pure addition within the major or an explicit major bump. **The bump is the escape hatch** (operator, 2026-11-02): when a drastic change is needed, increase the major, let it be incompatible, and update the entire system together; readers refuse a higher major, and old logs get a one-way converter only if they are worth keeping. The design is never contorted to avoid a bump.
