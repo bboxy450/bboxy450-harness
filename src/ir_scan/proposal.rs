@@ -32,7 +32,7 @@ fn snake(text: &str) -> String {
 /// variants are cloned exactly; all added payload fields are optional opaque JSON.
 fn fragment(entry: &Entry, schema: &Value) -> Value {
     let mut name = entry.definition.as_str();
-    if schema["$defs"].get(name).is_none() || entry.carrier == "ext" || entry.carrier == "native" {
+    if schema["$defs"].get(name).is_none() || entry.carrier == "native" {
         name = "Item";
     }
     let mut def = schema["$defs"][name].clone();
@@ -41,7 +41,7 @@ fn fragment(entry: &Entry, schema: &Value) -> Value {
         if !values.contains(&value) {
             values.push(value);
         }
-    } else if entry.carrier == "field" {
+    } else if entry.carrier == "field" || (entry.carrier == "ext" && entry.variant.is_some()) {
         let target = if let Some(variant) = &entry.variant {
             def.get_mut("oneOf")
                 .and_then(Value::as_array_mut)
@@ -56,10 +56,8 @@ fn fragment(entry: &Entry, schema: &Value) -> Value {
         if let Some(target) = target
             && let Some(props) = target.get_mut("properties").and_then(Value::as_object_mut)
         {
-            if let Some(fields) = entry.sample.as_object() {
-                for key in fields.keys() {
-                    props.entry(key.clone()).or_insert(json!({}));
-                }
+            for key in keys(entry) {
+                props.entry(key).or_insert(json!({}));
             }
         }
     } else {
@@ -82,18 +80,28 @@ fn fragment(entry: &Entry, schema: &Value) -> Value {
             }
             let mut props = serde_json::Map::new();
             props.insert(tag_key.clone(), json!({"type":"string", "const":kind}));
-            if let Some(fields) = entry.sample.as_object() {
-                for field in fields.keys() {
-                    let field = snake(field);
-                    if field != tag_key {
-                        props.insert(field, json!({}));
-                    }
+            for field in keys(entry) {
+                let field = snake(&field);
+                if field != tag_key {
+                    props.insert(field, json!({}));
                 }
             }
             choices.push(json!({"type":"object", "properties":props, "required":[tag_key]}));
         }
     }
     json!({"$defs":{name:def}})
+}
+
+fn keys(entry: &Entry) -> std::collections::BTreeSet<String> {
+    entry
+        .shape
+        .iter()
+        .filter_map(|path| {
+            let (path, _) = path.rsplit_once(':')?;
+            let key = path.strip_prefix('/')?;
+            (!key.contains('/') && key != "*").then(|| key.replace("~1", "/").replace("~0", "~"))
+        })
+        .collect()
 }
 
 pub(super) async fn write(scan: &Scan, schema: &Value, dir: &Path) -> io::Result<()> {

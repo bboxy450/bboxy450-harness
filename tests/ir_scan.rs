@@ -123,6 +123,14 @@ async fn two_shapes_generate_additive_proposals_and_indexable_tasks() {
 
 #[tokio::test]
 async fn unknown_fields_ext_enums_redaction_and_sample_cap() {
+    let mut empty = Scan::default();
+    let mut nullable = envelope(json!({"kind":"agent_message","markdown":"hello"}));
+    nullable["event"] = json!({"type":"item_started","turn":null,"item":"01M6F1VQC21RZZ0RK2Y1PHEDQC","kind":"agent_message","parent":null,"head":null});
+    empty.inspect(&nullable, &schema_value(), &Set::default(), "test");
+    assert!(
+        empty.entries.is_empty(),
+        "nullable known fields are not unknowns: {empty:#?}"
+    );
     let tmp = tempfile::tempdir().unwrap();
     let file = tmp.path().join("log.jsonl");
     let mut known = envelope(json!({"kind":"agent_message","markdown":"hi","future_flag":true}));
@@ -170,8 +178,9 @@ async fn close_scan_worker_budget_and_removed_budget_control() {
         .unwrap();
     assert!(good.max_poll_cpu_ns <= CPU_BUDGET_NS);
     assert_eq!(good.lines, 1);
-    let bad = unbounded_control(vec![file], schema_value())
+    let bad = unbounded_close_control(file, tmp.path().join("catalogue"))
         .await
+        .unwrap()
         .unwrap_err();
     assert!(bad.to_string().contains("1 ms CPU"));
     println!("broken close scan without worker budget: refused ({bad})");
@@ -246,4 +255,45 @@ fn stale_lock_requires_self_service_refresh() {
     let out = run(true);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stdout).contains("run make lock-ir"));
+}
+
+#[test]
+fn cli_scans_fixtures_in_private_home_and_rejects_missing_pending_proposals() {
+    let tmp = tempfile::tempdir().unwrap();
+    let run = |pending: &Path| {
+        Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
+            .args(["ir-scan", "--json", "--propose"])
+            .arg(tmp.path().join("proposed"))
+            .arg("--check-pending")
+            .arg(pending)
+            .arg("tests/fixtures/ir-scan")
+            .env("HOME", tmp.path())
+            .env_remove("BBOXY_CAPABILITY_FILE")
+            .env_remove("BBOXY_CAPABILITY")
+            .output()
+            .unwrap()
+    };
+    let output = run(Path::new("tests/fixtures/ir-v1/pending"));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let scan: Scan = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(scan.entries.len(), 2);
+    assert_eq!(
+        std::fs::read_dir(tmp.path().join(".bboxy450-harness/ir-unknowns"))
+            .unwrap()
+            .filter(|p| p
+                .as_ref()
+                .unwrap()
+                .path()
+                .extension()
+                .is_some_and(|e| e == "json"))
+            .count(),
+        2
+    );
+    let missing = run(&tmp.path().join("missing"));
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("has no pending proposal"));
 }

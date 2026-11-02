@@ -103,6 +103,7 @@ sources = [
     "src/backend/acp_agent.rs",
     "src/import/mod.rs",
     "src/import/spill.rs",
+    "src/import/edge.rs",
     "src/import/watch.rs",
     "src/ir_scan.rs",
     "src/ir_scan/proposal.rs",

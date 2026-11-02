@@ -105,6 +105,7 @@ fn bounded_sample(value: &Value) -> Value {
 }
 
 impl Scan {
+    #[allow(clippy::too_many_arguments)] // Source identity accompanies recursive schema traversal.
     fn observe(
         &mut self,
         carrier: &str,
@@ -151,12 +152,13 @@ impl Scan {
         let at = raw["ts_ms"].as_u64().unwrap_or(0);
         if let Some(ext) = raw.get("ext").and_then(Value::as_object) {
             for (provider, value) in ext {
+                let variant = raw.pointer("/event/body/kind").and_then(Value::as_str);
                 self.observe(
                     "ext",
                     provider,
-                    "extension",
+                    variant.unwrap_or(provider),
                     "Item",
-                    None,
+                    variant,
                     value,
                     session,
                     at,
@@ -174,6 +176,7 @@ impl Scan {
         );
     }
 
+    #[allow(clippy::too_many_arguments)] // Keep the schema and source cursor explicit.
     fn walk(
         &mut self,
         raw: &Value,
@@ -195,6 +198,13 @@ impl Scan {
             .or_else(|| node.get("anyOf"))
             .and_then(Value::as_array)
         {
+            if raw.is_null()
+                && choices
+                    .iter()
+                    .any(|choice| choice.get("type").and_then(Value::as_str) == Some("null"))
+            {
+                return;
+            }
             for choice in choices {
                 if let Some((tag, kind)) = tag(choice) {
                     if raw.get(tag).and_then(Value::as_str) == Some(kind) {
@@ -412,10 +422,14 @@ async fn scan_inner(
     for path in files(paths).await? {
         let file = tokio::fs::File::open(&path).await?;
         let len = file.metadata().await?.len();
-        let mut lines = tokio::io::BufReader::new(file.take(len)).lines();
-        while let Some(line) = lines.next_line().await? {
+        let mut lines = tokio::io::BufReader::new(file.take(len));
+        loop {
+            let mut line = String::new();
+            let bytes = lines.read_line(&mut line).await? as u64;
+            if bytes == 0 {
+                break;
+            }
             let start = cpu_ns();
-            let bytes = line.len() as u64 + 1;
             let schema = schema.clone();
             let redactor = redactor.clone();
             if broken {
@@ -526,12 +540,31 @@ pub fn on_close_in(
     catalogue: PathBuf,
     notice: impl Fn(String) + Send + 'static,
 ) -> tokio::task::JoinHandle<io::Result<Scan>> {
+    close_job(path, redactor, catalogue, notice, false)
+}
+
+/// Broken session-close control used by the runtime budget witness.
+#[doc(hidden)]
+pub fn unbounded_close_control(
+    path: PathBuf,
+    catalogue: PathBuf,
+) -> tokio::task::JoinHandle<io::Result<Scan>> {
+    close_job(path, Set::default(), catalogue, |_| {}, true)
+}
+
+fn close_job(
+    path: PathBuf,
+    redactor: Set,
+    catalogue: PathBuf,
+    notice: impl Fn(String) + Send + 'static,
+    broken: bool,
+) -> tokio::task::JoinHandle<io::Result<Scan>> {
     bbt_rt::handle().spawn(async move {
         let schema = bbt_rt::handle()
             .spawn_blocking(crate::protocol::schema_value)
             .await
             .map_err(io::Error::other)?;
-        let scan = scan_paths(vec![path], schema, redactor, Some(catalogue)).await?;
+        let scan = scan_inner(vec![path], schema, redactor, Some(catalogue), broken).await?;
         let mut providers: BTreeMap<&str, usize> = BTreeMap::new();
         for key in &scan.new_fingerprints {
             *providers.entry(&scan.entries[key].provider).or_default() += 1;

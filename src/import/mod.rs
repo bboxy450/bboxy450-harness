@@ -13,6 +13,7 @@
 //! adds; `finish` closes whatever is still open. Records it does not understand (metadata,
 //! API bookkeeping, subagent side chains) add nothing. The result passes check_transcript.
 mod spill;
+pub mod edge;
 pub mod watch;
 
 use crate::protocol::*;
