@@ -545,8 +545,9 @@ async fn structural_layout_smoke_checks_restored_geometry() {
     );
 }
 
-/// The composer is the web's one box (lab.css .hx-box): the accent ring while idle, the
-/// interrupt hint while a turn runs, and the toolkit hit contract (send, body, caret) intact.
+/// The composer is the web's one box (harness-spec.md Composer table): ring only while focused,
+/// a phase hint, the 26 px round send that becomes a stop square while a turn runs with an
+/// empty draft, and the toolkit hit contract (send, body, caret) intact.
 #[test]
 fn composer_box_follows_phase_and_keeps_hit_contract() {
     use bboxy450_harness::frontends::gui::view::find;
@@ -554,29 +555,45 @@ fn composer_box_follows_phase_and_keeps_hit_contract() {
     let mut bridge = Bridge::new(Arc::new(Wake));
     bridge.state.ready = true;
     let mut view = HarnessView::default();
-    let mut render = |phase: Phase| {
+    let mut render = |phase: Phase, focused: bool| {
         bridge.state.transcript = Arc::new(Transcript {
             phase,
             ..Default::default()
         });
+        view.focused = focused;
         view.invalidate();
-        view.render(&bridge.state, [900., 700.])
+        let layout = view
+            .render(&bridge.state, [900., 700.])
             .unwrap()
             .layout
             .clone()
-            .unwrap()
+            .unwrap();
+        (layout, view.send_stops(&bridge.state))
     };
-    let idle = render(Phase::Idle);
+    let (idle, stops) = render(Phase::Idle, false);
+    assert!(!stops, "idle send never interrupts");
     assert!(
         find(&idle, "composer/hint").is_none(),
         "idle hides the hint"
     );
-    let live = render(Phase::Streaming);
+    assert!(
+        Regions::new(&idle).unwrap().caret.is_none(),
+        "no caret without window focus"
+    );
+    let (live, stops) = render(Phase::Streaming, true);
+    assert!(
+        stops,
+        "running with an empty draft, send is the stop square"
+    );
+    assert!(
+        find(&live, "composer/sweep").is_some(),
+        "running sweep line"
+    );
     let hint = find(&live, "composer/hint").expect("a running turn shows esc interrupt");
     let send = find(&live, "composer/send").unwrap().rect;
     let panel = find(&live, "composer").unwrap().rect;
     assert!(hint.rect.right() <= send.x, "hint sits left of send");
-    assert_eq!((send.w, send.h), (24., 24.));
+    assert_eq!((send.w, send.h), (26., 26.));
     assert!(panel.bottom() <= 700. - 11. && panel.w <= 860.);
     let regions = Regions::new(&live).unwrap();
     let centre = |r: bbt_ui_model::layout::Rect| [r.x + r.w / 2., r.y + r.h / 2.];
@@ -585,5 +602,19 @@ fn composer_box_follows_phase_and_keeps_hit_contract() {
     assert!(
         regions.caret.is_some(),
         "the focused draft paints its caret"
+    );
+    let (ask, _) = render(
+        Phase::Approval {
+            item: ItemId::new(),
+        },
+        false,
+    );
+    assert!(
+        find(&ask, "composer/sweep").is_none(),
+        "ask is not the run look"
+    );
+    assert!(
+        find(&ask, "composer/hint").is_some(),
+        "ask shows the 1/2/3 hint"
     );
 }

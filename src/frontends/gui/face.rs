@@ -1454,50 +1454,86 @@ pub fn header(
     )
 }
 
-/// The composer: one rounded box with the draft, two quiet chips, the interrupt hint while a
-/// turn runs, and the accent send tile. Translated from harness.js composer() and lab.css
-/// .hx-comp/.hx-box (bboxy450-term lab/web; https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md).
+/// Composer states from harness-spec.md (Composer table): the session phase decides `run`
+/// and `ask`; otherwise the draft and focus decide `typing`, `focus` or `idle`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ComposerState {
+    Idle,
+    Focus,
+    Typing,
+    Run,
+    Ask,
+}
+impl ComposerState {
+    pub fn of(live: bool, ask: bool, text: bool, focused: bool) -> Self {
+        if ask {
+            Self::Ask
+        } else if live {
+            Self::Run
+        } else if text {
+            Self::Typing
+        } else if focused {
+            Self::Focus
+        } else {
+            Self::Idle
+        }
+    }
+}
+
+/// The composer: one rounded box with the draft, two quiet chips, a state hint and the round
+/// send button. Translated from harness.js composer() and lab.css .hx-comp/.hx-box/.hx-send
+/// (bboxy450-term lab/web, harness-spec.md; https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md).
 /// Node names keep the toolkit composer's hit contract (`composer`, `composer/text`,
 /// `composer/body-viewport`, `composer/send`, `composer/attach`, `composer/priority`,
 /// `composer/address`), so `composer::Regions` still drives clicks, the caret and the IME.
 pub fn composer(
     view: &ui::modules::composer::Composer,
     live: bool,
+    ask: bool,
+    focused: bool,
     ctx: ui::Context,
     width: f32,
     m: &dyn c::Measure,
 ) -> Result<c::Element, String> {
+    use ComposerState as S;
     use bbt_ui::widgets::text_area::TextArea;
     use bbt_ui_model::layout::Rect;
     const LINE: f32 = 20.;
     const MAX_LINES: f32 = 8.;
     let ink = ink(ctx);
+    let has_text = !view.text.is_empty();
+    let state = ComposerState::of(live, ask, has_text, focused);
     let box_w = (width - 24.).clamp(1., 860.);
     let side = ((width - box_w) / 2.).max(0.);
     let inner = (box_w - 22.).max(1.);
-    let mut style = ui::Text {
-        size: Some(13.),
-        paint: paint(ink.fg),
-        line_height: LINE / 13.,
-        ..Default::default()
+    let empty = !has_text && view.edit.as_ref().is_none_or(|e| e.preedit.is_none());
+    let ph_ink = if state == S::Ask {
+        alpha(ink.ask, 0.8)
+    } else {
+        alpha(ink.dim, 0.7)
     };
-    let empty = view.text.is_empty() && view.edit.as_ref().is_none_or(|e| e.preedit.is_none());
-    if empty {
-        style.paint = paint(alpha(ink.dim, 0.7));
-    }
-    let body = TextArea {
+    let mut body = TextArea {
         value: view.text.clone(),
-        placeholder: "Ask bboxy, @ a file, / a command".into(),
-        style,
-        edit: view.focus.then(|| view.edit.clone().unwrap_or_default()),
+        placeholder: match state {
+            S::Run => "Queue a follow-up…",
+            S::Ask => "Answer the approval above",
+            _ => "Ask bboxy, @ a file, / a command",
+        }
+        .into(),
+        style: ui::Text {
+            size: Some(13.),
+            paint: paint(if empty { ph_ink } else { ink.fg }),
+            line_height: LINE / 13.,
+            ..Default::default()
+        },
+        edit: (view.focus && focused).then(|| view.edit.clone().unwrap_or_default()),
         min_lines: 1,
         wrap: true,
         name: "composer/text".into(),
     }
     .element(inner, ctx, m)?;
-    let mut body = body;
     if empty {
-        tint_placeholder(&mut body, paint(alpha(ink.dim, 0.7)));
+        tint_placeholder(&mut body, paint(ph_ink));
     }
     // Grow with the draft up to MAX_LINES, then scroll so the caret stays in view.
     let measured = body.layout(Rect::new(0., 0., inner, 0.), ctx, m)?;
@@ -1543,25 +1579,61 @@ pub fn composer(
         fixed(chip("composer/priority", "queue")),
         spacer(),
     ];
-    if live {
+    let hint = match state {
+        S::Run if has_text => "⏎ queue · esc interrupt",
+        S::Run => "esc interrupt",
+        S::Typing => "⏎ send · ⇧⏎ newline",
+        S::Ask => "1 allow · 2 always · 3 deny",
+        S::Idle | S::Focus => "",
+    };
+    if !hint.is_empty() {
+        let color = if state == S::Ask {
+            ink.ask
+        } else {
+            alpha(ink.dim, 0.7)
+        };
         tools.push(fixed(named(
             "composer/hint",
-            line("esc interrupt", 10.5, 400, alpha(ink.dim, 0.7), false),
+            line(hint, 10.5, 400, color, false),
         )));
     }
-    tools.push(fixed(named(
-        "composer/send",
-        // Padded rather than a spacer-centred tile, so the glyph sits on the exact centre.
-        frame(
-            Frame {
-                fill: ink.seat,
-                radius: [8.; 4],
-                padding: [5.; 4],
-                ..Default::default()
+    // .hx-send: a 26 px circle. Empty: card-hi with a dim arrow; with text: seat with an
+    // on-accent arrow and a glow; running and empty: a stop square on a hairline inset.
+    let stop = state == S::Run && !has_text;
+    let on_accent = hex("#FFFFFF");
+    let mut send = frame(
+        Frame {
+            fill: if has_text {
+                ink.seat
+            } else {
+                alpha(ink.fg, 0.07)
             },
-            vec![fixed(icon("send", ink.surface, 14., 2.2))],
-        ),
-    )));
+            border: stop.then_some(alpha(ink.fg, 0.10)),
+            radius: [13.; 4],
+            padding: [if stop { 7. } else { 6. }; 4],
+            ..Default::default()
+        },
+        vec![fixed(if stop {
+            square(12., 6., 1.1, ink.fg)
+        } else {
+            icon("send", if has_text { on_accent } else { ink.dim }, 14., 2.2)
+        })],
+    );
+    if let c::Element::Box(b) = &mut send {
+        // Fixed 26 px whatever the inset border does to the padding box.
+        b.style.overrides.width = Some(ui::Length::Px(26.));
+        b.style.overrides.height = Some(ui::Length::Px(26.));
+        if stop {
+            b.style.overrides.padding = Some([ui::Length::Px(6.); 4]);
+        }
+        if has_text {
+            b.style.overrides.shadow = Some(ui::Shadow::Custom {
+                blur: 11.,
+                color: alpha(ink.seat, 0.55),
+            });
+        }
+    }
+    tools.push(fixed(named("composer/send", send)));
     let mut kids = vec![];
     if let Some(n) = view.notice.as_ref().filter(|n| n.kind != "sent") {
         kids.push(fixed(named(
@@ -1585,15 +1657,17 @@ pub fn composer(
         },
         tools,
     )));
-    let ring = view.focus && !live;
+    let border = if state == S::Ask {
+        alpha(ink.ask, 0.45)
+    } else if focused {
+        alpha(ink.seat, 0.55)
+    } else {
+        alpha(ink.fg, 0.10)
+    };
     let mut panel = frame(
         Frame {
-            fill: alpha(ink.fg, 0.04),
-            border: Some(if ring {
-                alpha(ink.seat, 0.45)
-            } else {
-                alpha(ink.fg, 0.10)
-            }),
+            fill: alpha(ink.fg, if focused { 0.05 } else { 0.04 }),
+            border: Some(border),
             radius: [13.; 4],
             padding: [8., 10., 6., 10.],
             ..Default::default()
@@ -1602,13 +1676,38 @@ pub fn composer(
     );
     if let c::Element::Box(b) = &mut panel {
         b.gap = ui::Length::Px(0.);
-        if ring {
+        if focused {
+            // Flat fallback: a solid seat-14 band 3 px outside the box, no blur.
             b.style.overrides.rings = Some(vec![ui::Border {
                 width: ui::Length::Px(3.),
-                paint: paint(alpha(ink.seat, 0.10)),
+                paint: paint(alpha(ink.seat, 0.14)),
                 outside: true,
             }]);
         }
+    }
+    if state == S::Run {
+        // Running sweep, static flat fallback: a 2 px seat-55 line along the top edge,
+        // inset by the corner radius as the web's overflow clip does.
+        let h = panel.layout(Rect::new(0., 0., box_w, 0.), ctx, m)?.rect.h;
+        let w = (box_w - 26.).max(0.);
+        panel = c::Element::Layers {
+            base: Box::new(panel),
+            overlays: vec![c::Placed {
+                content: named(
+                    "composer/sweep",
+                    c::Element::Rects(c::Rects {
+                        size: [w, 2.],
+                        rects: Arc::from([(
+                            Rect::new(0., 0., w, 2.),
+                            paint(alpha(ink.seat, 0.55)),
+                        )]),
+                        repeat: None,
+                    }),
+                ),
+                left: 13.,
+                bottom: h - 3.,
+            }],
+        };
     }
     Ok(frame(
         Frame {
@@ -1617,6 +1716,34 @@ pub fn composer(
         },
         vec![fixed(named("composer", panel))],
     ))
+}
+/// A filled rounded square centred in a `box_side` path (the web `stop` glyph).
+fn square(box_side: f32, side: f32, r: f32, color: Rgba) -> c::Element {
+    let (a, b) = ((box_side - side) / 2., (box_side + side) / 2.);
+    let k = 0.552_284_8 * r;
+    let mut path = vec![
+        P::Move([a + r, a]),
+        P::Line([b - r, a]),
+        P::Cubic([[b - r + k, a], [b, a + r - k], [b, a + r]]),
+        P::Line([b, b - r]),
+        P::Cubic([[b, b - r + k], [b - r + k, b], [b - r, b]]),
+        P::Line([a + r, b]),
+        P::Cubic([[a + r - k, b], [a, b - r + k], [a, b - r]]),
+        P::Line([a, a + r]),
+        P::Cubic([[a, a + r - k], [a + r - k, a], [a + r, a]]),
+    ];
+    path.shrink_to_fit();
+    c::Element::Path(c::Path {
+        size: [box_side, box_side],
+        points: Arc::from(path),
+        stroke: PathStroke {
+            width: 0.,
+            ..Default::default()
+        },
+        paint: paint(color),
+        fill: Some(paint(color)),
+        opacity: 1.,
+    })
 }
 /// TextArea paints its placeholder in the theme's muted ink; the web dims it further.
 fn tint_placeholder(e: &mut c::Element, p: ui::Paint) {

@@ -266,6 +266,10 @@ impl ApplicationHandler<Wake> for App {
                 self.view.invalidate();
             }
             WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
+            WindowEvent::Focused(focused) => {
+                self.view.focused = focused;
+                self.view.invalidate();
+            }
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = self.window.as_ref().unwrap().scale_factor() as f32;
                 self.pointer = [position.x as f32 / scale, position.y as f32 / scale];
@@ -309,7 +313,14 @@ impl ApplicationHandler<Wake> for App {
                     && let Ok(regions) = composer::Regions::new(layout)
                 {
                     match regions.hit(self.pointer) {
-                        Some(composer::Hit::Send) => self.view.activate(Action::Send, &self.bridge),
+                        Some(composer::Hit::Send) => {
+                            let action = if self.view.send_stops(&self.bridge.state) {
+                                Action::Interrupt
+                            } else {
+                                Action::Send
+                            };
+                            self.view.activate(action, &self.bridge)
+                        }
                         Some(composer::Hit::Body) => {
                             self.view
                                 .composer

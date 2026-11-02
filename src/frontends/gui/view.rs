@@ -182,6 +182,8 @@ pub struct HarnessView {
     controls: Option<Controls>,
     pub frame: Frame,
     pub notice: Option<String>,
+    /// The window holds keyboard focus: the composer draws its focus ring and caret.
+    pub focused: bool,
     /// Profile names for `/profile` completion, from the latest frame.
     profiles: Arc<Vec<String>>,
 }
@@ -207,11 +209,18 @@ impl Default for HarnessView {
             controls: None,
             frame: Frame::default(),
             notice: None,
+            focused: false,
             profiles: Arc::new(vec![]),
         }
     }
 }
 impl HarnessView {
+    /// Running with an empty draft, the send button is the stop square (.hx-send.stop).
+    pub fn send_stops(&self, state: &FrameState) -> bool {
+        !state.replay
+            && !matches!(state.transcript.phase, Phase::Idle | Phase::Closed)
+            && self.composer.view.text.is_empty()
+    }
     pub fn invalidate(&mut self) {
         self.cached = None;
     }
@@ -220,8 +229,8 @@ impl HarnessView {
         self.profiles = state.profiles.clone();
         let offset = self.scroll.layout_offset();
         let draft = format!(
-            "{:?}{:?}{:?}{:?}",
-            self.composer.view, self.notice, state.error, state.notice
+            "{:?}{:?}{:?}{:?}{}",
+            self.composer.view, self.notice, state.error, state.notice, self.focused
         );
         if self
             .cached
@@ -296,8 +305,10 @@ impl HarnessView {
                 }
             });
         let live = !matches!(model.phase, Phase::Idle | Phase::Closed) && !state.replay;
+        let ask = live && matches!(model.phase, Phase::Approval { .. });
+        let focused = self.focused;
         let controls_key = format!(
-            "{draft}{status}{live}{}{:?}{:?}",
+            "{draft}{status}{live}{focused}{}{:?}{:?}",
             state.ready,
             model.profile,
             model.meta.as_ref().map(|m| &m.cwd)
@@ -319,8 +330,15 @@ impl HarnessView {
             .layout(slot.rect, ctx, &self.metrics)?;
             (layout, controls.rows_h)
         } else {
-            let composer =
-                super::face::composer(&self.composer.view, live, ctx, width, &self.metrics)?;
+            let composer = super::face::composer(
+                &self.composer.view,
+                live && !ask,
+                ask,
+                focused,
+                ctx,
+                width,
+                &self.metrics,
+            )?;
             let composer_h = composer
                 .layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?
                 .rect
