@@ -17,6 +17,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tokio_util::sync::CancellationToken;
+pub mod claude_code;
 pub mod parser;
 pub mod profile;
 #[derive(Clone, Debug)]
@@ -112,6 +113,10 @@ impl std::fmt::Display for ProviderError {
 }
 impl std::error::Error for ProviderError {}
 pub trait Provider: Send + Sync {
+    /// External agents own their tools and loop; they never enter TurnRunner.
+    fn claude_code(&self) -> Option<claude_code::Options> {
+        None
+    }
     fn caps(&self) -> Caps;
     fn stream(
         &self,

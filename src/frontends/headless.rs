@@ -192,7 +192,7 @@ async fn run_cli(
         let loaded =
             tokio::select! {biased;_=stop.cancelled()=>return Ok(0),p=Profile::load(&p)=>p};
         match loaded {
-            Ok(p) if defer_acp_profile => {
+            Ok(p) if defer_acp_profile && !p.is_claude_code() => {
                 // Advertise capabilities without executing a credential command.
                 // Host resolves the real provider inside its cancellable factory.
                 let client = provider::OpenAiCompat::new(
@@ -204,17 +204,8 @@ async fn run_cli(
                 .map_err(|e| e.message)?;
                 (Arc::new(client), p.model.clone(), p.policy())
             }
-            Ok(p) => match p.key(&redactor, stop.child_token()).await {
-                Ok(key) => {
-                    let options = provider::Options {
-                        retry_deadline: p.retry_deadline.map(std::time::Duration::from_secs),
-                        ..Default::default()
-                    };
-                    let client =
-                        provider::OpenAiCompat::new(&p.endpoint, key, redactor.clone(), options)
-                            .map_err(|e| e.message)?;
-                    (Arc::new(client), p.model.clone(), p.policy())
-                }
+            Ok(p) => match p.build_provider(&redactor, stop.child_token()).await {
+                Ok(client) => (client, p.model.clone(), p.policy()),
                 Err(e) => (
                     Arc::new(FailedProvider(ProviderError::new(
                         ErrorClass::Config,
@@ -367,7 +358,7 @@ async fn run_cli(
          line=input.next_line(),if seat&&!stopping=>{match line{Ok(Some(text))=>{
             if let Some(command)=text.trim().strip_prefix('/'){
                 let (request,mut reply)=seat_command(command,&profiles_root);
-                if let Some(request)=request{if gateway.send(op(request)).is_err(){reply="refused\n".into();}}
+                if let Some(request)=request && gateway.send(op(request)).is_err(){reply="refused\n".into();}
                 if stdout.write_all(reply.as_bytes()).await.is_err(){let _=gateway.send(op(Op::Close));break;}let _=stdout.flush().await;
             }else if !text.is_empty(){let _=gateway.send(op(Op::UserTurn{blocks:vec![InputBlock::Text{text}],mode:TurnMode::Queue}));}},_=>{if stdin_was_tty && stdin_hung_up(){crate::process::kill_owned_groups();}let _=gateway.send(op(Op::Close));stopping=true;}}},
          event=subscription.recv()=>{let Some(event)=event else{break;};match &event.event{Event::TurnStarted{..}=>running=true,Event::TurnEnded{reason,..}=>{running=false;failed|=matches!(reason,StopReason::Error{..});if !seat&&!stopping{let _=gateway.send(op(Op::Close));stopping=true;}},_=>{}}
@@ -431,6 +422,40 @@ fn tty_hung_up(terminal: libc::c_int) -> bool {
         || unsafe { libc::tcgetattr(terminal, termios.as_mut_ptr()) } != 0
 }
 
+/// Seat slash commands: `/profile NAME` switches the live session's profile, `/profiles` lists them.
+fn seat_command(command: &str, root: &std::path::Path) -> (Option<Op>, String) {
+    let mut words = command.split_whitespace();
+    match (words.next(), words.next()) {
+        (Some("profile"), Some(name)) => (
+            Some(Op::SetProfile {
+                profile: name.into(),
+            }),
+            format!("switching to profile {name}\n"),
+        ),
+        (Some("profiles" | "profile"), None) => {
+            let mut names: Vec<String> = std::fs::read_dir(root)
+                .map(|d| {
+                    d.filter_map(|e| {
+                        let path = e.ok()?.path();
+                        (path.extension()? == "md")
+                            .then(|| path.file_stem().map(|s| s.to_string_lossy().into_owned()))
+                            .flatten()
+                    })
+                    .collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            let reply = if names.is_empty() {
+                format!("no profiles in {}\n", root.display())
+            } else {
+                format!("profiles: {} · /profile NAME switches\n", names.join(", "))
+            };
+            (None, reply)
+        }
+        _ => (None, "commands: /profiles · /profile NAME · /help\n".into()),
+    }
+}
+
 #[cfg(test)]
 mod tty_tests {
     use super::*;
@@ -487,39 +512,5 @@ mod tty_tests {
             tty_hung_up(fd),
             "physical PTY EOF was classified as cooked Ctrl-D"
         );
-    }
-}
-
-/// Seat slash commands: `/profile NAME` switches the live session's profile, `/profiles` lists them.
-fn seat_command(command: &str, root: &std::path::Path) -> (Option<Op>, String) {
-    let mut words = command.split_whitespace();
-    match (words.next(), words.next()) {
-        (Some("profile"), Some(name)) => (
-            Some(Op::SetProfile {
-                profile: name.into(),
-            }),
-            format!("switching to profile {name}\n"),
-        ),
-        (Some("profiles" | "profile"), None) => {
-            let mut names: Vec<String> = std::fs::read_dir(root)
-                .map(|d| {
-                    d.filter_map(|e| {
-                        let path = e.ok()?.path();
-                        (path.extension()? == "md")
-                            .then(|| path.file_stem().map(|s| s.to_string_lossy().into_owned()))
-                            .flatten()
-                    })
-                    .collect()
-                })
-                .unwrap_or_default();
-            names.sort();
-            let reply = if names.is_empty() {
-                format!("no profiles in {}\n", root.display())
-            } else {
-                format!("profiles: {} · /profile NAME switches\n", names.join(", "))
-            };
-            (None, reply)
-        }
-        _ => (None, "commands: /profiles · /profile NAME · /help\n".into()),
     }
 }

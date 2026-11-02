@@ -338,3 +338,13 @@ frontend = "project"
 name = "BrokenHarnessMcpLostChild"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessClaudeCodeSession"
+expected = "pass"
+[[model]]
+name = "BrokenHarnessClaudeCodeSessionFence"
+expected = "safety"
+[[model]]
+name = "BrokenHarnessClaudeCodeSessionResume"
+expected = "safety"

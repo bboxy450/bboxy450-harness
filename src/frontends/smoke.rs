@@ -50,6 +50,7 @@ async fn smoke(acp_mode: bool) -> Result<(Value, i32), Box<dyn std::error::Error
         return Ok((summary("SKIP", "no key command configured", 0), 0));
     };
     let profile = Profile {
+        permission_mode: None,
         auto_compact: true,
         context_tokens: None,
         mcp_servers: Default::default(),

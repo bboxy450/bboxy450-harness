@@ -8,6 +8,7 @@
 name = "bboxy450-harness"
 status = "contract-model"
 models = [
+    "HarnessClaudeCodeSession",
     "HarnessMcpGroupClose",
     "HarnessAcpFlow",
     "HarnessAutoCompact",
@@ -37,6 +38,8 @@ models = [
 ]
 scope = "Finite two-turn/two-tool lifecycle; birth fencing A-B-A, unattended approval, FIFO control, bounded replay/lag/reset and Yarn arbitration. HTTP/TCP bytes, filesystem/process effects, wall-clock deadlines, secrecy and terminal bytes are witnessed by implementation tests; no arbitrary Rust refinement claim."
 sources = [
+    "src/provider/claude_code.rs",
+    "src/engine/claude_code.rs",
     "src/capability.rs",
     "src/mcp.rs",
     "src/context/auto.rs",
@@ -83,6 +86,7 @@ sources = [
     "src/frontends/gui/layout_checks.rs",
 ]
 implementation_only = [
+    "Claude Code JSONL bytes, argv allowlist, inherited environment, credential non-access, version check, stderr redaction, process groups and cancellation deadlines: tests/claude_code_agent.rs; finite lifecycle model does not prove arbitrary Rust refinement or the external CLI. Real subscription/network use is excluded from make test.",
     "Seat-capability file syscalls and exact bytes: O_NOFOLLOW/O_NONBLOCK, pre-open metadata and fstat regular/euid/exact0600 checks, 64 lowercase hex plus newline, safe refusal text; src/capability.rs unit witnesses. HarnessMcpServer abstracts a valid versus unavailable file and registration before projection, not kernel/filesystem correctness.",
     "Seat capability environment projection: real headless/seat/ACP tool processes, profile/ACP MCP env and resolved-value refusals, launcher inheritance exception, stored output and GUI smoke rendering in tests/capability_delivery.rs and tests/support/seat_launch.rs. Environment bytes, actual value matching and pixels are implementation witnesses.",
     "Capability startup degradation and GUI worker ownership: shared redactor bootstrap runs before providers/MCP, is silent when unset, records safe Notice on supplied invalid files, and GUI replay/creation use preparation workers. Live creation observes the actual pre-Host boundary, and per-face mutation controls cover every loader. tests/capability_delivery.rs; no arbitrary Rust refinement claim.",

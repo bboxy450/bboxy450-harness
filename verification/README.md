@@ -4,7 +4,7 @@ The native backend is crates.io `bboxy450-tlc =0.1.1`, using its finite integer
 and Boolean Model/Variable/Action API. Yarn 0.1.1 projects the production
 `harness_turn_topology!` declaration. This repository contains no checker fork.
 
-The corpus has 64 model variants mapped to 25 contracts, including the shared
+The corpus has 72 model variants mapped to 26 contracts, including the shared
 Yarn scheduling projection.
 It explores two queued turns, two tools/rounds, three birth generations (A-B-A),
 a two-slot stand-in for the bounded work lane, and a three-entry replay log.
@@ -90,3 +90,12 @@ charges 50us per received UI publication/notification and state replacement, and
 A real worker witness checks retained completed layouts and >4KiB preparation
 away from the UI thread. `make bench-budgets` includes `bench-gui-budget`; its
 real-clock p99 is observational and prints UNMEASURED when load exceeds ncpu.
+
+Claude Code agent sessions add HarnessClaudeCodeSession with separate fence and
+resume controls. Three process births (A-B-A), three turns and two possible CLI
+IDs explore idle, turn, cancelling, exited and resuming, retained duplicate/late
+completions, terminal conservation and ID persistence under restart. Explicit
+weak fairness covers finish/join and resume; no OS scheduling fairness is claimed.
+The offline process witnesses use a fake claude on PATH, including actual harness
+crashes and replay, and a macOS credential-access interposer with broken controls.
+The CLI owns tools and authentication; the harness does not model Claude's internals.

@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+# Copyright 2026 Boxy (bboxy450) and contributors.
+# SPDX-License-Identifier: LicenseRef-Respectful-Slop-1.0-Draft
+# Project: bboxy450-harness — https://github.com/bboxy450/bboxy450-harness
+# License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
+# Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
+# Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+"""Offline stream-json CLI double. No network, login or credential reads."""
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+
+
+def emit(value):
+    print(json.dumps(value), flush=True)
+
+
+def trace(value):
+    path = os.environ.get("FAKE_CLAUDE_TRACE")
+    if path:
+        with open(path, "a") as f:
+            f.write(json.dumps(value) + "\n")
+
+
+args = sys.argv[1:]
+trace({"argv": args, "pid": os.getpid(), "cwd": os.getcwd()})
+if args == ["--version"]:
+    if os.environ.get("FAKE_CLAUDE_VERSION_HANG"):
+        time.sleep(60)
+    print(os.environ.get("FAKE_CLAUDE_VERSION", "2.1.304") + " (Claude Code)", flush=True)
+    sys.exit(0)
+if os.environ.get("FAKE_CLAUDE_AUTH") == "missing":
+    print("Not logged in. Please run /login", file=sys.stderr, flush=True)
+    sys.exit(1)
+fresh_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" if "opus" in args else "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+sid = args[args.index("--resume") + 1] if "--resume" in args else fresh_id
+turn = 0
+init = False
+for line in sys.stdin:
+    message = json.loads(line)
+    assert message["type"] == "user"
+    assert message["message"]["role"] == "user"
+    content = message["message"]["content"]
+    prompt = content if isinstance(content, str) else "\n".join(b["text"] for b in content)
+    turn += 1
+    trace({"input": message, "pid": os.getpid(), "turn": turn,
+           "oauth_inherited": os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") == "fixture-inherited-value"})
+    if not init:
+        emit({"type": "system", "subtype": "init", "session_id": sid, "model": "fixture-model"})
+        init = True
+    def assistant(blocks):
+        emit({"type": "assistant", "uuid": str(turn) + "-assistant-" + str(len(blocks)), "session_id": sid,
+              "message": {"role": "assistant", "content": blocks}})
+    def result(error=False, subtype="success"):
+        emit({"type": "result", "uuid": str(turn) + "-result", "session_id": sid,
+              "subtype": subtype, "is_error": error,
+              "usage": {"input_tokens": 12, "output_tokens": 7, "cache_read_input_tokens": 3},
+              "total_cost_usd": 0.000123})
+    if prompt == "malformed":
+        print("{bad json", flush=True)
+    elif prompt == "oversized":
+        print('"' + 'x' * (1024 * 1024) + '"', flush=True)
+    elif prompt == "unknown":
+        emit({"type": "future_event", "subtype": "future"})
+        assistant([{"type": "text", "text": "after unknown"}])
+        result()
+    elif prompt == "tools":
+        assistant([{"type": "tool_use", "id": "external-call", "name": "Write",
+                    "input": {"file_path": "must-not-be-written", "content": "external only"}}])
+        emit({"type": "user", "session_id": sid, "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "external-call", "content": "CLI handled the tool"}]}})
+        assistant([{"type": "text", "text": "tool finished"}, {"type": "text", "text": "!"}])
+        result()
+    elif prompt == "thinking":
+        assistant([{"type": "thinking", "thinking": "a short thought", "signature": "do-not-project"},
+                   {"type": "text", "text": "thought finished"}])
+        result()
+    elif prompt == "error":
+        result(True, "error_max_turns")
+    elif prompt == "not-logged-in":
+        emit({"type": "result", "subtype": "error_during_execution", "is_error": True,
+              "errors": ["Not logged in. Please run /login"]})
+    elif prompt == "crash":
+        assistant([{"type": "tool_use", "id": "crash-tool", "name": "Bash", "input": {"command": "no harness execution"}}])
+        print("fixture crash access_token=fixture-secret-value", file=sys.stderr, flush=True)
+        sys.exit(17)
+    elif prompt in ("cancel", "late"):
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        member = subprocess.Popen([sys.executable, "-c", "import signal,time; signal.signal(signal.SIGINT,signal.SIG_IGN); signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(60)"])
+        trace({"member": member.pid, "leader": os.getpid()})
+        assistant([{"type": "tool_use", "id": "pending-tool", "name": "Bash", "input": {"command": "pending"}}])
+        if prompt == "late":
+            time.sleep(0.15)
+            assistant([{"type": "text", "text": "stale output must disappear"}])
+            result()
+            result()
+        time.sleep(60)
+    elif prompt == "duplicate":
+        assistant([{"type": "text", "text": "one answer"}])
+        result()
+        result()
+    elif prompt == "block":
+        time.sleep(60)
+    else:
+        assistant([{"type": "text", "text": "reply " + str(turn) + ": " + prompt}])
+        result()

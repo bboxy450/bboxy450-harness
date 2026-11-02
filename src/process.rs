@@ -433,7 +433,7 @@ fn exited_without_reaping(pid: u32) -> io::Result<bool> {
         }
     }
 }
-async fn leader_exit(pid: u32) -> io::Result<()> {
+pub(crate) async fn leader_exit(pid: u32) -> io::Result<()> {
     while !exited_without_reaping(pid)? {
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
@@ -604,7 +604,7 @@ async fn run_inner(
         cancelled,
     })
 }
-async fn terminate(group: &OwnedChild) {
+pub(crate) async fn terminate(group: &OwnedChild) {
     group.send(libc::SIGTERM);
     tokio::time::sleep(Duration::from_millis(500)).await;
     group.send(libc::SIGKILL);
