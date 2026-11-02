@@ -32,6 +32,7 @@ pub struct Reply {
     pub status: u16,
     pub body: Vec<u8>,
     pub retry_after: Option<u64>,
+    pub location: Option<String>,
     pub hold: Duration,
     pub truncated: bool,
 }
@@ -83,11 +84,15 @@ impl Server {
                 cuts.push(body.len());
                 let length = body.len() + if reply.truncated { 1024 } else { 0 };
                 let headers = format!(
-                    "HTTP/1.1 {} fixture\r\nContent-Type: text/event-stream\r\nContent-Length: {length}\r\nConnection: close\r\n{}\r\n",
+                    "HTTP/1.1 {} fixture\r\nContent-Type: text/event-stream\r\nContent-Length: {length}\r\nConnection: close\r\n{}{}\r\n",
                     reply.status,
                     reply
                         .retry_after
                         .map(|n| format!("Retry-After: {n}\r\n"))
+                        .unwrap_or_default(),
+                    reply
+                        .location
+                        .map(|path| format!("Location: {path}\r\n"))
                         .unwrap_or_default()
                 );
                 if socket.write_all(headers.as_bytes()).await.is_err() {
@@ -121,6 +126,7 @@ pub fn ok(body: Vec<u8>) -> Reply {
         status: 200,
         body,
         retry_after: None,
+        location: None,
         hold: Duration::ZERO,
         truncated: false,
     }

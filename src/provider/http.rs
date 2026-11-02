@@ -24,11 +24,15 @@ pub(super) struct Http {
 impl Http {
     pub fn new(endpoint: String, key: Secret, format: Format) -> Result<Self, ProviderError> {
         profile::validate_endpoint(&endpoint)?;
+        let client = reqwest::Client::builder().connect_timeout(Duration::from_secs(60));
+        let client = match format {
+            // reqwest's bearer handling is retained for legacy profiles; a
+            // custom x-api-key must never follow an Anthropic redirect.
+            Format::OpenAi => client,
+            Format::Anthropic => client.redirect(reqwest::redirect::Policy::none()),
+        };
         Ok(Self {
-            // A redirect must never forward an API key to another origin.
-            client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(60))
-                .redirect(reqwest::redirect::Policy::none())
+            client: client
                 .build()
                 .map_err(|_| ProviderError::new(ErrorClass::Internal, "HTTP client unavailable"))?,
             endpoint,
@@ -111,7 +115,7 @@ impl Http {
                         retry_after = response.headers().get("retry-after")
                             .and_then(|v| v.to_str().ok()).and_then(parse_retry_after);
                         // The body and reqwest errors can reflect credentials. Never format either.
-                        ProviderError::new(http_class(status), format!("provider request refused (HTTP {status})"))
+                        ProviderError::new(http_class(status, this.format), format!("provider request refused (HTTP {status})"))
                     },
                     Err(_) => ProviderError::new(ErrorClass::Transient, "provider connection failed"),
                 };
@@ -140,11 +144,12 @@ fn cancelled() -> ModelEvent {
 fn retryable(class: &ErrorClass) -> bool {
     matches!(class, ErrorClass::Transient | ErrorClass::RateLimited)
 }
-fn http_class(status: u16) -> ErrorClass {
+fn http_class(status: u16, format: Format) -> ErrorClass {
     match status {
         401 | 403 => ErrorClass::Auth,
         429 => ErrorClass::RateLimited,
-        408 | 500..=599 => ErrorClass::Transient,
+        408 | 500 | 502 | 503 | 504 => ErrorClass::Transient,
+        500..=599 if matches!(format, Format::Anthropic) => ErrorClass::Transient,
         _ => ErrorClass::BadRequest,
     }
 }

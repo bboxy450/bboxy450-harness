@@ -1010,3 +1010,71 @@ async fn truncated_or_refused_calls_remain_paired_without_execution() {
         assert_eq!(server.attempts.load(Ordering::SeqCst), 1);
     }
 }
+
+#[tokio::test]
+async fn legacy_http_classes_and_redirects_remain_compatible() {
+    for status in [501, 529] {
+        let mut reply = sse_server::ok(vec![]);
+        reply.status = status;
+        let server = sse_server::Server::start(vec![reply]).await;
+        let set = Set::default();
+        let provider = OpenAiCompat::new(
+            &server.endpoint,
+            Secret::new("fixture-credential".into(), &set),
+            set,
+            Options {
+                max_requests: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            provider
+                .stream(request(), CancellationToken::new())
+                .collect::<Vec<_>>()
+                .await,
+            vec![failed(
+                ErrorClass::BadRequest,
+                &format!("provider request refused (HTTP {status})")
+            )]
+        );
+    }
+    let mut redirect = sse_server::ok(vec![]);
+    redirect.status = 302;
+    redirect.location = Some("/redirected".into());
+    let server =
+        sse_server::Server::start(vec![redirect.clone(), sse_server::ok(support::sse("text"))])
+            .await;
+    let set = Set::default();
+    let provider = OpenAiCompat::new(
+        &server.endpoint,
+        Secret::new("fixture-credential".into(), &set),
+        set,
+        Options {
+            max_requests: Some(1),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let events = provider
+        .stream(request(), CancellationToken::new())
+        .collect::<Vec<_>>()
+        .await;
+    assert!(matches!(
+        events.last(),
+        Some(ModelEvent::Finish(Finish::Stop))
+    ));
+    assert_eq!(server.attempts.load(Ordering::SeqCst), 2);
+    let native = sse_server::Server::start(vec![redirect]).await;
+    assert_eq!(
+        client(&native)
+            .stream(request(), CancellationToken::new())
+            .collect::<Vec<_>>()
+            .await,
+        vec![failed(
+            ErrorClass::BadRequest,
+            "provider request refused (HTTP 302)"
+        )]
+    );
+    assert_eq!(native.attempts.load(Ordering::SeqCst), 1);
+}
