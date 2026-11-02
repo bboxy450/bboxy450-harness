@@ -19,6 +19,10 @@ allowed_paths:
 - src/engine/
 - src/provider/
 - src/main.rs
+- src/process.rs
+- src/redact.rs
+- src/context/auto.rs
+- src/context/compact.rs
 - tests/
 - protocol.schema.json
 - verification/contracts.toml
@@ -66,6 +70,7 @@ ROLE: EXECUTOR. Repo bboxy450/bboxy450-harness, own worktree off origin/main. Sp
 
 **Oracle rulings (2026-11-02, Vesper Greywind):**
 - §4a usage types come from p6 (`parity/p6-seat-state`), which lands first. Do not define them again; build the usage CLI and the engine/import writers on p6's types.
+- Granted (Oracle): `src/process.rs`, `src/redact.rs`, `src/context/auto.rs` and `src/context/compact.rs`, for the mechanical clone and `TurnStarted { turn, .. }` pattern repairs that step 8 and Part B require. Nothing else in those files.
 - This task owns `src/store.rs`. Part B also supplies `Store::append_projected_at(event, cause, ts_ms, native, ext)`, and the existing `append`/`append_at` delegate to it with an empty `ext`. #5979 (ir-scan) persists projector extras through it and does not edit `src/store.rs`.
 
 **Render-gap evidence**, from the 2026-11-02 survey at 3c78fcf. These are importer and ACP projector follow-ups. They are in scope only where Part B needs a writer.
