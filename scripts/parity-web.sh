@@ -34,7 +34,7 @@ const v = Hx.view({{}}); document.getElementById('f').append(v.node);
 {json.dumps(envs)}.forEach(e => v.apply(e));
 </script></body></html>''')
 PY
-"$CHROME" --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --user-data-dir="$OUT/.chrome" \
+"$CHROME" --headless=new --use-mock-keychain --password-store=basic --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --user-data-dir="$OUT/.chrome" \
   --window-size="$W,$H" --virtual-time-budget=2000 --screenshot="$OUT/web.png" "file://$OUT/page.html" >/dev/null 2>&1
 rm -rf "$OUT/.chrome"
 python3 -I - "$OUT" <<'PY'
