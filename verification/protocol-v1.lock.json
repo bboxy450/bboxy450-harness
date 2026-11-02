@@ -64,6 +64,32 @@
    },
    "shape": "struct"
   },
+  "Backend": {
+   "fields": {
+    "kind": {
+     "required": true,
+     "type": "BackendKind"
+    },
+    "name": {
+     "required": true,
+     "type": "string"
+    },
+    "version": {
+     "required": false,
+     "type": "string|null"
+    }
+   },
+   "shape": "struct"
+  },
+  "BackendKind": {
+   "shape": "enum",
+   "variants": {
+    "acp_agent": {},
+    "engine": {},
+    "import": {},
+    "unknown": {}
+   }
+  },
   "BlobRef": {
    "fields": {
     "len": {
@@ -96,6 +122,27 @@
     },
     "unknown": {}
    }
+  },
+  "Cost": {
+   "fields": {
+    "amount_micros": {
+     "required": true,
+     "type": "uint64"
+    },
+    "currency": {
+     "required": true,
+     "type": "string"
+    },
+    "price_source": {
+     "required": false,
+     "type": "string|null"
+    },
+    "source": {
+     "required": true,
+     "type": "NumberSource"
+    }
+   },
+   "shape": "struct"
   },
   "Delta": {
    "shape": "union",
@@ -658,6 +705,15 @@
    },
    "shape": "struct"
   },
+  "NumberSource": {
+   "shape": "enum",
+   "variants": {
+    "derived": {},
+    "estimated": {},
+    "reported": {},
+    "unknown": {}
+   }
+  },
   "Op": {
    "shape": "union",
    "tag": "type",
@@ -1007,6 +1063,10 @@
   },
   "Usage": {
    "fields": {
+    "backend": {
+     "required": false,
+     "type": "Backend|null"
+    },
     "cache_creation_input_tokens": {
      "required": false,
      "type": "uint64|null"
@@ -1014,6 +1074,18 @@
     "cached_input_tokens": {
      "required": false,
      "type": "uint64|null"
+    },
+    "context_used": {
+     "required": false,
+     "type": "uint64|null"
+    },
+    "context_window": {
+     "required": false,
+     "type": "uint64|null"
+    },
+    "cost": {
+     "required": false,
+     "type": "Cost|null"
     },
     "cost_micros_usd": {
      "required": false,
@@ -1023,6 +1095,10 @@
      "required": true,
      "type": "uint64"
     },
+    "model": {
+     "required": false,
+     "type": "string|null"
+    },
     "output_tokens": {
      "required": true,
      "type": "uint64"
@@ -1030,9 +1106,34 @@
     "reasoning_tokens": {
      "required": false,
      "type": "uint64|null"
+    },
+    "request_id": {
+     "required": false,
+     "type": "string|null"
+    },
+    "scope": {
+     "required": false,
+     "type": "UsageScope|null"
+    },
+    "source": {
+     "required": false,
+     "type": "NumberSource|null"
+    },
+    "unreported": {
+     "required": false,
+     "type": "[string]"
     }
    },
    "shape": "struct"
+  },
+  "UsageScope": {
+   "shape": "enum",
+   "variants": {
+    "call": {},
+    "session": {},
+    "turn": {},
+    "unknown": {}
+   }
   },
   "Version": {
    "fields": {
