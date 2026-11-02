@@ -15,6 +15,7 @@ links:
   - { to: "[[upstream-toolkit]]", rel: index }
   - { to: "[[acp-agent]]", rel: index }
   - { to: "[[log-ir-v1]]", rel: index }
+  - { to: "[[rich-pane]]", rel: index }
 created: "2026-10-31T00:00:00Z"
 updated: "2026-11-02T22:00:00Z"
 ---
@@ -29,6 +30,7 @@ updated: "2026-11-02T22:00:00Z"
 | [[provider]] | engine ↔ OpenAI-compatible endpoint (E1 on both sides) | baselined v0.1 |
 | [[acp]] | engine via `Host`/`InProc` (E1) ↔ ACP v1 clients over stdio | baselined v0.1 |
 | [[acp-agent]] | `AcpAgentActor` behind the Gateway ↔ external ACP v1 agents (Claude Agent, codex-acp, …) as untrusted children | baselined v0.1 (3d76710); center: [[d5972-our-log-format-is-the-center]] |
+| [[rich-pane]] | bboxy450-term pane/scene/logic ↔ harness `seat` session socket + `HarnessView` (embedded) | proposed v0.1; Side A rows need the #348 owner |
 | [[mcp]] | engine registry and policy (E1) ↔ user-configured MCP servers (untrusted child processes) | baselined v0.1 |
 | [[embed-seat]] | bboxy450-term (ICD #348 owner) ↔ `seat` face | phase 1a baselined (bboxy450-term `d6fa3fd5`); 1b proposed |
 | [[seat-capability-delivery]] | bboxy450-term launch kit, bridge and hook (ICD #348) ↔ every seat kind, including `seat` | baselined: Side A bboxy450-term `afda1b63`, Side B harness `4deca92`; the capability is a 0600 overlay file, never in an environment |
