@@ -191,6 +191,16 @@ checks = ["make test-formal", "make test"]
 
 
 [[contract]]
+name = "HarnessFoldedCard"
+title = "A cached tool card is rebuilt when a folded child (approval, terminal, file change) changes."
+models = ["HarnessFoldedCard", "BrokenHarnessFoldedCard"]
+sources = ["src/frontends/gui/face_rows.rs", "src/frontends/gui/view.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/gui_render.rs", "tests/gui_rich.rs"]
+assumptions = "One card, one folded child with versions 0..2 (absent, live tail, completed); a prepare either reuses or rebuilds atomically. The signature is abstracted as the child version; Folds::deps hashes completion seq, status, tail length and blob presence. Layout geometry and pixels are implementation witnesses (gui_render live terminal head then blob; gui_rich live tail then full blob)."
+property = "A freshly prepared card shows its folded child's current version."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
 name = "HarnessEmbedLifecycle"
 title = "Detaching a window/view preserves the actor; explicit Stop signals only its own birth."
 models = ["HarnessEmbedLifecycle", "BrokenHarnessEmbedLifecycle"]

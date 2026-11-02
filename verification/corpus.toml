@@ -199,6 +199,18 @@ frontend="project"
 
 
 [[model]]
+name="HarnessFoldedCard"
+expected="pass"
+frontend="project"
+
+
+[[model]]
+name="BrokenHarnessFoldedCard"
+expected="safety"
+frontend="project"
+
+
+[[model]]
 name="HarnessEmbedLifecycle"
 expected="pass"
 frontend="project"

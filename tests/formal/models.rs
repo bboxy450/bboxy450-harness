@@ -1958,6 +1958,56 @@ fn gui_choice(b: bool) -> Model {
     );
     m
 }
+// The rich face folds a tool's terminal/diff/approval into the tool's card. A completed
+// card is cached; its signature must cover the folded child, or a child that advances
+// after the card completed is never redrawn. (gui/face_rows.rs Folds::deps, view.rs
+// Preparer cache check.)
+fn folded_card(b: bool) -> Model {
+    let mut m = base::<5>(
+        "FoldedCard",
+        b,
+        &[
+            ("child", 2, 0),
+            ("cached", 2, 0),
+            ("valid", 1, 0),
+            ("shown", 2, 0),
+            ("fresh", 1, 1),
+        ],
+    );
+    act(
+        &mut m,
+        "ChildAdvances",
+        Var(0).lt(Int(2)),
+        &[(0, Var(0).plus(Int(1))), (4, Int(0))],
+    );
+    let stale = Var(1).eq(Var(0)).negate();
+    act(
+        &mut m,
+        "PrepareRebuild",
+        if b {
+            eq(2, 0)
+        } else {
+            eq(2, 0).or(stale.clone())
+        },
+        &[(1, Var(0)), (2, Int(1)), (3, Var(0)), (4, Int(1))],
+    );
+    act(
+        &mut m,
+        "PrepareReuse",
+        if b {
+            eq(2, 1)
+        } else {
+            all([eq(2, 1), stale.negate()])
+        },
+        &[(3, Var(1)), (4, Int(1))],
+    );
+    safe(
+        &mut m,
+        "FreshCardShowsChild",
+        eq(4, 0).or(Var(3).eq(Var(0))),
+    );
+    m
+}
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
         (gui_markdown(0), "pass"),
@@ -1983,6 +2033,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
             stream_to_view(b),
             dirty_wake_frame(b),
             scroll_stick(b),
+            folded_card(b),
             embed_lifecycle(b),
             profile_load(b),
             fork_materialize(b),
