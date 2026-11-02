@@ -13,8 +13,9 @@ links:
   - { to: "[[harness-zoomed-out]]", rel: verifies }
   - { to: "[[formal-reuse]]", rel: builds-on }
   - { to: "[[upstream-toolkit]]", rel: index }
+  - { to: "[[acp-agent]]", rel: index }
 created: "2026-10-31T00:00:00Z"
-updated: "2026-10-31T00:00:00Z"
+updated: "2026-11-02T22:00:00Z"
 ---
 # Interfaces and verification matrix
 
@@ -26,6 +27,7 @@ updated: "2026-10-31T00:00:00Z"
 | [[gateway]] | engine (E1) ↔ faces; InProc and Unix | baselined v0.1 |
 | [[provider]] | engine ↔ OpenAI-compatible endpoint (E1 on both sides) | baselined v0.1 |
 | [[acp]] | engine via `Host`/`InProc` (E1) ↔ ACP v1 clients over stdio | baselined v0.1 |
+| [[acp-agent]] | `AcpAgentActor` behind the Gateway ↔ external ACP v1 agents (Claude Agent, codex-acp, …) as untrusted children | baselined v0.1 (3d76710); center: [[d5972-our-log-format-is-the-center]] |
 | [[mcp]] | engine registry and policy (E1) ↔ user-configured MCP servers (untrusted child processes) | baselined v0.1 |
 | [[embed-seat]] | bboxy450-term (ICD #348 owner) ↔ `seat` face | phase 1a baselined (bboxy450-term `d6fa3fd5`); 1b proposed |
 | [[seat-capability-delivery]] | bboxy450-term launch kit, bridge and hook (ICD #348) ↔ every seat kind, including `seat` | baselined: Side A bboxy450-term `afda1b63`, Side B harness `4deca92`; the capability is a 0600 overlay file, never in an environment |
@@ -66,6 +68,40 @@ updated: "2026-10-31T00:00:00Z"
 | R22 | Automatic compaction keeps requests inside the window, is cache-stable and is rebuilt identically after restart | model HarnessAutoCompact + 4 broken controls; `tests/context_auto.rs` (a)–(f) ([[protocol]] §4d) | `make test` |
 | R23 | ACP v1 face: mapping, stop reasons, approvals, load replay, unsupported methods, per-session FIFO admission, backpressure that never closes a connected face | model HarnessAcpFlow + 2 broken controls; `tests/acp_face.rs` and the `tests/fixtures/acp/*.jsonl` goldens ([[acp]] §1c, §6) | `make test` |
 | R24 | MCP servers never block a turn, every call is policy-gated, secrets never persist | model HarnessMcpServer + 3 broken controls; `tests/mcp_client.rs` with the fixture server ([[mcp]] §6) | `make test` |
+| R25 | ACP agent backend: one ending per prompt, cancel answers every pending permission, every agent request answered, `*_always` never automatic, no claude.ai login | model HarnessAcpAgentTurn + broken control; `tests/acp_agent.rs` ([[acp-agent]] §7). Kill-after-grace has no witness yet: **unproven** | `make test` |
+| R26 | Our log is the center: native Claude/Codex logs project into logs that pass `check_transcript`; switch forks and hands over | `tests/import_native.rs`, `tests/acp_agent.rs` switch test ([[d5972-our-log-format-is-the-center]]) | `make test` |
+| R27 | Rich-face parity: the native GUI renders a replay like the web reference | `python3 -I scripts/parity-gate.py OUT [--target]` over `tests/fixtures/parity/*.jsonl` (§Rich-face parity) | executor acceptance (macOS, Chrome); **not** `make test` |
+
+## Rich-face parity (R27)
+
+**What parity means.** For one committed replay log, the native `gui --replay --capture 900x1100` frame and the web reference (bboxy450-term `lab/web/harness.js`, headless Chrome, dark, cozy) show the same rows in the same places: the same items, in the same order, at the same vertical positions, with the same chrome (header, status, composer). Colour and anti-aliasing differences inside a row are not parity failures.
+
+**Instrument.** `scripts/parity-web.sh` writes `web.png`, `native.png`, `side.png` and `score.json`. Both renders are deterministic (two runs of `acp-claude-acp` at 3d76710 gave byte-identical PNGs). Metrics:
+- `row_structure_mismatch`: the share of pixel rows where one render has ink and the other has none. It measures layout and is the primary metric.
+- `mean_abs_diff`: the mean greyscale difference over the frame. It is secondary and is dominated by background.
+
+**Gate.** `scripts/parity-gate.py` runs the instrument on every fixture and decides. Fixtures are `tests/fixtures/parity/*.jsonl`, adopted from `~/mydev/bboxy450-harness-parity/fixtures` and pinned by sha256 in `.bboxy/runs/parity-baseline-3d76710.json`. That file also records the web reference used, bboxy450-term `55f50175`.
+
+| Exit | Meaning |
+|---|---|
+| 0 | no regression: every score ≤ baseline + tolerance (mean +0.003, rows +0.02), both PNGs 900×1100, fixture hashes match |
+| 2 | (`--target` only) no regression, but a target is not met |
+| 1 | regression, size mismatch, stale fixture hash or instrument failure |
+
+**Acceptance for Executor work.**
+- Every GUI cut: exit 0. A parity task (p1–p4) also: an improvement in `row_structure_mismatch` on the fixtures it names.
+- "Parity done": `--target` exit 0. The targets are:
+  - chat fixtures `acp-claude-acp`, `acp-codex-acp`, `acp-omp`, `acp-pi`: rows ≤ 0.08, mean ≤ 0.012;
+  - rich fixtures `acp-opencode`, `glyph-atlas`, `mermaid`: rows ≤ 0.25, mean ≤ 0.030.
+- The report carries the gate's stdout and the `side.png` paths. Looking at `side.png` is judgement: it advises and escalates, and never replaces the exit code.
+
+**Baseline at 3d76710** (rows / mean): claude-acp .153/.019 · codex-acp .125/.016 · omp .125/.017 · pi .128/.017 · opencode .531/.046 · glyph-atlas .462/.049 · mermaid .497/.033. Gate exit 0; `--target` exit 2. **Broken control:** a native render replaced by a blank frame exits 1 with 11 FAIL lines.
+
+**Rules.**
+- Changing a fixture, the web reference commit or a target is an Architect re-baseline: a new baseline file and a recorded reason.
+- A tolerance is never widened to pass a cut.
+- The instrument resizes a wrongly sized native frame before scoring, so the gate checks the PNG sizes itself.
+- Not covered: interaction states (hover, popover, scroll), light theme, other sizes. Those stay manual until fixtures exist for them.
 
 ## Formal models
 
