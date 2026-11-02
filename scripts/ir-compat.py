@@ -14,7 +14,7 @@ The surface is flattened from the schemars export: every definition, every field
 signature and required flag, every variant of a tagged union or string enum. Allowed: a new
 definition, a new optional field, a new variant. Refused: a removed definition, field or variant;
 a changed type, tag key or definition shape; a required field that was not required; a retired
-name in use again; a union or enum without an `unknown` or untagged catch-all variant; a frozen corpus file changed.
+name in use again; a union or enum without a catch-all (a named `unknown` value or an untagged\n`true` entry: the two are the same variant to the gate); a frozen corpus file changed.
 """
 import copy, hashlib, json, sys
 from pathlib import Path
@@ -57,7 +57,32 @@ def fields(node, skip=None):
     return {k: {'type': sig(v), 'required': k in req} for k, v in props.items() if k != skip}
 
 
+def is_catch_all(e):
+    """An untagged `Unknown(Value)` variant exports as `true` (or `{}`): it accepts anything."""
+    return e is True or e == {}
+
+
+def is_string_enum(e):
+    return isinstance(e, dict) and e.get('type') == 'string' and ('enum' in e or 'const' in e)
+
+
+def union_entries(d):
+    """The variant entries of a union, nested anyOf/oneOf flattened; returns (entries, has_catch_all)."""
+    out, catch = [], False
+    for e in d.get('oneOf') or d.get('anyOf') or []:
+        if is_catch_all(e):
+            catch = True
+        elif isinstance(e, dict) and ('oneOf' in e or 'anyOf' in e) and 'properties' not in e:
+            inner, c = union_entries(e)
+            out += inner; catch = catch or c
+        else:
+            out.append(e)
+    return out, catch
+
+
 def variant_tag(entry):
+    if not isinstance(entry, dict):
+        return None, None
     for k, v in entry.get('properties', {}).items():
         if not isinstance(v, dict):
             continue
@@ -69,21 +94,27 @@ def variant_tag(entry):
 
 
 def flatten(schema):
+    """One shape per definition. The reader-side catch-all (a named `unknown` value or an untagged
+    `true` entry) always appears as the variant `unknown`, so switching between the two forms is
+    not a change: both accept every value the other does, and writers never emit either (E5)."""
     out = {}
     for name, d in schema['$defs'].items():
-        if 'enum' in d and d.get('type') == 'string':
-            out[name] = {'shape': 'enum', 'variants': {v: {} for v in d['enum']}}
+        if is_string_enum(d):
+            out[name] = {'shape': 'enum', 'variants': {v: {} for v in d.get('enum', [d.get('const')])}}
         elif 'oneOf' in d or 'anyOf' in d:
-            entries = d.get('oneOf') or d.get('anyOf')
+            entries, catch = union_entries(d)
+            if len(entries) == 1 and is_string_enum(entries[0]):
+                e = entries[0]
+                variants = {v: {} for v in e.get('enum', [e.get('const')])}
+                if catch:
+                    variants['unknown'] = {}
+                out[name] = {'shape': 'enum', 'variants': variants}
+                continue
             tags, variants = set(), {}
             for e in entries:
-                if 'enum' in e and e.get('type') == 'string':
-                    for v in e['enum']:
+                if is_string_enum(e):
+                    for v in e.get('enum', [e.get('const')]):
                         variants[v] = {}
-                    tags.add('<plain>')
-                    continue
-                if 'const' in e and e.get('type') == 'string':
-                    variants[e['const']] = {}
                     tags.add('<plain>')
                     continue
                 tag, value = variant_tag(e)
@@ -92,6 +123,8 @@ def flatten(schema):
                     continue
                 tags.add(tag)
                 variants[value] = fields(e, skip=tag)
+            if catch:
+                variants['unknown'] = {}
             out[name] = {'shape': 'union', 'tag': '|'.join(sorted(tags)), 'variants': variants}
         elif d.get('type') == 'object' or 'properties' in d:
             out[name] = {'shape': 'struct', 'fields': fields(d)}
@@ -128,8 +161,8 @@ def compare(lock, cur):
                 if v not in old['variants']:
                     bad += [f'{name}.{v}.{k}: new variant has required field' for k, x in f.items() if x['required']]
     for name, new in cur.items():
-        if new['shape'] in ('union', 'enum') and not ('unknown' in new['variants'] or any(v.startswith('<untagged:') for v in new['variants'])):
-            bad.append(f'{name}: no `unknown` or untagged catch-all variant, so an older reader cannot tolerate a new one')
+        if new['shape'] in ('union', 'enum') and 'unknown' not in new['variants']:
+            bad.append(f'{name}: no `unknown` value or untagged catch-all, so an older reader cannot tolerate a new variant')
         names = [name] + [f'{name}.{v}' for v in new.get('variants', {})] + [f'{name}.{f}' for f in new.get('fields', {})]
         names += [f'{name}.{v}.{f}' for v, fs in new.get('variants', {}).items() for f in fs]
         bad += [f'{n}: retired name reused' for n in names if n in retired]
@@ -169,13 +202,56 @@ def check():
     return 1 if bad else 0
 
 
+def enum_node(s, name):
+    """The node holding a string enum's values, whether bare or wrapped in anyOf[enum, true]."""
+    d = s['$defs'][name]
+    if is_string_enum(d):
+        return d
+    return next(e for e in (d.get('oneOf') or d.get('anyOf')) if is_string_enum(e))
+
+
+def variants_of(s, name):
+    d = s['$defs'][name]
+    return [e for e in (d.get('oneOf') or d.get('anyOf')) if isinstance(e, dict)]
+
+
+def drop_catch_all(s, name):
+    d = s['$defs'][name]
+    if is_string_enum(d):
+        d['enum'].remove('unknown')
+        return
+    key = 'oneOf' if 'oneOf' in d else 'anyOf'
+    d[key] = [e for e in d[key] if not is_catch_all(e)]
+    for e in d[key]:
+        if is_string_enum(e) and 'unknown' in e.get('enum', []):
+            e['enum'].remove('unknown')
+    for e in d[key]:
+        if variant_tag(e)[1] == 'unknown':
+            d[key].remove(e); break
+
+
+def untagged_form(schema):
+    """The current schema as schemars exports it once every `Unknown` is an untagged `Value`:
+    the named `unknown` value leaves each enum and a bare `true` entry joins the union."""
+    s = copy.deepcopy(schema)
+    for name, d in s['$defs'].items():
+        if is_string_enum(d) and 'unknown' in d.get('enum', []):
+            d['enum'].remove('unknown')
+            s['$defs'][name] = {'anyOf': [d, True]}
+        elif 'oneOf' in d or 'anyOf' in d:
+            key = 'oneOf' if 'oneOf' in d else 'anyOf'
+            kept = [e for e in d[key] if not (isinstance(e, dict) and variant_tag(e)[1] == 'unknown')]
+            if len(kept) != len(d[key]):
+                d[key] = kept + [True]
+    return s
+
+
 def control():
     schema = json.loads(SCHEMA.read_text())
     lock = json.loads(LOCK.read_text())
-    d = schema['$defs']
 
     def item_variant(s, kind):
-        return next(e for e in s['$defs']['Item']['oneOf'] if variant_tag(e)[1] == kind)
+        return next(e for e in variants_of(s, 'Item') if variant_tag(e)[1] == kind)
 
     def m_remove_field(s): del s['$defs']['Usage']['properties']['output_tokens']
     def m_rename_variant(s): item_variant(s, 'agent_message')['properties']['kind']['const'] = 'assistant_message'
@@ -184,34 +260,39 @@ def control():
         s['$defs']['Usage']['properties']['model'] = {'type': 'string'}
         s['$defs']['Usage']['required'].append('model')
     def m_now_required(s): s['$defs']['Usage']['required'].append('reasoning_tokens')
-    def m_remove_enum(s): s['$defs']['ToolKind']['enum'].remove('fetch')
-    def m_drop_unknown(s): s['$defs']['ToolKind']['enum'].remove('unknown')
+    def m_remove_enum(s): enum_node(s, 'ToolKind')['enum'].remove('fetch')
+    def m_drop_unknown(s): drop_catch_all(s, 'ToolKind')
+    def m_drop_item_unknown(s): drop_catch_all(s, 'Item')
     def m_remove_def(s): del s['$defs']['Location']
     def m_tag_key(s):
-        for e in s['$defs']['Item']['oneOf']:
+        for e in variants_of(s, 'Item'):
             p = e.get('properties', {})
             if 'kind' in p:
                 p['type'] = p.pop('kind')
                 e['required'] = ['type' if r == 'kind' else r for r in e.get('required', [])]
     broken = [m_remove_field, m_rename_variant, m_type_change, m_new_required, m_now_required,
-              m_remove_enum, m_drop_unknown, m_remove_def, m_tag_key]
+              m_remove_enum, m_drop_unknown, m_drop_item_unknown, m_remove_def, m_tag_key]
 
     def a_optional_field(s): s['$defs']['Usage']['properties']['model'] = {'type': ['string', 'null']}
-    def a_variant(s): s['$defs']['ToolKind']['enum'].append('browse')
+    def a_variant(s): enum_node(s, 'ToolKind')['enum'].append('browse')
     def a_definition(s): s['$defs']['Citation'] = {'type': 'object', 'properties': {'url': {'type': 'string'}}, 'required': ['url']}
-    allowed = [a_optional_field, a_variant, a_definition]
+    def a_untagged_unknown(s): s['$defs'].update(untagged_form(s)['$defs'])
+    allowed = [a_optional_field, a_variant, a_definition, a_untagged_unknown]
 
     failed = 0
-    for m in broken:
-        s = copy.deepcopy(schema); m(s)
-        if not compare(lock, flatten(s)):
-            print('CONTROL FAIL: accepted', m.__name__); failed += 1
-    for a in allowed:
-        s = copy.deepcopy(schema); a(s)
-        got = compare(lock, flatten(s))
-        if got:
-            print('CONTROL FAIL: refused', a.__name__, got); failed += 1
-    print(f'ir-compat control: {"FAIL" if failed else "PASS"} ({len(broken)} refused, {len(allowed)} accepted)')
+    for label, base in (('current', schema), ('untagged', untagged_form(schema))):
+        if compare(lock, flatten(base)):
+            print('CONTROL FAIL: the', label, 'form of the schema is refused unmodified', compare(lock, flatten(base))); failed += 1
+        for m in broken:
+            s = copy.deepcopy(base); m(s)
+            if not compare(lock, flatten(s)):
+                print('CONTROL FAIL: accepted', m.__name__, 'on the', label, 'form'); failed += 1
+        for a in allowed:
+            s = copy.deepcopy(base); a(s)
+            got = compare(lock, flatten(s))
+            if got:
+                print('CONTROL FAIL: refused', a.__name__, 'on the', label, 'form', got); failed += 1
+    print(f'ir-compat control: {"FAIL" if failed else "PASS"} ({len(broken)} refused, {len(allowed)} accepted, both schema forms)')
     return 1 if failed else 0
 
 
