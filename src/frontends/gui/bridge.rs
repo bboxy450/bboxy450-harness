@@ -33,8 +33,8 @@ pub struct FrameState {
     pub notice: Option<String>,
     pub replay: bool,
     pub ready: bool,
-    /// Profile names in the machine-global profiles directory, for the switcher.
-    pub profiles: Arc<Vec<String>>,
+    /// Profiles in the machine-global profiles directory, for the switcher.
+    pub profiles: Arc<Vec<ProfileInfo>>,
     #[cfg(feature = "embedded")]
     pub prepared: Option<Arc<super::view::PreparedRows>>,
     #[cfg(feature = "embedded")]
@@ -48,7 +48,7 @@ struct Mailbox {
     resized: tokio::sync::Notify,
     published: AtomicU64,
     blobs: arc_swap::ArcSwapOption<crate::store::Blobs>,
-    profiles: arc_swap::ArcSwap<Vec<String>>,
+    profiles: arc_swap::ArcSwap<Vec<ProfileInfo>>,
     #[cfg(feature = "embedded")]
     faces: arc_swap::ArcSwap<super::rich::Faces>,
 }
@@ -580,19 +580,113 @@ pub fn refusal_text(error: &Refused) -> &'static str {
     }
 }
 
-/// Profile names (file stems) in the profiles directory, sorted; never their contents.
-async fn profile_names(dir: &std::path::Path) -> Vec<String> {
-    let mut names = vec![];
+/// What the profile switcher may show about a profile: never a key, a key
+/// source or an agent environment value.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProfileInfo {
+    /// File stem: what `/profile NAME` and `Host::switch` take.
+    pub name: String,
+    pub kind: ProfileKind,
+    /// `provider:` as written (openrouter, anthropic, acp-agent, …).
+    pub provider: Option<String>,
+    /// The model, or empty when an ACP agent brings its own.
+    pub model: String,
+    /// An ACP agent's command words (program file name first); never its env.
+    pub agent: Vec<String>,
+    /// How many env names an ACP agent sets (never their values).
+    pub agent_env: usize,
+    /// Where a model's key comes from: the kind of source only.
+    pub auth: ProfileAuth,
+    /// False when `api_key_env` names a variable absent from this process.
+    pub auth_ok: bool,
+    pub context_tokens: Option<u64>,
+    /// Named by `~/.bboxy450-harness/default-profile`.
+    pub default: bool,
+}
+/// The kind of a model profile's key source (web AUTH_SAY), never the key.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ProfileAuth {
+    Env,
+    Keychain,
+    Command,
+    /// A literal key in the profile file.
+    InFile,
+    #[default]
+    None,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ProfileKind {
+    #[default]
+    Model,
+    Agent,
+    /// The file exists but its frontmatter does not parse as a profile.
+    Unreadable,
+}
+impl ProfileInfo {
+    pub fn parse(name: &str, text: &str) -> Self {
+        let mut info = Self {
+            name: name.to_owned(),
+            ..Default::default()
+        };
+        match crate::provider::profile::Profile::parse(text) {
+            Ok(p) => {
+                info.kind = if p.is_acp_agent() {
+                    ProfileKind::Agent
+                } else {
+                    ProfileKind::Model
+                };
+                info.provider = p.provider.clone();
+                info.model = p.model.clone();
+                info.context_tokens = p.context_tokens;
+                info.auth_ok = true;
+                info.auth = match (&p.api_key, &p.api_key_env) {
+                    (Some(k), _) if k.starts_with("!security ") => ProfileAuth::Keychain,
+                    (Some(k), _) if k.starts_with('!') => ProfileAuth::Command,
+                    (Some(_), _) => ProfileAuth::InFile,
+                    (None, Some(name)) => {
+                        // presence only: the value is never read into the face
+                        info.auth_ok = std::env::var_os(name).is_some();
+                        ProfileAuth::Env
+                    }
+                    (None, None) => ProfileAuth::None,
+                };
+                if let Some(agent) = &p.agent {
+                    info.agent = agent.command.clone();
+                    info.agent_env = agent.env.len();
+                    if let Some(first) = info.agent.first_mut()
+                        && let Some(file) = std::path::Path::new(first.as_str()).file_name()
+                    {
+                        *first = file.to_string_lossy().into_owned();
+                    }
+                }
+            }
+            Err(_) => info.kind = ProfileKind::Unreadable,
+        }
+        info
+    }
+}
+
+/// Profiles in the profiles directory, sorted by name. Read on the host worker,
+/// never the UI thread; only the switcher-safe fields leave this function.
+pub async fn profile_names(dir: &std::path::Path) -> Vec<ProfileInfo> {
+    let mut out = vec![];
     if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
         while let Ok(Some(e)) = entries.next_entry().await {
             let path = e.path();
             if path.extension().is_some_and(|x| x == "md")
                 && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
             {
-                names.push(stem.to_owned());
+                let text = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+                out.push(ProfileInfo::parse(stem, &text));
             }
         }
     }
-    names.sort();
-    names
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    if let Some(parent) = dir.parent()
+        && let Ok(name) = tokio::fs::read_to_string(parent.join("default-profile")).await
+        && let Some(p) = out.iter_mut().find(|p| p.name == name.trim())
+    {
+        p.default = true;
+    }
+    out
 }

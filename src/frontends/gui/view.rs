@@ -8,7 +8,7 @@
 //! Retained toolkit transcript and composer. Effects stay with the host bridge.
 #![deny(clippy::disallowed_methods)]
 use super::{
-    bridge::{Bridge, FrameState},
+    bridge::{Bridge, FrameState, ProfileInfo},
     chat_scroll,
     model::{Transcript, ViewItem},
 };
@@ -129,6 +129,23 @@ pub enum Action {
     Jump,
     Toggle(ItemId, super::rich::Toggle),
     Complete(ui::text_edit::Completion, String),
+    /// The header profile chip: opens or closes the profile switcher.
+    Profiles,
+    /// A profile switcher row: the same path as `/profile NAME`.
+    SwitchProfile(String),
+    /// Inside an open menu (true) keeps it; outside it (false) closes it.
+    Menu(bool),
+    /// The switcher's `+ New profile`: the native form is not built yet.
+    NewProfile,
+}
+/// Keys the open profile switcher takes before the composer.
+#[derive(Clone, Debug, PartialEq)]
+pub enum MenuKey {
+    Up,
+    Down,
+    Enter,
+    Backspace,
+    Text(String),
 }
 #[derive(Default)]
 pub struct Frame {
@@ -176,6 +193,7 @@ pub struct HarnessView {
     pub composer: super::editor::Input,
     approval: Option<(ItemId, ui::modules::approval::Approval)>,
     completion: Option<ui::text_edit::CompletionPopover>,
+    profile_menu: Option<super::menu::ProfileMenu>,
     pub scroll: chat_scroll::State,
     metrics: Metrics,
     cached: Option<CacheKey>,
@@ -184,8 +202,10 @@ pub struct HarnessView {
     pub notice: Option<String>,
     /// The window holds keyboard focus: the composer draws its focus ring and caret.
     pub focused: bool,
-    /// Profile names for `/profile` completion, from the latest frame.
-    profiles: Arc<Vec<String>>,
+    /// Profiles for `/profile` completion and the switcher, from the latest frame.
+    profiles: Arc<Vec<ProfileInfo>>,
+    /// The session's current profile name, from the latest frame.
+    current_profile: Option<String>,
 }
 impl Default for HarnessView {
     fn default() -> Self {
@@ -203,6 +223,7 @@ impl Default for HarnessView {
             composer,
             approval: None,
             completion: None,
+            profile_menu: None,
             scroll: Default::default(),
             metrics: Metrics::default(),
             cached: None,
@@ -211,6 +232,7 @@ impl Default for HarnessView {
             notice: None,
             focused: false,
             profiles: Arc::new(vec![]),
+            current_profile: None,
         }
     }
 }
@@ -227,10 +249,16 @@ impl HarnessView {
     /// The same Element is used by a standalone surface and the offscreen driver.
     pub fn render(&mut self, state: &FrameState, size: [f32; 2]) -> Result<&Frame, String> {
         self.profiles = state.profiles.clone();
+        self.current_profile = state.transcript.profile.as_ref().map(|(p, _)| p.clone());
         let offset = self.scroll.layout_offset();
         let draft = format!(
-            "{:?}{:?}{:?}{:?}{}",
-            self.composer.view, self.notice, state.error, state.notice, self.focused
+            "{:?}{:?}{:?}{:?}{}{:?}",
+            self.composer.view,
+            self.notice,
+            state.error,
+            state.notice,
+            self.focused,
+            self.profile_menu
         );
         if self
             .cached
@@ -308,7 +336,8 @@ impl HarnessView {
         let ask = live && matches!(model.phase, Phase::Approval { .. });
         let focused = self.focused;
         let controls_key = format!(
-            "{draft}{status}{live}{focused}{}{:?}{:?}",
+            "{draft}{status}{live}{focused}{}{:?}{:?}{:?}",
+            self.profile_menu.is_some(),
             state.ready,
             model.profile,
             model.meta.as_ref().map(|m| &m.cwd)
@@ -371,6 +400,7 @@ impl HarnessView {
                         .map(|n| n.to_string_lossy().into_owned()),
                     &status,
                     live,
+                    self.profile_menu.is_some(),
                     &super::face::ink(ctx),
                 ),
             );
@@ -494,6 +524,7 @@ impl HarnessView {
             }
         }
         for (key, action) in [
+            ("profile", Action::Profiles),
             ("jump", Action::Jump),
             ("interrupt", Action::Interrupt),
             ("stop", Action::StopAt(state.transcript.epoch)),
@@ -502,20 +533,25 @@ impl HarnessView {
                 frame.actions.push((node.rect, action));
             }
         }
+        let ink = super::face::ink(ctx);
         if let Some(popover) = &self.completion {
-            // Completion choices are transparent toolkit controls. Give the
-            // final overlay an opaque surface so transcript ink cannot show
-            // through the gaps or idle buttons beneath it.
-            let mut style = ui::Style::new(ui::Preset::Card);
-            style.overrides.fill = Some(ui::Paint::solid(ui::Color::Rgba(
-                Color::hex(ctx.theme.palette().surface).0,
-            )));
-            style.overrides.material = Some(ui::Material::Flat);
-            let popup = named(
+            // Spec: left 12, bottom 4px into the composer's top padding.
+            let bottom = 40. + rows_h + 4.;
+            // 32 px rows under ~84 px of labels, insets and footer; at most 8
+            let max_rows = ((bottom - 44. - 84.) / 32.).floor().max(1.) as usize;
+            // The card's surface_2 fill is opaque: transcript ink never shows through.
+            let mut popup = named(
                 "completion-overlay",
-                c::Element::Box(c::Box::new(style, vec![popover.element(ctx).into()])),
-            )
-            .layout(Rect::new(12., 40., 320., 0.), ctx, &self.metrics)?;
+                super::menu::slash_menu(popover, &self.profiles, max_rows, &ink),
+            );
+            flat(&mut popup);
+            let mut popup = popup.layout(
+                Rect::new(12., 0., super::menu::slash_menu_width(width), 0.),
+                ctx,
+                &self.metrics,
+            )?;
+            let top = (bottom - popup.rect.h).max(44.);
+            translate(&mut popup, 0., top);
             for (i, choice) in popover.choices.options.iter().enumerate() {
                 if let Some(node) = find(&popup, &format!("completion/{i}")) {
                     frame.actions.insert(
@@ -527,9 +563,48 @@ impl HarnessView {
                     );
                 }
             }
-            for paint in c::paint(&popup, ctx) {
-                append_paint(&mut frame.list, paint)?;
+            paint_overlay(&mut frame.list, &popup, ctx, &ink)?;
+            // the selected row's 2px seat bar, inset 8px top and bottom
+            if let Some(node) = popover
+                .choices
+                .selected()
+                .and_then(|i| find(&popup, &format!("completion/{i}")))
+            {
+                let r = node.rect;
+                frame.list.rect(
+                    Rect::new(r.x - 3., r.y + 8., 2., (r.h - 16.).max(1.)),
+                    1.,
+                    Color(ink.seat),
+                );
             }
+        }
+        if let Some(menu) = &self.profile_menu {
+            let current = model
+                .profile
+                .as_ref()
+                .map(|(p, m)| (p.as_str(), m.as_str()));
+            let mut popup = menu.element(&self.profiles, current, &ink);
+            flat(&mut popup);
+            let popup = popup.layout(
+                Rect::new(10., 40., super::menu::profile_menu_width(width), 0.),
+                ctx,
+                &self.metrics,
+            )?;
+            frame.actions.insert(0, (popup.rect, Action::Menu(true)));
+            if let Some(node) = find(&popup, "pmenu/new") {
+                frame.actions.insert(0, (node.rect, Action::NewProfile));
+            }
+            for p in menu.rows(&self.profiles) {
+                if let Some(node) = find(&popup, &format!("pmenu/row/{}", p.name)) {
+                    frame
+                        .actions
+                        .insert(0, (node.rect, Action::SwitchProfile(p.name.clone())));
+                }
+            }
+            frame
+                .actions
+                .push((Rect::new(0., 0., width, size[1]), Action::Menu(false)));
+            paint_overlay(&mut frame.list, &popup, ctx, &ink)?;
         }
         frame.layout = Some(layout);
         self.scroll.layout_solved();
@@ -544,17 +619,87 @@ impl HarnessView {
         ));
         Ok(&self.frame)
     }
+    fn profile_names(&self) -> Vec<String> {
+        self.profiles.iter().map(|p| p.name.clone()).collect()
+    }
     pub fn edit(&mut self, command: ui::text_edit::Command) {
         self.composer.handle(composer::Command::Edit(command));
-        self.completion = self.composer.popover(&self.profiles);
+        self.completion = self.composer.popover(&self.profile_names());
         self.invalidate();
     }
     pub fn completion_open(&self) -> bool {
         self.completion.is_some()
     }
+    pub fn profile_menu_open(&self) -> bool {
+        self.profile_menu.is_some()
+    }
+    /// Open (or close) the header profile switcher, as the chip click does.
+    pub fn toggle_profile_menu(&mut self) {
+        self.profile_menu = match self.profile_menu.take() {
+            Some(_) => None,
+            None => {
+                self.completion = None;
+                let mut menu = super::menu::ProfileMenu::default();
+                // Start on the current profile, as the web marks it.
+                let current = self.current_profile.clone();
+                if let Some(i) = menu
+                    .rows(&self.profiles)
+                    .iter()
+                    .position(|p| Some(&p.name) == current.as_ref())
+                {
+                    menu.selected = i;
+                }
+                Some(menu)
+            }
+        };
+        self.invalidate();
+    }
+    /// Keys for the open profile switcher; false when it is closed.
+    pub fn profile_menu_key(&mut self, key: MenuKey, bridge: &Bridge) -> bool {
+        let profiles = self.profiles.clone();
+        let Some(menu) = &mut self.profile_menu else {
+            return false;
+        };
+        let len = menu.rows(&profiles).len();
+        match key {
+            MenuKey::Up => menu.move_by(-1, len),
+            MenuKey::Down => menu.move_by(1, len),
+            MenuKey::Backspace => {
+                menu.query.pop();
+                menu.selected = 0;
+            }
+            MenuKey::Text(text) => {
+                menu.query.push_str(&text);
+                menu.selected = 0;
+            }
+            MenuKey::Enter => {
+                if let Some(p) = menu.chosen(&profiles) {
+                    let name = p.name.clone();
+                    self.activate(Action::SwitchProfile(name), bridge);
+                    return true;
+                }
+            }
+        }
+        self.invalidate();
+        true
+    }
+    /// Enter on the open "/" menu: complete the chosen command, then run it.
+    pub fn run_completion(&mut self, bridge: &Bridge) -> bool {
+        let Some(popover) = &mut self.completion else {
+            return false;
+        };
+        if let Some(edit) = popover.handle(ui::modules::approval::Key::Enter) {
+            self.completion = None;
+            if self.composer.handle(composer::Command::Edit(edit)) == composer::Outcome::Changed {
+                self.activate(Action::Send, bridge);
+            }
+        }
+        self.invalidate();
+        true
+    }
     pub fn complete(&mut self, key: ui::modules::approval::Key) -> bool {
         if self.completion.is_none() {
-            self.completion = self.composer.popover(&self.profiles);
+            self.completion = self.composer.popover(&self.profile_names());
         }
         let Some(popover) = &mut self.completion else {
             return false;
@@ -620,24 +765,55 @@ impl HarnessView {
             );
             return true;
         }
-        if self.completion.take().is_some() {
+        if self.completion.take().is_some() || self.profile_menu.take().is_some() {
             self.invalidate();
             return true;
         }
         false
     }
+    /// `/profile NAME` and the switcher: continue this conversation on NAME.
+    fn switch_to(&mut self, name: &str, bridge: &Bridge) {
+        self.profile_menu = None;
+        self.notice = Some(if !bridge.state.profiles.iter().any(|p| p.name == name) {
+            format!("No profile named {name} · /profiles lists them")
+        } else if self.current_profile.as_deref() == Some(name) {
+            format!("Already on {name}")
+        } else {
+            match bridge.switch_profile(name.to_owned()) {
+                Ok(()) => {
+                    format!("Switching to {name}: the conversation continues in a new session")
+                }
+                Err(why) => format!("Could not switch: {why}"),
+            }
+        });
+        self.scroll.follow_latest();
+        self.invalidate();
+    }
     pub fn activate(&mut self, action: Action, bridge: &Bridge) {
         match action {
             Action::Jump => self.scroll.follow_latest(),
+            Action::Profiles => return self.toggle_profile_menu(),
+            Action::SwitchProfile(name) => return self.switch_to(&name, bridge),
+            Action::Menu(true) => return,
+            Action::Menu(false) => self.profile_menu = None,
+            Action::NewProfile => {
+                self.profile_menu = None;
+                self.notice = Some(
+                    "New profile: add NAME.md to ~/.bboxy450-harness/profiles (no native form yet)"
+                        .into(),
+                );
+            }
             Action::Toggle(item, toggle) => bridge.toggle(item, toggle),
             Action::Complete(request, text) => {
                 let outcome = self.composer.handle(composer::Command::Edit(
                     ui::text_edit::Command::Complete { request, text },
                 ));
                 if outcome == composer::Outcome::Changed {
+                    // a click on a "/" row runs it, as Enter does
                     self.completion = None;
+                    return self.activate(Action::Send, bridge);
                 } else {
-                    self.completion = self.composer.popover(&self.profiles);
+                    self.completion = self.composer.popover(&self.profile_names());
                 }
             }
             Action::Send => {
@@ -645,34 +821,22 @@ impl HarnessView {
                     self.composer.handle(composer::Command::Send)
                 {
                     let text = sent.text.trim();
-                    // `/profiles` lists; `/profile NAME` continues this session on NAME
+                    // `/profiles` opens the switcher; `/profile NAME` continues this session on NAME
                     if text == "/profiles" || text == "/profile" {
                         self.composer.stored(&sent);
-                        self.notice = Some(if bridge.state.profiles.is_empty() {
-                            "No profiles in ~/.bboxy450-harness/profiles".into()
-                        } else {
-                            format!(
-                                "Profiles: {} · /profile NAME switches",
-                                bridge.state.profiles.join(", ")
-                            )
-                        });
+                        if bridge.state.profiles.is_empty() {
+                            self.notice =
+                                Some("No profiles in ~/.bboxy450-harness/profiles".into());
+                        } else if self.profile_menu.is_none() {
+                            self.toggle_profile_menu();
+                        }
                         self.invalidate();
                         return;
                     }
                     if let Some(name) = text.strip_prefix("/profile ").map(str::trim) {
                         self.composer.stored(&sent);
-                        self.notice = Some(if !bridge.state.profiles.iter().any(|p| p == name) {
-                            format!("No profile named {name} · /profiles lists them")
-                        } else {
-                            match bridge.switch_profile(name.to_owned()) {
-                                Ok(()) => format!(
-                                    "Switching to {name}: the conversation continues in a new session"
-                                ),
-                                Err(why) => format!("Could not switch: {why}"),
-                            }
-                        });
-                        self.scroll.follow_latest();
-                        self.invalidate();
+                        let name = name.to_owned();
+                        self.switch_to(&name, bridge);
                         return;
                     }
                     let op = match text {
@@ -749,6 +913,25 @@ pub fn intersection(a: Rect, b: Rect) -> Rect {
         (a.right().min(b.right()) - x).max(0.),
         (a.bottom().min(b.bottom()) - y).max(0.),
     )
+}
+/// A floating menu over the frame. Spec flat fallback: no drop shadow, a 1px
+/// bg line under the bottom edge.
+fn paint_overlay(
+    list: &mut DrawList,
+    popup: &c::Layout,
+    ctx: ui::Context,
+    ink: &super::face::Ink,
+) -> Result<(), String> {
+    for paint in c::paint(popup, ctx) {
+        append_paint(list, paint)?;
+    }
+    let r = popup.rect;
+    list.rect(
+        Rect::new(r.x + 13., r.bottom(), (r.w - 26.).max(0.), 1.),
+        0.,
+        Color(ink.bg),
+    );
+    Ok(())
 }
 fn append_paint(list: &mut DrawList, paint: c::Paint) -> Result<(), String> {
     match paint {

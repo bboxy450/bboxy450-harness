@@ -97,15 +97,17 @@ async fn completion_surface_occludes_acp_error_notice_and_red_turn_receipt() {
     let context = bbt_render::device::DeviceContext::new().await.unwrap();
     bboxy450_harness::runtime::blocking(move || {
         let mut view = HarnessView::default();
-        view.render(&populated, [900., 1100.]).unwrap();
+        view.render(&populated, [900., 300.]).unwrap();
         view.edit(bbt_ui::text_edit::Command::Insert("/".into()));
         assert!(view.completion_open());
         let mut renderer = bbt_render::chrome::ChromeRenderer::with_context(context,
             bboxy450_harness::frontends::gui::assets::icons()).unwrap();
-        let frame = view.render(&populated, [900., 1100.]).unwrap();
+        let frame = view.render(&populated, [900., 300.]).unwrap();
         let popup = frame.list.primitives.iter().find_map(|p| match p {
+            // The "/" menu card (harness-spec.md flat fallback): an opaque
+            // surface_2 fill, inside its 1px seat ring at left 12.
             bbt_ui_model::draw::Prim::Rect { rect, fill, .. }
-                if rect.x == 12. && rect.y == 40. && rect.w == 320. && fill.0[3] == 1. => Some(*rect),
+                if rect.x == 13. && rect.w > 300. && fill.0 == bbt_ui_model::draw::Color::hex("#1B1F3F").0 => Some(*rect),
             _ => None,
         });
         let without_surface = |list: &bbt_ui_model::draw::DrawList| {
@@ -114,19 +116,19 @@ async fn completion_surface_occludes_acp_error_notice_and_red_turn_receipt() {
                 bbt_ui_model::draw::Prim::Rect { rect, .. } if Some(*rect) == popup));
             list
         };
-        let full = renderer.render_to_rgba(&frame.list, 900, 1100, 1.).unwrap();
-        let broken_full = renderer.render_to_rgba(&without_surface(&frame.list), 900, 1100, 1.).unwrap();
-        let frame = view.render(&empty, [900., 1100.]).unwrap();
-        let blank = renderer.render_to_rgba(&frame.list, 900, 1100, 1.).unwrap();
-        let broken_blank = renderer.render_to_rgba(&without_surface(&frame.list), 900, 1100, 1.).unwrap();
+        let full = renderer.render_to_rgba(&frame.list, 900, 300, 1.).unwrap();
+        let broken_full = renderer.render_to_rgba(&without_surface(&frame.list), 900, 300, 1.).unwrap();
+        let frame = view.render(&empty, [900., 300.]).unwrap();
+        let blank = renderer.render_to_rgba(&frame.list, 900, 300, 1.).unwrap();
+        let broken_blank = renderer.render_to_rgba(&without_surface(&frame.list), 900, 300, 1.).unwrap();
         assert!(view.cancel_prompt(&Bridge::new(Arc::new(Wake))));
-        let frame = view.render(&populated, [900., 1100.]).unwrap();
-        let transcript = renderer.render_to_rgba(&frame.list, 900, 1100, 1.).unwrap();
+        let frame = view.render(&populated, [900., 300.]).unwrap();
+        let transcript = renderer.render_to_rgba(&frame.list, 900, 300, 1.).unwrap();
         if let Some(out) = std::env::var_os("HARNESS_RENDER_EVIDENCE") {
             let out = std::path::PathBuf::from(out);
             std::fs::create_dir_all(&out).unwrap();
             for (name, bytes) in [("completion-populated.png", &full), ("completion-empty.png", &blank), ("completion-broken-populated.png", &broken_full), ("completion-broken-empty.png", &broken_blank), ("transcript.png", &transcript)] {
-                let mut encoder = png::Encoder::new(std::fs::File::create(out.join(name)).unwrap(), 900, 1100);
+                let mut encoder = png::Encoder::new(std::fs::File::create(out.join(name)).unwrap(), 900, 300);
                 encoder.set_color(png::ColorType::Rgba);
                 encoder.set_depth(png::BitDepth::Eight);
                 encoder.write_header().unwrap().write_image_data(bytes).unwrap();

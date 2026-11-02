@@ -9,19 +9,54 @@
 # (bboxy450-term lab/web/harness.js, headless Chrome) and by the native GUI (--capture), same size,
 # dark theme. Writes web.png, native.png, side.png (web | native | diff) and score.json into OUT.
 #   sh scripts/parity-web.sh REPLAY.jsonl OUT [WxH]    LAB=path/to/bboxy450-term/lab/web BIN=path/to/bboxy450-harness
+# MENU=profiles|slash renders that floating menu open on both sides; the profile list is the
+# fixture home PROFILES_HOME (default tests/fixtures/gui/profiles-home), never the operator's.
+# The fixture's env-key profiles name BBOXY450_PARITY_KEY (set here, a placeholder, never a key)
+# and BBOXY450_PARITY_UNSET_KEY (never set), so `env` and `missing env` render on both sides.
 set -eu
 REPLAY=$(cd "$(dirname "$1")" && pwd)/$(basename "$1"); OUT=$2; SIZE=${3:-760x1400}
 W=${SIZE%x*}; H=${SIZE#*x}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 LAB=${LAB:-$ROOT/../bboxy450-term/lab/web}; LAB=$(cd "$LAB" && pwd)
 BIN=${BIN:-$ROOT/target/debug/bboxy450-harness}
+MENU=${MENU:-}; PROFILES_HOME=${PROFILES_HOME:-$ROOT/tests/fixtures/gui/profiles-home}
 CHROME=${CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
-"$BIN" gui --replay "$REPLAY" --capture "${W}x${H}" --screenshot "$OUT/native.png"
-python3 -I - "$REPLAY" "$OUT/page.html" "$LAB" "$W" "$H" <<'PY'
-import json, sys
-replay, page, lab, w, h = sys.argv[1:]
+if [ -n "$MENU" ]; then
+  export BBOXY450_PARITY_KEY=placeholder; unset BBOXY450_PARITY_UNSET_KEY 2>/dev/null || true
+  HOME="$PROFILES_HOME" "$BIN" gui --replay "$REPLAY" --capture "${W}x${H}" --open-menu "$MENU" --screenshot "$OUT/native.png"
+else
+  "$BIN" gui --replay "$REPLAY" --capture "${W}x${H}" --screenshot "$OUT/native.png"
+fi
+python3 -I - "$REPLAY" "$OUT/page.html" "$LAB" "$W" "$H" "$MENU" "$PROFILES_HOME/.bboxy450-harness/profiles" <<'PY'
+import json, os, sys
+replay, page, lab, w, h, menu, pdir = sys.argv[1:]
 envs = [json.loads(l) for l in open(replay) if l.strip()]
+# the web face's profile records, from the same fixture files the native capture lists
+profiles = []
+if menu and os.path.isdir(pdir):
+    default = open(os.path.join(pdir, '..', 'default-profile')).read().strip() if os.path.isfile(os.path.join(pdir, '..', 'default-profile')) else ''
+    for f in sorted(os.listdir(pdir)):
+        if not f.endswith('.md'): continue
+        kv, command, env_names, block = {}, [], [], None
+        for l in open(os.path.join(pdir, f)).read().split('---')[1].splitlines():
+            if ':' not in l: continue
+            k, v = (x.strip() for x in l.split(':', 1))
+            depth = len(l) - len(l.lstrip())
+            if depth == 0: kv[k] = v.strip('"'); block = k
+            elif block == 'agent' and depth == 2 and k == 'command': command = [x.strip() for x in v.strip('[]').split(',') if x.strip()]
+            elif block == 'agent' and depth == 2 and k == 'env': block = 'env'
+            elif block == 'env' and depth >= 4: env_names.append(k)
+        key = kv.get('api_key', '')
+        auth = ({'kind': 'env', 'ref': kv['api_key_env'], 'ok': kv['api_key_env'] in os.environ} if 'api_key_env' in kv
+                else {'kind': 'keychain', 'ok': True} if key.startswith('!security ') else {'kind': 'command', 'ok': True} if key.startswith('!')
+                else {'kind': 'none', 'ok': True})
+        p = {'name': f[:-3], 'provider': kv.get('provider', ''), 'model': kv.get('model', ''), 'endpoint': kv.get('endpoint', ''), 'auth': auth, 'default': f[:-3] == default}
+        if 'context_tokens' in kv: p['context_tokens'] = int(kv['context_tokens'])
+        if kv.get('provider') == 'acp-agent': p.update(kind='acp-agent', agent_command=command, agent_env_names=env_names)
+        profiles.append(p)
+opts = json.dumps({'interactive': True, 'profiles': profiles}) if menu else '{}'
+open_menu = {'profiles': 'v.openProfiles();', 'slash': "v.compose({ focus: true, text: '/', menu: 'slash', sel: 0 });"}.get(menu, '')
 src = lambda f: 'file://' + lab + '/' + f
 open(page, 'w').write(f'''<!doctype html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="{src('lab.css')}">
@@ -30,8 +65,9 @@ open(page, 'w').write(f'''<!doctype html><html><head><meta charset="utf-8">
 </head><body><div id="f"></div><script>
 Lab.prefs.theme = 'dark'; Lab.prefs.density = 'cozy'; Lab.applyTokens();
 document.documentElement.classList.add('parity');
-const v = Hx.view({{}}); document.getElementById('f').append(v.node);
+const v = Hx.view({opts}); document.getElementById('f').append(v.node);
 {json.dumps(envs)}.forEach(e => v.apply(e));
+{open_menu}
 </script></body></html>''')
 PY
 "$CHROME" --headless=new --use-mock-keychain --password-store=basic --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --user-data-dir="$OUT/.chrome" \

@@ -427,6 +427,28 @@ pub fn route_key(
     let control = modifiers.control_key();
     let shortcut = control || modifiers.super_key();
     let shift = modifiers.shift_key();
+    // The open profile switcher takes keys first: the menu floats over everything.
+    if view.profile_menu_open() {
+        use super::view::MenuKey;
+        let menu_key = match &key {
+            Key::Named(NamedKey::Escape) => {
+                view.toggle_profile_menu();
+                return;
+            }
+            Key::Named(NamedKey::ArrowUp) => Some(MenuKey::Up),
+            Key::Named(NamedKey::ArrowDown | NamedKey::Tab) => Some(MenuKey::Down),
+            Key::Named(NamedKey::Enter) => Some(MenuKey::Enter),
+            Key::Named(NamedKey::Backspace) => Some(MenuKey::Backspace),
+            Key::Character(_) if !shortcut => text
+                .filter(|t| !t.chars().any(char::is_control))
+                .map(|t| MenuKey::Text(t.into())),
+            _ => None,
+        };
+        if let Some(menu_key) = menu_key {
+            view.profile_menu_key(menu_key, bridge);
+            return;
+        }
+    }
     if key == Key::Named(NamedKey::Escape) && view.cancel_prompt(bridge) {
         return;
     }
@@ -448,10 +470,7 @@ pub fn route_key(
             return;
         }
     }
-    if key == Key::Named(NamedKey::Enter)
-        && view.completion_open()
-        && view.complete(bbt_ui::modules::approval::Key::Enter)
-    {
+    if key == Key::Named(NamedKey::Enter) && view.run_completion(bridge) {
         return;
     }
     if is_interrupt(&key, modifiers) {

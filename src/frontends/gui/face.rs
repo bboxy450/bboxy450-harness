@@ -355,6 +355,29 @@ pub fn icon(name: &str, color: Rgba, size: f32, weight: f32) -> c::Element {
             vec![[8., 13.], [8., 3.]],
             vec![[3.5, 7.5], [8., 3.], [12.5, 7.5]],
         ]),
+        // web harness.js icons: plug (ACP agents, /profiles) and stop (/interrupt)
+        "plug" => polys(&[
+            vec![[6., 2.], [6., 5.]],
+            vec![[10., 2.], [10., 5.]],
+            vec![
+                [4.5, 5.],
+                [11.5, 5.],
+                [11.5, 7.5],
+                [10.5, 9.9],
+                [8., 11.],
+                [5.5, 9.9],
+                [4.5, 7.5],
+                [4.5, 5.],
+            ],
+            vec![[8., 11.], [8., 14.]],
+        ]),
+        "stop" => polys(&[vec![
+            [4.5, 4.5],
+            [11.5, 4.5],
+            [11.5, 11.5],
+            [4.5, 11.5],
+            [4.5, 4.5],
+        ]]),
         "branch" => {
             let mut v = circle(4.5, 3.5, 1.5);
             v.extend(circle(4.5, 12.5, 1.5));
@@ -1375,6 +1398,7 @@ pub fn header(
     folder: Option<String>,
     status: &str,
     live: bool,
+    menu_open: bool,
     ink: &Ink,
 ) -> c::Element {
     let chip = |kids: Vec<c::Item>| {
@@ -1405,10 +1429,40 @@ pub fn header(
         fixed(line("bboxy", 13., 700, ink.fg, false)),
     ];
     if let Some(p) = profile {
-        kids.push(fixed(chip(vec![
-            fixed(dot(6., ink.seat)),
-            fixed(line(p, 11.5, 400, ink.dim, false)),
-        ])));
+        // web .hx-model: the profile chip opens the switcher
+        kids.push(fixed(named(
+            "profile",
+            frame(
+                Frame {
+                    fill: if menu_open {
+                        alpha(ink.seat, 0.1)
+                    } else {
+                        alpha(ink.fg, 0.05)
+                    },
+                    border: Some(if menu_open {
+                        alpha(ink.seat, 0.5)
+                    } else {
+                        [0.; 4]
+                    }),
+                    radius: [999.; 4],
+                    padding: [1., 8., 1., 8.],
+                    gap: 5.,
+                    row: true,
+                    ..Default::default()
+                },
+                vec![
+                    fixed(dot(6., ink.seat)),
+                    fixed(line(
+                        p,
+                        11.5,
+                        400,
+                        if menu_open { ink.fg } else { ink.dim },
+                        false,
+                    )),
+                    fixed(down_chevron(alpha(ink.dim, 0.7))),
+                ],
+            ),
+        )));
     }
     if let Some(f) = folder {
         kids.push(fixed(chip(vec![
@@ -1764,6 +1818,26 @@ fn tint_placeholder(e: &mut c::Element, p: ui::Paint) {
     }
 }
 
+/// The web's rotated `chev` icon: a small down chevron.
+fn down_chevron(color: Rgba) -> c::Element {
+    c::Element::Path(c::Path {
+        size: [10., 10.],
+        points: Arc::from([
+            P::Move([2.5, 3.75]),
+            P::Line([5., 6.25]),
+            P::Line([7.5, 3.75]),
+        ]),
+        stroke: PathStroke {
+            width: 1.5,
+            cap: LineCap::Round,
+            join: LineJoin::Round,
+            ..Default::default()
+        },
+        paint: paint(color),
+        fill: None,
+        opacity: 1.,
+    })
+}
 /// A filled dot: a shape, not a painted box (it has no content slot).
 pub fn dot(side: f32, color: Rgba) -> c::Element {
     let mut path = circle(side / 2., side / 2., side / 2.);

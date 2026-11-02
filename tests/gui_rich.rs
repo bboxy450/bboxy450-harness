@@ -913,3 +913,260 @@ async fn context_trim_is_a_prepared_rich_callout_with_its_actual_frontier() {
     );
     bridge.detach().unwrap().await.unwrap();
 }
+
+#[test]
+fn profile_info_carries_kind_model_and_agent_never_a_key() {
+    use bboxy450_harness::frontends::gui::bridge::{ProfileInfo, ProfileKind};
+    let model = ProfileInfo::parse(
+        "opus",
+        "---\nname: opus\nprovider: anthropic\nmodel: claude-opus-5-5\napi_key: fixture-secret-value\n---\n",
+    );
+    assert_eq!(model.kind, ProfileKind::Model);
+    assert_eq!(model.model, "claude-opus-5-5");
+    assert!(!format!("{model:?}").contains("fixture-secret-value"));
+    let agent = ProfileInfo::parse(
+        "claude-acp",
+        "---\nname: claude-acp\nprovider: acp-agent\nagent:\n  command: [/opt/bin/claude-agent-acp, --flag]\n  env:\n    TOKEN: fixture-env-value\n---\n",
+    );
+    assert_eq!(agent.kind, ProfileKind::Agent);
+    assert_eq!(agent.agent, ["claude-agent-acp", "--flag"]);
+    assert!(!format!("{agent:?}").contains("fixture-env-value"));
+    assert_eq!(
+        ProfileInfo::parse("broken", "no frontmatter").kind,
+        ProfileKind::Unreadable
+    );
+    // the key source kind only, and env presence, never a value
+    use bboxy450_harness::frontends::gui::bridge::ProfileAuth;
+    let source = |line: &str| {
+        ProfileInfo::parse(
+            "m",
+            &format!("---\nname: m\nmodel: x\nendpoint: https://example.invalid/v1\n{line}\n---\n"),
+        )
+    };
+    let keychain = source("api_key: '!security find-generic-password -s fixture -w'");
+    assert_eq!(
+        (keychain.auth, keychain.auth_ok),
+        (ProfileAuth::Keychain, true)
+    );
+    let missing = source("api_key_env: BBOXY450_TEST_NEVER_SET_KEY");
+    assert_eq!((missing.auth, missing.auth_ok), (ProfileAuth::Env, false));
+    let with_env = ProfileInfo::parse(
+        "pi",
+        "---\nname: pi\nprovider: acp-agent\nagent:\n  command: [pi-acp]\n  env:\n    A: x\n    B: y\n---\n",
+    );
+    assert_eq!(with_env.agent_env, 2);
+}
+
+fn switcher_state() -> bboxy450_harness::frontends::gui::bridge::FrameState {
+    use bboxy450_harness::frontends::gui::{bridge::ProfileInfo, model::Transcript};
+    let profile = |name: &str, text: &str| ProfileInfo::parse(name, text);
+    bboxy450_harness::frontends::gui::bridge::FrameState {
+        transcript: Arc::new(Transcript {
+            profile: Some(("haiku".into(), "claude-haiku-5-5".into())),
+            ..Default::default()
+        }),
+        ready: true,
+        profiles: Arc::new(vec![
+            profile(
+                "codex-acp",
+                "---\nname: codex-acp\nprovider: acp-agent\nagent:\n  command: [codex-acp]\n---\n",
+            ),
+            profile(
+                "haiku",
+                "---\nname: haiku\nprovider: anthropic\nmodel: claude-haiku-5-5\n---\n",
+            ),
+            profile(
+                "opus",
+                "---\nname: opus\nprovider: anthropic\nmodel: claude-opus-5-5\n---\n",
+            ),
+        ]),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn header_chip_opens_the_profile_switcher_and_a_row_switches_like_slash_profile() {
+    use bboxy450_harness::frontends::gui::view::{Action, MenuKey};
+    let mut bridge = Bridge::new(Arc::new(Wake));
+    bridge.state = switcher_state();
+    let mut view = HarnessView::default();
+    let state = bridge.state.clone();
+    let chip = view
+        .render(&state, [900., 700.])
+        .unwrap()
+        .actions
+        .iter()
+        .find(|(_, a)| *a == Action::Profiles)
+        .map(|(r, _)| *r)
+        .expect("the header profile chip is clickable");
+    assert!(chip.w > 0. && chip.y < 40.);
+    view.activate(Action::Profiles, &bridge);
+    assert!(view.profile_menu_open());
+    let rows: Vec<String> = view
+        .render(&state, [900., 700.])
+        .unwrap()
+        .actions
+        .iter()
+        .filter_map(|(_, a)| match a {
+            Action::SwitchProfile(name) => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    // ACP agents first, then models (actions are hit-tested front to back)
+    let mut shown = rows.clone();
+    shown.reverse();
+    assert_eq!(shown, ["codex-acp", "haiku", "opus"]);
+    // typing filters; Enter on a replay has no live host: same refusal as /profile NAME
+    view.profile_menu_key(MenuKey::Text("opu".into()), &bridge);
+    view.profile_menu_key(MenuKey::Enter, &bridge);
+    assert!(!view.profile_menu_open());
+    assert_eq!(
+        view.notice.as_deref(),
+        Some("Could not switch: no live session to switch")
+    );
+    // choosing the current profile does not fork the session
+    view.activate(Action::SwitchProfile("haiku".into()), &bridge);
+    assert_eq!(view.notice.as_deref(), Some("Already on haiku"));
+    // a click outside the card closes it
+    view.activate(Action::Profiles, &bridge);
+    view.activate(Action::Menu(false), &bridge);
+    assert!(!view.profile_menu_open());
+}
+
+#[test]
+fn slash_popover_is_a_menu_card_with_details_and_no_debug_keys() {
+    use bboxy450_harness::frontends::gui::{face, menu, view::layout_text};
+    let state = switcher_state();
+    let mut view = HarnessView::default();
+    view.render(&state, [900., 700.]).unwrap();
+    view.edit(bbt_ui::text_edit::Command::Insert("/".into()));
+    assert!(view.completion_open());
+    let frame = view.render(&state, [900., 700.]).unwrap();
+    let hits: Vec<_> = frame
+        .actions
+        .iter()
+        .filter(|(_, a)| {
+            matches!(
+                a,
+                bboxy450_harness::frontends::gui::view::Action::Complete(..)
+            )
+        })
+        .collect();
+    assert_eq!(hits.len(), 6, "three commands and three profiles");
+    // anchored above the composer, below the header
+    assert!(
+        hits.iter()
+            .all(|(r, _)| r.y > 40. && r.bottom() < 700. - 60.)
+    );
+    let ctx = bboxy450_harness::frontends::gui::view::context();
+    let mut popover = view.composer.popover(&["opus".into()]).unwrap();
+    popover.handle(bbt_ui::modules::approval::Key::Down);
+    let element = menu::slash_menu(&popover, &state.profiles, 10, &face::ink(ctx));
+    let metrics = bboxy450_harness::frontends::gui::view::Metrics::default();
+    let layout = element
+        .layout(
+            bbt_ui_model::layout::Rect::new(0., 0., 440., 0.),
+            ctx,
+            &metrics,
+        )
+        .unwrap();
+    let text = layout_text(&layout);
+    assert!(text.contains("/interrupt Stop the running turn"), "{text}");
+    assert!(text.contains("/profile opus claude-opus-5-5"), "{text}");
+    assert!(text.contains("COMMANDS"), "{text}");
+    assert!(text.contains("SWITCH PROFILE"), "{text}");
+    assert!(text.contains("select ⏎ run esc close 4 matches"), "{text}");
+    assert!(!text.contains("completion/"), "{text}");
+}
+
+#[cfg(feature = "standalone")]
+#[test]
+fn profile_switcher_keys_filter_move_and_escape_before_the_composer() {
+    use bboxy450_harness::frontends::gui::window::route_key;
+    use winit::keyboard::{Key, ModifiersState, NamedKey};
+    let mut bridge = Bridge::new(Arc::new(Wake));
+    bridge.state = switcher_state();
+    let mut view = HarnessView::default();
+    view.render(&bridge.state.clone(), [900., 700.]).unwrap();
+    view.toggle_profile_menu();
+    let none = ModifiersState::empty();
+    route_key(
+        &mut view,
+        &bridge,
+        Key::Character("x".into()),
+        Some("x"),
+        none,
+    );
+    route_key(
+        &mut view,
+        &bridge,
+        Key::Named(NamedKey::ArrowDown),
+        None,
+        none,
+    );
+    assert!(
+        view.composer.view.text.is_empty(),
+        "menu keys never reach the composer"
+    );
+    route_key(&mut view, &bridge, Key::Named(NamedKey::Escape), None, none);
+    assert!(!view.profile_menu_open());
+    assert!(
+        view.notice.is_none(),
+        "escape closed the menu, it did not interrupt"
+    );
+}
+
+#[cfg(feature = "standalone")]
+#[test]
+fn enter_on_the_slash_menu_runs_the_command() {
+    use bboxy450_harness::frontends::gui::window::route_key;
+    use winit::keyboard::{Key, ModifiersState, NamedKey};
+    let mut bridge = Bridge::new(Arc::new(Wake));
+    bridge.state = switcher_state();
+    let mut view = HarnessView::default();
+    view.render(&bridge.state.clone(), [900., 700.]).unwrap();
+    // "/profiles" runs: it opens the switcher, as the web menu does
+    view.edit(bbt_ui::text_edit::Command::Insert("/profiles".into()));
+    assert!(view.completion_open());
+    route_key(
+        &mut view,
+        &bridge,
+        Key::Named(NamedKey::Enter),
+        None,
+        ModifiersState::empty(),
+    );
+    assert!(view.profile_menu_open());
+    assert!(
+        view.composer.view.text.is_empty(),
+        "the command was sent, not left as text"
+    );
+    route_key(
+        &mut view,
+        &bridge,
+        Key::Named(NamedKey::Escape),
+        None,
+        ModifiersState::empty(),
+    );
+    // "/profile opus" runs the switch: on a replay that is the /profile refusal
+    view.edit(bbt_ui::text_edit::Command::Insert("/prof".into()));
+    for _ in 0..3 {
+        route_key(
+            &mut view,
+            &bridge,
+            Key::Named(NamedKey::ArrowDown),
+            None,
+            ModifiersState::empty(),
+        );
+    }
+    route_key(
+        &mut view,
+        &bridge,
+        Key::Named(NamedKey::Enter),
+        None,
+        ModifiersState::empty(),
+    );
+    assert_eq!(
+        view.notice.as_deref(),
+        Some("Could not switch: no live session to switch")
+    );
+}

@@ -17,6 +17,16 @@ pub struct Options {
     pub capture: Option<[u32; 2]>,
     /// `--watch [claude:|codex:]PATH`: render another harness's native session live.
     pub watch: Option<(Option<crate::import::Native>, PathBuf)>,
+    /// `--open-menu profiles|slash`: a capture renders that menu open (parity).
+    pub open_menu: Option<Menu>,
+}
+/// A floating menu a capture can render open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Menu {
+    /// The header profile switcher, listing `$HOME/.bboxy450-harness/profiles`.
+    Profiles,
+    /// The "/" command popover, as typing "/" opens it.
+    Slash,
 }
 impl Options {
     pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
@@ -28,6 +38,7 @@ impl Options {
             screenshot: ".bboxy/runs/gui-smoke.png".into(),
             capture: None,
             watch: None,
+            open_menu: None,
         };
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
@@ -48,6 +59,13 @@ impl Options {
                         _ => (None, spec.into()),
                     });
                 }
+                "--open-menu" => {
+                    out.open_menu = Some(match args.next().as_deref() {
+                        Some("profiles") => Menu::Profiles,
+                        Some("slash") => Menu::Slash,
+                        _ => return Err("--open-menu takes profiles or slash".into()),
+                    })
+                }
                 "--capture" => {
                     let size = args.next().ok_or("missing capture size")?;
                     let (w, h) = size.split_once('x').ok_or("capture size is WxH")?;
@@ -59,6 +77,9 @@ impl Options {
                 }
                 _ => return Err(format!("unknown gui option: {arg}")),
             }
+        }
+        if out.open_menu.is_some() && out.capture.is_none() {
+            return Err("--open-menu requires --capture".into());
         }
         if out.headless && out.replay.is_none() {
             return Err("--headless requires --replay".into());

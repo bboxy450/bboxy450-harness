@@ -29,3 +29,5 @@ pub mod rich;
 pub mod editor;
 #[cfg(feature = "embedded")]
 pub mod face;
+#[cfg(feature = "embedded")]
+pub mod menu;

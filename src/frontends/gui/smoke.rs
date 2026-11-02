@@ -15,8 +15,22 @@ use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
 /// Render-only frame of a replay at a fixed size, for web/native parity. No
 /// fixture assertions; the transcript shows from its top.
-pub async fn capture(replay: PathBuf, screenshot: PathBuf, size: [u32; 2]) -> Result<(), String> {
+/// `menu` renders a floating menu open; the profile switcher lists
+/// `$HOME/.bboxy450-harness/profiles` (switcher-safe fields only).
+pub async fn capture(
+    replay: PathBuf,
+    screenshot: PathBuf,
+    size: [u32; 2],
+    menu: Option<super::options::Menu>,
+) -> Result<(), String> {
     let model = read_replay_with_redactor(replay, crate::redact::Set::default()).await?;
+    let profiles = match std::env::var_os("HOME") {
+        Some(home) if menu.is_some() => {
+            super::bridge::profile_names(&PathBuf::from(home).join(".bboxy450-harness/profiles"))
+                .await
+        }
+        _ => vec![],
+    };
     let context = DeviceContext::new().await.map_err(|e| e.to_string())?;
     crate::runtime::blocking(move || {
         let [width, height] = size;
@@ -24,12 +38,22 @@ pub async fn capture(replay: PathBuf, screenshot: PathBuf, size: [u32; 2]) -> Re
             transcript: Arc::new(model),
             ready: true,
             replay: true,
+            profiles: Arc::new(profiles),
             ..Default::default()
         };
         state.prepared = Some(Arc::new(
             super::view::Preparer::default().prepare(state.transcript.clone(), width as f32)?,
         ));
         let mut view = HarnessView::default();
+        // Render once so the view holds this frame's profiles, then open.
+        view.render(&state, [width as f32, height as f32])?;
+        match menu {
+            Some(super::options::Menu::Profiles) => view.toggle_profile_menu(),
+            Some(super::options::Menu::Slash) => {
+                view.edit(bbt_ui::text_edit::Command::Insert("/".into()))
+            }
+            None => {}
+        }
         let frame = view.render(&state, [width as f32, height as f32])?;
         let mut renderer = ChromeRenderer::with_context(context, super::assets::icons())
             .map_err(|e| e.to_string())?;
