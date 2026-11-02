@@ -4,7 +4,7 @@
 # License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 # Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
-.PHONY: test test-formal test-formal-native test-formal-parity check-formal-evidence smoke-live bench-budgets test-licenses test-secrets
+.PHONY: test test-ir test-formal test-formal-native test-formal-parity check-formal-evidence smoke-live bench-budgets test-licenses test-secrets
 TARGET_DIR ?= target
 
 test:
@@ -125,3 +125,8 @@ release: app
 	git tag -s "$$tag" -m '$(APP) $(APP_VERSION)'; \
 	GIT_TERMINAL_PROMPT=0 git push --follow-tags; \
 	gh release create "$$tag" --repo bboxy450/bboxy450-harness '$(ARCHIVE)' '$(ARCHIVE).sha256' '$(ARCHIVE).asc' --title '$(APP) $(APP_VERSION)' --notes "Source: https://github.com/bboxy450/bboxy450-harness/commit/$$(git rev-parse HEAD)"
+
+# Bboxy log IR v1: only add, never change or remove (.bboxy/specs/log-ir-v1.md); also run by `make test`.
+test-ir:
+	python3 -I scripts/ir-compat.py check
+	python3 -I scripts/ir-compat.py control

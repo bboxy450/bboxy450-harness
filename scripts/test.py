@@ -53,6 +53,9 @@ def main():
             ['python3','-I','scripts/checks.py','kb-records-control'],
             ['python3','-I','scripts/checks.py','inventory-shape'],
             ['python3','-I','scripts/checks.py','inventory-shape-control'],
+            # protocol.schema.json is regenerated and compared by tests/protocol_golden.rs above
+            ['python3','-I','scripts/ir-compat.py','check'],
+            ['python3','-I','scripts/ir-compat.py','control'],
         ]:
             print('test: '+ ' '.join(command),flush=True)
             result=subprocess.run(command,cwd=ROOT,env=env)

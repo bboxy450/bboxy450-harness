@@ -14,6 +14,7 @@ links:
   - { to: "[[formal-reuse]]", rel: builds-on }
   - { to: "[[upstream-toolkit]]", rel: index }
   - { to: "[[acp-agent]]", rel: index }
+  - { to: "[[log-ir-v1]]", rel: index }
 created: "2026-10-31T00:00:00Z"
 updated: "2026-11-02T22:00:00Z"
 ---
@@ -71,6 +72,7 @@ updated: "2026-11-02T22:00:00Z"
 | R25 | ACP agent backend: one ending per prompt, cancel answers every pending permission, every agent request answered, `*_always` never automatic, no claude.ai login | model HarnessAcpAgentTurn + broken control; `tests/acp_agent.rs` ([[acp-agent]] §7). Kill-after-grace has no witness yet: **unproven** | `make test` |
 | R26 | Our log is the center: native Claude/Codex logs project into logs that pass `check_transcript`; switch forks and hands over | `tests/import_native.rs`, `tests/acp_agent.rs` switch test ([[d5972-our-log-format-is-the-center]]) | `make test` |
 | R27 | Rich-face parity: the native GUI renders a replay like the web reference | `python3 -I scripts/parity-gate.py OUT [--target]` over `tests/fixtures/parity/*.jsonl` (§Rich-face parity) | executor acceptance (macOS, Chrome); **not** `make test` |
+| R28 | The log IR only grows by addition; 0.x logs stay valid; unknown data survives store, replay and fork; usage is never invented ([[log-ir-v1]], [[d5974-log-ir-v1-only-add]]) | `make test-ir` (`scripts/ir-compat.py` check + control, frozen corpus hashes); `tests/ir_v1_corpus.rs` and `tests/usage_report.rs` (brief [[2026-11-02-log-ir-v1-compat]]): **unproven** until it lands | `make test` |
 
 ## Rich-face parity (R27)
 

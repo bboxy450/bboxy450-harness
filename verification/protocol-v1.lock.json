@@ -1,0 +1,1055 @@
+{
+ "corpus": {
+  "tests/fixtures/ir-v1/v0.4-acp-claude-acp.jsonl": "7a9f96c75aae1aa6d4b3da377a5ec75d2337040a4095266a817b1f9b7240f436",
+  "tests/fixtures/ir-v1/v0.4-acp-codex-acp.jsonl": "4efaaf9347d0777008d23c5ea0b5798ec795a5e2a58674e59938aeb0455d3221",
+  "tests/fixtures/ir-v1/v0.4-acp-omp.jsonl": "b4995a80b27465699c6d97de72ee46555b0a6c0c00072cb386e52e8bb8fbad76",
+  "tests/fixtures/ir-v1/v0.4-acp-opencode.jsonl": "935ef1f3e1276b32b9d893c4d644e18bcffd01bb4df71d1908445af26d1a6c40",
+  "tests/fixtures/ir-v1/v0.4-acp-pi.jsonl": "48e703c0f632b96b94c30046bc0a343c8157805ca401a1b310c487f6bb09b184",
+  "tests/fixtures/ir-v1/v0.4-all-items.jsonl": "3c6931e5791a2d7107e44101b43220f3d084ad961b1ab2d88262109f2374e104",
+  "tests/fixtures/ir-v1/v0.4-interrupt-mid-tool.jsonl": "c504d1671fbe9fc1a5bf067bdf9f574feb11c7a6218884cf8c1b87266067cc58",
+  "tests/fixtures/ir-v1/v0.4-lagged.jsonl": "0ee568f5135f4319c604c8dd3b1ca9914883d0c6a246f78c8d321462048c4d0a",
+  "tests/fixtures/ir-v1/v0.4-recovery.jsonl": "9618bc8b716d688afc8eb4a23108937badb3b001ad5fa5ca54ca4fc9fdb95b5d",
+  "tests/fixtures/ir-v1/v0.4-reset.jsonl": "2cd2f036c6bdc4ab22fead6ca85f4981c2af0871a0410a3b366a8550b0082ccf"
+ },
+ "ir": "bboxy log IR",
+ "retired": [],
+ "spec": ".bboxy/specs/log-ir-v1.md",
+ "surface": {
+  "ApprovalDecision": {
+   "shape": "union",
+   "tag": "decision",
+   "variants": {
+    "allow": {},
+    "allow_always": {},
+    "deny": {
+     "reason": {
+      "required": false,
+      "type": "string|null"
+     }
+    },
+    "unknown": {}
+   }
+  },
+  "ApprovalDecisionKind": {
+   "shape": "enum",
+   "variants": {
+    "allow": {},
+    "allow_always": {},
+    "deny": {},
+    "unknown": {}
+   }
+  },
+  "ApprovalSubject": {
+   "fields": {
+    "command": {
+     "required": false,
+     "type": "string|null"
+    },
+    "effect": {
+     "required": true,
+     "type": "Effect"
+    },
+    "paths": {
+     "required": true,
+     "type": "[string]"
+    },
+    "summary": {
+     "required": true,
+     "type": "string"
+    },
+    "tool_call": {
+     "required": true,
+     "type": "ItemId"
+    }
+   },
+   "shape": "struct"
+  },
+  "BlobRef": {
+   "fields": {
+    "len": {
+     "required": true,
+     "type": "uint64"
+    },
+    "mime": {
+     "required": true,
+     "type": "string"
+    },
+    "sha256": {
+     "required": true,
+     "type": "string"
+    }
+   },
+   "shape": "struct"
+  },
+  "ChangeKind": {
+   "shape": "union",
+   "tag": "op",
+   "variants": {
+    "add": {},
+    "delete": {},
+    "modify": {},
+    "rename": {
+     "from": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "unknown": {}
+   }
+  },
+  "Delta": {
+   "shape": "union",
+   "tag": "type",
+   "variants": {
+    "output": {
+     "append": {
+      "required": true,
+      "type": "string"
+     },
+     "stream": {
+      "required": true,
+      "type": "Stream"
+     }
+    },
+    "plan": {
+     "entries": {
+      "required": true,
+      "type": "[PlanEntry]"
+     }
+    },
+    "reasoning": {
+     "append": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "text": {
+     "append": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "tool_input": {
+     "append": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "unknown": {}
+   }
+  },
+  "Effect": {
+   "shape": "enum",
+   "variants": {
+    "exec": {},
+    "network": {},
+    "read": {},
+    "unknown": {},
+    "write": {}
+   }
+  },
+  "Envelope": {
+   "fields": {
+    "at": {
+     "required": true,
+     "type": "uint64"
+    },
+    "cause": {
+     "required": false,
+     "type": "OpId|null"
+    },
+    "epoch": {
+     "required": true,
+     "type": "uint32"
+    },
+    "event": {
+     "required": true,
+     "type": "Event"
+    },
+    "seq": {
+     "required": false,
+     "type": "uint64|null"
+    },
+    "session": {
+     "required": true,
+     "type": "SessionId"
+    },
+    "ts_ms": {
+     "required": true,
+     "type": "uint64"
+    },
+    "v": {
+     "required": true,
+     "type": "Version"
+    }
+   },
+   "shape": "struct"
+  },
+  "ErrorClass": {
+   "shape": "enum",
+   "variants": {
+    "auth": {},
+    "bad_request": {},
+    "cancelled": {},
+    "config": {},
+    "internal": {},
+    "malformed": {},
+    "mid_stream": {},
+    "rate_limited": {},
+    "store": {},
+    "tool": {},
+    "transient": {},
+    "unknown": {}
+   }
+  },
+  "Event": {
+   "shape": "union",
+   "tag": "type",
+   "variants": {
+    "item_completed": {
+     "body": {
+      "required": true,
+      "type": "Item"
+     },
+     "item": {
+      "required": true,
+      "type": "ItemId"
+     },
+     "status": {
+      "required": true,
+      "type": "ItemStatus"
+     }
+    },
+    "item_delta": {
+     "delta": {
+      "required": true,
+      "type": "Delta"
+     },
+     "item": {
+      "required": true,
+      "type": "ItemId"
+     }
+    },
+    "item_snapshot": {
+     "item": {
+      "required": true,
+      "type": "ItemId"
+     },
+     "partial": {
+      "required": true,
+      "type": "Item"
+     }
+    },
+    "item_started": {
+     "head": {
+      "required": false,
+      "type": "ItemHead|null"
+     },
+     "item": {
+      "required": true,
+      "type": "ItemId"
+     },
+     "kind": {
+      "required": true,
+      "type": "ItemKind"
+     },
+     "parent": {
+      "required": false,
+      "type": "ItemId|null"
+     },
+     "turn": {
+      "required": false,
+      "type": "TurnId|null"
+     }
+    },
+    "lagged": {
+     "resume_after": {
+      "required": true,
+      "type": "uint64"
+     }
+    },
+    "op_rejected": {
+     "op": {
+      "required": true,
+      "type": "OpId"
+     },
+     "reason": {
+      "required": true,
+      "type": "Rejection"
+     }
+    },
+    "profile_changed": {
+     "model": {
+      "required": true,
+      "type": "string"
+     },
+     "profile": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "reset": {
+     "epoch": {
+      "required": true,
+      "type": "uint32"
+     },
+     "head": {
+      "required": true,
+      "type": "uint64"
+     }
+    },
+    "session_closed": {},
+    "session_recovered": {
+     "closed_items": {
+      "required": true,
+      "type": "uint32"
+     },
+     "closed_turns": {
+      "required": true,
+      "type": "uint32"
+     },
+     "prior_epoch": {
+      "required": true,
+      "type": "uint32"
+     }
+    },
+    "session_started": {
+     "meta": {
+      "required": true,
+      "type": "SessionMeta"
+     }
+    },
+    "status": {
+     "phase": {
+      "required": true,
+      "type": "Phase"
+     }
+    },
+    "turn_ended": {
+     "reason": {
+      "required": true,
+      "type": "StopReason"
+     },
+     "turn": {
+      "required": true,
+      "type": "TurnId"
+     },
+     "usage": {
+      "required": false,
+      "type": "Usage|null"
+     }
+    },
+    "turn_queued": {
+     "turn": {
+      "required": true,
+      "type": "TurnId"
+     }
+    },
+    "turn_started": {
+     "turn": {
+      "required": true,
+      "type": "TurnId"
+     }
+    },
+    "unknown": {}
+   }
+  },
+  "InputBlock": {
+   "shape": "union",
+   "tag": "type",
+   "variants": {
+    "image": {
+     "blob": {
+      "required": true,
+      "type": "BlobRef"
+     }
+    },
+    "mention": {
+     "path": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "text": {
+     "text": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "unknown": {}
+   }
+  },
+  "Item": {
+   "shape": "union",
+   "tag": "kind",
+   "variants": {
+    "agent_message": {
+     "markdown": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "approval": {
+     "by": {
+      "required": false,
+      "type": "Resolver|null"
+     },
+     "decision": {
+      "required": false,
+      "type": "ApprovalDecision|null"
+     },
+     "options": {
+      "required": true,
+      "type": "[ApprovalDecisionKind]"
+     },
+     "subject": {
+      "required": true,
+      "type": "ApprovalSubject"
+     }
+    },
+    "compaction": {
+     "replaced_through": {
+      "required": true,
+      "type": "uint64"
+     },
+     "summary": {
+      "required": true,
+      "type": "BlobRef"
+     }
+    },
+    "context_trim": {
+     "clipped_through": {
+      "required": true,
+      "type": "uint64"
+     }
+    },
+    "file_change": {
+     "change": {
+      "required": true,
+      "type": "ChangeKind"
+     },
+     "path": {
+      "required": true,
+      "type": "string"
+     },
+     "unified": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "image": {
+     "blob": {
+      "required": true,
+      "type": "BlobRef"
+     },
+     "mime": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "notice": {
+     "level": {
+      "required": true,
+      "type": "Level"
+     },
+     "text": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "plan": {
+     "entries": {
+      "required": true,
+      "type": "[PlanEntry]"
+     }
+    },
+    "reasoning": {
+     "provider_opaque": {
+      "required": false,
+      "type": "any"
+     },
+     "raw": {
+      "required": false,
+      "type": "string|null"
+     },
+     "summary": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "subagent": {
+     "session": {
+      "required": true,
+      "type": "SessionId"
+     }
+    },
+    "terminal": {
+     "command": {
+      "required": true,
+      "type": "string"
+     },
+     "exit": {
+      "required": false,
+      "type": "int32|null"
+     },
+     "live": {
+      "required": false,
+      "type": "string|null"
+     },
+     "output": {
+      "required": false,
+      "type": "BlobRef|null"
+     },
+     "signal": {
+      "required": false,
+      "type": "int32|null"
+     },
+     "terminal": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "tool_call": {
+     "call_id": {
+      "required": true,
+      "type": "string"
+     },
+     "input_raw": {
+      "required": true,
+      "type": "string"
+     },
+     "locations": {
+      "required": true,
+      "type": "[Location]"
+     },
+     "name": {
+      "required": true,
+      "type": "string"
+     },
+     "output": {
+      "required": true,
+      "type": "[OutputBlock]"
+     },
+     "spill": {
+      "required": false,
+      "type": "BlobRef|null"
+     },
+     "tool_kind": {
+      "required": true,
+      "type": "ToolKind"
+     }
+    },
+    "turn_diff": {
+     "unified": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "unknown": {},
+    "usage": {
+     "usage": {
+      "required": true,
+      "type": "Usage"
+     }
+    },
+    "user_message": {
+     "blocks": {
+      "required": true,
+      "type": "[InputBlock]"
+     }
+    }
+   }
+  },
+  "ItemHead": {
+   "shape": "union",
+   "tag": "kind",
+   "variants": {
+    "terminal": {
+     "command": {
+      "required": true,
+      "type": "string"
+     },
+     "terminal": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "tool_call": {
+     "call_id": {
+      "required": true,
+      "type": "string"
+     },
+     "name": {
+      "required": true,
+      "type": "string"
+     },
+     "tool_kind": {
+      "required": true,
+      "type": "ToolKind"
+     }
+    },
+    "unknown": {}
+   }
+  },
+  "ItemId": {
+   "shape": "alias",
+   "type": "string"
+  },
+  "ItemKind": {
+   "shape": "enum",
+   "variants": {
+    "agent_message": {},
+    "approval": {},
+    "compaction": {},
+    "context_trim": {},
+    "file_change": {},
+    "image": {},
+    "notice": {},
+    "plan": {},
+    "reasoning": {},
+    "subagent": {},
+    "terminal": {},
+    "tool_call": {},
+    "turn_diff": {},
+    "unknown": {},
+    "usage": {},
+    "user_message": {}
+   }
+  },
+  "ItemStatus": {
+   "shape": "union",
+   "tag": "status",
+   "variants": {
+    "cancelled": {},
+    "completed": {},
+    "failed": {
+     "reason": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "interrupted": {},
+    "unknown": {}
+   }
+  },
+  "Level": {
+   "shape": "enum",
+   "variants": {
+    "error": {},
+    "info": {},
+    "unknown": {},
+    "warn": {}
+   }
+  },
+  "Location": {
+   "fields": {
+    "end_line": {
+     "required": false,
+     "type": "uint32|null"
+    },
+    "line": {
+     "required": false,
+     "type": "uint32|null"
+    },
+    "path": {
+     "required": true,
+     "type": "string"
+    }
+   },
+   "shape": "struct"
+  },
+  "Op": {
+   "shape": "union",
+   "tag": "type",
+   "variants": {
+    "close": {},
+    "compact": {},
+    "interrupt": {
+     "turn": {
+      "required": false,
+      "type": "TurnId|null"
+     }
+    },
+    "resolve_approval": {
+     "approval": {
+      "required": true,
+      "type": "ItemId"
+     },
+     "decision": {
+      "required": true,
+      "type": "ApprovalDecision"
+     }
+    },
+    "set_profile": {
+     "profile": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "start_session": {
+     "cwd": {
+      "required": true,
+      "type": "string"
+     },
+     "fork": {
+      "required": false,
+      "type": "(SessionId,uint64)|null"
+     },
+     "profile": {
+      "required": false,
+      "type": "string|null"
+     }
+    },
+    "unknown": {},
+    "user_turn": {
+     "blocks": {
+      "required": true,
+      "type": "[InputBlock]"
+     },
+     "mode": {
+      "required": true,
+      "type": "TurnMode"
+     }
+    }
+   }
+  },
+  "OpEnvelope": {
+   "fields": {
+    "op": {
+     "required": true,
+     "type": "Op"
+    },
+    "op_id": {
+     "required": true,
+     "type": "OpId"
+    },
+    "session": {
+     "required": true,
+     "type": "SessionId"
+    },
+    "v": {
+     "required": true,
+     "type": "Version"
+    }
+   },
+   "shape": "struct"
+  },
+  "OpId": {
+   "shape": "alias",
+   "type": "string"
+  },
+  "OutputBlock": {
+   "shape": "union",
+   "tag": "type",
+   "variants": {
+    "diff": {
+     "path": {
+      "required": true,
+      "type": "string"
+     },
+     "unified": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "error": {
+     "text": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "image": {
+     "blob": {
+      "required": true,
+      "type": "BlobRef"
+     }
+    },
+    "json": {
+     "value": {
+      "required": true,
+      "type": "any"
+     }
+    },
+    "text": {
+     "text": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "unknown": {}
+   }
+  },
+  "Phase": {
+   "shape": "union",
+   "tag": "phase",
+   "variants": {
+    "approval": {
+     "item": {
+      "required": true,
+      "type": "ItemId"
+     }
+    },
+    "closed": {},
+    "idle": {},
+    "queued": {
+     "turns": {
+      "required": true,
+      "type": "uint32"
+     }
+    },
+    "retrying": {
+     "attempt": {
+      "required": true,
+      "type": "uint32"
+     },
+     "wait_ms": {
+      "required": true,
+      "type": "uint64"
+     }
+    },
+    "streaming": {},
+    "thinking": {},
+    "tool": {
+     "item": {
+      "required": true,
+      "type": "ItemId"
+     }
+    },
+    "unknown": {}
+   }
+  },
+  "PlanEntry": {
+   "fields": {
+    "priority": {
+     "required": false,
+     "type": "Priority|null"
+    },
+    "status": {
+     "required": true,
+     "type": "PlanStatus"
+    },
+    "text": {
+     "required": true,
+     "type": "string"
+    }
+   },
+   "shape": "struct"
+  },
+  "PlanStatus": {
+   "shape": "enum",
+   "variants": {
+    "cancelled": {},
+    "completed": {},
+    "in_progress": {},
+    "pending": {},
+    "unknown": {}
+   }
+  },
+  "Priority": {
+   "shape": "enum",
+   "variants": {
+    "high": {},
+    "low": {},
+    "medium": {},
+    "unknown": {}
+   }
+  },
+  "Rejection": {
+   "shape": "union",
+   "tag": "reason",
+   "variants": {
+    "already_resolved": {},
+    "coalesced": {
+     "into": {
+      "required": true,
+      "type": "OpId"
+     }
+    },
+    "invalid_input": {
+     "detail": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "no_such_approval": {},
+    "no_such_turn": {},
+    "not_idle": {},
+    "nothing_to_compact": {},
+    "profile_invalid": {
+     "detail": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "unknown": {},
+    "unknown_profile": {
+     "name": {
+      "required": true,
+      "type": "string"
+     }
+    }
+   }
+  },
+  "Resolver": {
+   "shape": "union",
+   "tag": "by",
+   "variants": {
+    "cancelled": {},
+    "face": {
+     "name": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "rule": {
+     "id": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "unattended": {},
+    "unknown": {}
+   }
+  },
+  "SessionId": {
+   "shape": "alias",
+   "type": "string"
+  },
+  "SessionMeta": {
+   "fields": {
+    "created_ms": {
+     "required": true,
+     "type": "uint64"
+    },
+    "cwd": {
+     "required": true,
+     "type": "string"
+    },
+    "fork": {
+     "required": false,
+     "type": "(SessionId,uint64)|null"
+    },
+    "harness": {
+     "required": true,
+     "type": "string"
+    },
+    "profile": {
+     "required": false,
+     "type": "string|null"
+    },
+    "protocol": {
+     "required": true,
+     "type": "Version"
+    },
+    "session": {
+     "required": true,
+     "type": "SessionId"
+    }
+   },
+   "shape": "struct"
+  },
+  "StopReason": {
+   "shape": "union",
+   "tag": "reason",
+   "variants": {
+    "cancelled": {},
+    "end_turn": {},
+    "error": {
+     "class": {
+      "required": true,
+      "type": "ErrorClass"
+     },
+     "message": {
+      "required": true,
+      "type": "string"
+     }
+    },
+    "interrupted": {},
+    "max_rounds": {},
+    "max_tokens": {},
+    "unknown": {}
+   }
+  },
+  "Stream": {
+   "shape": "enum",
+   "variants": {
+    "stderr": {},
+    "stdout": {},
+    "unknown": {}
+   }
+  },
+  "ToolKind": {
+   "shape": "enum",
+   "variants": {
+    "delete": {},
+    "edit": {},
+    "execute": {},
+    "fetch": {},
+    "move": {},
+    "other": {},
+    "read": {},
+    "search": {},
+    "think": {},
+    "unknown": {}
+   }
+  },
+  "TurnId": {
+   "shape": "alias",
+   "type": "string"
+  },
+  "TurnMode": {
+   "shape": "enum",
+   "variants": {
+    "queue": {},
+    "steer": {},
+    "unknown": {}
+   }
+  },
+  "Usage": {
+   "fields": {
+    "cache_creation_input_tokens": {
+     "required": false,
+     "type": "uint64|null"
+    },
+    "cached_input_tokens": {
+     "required": false,
+     "type": "uint64|null"
+    },
+    "cost_micros_usd": {
+     "required": false,
+     "type": "uint64|null"
+    },
+    "input_tokens": {
+     "required": true,
+     "type": "uint64"
+    },
+    "output_tokens": {
+     "required": true,
+     "type": "uint64"
+    },
+    "reasoning_tokens": {
+     "required": false,
+     "type": "uint64|null"
+    }
+   },
+   "shape": "struct"
+  },
+  "Version": {
+   "fields": {
+    "major": {
+     "required": true,
+     "type": "uint16"
+    },
+    "minor": {
+     "required": true,
+     "type": "uint16"
+    }
+   },
+   "shape": "struct"
+  }
+ },
+ "version": {
+  "major": 1,
+  "minor": 0
+ }
+}
