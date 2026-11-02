@@ -54,6 +54,7 @@ enum Wire {
 enum Call {
     Initialize,
     NewSession,
+    SetModel,
     Prompt,
 }
 struct Agent {
@@ -104,13 +105,17 @@ pub struct AcpAgentActor {
     config: Config,
     spec: AgentSpec,
     yolo: bool,
+    /// The profile's model, chosen through the agent's `model` config option when offered.
+    model: Option<String>,
     agent: Option<Agent>,
     wire: Option<mpsc::UnboundedReceiver<Wire>>,
     queue: VecDeque<(TurnId, Vec<InputBlock>, OpId)>,
     running: Option<Running>,
     resolved: HashSet<ItemId>,
     warned: HashSet<String>,
-    restarted: bool,
+    /// Earlier turns of this log (a reopened or forked session), handed to the next
+    /// fresh agent with its first prompt: the agent's own context starts empty.
+    handoff: Option<String>,
 }
 
 impl AcpAgentActor {
@@ -119,6 +124,7 @@ impl AcpAgentActor {
         start: OpId,
         spec: AgentSpec,
         yolo: bool,
+        model: Option<String>,
     ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
         let mut store = Store::open(
             config.sessions.clone(),
@@ -139,7 +145,10 @@ impl AcpAgentActor {
                 .append(
                     Event::ProfileChanged {
                         profile: config.meta.profile.clone().unwrap_or_default(),
-                        model: agent_label(&spec),
+                        model: match &model {
+                            Some(m) => format!("{} · {m}", agent_label(&spec)),
+                            None => agent_label(&spec),
+                        },
                     },
                     Some(start),
                 )
@@ -155,12 +164,8 @@ impl AcpAgentActor {
         let (control_tx, control) = mpsc::channel(256);
         let gateway = InProc::new(hub, work_tx, control_tx, start);
         gateway.set_unattended(config.policy.on_unattended);
-        // a reopened session restarts its agent: the agent's own context starts fresh
-        let restarted = !store.fresh
-            && store
-                .events
-                .iter()
-                .any(|e| matches!(e.event, Event::TurnStarted { .. }));
+        // a reopened or forked session restarts its agent: hand it the conversation so far
+        let handoff = handoff(&store.events);
         let actor = Self {
             store,
             gateway: gateway.clone(),
@@ -169,13 +174,14 @@ impl AcpAgentActor {
             config,
             spec,
             yolo,
+            model,
             agent: None,
             wire: None,
             queue: VecDeque::new(),
             running: None,
             resolved: HashSet::new(),
             warned: HashSet::new(),
-            restarted,
+            handoff,
         };
         let task = bbt_rt::handle().spawn(actor.run());
         Ok((gateway, task))
@@ -417,7 +423,7 @@ impl AcpAgentActor {
         )
         .await?;
         if self.agent.is_none() {
-            if let Err(error) = self.spawn() {
+            if let Err(error) = self.spawn().await {
                 let message = format!("ACP agent could not start: {error}");
                 self.notice(Level::Error, message.clone()).await?;
                 return self
@@ -432,11 +438,12 @@ impl AcpAgentActor {
                     )
                     .await;
             }
-            if self.restarted {
-                self.restarted = false;
+            if let Some(text) = &self.handoff {
+                let turns =
+                    text.matches("\n[user]").count() + usize::from(text.starts_with("[user]"));
                 self.notice(
                     Level::Info,
-                    "ACP agent started fresh: earlier turns are in this log, not in the agent's context".into(),
+                    format!("ACP agent started with a handoff of {turns} earlier turn(s) from this session"),
                 )
                 .await?;
             }
@@ -459,7 +466,13 @@ impl AcpAgentActor {
             return Ok(());
         }
         r.prompt_sent = true;
-        let prompt: Vec<Value> = r.blocks.iter().map(content_block).collect();
+        let mut prompt: Vec<Value> = vec![];
+        if let Some(text) = self.handoff.take() {
+            prompt.push(json!({ "type": "text", "text": format!(
+                "Context: the conversation so far in this session, handed over from an earlier agent. \
+                 Use it as background; the new request follows.\n\n{text}\n\n--- new request ---") }));
+        }
+        prompt.extend(r.blocks.iter().map(content_block));
         let params = json!({ "sessionId": session, "prompt": prompt });
         debug_assert!(
             serde_json::from_value::<agent_client_protocol::schema::v1::PromptRequest>(
@@ -587,7 +600,22 @@ impl AcpAgentActor {
     }
 
     // ---------- the agent process ----------
-    fn spawn(&mut self) -> std::io::Result<()> {
+    async fn spawn(&mut self) -> std::io::Result<()> {
+        let mut env = vec![];
+        for (name, value) in &self.spec.env {
+            let value = match value.strip_prefix('!') {
+                Some(cmd) => crate::provider::profile::resolve_command(
+                    cmd,
+                    tokio_util::sync::CancellationToken::new(),
+                )
+                .await
+                .map_err(|e| std::io::Error::other(format!("agent.env {name}: {}", e.message)))?,
+                None => value.clone(),
+            };
+            let value = value.trim().to_owned();
+            self.config.redactor.register(&value);
+            env.push((name.clone(), value));
+        }
         let mut argv = self.spec.command.iter();
         let program = argv
             .next()
@@ -595,6 +623,7 @@ impl AcpAgentActor {
         let mut command = tokio::process::Command::new(program);
         command
             .args(argv)
+            .envs(env)
             .current_dir(&self.config.meta.cwd)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -732,6 +761,11 @@ impl AcpAgentActor {
             };
             let message = format!("ACP agent refused {}: {text}{hint}", call_name(&call_kind));
             return match call_kind {
+                Call::SetModel if self.running.is_some() => {
+                    // the turn still runs, on the agent's own model
+                    self.notice(Level::Warn, message).await?;
+                    self.send_prompt()
+                }
                 Call::Prompt | Call::Initialize | Call::NewSession if self.running.is_some() => {
                     self.notice(Level::Error, message.clone()).await?;
                     if !matches!(call_kind, Call::Prompt) {
@@ -779,9 +813,36 @@ impl AcpAgentActor {
                         .agent_gone("ACP agent returned no sessionId".into())
                         .await;
                 };
-                self.agent.as_mut().expect("agent").session = Some(session.to_owned());
+                let session = session.to_owned();
+                self.agent.as_mut().expect("agent").session = Some(session.clone());
+                if let Some(wanted) = self.model.clone() {
+                    match pick_model(&result, &wanted) {
+                        ModelChoice::Current => {}
+                        ModelChoice::Set(value) => {
+                            let agent = self.agent.as_mut().expect("agent");
+                            let params = json!({ "sessionId": session, "configId": "model", "value": value });
+                            return call(
+                                agent,
+                                Call::SetModel,
+                                "session/set_config_option",
+                                params,
+                            );
+                        }
+                        ModelChoice::NotOffered(current) => {
+                            self.notice(
+                                Level::Warn,
+                                format!(
+                                    "the agent does not offer model {wanted}; it keeps {}",
+                                    current.unwrap_or_else(|| "its default".into())
+                                ),
+                            )
+                            .await?;
+                        }
+                    }
+                }
                 self.send_prompt()
             }
+            Call::SetModel => self.send_prompt(),
             Call::Prompt => {
                 let stop = result
                     .get("stopReason")
@@ -1313,6 +1374,110 @@ impl AcpAgentActor {
 }
 
 // ---------- pure mapping ----------
+pub enum ModelChoice {
+    Current,
+    Set(String),
+    NotOffered(Option<String>),
+}
+/// Match a profile model against the agent's `model` config option (session/new result):
+/// an exact value, or a value ending in `/<model>` (provider-prefixed ids).
+pub fn pick_model(new_session: &Value, wanted: &str) -> ModelChoice {
+    let Some(option) = new_session
+        .get("configOptions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|o| {
+            o.get("category").and_then(Value::as_str) == Some("model")
+                || o.get("id").and_then(Value::as_str) == Some("model")
+        })
+    else {
+        return ModelChoice::NotOffered(None);
+    };
+    let current = option
+        .get("currentValue")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let values: Vec<&str> = option
+        .get("options")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|o| o.get("value").and_then(Value::as_str))
+        .collect();
+    let suffix = format!("/{wanted}");
+    let found = values
+        .iter()
+        .find(|v| **v == wanted)
+        .or_else(|| values.iter().find(|v| v.ends_with(&suffix)));
+    match found {
+        Some(v) if current.as_deref() == Some(*v) => ModelChoice::Current,
+        Some(v) => ModelChoice::Set((*v).to_owned()),
+        None => ModelChoice::NotOffered(current),
+    }
+}
+/// The conversation in a log as plain text for a fresh agent: user and assistant
+/// messages and one line per tool call, newest kept when over budget.
+pub fn handoff(events: &[Envelope]) -> Option<String> {
+    const BUDGET: usize = 24 * 1024;
+    let mut lines: Vec<String> = vec![];
+    for e in events {
+        if let Event::ItemCompleted { body, .. } = &e.event {
+            match body {
+                Item::UserMessage { blocks } => {
+                    let text: Vec<&str> = blocks
+                        .iter()
+                        .filter_map(|b| match b {
+                            InputBlock::Text { text } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .collect();
+                    lines.push(format!("[user] {}", text.join("\n")));
+                }
+                Item::AgentMessage { markdown } if !markdown.trim().is_empty() => {
+                    lines.push(format!("[assistant] {}", markdown.trim()))
+                }
+                Item::ToolCall {
+                    name,
+                    input_raw,
+                    output,
+                    ..
+                } => {
+                    let first = output
+                        .iter()
+                        .find_map(|o| match o {
+                            OutputBlock::Text { text } | OutputBlock::Error { text } => {
+                                text.lines().next()
+                            }
+                            _ => None,
+                        })
+                        .unwrap_or("");
+                    let input: String = input_raw.chars().take(200).collect();
+                    lines.push(format!(
+                        "[tool {name}] {input} -> {}",
+                        first.chars().take(200).collect::<String>()
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
+    if !lines.iter().any(|l| l.starts_with("[user]")) {
+        return None;
+    }
+    let mut out: Vec<String> = vec![];
+    let mut used = 0;
+    for line in lines.into_iter().rev() {
+        if used + line.len() > BUDGET {
+            out.push("[earlier turns omitted]".into());
+            break;
+        }
+        used += line.len() + 1;
+        out.push(line);
+    }
+    out.reverse();
+    Some(out.join("\n"))
+}
 fn agent_label(spec: &AgentSpec) -> String {
     let program = spec.command.first().map(String::as_str).unwrap_or("agent");
     let program = program.rsplit('/').next().unwrap_or(program);
@@ -1328,6 +1493,7 @@ fn call_name(c: &Call) -> &'static str {
     match c {
         Call::Initialize => "initialize",
         Call::NewSession => "session/new",
+        Call::SetModel => "the model choice",
         Call::Prompt => "the prompt",
     }
 }
@@ -1461,8 +1627,24 @@ fn notify(agent: &mut Agent, method: &str, params: Value) -> std::io::Result<()>
 fn reply(agent: &mut Agent, message: Value) -> std::io::Result<()> {
     write(agent, message)
 }
+/// `BBOXY450_ACP_TRACE=<file>`: append every JSON-RPC line, both directions, for debugging
+/// an agent. Off by default; the file may contain prompts, so it is never on by itself.
+fn trace(direction: &str, line: &str) {
+    if let Some(path) = std::env::var_os("BBOXY450_ACP_TRACE") {
+        use std::io::Write;
+        #[allow(clippy::disallowed_methods)]
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = writeln!(f, "{direction} {}", line.trim_end());
+        }
+    }
+}
 fn write(agent: &mut Agent, message: Value) -> std::io::Result<()> {
     let mut line = message.to_string();
+    trace(">", &line);
     line.push('\n');
     agent
         .out
@@ -1494,6 +1676,7 @@ async fn read_lines(stdout: tokio::process::ChildStdout, tx: mpsc::UnboundedSend
             Ok(_) => {
                 let line = String::from_utf8_lossy(&buf);
                 let line = line.trim();
+                trace("<", line);
                 if line.is_empty() {
                     continue;
                 }

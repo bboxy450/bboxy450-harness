@@ -211,7 +211,7 @@ fn editor_history_and_slash_completion_use_the_upgraded_editor() {
     assert_eq!(input.view.text, "line one\nline two");
     input.handle(Command::Edit(Edit::SelectAll));
     input.handle(Command::Edit(Edit::Insert("/int".into())));
-    let mut popover = input.popover().unwrap();
+    let mut popover = input.popover(&[]).unwrap();
     let edit = popover
         .handle(bbt_ui::modules::approval::Key::Enter)
         .unwrap();
@@ -220,7 +220,7 @@ fn editor_history_and_slash_completion_use_the_upgraded_editor() {
     input.handle(Command::Edit(Edit::SelectAll));
     input.handle(Command::Edit(Edit::Insert("@file".into())));
     assert_eq!(input.completion().unwrap().trigger, '@');
-    assert!(input.popover().is_none());
+    assert!(input.popover(&[]).is_none());
 }
 
 #[tokio::test]
@@ -630,7 +630,7 @@ fn a_completion_from_a_retired_token_does_not_replace_new_typing() {
     use bbt_ui::{modules::composer::Command, text_edit::Command as Edit};
     let mut view = HarnessView::default();
     view.edit(Edit::Insert("/int".into()));
-    let mut old = view.composer.popover().unwrap();
+    let mut old = view.composer.popover(&[]).unwrap();
     let stale = old.handle(bbt_ui::modules::approval::Key::Enter).unwrap();
     view.edit(Edit::SelectAll);
     view.edit(Edit::Insert("/co".into()));

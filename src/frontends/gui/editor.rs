@@ -40,13 +40,13 @@ impl Input {
     pub fn completion(&self) -> Option<Completion> {
         self.editor.completion(&self.inner.view.text)
     }
-    pub fn popover(&self) -> Option<CompletionPopover> {
+    pub fn popover(&self, profiles: &[String]) -> Option<CompletionPopover> {
         let request = self.completion()?;
         let choices = if request.trigger == '/' {
-            ["/interrupt", "/stop"]
+            ["/interrupt".to_owned(), "/stop".into(), "/profiles".into()]
                 .into_iter()
+                .chain(profiles.iter().map(|p| format!("/profile {p}")))
                 .filter(|s| s[1..].starts_with(&request.query))
-                .map(String::from)
                 .collect::<Vec<_>>()
         } else {
             vec![]

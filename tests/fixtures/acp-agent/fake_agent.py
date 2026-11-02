@@ -97,6 +97,9 @@ def prompt(rid, text):
         sys.stderr.write("fake agent: boom\n")
         sys.stderr.flush()
         sys.exit(3)
+    if SCENARIO == "echo":
+        chunk("agent_message_chunk", "ECHO:" + text[:2000])
+        return "end_turn"
     if SCENARIO == "unknown":
         update({"sessionUpdate": "mystery_update", "x": 1})
         chunk("agent_message_chunk", "ok")

@@ -230,12 +230,39 @@ impl Host {
         });
         Ok(gateway)
     }
+    /// Continue a session on another profile, any backend to any backend: fork the
+    /// session at its head into a new session on `profile`, then close the old one (its
+    /// agent process stops). The new session's log starts with the whole conversation;
+    /// a fresh ACP agent receives it as a handoff with its first prompt.
+    pub async fn switch(&self, from: &InProc, profile: String) -> Result<InProc, Refused> {
+        let hello = from.hello();
+        let session = SessionId::new();
+        let (gateway, _) = self
+            .create(OpEnvelope {
+                v: PROTOCOL,
+                session,
+                op_id: OpId::new(),
+                op: Op::StartSession {
+                    cwd: hello.meta.cwd.clone(),
+                    profile: Some(profile),
+                    fork: Some((hello.meta.session, hello.head)),
+                },
+            })
+            .await?;
+        let _ = from.send(OpEnvelope {
+            v: PROTOCOL,
+            session: hello.meta.session,
+            op_id: OpId::new(),
+            op: Op::Close,
+        });
+        Ok(gateway)
+    }
     /// An `acp-agent` profile selects the ACP agent backend instead of the engine.
     async fn acp_agent(
         &self,
         config: &mut Config,
         name: Option<&str>,
-    ) -> Option<(crate::provider::profile::AgentSpec, bool)> {
+    ) -> Option<(crate::provider::profile::AgentSpec, bool, Option<String>)> {
         let path = Profile::file_in(&config.profiles, name?).ok()?;
         let profile = Profile::load(&path).await.ok()?;
         if !profile.is_acp_agent() {
@@ -245,6 +272,7 @@ impl Host {
         Some((
             profile.agent.clone().unwrap_or_default(),
             profile.policy.as_deref() == Some("yolo"),
+            Some(profile.model.clone()).filter(|m| !m.is_empty()),
         ))
     }
     async fn actor(
@@ -253,12 +281,13 @@ impl Host {
         start: crate::protocol::OpId,
         notice: Option<String>,
         overrides: crate::mcp::Servers,
-        agent: Option<(crate::provider::profile::AgentSpec, bool)>,
+        agent: Option<(crate::provider::profile::AgentSpec, bool, Option<String>)>,
     ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
         match agent {
             #[cfg(feature = "acp-agent")]
-            Some((spec, yolo)) => {
-                crate::backend::acp_agent::AcpAgentActor::load(config, start, spec, yolo).await
+            Some((spec, yolo, model)) => {
+                crate::backend::acp_agent::AcpAgentActor::load(config, start, spec, yolo, model)
+                    .await
             }
             #[cfg(not(feature = "acp-agent"))]
             Some(_) => {

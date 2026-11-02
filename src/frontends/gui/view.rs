@@ -182,6 +182,8 @@ pub struct HarnessView {
     controls: Option<Controls>,
     pub frame: Frame,
     pub notice: Option<String>,
+    /// Profile names for `/profile` completion, from the latest frame.
+    profiles: Arc<Vec<String>>,
 }
 impl Default for HarnessView {
     fn default() -> Self {
@@ -206,6 +208,7 @@ impl Default for HarnessView {
             controls: None,
             frame: Frame::default(),
             notice: None,
+            profiles: Arc::new(vec![]),
         }
     }
 }
@@ -215,6 +218,7 @@ impl HarnessView {
     }
     /// The same Element is used by a standalone surface and the offscreen driver.
     pub fn render(&mut self, state: &FrameState, size: [f32; 2]) -> Result<&Frame, String> {
+        self.profiles = state.profiles.clone();
         let offset = self.scroll.layout_offset();
         let draft = format!(
             "{:?}{:?}{:?}{:?}",
@@ -514,7 +518,7 @@ impl HarnessView {
     }
     pub fn edit(&mut self, command: ui::text_edit::Command) {
         self.composer.handle(composer::Command::Edit(command));
-        self.completion = self.composer.popover();
+        self.completion = self.composer.popover(&self.profiles);
         self.invalidate();
     }
     pub fn completion_open(&self) -> bool {
@@ -522,7 +526,7 @@ impl HarnessView {
     }
     pub fn complete(&mut self, key: ui::modules::approval::Key) -> bool {
         if self.completion.is_none() {
-            self.completion = self.composer.popover();
+            self.completion = self.composer.popover(&self.profiles);
         }
         let Some(popover) = &mut self.completion else {
             return false;
@@ -605,14 +609,45 @@ impl HarnessView {
                 if outcome == composer::Outcome::Changed {
                     self.completion = None;
                 } else {
-                    self.completion = self.composer.popover();
+                    self.completion = self.composer.popover(&self.profiles);
                 }
             }
             Action::Send => {
                 if let composer::Outcome::Submit(sent) =
                     self.composer.handle(composer::Command::Send)
                 {
-                    let op = match sent.text.trim() {
+                    let text = sent.text.trim();
+                    // `/profiles` lists; `/profile NAME` continues this session on NAME
+                    if text == "/profiles" || text == "/profile" {
+                        self.composer.stored(&sent);
+                        self.notice = Some(if bridge.state.profiles.is_empty() {
+                            "No profiles in ~/.bboxy450-harness/profiles".into()
+                        } else {
+                            format!(
+                                "Profiles: {} · /profile NAME switches",
+                                bridge.state.profiles.join(", ")
+                            )
+                        });
+                        self.invalidate();
+                        return;
+                    }
+                    if let Some(name) = text.strip_prefix("/profile ").map(str::trim) {
+                        self.composer.stored(&sent);
+                        self.notice = Some(if !bridge.state.profiles.iter().any(|p| p == name) {
+                            format!("No profile named {name} · /profiles lists them")
+                        } else {
+                            match bridge.switch_profile(name.to_owned()) {
+                                Ok(()) => format!(
+                                    "Switching to {name}: the conversation continues in a new session"
+                                ),
+                                Err(why) => format!("Could not switch: {why}"),
+                            }
+                        });
+                        self.scroll.follow_latest();
+                        self.invalidate();
+                        return;
+                    }
+                    let op = match text {
                         "/interrupt" => Op::Interrupt { turn: None },
                         "/stop" => Op::Close,
                         _ => Op::UserTurn {

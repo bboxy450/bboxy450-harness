@@ -45,6 +45,11 @@ pub struct Profile {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct AgentSpec {
     pub command: Vec<String>,
+    /// Environment for the agent process. A value starting with `!` is a command whose
+    /// output is the value (like `api_key`), resolved at spawn and registered for
+    /// redaction; the profile never holds the secret itself.
+    #[serde(default)]
+    pub env: std::collections::BTreeMap<String, String>,
 }
 impl Profile {
     /// True when this profile drives an external ACP agent instead of a model.

@@ -39,6 +39,11 @@ async fn fake(scenario: &str, unattended: Unattended) -> Fake {
         ),
     )
     .unwrap();
+    std::fs::write(
+        profiles.join("echo.md"),
+        format!("---\nname: echo\nprovider: acp-agent\nagent:\n  command: [python3, -I, {}, echo]\n---\n", script.display()),
+    )
+    .unwrap();
     let session = SessionId::new();
     let mut meta = support::meta(temp.path().into());
     meta.session = session;
@@ -303,4 +308,79 @@ async fn an_unknown_update_is_a_notice_and_a_malformed_line_ends_the_turn() {
     assert!(
         matches!(&ended(&log)[..], [StopReason::Error { message, .. }] if message.contains("malformed JSON-RPC"))
     );
+}
+
+#[tokio::test]
+async fn switching_profiles_forks_the_session_and_hands_the_conversation_to_the_new_agent() {
+    let f = fake("text", Unattended::Deny).await;
+    let mut sub = subscribe(&f.gateway, false);
+    f.gateway
+        .send(support::prompt(&f.gateway, "remember the word heliotrope"))
+        .unwrap();
+    until_end(&mut sub).await;
+    drop(sub);
+    let next = f.host.switch(&f.gateway, "echo".into()).await.unwrap();
+    assert_ne!(next.session(), f.session);
+    let mut sub = subscribe(&next, false);
+    // the subscription replays the forked history first, including its TurnEnded
+    until_end(&mut sub).await;
+    next.send(support::prompt(&next, "what was the word?"))
+        .unwrap();
+    until_end(&mut sub).await;
+    let child = next.session();
+    next.send(support::op(&next, Op::Close)).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), f.host.join())
+        .await
+        .unwrap()
+        .unwrap();
+    let read = |s: SessionId| -> Vec<Envelope> {
+        std::fs::read_to_string(f.temp.path().join("sessions").join(format!("{s}.jsonl")))
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    };
+    let (old, new) = (read(f.session), read(child));
+    bboxy450_harness::protocol::laws::check_transcript(&old).unwrap();
+    bboxy450_harness::protocol::laws::check_transcript(&new).unwrap();
+    assert!(
+        matches!(old.last().map(|e| &e.event), Some(Event::SessionClosed)),
+        "the old session closes"
+    );
+    let items = completed(&new);
+    // the forked log keeps the whole conversation, then the new agent's turn
+    assert!(items.iter().any(|(_, b)| matches!(b, Item::AgentMessage { markdown } if markdown == "Hello from the fake agent.")));
+    assert!(
+        items.iter().any(|(_, b)| matches!(b, Item::AgentMessage { markdown } if markdown.starts_with("ECHO:") && markdown.contains("[user] remember the word heliotrope") && markdown.contains("[assistant] Hello from the fake agent.") && markdown.contains("what was the word?"))),
+        "the fresh agent got the handoff: {items:?} {:?}", ended(&new)
+    );
+    assert!(
+        new.iter().any(
+            |e| matches!(&e.event, Event::ProfileChanged { profile, .. } if profile == "echo")
+        )
+    );
+}
+
+#[test]
+fn a_profile_model_matches_the_agents_model_option_exactly_or_by_provider_suffix() {
+    use bboxy450_harness::backend::acp_agent::{ModelChoice, pick_model};
+    let offered = serde_json::json!({ "configOptions": [{ "id": "model", "category": "model", "currentValue": "openrouter/x:free",
+        "options": [{ "value": "openrouter/x:free" }, { "value": "anthropic/claude-haiku-5-5" }] }] });
+    assert!(
+        matches!(pick_model(&offered, "claude-haiku-5-5"), ModelChoice::Set(v) if v == "anthropic/claude-haiku-5-5")
+    );
+    assert!(
+        matches!(pick_model(&offered, "anthropic/claude-haiku-5-5"), ModelChoice::Set(v) if v == "anthropic/claude-haiku-5-5")
+    );
+    assert!(matches!(
+        pick_model(&offered, "openrouter/x:free"),
+        ModelChoice::Current
+    ));
+    assert!(
+        matches!(pick_model(&offered, "gpt-9"), ModelChoice::NotOffered(Some(c)) if c == "openrouter/x:free")
+    );
+    assert!(matches!(
+        pick_model(&serde_json::json!({}), "m"),
+        ModelChoice::NotOffered(None)
+    ));
 }

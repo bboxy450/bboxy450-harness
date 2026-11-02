@@ -33,6 +33,8 @@ pub struct FrameState {
     pub notice: Option<String>,
     pub replay: bool,
     pub ready: bool,
+    /// Profile names in the machine-global profiles directory, for the switcher.
+    pub profiles: Arc<Vec<String>>,
     #[cfg(feature = "embedded")]
     pub prepared: Option<Arc<super::view::PreparedRows>>,
     #[cfg(feature = "embedded")]
@@ -46,6 +48,7 @@ struct Mailbox {
     resized: tokio::sync::Notify,
     published: AtomicU64,
     blobs: arc_swap::ArcSwapOption<crate::store::Blobs>,
+    profiles: arc_swap::ArcSwap<Vec<String>>,
     #[cfg(feature = "embedded")]
     faces: arc_swap::ArcSwap<super::rich::Faces>,
 }
@@ -63,6 +66,7 @@ impl Mailbox {
     }
     fn publish(&self, mut state: FrameState) {
         state.revision = self.published.load(Ordering::Acquire) + 1;
+        state.profiles = self.profiles.load_full();
         let revision = state.revision;
         self.latest.publish(state);
         // A saturated notification queue is harmless: Latest holds the complete
@@ -80,6 +84,8 @@ pub struct Bridge {
     pub state: FrameState,
     detach: CancellationToken,
     worker: Option<tokio::task::JoinHandle<()>>,
+    /// Profile switches for the live session's host worker.
+    switch: Option<tokio::sync::mpsc::UnboundedSender<String>>,
     #[cfg(feature = "test-fixtures")]
     before_host: Option<BeforeHost>,
 }
@@ -96,6 +102,7 @@ impl Bridge {
                 resized: tokio::sync::Notify::new(),
                 published: AtomicU64::new(0),
                 blobs: arc_swap::ArcSwapOption::empty(),
+                profiles: arc_swap::ArcSwap::from_pointee(vec![]),
                 #[cfg(feature = "embedded")]
                 faces: arc_swap::ArcSwap::from_pointee(Default::default()),
             }),
@@ -104,6 +111,7 @@ impl Bridge {
             state: FrameState::default(),
             detach: CancellationToken::new(),
             worker: None,
+            switch: None,
             #[cfg(feature = "test-fixtures")]
             before_host: None,
         }
@@ -164,9 +172,17 @@ impl Bridge {
     ) {
         self.before_host = Some(Box::new(observe));
     }
+    /// Continue the live session on another profile (any backend): the host forks it
+    /// at its head onto `profile` and the view follows the new session.
+    pub fn switch_profile(&self, profile: String) -> Result<(), &'static str> {
+        let tx = self.switch.as_ref().ok_or("no live session to switch")?;
+        tx.send(profile).map_err(|_| "the session host has stopped")
+    }
     pub fn create(&mut self, config: Config) {
         let mailbox = self.mailbox.clone();
         let detach = self.detach.clone();
+        let (switch_tx, mut switches) = tokio::sync::mpsc::unbounded_channel::<String>();
+        self.switch = Some(switch_tx);
         #[cfg(feature = "test-fixtures")]
         let before_host = self.before_host.take();
         self.worker = Some(bbt_rt::handle().spawn(async move {
@@ -185,6 +201,9 @@ impl Bridge {
             if let Some(observe) = before_host {
                 observe(&config.redactor);
             }
+            let sessions = config.sessions.clone();
+            let redactor = config.redactor.clone();
+            mailbox.profiles.store(Arc::new(profile_names(&config.profiles).await));
             let host = Host::new(config);
             match host
                 .create(OpEnvelope {
@@ -195,8 +214,25 @@ impl Bridge {
                 })
                 .await
             {
-                Ok((gateway, _)) => {
-                    consume(gateway, mailbox.clone(), detach).await;
+                Ok((mut gateway, _)) => {
+                    loop {
+                        tokio::select! {
+                            _ = consume(gateway.clone(), mailbox.clone(), detach.clone()) => break,
+                            Some(profile) = switches.recv() => match host.switch(&gateway, profile.clone()).await {
+                                Ok(next) => {
+                                    mailbox.blobs.store(Some(Arc::new(crate::store::Blobs {
+                                        dir: sessions.join(next.session().to_string()).join("blobs"),
+                                        redactor: redactor.clone(),
+                                    })));
+                                    gateway = next;
+                                }
+                                Err(error) => mailbox.publish(FrameState {
+                                    error: Some(format!("Could not switch to {profile}: {}", refusal_text(&error))),
+                                    ..Default::default()
+                                }),
+                            },
+                        }
+                    }
                     // Keep the actor host alive through detached work. A detach
                     // sends no Close. The idle log remains resumable on disk.
                     drop(host);
@@ -538,4 +574,21 @@ pub fn refusal_text(error: &Refused) -> &'static str {
         Refused::SessionExists => "session already exists",
         Refused::BadFork => "fork unavailable",
     }
+}
+
+/// Profile names (file stems) in the profiles directory, sorted; never their contents.
+async fn profile_names(dir: &std::path::Path) -> Vec<String> {
+    let mut names = vec![];
+    if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
+        while let Ok(Some(e)) = entries.next_entry().await {
+            let path = e.path();
+            if path.extension().is_some_and(|x| x == "md")
+                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+            {
+                names.push(stem.to_owned());
+            }
+        }
+    }
+    names.sort();
+    names
 }
