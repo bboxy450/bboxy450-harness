@@ -7,10 +7,10 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 use ulid::Ulid;
 pub mod laws;
-pub const PROTOCOL: Version = Version { major: 0, minor: 4 };
+pub const PROTOCOL: Version = Version { major: 1, minor: 0 };
 pub const MAX_ENVELOPE_BYTES: usize = 256 * 1024;
 macro_rules! identity {($($name:ident),*)=>{$(
 #[derive(Clone,Copy,Debug,PartialEq,Eq,PartialOrd,Ord,Hash,Serialize,Deserialize,JsonSchema)]
@@ -85,16 +85,16 @@ pub enum Op {
     },
     Compact,
     Close,
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TurnMode {
     Queue,
     Steer,
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -108,8 +108,8 @@ pub enum InputBlock {
     Mention {
         path: PathBuf,
     },
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "decision", rename_all = "snake_case")]
@@ -119,12 +119,16 @@ pub enum ApprovalDecision {
     Deny {
         reason: Option<String>,
     },
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct Envelope {
+    /// Original JSONL bytes, including the newline. Never part of the wire schema.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub raw: Option<Arc<str>>,
     pub v: Version,
     pub session: SessionId,
     pub epoch: Epoch,
@@ -199,8 +203,8 @@ pub enum Event {
         epoch: Epoch,
         head: Seq,
     },
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -212,8 +216,8 @@ pub enum ItemStatus {
     },
     Cancelled,
     Interrupted,
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "reason", rename_all = "snake_case")]
@@ -227,8 +231,8 @@ pub enum StopReason {
         class: ErrorClass,
         message: String,
     },
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -249,8 +253,8 @@ pub enum Delta {
     Plan {
         entries: Vec<PlanEntry>,
     },
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -323,8 +327,8 @@ pub enum Item {
     Subagent {
         session: SessionId,
     },
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -338,8 +342,8 @@ pub enum ItemHead {
         terminal: String,
         command: String,
     },
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct BlobRef {
@@ -347,7 +351,7 @@ pub struct BlobRef {
     pub len: u64,
     pub mime: String,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolKind {
     Read,
@@ -359,8 +363,8 @@ pub enum ToolKind {
     Think,
     Fetch,
     Other,
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -378,7 +382,7 @@ pub struct SessionMeta {
     pub harness: String,
     pub created_ms: u64,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ItemKind {
     UserMessage,
@@ -396,8 +400,8 @@ pub enum ItemKind {
     Usage,
     Notice,
     Subagent,
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
 pub struct Usage {
@@ -429,14 +433,14 @@ pub struct Usage {
 }
 /// Log IR v1 §4a: counters from calls, turn totals and cumulative sessions must
 /// never be summed together. Missing required counters are named in unreported.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum UsageScope {
     Call,
     Turn,
     Session,
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Backend {
@@ -445,23 +449,23 @@ pub struct Backend {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BackendKind {
     Engine,
     AcpAgent,
     Import,
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum NumberSource {
     Reported,
     Derived,
     Estimated,
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Cost {
@@ -490,8 +494,8 @@ pub enum OutputBlock {
     Error {
         text: String,
     },
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Location {
@@ -508,16 +512,16 @@ pub enum ChangeKind {
     Rename {
         from: PathBuf,
     },
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Stream {
     Stdout,
     Stderr,
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PlanEntry {
@@ -525,24 +529,24 @@ pub struct PlanEntry {
     pub status: PlanStatus,
     pub priority: Option<Priority>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanStatus {
     Pending,
     InProgress,
     Completed,
     Cancelled,
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Priority {
     High,
     Medium,
     Low,
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ApprovalSubject {
@@ -552,24 +556,24 @@ pub struct ApprovalSubject {
     pub paths: Vec<PathBuf>,
     pub command: Option<String>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Effect {
     Read,
     Write,
     Exec,
     Network,
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalDecisionKind {
     Allow,
     AllowAlways,
     Deny,
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "by", rename_all = "snake_case")]
@@ -582,17 +586,17 @@ pub enum Resolver {
     },
     Unattended,
     Cancelled,
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Level {
     Info,
     Warn,
     Error,
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "phase", rename_all = "snake_case")]
@@ -614,8 +618,8 @@ pub enum Phase {
         wait_ms: u64,
     },
     Closed,
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "reason", rename_all = "snake_case")]
@@ -637,10 +641,10 @@ pub enum Rejection {
     Coalesced {
         into: OpId,
     },
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorClass {
     Transient,
@@ -654,8 +658,8 @@ pub enum ErrorClass {
     Store,
     Tool,
     Internal,
-    #[serde(other)]
-    Unknown,
+    #[serde(untagged)]
+    Unknown(Value),
 }
 impl Event {
     pub fn is_durable(&self) -> bool {
@@ -692,7 +696,7 @@ impl Item {
             Self::Usage { .. } => ItemKind::Usage,
             Self::Notice { .. } => ItemKind::Notice,
             Self::Subagent { .. } => ItemKind::Subagent,
-            Self::Unknown => ItemKind::Unknown,
+            Self::Unknown(raw) => ItemKind::Unknown(raw.clone()),
         }
     }
     pub fn apply(&mut self, delta: &Delta) {
@@ -735,7 +739,7 @@ impl Item {
             } => Some(ItemHead::ToolCall {
                 call_id: call_id.clone(),
                 name: name.clone(),
-                tool_kind: *tool_kind,
+                tool_kind: tool_kind.clone(),
             }),
             Self::Terminal {
                 terminal, command, ..
@@ -765,7 +769,7 @@ impl Item {
             ) => {
                 call_id.clone_from(c);
                 name.clone_from(n);
-                *tool_kind = *k;
+                *tool_kind = k.clone();
                 input_raw.clear();
             }
             (
@@ -860,7 +864,10 @@ impl Item {
             ItemKind::Subagent => Self::Subagent {
                 session: SessionId(id.0),
             },
-            ItemKind::Unknown => Self::Unknown,
+            ItemKind::Unknown(raw) => Self::Notice {
+                level: Level::Warn,
+                text: format!("Unsupported item {} was interrupted", unknown_tag(&raw)),
+            },
         }
     }
 }
@@ -888,4 +895,104 @@ pub fn schema_value() -> serde_json::Value {
 struct ProtocolSchema {
     envelope: Envelope,
     op: OpEnvelope,
+}
+
+impl PartialEq for Envelope {
+    fn eq(&self, other: &Self) -> bool {
+        self.v == other.v
+            && self.session == other.session
+            && self.epoch == other.epoch
+            && self.seq == other.seq
+            && self.at == other.at
+            && self.ts_ms == other.ts_ms
+            && self.cause == other.cause
+            && self.event == other.event
+    }
+}
+impl Envelope {
+    /// Read without claiming authorship; forwarding uses the retained line.
+    pub fn from_line(line: &str) -> Result<Self, serde_json::Error> {
+        let mut envelope: Self = serde_json::from_str(line)?;
+        envelope.raw = Some(Arc::from(line));
+        Ok(envelope)
+    }
+    pub fn wire_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
+        if let Some(line) = &self.raw {
+            return Ok(line.as_bytes().to_vec());
+        }
+        let mut bytes = serde_json::to_vec(self)?;
+        bytes.push(b'\n');
+        Ok(bytes)
+    }
+    /// A fork's parsed projection uses local identity while its bytes retain origin.
+    pub fn project_into(&mut self, meta: &SessionMeta) {
+        if meta
+            .fork
+            .is_some_and(|(_, at)| self.seq.is_some_and(|seq| seq > Seq(1) && seq <= at))
+        {
+            self.session = meta.session;
+            self.epoch = Epoch(1);
+        }
+    }
+}
+impl Version {
+    pub fn is_readable(self) -> bool {
+        self.major <= 1 // 0.x is the v1 baseline.
+    }
+}
+
+macro_rules! unknown_predicate {
+    ($($name:ident),* $(,)?) => {$(impl $name {
+        pub fn is_unknown(&self)->bool {matches!(self,Self::Unknown(_))}
+        pub fn reader_label(&self)->String {match self {Self::Unknown(raw)=>format!("Unknown({})",unknown_tag(raw)),_=>format!("{self:?}")}}
+    })*};
+}
+unknown_predicate!(
+    TurnMode,
+    ToolKind,
+    ItemKind,
+    Stream,
+    PlanStatus,
+    Priority,
+    Effect,
+    ApprovalDecisionKind,
+    Level,
+    ErrorClass,
+    UsageScope,
+    BackendKind,
+    NumberSource,
+    ApprovalDecision,
+    Rejection
+);
+/// A neutral reader label keeps the source's own tag, never its opaque payload.
+pub fn unknown_tag(value: &Value) -> &str {
+    let tag = value
+        .as_str()
+        .or_else(|| {
+            [
+                "type", "kind", "status", "reason", "phase", "decision", "op", "by",
+            ]
+            .into_iter()
+            .find_map(|key| value.get(key).and_then(Value::as_str))
+        })
+        .unwrap_or("unknown");
+    let mut end = tag.len().min(128);
+    while !tag.is_char_boundary(end) {
+        end -= 1;
+    }
+    &tag[..end]
+}
+
+impl StopReason {
+    pub fn reader_label(&self) -> String {
+        match self {
+            Self::Unknown(raw) => format!("Unknown({})", unknown_tag(raw)),
+            Self::Error { class, message } => format!(
+                "Error {{ class: {}, message: {:?} }}",
+                class.reader_label(),
+                message
+            ),
+            _ => format!("{self:?}"),
+        }
+    }
 }

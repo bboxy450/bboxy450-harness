@@ -63,6 +63,8 @@ pub(crate) struct Context {
     pub output: mpsc::Sender<Internal>,
     pub max_rounds: u32,
 }
+// The bounded lane keeps model events inline to avoid an allocation per streamed token.
+#[allow(clippy::large_enum_variant)]
 enum Message {
     Model(ModelEvent),
     Tool {
@@ -476,7 +478,7 @@ impl TurnRunner {
                         .ctx
                         .tools
                         .get(&call.name)
-                        .map(|d| d.kind)
+                        .map(|d| d.kind.clone())
                         .unwrap_or(ToolKind::Other),
                     input_raw: call.raw.clone(),
                     output: vec![],
@@ -538,7 +540,7 @@ impl TurnRunner {
                         .ctx
                         .tools
                         .get(&c.name)
-                        .map(|d| d.kind)
+                        .map(|d| d.kind.clone())
                         .unwrap_or(ToolKind::Other);
                     input_raw.clone_from(&c.raw);
                 }

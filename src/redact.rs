@@ -200,7 +200,8 @@ impl OrderedScrubber {
         bytes: &[u8],
         finish: bool,
     ) -> Vec<(crate::protocol::Stream, Vec<u8>)> {
-        self.pending.extend(bytes.iter().map(|b| (stream, *b)));
+        self.pending
+            .extend(bytes.iter().map(|b| (stream.clone(), *b)));
         let secrets = self.set.values.read().unwrap();
         for key in secrets.iter() {
             let needle = key.as_bytes();
@@ -211,9 +212,11 @@ impl OrderedScrubber {
                     .map(|(_, b)| *b)
                     .eq(needle.iter().copied())
                 {
-                    let tag = self.pending[i].0;
-                    self.pending
-                        .splice(i..i + needle.len(), b"<redacted>".iter().map(|b| (tag, *b)));
+                    let tag = self.pending[i].0.clone();
+                    self.pending.splice(
+                        i..i + needle.len(),
+                        b"<redacted>".iter().map(|b| (tag.clone(), *b)),
+                    );
                     i += 10;
                 } else {
                     i += 1;

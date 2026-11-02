@@ -333,9 +333,19 @@ impl HarnessView {
             .or(state.notice.as_ref())
             .cloned()
             .map(|s| (s, super::face::Tone::Idle))
-            .unwrap_or_else(|| phase_now(model));
+            .unwrap_or_else(|| {
+                if let Some(tag) = &model.last_unknown_tag {
+                    (
+                        format!("Unsupported event: {tag} ({} total)", model.unknown),
+                        super::face::Tone::Idle,
+                    )
+                } else {
+                    phase_now(model)
+                }
+            });
         let (status, tone) = status;
         // the composer's states (p2) follow the live phase; the header shows `tone`
+
         let live = !matches!(model.phase, Phase::Idle | Phase::Closed) && !state.replay;
         let ask = live && matches!(model.phase, Phase::Approval { .. });
         let focused = self.focused;
@@ -464,7 +474,7 @@ impl HarnessView {
             if let Some(node) = find(&layout, &format!("item/{id}")) {
                 let r = intersection(node.rect, scroll_node.rect);
                 if r.w > 0. && r.h > 0. {
-                    frame.visible.push((*id, model.items[id].kind, r));
+                    frame.visible.push((*id, model.items[id].kind.clone(), r));
                 }
             }
             for (key, toggle) in [
@@ -511,7 +521,7 @@ impl HarnessView {
                 && row.status.is_none()
             {
                 for option in options {
-                    let (text, decision) = approval(*option);
+                    let (text, decision) = approval(option.clone());
                     if let Some(node) = find(&layout, &format!("approval/{id}/{text}")) {
                         let r = intersection(node.rect, scroll_node.rect);
                         if r.w > 0. && r.h > 0. {
@@ -1030,7 +1040,7 @@ pub fn kind_label(kind: ItemKind) -> &'static str {
         ItemKind::Usage => "Usage",
         ItemKind::Notice => "Notice",
         ItemKind::Subagent => "Subagent",
-        ItemKind::Unknown => "Unknown item",
+        ItemKind::Unknown(_) => "Unknown item",
     }
 }
 /// The header's phase, from the transcript as the web reference reads it (harness.js
@@ -1074,7 +1084,11 @@ fn phase_now(model: &super::model::Transcript) -> (String, super::face::Tone) {
                 ..
             } => {
                 let d = crate::frontends::face_core::describe(
-                    name, *tool_kind, input_raw, output, &cwd,
+                    name,
+                    tool_kind.clone(),
+                    input_raw,
+                    output,
+                    &cwd,
                 );
                 if asking.contains(id) {
                     return (format!("Waiting for you · {}", d.verb), Tone::Ask);
@@ -1088,7 +1102,7 @@ fn phase_now(model: &super::model::Transcript) -> (String, super::face::Tone) {
         }
     }
     match model.phase {
-        Phase::Idle | Phase::Unknown => ("Ready".into(), Tone::Idle),
+        Phase::Idle | Phase::Unknown(_) => ("Ready".into(), Tone::Idle),
         ref p => (phase_text(p), Tone::Live),
     }
 }
@@ -1102,7 +1116,7 @@ fn phase_text(phase: &Phase) -> String {
         Phase::Approval { .. } => "Approval needed".into(),
         Phase::Retrying { attempt, wait_ms } => format!("Retry {attempt} in {wait_ms} ms"),
         Phase::Closed => "Session closed".into(),
-        Phase::Unknown => "Status unavailable".into(),
+        Phase::Unknown(raw) => format!("Unsupported status: {}", unknown_tag(raw)),
     }
 }
 fn status_text(status: &ItemStatus) -> String {
@@ -1111,7 +1125,7 @@ fn status_text(status: &ItemStatus) -> String {
         ItemStatus::Failed { reason } => format!("Failed: {reason}"),
         ItemStatus::Cancelled => "Cancelled".into(),
         ItemStatus::Interrupted => "Interrupted".into(),
-        ItemStatus::Unknown => "Status unavailable".into(),
+        ItemStatus::Unknown(raw) => format!("Unsupported status: {}", unknown_tag(raw)),
     }
 }
 fn role(kind: ItemKind) -> &'static str {
@@ -1190,7 +1204,7 @@ fn display_body(row: &ViewItem, terminal_output: Option<&String>) -> String {
                 InputBlock::Text { text } => text.clone(),
                 InputBlock::Image { blob } => format!("Image: {} · {} bytes", blob.mime, blob.len),
                 InputBlock::Mention { path } => format!("Mention: {}", path.display()),
-                InputBlock::Unknown => "Unsupported input".into(),
+                InputBlock::Unknown(raw) => format!("Unsupported input: {}", unknown_tag(raw)),
             })
             .collect::<Vec<_>>()
             .join("\n"),
@@ -1210,7 +1224,9 @@ fn display_body(row: &ViewItem, terminal_output: Option<&String>) -> String {
                     OutputBlock::Json { value } => arguments(&value.to_string()),
                     OutputBlock::Diff { path, unified } => format!("{}\n{unified}", path.display()),
                     OutputBlock::Error { text } => format!("Error: {text}"),
-                    OutputBlock::Unknown => "Unsupported tool output".into(),
+                    OutputBlock::Unknown(raw) => {
+                        format!("Unsupported tool output: {}", unknown_tag(raw))
+                    }
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
@@ -1249,7 +1265,7 @@ fn display_body(row: &ViewItem, terminal_output: Option<&String>) -> String {
                     PlanStatus::InProgress => "In progress",
                     PlanStatus::Completed => "Completed",
                     PlanStatus::Cancelled => "Cancelled",
-                    PlanStatus::Unknown => "Unknown",
+                    PlanStatus::Unknown(_) => "Unknown",
                 };
                 format!("{status}: {}", e.text)
             })
@@ -1297,7 +1313,7 @@ fn display_body(row: &ViewItem, terminal_output: Option<&String>) -> String {
         ),
         Item::Notice { text, .. } => text.clone(),
         Item::Subagent { session } => format!("Session: {session}"),
-        Item::Unknown => "Unsupported item".into(),
+        Item::Unknown(raw) => format!("Unsupported item: {}", unknown_tag(raw)),
     };
     if text.is_empty() { "…".into() } else { text }
 }
@@ -1528,8 +1544,8 @@ impl Preparer {
                 _ => None,
             };
             let message = Message {
-                from: kind_label(row.kind).into(),
-                role: role(row.kind).into(),
+                from: kind_label(row.kind.clone()).into(),
+                role: role(row.kind.clone()).into(),
                 text: if markdown.is_some()
                     || matches!(
                         row.kind,
@@ -1853,11 +1869,11 @@ fn approval_choices(
         options
             .iter()
             .map(|kind| {
-                let (label, _) = approval(*kind);
+                let (label, _) = approval(kind.clone());
                 ui::modules::approval::OptionItem {
                     key: label.into(),
                     label: label.into(),
-                    enabled: *kind != ApprovalDecisionKind::Unknown,
+                    enabled: !kind.is_unknown(),
                 }
             })
             .collect(),

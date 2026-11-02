@@ -339,7 +339,7 @@ async fn durable_frontier_reopens_to_the_same_request() {
         serde_json::to_vec(&before).unwrap(),
         serde_json::to_vec(&after).unwrap()
     );
-    bboxy450_harness::protocol::laws::check_transcript(&store.events).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&store.events).unwrap();
 }
 fn sub_log(config: &Config) -> Vec<Envelope> {
     std::fs::read_to_string(bboxy450_harness::store::log_path(
@@ -504,7 +504,7 @@ async fn sigkill_between_rounds_rebuilds_the_identical_model_request() {
     );
     assert_eq!(serde_json::to_value(&first.tools).unwrap(), ready["tools"]);
     assert_eq!(json!(first.stable_prefix), ready["stable_prefix"]);
-    bboxy450_harness::protocol::laws::check_transcript(&sub_log(&config)).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&sub_log(&config)).unwrap();
 }
 #[test]
 fn session_context_and_missing_call_counters_cannot_anchor_a_rebuilt_request() {
@@ -552,7 +552,7 @@ fn session_context_and_missing_call_counters_cannot_anchor_a_rebuilt_request() {
             } = &mut event.event
             {
                 *usage = Usage {
-                    scope: Some(scope),
+                    scope: Some(scope.clone()),
                     context_used: Some(60000),
                     context_window: Some(200000),
                     unreported: unreported.clone(),
@@ -672,7 +672,7 @@ async fn failed_summary_blob_faults_before_request_and_recovery_closes_the_item(
             ..
         }
     )));
-    bboxy450_harness::protocol::laws::check_transcript(&store.events).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&store.events).unwrap();
 }
 struct PausedBoundary {
     inner: Recording,
@@ -792,5 +792,5 @@ async fn cancelling_a_queued_turn_cannot_move_the_frontier_over_the_running_turn
         requests[begin].messages[..requests[begin].stable_prefix],
         requests[begin + 1].messages[..requests[begin + 1].stable_prefix]
     );
-    bboxy450_harness::protocol::laws::check_transcript(&sub_log(&config)).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&sub_log(&config)).unwrap();
 }

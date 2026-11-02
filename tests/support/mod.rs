@@ -123,7 +123,7 @@ pub async fn close(s: Session) -> Vec<Envelope> {
         .lines()
         .map(|s| serde_json::from_str(s).unwrap())
         .collect::<Vec<_>>();
-    bboxy450_harness::protocol::laws::check_transcript(&log).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&log).unwrap();
     bboxy450_harness::engine::history::check_wire(&bboxy450_harness::engine::history::to_wire(
         &log,
     ))

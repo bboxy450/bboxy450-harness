@@ -399,7 +399,7 @@ async fn emit(
         }
         let (chunk, tail) = rest.split_at(n);
         let message = Chunk {
-            stream,
+            stream: stream.clone(),
             text: chunk.into(),
         };
         tokio::select! {biased;_=cancel.cancelled()=>return,r=sink.send(message)=>if r.is_err(){return;}}

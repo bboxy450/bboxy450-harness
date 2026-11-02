@@ -201,11 +201,9 @@ async fn run_cli(
             .map_err(|_| "closed session replay unavailable")?;
         let mut stdout = tokio::io::stdout();
         for event in events {
-            let event = redactor
-                .sanitize(&event)
-                .map_err(|_| "event sanitization failed")?;
-            let mut bytes = serde_json::to_vec(&event).map_err(|_| "event serialization failed")?;
-            bytes.push(b'\n');
+            let bytes = event
+                .wire_bytes()
+                .map_err(|_| "event serialization failed")?;
             stdout
                 .write_all(&bytes)
                 .await
@@ -492,7 +490,7 @@ async fn run_cli(
             }else if !text.is_empty(){let _=gateway.send(op(session,Op::UserTurn{blocks:vec![InputBlock::Text{text}],mode:TurnMode::Queue}));}}
          },
          event=subscription.recv()=>{let Some(event)=event else{break;};match &event.event{Event::TurnStarted{..}=>running=true,Event::TurnEnded{reason,..}=>{running=false;failed|=matches!(reason,StopReason::Error{..});if !seat&&!stopping{let _=gateway.send(op(session,Op::Close));stopping=true;}},_=>{}}
-          let bytes=if json {let mut b=serde_json::to_vec(&event).map_err(|_|"event serialization failed")?;b.push(b'\n');b}else{line_projection.render(&event)};
+          let bytes=if json {event.wire_bytes().map_err(|_|"event serialization failed")?}else{line_projection.render(&event)};
           if stdout.write_all(&bytes).await.is_err(){let _=gateway.send(op(session,Op::Close));break;}let _=stdout.flush().await;
           if report_state && let Some(bytes) = state.apply(&event.event) {
               if stdout.write_all(&bytes).await.is_err(){let _=gateway.send(op(session,Op::Close));break;}

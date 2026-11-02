@@ -5,7 +5,7 @@
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 
-use bboxy450_harness::protocol::{Envelope, Event, laws::check_transcript};
+use bboxy450_harness::protocol::{Envelope, Event, laws::check_authored};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::{
     io::Write,
@@ -233,7 +233,7 @@ fn supervisor_case(signal: Option<i32>) {
         // ICD embed-seat §3 permits finishing the graceful path before the
         // supervisor's escalation. Keep that valid log, and exercise recovery
         // with an actual SIGKILL of a separate, still-pending owned seat.
-        check_transcript(&log).unwrap();
+        check_authored(&log).unwrap();
         let abrupt = crash_fixture();
         assert_recovery(abrupt.path());
     } else {
@@ -337,7 +337,7 @@ fn assert_recovery(root: &Path) {
         panic!("resumed Ctrl-D failed: {status:?}: {output}");
     }
     let log = events(root);
-    check_transcript(&log).unwrap();
+    check_authored(&log).unwrap();
     assert!(matches!(log.last().unwrap().event, Event::SessionClosed));
 }
 #[test]
@@ -378,7 +378,7 @@ fn control_d_at_the_prompt_closes_and_fsyncs_gracefully() {
     );
     let log = events(root);
     assert!(matches!(log.last().unwrap().event, Event::SessionClosed));
-    check_transcript(&log).unwrap();
+    check_authored(&log).unwrap();
 }
 
 #[test]

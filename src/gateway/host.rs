@@ -63,7 +63,7 @@ impl Host {
         overrides: crate::mcp::Servers,
     ) -> Result<(InProc, Ack), Refused> {
         bbt_rt::assert_not_ui_thread();
-        if op.v.major != PROTOCOL.major {
+        if !op.v.is_readable() {
             return Err(Refused::Version { server: PROTOCOL });
         }
         let Op::StartSession { cwd, profile, fork } = op.op else {
@@ -432,7 +432,16 @@ async fn read_log(path: std::path::PathBuf) -> std::io::Result<Vec<Envelope>> {
             if !line.ends_with(b"\n") {
                 break;
             }
-            events.push(serde_json::from_slice::<Envelope>(line)?);
+            let mut e =
+                Envelope::from_line(std::str::from_utf8(line).map_err(std::io::Error::other)?)?;
+            if let Some(Envelope {
+                event: Event::SessionStarted { meta },
+                ..
+            }) = events.first()
+            {
+                e.project_into(meta);
+            }
+            events.push(e);
         }
         Ok(events)
     })

@@ -58,6 +58,7 @@ pub struct Transcript {
     pub phase: Phase,
     pub closed: bool,
     pub unknown: u64,
+    pub last_unknown_tag: Option<String>,
     pub duplicate_durable: u64,
 }
 impl Default for Transcript {
@@ -74,6 +75,7 @@ impl Default for Transcript {
             phase: Phase::Idle,
             closed: false,
             unknown: 0,
+            last_unknown_tag: None,
             duplicate_durable: 0,
         }
     }
@@ -103,11 +105,14 @@ impl Transcript {
     /// Preserve additive v0.2 fields during fixture replay, including when the
     /// linked core's older decoder does not yet retain those fields itself.
     pub fn apply_wire(&mut self, wire: &serde_json::Value) -> Result<Effect, serde_json::Error> {
-        let envelope: Envelope = serde_json::from_value(wire.clone())?;
+        let mut envelope: Envelope = serde_json::from_value(wire.clone())?;
+        if let Some(meta) = &self.meta {
+            envelope.project_into(meta);
+        }
         Ok(self.reduce(&envelope, wire.get("event")))
     }
     fn reduce(&mut self, e: &Envelope, wire: Option<&serde_json::Value>) -> Effect {
-        if e.v.major != PROTOCOL.major || self.session.is_some_and(|s| s != e.session) {
+        if !e.v.is_readable() || self.session.is_some_and(|s| s != e.session) {
             return Effect::None;
         }
         self.session = Some(e.session);
@@ -166,7 +171,7 @@ impl Transcript {
                 // IDs are never reused. A reconnect cannot reopen a completed item.
                 if !self.items.contains_key(item) {
                     self.order.push_back(*item);
-                    let mut body = empty_body(*kind, *item);
+                    let mut body = empty_body(kind.clone(), *item);
                     if let Some(head) = wire.and_then(|v| v.get("head")) {
                         apply_head(&mut body, head);
                     }
@@ -178,7 +183,7 @@ impl Transcript {
                             parent: *parent,
                             started: e.seq.unwrap_or(e.at),
                             completed: None,
-                            kind: *kind,
+                            kind: kind.clone(),
                             body,
                             status: None,
                             terminal_tail: String::new(),
@@ -234,7 +239,10 @@ impl Transcript {
                 self.closed = true;
                 self.phase = Phase::Closed;
             }
-            Event::Unknown => self.unknown += 1,
+            Event::Unknown(raw) => {
+                self.unknown += 1;
+                self.last_unknown_tag = Some(unknown_tag(raw).into());
+            }
             Event::SessionRecovered { .. } | Event::OpRejected { .. } | Event::Reset { .. } => {}
         }
         Effect::None

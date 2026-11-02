@@ -4,7 +4,7 @@
 // License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
-use bboxy450_harness::protocol::{Envelope, laws::check_transcript};
+use bboxy450_harness::protocol::{Envelope, laws::check_authored};
 use serde_json::{Value, json};
 use std::{path::Path, time::Duration};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -77,7 +77,7 @@ fn check_log(temp: &Path) {
         .lines()
         .map(|s| serde_json::from_str::<Envelope>(s).unwrap())
         .collect::<Vec<_>>();
-    check_transcript(&log).unwrap();
+    check_authored(&log).unwrap();
 }
 async fn finish_seat(mut child: tokio::process::Child, temp: &Path) -> String {
     let mut input = child.stdin.take().unwrap();

@@ -107,6 +107,15 @@ impl Store {
         cause: Option<OpId>,
         redactor: Set,
     ) -> io::Result<Self> {
+        Self::open_impl(root, meta, cause, redactor, false).await
+    }
+    async fn open_impl(
+        root: PathBuf,
+        meta: SessionMeta,
+        cause: Option<OpId>,
+        redactor: Set,
+        _restore_writer_durability: bool,
+    ) -> io::Result<Self> {
         let session = meta.session;
         let path = root.join(format!("{session}.jsonl"));
         let r = redactor.clone();
@@ -137,13 +146,24 @@ impl Store {
                 if !line.ends_with(b"\n") {
                     break;
                 }
-                let e: Envelope = serde_json::from_slice(line)
-                    .map_err(|_| io::Error::other("invalid log record"))?;
-                if e.session != session
-                    || e.seq != Some(Seq(events.len() as u64 + 1))
-                    || !e.event.is_durable()
+                let mut e =
+                    Envelope::from_line(std::str::from_utf8(line).map_err(io::Error::other)?)
+                        .map_err(|_| io::Error::other("invalid log record"))?;
+                if let Some(Envelope {
+                    event: Event::SessionStarted { meta },
+                    ..
+                }) = events.first()
                 {
+                    e.project_into(meta);
+                }
+                if e.session != session || e.seq != Some(Seq(events.len() as u64 + 1)) {
                     return Err(io::Error::other("invalid durable log order"));
+                }
+                #[cfg(test)]
+                if _restore_writer_durability && !e.event.is_durable() {
+                    return Err(io::Error::other(
+                        "broken reader rejected unknown durable event",
+                    ));
                 }
                 events.push(e);
                 valid += line.len();
@@ -205,14 +225,27 @@ impl Store {
             if !bytes.ends_with(b"\n") {
                 return Err(io::Error::other("incomplete closed log"));
             }
-            let events = bytes
+            let mut events = bytes
                 .split_inclusive(|b| *b == b'\n')
-                .map(serde_json::from_slice)
+                .map(|line| {
+                    Envelope::from_line(std::str::from_utf8(line).map_err(io::Error::other)?)
+                        .map_err(io::Error::other)
+                })
                 .collect::<Result<Vec<Envelope>, _>>()
                 .map_err(|_| io::Error::other("invalid log record"))?;
+            let meta = match events.first() {
+                Some(Envelope {
+                    event: Event::SessionStarted { meta },
+                    ..
+                }) => meta.clone(),
+                _ => return Err(io::Error::other("missing session header")),
+            };
+            for e in &mut events {
+                e.project_into(&meta);
+            }
             if events
                 .iter()
-                .any(|e| e.session != session || !e.event.is_durable())
+                .any(|e| e.session != session || e.seq.is_none())
                 || !events
                     .last()
                     .is_some_and(|e| matches!(e.event, Event::SessionClosed))
@@ -229,6 +262,7 @@ impl Store {
     }
     pub fn ephemeral(&self, event: Event) -> Envelope {
         Envelope {
+            raw: None,
             v: PROTOCOL,
             session: self.session,
             epoch: self.epoch,
@@ -258,6 +292,7 @@ impl Store {
             .checked_add(1)
             .ok_or_else(|| io::Error::other("seq exhausted"))?);
         let e = Envelope {
+            raw: None,
             v: PROTOCOL,
             session: self.session,
             epoch: self.epoch,
@@ -318,7 +353,7 @@ impl Store {
                     head,
                     ..
                 } => {
-                    open.insert(*item, (*kind, *parent, head.clone()));
+                    open.insert(*item, (kind.clone(), *parent, head.clone()));
                 }
                 Event::ItemCompleted { item, .. } => {
                     open.remove(item);
@@ -405,5 +440,56 @@ impl Blobs {
             Ok(BlobRef { sha256, len, mime })
         })
         .await
+    }
+}
+
+#[cfg(test)]
+mod durability_controls {
+    use super::*;
+    #[tokio::test]
+    async fn writer_durability_on_read_refuses_a_forward_compatible_log() {
+        let temp = tempfile::tempdir().unwrap();
+        let meta = SessionMeta {
+            session: SessionId::new(),
+            cwd: temp.path().into(),
+            profile: None,
+            fork: None,
+            protocol: PROTOCOL,
+            harness: "test".into(),
+            created_ms: 0,
+        };
+        let root = temp.path().join("sessions");
+        let store = Store::open(root.clone(), meta.clone(), None, Default::default())
+            .await
+            .unwrap();
+        drop(store);
+        let future = format!(
+            "{{\"v\":{{\"major\":1,\"minor\":99}},\"session\":\"{}\",\"epoch\":1,\"seq\":2,\"at\":2,\"ts_ms\":0,\"cause\":null,\"event\":{{\"type\":\"future_durable\",\"keep\":true}}}}\n",
+            meta.session
+        );
+        OpenOptions::new()
+            .append(true)
+            .open(log_path(&root, meta.session))
+            .unwrap()
+            .write_all(future.as_bytes())
+            .unwrap();
+        let broken =
+            Store::open_impl(root.clone(), meta.clone(), None, Default::default(), true).await;
+        assert!(
+            broken.is_err(),
+            "broken old reader unexpectedly accepted future data"
+        );
+        let mut good = Store::open(root.clone(), meta, None, Default::default())
+            .await
+            .unwrap();
+        assert_eq!(good.events[1].wire_bytes().unwrap(), future.as_bytes());
+        good.append(Event::SessionClosed, None).await.unwrap();
+        let session = good.session;
+        drop(good);
+        let replay = Store::replay_closed(root, session).await.unwrap();
+        assert_eq!(replay[1].wire_bytes().unwrap(), future.as_bytes());
+        println!(
+            "broken writer-side durability reader: open rejected; seq reader opened and replayed"
+        );
     }
 }

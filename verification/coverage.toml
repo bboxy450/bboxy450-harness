@@ -117,7 +117,7 @@ implementation_only = [
     "R23 ACP wire bytes, content merge, suffix repair and schema mapping: tests/acp_face.rs; HarnessAcpFlow covers FIFO/output ownership, not arbitrary Rust refinement",
     "R24 MCP stdio, policy, timeout, crash and secrecy witnesses: tests/mcp_client.rs; HarnessMcpGroupClose covers group completion, actual signals and reaping remain process witnesses",
     "R20 deterministic compaction and context replay: tests/context_compact.rs",
-    "R21 materialized fork and blob isolation: tests/store_fork.rs",
+    "R21 materialized fork and blob isolation: tests/store_fork.rs; E9 src/store.rs reader seq marker and broken Store::open control; E6 src/store/fork.rs byte-preserving prefix and replay/Unix future-data witnesses: tests/ir_v1_corpus.rs. JSON serialization and unknown fields are implementation-only; HarnessForkMaterialize models publication, not bytes.",
     "runtime worker/permit hooks: tests/rt_budget.rs; timing measurements: make bench-budgets",
     "real HTTP and UTF-8/SSE parsing",
     "policy rules and file effects",

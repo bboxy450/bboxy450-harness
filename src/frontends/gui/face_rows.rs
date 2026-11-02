@@ -238,7 +238,9 @@ impl Preparer {
                             format!("Image: {} · {} bytes", blob.mime, blob.len)
                         }
                         InputBlock::Mention { path } => format!("@{}", path.display()),
-                        InputBlock::Unknown => "Unsupported input".into(),
+                        InputBlock::Unknown(raw) => {
+                            format!("Unsupported input: {}", unknown_tag(raw))
+                        }
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
@@ -532,6 +534,11 @@ impl Preparer {
                     &ink,
                 )
             }
+            Item::Unknown(raw) => f::notice(
+                &format!("Unsupported item: {}", unknown_tag(raw)),
+                &Level::Info,
+                &ink,
+            ),
             _ => return Err("face row for an unhandled kind".into()),
         };
         let mut content: Vec<c::Item> = vec![content.into()];
@@ -634,7 +641,7 @@ impl Preparer {
             return Err("not a tool call".into());
         };
         let id = row.id;
-        let d = f::describe(name, *tool_kind, input_raw, output, cwd);
+        let d = f::describe(name, tool_kind.clone(), input_raw, output, cwd);
         let approval = folds.kid(model, &id, ItemKind::Approval);
         let term = folds.kid(model, &id, ItemKind::Terminal);
         let change = folds.kid(model, &id, ItemKind::FileChange);
@@ -861,9 +868,9 @@ fn stop_title(reason: &StopReason) -> &'static str {
             ErrorClass::Tool => "Tool failed",
             ErrorClass::Internal => "Harness error",
             ErrorClass::Cancelled => "Cancelled",
-            ErrorClass::Unknown => "Failed",
+            ErrorClass::Unknown(_) => "Failed",
         },
-        StopReason::Unknown => "Stopped",
+        StopReason::Unknown(_) => "Stopped",
     }
 }
 /// A thought's gist: emphasis and code marks dropped, up to the first sentence or line.

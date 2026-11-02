@@ -94,6 +94,7 @@ fn colour_fixtures_use_only_sgr_and_osc8() {
 
 fn envelope(seq: u64, ts: u64, event: Event) -> Envelope {
     Envelope {
+        raw: None,
         v: PROTOCOL,
         session: SessionId(ulid::Ulid(1)),
         epoch: Epoch(1),

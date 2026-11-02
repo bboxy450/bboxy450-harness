@@ -121,7 +121,7 @@ async fn connection(
                 tokio::select!{_=cancel.cancelled()=>return Ok(()),r=write(&mut writer,&response)=>r?}break;
               },
               e=subscription.recv()=>{let Some(e)=e else{return Ok(());};let done=matches!(e.event,Event::Lagged{..}|Event::Reset{..}|Event::SessionClosed);
-                tokio::select!{_=cancel.cancelled()=>return Ok(()),r=write(&mut writer,&e)=>r?};if done{return Ok(());}
+                let bytes=e.wire_bytes()?;tokio::select!{_=cancel.cancelled()=>return Ok(()),r=writer.write_all(&bytes)=>r?};if done{return Ok(());}
               },
             }
         }
@@ -172,7 +172,7 @@ impl UnixClient {
         }
         let hello: Hello = serde_json::from_value(value)
             .map_err(|_| ClientError::Protocol("invalid hello".into()))?;
-        if hello.v.major != PROTOCOL.major {
+        if !hello.v.is_readable() {
             return Err(ClientError::Refused(Refused::Version { server: hello.v }));
         }
         let target = Arc::new(Subscriber {
@@ -195,11 +195,12 @@ impl UnixClient {
         let weak = Arc::downgrade(&shared);
         let cancel = shared.cancel.clone();
         let sink = target.clone();
+        let meta = hello.meta.clone();
         // One IO owner continuously demultiplexes; subscriber backpressure never
         // prevents a correlated admission response from completing.
         bbt_rt::handle().spawn(async move{let error=loop{let f=tokio::select!{_=cancel.cancelled()=>break ClientError::Disconnected,r=frame(&mut reader)=>r};let bytes=match f{Ok(Some(b))=>b,Ok(None)=>break ClientError::Disconnected,Err(_)=>break ClientError::Protocol("invalid or oversized frame".into())};let value:serde_json::Value=match serde_json::from_slice(&bytes){Ok(v)=>v,Err(_)=>break ClientError::Protocol("invalid JSON".into())};
    if value.get("ack").is_some()||value.get("refused").is_some(){let Some(shared)=weak.upgrade()else{break ClientError::Disconnected;};let op_id:OpId=match serde_json::from_value(value["op_id"].clone()){Ok(id)=>id,Err(_)=>break ClientError::Protocol("uncorrelated response".into())};let answer=if let Some(a)=value.get("ack"){serde_json::from_value(a.clone()).map_err(|_|ClientError::Protocol("invalid ack".into()))}else{match serde_json::from_value(value["refused"].clone()){Ok(r)=>Err(ClientError::Refused(r)),Err(_)=>Err(ClientError::Protocol("invalid refusal".into()))}};if let Some(waiters)=shared.pending.lock().unwrap().remove(&op_id){for waiter in waiters{let _=waiter.send(answer.clone());}}}
-   else{match serde_json::from_value::<Envelope>(value){Ok(e)=>sink.push(e),Err(_)=>break ClientError::Protocol("invalid envelope".into())}}
+   else{match std::str::from_utf8(&bytes).ok().and_then(|line| Envelope::from_line(line).ok()){Some(mut e)=>{e.project_into(&meta);sink.push(e)},None=>break ClientError::Protocol("invalid envelope".into())}}
   };sink.closed.store(true,Ordering::Release);sink.wake();if let Some(s)=weak.upgrade(){s.closed.store(true,Ordering::Release);for (_,waiters) in std::mem::take(&mut *s.pending.lock().unwrap()){for waiter in waiters{let _=waiter.send(Err(error.clone()));}}}});
         let subscription = Subscription {
             hello,

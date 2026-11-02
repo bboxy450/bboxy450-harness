@@ -21,6 +21,10 @@ impl std::error::Error for LawViolation {}
 /// Validate a complete session transcript, including recovered epochs and
 /// optional final subscription control. Unknown variants still participate in seq.
 pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
+    let fork_at = events.first().and_then(|e| match &e.event {
+        Event::SessionStarted { meta } => meta.fork.map(|(_, at)| at),
+        _ => None,
+    });
     let mut head = 0;
     let mut epoch = 0;
     let mut session = None;
@@ -42,22 +46,23 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
             law,
             detail: detail.into(),
         };
-        if e.v.major != PROTOCOL.major {
+        if !e.v.is_readable() {
             return Err(fail("version", "unsupported major"));
         }
+        let inherited =
+            fork_at.is_some_and(|at| e.seq.is_some_and(|seq| seq > Seq(1) && seq <= at));
         if let Some(id) = session {
-            if id != e.session {
+            if id != e.session && !inherited {
                 return Err(fail("log-is-truth", "session changed"));
             }
         } else {
             session = Some(e.session);
         }
-        if e.epoch.0 < epoch {
+        if e.epoch.0 < epoch && !inherited {
             return Err(fail("log-is-truth", "epoch decreased"));
         }
-        epoch = e.epoch.0;
-        if e.seq.is_some() != e.event.is_durable() && !matches!(e.event, Event::Unknown) {
-            return Err(fail("log-is-truth", "durability does not match event"));
+        if !inherited {
+            epoch = e.epoch.0;
         }
         if let Some(seq) = e.seq {
             if closed {
@@ -138,8 +143,8 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                 if parent.is_some_and(|p| !open.contains_key(&p)) {
                     return Err(fail("one-ending", "missing open parent"));
                 }
-                if e.v.minor >= 2 {
-                    let valid = matches!(head, Some(ItemHead::Unknown))
+                if e.v.major >= 1 || e.v.minor >= 2 {
+                    let valid = matches!(head, Some(ItemHead::Unknown(_)))
                         || matches!(
                             (kind, head),
                             (ItemKind::ToolCall, Some(ItemHead::ToolCall { .. }))
@@ -151,7 +156,7 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                         return Err(fail("item-identity", "missing or mismatched durable head"));
                     }
                 }
-                open.insert(*item, (*turn, *kind, *parent, head.clone()));
+                open.insert(*item, (*turn, kind.clone(), *parent, head.clone()));
             }
             Event::ItemCompleted { item, body, status } => {
                 let boundary = match body {
@@ -190,10 +195,7 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                 let Some((_, kind, _, head)) = open.remove(item) else {
                     return Err(fail("one-ending", "orphan or duplicate item completion"));
                 };
-                if body.kind() != kind
-                    && kind != ItemKind::Unknown
-                    && body.kind() != ItemKind::Unknown
-                {
+                if body.kind() != kind && !kind.is_unknown() && !body.kind().is_unknown() {
                     return Err(fail("one-ending", "item kind changed"));
                 }
                 if open
@@ -203,8 +205,8 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                     return Err(fail("one-ending", "parent completed before child"));
                 }
                 if head.is_some()
-                    && head != Some(ItemHead::Unknown)
-                    && body.kind() != ItemKind::Unknown
+                    && !matches!(head, Some(ItemHead::Unknown(_)))
+                    && !body.kind().is_unknown()
                     && body.head() != head
                 {
                     return Err(fail(
@@ -253,4 +255,116 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
         });
     }
     Ok(())
+}
+
+/// Stricter validation for our own writers. Reader tolerance is not authorship.
+pub fn check_authored(events: &[Envelope]) -> Result<(), LawViolation> {
+    check_transcript(events)?;
+    for (i, e) in events.iter().enumerate() {
+        if event_unknown(&e.event) {
+            return Err(LawViolation {
+                line: i + 1,
+                law: "authorship",
+                detail: "writer emitted an Unknown variant".into(),
+            });
+        }
+        if e.seq.is_some() != e.event.is_durable() {
+            return Err(LawViolation {
+                line: i + 1,
+                law: "log-is-truth",
+                detail: "authored durability does not match event".into(),
+            });
+        }
+    }
+    Ok(())
+}
+fn input_unknown(block: &InputBlock) -> bool {
+    matches!(block, InputBlock::Unknown(_))
+}
+fn decision_unknown(d: &ApprovalDecision) -> bool {
+    matches!(d, ApprovalDecision::Unknown(_))
+}
+fn plan_unknown(entries: &[PlanEntry]) -> bool {
+    entries
+        .iter()
+        .any(|e| e.status.is_unknown() || e.priority.as_ref().is_some_and(Priority::is_unknown))
+}
+fn output_unknown(block: &OutputBlock) -> bool {
+    matches!(block, OutputBlock::Unknown(_))
+}
+fn usage_unknown(usage: &Usage) -> bool {
+    usage.scope.as_ref().is_some_and(UsageScope::is_unknown)
+        || usage.backend.as_ref().is_some_and(|b| b.kind.is_unknown())
+        || usage.source.as_ref().is_some_and(NumberSource::is_unknown)
+        || usage.cost.as_ref().is_some_and(|c| c.source.is_unknown())
+}
+fn item_unknown(item: &Item) -> bool {
+    match item {
+        Item::Unknown(_) => true,
+        Item::UserMessage { blocks } => blocks.iter().any(input_unknown),
+        Item::ToolCall {
+            tool_kind, output, ..
+        } => tool_kind.is_unknown() || output.iter().any(output_unknown),
+        Item::FileChange { change, .. } => matches!(change, ChangeKind::Unknown(_)),
+        Item::Plan { entries } => plan_unknown(entries),
+        Item::Approval {
+            subject,
+            options,
+            decision,
+            by,
+        } => {
+            subject.effect.is_unknown()
+                || options.iter().any(ApprovalDecisionKind::is_unknown)
+                || decision.as_ref().is_some_and(decision_unknown)
+                || matches!(by, Some(Resolver::Unknown(_)))
+        }
+        Item::Notice { level, .. } => level.is_unknown(),
+        Item::Usage { usage } => usage_unknown(usage),
+        _ => false,
+    }
+}
+fn event_unknown(event: &Event) -> bool {
+    match event {
+        Event::Unknown(_) => true,
+        Event::ItemStarted { kind, head, .. } => {
+            kind.is_unknown()
+                || matches!(
+                    head,
+                    Some(
+                        ItemHead::Unknown(_)
+                            | ItemHead::ToolCall {
+                                tool_kind: ToolKind::Unknown(_),
+                                ..
+                            }
+                    )
+                )
+        }
+        Event::ItemCompleted { status, body, .. } => {
+            matches!(status, ItemStatus::Unknown(_)) || item_unknown(body)
+        }
+        Event::ItemSnapshot { partial, .. } => item_unknown(partial),
+        Event::ItemDelta { delta, .. } => match delta {
+            Delta::Unknown(_)
+            | Delta::Output {
+                stream: Stream::Unknown(_),
+                ..
+            } => true,
+            Delta::Plan { entries } => plan_unknown(entries),
+            _ => false,
+        },
+        Event::TurnEnded { reason, usage, .. } => {
+            usage.as_ref().is_some_and(usage_unknown)
+                || matches!(
+                    reason,
+                    StopReason::Unknown(_)
+                        | StopReason::Error {
+                            class: ErrorClass::Unknown(_),
+                            ..
+                        }
+                )
+        }
+        Event::OpRejected { reason, .. } => matches!(reason, Rejection::Unknown(_)),
+        Event::Status { phase } => matches!(phase, Phase::Unknown(_)),
+        _ => false,
+    }
 }

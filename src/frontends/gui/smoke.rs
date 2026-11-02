@@ -151,11 +151,11 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
                 ItemKind::ContextTrim => trim_expected.as_deref().expect("context trim fixture body"),
                 ItemKind::Usage => "0 in · 0 out", ItemKind::Compaction => compaction_expected.as_deref().expect("compaction fixture body"),
                 ItemKind::Notice => "fixture complete", ItemKind::Subagent => "Session: 00000000000000000000000009",
-                ItemKind::Unknown => return Err("unexpected unknown fixture item".into()),
+                ItemKind::Unknown(_) => return Err("unexpected unknown fixture item".into()),
             };
             // a tool card names its action: the verb the rich face derives from the tool
             if let crate::protocol::Item::ToolCall { name, tool_kind, input_raw, output, .. } = &row.body
-                && !frame.item_text(row.id).is_some_and(|text| text.contains(&super::face::describe(name, *tool_kind, input_raw, output, "").verb)) { return Err(format!("tool card {} lacks its action", row.id)); }
+                && !frame.item_text(row.id).is_some_and(|text| text.contains(&super::face::describe(name, tool_kind.clone(), input_raw, output, "").verb)) { return Err(format!("tool card {} lacks its action", row.id)); }
             if !frame.item_text(row.id).is_some_and(|text| text.contains(expected)) { return Err(format!("card {} lacks {expected}", row.id)); }
         }
         let text = layout_text(frame.layout.as_ref().ok_or("missing solved layout")?);

@@ -53,6 +53,7 @@ impl Fixture {
             None
         };
         self.events.push(Envelope {
+            raw: None,
             v: PROTOCOL,
             session: SessionId(ulid::Ulid::from(1u128)),
             epoch: self.epoch,
@@ -73,7 +74,7 @@ impl Fixture {
         self.emit(Event::ItemStarted {
             turn: Some(self.turn),
             item,
-            kind,
+            kind: kind.clone(),
             parent,
             head: Item::interrupted(kind, item).head(),
         });
@@ -422,11 +423,64 @@ fn schema_and_golden_transcripts() {
 fn future_variants_and_fields() {
     let mut value = serde_json::to_value(&fixtures()[0].1[0]).unwrap();
     value["future_field"] = true.into();
-    value["event"] = serde_json::json!({"type":"from_the_future","data":42});
+    let raw = serde_json::json!({"type":"from_the_future","data":{"retained":[42]}});
+    value["event"] = raw.clone();
     let e: Envelope = serde_json::from_value(value).unwrap();
-    assert_eq!(e.event, Event::Unknown);
+    assert!(matches!(&e.event,Event::Unknown(v) if v==&raw));
+    assert_eq!(serde_json::to_value(&e.event).unwrap(), raw);
+    macro_rules! retained {
+        ($ty:ty,$raw:tt) => {{
+            let raw = serde_json::json!($raw);
+            let value: $ty = serde_json::from_value(raw.clone()).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), raw, stringify!($ty));
+        }};
+    }
+    retained!(Op,{"type":"future_op","payload":42});
+    retained!(InputBlock,{"type":"future_input","payload":42});
+    retained!(ApprovalDecision,{"decision":"future_decision","payload":42});
+    retained!(ItemStatus,{"status":"future_status","payload":42});
+    retained!(StopReason,{"reason":"future_reason","payload":42});
+    retained!(Delta,{"type":"future_delta","payload":42});
+    retained!(Item,{"kind":"future_item","payload":42});
+    retained!(ItemHead,{"kind":"future_head","payload":42});
+    retained!(OutputBlock,{"type":"future_output","payload":42});
+    retained!(ChangeKind,{"op":"future_change","payload":42});
+    retained!(Resolver,{"by":"future_resolver","payload":42});
+    retained!(Phase,{"phase":"future_phase","payload":42});
+    retained!(Rejection,{"reason":"future_rejection","payload":42});
+    retained!(UsageScope, "future_scope");
+    retained!(BackendKind, "future_backend");
+    retained!(NumberSource, "future_source");
+    retained!(TurnMode, "future_mode");
+    retained!(ToolKind, "future_tool");
+    retained!(ItemKind, "future_item_kind");
+    retained!(Stream, "future_stream");
+    retained!(PlanStatus, "future_plan");
+    retained!(Priority, "future_priority");
+    retained!(Effect, "future_effect");
+    retained!(ApprovalDecisionKind, "future_option");
+    retained!(Level, "future_level");
+    retained!(ErrorClass, "future_error");
+    let raw = serde_json::json!({"kind":"future_item","payload":42});
+    let mut item: Item = serde_json::from_value(raw.clone()).unwrap();
+    assert!(item.kind().is_unknown());
+    item.apply(&Delta::Text {
+        append: "ignored".into(),
+    });
+    assert_eq!(serde_json::to_value(item).unwrap(), raw);
+}
+
+#[test]
+fn recovery_does_not_author_an_unknown_body() {
+    let body = Item::interrupted(
+        ItemKind::Unknown(serde_json::json!("future_item_kind")),
+        ItemId::new(),
+    );
     assert!(matches!(
-        serde_json::from_str::<Item>(r#"{"kind":"future"}"#).unwrap(),
-        Item::Unknown
+        body,
+        Item::Notice {
+            level: Level::Warn,
+            ..
+        }
     ));
 }

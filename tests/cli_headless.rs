@@ -4,7 +4,7 @@
 // License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
-use bboxy450_harness::protocol::{Envelope, Event, StopReason, laws::check_transcript};
+use bboxy450_harness::protocol::{Envelope, Event, StopReason, laws::check_authored};
 #[test]
 fn binary_emits_protocol_and_edits_unattended() {
     let t = tempfile::Builder::new()
@@ -44,7 +44,7 @@ fn binary_emits_protocol_and_edits_unattended() {
         .lines()
         .map(|l| serde_json::from_str::<Envelope>(l).unwrap())
         .collect::<Vec<_>>();
-    check_transcript(&events).unwrap();
+    check_authored(&events).unwrap();
     assert!(events.iter().any(|e| matches!(
         e.event,
         Event::TurnEnded {

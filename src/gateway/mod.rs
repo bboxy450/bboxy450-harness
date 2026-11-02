@@ -89,6 +89,7 @@ impl Subscriber {
         if let Err(e) = self.queue.push(e) {
             if e.seq.is_some() {
                 let mut terminal = e;
+                terminal.raw = None;
                 terminal.seq = None;
                 terminal.event = Event::Lagged {
                     resume_after: Seq(self.last.load(Ordering::Acquire)),
@@ -247,7 +248,7 @@ impl Hub {
                 parent,
                 head,
             } => {
-                let mut partial = Item::interrupted_from_head(*kind, *item, head.as_ref());
+                let mut partial = Item::interrupted_from_head(kind.clone(), *item, head.as_ref());
                 if let Item::ToolCall { output, .. } = &mut partial {
                     output.clear();
                 }
@@ -271,7 +272,11 @@ impl Hub {
         }
     }
     pub fn publish(&self, e: Envelope) {
-        let e = self.redactor.sanitize(&e).expect("envelope sanitizes");
+        let e = if e.raw.is_some() {
+            e
+        } else {
+            self.redactor.sanitize(&e).expect("envelope sanitizes")
+        };
         let mut pending = self.pending.lock().unwrap();
         if let Event::ItemDelta { item, delta } = &e.event {
             pending
@@ -313,6 +318,7 @@ impl Hub {
                     body.apply(&delta);
                 }
                 let e = Envelope {
+                    raw: None,
                     v: PROTOCOL,
                     session: state.hello.meta.session,
                     epoch: state.hello.epoch,
@@ -452,7 +458,7 @@ impl InProc {
         self.hub.state.load().hello.clone()
     }
     pub fn subscribe_version(&self, req: Subscribe, v: Version) -> Result<Subscription, Refused> {
-        if v.major != PROTOCOL.major {
+        if !v.is_readable() {
             return Err(Refused::Version { server: PROTOCOL });
         }
         self.subscribe(req)
@@ -470,7 +476,7 @@ impl InProc {
 }
 impl Gateway for InProc {
     fn send(&self, op: OpEnvelope) -> Result<Ack, Refused> {
-        if op.v.major != PROTOCOL.major {
+        if !op.v.is_readable() {
             return Err(Refused::Version { server: PROTOCOL });
         }
         if op.session != self.hub.state.load().hello.meta.session {
@@ -574,6 +580,7 @@ impl Gateway for InProc {
             .unwrap_or(hello.head);
         if self.faulted.load(Ordering::Acquire) || req.after.is_some_and(|(_, s)| s > trusted) {
             let e = Envelope {
+                raw: None,
                 v: PROTOCOL,
                 session: req.session,
                 epoch: hello.epoch,
@@ -592,6 +599,7 @@ impl Gateway for InProc {
             if req.ephemeral {
                 for (&item, (_, _, body)) in &state.open {
                     snapshots.push_back(Envelope {
+                        raw: None,
                         v: PROTOCOL,
                         session: req.session,
                         epoch: hello.epoch,

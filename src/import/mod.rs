@@ -334,7 +334,7 @@ impl Projector {
             head: Some(ItemHead::ToolCall {
                 call_id: t.call_id.clone(),
                 name: t.name.clone(),
-                tool_kind: t.kind,
+                tool_kind: t.kind.clone(),
             }),
         });
         self.tools.insert(call_id.to_owned(), t);
@@ -689,7 +689,7 @@ fn tool_body(t: OpenTool, output: Vec<OutputBlock>) -> Item {
     Item::ToolCall {
         call_id: t.call_id,
         name: t.name,
-        tool_kind: t.kind,
+        tool_kind: t.kind.clone(),
         input_raw: t.input,
         output,
         locations: vec![],

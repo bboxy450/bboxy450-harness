@@ -51,7 +51,7 @@ async fn firehose_dead_reader() {
             break;
         }
     }
-    bboxy450_harness::protocol::laws::check_transcript(&events).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&events).unwrap();
     let (epoch, mut after) = (slow.hello().epoch, Seq(0));
     let mut got_lag = false;
     while let Some(e) = slow.recv().await {

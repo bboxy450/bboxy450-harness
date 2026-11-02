@@ -1,7 +1,7 @@
 {
   "$defs": {
     "ApprovalDecision": {
-      "oneOf": [
+      "anyOf": [
         {
           "properties": {
             "decision": {
@@ -44,28 +44,21 @@
           ],
           "type": "object"
         },
-        {
-          "properties": {
-            "decision": {
-              "const": "unknown",
-              "type": "string"
-            }
-          },
-          "required": [
-            "decision"
-          ],
-          "type": "object"
-        }
+        true
       ]
     },
     "ApprovalDecisionKind": {
-      "enum": [
-        "allow",
-        "allow_always",
-        "deny",
-        "unknown"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "enum": [
+            "allow",
+            "allow_always",
+            "deny"
+          ],
+          "type": "string"
+        },
+        true
+      ]
     },
     "ApprovalSubject": {
       "properties": {
@@ -121,13 +114,17 @@
       "type": "object"
     },
     "BackendKind": {
-      "enum": [
-        "engine",
-        "acp_agent",
-        "import",
-        "unknown"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "enum": [
+            "engine",
+            "acp_agent",
+            "import"
+          ],
+          "type": "string"
+        },
+        true
+      ]
     },
     "BlobRef": {
       "properties": {
@@ -151,7 +148,7 @@
       "type": "object"
     },
     "ChangeKind": {
-      "oneOf": [
+      "anyOf": [
         {
           "properties": {
             "op": {
@@ -204,18 +201,7 @@
           ],
           "type": "object"
         },
-        {
-          "properties": {
-            "op": {
-              "const": "unknown",
-              "type": "string"
-            }
-          },
-          "required": [
-            "op"
-          ],
-          "type": "object"
-        }
+        true
       ]
     },
     "Cost": {
@@ -246,7 +232,7 @@
       "type": "object"
     },
     "Delta": {
-      "oneOf": [
+      "anyOf": [
         {
           "properties": {
             "append": {
@@ -334,29 +320,22 @@
           ],
           "type": "object"
         },
-        {
-          "properties": {
-            "type": {
-              "const": "unknown",
-              "type": "string"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "type": "object"
-        }
+        true
       ]
     },
     "Effect": {
-      "enum": [
-        "read",
-        "write",
-        "exec",
-        "network",
-        "unknown"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "enum": [
+            "read",
+            "write",
+            "exec",
+            "network"
+          ],
+          "type": "string"
+        },
+        true
+      ]
     },
     "Envelope": {
       "properties": {
@@ -414,24 +393,28 @@
       "type": "object"
     },
     "ErrorClass": {
-      "enum": [
-        "transient",
-        "rate_limited",
-        "auth",
-        "bad_request",
-        "malformed",
-        "mid_stream",
-        "cancelled",
-        "config",
-        "store",
-        "tool",
-        "internal",
-        "unknown"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "enum": [
+            "transient",
+            "rate_limited",
+            "auth",
+            "bad_request",
+            "malformed",
+            "mid_stream",
+            "cancelled",
+            "config",
+            "store",
+            "tool",
+            "internal"
+          ],
+          "type": "string"
+        },
+        true
+      ]
     },
     "Event": {
-      "oneOf": [
+      "anyOf": [
         {
           "properties": {
             "meta": {
@@ -765,22 +748,11 @@
           ],
           "type": "object"
         },
-        {
-          "properties": {
-            "type": {
-              "const": "unknown",
-              "type": "string"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "type": "object"
-        }
+        true
       ]
     },
     "InputBlock": {
-      "oneOf": [
+      "anyOf": [
         {
           "properties": {
             "text": {
@@ -829,22 +801,11 @@
           ],
           "type": "object"
         },
-        {
-          "properties": {
-            "type": {
-              "const": "unknown",
-              "type": "string"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "type": "object"
-        }
+        true
       ]
     },
     "Item": {
-      "oneOf": [
+      "anyOf": [
         {
           "properties": {
             "blocks": {
@@ -1220,22 +1181,11 @@
           ],
           "type": "object"
         },
-        {
-          "properties": {
-            "kind": {
-              "const": "unknown",
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind"
-          ],
-          "type": "object"
-        }
+        true
       ]
     },
     "ItemHead": {
-      "oneOf": [
+      "anyOf": [
         {
           "properties": {
             "call_id": {
@@ -1280,46 +1230,39 @@
           ],
           "type": "object"
         },
-        {
-          "properties": {
-            "kind": {
-              "const": "unknown",
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind"
-          ],
-          "type": "object"
-        }
+        true
       ]
     },
     "ItemId": {
       "type": "string"
     },
     "ItemKind": {
-      "enum": [
-        "user_message",
-        "agent_message",
-        "reasoning",
-        "tool_call",
-        "file_change",
-        "turn_diff",
-        "terminal",
-        "plan",
-        "approval",
-        "image",
-        "compaction",
-        "context_trim",
-        "usage",
-        "notice",
-        "subagent",
-        "unknown"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "enum": [
+            "user_message",
+            "agent_message",
+            "reasoning",
+            "tool_call",
+            "file_change",
+            "turn_diff",
+            "terminal",
+            "plan",
+            "approval",
+            "image",
+            "compaction",
+            "context_trim",
+            "usage",
+            "notice",
+            "subagent"
+          ],
+          "type": "string"
+        },
+        true
+      ]
     },
     "ItemStatus": {
-      "oneOf": [
+      "anyOf": [
         {
           "properties": {
             "status": {
@@ -1372,28 +1315,21 @@
           ],
           "type": "object"
         },
-        {
-          "properties": {
-            "status": {
-              "const": "unknown",
-              "type": "string"
-            }
-          },
-          "required": [
-            "status"
-          ],
-          "type": "object"
-        }
+        true
       ]
     },
     "Level": {
-      "enum": [
-        "info",
-        "warn",
-        "error",
-        "unknown"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "enum": [
+            "info",
+            "warn",
+            "error"
+          ],
+          "type": "string"
+        },
+        true
+      ]
     },
     "Location": {
       "properties": {
@@ -1423,16 +1359,20 @@
       "type": "object"
     },
     "NumberSource": {
-      "enum": [
-        "reported",
-        "derived",
-        "estimated",
-        "unknown"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "enum": [
+            "reported",
+            "derived",
+            "estimated"
+          ],
+          "type": "string"
+        },
+        true
+      ]
     },
     "Op": {
-      "oneOf": [
+      "anyOf": [
         {
           "properties": {
             "cwd": {
@@ -1578,18 +1518,7 @@
           ],
           "type": "object"
         },
-        {
-          "properties": {
-            "type": {
-              "const": "unknown",
-              "type": "string"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "type": "object"
-        }
+        true
       ]
     },
     "OpEnvelope": {
@@ -1619,7 +1548,7 @@
       "type": "string"
     },
     "OutputBlock": {
-      "oneOf": [
+      "anyOf": [
         {
           "properties": {
             "text": {
@@ -1702,22 +1631,11 @@
           ],
           "type": "object"
         },
-        {
-          "properties": {
-            "type": {
-              "const": "unknown",
-              "type": "string"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "type": "object"
-        }
+        true
       ]
     },
     "Phase": {
-      "oneOf": [
+      "anyOf": [
         {
           "properties": {
             "phase": {
@@ -1840,18 +1758,7 @@
           ],
           "type": "object"
         },
-        {
-          "properties": {
-            "phase": {
-              "const": "unknown",
-              "type": "string"
-            }
-          },
-          "required": [
-            "phase"
-          ],
-          "type": "object"
-        }
+        true
       ]
     },
     "PlanEntry": {
@@ -1880,26 +1787,34 @@
       "type": "object"
     },
     "PlanStatus": {
-      "enum": [
-        "pending",
-        "in_progress",
-        "completed",
-        "cancelled",
-        "unknown"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "enum": [
+            "pending",
+            "in_progress",
+            "completed",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        true
+      ]
     },
     "Priority": {
-      "enum": [
-        "high",
-        "medium",
-        "low",
-        "unknown"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ],
+          "type": "string"
+        },
+        true
+      ]
     },
     "Rejection": {
-      "oneOf": [
+      "anyOf": [
         {
           "properties": {
             "reason": {
@@ -2024,22 +1939,11 @@
           ],
           "type": "object"
         },
-        {
-          "properties": {
-            "reason": {
-              "const": "unknown",
-              "type": "string"
-            }
-          },
-          "required": [
-            "reason"
-          ],
-          "type": "object"
-        }
+        true
       ]
     },
     "Resolver": {
-      "oneOf": [
+      "anyOf": [
         {
           "properties": {
             "by": {
@@ -2096,18 +2000,7 @@
           ],
           "type": "object"
         },
-        {
-          "properties": {
-            "by": {
-              "const": "unknown",
-              "type": "string"
-            }
-          },
-          "required": [
-            "by"
-          ],
-          "type": "object"
-        }
+        true
       ]
     },
     "SessionId": {
@@ -2167,7 +2060,7 @@
       "type": "object"
     },
     "StopReason": {
-      "oneOf": [
+      "anyOf": [
         {
           "properties": {
             "reason": {
@@ -2248,53 +2141,54 @@
           ],
           "type": "object"
         },
-        {
-          "properties": {
-            "reason": {
-              "const": "unknown",
-              "type": "string"
-            }
-          },
-          "required": [
-            "reason"
-          ],
-          "type": "object"
-        }
+        true
       ]
     },
     "Stream": {
-      "enum": [
-        "stdout",
-        "stderr",
-        "unknown"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "enum": [
+            "stdout",
+            "stderr"
+          ],
+          "type": "string"
+        },
+        true
+      ]
     },
     "ToolKind": {
-      "enum": [
-        "read",
-        "edit",
-        "delete",
-        "move",
-        "search",
-        "execute",
-        "think",
-        "fetch",
-        "other",
-        "unknown"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "enum": [
+            "read",
+            "edit",
+            "delete",
+            "move",
+            "search",
+            "execute",
+            "think",
+            "fetch",
+            "other"
+          ],
+          "type": "string"
+        },
+        true
+      ]
     },
     "TurnId": {
       "type": "string"
     },
     "TurnMode": {
-      "enum": [
-        "queue",
-        "steer",
-        "unknown"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "enum": [
+            "queue",
+            "steer"
+          ],
+          "type": "string"
+        },
+        true
+      ]
     },
     "Usage": {
       "properties": {
@@ -2422,14 +2316,18 @@
       "type": "object"
     },
     "UsageScope": {
-      "description": "Log IR v1 §4a: counters from calls, turn totals and cumulative sessions must\nnever be summed together. Missing required counters are named in unreported.",
-      "enum": [
-        "call",
-        "turn",
-        "session",
-        "unknown"
+      "anyOf": [
+        {
+          "enum": [
+            "call",
+            "turn",
+            "session"
+          ],
+          "type": "string"
+        },
+        true
       ],
-      "type": "string"
+      "description": "Log IR v1 §4a: counters from calls, turn totals and cumulative sessions must\nnever be summed together. Missing required counters are named in unreported."
     },
     "Version": {
       "properties": {

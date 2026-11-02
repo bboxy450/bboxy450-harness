@@ -473,7 +473,7 @@ impl SessionActor {
         let id = env.op_id;
         match env.op {
             Op::UserTurn { blocks, mode } => {
-                if blocks.is_empty() || blocks.iter().any(|b| matches!(b, InputBlock::Unknown)) {
+                if blocks.is_empty() || blocks.iter().any(|b| matches!(b, InputBlock::Unknown(_))) {
                     return self
                         .reject(
                             id,

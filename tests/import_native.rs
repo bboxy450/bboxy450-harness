@@ -51,7 +51,7 @@ fn numbers(usage: Usage) -> Usage {
     }
 }
 fn assert_import_usage(usage: &Usage, scope: UsageScope) {
-    assert_eq!(usage.scope, Some(scope));
+    assert_eq!(usage.scope, Some(scope.clone()));
     assert_eq!(
         usage.source,
         Some(if scope == UsageScope::Turn {
@@ -69,8 +69,8 @@ fn usages(log: &[Envelope]) -> Vec<Usage> {
         .into_iter()
         .filter_map(|(_, body)| match body {
             Item::Usage { usage } => {
-                let scope = usage.scope.unwrap();
-                assert_import_usage(&usage, scope);
+                let scope = usage.scope.clone().unwrap();
+                assert_import_usage(&usage, scope.clone());
                 (scope == UsageScope::Call).then(|| numbers(usage))
             }
             _ => None,
@@ -320,15 +320,15 @@ fn partial_usage_names_absent_required_counts_and_preserves_reported_zero() {
     }
     assert_eq!(
         serde_json::from_value::<UsageScope>(json!("future-scope")).unwrap(),
-        UsageScope::Unknown
+        UsageScope::Unknown(json!("future-scope"))
     );
     assert_eq!(
         serde_json::from_value::<NumberSource>(json!("future-source")).unwrap(),
-        NumberSource::Unknown
+        NumberSource::Unknown(json!("future-source"))
     );
     assert_eq!(
         serde_json::from_value::<BackendKind>(json!("future-backend")).unwrap(),
-        BackendKind::Unknown
+        BackendKind::Unknown(json!("future-backend"))
     );
 }
 
@@ -667,7 +667,7 @@ async fn a_claude_code_session_projects_into_a_valid_log_with_its_own_clock() {
         .await
         .unwrap();
     let log = read(&t.path().join(format!("{session}.jsonl")));
-    bboxy450_harness::protocol::laws::check_transcript(&log).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&log).unwrap();
     let items = completed(&log);
     assert!(
         matches!(&items[0].1, Item::UserMessage { blocks } if matches!(&blocks[..], [InputBlock::Text { text }] if text == "Find the flaky test."))
@@ -708,7 +708,7 @@ async fn a_codex_rollout_projects_turns_reasoning_and_tool_calls() {
     .await
     .unwrap();
     let log = read(&t.path().join(format!("{session}.jsonl")));
-    bboxy450_harness::protocol::laws::check_transcript(&log).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&log).unwrap();
     let items = completed(&log);
     let users: Vec<_> = items
         .iter()
@@ -850,8 +850,8 @@ async fn a_watched_native_log_streams_live_and_continues_on_an_acp_agent_with_th
             .join(format!("{}.jsonl", watch.session())),
     );
     let forked = read(&t.path().join("sessions").join(format!("{child}.jsonl")));
-    bboxy450_harness::protocol::laws::check_transcript(&watched).unwrap();
-    bboxy450_harness::protocol::laws::check_transcript(&forked).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&watched).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&forked).unwrap();
     assert!(watched.iter().any(|e| matches!(&e.event, Event::OpRejected { reason: Rejection::InvalidInput { detail }, .. } if detail.contains("/profile"))));
     assert!(completed(&forked).iter().any(|(_, b)| matches!(b, Item::AgentMessage { markdown }
         if markdown.starts_with("ECHO:") && markdown.contains("[user] Find the flaky test.")

@@ -365,7 +365,7 @@ impl AcpAgentActor {
         match env.op {
             Op::UserTurn { blocks, .. } => {
                 // ACP has no steering: a turn sent while another runs waits its turn
-                if blocks.is_empty() || blocks.iter().any(|b| matches!(b, InputBlock::Unknown)) {
+                if blocks.is_empty() || blocks.iter().any(|b| matches!(b, InputBlock::Unknown(_))) {
                     self.reject(
                         id,
                         Rejection::InvalidInput {
@@ -431,7 +431,7 @@ impl AcpAgentActor {
                 self.close(id).await?;
                 return Ok(true);
             }
-            Op::StartSession { .. } | Op::Unknown => {
+            Op::StartSession { .. } | Op::Unknown(_) => {
                 self.reject(
                     id,
                     Rejection::InvalidInput {
@@ -1044,7 +1044,8 @@ impl AcpAgentActor {
                     ToolKind::Edit | ToolKind::Delete | ToolKind::Move => Effect::Write,
                     ToolKind::Execute => Effect::Exec,
                     ToolKind::Fetch => Effect::Network,
-                    _ => Effect::Unknown,
+                    ToolKind::Read | ToolKind::Search | ToolKind::Think => Effect::Read,
+                    _ => Effect::Exec,
                 },
                 summary: title,
                 paths: t.locations.iter().map(|l| l.path.clone()).collect(),
@@ -1485,7 +1486,7 @@ impl AcpAgentActor {
             let head = Item::ToolCall {
                 call_id: t.call_id.clone(),
                 name: t.name.clone(),
-                tool_kind: t.kind,
+                tool_kind: t.kind.clone(),
                 input_raw: String::new(),
                 output: vec![],
                 locations: vec![],
@@ -1688,7 +1689,7 @@ fn tool_body(t: Tool, empty: &str) -> Item {
     Item::ToolCall {
         call_id: t.call_id,
         name: t.name,
-        tool_kind: t.kind,
+        tool_kind: t.kind.clone(),
         input_raw: t.input,
         output: if t.output.is_empty() {
             vec![OutputBlock::Text { text: empty.into() }]
@@ -1773,7 +1774,7 @@ pub fn content_block(b: &InputBlock) -> Value {
         InputBlock::Image { blob } => {
             json!({ "type": "text", "text": format!("[image {} · {} bytes not sent]", blob.mime, blob.len) })
         }
-        InputBlock::Unknown => json!({ "type": "text", "text": "" }),
+        InputBlock::Unknown(_) => json!({ "type": "text", "text": "" }),
     }
 }
 fn permission_reply(id: &Value, option: Option<&str>) -> Value {

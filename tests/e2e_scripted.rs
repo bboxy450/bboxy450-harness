@@ -13,7 +13,7 @@ async fn parallel_reads_then_edit_then_answer() {
     let mut sub = subscribe(&s.gateway, false);
     s.gateway.send(prompt(&s.gateway, "read and edit")).unwrap();
     let transcript = end(&mut sub).await;
-    bboxy450_harness::protocol::laws::check_transcript(&transcript).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&transcript).unwrap();
     assert!(matches!(
         transcript.last().unwrap().event,
         Event::TurnEnded {
@@ -104,7 +104,7 @@ async fn steer_at_round_boundary_appears_once_in_running_turn() {
             .count(),
         1
     );
-    bboxy450_harness::protocol::laws::check_transcript(&transcript).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&transcript).unwrap();
     close(s).await;
 }
 #[tokio::test]
@@ -160,7 +160,7 @@ async fn steer_fallback_preserves_admission_order() {
         })
         .collect::<Vec<_>>();
     assert_eq!(users, ["first", "second", "third"]);
-    bboxy450_harness::protocol::laws::check_transcript(&events).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&events).unwrap();
     close(s).await;
 }
 #[tokio::test]

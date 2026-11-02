@@ -85,6 +85,12 @@ fn publish(temp: &Path, path: &Path) -> io::Result<()> {
         Err(io::Error::last_os_error())
     }
 }
+fn copy_prefix(writer: &mut impl Write, lines: &[&[u8]]) -> io::Result<()> {
+    for line in lines.iter().skip(1) {
+        writer.write_all(line)?;
+    }
+    Ok(())
+}
 pub(super) fn materialize(
     root: &Path,
     path: &Path,
@@ -97,6 +103,7 @@ pub(super) fn materialize(
     }
     let bytes = std::fs::read(log_path(root, parent)).map_err(|_| invalid())?;
     let mut prefix = vec![];
+    let mut lines = vec![];
     for line in bytes.split_inclusive(|b| *b == b'\n') {
         if prefix.len() as u64 == at.0 {
             break;
@@ -105,10 +112,11 @@ pub(super) fn materialize(
             return Err(invalid());
         }
         let e: Envelope = serde_json::from_slice(line).map_err(|_| invalid())?;
-        if e.session != parent || !e.event.is_durable() || matches!(e.event, Event::SessionClosed) {
+        if e.seq.is_none() || matches!(e.event, Event::SessionClosed) {
             return Err(invalid());
         }
         prefix.push(e);
+        lines.push(line);
     }
     if prefix.len() as u64 != at.0
         || !matches!(&prefix.first().ok_or_else(invalid)?.event,Event::SessionStarted{meta} if meta.session==parent)
@@ -156,6 +164,7 @@ pub(super) fn materialize(
             .mode(0o600)
             .open(&temp)?;
         let first = Envelope {
+            raw: None,
             v: PROTOCOL,
             session: meta.session,
             epoch: Epoch(1),
@@ -167,12 +176,7 @@ pub(super) fn materialize(
         };
         serde_json::to_writer(&mut file, &first)?;
         file.write_all(b"\n")?;
-        for mut e in prefix.into_iter().skip(1) {
-            e.session = meta.session;
-            e.epoch = Epoch(1);
-            serde_json::to_writer(&mut file, &e)?;
-            file.write_all(b"\n")?;
-        }
+        copy_prefix(&mut file, &lines)?;
         crate::runtime::sync_all(&file)?;
         write_epoch(&root.join(meta.session.to_string()), 1)?;
         publish(&temp, path)?;
@@ -182,4 +186,35 @@ pub(super) fn materialize(
         let _ = std::fs::remove_file(temp);
     }
     result
+}
+
+#[cfg(test)]
+mod controls {
+    use super::*;
+    fn copy_with_control(lines: &[&[u8]], reserialize: bool) -> Vec<u8> {
+        let mut bytes = vec![];
+        if reserialize {
+            for line in lines.iter().skip(1) {
+                let e: Envelope = serde_json::from_slice(line).unwrap();
+                serde_json::to_writer(&mut bytes, &e).unwrap();
+                bytes.push(b'\n');
+            }
+        } else {
+            copy_prefix(&mut bytes, lines).unwrap();
+        }
+        bytes
+    }
+    #[test]
+    fn reserializing_fork_fails_byte_identity() {
+        let line = concat!(
+            r#"{"v":{"major":1,"minor":99},"session":"00000000000000000000000001","epoch":1,"seq":2,"at":2,"ts_ms":0,"cause":null,"event":{"type":"future_event","future_field":42},"future_envelope_field":true}"#,
+            "\n"
+        );
+        let lines = [b"header\n".as_slice(), line.as_bytes()];
+        // Deliberately broken old path, selected only in the unit-test build.
+        let broken = copy_with_control(&lines, true);
+        assert!(std::panic::catch_unwind(|| assert_eq!(broken, line.as_bytes())).is_err());
+        assert_eq!(copy_with_control(&lines, false), line.as_bytes());
+        println!("broken reserializing fork: byte-identity assertion rejected");
+    }
 }

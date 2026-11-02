@@ -15,7 +15,7 @@ pub fn output_text(output: &[OutputBlock]) -> String {
             OutputBlock::Json { value } => value.to_string(),
             OutputBlock::Diff { unified, .. } => unified.clone(),
             OutputBlock::Image { blob } => format!("image blob {}", blob.sha256),
-            OutputBlock::Unknown => "unknown output".into(),
+            OutputBlock::Unknown(raw) => format!("Unsupported output: {}", unknown_tag(raw)),
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -28,7 +28,7 @@ pub fn input(blocks: &[InputBlock]) -> Value {
                 InputBlock::Text { text } => Some(text.clone()),
                 InputBlock::Mention { path } => Some(format!("@{}", path.display())),
                 InputBlock::Image { blob } => Some(format!("image blob {}", blob.sha256)),
-                InputBlock::Unknown => None,
+                InputBlock::Unknown(_) => None,
             })
             .collect::<Vec<_>>()
             .join("\n")

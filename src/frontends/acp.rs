@@ -687,14 +687,14 @@ impl Face {
                 head,
                 ..
             } => {
-                let body = Item::interrupted_from_head(*kind, *item, head.as_ref());
+                let body = Item::interrupted_from_head(kind.clone(), *item, head.as_ref());
                 mapper.items.insert(*item, (*parent, body));
                 changed = Some(*item);
                 if let Some(ItemHead::ToolCall {
                     name, tool_kind, ..
                 }) = head
                 {
-                    self.update(sid,json!({"sessionUpdate":"tool_call","toolCallId":item.to_string(),"title":name,"kind":kind_name(*tool_kind),"status":"in_progress"})).await;
+                    self.update(sid,json!({"sessionUpdate":"tool_call","toolCallId":item.to_string(),"title":name,"kind":kind_name(tool_kind.clone()),"status":"in_progress"})).await;
                 } else if let Some(ItemHead::Terminal { command, .. }) = head
                     && parent.is_none()
                 {
@@ -750,7 +750,7 @@ impl Face {
                 if completed && parent.is_none(){update["status"]=json!(if matches!(e.event,Event::ItemCompleted {status:ItemStatus::Completed,..}){"completed"}else{"failed"});}
                 if !matches!(e.event,Event::ItemStarted {..}){self.update(sid,update).await;}
             }
-            Item::Plan {entries}=>self.update(sid,json!({"sessionUpdate":"plan","entries":entries.iter().map(|entry|json!({"content":if entry.status==PlanStatus::Cancelled {format!("(cancelled) {}",entry.text)}else{entry.text.clone()},"priority":entry.priority.filter(|p|!matches!(p,Priority::Unknown)).unwrap_or(Priority::Medium),"status":match entry.status {PlanStatus::InProgress=>"in_progress",PlanStatus::Completed|PlanStatus::Cancelled=>"completed",_=>"pending"}})).collect::<Vec<_>>()})).await,
+            Item::Plan {entries}=>self.update(sid,json!({"sessionUpdate":"plan","entries":entries.iter().map(|entry|json!({"content":if entry.status==PlanStatus::Cancelled {format!("(cancelled) {}",entry.text)}else{entry.text.clone()},"priority":entry.priority.clone().filter(|p|!matches!(p,Priority::Unknown(_))).unwrap_or(Priority::Medium),"status":match entry.status {PlanStatus::InProgress=>"in_progress",PlanStatus::Completed|PlanStatus::Cancelled=>"completed",_=>"pending"}})).collect::<Vec<_>>()})).await,
             Item::Approval {subject,options,decision,..} if !completed && decision.is_none() && !options.is_empty()=> {
                 let id={let mut permissions=self.permissions.lock().unwrap();
                 if permissions.values().any(|p|p.session==sid&&p.item==item){return;}
@@ -759,6 +759,7 @@ impl Face {
                 self.emit(json!({"jsonrpc":"2.0","id":id,"method":"session/request_permission","params":{"sessionId":sid.to_string(),"toolCall":{"toolCallId":subject.tool_call.to_string(),"title":subject.summary,"status":"pending"},"options":options.iter().filter_map(|option|match option {ApprovalDecisionKind::Allow=>Some(json!({"optionId":"allow","name":"Allow","kind":"allow_once"})),ApprovalDecisionKind::AllowAlways=>Some(json!({"optionId":"allow_always","name":"Always allow","kind":"allow_always"})),ApprovalDecisionKind::Deny=>Some(json!({"optionId":"deny","name":"Deny","kind":"reject_once"})),_=>None}).collect::<Vec<_>>()}})).await;
             }
             Item::Approval {..} if completed=>self.permissions.lock().unwrap().retain(|_,p|p.session!=sid||p.item!=item),
+            Item::Unknown(raw) if completed => self.update(sid,chunk("agent_message_chunk",format!("Unsupported item: {}",unknown_tag(&raw)))).await,
             Item::Notice {level:Level::Error,text}=>eprintln!("{}",self.config.redactor.scrub(&text)),
             _=>{},
         }
@@ -988,6 +989,7 @@ mod tests {
         };
         let session = meta.session;
         let start = Envelope {
+            raw: None,
             v: PROTOCOL,
             session,
             epoch: Epoch(1),
@@ -1018,6 +1020,7 @@ mod tests {
         let mut publish = |event, cause| {
             seq += 1;
             let event = Envelope {
+                raw: None,
                 v: PROTOCOL,
                 session,
                 epoch: Epoch(1),

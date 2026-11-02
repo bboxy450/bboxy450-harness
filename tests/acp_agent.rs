@@ -5,7 +5,7 @@
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 //! The ACP agent backend through the real Host, against a scripted ACP agent
-//! (tests/fixtures/acp-agent/fake_agent.py). Every log passes check_transcript.
+//! (tests/fixtures/acp-agent/fake_agent.py). Every log passes check_authored.
 #![cfg(feature = "acp-agent")]
 mod support;
 use bboxy450_harness::{
@@ -138,7 +138,7 @@ async fn close(f: Fake) -> Vec<Envelope> {
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
-    bboxy450_harness::protocol::laws::check_transcript(&log).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&log).unwrap();
     log
 }
 fn completed(log: &[Envelope]) -> Vec<(ItemStatus, Item)> {
@@ -498,8 +498,8 @@ async fn switching_profiles_forks_the_session_and_hands_the_conversation_to_the_
             .collect()
     };
     let (old, new) = (read(f.session), read(child));
-    bboxy450_harness::protocol::laws::check_transcript(&old).unwrap();
-    bboxy450_harness::protocol::laws::check_transcript(&new).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&old).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&new).unwrap();
     assert!(
         matches!(old.last().map(|e| &e.event), Some(Event::SessionClosed)),
         "the old session closes"

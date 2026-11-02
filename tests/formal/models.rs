@@ -675,7 +675,7 @@ fn profile_load(b: bool) -> Model {
 // Materialized fork: a finite fixed prefix, with parent appends and crashes
 // before the atomic publication. Actual rename/fsync/blob bytes are API witnesses.
 fn fork_materialize(b: bool) -> Model {
-    let mut m = base::<5>(
+    let mut m = base::<6>(
         "ForkMaterialize",
         b,
         &[
@@ -684,6 +684,7 @@ fn fork_materialize(b: bool) -> Model {
             ("copied_at", 1, 0),
             ("visible", 1, 0),
             ("parent_head", 2, 1),
+            ("opaque_bytes_preserved", 1, 0),
         ],
     );
     act(&mut m, "CopyBlobs", eq(0, 0), &[(0, Int(1)), (1, Int(1))]);
@@ -691,7 +692,7 @@ fn fork_materialize(b: bool) -> Model {
         &mut m,
         "WriteFixedPrefix",
         eq(0, 1),
-        &[(0, Int(2)), (2, Int(1))],
+        &[(0, Int(2)), (2, Int(1)), (5, Int(1))],
     );
     act(
         &mut m,
@@ -703,7 +704,7 @@ fn fork_materialize(b: bool) -> Model {
         &mut m,
         "CrashBeforePublish",
         Var(0).lt(Int(3)),
-        &[(0, Int(0)), (1, Int(0)), (2, Int(0))],
+        &[(0, Int(0)), (1, Int(0)), (2, Int(0)), (5, Int(0))],
     );
     act(
         &mut m,
@@ -715,6 +716,19 @@ fn fork_materialize(b: bool) -> Model {
         &mut m,
         "VisibleChildHasBlobsAndFixedPrefix",
         eq(3, 0).or(all([eq(0, 3), eq(1, 1), eq(2, 1)])),
+    );
+    if b {
+        act(
+            &mut m,
+            "ReserializeLosesFutureData",
+            eq(0, 2),
+            &[(5, Int(0))],
+        );
+    }
+    safe(
+        &mut m,
+        "CopiedPrefixPreservesOpaqueBytes",
+        eq(2, 0).or(eq(5, 1)),
     );
     m
 }

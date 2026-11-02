@@ -1091,7 +1091,7 @@ impl LineProjection {
                 self.items.insert(
                     *item,
                     Entry {
-                        kind: *kind,
+                        kind: kind.clone(),
                         turn: *turn,
                         parent: *parent,
                         head: head.clone(),
@@ -1117,7 +1117,8 @@ impl LineProjection {
                         | ItemKind::Notice
                         | ItemKind::Terminal
                         | ItemKind::FileChange
-                ) {
+                ) || kind.is_unknown()
+                {
                     self.queue.push_back(*item);
                 }
             }
@@ -1131,9 +1132,9 @@ impl LineProjection {
                     | Delta::Output { append, .. } => e.text.push_str(append),
                     _ => {}
                 }
-                let (kind, parent) = (e.kind, e.parent);
+                let (kind, parent) = (e.kind.clone(), e.parent);
                 if let (ItemKind::Terminal, Some(tool), Delta::Output { append, .. }) =
-                    (kind, parent, delta)
+                    (kind.clone(), parent, delta)
                     && let Some(t) = self.items.get_mut(&tool)
                     && t.kind == ItemKind::ToolCall
                 {
@@ -1195,6 +1196,11 @@ impl LineProjection {
                 let t = format!("transcript reset to {}", head.0);
                 self.notice_line(&mut out, &t, &Level::Warn);
             }
+            Event::Unknown(raw) => self.notice_line(
+                &mut out,
+                &format!("Unsupported event: {}", unknown_tag(raw)),
+                &Level::Info,
+            ),
             _ => {}
         }
         if !self.running && !self.at_prompt && !out.is_empty() {
@@ -1397,7 +1403,7 @@ impl LineProjection {
         } else {
             color
         });
-        if matches!(level, Level::Info | Level::Unknown) {
+        if matches!(level, Level::Info | Level::Unknown(_)) {
             s = s.ital();
         }
         let mut rows = String::new();
@@ -1417,7 +1423,7 @@ impl LineProjection {
         }
         let Some(e) = self.items.get(&id) else { return };
         let pen = self.pen();
-        match (e.kind, e.body.clone()) {
+        match (e.kind.clone(), e.body.clone()) {
             (ItemKind::UserMessage, Some(Item::UserMessage { blocks })) => {
                 let text = blocks
                     .iter()
@@ -1584,6 +1590,16 @@ impl LineProjection {
             (ItemKind::Notice, Some(Item::Notice { level, text })) => {
                 self.notice_line(out, &text, &level);
             }
+            (_, Some(Item::Unknown(raw))) => self.notice_line(
+                out,
+                &format!("Unsupported item: {}", unknown_tag(&raw)),
+                &Level::Info,
+            ),
+            (ItemKind::Unknown(raw), _) => self.notice_line(
+                out,
+                &format!("Unsupported item: {}", unknown_tag(&raw)),
+                &Level::Info,
+            ),
             _ => {}
         }
     }
@@ -1642,7 +1658,7 @@ impl LineProjection {
                     ApprovalDecisionKind::Allow => "Allow",
                     ApprovalDecisionKind::AllowAlways => "Always allow",
                     ApprovalDecisionKind::Deny => "Deny",
-                    ApprovalDecisionKind::Unknown => "?",
+                    ApprovalDecisionKind::Unknown(_) => "?",
                 })
                 .collect::<Vec<_>>()
                 .join(" · ");
@@ -1671,13 +1687,13 @@ impl LineProjection {
                     ..
                 }),
                 _,
-            ) => (name.clone(), *tool_kind, input_raw.clone()),
+            ) => (name.clone(), tool_kind.clone(), input_raw.clone()),
             (
                 _,
                 Some(ItemHead::ToolCall {
                     name, tool_kind, ..
                 }),
-            ) => (name.clone(), *tool_kind, String::new()),
+            ) => (name.clone(), tool_kind.clone(), String::new()),
             _ => ("tool".into(), ToolKind::Execute, String::new()),
         };
         let command = match self
@@ -1689,7 +1705,7 @@ impl LineProjection {
                 .unwrap_or(&command)
                 .to_owned(),
             _ => {
-                let d = core::describe(&name, kind, &input, &[], &self.cwd);
+                let d = core::describe(&name, kind.clone(), &input, &[], &self.cwd);
                 if d.target.is_empty() {
                     name.clone()
                 } else {
@@ -1732,7 +1748,7 @@ impl LineProjection {
             let e = &self.items[&id];
             let mut d = match &e.body {
                 Some(Item::ToolCall { output, .. }) => {
-                    core::describe(&name, kind, &input, output, &self.cwd).out
+                    core::describe(&name, kind.clone(), &input, output, &self.cwd).out
                 }
                 _ => String::new(),
             };
@@ -1848,15 +1864,20 @@ impl LineProjection {
                 input_raw,
                 output,
                 ..
-            }) => (name.clone(), *tool_kind, input_raw.clone(), output.clone()),
+            }) => (
+                name.clone(),
+                tool_kind.clone(),
+                input_raw.clone(),
+                output.clone(),
+            ),
             _ => match &e.head {
                 Some(ItemHead::ToolCall {
                     name, tool_kind, ..
-                }) => (name.clone(), *tool_kind, String::new(), vec![]),
+                }) => (name.clone(), tool_kind.clone(), String::new(), vec![]),
                 _ => ("tool".into(), ToolKind::Other, String::new(), vec![]),
             },
         };
-        let mut d = core::describe(&name, kind, &input, &output, &self.cwd);
+        let mut d = core::describe(&name, kind.clone(), &input, &output, &self.cwd);
         let known = matches!(
             name.as_str(),
             "read" | "grep" | "glob" | "bash" | "exec" | "edit" | "apply_patch" | "write"
@@ -2058,24 +2079,7 @@ fn agent_mark(command: &str) -> (String, Rgb) {
     (m.into(), rgb(h))
 }
 fn kind_of(body: &Item) -> ItemKind {
-    match body {
-        Item::UserMessage { .. } => ItemKind::UserMessage,
-        Item::AgentMessage { .. } => ItemKind::AgentMessage,
-        Item::Reasoning { .. } => ItemKind::Reasoning,
-        Item::ToolCall { .. } => ItemKind::ToolCall,
-        Item::FileChange { .. } => ItemKind::FileChange,
-        Item::TurnDiff { .. } => ItemKind::TurnDiff,
-        Item::Terminal { .. } => ItemKind::Terminal,
-        Item::Plan { .. } => ItemKind::Plan,
-        Item::Approval { .. } => ItemKind::Approval,
-        Item::Image { .. } => ItemKind::Image,
-        Item::Compaction { .. } => ItemKind::Compaction,
-        Item::ContextTrim { .. } => ItemKind::ContextTrim,
-        Item::Usage { .. } => ItemKind::Usage,
-        Item::Notice { .. } => ItemKind::Notice,
-        Item::Subagent { .. } => ItemKind::Subagent,
-        Item::Unknown => ItemKind::Unknown,
-    }
+    body.kind()
 }
 /// The first sentence of a thought, on one line.
 fn gist(text: &str) -> String {
@@ -2468,7 +2472,7 @@ fn receipt(pen: &Pen, t: &TurnStat, ts: u64, reason: &StopReason, usage: Option<
                 },
             )
         }
-        StopReason::Unknown => (false, false, "Ended"),
+        StopReason::Unknown(_) => (false, false, "Ended"),
     };
     let c = if ok {
         OK

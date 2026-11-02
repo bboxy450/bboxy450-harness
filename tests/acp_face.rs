@@ -169,7 +169,7 @@ async fn max_tokens_max_rounds_and_error_replies_match_the_ending() {
         }
         let config = c.config.clone();
         c.close().await;
-        bboxy450_harness::protocol::laws::check_transcript(&session_log(&config, &sid)).unwrap();
+        bboxy450_harness::protocol::laws::check_authored(&session_log(&config, &sid)).unwrap();
     }
 }
 #[tokio::test]
@@ -213,7 +213,7 @@ async fn cancelled_permission_denies_even_when_unattended_allows() {
         "before\n"
     );
     let log = session_log(&config, &sid);
-    bboxy450_harness::protocol::laws::check_transcript(&log).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&log).unwrap();
     assert!(log.iter().any(|e|matches!(&e.event,Event::ItemCompleted {body:Item::Approval {decision:Some(ApprovalDecision::Deny {reason:Some(reason)}),..},..} if reason=="client cancelled")));
 }
 #[tokio::test]
@@ -251,7 +251,7 @@ async fn disconnect_resolves_pending_permission_and_closes_the_log() {
         let config = c.config.clone();
         c.close().await;
         let log = session_log(&config, &sid);
-        bboxy450_harness::protocol::laws::check_transcript(&log).unwrap();
+        bboxy450_harness::protocol::laws::check_authored(&log).unwrap();
         assert!(matches!(log.last().unwrap().event, Event::SessionClosed));
         assert!(log.iter().any(|e|matches!(&e.event,Event::ItemCompleted {body:Item::Approval {decision:Some(decision),..},..} if matches!(decision,ApprovalDecision::Allow)==allow)));
     }
@@ -291,7 +291,7 @@ async fn eof_mid_stream_closes_items_and_preserves_transcript_laws() {
     let config = c.config.clone();
     c.close().await;
     let log = session_log(&config, &sid);
-    bboxy450_harness::protocol::laws::check_transcript(&log).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&log).unwrap();
     assert!(log.iter().any(|e| matches!(
         e.event,
         Event::TurnEnded {
@@ -439,7 +439,7 @@ async fn slow_reader_resumes_without_losing_the_turn() {
     c.close().await;
     for sid in [&sid, &other] {
         let log = session_log(&config, sid);
-        bboxy450_harness::protocol::laws::check_transcript(&log).unwrap();
+        bboxy450_harness::protocol::laws::check_authored(&log).unwrap();
         let expected = log
             .iter()
             .filter_map(|e| match &e.event {
@@ -491,7 +491,7 @@ async fn back_to_back_prompt_and_cancel_preserve_session_order() {
     let config = c.config.clone();
     c.close().await;
     let log = session_log(&config, &sid);
-    bboxy450_harness::protocol::laws::check_transcript(&log).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&log).unwrap();
     assert!(log.iter().any(|e| matches!(
         e.event,
         Event::TurnEnded {
@@ -629,7 +629,7 @@ async fn scripted_client_full_turn_and_permission_keep_the_dispatcher_live() {
         .lines()
         .map(|s| serde_json::from_str(s).unwrap())
         .collect::<Vec<_>>();
-    bboxy450_harness::protocol::laws::check_transcript(&log).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&log).unwrap();
     assert!(log.iter().any(|e|matches!(&e.event,Event::ItemCompleted {body:Item::Approval {by:Some(Resolver::Face {name}),..},..} if name=="acp")));
 }
 #[tokio::test]
@@ -722,7 +722,7 @@ async fn failed_load_cwd_closes_the_session_that_was_opened() {
     .expect("cwd mismatch left a loaded session alive");
     let config = c.config.clone();
     c.close().await;
-    bboxy450_harness::protocol::laws::check_transcript(&session_log(&config, &sid)).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&session_log(&config, &sid)).unwrap();
 }
 #[tokio::test]
 async fn malformed_line_does_not_end_the_face() {
@@ -932,7 +932,7 @@ async fn queued_prompts_cancel_and_other_sessions_keep_running() {
         )
     ));
     assert!(!log.iter().any(|e|matches!(&e.event,Event::ItemCompleted {body:Item::ToolCall {name,..},status:ItemStatus::Completed,..} if name=="bash")),"late Allow ran the interrupted tool");
-    bboxy450_harness::protocol::laws::check_transcript(&log).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&log).unwrap();
 }
 #[tokio::test]
 async fn every_unsupported_method_has_method_not_found() {

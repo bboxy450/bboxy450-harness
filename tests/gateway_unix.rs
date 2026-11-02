@@ -43,7 +43,7 @@ async fn transport_replay_and_duplicate_admission_equal_inproc() {
     assert!(s.gateway.send(op.clone()).unwrap().duplicate);
     assert!(client.send(op).await.unwrap().duplicate);
     let events = support::end(&mut sub).await;
-    bboxy450_harness::protocol::laws::check_transcript(&events).unwrap();
+    bboxy450_harness::protocol::laws::check_authored(&events).unwrap();
     client.close();
     server.close().await.unwrap();
     support::close(s).await;
