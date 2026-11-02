@@ -271,7 +271,17 @@ impl AcpAgentActor {
                 .sanitize(&self.store.ephemeral(event))
                 .map_err(std::io::Error::other)?
         };
-        self.gateway.hub.publish(e);
+        if matches!(e.event, Event::SessionClosed) {
+            self.gateway.hub.publish(e.clone());
+            crate::frontends::ir_scan::session_closed(
+                &self.config.sessions,
+                &e,
+                self.config.redactor.clone(),
+                self.gateway.hub.clone(),
+            );
+        } else {
+            self.gateway.hub.publish(e);
+        }
         Ok(())
     }
     async fn reject(&mut self, op: OpId, reason: Rejection) -> std::io::Result<()> {

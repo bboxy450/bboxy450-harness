@@ -204,10 +204,10 @@ checks=["make test-formal","make test"]
 name = "HarnessDirtyWakeFrame"
 title = "A budgeted frame never strands its remainder; arrival eventually yields a frame."
 models = ["HarnessDirtyWakeFrame", "BrokenHarnessDirtyWakeFrame"]
-sources = ["src/frontends/gui/bridge.rs", "src/frontends/gui/budget.rs", "tests/formal/models.rs"]
-implementation_tests = ["tests/gui_budget.rs"]
-assumptions = "Produced/consumed counters 0..3, one wake bit, one drain phase. Weak fairness on frame drain/completion; broken control isolates safety. Real timing and OS wake delivery are API witnesses."
-property = "A budgeted frame never strands its remainder; arrival eventually yields a frame."
+sources = ["src/frontends/gui/bridge.rs", "src/frontends/gui/budget.rs", "src/ir_scan.rs", "src/ir_scan/proposal.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/gui_budget.rs", "tests/ir_scan.rs"]
+assumptions = "Produced/consumed counters 0..3, one wake bit, one drain phase; independent close bit, three scan lines, one pending worker, one poll unit per await. Weak fairness on frame drain/completion and scan dispatch/resume; broken control loses a remainder or spends two poll units. Units abstract the 1ms runtime CPU budget, measured by the real scanner control. JSON parsing, redaction, shape hashing, schema comparison, file size snapshot and catalogue IO are implementation witnesses. No arbitrary Rust refinement claim."
+property = "A budgeted frame never strands its remainder; arrival eventually yields a frame. IR scanner: close never joins scanning, each poll is bounded and a closed finite scan eventually finishes; additive proposals pass ir-compat."
 checks = ["make test-formal", "make test"]
 
 

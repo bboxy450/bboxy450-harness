@@ -174,7 +174,7 @@ release: app
 
 # Bboxy log IR v1: only add, never change or remove (.bboxy/specs/log-ir-v1.md); also run by `make test`.
 test-ir:
-	python3 -I scripts/ir-compat.py check
+	python3 -I scripts/ir-compat.py check --require-current
 	python3 -I scripts/ir-compat.py control
 
 # Refresh the IR lock after an addition; refused unless the schema is additive over the old lock.

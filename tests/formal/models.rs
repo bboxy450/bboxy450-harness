@@ -1151,7 +1151,7 @@ fn process_lifecycle(mode: u8) -> Model {
 // Adapted from bboxy450-term DirtyWake: a budgeted drain retires only one
 // item, then complete_drain rechecks and marks the unconsumed remainder.
 fn dirty_wake_frame(b: bool) -> Model {
-    let mut m = base::<4>(
+    let mut m = base::<8>(
         "DirtyWakeFrame",
         b,
         &[
@@ -1159,8 +1159,30 @@ fn dirty_wake_frame(b: bool) -> Model {
             ("consumed", 3, 0),
             ("wake", 1, 0),
             ("draining", 1, 0),
+            ("scan_remaining", 3, 3),
+            ("scan_pending", 1, 0),
+            ("scan_poll_units", 2, 0),
+            ("session_closed", 1, 0),
         ],
     );
+    // Session-close scanning is a separate owner. Close never depends on scan
+    // state; each poll enqueues at most one record before an await boundary.
+    act(&mut m, "CloseWithoutJoiningScan", eq(7, 0), &[(7, Int(1))]);
+    let dispatch = m.actions.len();
+    act(
+        &mut m,
+        "ScanDispatchOne",
+        all([eq(7, 1), eq(5, 0), Int(0).lt(Var(4))]),
+        &[(5, Int(1)), (6, if b { Int(2) } else { Int(1) })],
+    );
+    let resume = m.actions.len();
+    act(
+        &mut m,
+        "ScanAwaitWorker",
+        eq(5, 1),
+        &[(5, Int(0)), (6, Int(0)), (4, Var(4).minus(Int(1)))],
+    );
+    safe(&mut m, "ScanPollBudget", Var(6).le(Int(1)));
     act(
         &mut m,
         "Publish",
@@ -1193,10 +1215,17 @@ fn dirty_wake_frame(b: bool) -> Model {
     if !b {
         progress(
             &mut m,
+            "ClosedScanEventuallyFinishes",
+            eq(7, 1),
+            eq(4, 0),
+            vec![dispatch, resume],
+        );
+        progress(
+            &mut m,
             "ArrivalYieldsFrame",
             Var(1).lt(Var(0)),
             Var(1).eq(Var(0)),
-            vec![1, 2, 3],
+            vec![4, 5, 6],
         );
     } // broken control isolates safety
     m

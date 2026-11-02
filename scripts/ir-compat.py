@@ -16,7 +16,7 @@ definition, a new optional field, a new variant. Refused: a removed definition, 
 a changed type, tag key or definition shape; a required field that was not required; a retired
 name in use again; a union or enum without a catch-all (a named `unknown` value or an untagged\n`true` entry: the two are the same variant to the gate); a frozen corpus file changed.
 """
-import copy, hashlib, json, sys
+import argparse, copy, hashlib, json, sys
 from pathlib import Path
 
 SCHEMA = Path('protocol.schema.json')
@@ -188,9 +188,15 @@ def corpus_hashes(paths):
     return {p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in paths}
 
 
-def check():
+def check(schema_path=SCHEMA, fragment=None, require_current=False):
     lock = json.loads(LOCK.read_text())
-    bad = compare(lock, flatten(json.loads(SCHEMA.read_text())))
+    schema = json.loads(Path(schema_path).read_text())
+    if fragment:
+        # Apply to a copy, never the canonical schema or the frozen lock.
+        schema['$defs'].update(json.loads(Path(fragment).read_text())['$defs'])
+    bad = compare(lock, flatten(schema))
+    if require_current and not bad and lock['surface'] != flatten(schema):
+        bad.append('schema has unlocked additions; run make lock-ir')
     for p, h in lock.get('corpus', {}).items():
         if not Path(p).is_file():
             bad.append(f'{p}: frozen corpus file missing')
@@ -334,4 +340,10 @@ def lock():
 
 
 if __name__ == '__main__':
-    sys.exit({'check': check, 'control': control, 'lock': lock}[sys.argv[1]]())
+    parser = argparse.ArgumentParser()
+    parser.add_argument('command', choices=['check', 'control', 'lock'])
+    parser.add_argument('--schema', type=Path, default=SCHEMA)
+    parser.add_argument('--fragment', type=Path)
+    parser.add_argument('--require-current', action='store_true')
+    args = parser.parse_args()
+    sys.exit(check(args.schema, args.fragment, args.require_current) if args.command == 'check' else {'control': control, 'lock': lock}[args.command]())

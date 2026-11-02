@@ -77,7 +77,13 @@ pub(crate) async fn load(
                                 publish(&mut store, &g.hub, event).await?;
                             }
                         }
-                        if handle(op, &mut store, &g.hub).await? { break; }
+                        if handle(op, &mut store, &g.hub).await? {
+                            if let Some(closed) = store.events.last() {
+                                crate::frontends::ir_scan::session_closed(&config.sessions, closed,
+                                    config.redactor.clone(), g.hub.clone());
+                            }
+                            break;
+                        }
                     }
                     _ = tick.tick() => {
                         // read whatever was appended since the last poll; only whole lines count

@@ -91,6 +91,7 @@ async fn run_cli(
     let mut replay = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "ir-scan" => return super::ir_scan::cli(args).await,
             "smoke-live" => return Ok(super::smoke::run().await),
             #[cfg(feature = "acp")]
             "smoke-live-acp" => return Ok(super::smoke::run_acp().await),

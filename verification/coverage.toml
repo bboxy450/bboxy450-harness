@@ -104,8 +104,11 @@ sources = [
     "src/import/mod.rs",
     "src/import/spill.rs",
     "src/import/watch.rs",
+    "src/ir_scan.rs",
+    "src/ir_scan/proposal.rs",
 ]
 implementation_only = [
+    "IR scanner shape paths, native/unknown/ext/schema traversal, redacted 4KiB samples, catalogue merging, proposal additivity and KB records: tests/ir_scan.rs. HarnessDirtyWakeFrame models independent session close and finite worker dispatch; actual 1ms CPU timing and JSON/filesystem bytes remain implementation witnesses.",
     "OSC 7501 seat reports: exact base64/UTF-8 bytes, streaming probe filtering and unattended PTY input/termios in tests/seat_golden.rs and tests/seat_process.rs. ACP usage_update maps context/cost/currency to additive log IR v1 session Usage with source/backend/unreported provenance, including between turns. Serialization, decimal-to-micro rounding, invalid/empty updates and reported agent/model identity are implementation witnesses in tests/acp_agent.rs and tests/protocol_golden.rs; no new arbitration state. tests/context_auto.rs proves session gauges and unreported call counters cannot anchor a rebuilt engine request after handoff.",
     "Native log import: HarnessNativeUsage models two call identities repeated across two turns plus separate cumulative session snapshots; HarnessNativeSpill models blob-before-reference and failed writes. JSON parsing, reported/derived scope labels, import backend/model/version identity, named absent required counts, cache/reasoning arithmetic, cumulative reset interpretation, UTF-8/JSON-escaped previews, actual blob bytes/durability, file growth and truncation remain implementation witnesses in tests/import_native.rs (one-shot import, live append, switch with handoff). No arbitrary Rust refinement claim.",
     "Log IR v1 additive serialization, numeric provenance and offline usage accounting: src/protocol/usage.rs and src/frontends/usage.rs; tests/ir_v1_corpus.rs, tests/usage_report.rs and tests/protocol_golden.rs. Arbitrary JSON/amounts, currencies and file discovery remain implementation witnesses; fork opaque-data preservation is finite-modelled by HarnessForkMaterialize.",

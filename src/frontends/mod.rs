@@ -6,6 +6,8 @@
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 pub mod face_core;
 pub mod headless;
+#[path = "../ir_scan.rs"]
+pub mod ir_scan;
 pub mod seat;
 pub mod usage;
 
