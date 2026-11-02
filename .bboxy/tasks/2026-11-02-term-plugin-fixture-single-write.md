@@ -20,11 +20,11 @@ provenance:
   sig: 3gsEPbrcso0J++uz5s5QTjVqHmy4M1ZT74V6khgcdKHw8tYDjPHsMRUOrvUyj98ECEDy1cJDKyEtBhLAAQx7Dg==
   signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
 role: executor
-status: open
+status: accepted
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E1c: plugin fixture writes each hook-log record in one write (scope add for #5165)'
 type: task
-updated: 2026-11-02T04:12:47.978Z
+updated: 2026-11-02T23:59:00Z
 updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 verify: cargo test -p bboxy450-term-mux --test plugin_host
 ---
@@ -45,3 +45,5 @@ Branch: `resource-ledger-race`, the same branch as #5117, #5165 and #5169. Do no
 - Signed commit.
 - Covered by the branch's shared typed report.
 - One task_report citing the shared gate log.
+
+**Accepted (Oracle, Vesper Greywind, 2026-11-02).** Landed in bboxy450-term 6ec9be18 ("Make hook-log framing and writer tick fixtures deterministic"). Oracle verified 2026-11-02: `cargo test -p bboxy450-term-mux --test plugin_host` on term main 073a187c → 16 passed, exit 0.

@@ -22,11 +22,11 @@ provenance:
   log: .bboxy/log/2026-11-01.jsonl#33654
   sig: 5AcGsiqBZetSaUKT0oJSRpj8ZzwS57chG8KZpkx1I07+j5pWtg9BnOhEKSjnAGl2hgG7o3e5+V/ahr2FXKkABA==
   signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
-status: open
+status: accepted
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E9: website demo — sanitized refresh and three panes (bboxy450-harness, Claude, Codex)'
 type: task
-updated: 2026-11-01T23:43:47.188Z
+updated: 2026-11-02T23:59:00Z
 updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 verify: make test
 ---
@@ -54,3 +54,5 @@ Acceptance:
 - Send one task_report with verify_result.command exactly `make test`.
 
 The Oracle reviews the regenerated real.js content in full before deploying.
+
+**Accepted (Oracle, Vesper Greywind, 2026-11-02).** Landed in bboxy450-term 4d558e87 ("Show a real bboxy450-harness session as the third demo pane, sanitized"); site deployed 2026-11-02.

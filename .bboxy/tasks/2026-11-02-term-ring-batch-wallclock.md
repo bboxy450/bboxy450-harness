@@ -21,11 +21,11 @@ provenance:
   sig: UI5KGuRUkfD77QYYIymJKUm1PBzpcpAUI3CIOpyCMqUZf4/dS9ftpvx1f8hsIDhXSWhvnN0GTFkomg+q4o0+Cg==
   signer: seat:01M6AC3D2ECK4W3F8495PAQTS3
 role: executor
-status: open
+status: accepted
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
 title: 'E7: make ring_batch progress tests turn-bounded, not wall-clock (CPU-load flake)'
 type: task
-updated: 2026-11-02T03:49:48.563Z
+updated: 2026-11-02T23:59:00Z
 updated_by: seat:01M6AC3D2ECK4W3F8495PAQTS3
 verify: cargo test -p bboxy450-term-mux --lib logic::ring_batch_tests
 ---
@@ -55,3 +55,5 @@ Both failed at `crates/bbt-mux/src/logic/ring_batch_tests.rs:417`. Both passed i
 - A typed report in `.bboxy/reports/` plus the task copy, with a `Report:` trailer.
 - One task_report.
 - Delete your own `target/` after the gate log is recorded.
+
+**Accepted (Oracle, Vesper Greywind, 2026-11-02).** Landed in bboxy450-term (record 3f025918). Oracle verified 2026-11-02: `cargo test -p bboxy450-term-mux --lib logic::ring_batch_tests` on term main 073a187c → 11 passed, exit 0.
