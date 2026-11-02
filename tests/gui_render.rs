@@ -544,3 +544,46 @@ async fn structural_layout_smoke_checks_restored_geometry() {
         "{checked:?}"
     );
 }
+
+/// The composer is the web's one box (lab.css .hx-box): the accent ring while idle, the
+/// interrupt hint while a turn runs, and the toolkit hit contract (send, body, caret) intact.
+#[test]
+fn composer_box_follows_phase_and_keeps_hit_contract() {
+    use bboxy450_harness::frontends::gui::view::find;
+    use bbt_ui::modules::composer::{Hit, Regions};
+    let mut bridge = Bridge::new(Arc::new(Wake));
+    bridge.state.ready = true;
+    let mut view = HarnessView::default();
+    let mut render = |phase: Phase| {
+        bridge.state.transcript = Arc::new(Transcript {
+            phase,
+            ..Default::default()
+        });
+        view.invalidate();
+        view.render(&bridge.state, [900., 700.])
+            .unwrap()
+            .layout
+            .clone()
+            .unwrap()
+    };
+    let idle = render(Phase::Idle);
+    assert!(
+        find(&idle, "composer/hint").is_none(),
+        "idle hides the hint"
+    );
+    let live = render(Phase::Streaming);
+    let hint = find(&live, "composer/hint").expect("a running turn shows esc interrupt");
+    let send = find(&live, "composer/send").unwrap().rect;
+    let panel = find(&live, "composer").unwrap().rect;
+    assert!(hint.rect.right() <= send.x, "hint sits left of send");
+    assert_eq!((send.w, send.h), (24., 24.));
+    assert!(panel.bottom() <= 700. - 11. && panel.w <= 860.);
+    let regions = Regions::new(&live).unwrap();
+    let centre = |r: bbt_ui_model::layout::Rect| [r.x + r.w / 2., r.y + r.h / 2.];
+    assert_eq!(regions.hit(centre(send)), Some(Hit::Send));
+    assert_eq!(regions.hit(centre(regions.body)), Some(Hit::Body));
+    assert!(
+        regions.caret.is_some(),
+        "the focused draft paints its caret"
+    );
+}

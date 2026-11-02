@@ -189,7 +189,6 @@ impl Default for HarnessView {
     fn default() -> Self {
         let composer = super::editor::Input::new(composer::Composer {
             focus: true,
-            body_height: Some(40.),
             to: vec![composer::Address {
                 kind: "seat".into(),
                 label: "Agent".into(),
@@ -296,8 +295,9 @@ impl HarnessView {
                     phase_text(&model.phase)
                 }
             });
+        let live = !matches!(model.phase, Phase::Idle | Phase::Closed) && !state.replay;
         let controls_key = format!(
-            "{draft}{status}{}{:?}{:?}",
+            "{draft}{status}{live}{}{:?}{:?}",
             state.ready,
             model.profile,
             model.meta.as_ref().map(|m| &m.cwd)
@@ -319,7 +319,8 @@ impl HarnessView {
             .layout(slot.rect, ctx, &self.metrics)?;
             (layout, controls.rows_h)
         } else {
-            let composer = self.composer.view.element(ctx, width, &self.metrics)?;
+            let composer =
+                super::face::composer(&self.composer.view, live, ctx, width, &self.metrics)?;
             let composer_h = composer
                 .layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?
                 .rect
@@ -351,7 +352,7 @@ impl HarnessView {
                         .and_then(|m| m.cwd.file_name())
                         .map(|n| n.to_string_lossy().into_owned()),
                     &status,
-                    !matches!(model.phase, Phase::Idle | Phase::Closed) && !state.replay,
+                    live,
                     &super::face::ink(ctx),
                 ),
             );

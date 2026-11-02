@@ -351,6 +351,10 @@ pub fn icon(name: &str, color: Rgba, size: f32, weight: f32) -> c::Element {
             vec![[9.75, 6.25], [6.25, 9.75]],
         ]),
         "chev" => polys(&[vec![[6., 4.], [10., 8.], [6., 12.]]]),
+        "send" => polys(&[
+            vec![[8., 13.], [8., 3.]],
+            vec![[3.5, 7.5], [8., 3.], [12.5, 7.5]],
+        ]),
         "branch" => {
             let mut v = circle(4.5, 3.5, 1.5);
             v.extend(circle(4.5, 12.5, 1.5));
@@ -1448,6 +1452,189 @@ pub fn header(
         },
         kids,
     )
+}
+
+/// The composer: one rounded box with the draft, two quiet chips, the interrupt hint while a
+/// turn runs, and the accent send tile. Translated from harness.js composer() and lab.css
+/// .hx-comp/.hx-box (bboxy450-term lab/web; https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md).
+/// Node names keep the toolkit composer's hit contract (`composer`, `composer/text`,
+/// `composer/body-viewport`, `composer/send`, `composer/attach`, `composer/priority`,
+/// `composer/address`), so `composer::Regions` still drives clicks, the caret and the IME.
+pub fn composer(
+    view: &ui::modules::composer::Composer,
+    live: bool,
+    ctx: ui::Context,
+    width: f32,
+    m: &dyn c::Measure,
+) -> Result<c::Element, String> {
+    use bbt_ui::widgets::text_area::TextArea;
+    use bbt_ui_model::layout::Rect;
+    const LINE: f32 = 20.;
+    const MAX_LINES: f32 = 8.;
+    let ink = ink(ctx);
+    let box_w = (width - 24.).clamp(1., 860.);
+    let side = ((width - box_w) / 2.).max(0.);
+    let inner = (box_w - 22.).max(1.);
+    let mut style = ui::Text {
+        size: Some(13.),
+        paint: paint(ink.fg),
+        line_height: LINE / 13.,
+        ..Default::default()
+    };
+    let empty = view.text.is_empty() && view.edit.as_ref().is_none_or(|e| e.preedit.is_none());
+    if empty {
+        style.paint = paint(alpha(ink.dim, 0.7));
+    }
+    let body = TextArea {
+        value: view.text.clone(),
+        placeholder: "Ask bboxy, @ a file, / a command".into(),
+        style,
+        edit: view.focus.then(|| view.edit.clone().unwrap_or_default()),
+        min_lines: 1,
+        wrap: true,
+        name: "composer/text".into(),
+    }
+    .element(inner, ctx, m)?;
+    let mut body = body;
+    if empty {
+        tint_placeholder(&mut body, paint(alpha(ink.dim, 0.7)));
+    }
+    // Grow with the draft up to MAX_LINES, then scroll so the caret stays in view.
+    let measured = body.layout(Rect::new(0., 0., inner, 0.), ctx, m)?;
+    let height = measured.rect.h.clamp(LINE, LINE * MAX_LINES);
+    fn caret(n: &c::Layout) -> Option<Rect> {
+        if matches!(&n.kind, c::LayoutKind::Named(k) if k == "composer/text/caret") {
+            return Some(n.rect);
+        }
+        n.children.iter().find_map(caret)
+    }
+    let bottom = caret(&measured).map_or(measured.rect.h, |r| r.bottom());
+    let offset = view
+        .body_scroll
+        .unwrap_or((bottom - height).max(0.))
+        .clamp(0., (measured.rect.h - height).max(0.));
+    let viewport = named(
+        "composer/body-viewport",
+        c::Element::ScrollView(c::ScrollView {
+            viewport: [inner, height],
+            offset: [0., offset],
+            content_width: Some(inner),
+            content: Box::new(body),
+        }),
+    );
+    let chip = |key: &str, label: &str| {
+        named(
+            key,
+            frame(
+                Frame {
+                    fill: alpha(ink.fg, 0.07),
+                    border: Some(alpha(ink.fg, 0.10)),
+                    radius: [999.; 4],
+                    padding: [0., 6., 0., 6.],
+                    row: true,
+                    ..Default::default()
+                },
+                vec![fixed(line(label, 10.5, 400, ink.dim, false))],
+            ),
+        )
+    };
+    let mut tools = vec![
+        fixed(chip("composer/attach", "@ context")),
+        fixed(chip("composer/priority", "queue")),
+        spacer(),
+    ];
+    if live {
+        tools.push(fixed(named(
+            "composer/hint",
+            line("esc interrupt", 10.5, 400, alpha(ink.dim, 0.7), false),
+        )));
+    }
+    tools.push(fixed(named(
+        "composer/send",
+        // Padded rather than a spacer-centred tile, so the glyph sits on the exact centre.
+        frame(
+            Frame {
+                fill: ink.seat,
+                radius: [8.; 4],
+                padding: [5.; 4],
+                ..Default::default()
+            },
+            vec![fixed(icon("send", ink.surface, 14., 2.2))],
+        ),
+    )));
+    let mut kids = vec![];
+    if let Some(n) = view.notice.as_ref().filter(|n| n.kind != "sent") {
+        kids.push(fixed(named(
+            "composer/notice",
+            line(n.text.clone(), 11.5, 400, ink.ask, false),
+        )));
+    }
+    // Zero-height address slot: routing stays in the draft model, the row is not shown.
+    kids.push(c::Item {
+        element: named("composer/address", c::Element::Spacer),
+        extent: c::Extent::Fixed(0.),
+    });
+    kids.push(fixed(viewport));
+    // The tools row sits 6 px under the draft (.hx-tools margin-top).
+    kids.push(fixed(frame(
+        Frame {
+            padding: [6., 0., 0., 0.],
+            gap: 6.,
+            row: true,
+            ..Default::default()
+        },
+        tools,
+    )));
+    let ring = view.focus && !live;
+    let mut panel = frame(
+        Frame {
+            fill: alpha(ink.fg, 0.04),
+            border: Some(if ring {
+                alpha(ink.seat, 0.45)
+            } else {
+                alpha(ink.fg, 0.10)
+            }),
+            radius: [13.; 4],
+            padding: [8., 10., 6., 10.],
+            ..Default::default()
+        },
+        kids,
+    );
+    if let c::Element::Box(b) = &mut panel {
+        b.gap = ui::Length::Px(0.);
+        if ring {
+            b.style.overrides.rings = Some(vec![ui::Border {
+                width: ui::Length::Px(3.),
+                paint: paint(alpha(ink.seat, 0.10)),
+                outside: true,
+            }]);
+        }
+    }
+    Ok(frame(
+        Frame {
+            padding: [8., side, 12., side],
+            ..Default::default()
+        },
+        vec![fixed(named("composer", panel))],
+    ))
+}
+/// TextArea paints its placeholder in the theme's muted ink; the web dims it further.
+fn tint_placeholder(e: &mut c::Element, p: ui::Paint) {
+    match e {
+        c::Element::Text(t) => t.runs.iter_mut().for_each(|r| r.style.paint = p),
+        c::Element::Named { content, .. } => tint_placeholder(content, p),
+        c::Element::Layers { base, overlays } => {
+            tint_placeholder(base, p);
+            overlays
+                .iter_mut()
+                .for_each(|o| tint_placeholder(&mut o.content, p));
+        }
+        c::Element::Box(b) => b
+            .children
+            .iter_mut()
+            .for_each(|i| tint_placeholder(&mut i.element, p)),
+        _ => {}
+    }
 }
 
 /// A filled dot: a shape, not a painted box (it has no content slot).
