@@ -257,6 +257,33 @@ impl Host {
         });
         Ok(gateway)
     }
+    /// A live, read-only session over another harness's native log (Claude Code, Codex),
+    /// projected into our log format; `switch` continues it on any profile.
+    pub async fn watch(
+        &self,
+        native: Option<crate::import::Native>,
+        path: std::path::PathBuf,
+        cwd: std::path::PathBuf,
+    ) -> Result<InProc, Refused> {
+        let session = SessionId::new();
+        let start = OpId::new();
+        let mut config = self.config.clone();
+        config.meta.session = session;
+        config.meta.cwd = cwd;
+        config.meta.profile = None;
+        config.meta.fork = None;
+        let entry = self.entry(session);
+        let mut state = entry.lock().await;
+        let (gateway, task) = crate::import::watch::load(config, start, native, path)
+            .await
+            .map_err(|_| Refused::Closed)?;
+        state.loaded = Some(Loaded {
+            gateway: gateway.clone(),
+            start,
+            task: Some(task),
+        });
+        Ok(gateway)
+    }
     /// An `acp-agent` profile selects the ACP agent backend instead of the engine.
     async fn acp_agent(
         &self,

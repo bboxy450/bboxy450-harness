@@ -240,6 +240,15 @@ impl Store {
         }
     }
     pub async fn append(&mut self, event: Event, cause: Option<OpId>) -> io::Result<Envelope> {
+        self.append_at(event, cause, now_ms()).await
+    }
+    /// Append with the time the event happened (an imported native record keeps its own clock).
+    pub async fn append_at(
+        &mut self,
+        event: Event,
+        cause: Option<OpId>,
+        ts_ms: u64,
+    ) -> io::Result<Envelope> {
         if self.closed || !event.is_durable() {
             return Err(io::Error::other("log is closed or event is ephemeral"));
         }
@@ -254,7 +263,7 @@ impl Store {
             epoch: self.epoch,
             seq: Some(head),
             at: head,
-            ts_ms: now_ms(),
+            ts_ms,
             cause,
             event,
         };

@@ -15,6 +15,8 @@ pub struct Options {
     pub screenshot: PathBuf,
     /// Render-only capture size (parity): no fixture assertions, transcript top.
     pub capture: Option<[u32; 2]>,
+    /// `--watch [claude:|codex:]PATH`: render another harness's native session live.
+    pub watch: Option<(Option<crate::import::Native>, PathBuf)>,
 }
 impl Options {
     pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
@@ -25,6 +27,7 @@ impl Options {
             headless: false,
             screenshot: ".bboxy/runs/gui-smoke.png".into(),
             capture: None,
+            watch: None,
         };
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
@@ -35,6 +38,15 @@ impl Options {
                 "--headless" => out.headless = true,
                 "--screenshot" => {
                     out.screenshot = args.next().ok_or("missing screenshot path")?.into()
+                }
+                "--watch" => {
+                    let spec = args.next().ok_or("missing watch path")?;
+                    out.watch = Some(match spec.split_once(':') {
+                        Some((kind, path)) if crate::import::Native::parse(kind).is_some() => {
+                            (crate::import::Native::parse(kind), path.into())
+                        }
+                        _ => (None, spec.into()),
+                    });
                 }
                 "--capture" => {
                     let size = args.next().ok_or("missing capture size")?;

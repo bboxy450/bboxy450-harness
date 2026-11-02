@@ -108,6 +108,23 @@ async fn run_cli(
                 );
                 return Ok(0);
             }
+            "import" => {
+                // bboxy450-harness import [claude|codex] FILE: project a native session into our log
+                let first = args.next().ok_or("missing native log path")?;
+                let (native, path) = match crate::import::Native::parse(&first) {
+                    Some(native) => (
+                        Some(native),
+                        PathBuf::from(args.next().ok_or("missing native log path")?),
+                    ),
+                    None => (None, PathBuf::from(first)),
+                };
+                let root = PathBuf::from(std::env::var_os("HOME").ok_or("HOME unavailable")?)
+                    .join(".bboxy450-harness");
+                let sessions = sessions.clone().unwrap_or_else(|| root.join("sessions"));
+                let session = crate::import::import_file(native, &path, sessions.clone()).await?;
+                println!("{}", sessions.join(format!("{session}.jsonl")).display());
+                return Ok(0);
+            }
             "check-transcript" => {
                 let path = args.next().ok_or("missing transcript path")?;
                 let text = tokio::fs::read_to_string(path)

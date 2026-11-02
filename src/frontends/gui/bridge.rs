@@ -179,6 +179,13 @@ impl Bridge {
         tx.send(profile).map_err(|_| "the session host has stopped")
     }
     pub fn create(&mut self, config: Config) {
+        self.start(config, None)
+    }
+    /// Render another harness's native session live (read-only until `/profile` forks it).
+    pub fn watch(&mut self, config: Config, native: Option<crate::import::Native>, path: PathBuf) {
+        self.start(config, Some((native, path)))
+    }
+    fn start(&mut self, config: Config, watch: Option<(Option<crate::import::Native>, PathBuf)>) {
         let mailbox = self.mailbox.clone();
         let detach = self.detach.clone();
         let (switch_tx, mut switches) = tokio::sync::mpsc::unbounded_channel::<String>();
@@ -204,16 +211,13 @@ impl Bridge {
             let sessions = config.sessions.clone();
             let redactor = config.redactor.clone();
             mailbox.profiles.store(Arc::new(profile_names(&config.profiles).await));
+            let cwd = config.meta.cwd.clone();
             let host = Host::new(config);
-            match host
-                .create(OpEnvelope {
-                    v: PROTOCOL,
-                    op_id: OpId::new(),
-                    session,
-                    op,
-                })
-                .await
-            {
+            let created = match watch {
+                Some((native, path)) => host.watch(native, path, cwd).await.map(|g| (g, crate::gateway::Ack { op_id: OpId::new(), duplicate: false })),
+                None => host.create(OpEnvelope { v: PROTOCOL, op_id: OpId::new(), session, op }).await,
+            };
+            match created {
                 Ok((mut gateway, _)) => {
                     loop {
                         tokio::select! {

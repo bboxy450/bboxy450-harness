@@ -134,7 +134,10 @@ impl App {
         if let Some(path) = &self.options.replay {
             self.bridge.replay(path.clone());
         } else {
-            self.bridge.create(config(&self.options)?);
+            match self.options.watch.clone() {
+                Some((native, path)) => self.bridge.watch(config(&self.options)?, native, path),
+                None => self.bridge.create(config(&self.options)?),
+            }
         }
         self.window = Some(window);
         Ok(())

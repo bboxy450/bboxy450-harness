@@ -91,8 +91,11 @@ sources = [
     "src/frontends/gui/face_rows.rs",
     "src/backend/mod.rs",
     "src/backend/acp_agent.rs",
+    "src/import/mod.rs",
+    "src/import/watch.rs",
 ]
 implementation_only = [
+    "Native log import (src/import): Claude Code and Codex records project into protocol events checked by check_transcript; the watch actor tails a file, refuses turns and closes an open native turn before SessionClosed. Parsing, projection and tailing are implementation witnesses in tests/import_native.rs (one-shot import, live append, switch with handoff); no model covers file growth or truncation.",
     "Anthropic request mapping, SSE bytes, signed/redacted block replay, cache markers and token arithmetic: tests/anthropic_provider.rs. HarnessProviderStream abstracts shared retry ownership and finish/error classes; actual network scheduling, wall-clock stalls, redaction and serialization remain implementation witnesses.",
     "Seat-capability file syscalls and exact bytes: O_NOFOLLOW/O_NONBLOCK, pre-open metadata and fstat regular/euid/exact0600 checks, 64 lowercase hex plus newline, safe refusal text; src/capability.rs unit witnesses. HarnessMcpServer abstracts a valid versus unavailable file and registration before projection, not kernel/filesystem correctness.",
     "Seat capability environment projection: real headless/seat/ACP tool processes, profile/ACP MCP env and resolved-value refusals, launcher inheritance exception, stored output and GUI smoke rendering in tests/capability_delivery.rs and tests/support/seat_launch.rs. Environment bytes, actual value matching and pixels are implementation witnesses.",

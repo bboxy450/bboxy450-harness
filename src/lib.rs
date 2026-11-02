@@ -28,6 +28,7 @@ pub mod gateway;
 #[cfg(feature = "acp-agent")]
 pub mod backend;
 pub mod engine;
+pub mod import;
 
 pub mod frontends;
 
