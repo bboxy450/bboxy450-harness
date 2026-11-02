@@ -4,6 +4,7 @@
 // License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+pub mod face_core;
 pub mod headless;
 pub mod seat;
 

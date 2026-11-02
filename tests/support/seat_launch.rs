@@ -89,7 +89,7 @@ async fn finish_seat(mut child: tokio::process::Child, temp: &Path) -> String {
         while let Some(line) = lines.next_line().await.unwrap() {
             output.push_str(&line);
             output.push('\n');
-            if line.contains("EndTurn") {
+            if line.contains("✓ Done") {
                 return;
             }
         }
@@ -201,7 +201,7 @@ async fn launcher_flags_deliver_context_tools_and_only_launcher_environment() {
         while let Some(line) = lines.next_line().await.unwrap() {
             output.push_str(&line);
             output.push('\n');
-            if line.contains("EndTurn") {
+            if line.contains("✓ Done") {
                 return;
             }
         }

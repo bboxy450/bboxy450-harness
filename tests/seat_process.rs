@@ -79,7 +79,7 @@ fn hangup_stops_without_an_operator() {
                 break;
             }
             all.extend_from_slice(&b[..n]);
-            if String::from_utf8_lossy(&all).contains("approval:") {
+            if String::from_utf8_lossy(&all).contains("sleep 600") {
                 let _ = tx.send(());
                 break;
             }
@@ -120,7 +120,7 @@ fn no_bboxy_sock_still_finishes_a_turn() {
                 break;
             }
             all.extend_from_slice(&b[..n]);
-            if String::from_utf8_lossy(&all).contains("EndTurn") {
+            if String::from_utf8_lossy(&all).contains("✓ Done") {
                 let _ = tx.send(all);
                 return;
             }

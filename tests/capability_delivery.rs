@@ -275,7 +275,7 @@ mod processes {
                         .line()
                         .await
                         .expect("seat ended early")
-                        .contains("EndTurn")
+                        .contains("✓ Done")
                     {
                         break;
                     }

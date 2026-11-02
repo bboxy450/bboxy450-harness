@@ -1,5 +1,9 @@
 session 00000000000000000000000001 · scripted
-› ▸ interrupted {}
-✗ tool call was not completed (1 lines)
-— Interrupted
-› recovered 1 items, 1 turns
+› 
+   ◆  interrupted                                                                            1ms  ✗
+  │ tool call was not completed
+
+  ✗ Interrupted · 3ms · 1 tool · 42 in · 21 out
+› 
+  · recovered 1 items, 1 turns
+› 

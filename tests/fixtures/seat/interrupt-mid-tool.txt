@@ -1,5 +1,7 @@
 session 00000000000000000000000001 · scripted
-› ▸ bash {"path":"hello.txt"}
-✗ hello (1 lines)
-— Cancelled
+› 
+   ▶  Run                                                                                    2ms  ✗
+  │ hello
+
+  ✗ Cancelled · 4ms · 1 tool · 42 in · 21 out
 › 

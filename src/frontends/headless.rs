@@ -71,6 +71,7 @@ async fn run_cli(
     let mut max_rounds = 50;
     let mut append_system_prompt = String::new();
     let mut mcp_config = None;
+    let mut replay = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "smoke-live" => return Ok(super::smoke::run().await),
@@ -87,6 +88,7 @@ async fn run_cli(
             }
             "--scripted" => scripts.push(PathBuf::from(args.next().ok_or("missing SSE path")?)),
             "--resume" => resume = Some(args.next().ok_or("missing session")?),
+            "--replay" => replay = Some(PathBuf::from(args.next().ok_or("missing replay path")?)),
             "--yolo" => yolo = true,
             "--append-system-prompt" => {
                 append_system_prompt = args.next().ok_or("missing system prompt text")?
@@ -140,12 +142,36 @@ async fn run_cli(
             }
             "--help" | "-h" => {
                 println!(
-                    "bboxy450-harness -p PROMPT --json [--profile NAME] [--cwd DIR]\nbboxy450-harness --json --resume CLOSED_SESSION\nbboxy450-harness seat [--profile NAME] [--resume SESSION] [--cwd DIR]   (in a seat: /profiles, /profile NAME) [--append-system-prompt TEXT] [--mcp-config PATH]\n--scripted SSE (repeat for rounds) --sessions DIR --yolo"
+                    "bboxy450-harness -p PROMPT --json [--profile NAME] [--cwd DIR]\nbboxy450-harness --json --resume CLOSED_SESSION\nbboxy450-harness seat [--profile NAME] [--resume SESSION] [--cwd DIR]   (in a seat: /profiles, /profile NAME) [--append-system-prompt TEXT] [--mcp-config PATH]\nbboxy450-harness seat --replay LOG.jsonl   (render a stored log through the seat face)\n--scripted SSE (repeat for rounds) --sessions DIR --yolo"
                 );
                 return Ok(0);
             }
             _ => return Err(format!("unknown option {arg}")),
         }
+    }
+    if let Some(path) = replay {
+        // seat --replay LOG: render a stored log through the seat face and exit
+        if !seat {
+            return Err("--replay needs seat".into());
+        }
+        let text = tokio::fs::read_to_string(&path)
+            .await
+            .map_err(|_| "replay log unavailable")?;
+        let mut projection = super::seat::LineProjection::new(super::seat::Style::detect(false));
+        let mut bytes = vec![];
+        for line in text.lines().filter(|l| !l.trim().is_empty()) {
+            let envelope: Envelope =
+                serde_json::from_str(line).map_err(|_| "invalid replay log JSON")?;
+            bytes.extend(projection.render(&envelope));
+        }
+        bytes.push(b'\n');
+        let mut stdout = tokio::io::stdout();
+        stdout
+            .write_all(&bytes)
+            .await
+            .map_err(|_| "stdout closed")?;
+        stdout.flush().await.map_err(|_| "stdout closed")?;
+        return Ok(0);
     }
     if !acp && !seat && prompt.is_none() && !(json && resume.is_some()) {
         return Err("provide -p PROMPT --json, or seat".into());
@@ -356,9 +382,10 @@ async fn run_cli(
         })
         .map_err(|_| "subscribe refused")?;
     let profiles_root = root.join("profiles");
-    let mut line_projection = super::seat::LineProjection::default();
-    let mut stdout = tokio::io::stdout();
     let stdin_was_tty = unsafe { libc::isatty(libc::STDIN_FILENO) } == 1;
+    let mut line_projection =
+        super::seat::LineProjection::new(super::seat::Style::detect(seat && stdin_was_tty));
+    let mut stdout = tokio::io::stdout();
     let mut input = tokio::io::BufReader::new(tokio::io::stdin()).lines();
     ready.store(true, std::sync::atomic::Ordering::Release);
     let mut stopping = false;

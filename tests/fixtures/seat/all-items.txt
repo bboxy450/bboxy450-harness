@@ -1,26 +1,35 @@
 session 00000000000000000000000001 · scripted
-› I’ll read both files.
-thinking: Compare the current contents.
-▸ read {"path":"hello.txt"}
-✓ hello (1 lines)
-▸ read {"path":"hello.txt"}
-✓ hello (1 lines)
-[InProgress] Update greeting
-approval: Edit hello.txt · [Allow, Deny] · Some(Allow)
-hello.txt
---- a/hello.txt
-+++ b/hello.txt
-@@ -1 +1 @@
--hello
-+hello world
+› 
+ ❯ Read two files and update hello.txt
 
-▸ edit {"path":"hello.txt"}
-✓ hello (1 lines)
-▸ bash {"path":"hello.txt"}
-✓ hello (1 lines)
-Info: fixture complete
-— EndTurn
-› I’ll read both files. Continuing.
-— EndTurn
-› — EndTurn
+  I’ll read both files.
+
+  ✻ Thought · Compare the current contents.
+   ▤  Read hello.txt                                                                1 line · 3ms  ✓
+   ▤  Read hello.txt                                                                1 line · 1ms  ✓
+  ☰ Plan  0/1
+  │ ◐ Update greeting
+
+   ✎  Edit hello.txt                                                        +1 −1 · ⛨ auto · 5ms  ✓
+  │    1 −hello
+  │    1 +hello world
+
+   ▶  Run printf ok
+  │ $ printf ok
+  │ ok
+  ╰──────────────────────────────────────────────────────────────────────────────── exit 0 · 4ms  ✓
+
+  · fixture complete
+
+  ✓ Done · 38ms · 1 round · 4 tools · 1 edit · 42 in · 21 out
+› 
+ ❯ Read two files again.
+
+  I’ll read both files. Continuing.
+
+  ✓ Done · 5ms · 42 in · 21 out
+› 
+ ❯ Read two files to finish.
+
+  ✓ Done · 7ms · 42 in · 21 out
 › 

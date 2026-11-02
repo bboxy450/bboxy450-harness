@@ -307,6 +307,20 @@ fn assert_recovery(root: &Path) {
     );
     let session = events(root)[0].session.to_string();
     let mut resumed = Seat::spawn(root, Some(&session), false);
+    // A terminal reads its seat: an undrained PTY fills and blocks the seat's stdout.
+    let screen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut reader = resumed.master.as_ref().unwrap().try_clone_reader().unwrap();
+    let drained = screen.clone();
+    std::thread::spawn(move || {
+        use std::io::Read;
+        let mut b = [0u8; 4096];
+        while let Ok(n) = reader.read(&mut b) {
+            if n == 0 {
+                break;
+            }
+            drained.lock().unwrap().extend_from_slice(&b[..n]);
+        }
+    });
     wait_for(
         || {
             events(root)
@@ -319,15 +333,7 @@ fn assert_recovery(root: &Path) {
     resumed.write(b"\x04");
     let status = resumed.exit(Duration::from_secs(2));
     if !status.success() {
-        use std::io::Read;
-        let mut output = String::new();
-        let _ = resumed
-            .master
-            .as_ref()
-            .unwrap()
-            .try_clone_reader()
-            .unwrap()
-            .read_to_string(&mut output);
+        let output = String::from_utf8_lossy(&screen.lock().unwrap()).into_owned();
         panic!("resumed Ctrl-D failed: {status:?}: {output}");
     }
     let log = events(root);
