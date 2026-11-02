@@ -553,6 +553,7 @@ impl Preparer {
                             edits: count(ItemKind::FileChange),
                             tokens: usage.as_ref().map(|u| (u.input_tokens, u.output_tokens)),
                             folded: folds.folded.get(turn).copied().unwrap_or(0),
+                            key: format!("turn/{}", turn.0),
                         },
                         &ink,
                     ),

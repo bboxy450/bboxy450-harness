@@ -397,6 +397,16 @@ pub fn icon(name: &str, color: Rgba, size: f32, weight: f32) -> c::Element {
         }
         // the filled stop square of soft receipts: one stroke as wide as the square
         "stopfill" => polys(&[vec![[1.45, 8.], [14.55, 8.]]]),
+        "retry" => {
+            // M13 8a5 5 0 1 1-1.5-3.55 M13 2.5v3h-3 (web icon 'retry')
+            let arc: Vec<[f32; 2]> = (0..=16)
+                .map(|i| {
+                    let a = (314.6_f32 * i as f32 / 16.).to_radians();
+                    [8. + 5. * a.cos(), 8. + 5. * a.sin()]
+                })
+                .collect();
+            polys(&[arc, vec![[13., 2.5], [13., 5.5], [10., 5.5]]])
+        }
         "chevdown" => polys(&[vec![[4., 6.], [8., 10.], [12., 6.]]]),
         "branch" => {
             let mut v = circle(4.5, 3.5, 1.5);
@@ -951,6 +961,8 @@ pub struct Receipt {
     pub why: Option<String>,
     /// replies folded into the turn's loop card
     pub folded: usize,
+    /// names the Retry / Switch profile buttons `{key}/retry`, `{key}/switch` (error stops)
+    pub key: String,
 }
 pub fn receipt(r: Receipt, ink: &Ink) -> c::Element {
     let c = if r.ok {
@@ -1035,6 +1047,52 @@ pub fn receipt(r: Receipt, ink: &Ink) -> c::Element {
     } else {
         (alpha(c, 0.08), alpha(c, 0.25))
     };
+    if !r.ok && !r.soft {
+        // .hx-eact: Retry (bad fill, white) and Switch profile (card-hi)
+        let button =
+            |label: &str, glyph: Option<&str>, fill_c: Rgba, fg: Rgba, edge: Option<Rgba>| {
+                let mut kids = vec![];
+                if let Some(g) = glyph {
+                    kids.push(fixed(icon(g, fg, 12., 1.6)));
+                }
+                kids.push(fixed(line(label, 12., 600, fg, false)));
+                frame(
+                    Frame {
+                        fill: fill_c,
+                        border: edge,
+                        radius: [8.; 4],
+                        padding: [4., 10., 4., 10.],
+                        gap: 6.,
+                        row: true,
+                        ..Default::default()
+                    },
+                    kids,
+                )
+            };
+        rows.push(
+            hstack(
+                vec![
+                    fixed(named(
+                        format!("{}/retry", r.key),
+                        button("Retry", Some("retry"), ink.bad, hex("#ffffff"), None),
+                    )),
+                    fixed(named(
+                        format!("{}/switch", r.key),
+                        button(
+                            "Switch profile",
+                            None,
+                            alpha(ink.fg, 0.07),
+                            ink.fg,
+                            Some(alpha(ink.fg, 0.10)),
+                        ),
+                    )),
+                    spacer(),
+                ],
+                6.,
+            )
+            .into(),
+        );
+    }
     frame(
         Frame {
             fill: fill_c,

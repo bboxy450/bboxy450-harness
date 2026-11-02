@@ -128,6 +128,8 @@ pub enum Action {
     Approval(ItemId, ApprovalDecision),
     Jump,
     Toggle(ItemId, super::rich::Toggle),
+    /// An error receipt's Retry: the failed turn's own prompt, sent again.
+    Retry(TurnId),
     Complete(ui::text_edit::Completion, String),
     /// The header profile chip: opens or closes the profile switcher.
     Profiles,
@@ -523,6 +525,20 @@ impl HarnessView {
                 }
             }
         }
+        for turn in state.transcript.turns.keys() {
+            for (key, action) in [
+                (format!("turn/{}/retry", turn.0), Action::Retry(*turn)),
+                // an error receipt's Switch profile opens the header's profile switcher
+                (format!("turn/{}/switch", turn.0), Action::Profiles),
+            ] {
+                if let Some(node) = find(&layout, &key) {
+                    let r = intersection(node.rect, scroll_node.rect);
+                    if r.w > 0. && r.h > 0. {
+                        frame.actions.push((r, action));
+                    }
+                }
+            }
+        }
         for (key, action) in [
             ("profile", Action::Profiles),
             ("jump", Action::Jump),
@@ -875,6 +891,28 @@ impl HarnessView {
                             return;
                         }
                         Op::Close
+                    }
+                    Action::Retry(turn) => {
+                        let model = &bridge.state.transcript;
+                        let prompt = model.order.iter().find_map(|id| {
+                            let row = &model.items[id];
+                            match &row.body {
+                                Item::UserMessage { blocks } if row.turn == Some(turn) => {
+                                    Some(blocks.clone())
+                                }
+                                _ => None,
+                            }
+                        });
+                        let Some(blocks) = prompt else {
+                            self.notice = Some("Nothing to retry: the turn has no prompt".into());
+                            self.invalidate();
+                            return;
+                        };
+                        self.scroll.follow_latest();
+                        Op::UserTurn {
+                            blocks,
+                            mode: TurnMode::Queue,
+                        }
                     }
                     Action::Approval(approval, decision) => {
                         if !bridge
@@ -1385,6 +1423,9 @@ impl Preparer {
             };
             if face_rows::handles(model, row) {
                 let deps = folds.deps(model, id, self);
+                // .hx-feed: a centred 860 px column with 14 px padding; the row region
+                // adds its own 4 px inset, so the frame gutter carries the rest
+                let gutter = (((width - 860.) / 2.).max(0.) + 14. - 4.).max(gutter);
                 let content_width = width - 2. * gutter - 8.;
                 let (element, rich) = self.face_row(
                     model,
