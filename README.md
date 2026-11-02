@@ -68,9 +68,23 @@ helper. After adding a missing profile, relaunch the app.
 
 From source, `make app` builds `target/bboxy450-harness.app` in release mode with
 the approved Apple signature and fails if that identity is unavailable.
-`make app-unsigned` uses an ad-hoc signature. `make smoke-app` checks that test
-bundle with an offline rendered replay and a three-second empty-HOME launch,
-without credentials or operator input. `make release-dry` packages the ad-hoc
+`make install` builds that signed app and installs it as
+`~/Applications/bboxy450-harness.app`; override the destination with
+`INSTALL_DIR=/path/to/Applications`. Reinstalling preserves the outer app inode
+for Dock/Finder aliases and retains the previous `Contents` in the printed
+private staging directory.
+
+`make app-unsigned` uses an ad-hoc signature. `make install-unsigned` installs
+that test app into `target/install-unsigned` by default; set
+`UNSIGNED_INSTALL_DIR=/private/test/path` for an isolated destination. Its
+default destination is separate from the trusted signed app. After installing,
+`make install-cli` links the installed app's binary as
+`~/.local/bin/bboxy450-harness` if `~/.local/bin` already exists, without sudo.
+`make help` lists the targets and directory overrides.
+
+`make smoke-app` checks that test bundle with an offline rendered replay and a
+three-second empty-HOME launch, without credentials or operator input.
+`make release-dry` packages the ad-hoc
 test bundle and verifies its GPG signature/checksum in `target/release-artifacts/`;
 it creates no tag or release. The Oracle uses `make release` on verified, clean
 `main` to build the Apple-signed bundle, sign the archive, push a signed tag and

@@ -64,7 +64,7 @@ A distinctive implementation adapted from elsewhere carries its own `// Adapted 
   (`crates/bboxy450-harness-wake-up/src/observe.rs`); the harness emits compatible
   state reports. https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md.
 - **Adapted from bboxy450-term** (https://github.com/bboxy450/bboxy450-term),
-  `Makefile` bundle/signing/archive recipes and `packaging/macos/Info.plist`.
+  `Makefile` bundle/signing/install/archive recipes and `packaging/macos/Info.plist`.
   Upstream reuse policy: https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md.
 - **Copied from bboxy450's identity artwork**, `~/.agents/identity/bboxy.png`
   (canonical source identifier: `bboxy450/dotagents:identity/bboxy.png`), as

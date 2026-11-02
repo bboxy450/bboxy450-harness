@@ -4,13 +4,27 @@
 # License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 # Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
-.PHONY: test test-ir lock-ir test-formal test-formal-native test-formal-parity check-formal-evidence smoke-live bench-budgets test-licenses test-secrets
+.PHONY: help test test-ir lock-ir test-formal test-formal-native test-formal-parity check-formal-evidence smoke-live bench-budgets test-licenses test-secrets
 TARGET_DIR ?= target
 
 test:
 	python3 -I scripts/test.py
 	$(MAKE) test-gui
 	$(MAKE) test-app-packaging
+
+help:
+	@printf '%s\n' \
+	  'make test                       Full unattended unit, integration, formal, GUI and packaging checks' \
+	  'make test-formal                Native Yarn/formal checks and broken controls' \
+	  'make test-formal-parity         Native/Java TLC graph and verdict parity' \
+	  'make app / app-unsigned         Release app, Apple identity / ad-hoc signed' \
+	  'make install                    Apple-signed app into ~/Applications' \
+	  'make install-unsigned           Ad-hoc app into target/install-unsigned' \
+	  'make install-cli                Link the installed binary if ~/.local/bin exists; no sudo' \
+	  'make test-app-packaging         Private launcher, signing and repeated-install checks' \
+	  'make smoke-app                  Private offline replay and empty-HOME launch' \
+	  'make release-dry / release      Signed archive / publish verified main' \
+	  'Overrides: TARGET_DIR=... INSTALL_DIR=... UNSIGNED_INSTALL_DIR=...'
 
 test-formal-native:
 	FORMAL_OUT='$(abspath $(TARGET_DIR))/formal/models' cargo test --offline --locked --test formal_models --test formal_nonvacuity --test reactor_projection
@@ -56,6 +70,8 @@ bench-gui-budget:
 # Adapted from bboxy450-term Makefile bundle/release recipes:
 # https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
 APP := bboxy450-harness
+INSTALL_DIR ?= $(HOME)/Applications
+UNSIGNED_INSTALL_DIR ?= $(TARGET_DIR)/install-unsigned
 BUNDLE := $(TARGET_DIR)/$(APP).app
 DIST_DIR := $(TARGET_DIR)/release-artifacts
 APP_VERSION = $(shell python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
@@ -64,7 +80,7 @@ SIGNING_IDENTITY := 3943AF130A015B36824B7FBC86AA672E7B25F3C4
 GPG_KEY := 9B07E849480C68328CA20684844ECC0587DE7AB0
 REQUIREMENT := identifier "com.bboxy450.harness" and anchor apple generic and certificate leaf[subject.OU] = "UQB3368A84"
 
-.PHONY: app-files app app-unsigned smoke-app release-dry release test-app-packaging
+.PHONY: app-files app app-unsigned install install-unsigned install-cli smoke-app release-dry release test-app-packaging
 app-files:
 	@test "$$(uname -s)" = Darwin || { echo 'macOS is required' >&2; exit 2; }
 	cargo build --locked --release --features standalone --target-dir '$(TARGET_DIR)'
@@ -93,6 +109,36 @@ app-unsigned: app-files
 	codesign --force --sign - --timestamp=none '$(BUNDLE)'; \
 	codesign --verify --strict '$(BUNDLE)'; \
 	printf '%s\n' 'Test bundle: ad-hoc signature only; no Apple identity or Keychain access.'
+
+# Adapted from bboxy450-term Makefile install_bundle:
+# https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
+# Keep the outer .app inode for Dock/Finder aliases and retain previous Contents.
+define install_bundle
+set -eu; mkdir -p '$(1)'; \
+stage=$$(mktemp -d '$(1)/.$(APP)-install.XXXXXX'); \
+ditto '$(BUNDLE)' "$$stage/new.app"; codesign --verify --strict "$$stage/new.app"; \
+destination='$(1)/$(APP).app'; mkdir -p "$$destination"; \
+if [ -d "$$destination/Contents" ]; then mv "$$destination/Contents" "$$stage/previous-Contents"; fi; \
+if ! mv "$$stage/new.app/Contents" "$$destination/Contents"; then \
+  if [ -d "$$stage/previous-Contents" ]; then mv "$$stage/previous-Contents" "$$destination/Contents"; fi; exit 1; \
+fi; \
+codesign --verify --strict --verbose=2 "$$destination"; \
+printf 'Installed: %s\nPrevious contents, if any: %s\n' "$$destination" "$$stage/previous-Contents"
+endef
+
+install: app
+	@$(call install_bundle,$(INSTALL_DIR))
+
+install-unsigned: app-unsigned
+	@$(call install_bundle,$(UNSIGNED_INSTALL_DIR))
+
+install-cli:
+	@set -eu; if [ -d '$(HOME)/.local/bin' ]; then \
+	  binary="$$(cd '$(INSTALL_DIR)' && pwd)/$(APP).app/Contents/MacOS/$(APP)"; \
+	  test -x "$$binary"; \
+	  ln -sfn "$$binary" '$(HOME)/.local/bin/$(APP)'; \
+	  printf 'Linked: %s\n' '$(HOME)/.local/bin/$(APP)'; \
+	else printf '%s\n' 'Skipped CLI link: ~/.local/bin does not exist.'; fi
 
 test-app-packaging:
 	python3 -I tests/app_packaging.py

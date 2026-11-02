@@ -51,6 +51,13 @@ Every unit, smoke, e2e and agent test runs with nobody at the machine. Use priva
 
 Drive the harness through its flags, sockets, `--replay`, `--capture` and scripted providers (`--scripted`). Never inject OS keystrokes/clicks or screen-capture the operator's desktop. Kill only exact PIDs you started and recorded; delete only directories you created. Never use broad process kills or clean up peers' targets/worktrees.
 
+## Standalone installation
+
+- `make install` builds the Apple-signed `app` and installs `bboxy450-harness.app` into `INSTALL_DIR` (default `~/Applications`). The Oracle performs the trusted installation.
+- `make install-unsigned` builds `app-unsigned` with ad-hoc signing and installs into `UNSIGNED_INSTALL_DIR` (default `target/install-unsigned`). Tests use a private temporary destination; no Apple identity or Keychain access is needed.
+- Both installs stage with `ditto`, verify the staged and installed signatures, preserve the outer `.app` inode, and retain previous `Contents` in the printed staging directory.
+- `make install-cli` links the installed binary into `~/.local/bin` only when that directory exists; it never uses sudo. `make help` lists the directory overrides.
+
 ## Roles
 
 | Role | Who | Does |
