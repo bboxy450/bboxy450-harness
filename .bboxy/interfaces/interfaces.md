@@ -104,7 +104,7 @@ updated: "2026-11-02T22:00:00Z"
 **Baseline at 3d76710** (rows / mean): claude-acp .153/.019 · codex-acp .125/.016 · omp .125/.017 · pi .128/.017 · opencode .531/.046 · glyph-atlas .462/.049 · mermaid .497/.033. Gate exit 0; `--target` exit 2. **Broken control:** a native render replaced by a blank frame exits 1 with 11 FAIL lines.
 
 **Rules.**
-- Changing a fixture, the web reference commit or a target is an Architect re-baseline: a new baseline file and a recorded reason.
+- Changing a fixture or a target is an Architect re-baseline with a recorded reason. A moved web reference is not: the gate prints `REFERENCE MOVED` and writes `OUT/baseline-candidate.json` from that run; whoever lands the run may adopt it (copy over the baseline file, commit message naming the lab hash), provided the run's TARGET lines are no worse than before. `--ratchet` then tightens from there.
 - A tolerance is never widened to pass a cut. After a landed improvement, `parity-gate.py OUT --ratchet` lowers the baseline scores to the measured ones (never raises them, never on a moved reference), so slack does not accumulate; anyone may run it.
 - The instrument resizes a wrongly sized native frame before scoring, so the gate checks the PNG sizes itself.
 - Not covered: interaction states (hover, popover, scroll), light theme, other sizes. Those stay manual until fixtures exist for them.
