@@ -57,13 +57,21 @@ impl Face {
 #[derive(Default)]
 struct Document {
     stream: StreamingMarkdown,
-    blocks: Vec<(Range<usize>, Arc<c::Layout>)>,
+    blocks: Vec<Prepared>,
     width: f32,
     received: usize,
     parsed: usize,
     // A credit bounds reparsing even for one unfinished paragraph/fence or
     // document-wide reference definitions. Unparsed bytes remain visible as
     // literal tail text; completion always flushes through streaming append.
+}
+struct Prepared {
+    source: Range<usize>,
+    layout: Arc<c::Layout>,
+    /// web block margins [top, bottom]
+    margins: [f32; 2],
+    /// paragraph, heading or list: a control may sit beside its last line
+    prose: bool,
 }
 #[derive(Default)]
 pub struct Documents {
@@ -78,6 +86,9 @@ pub struct Documents {
 pub struct Body {
     pub element: c::Element,
     pub blocks: Vec<Arc<c::Layout>>,
+    /// The last text line: its right edge and its baseline's distance above the body's
+    /// bottom. A row can seat a small control beside it instead of on a line of its own.
+    pub tail: Option<[f32; 2]>,
 }
 impl Documents {
     pub fn prepare(
@@ -117,7 +128,7 @@ impl Documents {
             doc.width = width;
         }
         if let Some(start) = changed {
-            doc.blocks.retain(|(range, _)| range.end <= start);
+            doc.blocks.retain(|b| b.source.end <= start);
         }
         let highlighter = self
             .highlighter
@@ -131,11 +142,26 @@ impl Documents {
             let mut element =
                 fragment.transcript_body_element(&highlights, context(), metrics, width);
             super::view::flat(&mut element);
-            let layout = element.layout(Rect::new(0., 0., width, 0.), context(), metrics)?;
-            doc.blocks.push((block.source.clone(), Arc::new(layout)));
+            transcript_type(&mut element, (width - MEASURE).max(0.), false);
+            let mut layout = element.layout(Rect::new(0., 0., width, 0.), context(), metrics)?;
+            chips_and_bullets(&mut layout, metrics)?;
+            let prose = matches!(
+                block.kind,
+                bbt_doc::BlockKind::Paragraph(_)
+                    | bbt_doc::BlockKind::Heading { .. }
+                    | bbt_doc::BlockKind::List { .. }
+            );
+            doc.blocks.push(Prepared {
+                source: block.source.clone(),
+                layout: Arc::new(layout),
+                margins: margins(&block.kind),
+                prose,
+            });
             self.block_layouts += 1;
         }
-        let mut blocks: Vec<_> = doc.blocks.iter().map(|(_, l)| l.clone()).collect();
+        let mut blocks: Vec<_> = doc.blocks.iter().map(|b| b.layout.clone()).collect();
+        let mut spacing: Vec<[f32; 2]> = doc.blocks.iter().map(|b| b.margins).collect();
+        let mut prose = doc.blocks.last().is_some_and(|b| b.prose);
         let pending = &text[doc.stream.document().source.len()..];
         if !pending.is_empty() {
             // Literal streaming tail is fully readable while a pathological
@@ -147,16 +173,54 @@ impl Documents {
                 context(),
                 metrics,
             )?));
+            spacing.push([0., 0.]);
+            prose = false;
         }
-        let slots = blocks
-            .iter()
-            .enumerate()
-            .map(|(i, l)| named(format!("mdblock/{i}"), column(vec![], Some(l.rect.h))).into())
-            .collect();
+        // Block rhythm of the web reference (.hx-msg p/h/ul margins): adjacent margins
+        // collapse to the larger one; the message keeps its first top and last bottom.
+        let mut slots: Vec<c::Item> = vec![];
+        let mut previous = 0_f32;
+        for (i, l) in blocks.iter().enumerate() {
+            let gap = if i == 0 {
+                spacing[i][0]
+            } else {
+                previous.max(spacing[i][0])
+            };
+            if gap > 0. {
+                slots.push(column(vec![], Some(gap)).into());
+            }
+            slots.push(named(format!("mdblock/{i}"), column(vec![], Some(l.rect.h))).into());
+            previous = spacing[i][1];
+        }
+        if previous > 0. {
+            slots.push(column(vec![], Some(previous)).into());
+        }
+        let tail = blocks.last().filter(|_| prose).and_then(|l| {
+            let mut last: Option<[f32; 2]> = None;
+            last_line(l, &mut last);
+            last.map(|[right, baseline]| [right, l.rect.bottom() - baseline + previous])
+        });
         Ok(Body {
             element: column(slots, None),
             blocks,
+            tail,
         })
+    }
+}
+/// [right edge, baseline] of the lowest text line in a block layout.
+fn last_line(node: &c::Layout, out: &mut Option<[f32; 2]>) {
+    if let c::LayoutKind::Text { runs, .. } = &node.kind {
+        for r in runs.iter().filter(|r| !r.text.trim().is_empty()) {
+            *out = match *out {
+                Some([_, b]) if r.baseline > b + 0.5 => Some([r.rect.right(), r.baseline]),
+                Some([x, b]) if (r.baseline - b).abs() <= 0.5 => Some([x.max(r.rect.right()), b]),
+                None => Some([r.rect.right(), r.baseline]),
+                keep => keep,
+            };
+        }
+    }
+    for child in &node.children {
+        last_line(child, out);
     }
 }
 pub fn restore(node: &mut c::Layout, blocks: &[Arc<c::Layout>]) {
@@ -179,4 +243,239 @@ pub fn restore(node: &mut c::Layout, blocks: &[Arc<c::Layout>]) {
     for child in &mut node.children {
         restore(child, blocks);
     }
+}
+
+// ---------- transcript typography ----------
+// The web reference (bboxy450-term lab/web/lab.css .hx-msg) sets agent prose at 13.5 px on
+// the full feed column, headings at 15 px, and `code` as a chip: .88em mono on a hairline
+// rounded card. The toolkit's document renderer keeps a 576 px reading measure and plain
+// mono runs, so the transcript adapts its prepared element here, before layout.
+// Translated from https://github.com/bboxy450/bboxy450-term (lab/web/lab.css); policy
+// https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+
+/// The toolkit's reading measure (style.json spacing.doc_measure).
+const MEASURE: f32 = bbt_ui_model::STYLE.spacing.doc_measure as f32;
+const BODY: f32 = 13.5;
+const BODY_LINE: f32 = 1.45;
+const HEADING: f32 = 15.;
+/// .88em of the body: a 1/64 px value no other transcript text uses, so the chip pass
+/// recognises inline code after layout without a side table.
+const CHIP_TEXT: f32 = 11.875;
+/// Two thin spaces each side stand in for the chip's 5 px padding and 1 px border.
+const THIN: &str = "\u{2009}\u{2009}";
+
+/// Web block margins [top, bottom] (.hx-msg p, h3..h6, ul/ol, .hx-code, .dgfig).
+fn margins(kind: &bbt_doc::BlockKind) -> [f32; 2] {
+    use bbt_doc::BlockKind as K;
+    match kind {
+        K::Paragraph(_) => [0., 6.],
+        K::Heading { .. } => [8., 6.],
+        K::List { .. } => [2., 8.],
+        K::Code { info, .. } if info.split_whitespace().next() == Some("mermaid") => [8., 8.],
+        K::Code { .. } => [6., 6.],
+        K::Rule => [8., 8.],
+        _ => [6., 6.],
+    }
+}
+
+fn widen(v: &mut f32, delta: f32) {
+    // Only quantities derived from the reading measure (nested lists and quotes step
+    // inward from it); table and figure widths already use the full column.
+    if delta > 0. && *v <= MEASURE + 0.01 && *v >= MEASURE - 120. {
+        *v += delta;
+    }
+}
+
+fn transcript_type(e: &mut c::Element, delta: f32, in_flow: bool) {
+    match e {
+        c::Element::Box(b) => {
+            if let Some(ui::Length::Px(w)) = &mut b.style.overrides.width {
+                widen(w, delta);
+            }
+            // a list: its items are marker layers; .hx-msg li keeps 2 px margins
+            if !b.children.is_empty()
+                && b.children
+                    .iter()
+                    .all(|i| matches!(i.element, c::Element::Layers { .. }))
+            {
+                b.gap = ui::Length::Px(3.);
+            }
+            for item in &mut b.children {
+                if let c::Extent::Fixed(w) = &mut item.extent {
+                    widen(w, delta);
+                }
+                transcript_type(&mut item.element, delta, false);
+            }
+        }
+        c::Element::Stack(s) => {
+            for item in &mut s.children {
+                transcript_type(&mut item.element, delta, false);
+            }
+        }
+        c::Element::Flow(f) => {
+            for item in &mut f.children {
+                transcript_type(&mut item.element, delta, true);
+            }
+        }
+        c::Element::ScrollView(s) => {
+            widen(&mut s.viewport[0], delta);
+            transcript_type(&mut s.content, delta, false);
+        }
+        c::Element::Named { content, .. }
+        | c::Element::FixedHeight { content, .. }
+        | c::Element::Filter { content, .. }
+        | c::Element::InlineMiddle { content, .. }
+        | c::Element::Baseline { content, .. } => transcript_type(content, delta, in_flow),
+        c::Element::Overlay(o) => transcript_type(&mut o.content, delta, false),
+        c::Element::Layers { base, overlays } => {
+            transcript_type(base, delta, false);
+            for p in overlays {
+                transcript_type(&mut p.content, delta, false);
+                // li::marker takes the seat colour
+                if let c::Element::Named { name, content } = &mut p.content
+                    && name.contains("/bullet")
+                    && let c::Element::Text(t) = content.as_mut()
+                {
+                    for r in &mut t.runs {
+                        r.style.paint = ui::Paint::solid(ui::Color::Accent);
+                    }
+                }
+            }
+        }
+        c::Element::Text(t) => {
+            let mono = t.runs.iter().any(|r| r.style.mono);
+            let prose = t.runs.iter().any(|r| !r.style.mono);
+            // a code block is all mono; inline code shares its text with prose, or is a
+            // lone word of a wrapped flow line
+            let inline = mono && (prose || in_flow);
+            let mut runs = Vec::with_capacity(t.runs.len() + 2);
+            for mut run in std::mem::take(&mut t.runs) {
+                let s = &mut run.style;
+                if !s.mono && s.step == ui::TypeStep::Body {
+                    match s.size {
+                        None => {
+                            s.size = Some(BODY);
+                            s.line_height = BODY_LINE;
+                        }
+                        Some(px) if s.weight >= 700 && px > BODY => {
+                            s.size = Some(HEADING);
+                            s.line_height = 1.4;
+                        }
+                        _ => {}
+                    }
+                    // .hx-msg .arw: → and ← take the seat colour, bold
+                    if run.value.contains(['→', '←']) {
+                        let mut rest = run.value.as_str();
+                        while let Some(i) = rest.find(['→', '←']) {
+                            let arrow = rest[i..].chars().next().unwrap_or('→');
+                            if i > 0 {
+                                runs.push(c::TextRun {
+                                    value: rest[..i].into(),
+                                    style: run.style,
+                                });
+                            }
+                            runs.push(c::TextRun {
+                                value: arrow.into(),
+                                style: ui::Text {
+                                    weight: 700,
+                                    paint: ui::Paint::solid(ui::Color::Accent),
+                                    ..run.style
+                                },
+                            });
+                            rest = &rest[i + arrow.len_utf8()..];
+                        }
+                        if !rest.is_empty() {
+                            runs.push(c::TextRun {
+                                value: rest.into(),
+                                style: run.style,
+                            });
+                        }
+                        continue;
+                    }
+                    runs.push(run);
+                } else if inline && s.mono {
+                    s.size = Some(CHIP_TEXT);
+                    let pad = ui::Text {
+                        mono: false,
+                        size: Some(BODY),
+                        line_height: BODY_LINE,
+                        ..*s
+                    };
+                    runs.push(c::TextRun {
+                        value: THIN.into(),
+                        style: pad,
+                    });
+                    runs.push(run);
+                    runs.push(c::TextRun {
+                        value: THIN.into(),
+                        style: pad,
+                    });
+                } else {
+                    runs.push(run);
+                }
+            }
+            t.runs = runs;
+        }
+        _ => {}
+    }
+}
+
+fn rounded(w: f32, h: f32, r: f32) -> Vec<bbt_ui_model::draw::PathCommand> {
+    use bbt_ui_model::draw::PathCommand as P;
+    let k = r * 0.552_284_8;
+    let (x0, y0, x1, y1) = (0.5, 0.5, w - 0.5, h - 0.5);
+    vec![
+        P::Move([x0 + r, y0]),
+        P::Line([x1 - r, y0]),
+        P::Cubic([[x1 - r + k, y0], [x1, y0 + r - k], [x1, y0 + r]]),
+        P::Line([x1, y1 - r]),
+        P::Cubic([[x1, y1 - r + k], [x1 - r + k, y1], [x1 - r, y1]]),
+        P::Line([x0 + r, y1]),
+        P::Cubic([[x0 + r - k, y1], [x0, y1 - r + k], [x0, y1 - r]]),
+        P::Line([x0, y0 + r]),
+        P::Cubic([[x0, y0 + r - k], [x0 + r - k, y0], [x0 + r, y0]]),
+    ]
+}
+
+/// After layout: paint a chip behind each inline-code run, and set each list marker on
+/// its item's first line (the toolkit places it from the reading-measure height).
+fn chips_and_bullets(node: &mut c::Layout, metrics: &impl c::Measure) -> Result<(), String> {
+    if matches!(node.kind, c::LayoutKind::Stack)
+        && node.children.len() == 2
+        && matches!(&node.children[1].kind, c::LayoutKind::Named(n) if n.contains("/bullet"))
+    {
+        let dy = node.children[0].rect.y - node.children[1].rect.y;
+        translate(&mut node.children[1], 0., dy);
+    }
+    let mut out = Vec::with_capacity(node.children.len());
+    for mut child in std::mem::take(&mut node.children) {
+        if let c::LayoutKind::Text { runs, .. } = &child.kind {
+            let ink = super::face::ink(context());
+            for run in runs
+                .iter()
+                .filter(|r| r.style.mono && (r.style.size - CHIP_TEXT).abs() < 0.001)
+                .filter(|r| !r.text.trim().is_empty())
+            {
+                let h = (CHIP_TEXT * 1.25 + 3.).round();
+                let w = run.rect.w + 10.;
+                let y = (run.baseline - CHIP_TEXT * 0.36 - h / 2.).round();
+                let path = c::Element::Path(c::Path {
+                    size: [w, h],
+                    points: Arc::from(rounded(w, h, 5.)),
+                    stroke: bbt_ui_model::draw::PathStroke {
+                        width: 1.,
+                        ..Default::default()
+                    },
+                    paint: super::face::paint(super::face::alpha(ink.fg, 0.10)),
+                    fill: Some(super::face::paint(super::face::alpha(ink.fg, 0.07))),
+                    opacity: 1.,
+                });
+                out.push(path.layout(Rect::new(run.rect.x - 5., y, w, h), context(), metrics)?);
+            }
+        }
+        chips_and_bullets(&mut child, metrics)?;
+        out.push(child);
+    }
+    node.children = out;
+    Ok(())
 }

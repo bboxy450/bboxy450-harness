@@ -45,10 +45,73 @@ pub(super) struct Folds {
     asking: HashMap<ItemId, ItemId>,
     /// the last visible row of each turn carries the turn's receipt once it ends
     last: HashMap<ItemId, TurnId>,
+    /// runaway loop: the repeated reply that opens the card -> everything folded after it
+    loops: HashMap<ItemId, Vec<ItemId>>,
+    /// turn -> replies folded into its loop (the receipt says so)
+    folded: HashMap<TurnId, usize>,
+}
+/// harness-spec.md "Runaway loop card": first line, lowercased, letters only, 48 chars.
+fn line_key(markdown: &str) -> String {
+    let first = markdown.trim().lines().next().unwrap_or("").to_lowercase();
+    let letters: String = first
+        .chars()
+        .filter(|c| c.is_ascii_lowercase() || *c == ' ')
+        .collect();
+    letters
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(48)
+        .collect()
 }
 impl Folds {
-    pub fn of(model: &Transcript) -> Self {
+    pub fn of(model: &Transcript, faces: &super::super::rich::Faces) -> Self {
         let mut f = Self::default();
+        // A reply whose first line repeats an earlier reply of its turn opens a loop card;
+        // later replies, thoughts, tool calls and notices of that turn fold into it.
+        let mut said: HashMap<TurnId, std::collections::HashSet<String>> = HashMap::new();
+        let mut anchor: HashMap<TurnId, ItemId> = HashMap::new();
+        for id in &model.order {
+            let r = &model.items[id];
+            let Some(t) = r.turn else { continue };
+            if let Some(a) = anchor.get(&t) {
+                if matches!(
+                    r.kind,
+                    ItemKind::AgentMessage
+                        | ItemKind::Reasoning
+                        | ItemKind::ToolCall
+                        | ItemKind::Notice
+                ) {
+                    f.loops.entry(*a).or_default().push(*id);
+                    if r.kind == ItemKind::AgentMessage {
+                        *f.folded.entry(t).or_default() += 1;
+                    }
+                }
+                continue;
+            }
+            if let Item::AgentMessage { markdown } = &r.body
+                && r.completed.is_some()
+            {
+                let key = line_key(markdown);
+                let seen = said.entry(t).or_default();
+                if !key.is_empty() && seen.contains(&key) {
+                    anchor.insert(t, *id);
+                    f.loops.insert(*id, vec![]);
+                    f.folded.insert(t, 1);
+                } else {
+                    seen.insert(key);
+                }
+            }
+        }
+        for (a, members) in &f.loops {
+            // open (its header toggled once) shows the folded rows in place again
+            if !faces.get(a).is_some_and(|face| face.output_closed) {
+                for m in members {
+                    f.parent.insert(*m, *a);
+                }
+            }
+        }
         let is_tool = |id: &ItemId| {
             model
                 .items
@@ -57,6 +120,9 @@ impl Folds {
         };
         for id in &model.order {
             let r = &model.items[id];
+            if f.parent.contains_key(id) {
+                continue;
+            }
             let to = match &r.body {
                 Item::Approval {
                     subject, decision, ..
@@ -110,6 +176,7 @@ impl Folds {
             .into_iter()
             .flatten()
             .chain(self.asking.get(id))
+            .chain(self.loops.get(id).into_iter().flatten())
         {
             if let Some(r) = model.items.get(k) {
                 any = true;
@@ -165,6 +232,45 @@ impl Preparer {
                     .join("\n");
                 f::user_bubble(if text.is_empty() { "…" } else { &text }, &ink)
             }
+            Item::AgentMessage { markdown } if folds.loops.contains_key(&id) => {
+                let members = &folds.loops[&id];
+                let count = |k: ItemKind| {
+                    std::iter::once(&id)
+                        .chain(members)
+                        .filter(|m| model.items.get(m).is_some_and(|r| r.kind == k))
+                        .count()
+                };
+                let bits: Vec<String> = [
+                    (count(ItemKind::AgentMessage), "reply", "replies"),
+                    (count(ItemKind::Reasoning), "thought", "thoughts"),
+                    (count(ItemKind::ToolCall), "tool call", "tool calls"),
+                ]
+                .into_iter()
+                .filter(|(n, ..)| *n > 0)
+                .map(|(n, one, many)| format!("{n} {}", if n == 1 { one } else { many }))
+                .collect();
+                let open = face.output_closed;
+                let mut kids: Vec<c::Item> = vec![
+                    f::loop_head(&format!("toolhead/{id}"), &bits.join(" · "), open, &ink).into(),
+                ];
+                if open {
+                    let doc = self.documents.prepare(
+                        id,
+                        markdown,
+                        true,
+                        content_width - 36.,
+                        &self.metrics,
+                    )?;
+                    kids.push(f::loop_body(doc.element.clone(), &ink).into());
+                    rich = Some(doc);
+                } else {
+                    // folded rows stay addressable while the card is closed
+                    for m in members {
+                        kids.push(named(format!("item/{m}"), c::Element::Spacer).into());
+                    }
+                }
+                named(format!("loop/{id}"), f::loop_card(kids, &ink))
+            }
             Item::AgentMessage { markdown } => {
                 let doc = self.documents.prepare(
                     id,
@@ -173,50 +279,67 @@ impl Preparer {
                     content_width,
                     &self.metrics,
                 )?;
-                let mut kids: Vec<c::Item> = vec![];
-                if face.source {
+                let base = if face.source {
                     let mut t = f::text(markdown.clone(), 12., 400, ink.fg, true);
                     t.preserve_whitespace = true;
-                    kids.push(c::Element::Text(t).into());
+                    c::Element::Text(t)
                 } else {
-                    kids.push(doc.element.clone().into());
-                }
-                if row.completed.is_some() {
-                    kids.push(
-                        f::hstack(
-                            vec![
-                                c::Item {
-                                    element: c::Element::Spacer,
-                                    extent: c::Extent::Fill,
-                                },
-                                f::fixed(named(
-                                    format!("source/{id}/toggle"),
-                                    f::line(
-                                        if face.source { "formatted" } else { "source" },
-                                        10.5,
-                                        500,
-                                        f::alpha(ink.dim, 0.7),
-                                        true,
-                                    ),
-                                )),
-                            ],
-                            0.,
-                        )
-                        .into(),
-                    );
-                }
+                    doc.element.clone()
+                };
+                let toggle = named(
+                    format!("source/{id}/toggle"),
+                    f::line(
+                        if face.source { "formatted" } else { "source" },
+                        10.5,
+                        500,
+                        f::alpha(ink.dim, 0.55),
+                        true,
+                    ),
+                );
+                // The web reference has no source line: the toggle sits at the right end
+                // of the message's last line when that line leaves room, else on its own.
+                let ([tw, th], tb) = toggle
+                    .natural(f32::INFINITY, ctx, &self.metrics)
+                    .map_err(|e| format!("{e:?}"))?;
+                let seat = doc
+                    .tail
+                    .filter(|_| !face.source)
+                    .filter(|[right, _]| right + tw + 16. <= content_width);
+                let content = match (row.completed.is_some(), seat) {
+                    (false, _) => base,
+                    (true, Some([_, above])) => c::Element::Layers {
+                        base: Box::new(base),
+                        overlays: vec![c::Placed {
+                            content: toggle,
+                            left: content_width - tw,
+                            bottom: (above - (th - tb)).max(0.),
+                        }],
+                    },
+                    (true, None) => f::vstack(
+                        vec![
+                            base.into(),
+                            f::hstack(
+                                vec![
+                                    c::Item {
+                                        element: c::Element::Spacer,
+                                        extent: c::Extent::Fill,
+                                    },
+                                    f::fixed(toggle),
+                                ],
+                                0.,
+                            )
+                            .into(),
+                        ],
+                        2.,
+                    ),
+                };
                 rich = Some(doc);
-                f::vstack(kids, 2.)
+                content
             }
             Item::Reasoning { summary, .. } => {
                 let live = row.status.is_none();
                 let open = live || face.reasoning_open;
-                let gist = summary
-                    .split_inclusive(['.', '!', '?'])
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .to_owned();
+                let gist = gist(summary);
                 let mut kids: Vec<c::Item> = vec![
                     f::thought_row(
                         &format!("reasoning/{id}/toggle"),
@@ -418,15 +541,18 @@ impl Preparer {
                     f::receipt(
                         f::Receipt {
                             ok: matches!(reason, StopReason::EndTurn),
-                            reason: match reason {
-                                StopReason::Error { message, .. } => format!("Error: {message}"),
-                                other => format!("{other:?}").to_lowercase().replace('_', " "),
+                            soft: matches!(reason, StopReason::Interrupted | StopReason::Cancelled),
+                            reason: stop_title(reason).into(),
+                            why: match reason {
+                                StopReason::Error { message, .. } => Some(message.clone()),
+                                _ => None,
                             },
                             took: start.zip(end).map(|(a, b)| b.saturating_sub(a)),
                             rounds: count(ItemKind::Reasoning),
                             tools: count(ItemKind::ToolCall),
                             edits: count(ItemKind::FileChange),
                             tokens: usage.as_ref().map(|u| (u.input_tokens, u.output_tokens)),
+                            folded: folds.folded.get(turn).copied().unwrap_or(0),
                         },
                         &ink,
                     ),
@@ -446,16 +572,14 @@ impl Preparer {
                 vec![body.into()],
             ),
         );
-        let gap = if matches!(row.kind, ItemKind::Notice | ItemKind::Usage) {
-            3.
-        } else {
-            5.
-        };
+        let gap = 5.;
+        // .hx-feed's 14 px top padding sits on the first row (row gaps are 5 + 5)
+        let top = if index == 0 { 14. } else { gap };
         let _ = width;
         Ok((
             f::frame(
                 f::Frame {
-                    padding: [gap, gutter, gap, gutter],
+                    padding: [top, gutter, gap, gutter],
                     ..Default::default()
                 },
                 vec![region.into()],
@@ -506,6 +630,7 @@ impl Preparer {
             None => f::Status::Running,
             Some(_) if denied => f::Status::Denied,
             Some(ItemStatus::Completed) => f::Status::Done,
+            Some(ItemStatus::Cancelled | ItemStatus::Interrupted) => f::Status::Stopped,
             Some(_) => f::Status::Failed,
         };
         // the terminal's own command is authoritative over the call's arguments
@@ -592,16 +717,34 @@ impl Preparer {
                     Some(t) => self.terminal_text(t, &d.out),
                     None => (!d.out.is_empty()).then(|| d.out.clone()),
                 };
+                // a finished run without output says so in the terminal's own voice
+                let out = out.map(|o| f::term_output(&o, ink)).or_else(|| {
+                    (row.status.is_some() && exit.is_none()).then(|| {
+                        vec![
+                            f::runs(
+                                vec![(
+                                    if d.quiet {
+                                        "output stayed in the agent\u{2019}s own terminal"
+                                    } else {
+                                        "no output"
+                                    }
+                                    .into(),
+                                    f::hex("#7d8597"),
+                                    400,
+                                    false,
+                                )],
+                                12.,
+                                true,
+                                true,
+                            )
+                            .into(),
+                        ]
+                    })
+                });
                 inside.push(
                     wrap(
                         &term,
-                        f::terminal(
-                            &format!("term/{id}"),
-                            &command,
-                            out.map(|o| f::term_output(&o, ink)),
-                            exit,
-                            ink,
-                        ),
+                        f::terminal(&format!("term/{id}"), &command, out, exit, ink),
                     )
                     .into(),
                 );
@@ -679,6 +822,52 @@ impl Preparer {
         let _ = d.name;
         Ok(named(format!("tool/{id}"), f::card(&status, kids, ink)))
     }
+}
+/// The receipt title says what happened in words (harness-spec.md, Turn receipt).
+fn stop_title(reason: &StopReason) -> &'static str {
+    match reason {
+        StopReason::EndTurn => "Done",
+        StopReason::Cancelled => "Cancelled",
+        StopReason::Interrupted => "Interrupted",
+        StopReason::MaxTokens => "Hit the output limit",
+        StopReason::MaxRounds => "Stopped at the round limit",
+        StopReason::Error { class, .. } => match class {
+            ErrorClass::Transient => "Connection dropped",
+            ErrorClass::RateLimited => "Rate limited",
+            ErrorClass::Auth => "Not signed in",
+            ErrorClass::BadRequest => "Request refused",
+            ErrorClass::Malformed => "Unreadable reply",
+            ErrorClass::MidStream => "Reply cut off",
+            ErrorClass::Config => "Profile misconfigured",
+            ErrorClass::Store => "Could not save the session",
+            ErrorClass::Tool => "Tool failed",
+            ErrorClass::Internal => "Harness error",
+            ErrorClass::Cancelled => "Cancelled",
+            ErrorClass::Unknown => "Failed",
+        },
+        StopReason::Unknown => "Stopped",
+    }
+}
+/// A thought's gist: emphasis and code marks dropped, up to the first sentence or line.
+fn gist(summary: &str) -> String {
+    let clean = summary
+        .trim()
+        .replace("**", "")
+        .replace("__", "")
+        .replace('`', "");
+    let mut end = clean.len();
+    let mut chars = clean.char_indices().peekable();
+    while let Some((i, ch)) = chars.next() {
+        if ch == '\n' {
+            end = i;
+            break;
+        }
+        if matches!(ch, '.' | '!' | '?') && chars.peek().is_some_and(|(_, n)| n.is_whitespace()) {
+            end = i + ch.len_utf8();
+            break;
+        }
+    }
+    clean[..end].trim().to_owned()
 }
 fn term_status(row: &ViewItem, exit: Option<i32>) -> f::Status {
     match (&row.status, exit) {

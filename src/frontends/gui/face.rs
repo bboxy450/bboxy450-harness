@@ -378,6 +378,26 @@ pub fn icon(name: &str, color: Rgba, size: f32, weight: f32) -> c::Element {
             [4.5, 11.5],
             [4.5, 4.5],
         ]]),
+        "loop" => {
+            // two arcs, each with its arrowhead (web icon 'loop')
+            let arc = |cx: f32, cy: f32, from: f32, to: f32| -> Vec<[f32; 2]> {
+                (0..=10)
+                    .map(|i| {
+                        let a = (from + (to - from) * i as f32 / 10.).to_radians();
+                        [cx + 4.5 * a.cos(), cy + 4.5 * a.sin()]
+                    })
+                    .collect()
+            };
+            polys(&[
+                arc(7.5, 7., 180., 326.),
+                arc(8.5, 9., 0., 146.),
+                vec![[11.5, 2.], [11.5, 4.75], [8.75, 4.75]],
+                vec![[4.5, 14.], [4.5, 11.25], [7.25, 11.25]],
+            ])
+        }
+        // the filled stop square of soft receipts: one stroke as wide as the square
+        "stopfill" => polys(&[vec![[1.45, 8.], [14.55, 8.]]]),
+        "chevdown" => polys(&[vec![[4., 6.], [8., 10.], [12., 6.]]]),
         "branch" => {
             let mut v = circle(4.5, 3.5, 1.5);
             v.extend(circle(4.5, 12.5, 1.5));
@@ -438,6 +458,8 @@ pub fn tile(icon_el: c::Element, side: f32, radius: f32, bg: Rgba) -> c::Element
     style.overrides.height = Some(ui::Length::Px(side));
     style.overrides.padding = Some([ui::Length::Px(0.); 4]);
     let mut b = c::Box::new(style, vec![spacer(), fixed(icon_el), spacer()]);
+    // the Card preset's gap would push the glyph right of centre
+    b.gap = ui::Length::Px(0.);
     b.direction = Axis::Row;
     b.align = c::Alignment::Center;
     c::Element::Box(b)
@@ -653,10 +675,91 @@ fn code_frame(rows: Vec<c::Item>, ink: &Ink) -> c::Element {
         rows,
     )
 }
+/// A removed line followed by its added twin marks only the span that changed; common
+/// prefix and suffix stay plain (web pairMarks). Char ranges [start, end) per row.
+fn pair_marks(rows: &[DiffRow]) -> Vec<Option<(usize, usize)>> {
+    let mut marks = vec![None; rows.len()];
+    for i in 0..rows.len().saturating_sub(1) {
+        if rows[i].op != '-'
+            || rows[i + 1].op != '+'
+            || (i > 0 && rows[i - 1].op == '-')
+            || rows.get(i + 2).is_some_and(|r| r.op == '+')
+        {
+            continue;
+        }
+        let a: Vec<char> = rows[i].text.chars().collect();
+        let b: Vec<char> = rows[i + 1].text.chars().collect();
+        let p = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+        let q = a[p..]
+            .iter()
+            .rev()
+            .zip(b[p..].iter().rev())
+            .take_while(|(x, y)| x == y)
+            .count();
+        if p + q < 4 {
+            continue;
+        }
+        marks[i] = Some((p, a.len() - q));
+        marks[i + 1] = Some((p, b.len() - q));
+    }
+    marks
+}
+/// Diff text with its changed span tinted beneath the glyphs (.hx-diff .chg): the
+/// base is blank mono of the same length, the tint and the text are layered over it.
+fn marked_line(
+    parts: Vec<(String, Rgba, u16, bool)>,
+    text: &str,
+    span: (usize, usize),
+    tint: Rgba,
+) -> c::Element {
+    use bbt_ui_model::layout::TextMeasure;
+    let m = super::view::Metrics::default();
+    let style = bbt_ui_model::layout::TextStyle {
+        size: 12.,
+        weight: 400,
+        mono: true,
+        italic: false,
+        tracking_em: 0.,
+    };
+    let chars: Vec<char> = text.chars().collect();
+    let mark = parts.first().map_or(String::new(), |p| p.0.clone());
+    let prefix: String = mark
+        .chars()
+        .chain(chars[..span.0].iter().copied())
+        .collect();
+    let changed: String = chars[span.0..span.1].iter().collect();
+    let x = m.width(&prefix, &style);
+    let w = m.width(&changed, &style);
+    let blank = " ".repeat(mark.chars().count() + chars.len());
+    let h = (12.0_f32 * 1.5 * 64.).floor() / 64.;
+    c::Element::Layers {
+        base: Box::new(runs(vec![(blank, [0.; 4], 400, false)], 12., true, false)),
+        overlays: vec![
+            c::Placed {
+                content: c::Element::Rects(c::Rects {
+                    size: [w + 2., h - 2.],
+                    rects: Arc::from([(
+                        bbt_ui_model::layout::Rect::new(0., 0., w + 2., h - 2.),
+                        paint(tint),
+                    )]),
+                    repeat: None,
+                }),
+                left: x - 1.,
+                bottom: 1.,
+            },
+            c::Placed {
+                content: runs(parts, 12., true, false),
+                left: 0.,
+                bottom: 0.,
+            },
+        ],
+    }
+}
 pub fn diff_view(key: &str, unified: &str, ink: &Ink) -> c::Element {
     const CTX: usize = 2;
     let mut out: Vec<c::Item> = vec![];
     for rows in minimal_diff(unified) {
+        let marks = pair_marks(&rows);
         let near: Vec<bool> = (0..rows.len())
             .map(|i| {
                 rows[i.saturating_sub(CTX)..(i + CTX + 1).min(rows.len())]
@@ -707,6 +810,12 @@ pub fn diff_view(key: &str, unified: &str, ink: &Ink) -> c::Element {
             };
             let mut parts = vec![(format!("{mark} "), mark_c, 400, false)];
             parts.extend(syntax(&r.text, ink));
+            let text_cell = match marks[i] {
+                Some(span) if span.1 > span.0 => {
+                    marked_line(parts, &r.text, span, alpha(mark_c, 0.38))
+                }
+                _ => runs(parts, 12., true, false),
+            };
             out.push(
                 named(
                     format!("{key}/line/{}", out.len()),
@@ -722,7 +831,7 @@ pub fn diff_view(key: &str, unified: &str, ink: &Ink) -> c::Element {
                                 .with_width(3.),
                             gutter(r.old, ink),
                             gutter(r.new, ink),
-                            fill(runs(parts, 12., true, false)),
+                            fill(text_cell),
                         ],
                     ),
                 )
@@ -830,18 +939,34 @@ pub fn duration(ms: u64) -> String {
 }
 pub struct Receipt {
     pub ok: bool,
+    /// interrupted / cancelled: a neutral receipt with a stop disc, never red
+    pub soft: bool,
     pub reason: String,
     pub took: Option<u64>,
     pub rounds: usize,
     pub tools: usize,
     pub edits: usize,
     pub tokens: Option<(u64, u64)>,
+    /// .hx-end .why: the failure's own words on a full-width line under the facts
+    pub why: Option<String>,
+    /// replies folded into the turn's loop card
+    pub folded: usize,
 }
 pub fn receipt(r: Receipt, ink: &Ink) -> c::Element {
-    let c = if r.ok { ink.ok } else { ink.bad };
+    let c = if r.ok {
+        ink.ok
+    } else if r.soft {
+        ink.dim
+    } else {
+        ink.bad
+    };
     let mut kids = vec![
         fixed(tile(
-            icon(if r.ok { "check" } else { "x" }, ink.surface, 11., 2.4),
+            if r.soft {
+                stop_glyph(ink.surface)
+            } else {
+                icon(if r.ok { "check" } else { "x" }, ink.surface, 11., 2.4)
+            },
             18.,
             9.,
             c,
@@ -858,22 +983,11 @@ pub fn receipt(r: Receipt, ink: &Ink) -> c::Element {
     if let Some(t) = r.took {
         facts.push(duration(t));
     }
-    facts.push(format!(
-        "{} round{}",
-        r.rounds,
-        if r.rounds == 1 { "" } else { "s" }
-    ));
-    facts.push(format!(
-        "{} tool{}",
-        r.tools,
-        if r.tools == 1 { "" } else { "s" }
-    ));
-    if r.edits > 0 {
-        facts.push(format!(
-            "{} edit{}",
-            r.edits,
-            if r.edits == 1 { "" } else { "s" }
-        ));
+    // zeros omitted (harness-spec.md, Turn receipt)
+    for (n, w) in [(r.rounds, "round"), (r.tools, "tool"), (r.edits, "edit")] {
+        if n > 0 {
+            facts.push(format!("{n} {w}{}", if n == 1 { "" } else { "s" }));
+        }
     }
     if let Some((i, o)) = r.tokens.filter(|t| t.0 > 0) {
         facts.push(format!("{} in · {} out", kilo(i), kilo(o)));
@@ -883,18 +997,64 @@ pub fn receipt(r: Receipt, ink: &Ink) -> c::Element {
             .into_iter()
             .map(|t| fixed(line(t, 11.5, 400, ink.dim, false))),
     );
-    frame(
+    if r.folded > 0 {
+        kids.push(fixed(hstack(
+            vec![
+                fixed(icon("loop", ink.ask, 12., 1.5)),
+                fixed(line(
+                    format!(
+                        "{} repeated repl{} folded",
+                        r.folded,
+                        if r.folded == 1 { "y" } else { "ies" }
+                    ),
+                    11.5,
+                    400,
+                    ink.ask,
+                    false,
+                )),
+            ],
+            4.,
+        )));
+    }
+    let facts = frame(
         Frame {
-            fill: alpha(c, 0.08),
-            border: Some(alpha(c, 0.25)),
-            radius: [11.; 4],
-            padding: [8., 12., 8., 12.],
             gap: 12.,
             row: true,
             ..Default::default()
         },
         kids,
+    );
+    let mut rows = vec![facts.into()];
+    if let Some(why) = r.why.filter(|w| !w.is_empty()) {
+        let mut t = text(why, 12.5, 400, mix(ink.bad, ink.fg, 0.8), false);
+        t.runs[0].style.line_height = 1.4;
+        rows.push(c::Element::Text(t).into());
+    }
+    let (fill_c, border) = if r.soft {
+        (alpha(ink.fg, 0.04), alpha(ink.fg, 0.10))
+    } else {
+        (alpha(c, 0.08), alpha(c, 0.25))
+    };
+    frame(
+        Frame {
+            fill: fill_c,
+            border: Some(border),
+            radius: [11.; 4],
+            padding: [8., 12., 8., 12.],
+            gap: 4.,
+            ..Default::default()
+        },
+        rows,
     )
+}
+/// The 9 px stop square of a soft receipt or a stopped tool, in an 11 px icon slot.
+/// One butt-capped stroke as wide as the square: filled paths paint offset in this renderer.
+pub fn stop_glyph(color: Rgba) -> c::Element {
+    let mut e = icon("stopfill", color, 11., 9. * 16. / 11.);
+    if let c::Element::Path(p) = &mut e {
+        p.stroke.cap = LineCap::Butt;
+    }
+    e
 }
 pub fn kilo(n: u64) -> String {
     match n {
@@ -1001,6 +1161,42 @@ pub struct Tool<'a> {
     pub args: serde_json::Value,
     pub out: String,
     pub name: &'a str,
+    /// an agent tool named by its command line whose output only the agent's terminal saw
+    pub quiet: bool,
+}
+/// ACP agents fence their output (```console … ```) or leave a placeholder for output only
+/// their own terminal saw (harness-spec.md, "ACP-agent sessions: fold rules native must match").
+fn unfence(out: &str) -> String {
+    let inner = out
+        .strip_prefix("```")
+        .and_then(|rest| rest.split_once('\n'))
+        .filter(|(info, _)| {
+            info.chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+        })
+        .and_then(|(_, body)| body.strip_suffix("```"))
+        .map(|body| body.strip_suffix('\n').unwrap_or(body));
+    let out = inner.unwrap_or(out);
+    let placeholder = (out.starts_with("[terminal ") && out.ends_with(']') && !out.contains('\n'))
+        || out == "(no output)";
+    if placeholder {
+        String::new()
+    } else {
+        out.to_owned()
+    }
+}
+/// "ls -la": a command line, not a phrase ("List files")
+fn command_line(name: &str) -> bool {
+    let word = |w: &str, first: bool| {
+        !w.is_empty()
+            && w.chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '.' | '/' | '-'))
+            && (first || w.starts_with('-') || !w.chars().any(char::is_uppercase))
+    };
+    let mut parts = name.split_whitespace();
+    parts.next().is_some_and(|w| word(w, true))
+        && name.split_whitespace().count() > 1
+        && parts.all(|w| word(w, false))
 }
 pub fn describe<'a>(
     name: &'a str,
@@ -1032,6 +1228,7 @@ pub fn describe<'a>(
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let out = unfence(&out);
     let kind = match tool_kind {
         ToolKind::Read => "read",
         ToolKind::Search => "search",
@@ -1056,6 +1253,7 @@ pub fn describe<'a>(
         }
         "edit" | "apply_patch" => ("Edit".into(), short(s("path")), false, "edit"),
         "write" => ("Write".into(), short(s("path")), false, "edit"),
+        "Terminal" => ("Run".into(), s("command"), true, "execute"),
         n if n.starts_with("mcp__") => {
             let mut p = n.splitn(3, "__").skip(1);
             let server = p.next().unwrap_or("").to_owned();
@@ -1066,17 +1264,25 @@ pub fn describe<'a>(
                 "other",
             )
         }
+        n if kind == "execute" && s("command").is_empty() && command_line(n) => {
+            ("Run".into(), n.to_owned(), true, kind)
+        }
         n => (
             if n.is_empty() {
                 "Tool".into()
             } else {
                 n.to_owned()
             },
-            String::new(),
-            false,
+            if s("command").is_empty() {
+                short(s("path"))
+            } else {
+                s("command")
+            },
+            !s("command").is_empty(),
             kind,
         ),
     };
+    let quiet = kind == "execute" && verb == "Run" && name == target && out.is_empty();
     Tool {
         verb,
         target,
@@ -1085,6 +1291,7 @@ pub fn describe<'a>(
         args,
         out,
         name,
+        quiet,
     }
 }
 #[derive(Clone, Copy)]
@@ -1094,6 +1301,8 @@ pub enum Status {
     Done,
     Failed,
     Denied,
+    /// interrupted / cancelled: a dim stop disc, default border, not red
+    Stopped,
 }
 pub fn status_disc(st: &Status, ink: &Ink) -> c::Element {
     match st {
@@ -1109,6 +1318,7 @@ pub fn status_disc(st: &Status, ink: &Ink) -> c::Element {
         Status::Asking => icon("shield", ink.ask, 14., 1.6),
         Status::Done => tile(icon("check", ink.surface, 11., 2.4), 18., 9., ink.ok),
         Status::Failed | Status::Denied => tile(icon("x", ink.surface, 11., 2.4), 18., 9., ink.bad),
+        Status::Stopped => tile(stop_glyph(ink.surface), 18., 9., ink.dim),
     }
 }
 pub fn badge(
@@ -1325,6 +1535,92 @@ pub fn user_bubble(text_value: &str, ink: &Ink) -> c::Element {
         0.,
     )
 }
+/// The runaway loop card (harness-spec.md): ask 30% border, ask 5% fill, radius 11.
+pub fn loop_card(children: Vec<c::Item>, ink: &Ink) -> c::Element {
+    frame(
+        Frame {
+            fill: alpha(ink.ask, 0.05),
+            border: Some(alpha(ink.ask, 0.30)),
+            radius: [11.; 4],
+            ..Default::default()
+        },
+        children,
+    )
+}
+/// Its header reads like a tool header: ask ↻ tile, title, counts, a `folded` chip, chevron.
+pub fn loop_head(key: &str, counts: &str, open: bool, ink: &Ink) -> c::Element {
+    named(
+        key.to_owned(),
+        frame(
+            Frame {
+                padding: [7., 10., 7., 10.],
+                gap: 8.,
+                row: true,
+                ..Default::default()
+            },
+            vec![
+                fixed(tile(
+                    icon("loop", ink.ask, 14., 1.5),
+                    24.,
+                    7.,
+                    alpha(ink.ask, 0.16),
+                )),
+                fixed(line(
+                    "The agent kept repeating itself",
+                    13.,
+                    650,
+                    ink.fg,
+                    false,
+                )),
+                fill(line(counts, 12., 400, ink.dim, false)),
+                fixed(frame(
+                    Frame {
+                        fill: alpha(ink.fg, 0.07),
+                        border: Some(alpha(ink.fg, 0.10)),
+                        radius: [999.; 4],
+                        padding: [0., 6., 0., 6.],
+                        row: true,
+                        ..Default::default()
+                    },
+                    vec![fixed(line("folded", 10.5, 400, ink.dim, false))],
+                )),
+                fixed(icon(
+                    if open { "chevdown" } else { "chev" },
+                    alpha(ink.dim, 0.6),
+                    12.,
+                    1.5,
+                )),
+            ],
+        ),
+    )
+}
+/// The open loop body: an ask 25% rule on top, padding 10 12 12 22.
+pub fn loop_body(child: c::Element, ink: &Ink) -> c::Element {
+    vstack(
+        vec![
+            c::Item {
+                element: c::Element::Rects(c::Rects {
+                    size: [1., 1.],
+                    rects: Arc::from([(
+                        bbt_ui_model::layout::Rect::new(0., 0., 1., 1.),
+                        paint(alpha(ink.ask, 0.25)),
+                    )]),
+                    repeat: Some((Axis::Row, 1.)),
+                }),
+                extent: c::Extent::Fixed(1.),
+            },
+            frame(
+                Frame {
+                    padding: [10., 12., 12., 22.],
+                    ..Default::default()
+                },
+                vec![child.into()],
+            )
+            .into(),
+        ],
+        0.,
+    )
+}
 pub fn thought_row(
     key: &str,
     live: bool,
@@ -1349,13 +1645,24 @@ pub fn thought_row(
                     1.5,
                 )),
                 fixed(line(label, 12.5, 650, ink.fg, false)),
-                fill(line(gist, 12.5, 400, alpha(ink.dim, 0.85), false)),
+                // .hx-gist: ellipsised, the chevron right after it (.hx-tk is inline flex)
+                c::Item {
+                    element: line(gist, 12.5, 400, alpha(ink.dim, 0.75), false),
+                    extent: c::Extent::Content {
+                        grow: 0.,
+                        shrink: 1.,
+                        min: 0.,
+                        max: None,
+                        max_fraction: None,
+                    },
+                },
                 fixed(icon(
-                    if open { "x" } else { "chev" },
-                    alpha(ink.dim, 0.7),
+                    if open { "chevdown" } else { "chev" },
+                    alpha(ink.dim, 0.6),
                     12.,
                     1.5,
                 )),
+                spacer(),
             ],
             7.,
         ),
@@ -1382,12 +1689,26 @@ pub fn notice(text_value: &str, level: &Level, ink: &Ink) -> c::Element {
         Level::Error => ink.bad,
         _ => ink.dim,
     };
-    hstack(
+    // .hx-notice: the dot centred on the first line, long notices wrap beneath
+    let mut t = text(text_value, 11.5, 400, ink.dim, false);
+    t.runs[0].style.line_height = 1.4;
+    frame(
+        Frame {
+            gap: 7.,
+            row: true,
+            stretch: true,
+            ..Default::default()
+        },
         vec![
-            fixed(dot(6., color)),
-            fill(line(text_value, 11.5, 400, ink.dim, false)),
+            fixed(frame(
+                Frame {
+                    padding: [5., 0., 0., 0.],
+                    ..Default::default()
+                },
+                vec![hstack(vec![fixed(dot(6., color))], 0.).into()],
+            )),
+            fill(c::Element::Text(t)),
         ],
-        7.,
     )
 }
 

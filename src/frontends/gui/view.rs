@@ -1355,7 +1355,7 @@ impl Preparer {
         self.scope(model);
         let mut total_height = 0.;
         bbt_rt::assert_not_ui_thread();
-        let folds = Folds::of(model);
+        let folds = Folds::of(model, faces);
         for (index, id) in model.order.iter().enumerate() {
             let row = &model.items[id];
             let face = faces.get(id).cloned().unwrap_or_default();
