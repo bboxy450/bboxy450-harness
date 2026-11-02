@@ -17,7 +17,7 @@ fn main() {
 fn gui() -> i32 {
     if std::env::args().skip(2).any(|a| a == "--help" || a == "-h") {
         println!(
-            "bboxy450-harness gui [--profile P] [--cwd D]\nbboxy450-harness gui --replay FIXTURE.jsonl [--headless --screenshot PATH]"
+            "bboxy450-harness gui [--profile P] [--cwd D]\nbboxy450-harness gui --replay FIXTURE.jsonl [--headless --screenshot PATH | --capture WxH --screenshot PATH]"
         );
         return 0;
     }
@@ -26,6 +26,13 @@ fn gui() -> i32 {
         use bboxy450_harness::frontends::gui::{options::Options, smoke, window};
         let result = (|| {
             let options = Options::parse(std::env::args().skip(2))?;
+            if let Some(size) = options.capture {
+                return bbt_rt::handle().block_on(smoke::capture(
+                    options.replay.unwrap(),
+                    options.screenshot,
+                    size,
+                ));
+            }
             if options.headless {
                 return bbt_rt::handle()
                     .block_on(smoke::run(options.replay.unwrap(), options.screenshot));

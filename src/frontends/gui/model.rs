@@ -27,6 +27,9 @@ pub struct ViewItem {
     pub status: Option<ItemStatus>,
     /// Transient terminal output; the completed body's blob is authoritative.
     pub terminal_tail: String,
+    /// Envelope clock at start and completion, for durations only.
+    pub started_ms: u64,
+    pub completed_ms: Option<u64>,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum TurnState {
@@ -179,6 +182,8 @@ impl Transcript {
                             body,
                             status: None,
                             terminal_tail: String::new(),
+                            started_ms: e.ts_ms,
+                            completed_ms: None,
                         },
                     );
                 }
@@ -188,6 +193,7 @@ impl Transcript {
                     row.body = body.clone();
                     row.status = Some(status.clone());
                     row.completed = e.seq;
+                    row.completed_ms = Some(e.ts_ms);
                     row.terminal_tail.clear();
                 }
             }

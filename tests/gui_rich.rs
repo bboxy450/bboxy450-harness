@@ -276,9 +276,11 @@ async fn the_view_shows_live_tool_role_and_tail_then_the_full_terminal_blob() {
                     .find(|r| r.kind == ItemKind::ToolCall)
                     .unwrap()
                     .id;
+                // the terminal folds into its tool card, which reads as running
                 if text.contains("LIVE-TAIL")
-                    && text.contains("TOOL")
-                    && frame.item_text(tool).is_some_and(|s| s.contains("Running"))
+                    && frame
+                        .item_text(tool)
+                        .is_some_and(|s| s.contains("Run") && s.contains("running"))
                 {
                     return Ok::<_, String>(id);
                 }
@@ -481,16 +483,20 @@ async fn disclosure_controls_change_the_view_without_reparsing_or_core_operation
         b.state
             .faces
             .get(&reasoning)
-            .is_some_and(|f| f.reasoning_closed)
+            .is_some_and(|f| f.reasoning_open)
     })
     .await;
-    let text = view
-        .render(&bridge.state, [1120., 7000.])
-        .unwrap()
-        .item_text(reasoning)
-        .unwrap();
-    assert!(text.contains("Show reasoning"));
-    assert!(!text.contains("Compare the current contents"));
+    // collapsed by default; the disclosure opens the full reasoning body
+    let frame = view.render(&bridge.state, [1120., 7000.]).unwrap();
+    let text = frame.item_text(reasoning).unwrap();
+    assert!(text.contains("Compare the current contents"));
+    assert!(
+        bboxy450_harness::frontends::gui::view::find(
+            frame.layout.as_ref().unwrap(),
+            &format!("reasoning/{reasoning}/body")
+        )
+        .is_some()
+    );
     assert_eq!(bridge.state.transcript.items, source.items);
     assert_eq!(
         bridge
@@ -507,16 +513,18 @@ async fn disclosure_controls_change_the_view_without_reparsing_or_core_operation
         b.state
             .faces
             .get(&reasoning)
-            .is_some_and(|f| !f.reasoning_closed)
+            .is_some_and(|f| !f.reasoning_open)
     })
     .await;
+    let frame = view.render(&bridge.state, [1120., 7000.]).unwrap();
     assert!(
-        view.render(&bridge.state, [1120., 7000.])
-            .unwrap()
-            .item_text(reasoning)
-            .unwrap()
-            .contains("Compare the current contents")
+        bboxy450_harness::frontends::gui::view::find(
+            frame.layout.as_ref().unwrap(),
+            &format!("reasoning/{reasoning}/body")
+        )
+        .is_none()
     );
+    assert!(frame.item_text(reasoning).unwrap().contains("Thought"));
     bridge.detach().unwrap().await.unwrap();
 }
 #[tokio::test]

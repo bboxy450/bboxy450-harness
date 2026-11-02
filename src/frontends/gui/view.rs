@@ -28,6 +28,9 @@ use bbt_ui_model::{
     layout::{Axis, Rect, TextMeasure, TextStyle as MeasureStyle},
 };
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
+#[path = "face_rows.rs"]
+mod face_rows;
+use face_rows::Folds;
 
 // Adapted from bboxy450-term scene::Metrics (CoreText, shared paint metrics).
 // https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
@@ -159,6 +162,7 @@ type CacheKey = (
 pub struct CachedRow {
     width: f32,
     completed: Option<Seq>,
+    deps: u64,
     face: super::rich::Face,
     layout: c::Layout,
 }
@@ -183,7 +187,7 @@ impl Default for HarnessView {
     fn default() -> Self {
         let composer = super::editor::Input::new(composer::Composer {
             focus: true,
-            body_height: Some(64.),
+            body_height: Some(40.),
             to: vec![composer::Address {
                 kind: "seat".into(),
                 label: "Agent".into(),
@@ -288,7 +292,12 @@ impl HarnessView {
                     phase_text(&model.phase)
                 }
             });
-        let controls_key = format!("{draft}{status}{}", state.ready);
+        let controls_key = format!(
+            "{draft}{status}{}{:?}{:?}",
+            state.ready,
+            model.profile,
+            model.meta.as_ref().map(|m| &m.cwd)
+        );
         let (mut layout, rows_h) = if let Some(controls) = &self.controls
             && controls.key == controls_key
             && controls.size == size
@@ -322,25 +331,26 @@ impl HarnessView {
                     content: Box::new(transcript),
                 }),
             );
-            let mut controls = vec![label(format!("bboxy450 harness · {status}")).into()];
-            for (key, text) in [
-                ("jump", "Latest"),
-                ("interrupt", "Interrupt"),
-                ("stop", "Stop"),
-            ] {
-                let button = Button {
-                    label: text.into(),
-                    kind: ButtonKind::Ghost,
-                    state: ButtonState::Idle,
-                    icon: None,
-                    key: None,
-                }
-                .element(ctx)?;
-                controls.push(named(key, button).into());
-            }
-            let mut header = c::Box::new(ui::Style::new(ui::Preset::Card), controls);
-            header.style.overrides.padding = Some([4., 8., 4., 8.].map(ui::Length::Px));
-            let header = named("toolbar", c::Element::Box(header));
+            let header = named(
+                "toolbar",
+                super::face::header(
+                    model.profile.as_ref().map(|(p, m)| {
+                        if p == m {
+                            m.clone()
+                        } else {
+                            format!("{p} · {m}")
+                        }
+                    }),
+                    model
+                        .meta
+                        .as_ref()
+                        .and_then(|m| m.cwd.file_name())
+                        .map(|n| n.to_string_lossy().into_owned()),
+                    &status,
+                    !matches!(model.phase, Phase::Idle | Phase::Closed) && !state.replay,
+                    &super::face::ink(ctx),
+                ),
+            );
             let root = column(
                 vec![
                     c::Item {
@@ -412,6 +422,8 @@ impl HarnessView {
                     super::rich::Toggle::Reasoning,
                 ),
                 (format!("source/{id}/toggle"), super::rich::Toggle::Source),
+                (format!("toolhead/{id}"), super::rich::Toggle::Output),
+                (format!("more/{id}"), super::rich::Toggle::Arguments),
                 (
                     format!("tool/{id}/arguments/toggle"),
                     super::rich::Toggle::Arguments,
@@ -1097,13 +1109,20 @@ impl Preparer {
         self.scope(model);
         let mut total_height = 0.;
         bbt_rt::assert_not_ui_thread();
+        let folds = Folds::of(model);
         for (index, id) in model.order.iter().enumerate() {
             let row = &model.items[id];
             let face = faces.get(id).cloned().unwrap_or_default();
+            if folds.parent.contains_key(id) {
+                // shown inside its tool card; that card's signature tracks it
+                self.rows.remove(id);
+                continue;
+            }
             if row.completed.is_some()
                 && let Some(cached) = self.rows.get(id)
                 && cached.width == width
                 && cached.completed == row.completed
+                && cached.deps == folds.deps(model, id, self)
                 && cached.face == face
             {
                 let h = cached.layout.rect.h;
@@ -1118,6 +1137,41 @@ impl Preparer {
             } else {
                 None
             };
+            if face_rows::handles(model, row) {
+                let deps = folds.deps(model, id, self);
+                let content_width = width - 2. * gutter - 8.;
+                let (element, rich) = self.face_row(
+                    model,
+                    row,
+                    &face,
+                    &folds,
+                    index,
+                    width,
+                    gutter,
+                    content_width,
+                )?;
+                let mut element = named(format!("item/{id}"), element);
+                flat(&mut element);
+                let mut layout =
+                    element.layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?;
+                if let Some(rich) = &rich {
+                    super::rich::restore(&mut layout, &rich.blocks);
+                }
+                let height = layout.rect.h;
+                self.rows.insert(
+                    *id,
+                    Arc::new(CachedRow {
+                        width,
+                        completed: row.completed,
+                        deps,
+                        face,
+                        layout,
+                    }),
+                );
+                self.layout_builds += 1;
+                total_height += height;
+                continue;
+            }
             let sourceable = matches!(row.kind, ItemKind::AgentMessage | ItemKind::Reasoning);
             let markdown = match &row.body {
                 Item::AgentMessage { markdown } => Some(markdown.as_str()),
@@ -1180,7 +1234,7 @@ impl Preparer {
                 toggles.push(
                     inline_control(
                         format!("reasoning/{id}/toggle"),
-                        if face.reasoning_closed {
+                        if face.reasoning_open {
                             "Show reasoning"
                         } else {
                             "Hide reasoning"
@@ -1213,7 +1267,7 @@ impl Preparer {
                         )
                         .into(),
                     );
-                    if !face.reasoning_closed {
+                    if !face.reasoning_open {
                         if face.source {
                             let mut text = c::Text::new(
                                 markdown.unwrap_or_default(),
@@ -1339,6 +1393,7 @@ impl Preparer {
                 Arc::new(CachedRow {
                     width,
                     completed: row.completed,
+                    deps: 0,
                     face,
                     layout,
                 }),

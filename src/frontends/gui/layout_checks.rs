@@ -163,6 +163,25 @@ pub fn check(prepared: &PreparedRows, frame: &Layout) -> Result<Checked, String>
                 }
                 checked.disclosures += 1;
             }
+            // The rich face's disclosures: a tool card header or a reasoning row. Each
+            // must carry a readable label and a drawn glyph inside its row region.
+            if name.starts_with("toolhead/")
+                || (name.starts_with("reasoning/") && name.ends_with("/toggle"))
+            {
+                checked.accordion_headers += 1;
+                let mut nodes = vec![];
+                descendants(n, &mut nodes);
+                let label = nodes.iter().any(|node| {
+                    matches!(&node.kind, LayoutKind::Text { runs, .. } if runs.iter().any(|r| !r.text.trim().is_empty()))
+                });
+                let glyph = nodes
+                    .iter()
+                    .any(|node| matches!(&node.kind, LayoutKind::Path { points, .. } if !points.is_empty()));
+                if !label || !glyph || !card.is_some_and(|card| inside(n.rect, card)) {
+                    return Err(format!("DisclosureLabelAndGlyph: {name} {:?}", n.rect));
+                }
+                checked.disclosures += 1;
+            }
             if name.starts_with("inline/") || name == "toolbar" {
                 checked.inline_rows += 1;
                 let row = row(n);

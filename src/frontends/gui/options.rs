@@ -13,6 +13,8 @@ pub struct Options {
     pub cwd: PathBuf,
     pub headless: bool,
     pub screenshot: PathBuf,
+    /// Render-only capture size (parity): no fixture assertions, transcript top.
+    pub capture: Option<[u32; 2]>,
 }
 impl Options {
     pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
@@ -22,6 +24,7 @@ impl Options {
             cwd: std::env::current_dir().map_err(|e| e.to_string())?,
             headless: false,
             screenshot: ".bboxy/runs/gui-smoke.png".into(),
+            capture: None,
         };
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
@@ -32,6 +35,15 @@ impl Options {
                 "--headless" => out.headless = true,
                 "--screenshot" => {
                     out.screenshot = args.next().ok_or("missing screenshot path")?.into()
+                }
+                "--capture" => {
+                    let size = args.next().ok_or("missing capture size")?;
+                    let (w, h) = size.split_once('x').ok_or("capture size is WxH")?;
+                    out.capture = Some([
+                        w.parse().map_err(|_| "invalid capture width")?,
+                        h.parse().map_err(|_| "invalid capture height")?,
+                    ]);
+                    out.headless = true;
                 }
                 _ => return Err(format!("unknown gui option: {arg}")),
             }

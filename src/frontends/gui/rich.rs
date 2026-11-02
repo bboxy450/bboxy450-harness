@@ -21,7 +21,7 @@ use std::{collections::HashMap, ops::Range, sync::Arc};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Face {
-    pub reasoning_closed: bool,
+    pub reasoning_open: bool,
     pub source: bool,
     pub arguments_closed: bool,
     pub output_closed: bool,
@@ -41,7 +41,7 @@ pub enum Toggle {
 impl Face {
     pub fn apply(&mut self, toggle: Toggle) {
         match toggle {
-            Toggle::Reasoning => self.reasoning_closed = !self.reasoning_closed,
+            Toggle::Reasoning => self.reasoning_open = !self.reasoning_open,
             Toggle::Source => self.source = !self.source,
             Toggle::Arguments => self.arguments_closed = !self.arguments_closed,
             Toggle::Output => self.output_closed = !self.output_closed,

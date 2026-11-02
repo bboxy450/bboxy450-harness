@@ -13,6 +13,34 @@ use super::{
 use bbt_render::{chrome::ChromeRenderer, device::DeviceContext};
 use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
+/// Render-only frame of a replay at a fixed size, for web/native parity. No
+/// fixture assertions; the transcript shows from its top.
+pub async fn capture(replay: PathBuf, screenshot: PathBuf, size: [u32; 2]) -> Result<(), String> {
+    let model = read_replay_with_redactor(replay, crate::redact::Set::default()).await?;
+    let context = DeviceContext::new().await.map_err(|e| e.to_string())?;
+    crate::runtime::blocking(move || {
+        let [width, height] = size;
+        let mut state = FrameState {
+            transcript: Arc::new(model),
+            ready: true,
+            replay: true,
+            ..Default::default()
+        };
+        state.prepared = Some(Arc::new(
+            super::view::Preparer::default().prepare(state.transcript.clone(), width as f32)?,
+        ));
+        let mut view = HarnessView::default();
+        let frame = view.render(&state, [width as f32, height as f32])?;
+        let mut renderer = ChromeRenderer::with_context(context, super::assets::icons())
+            .map_err(|e| e.to_string())?;
+        let rgba = renderer
+            .render_to_rgba(&frame.list, width, height, 1.)
+            .map_err(|e| e.to_string())?;
+        write_png(&screenshot, width, height, &rgba)
+    })
+    .await
+}
+
 pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
     let redactor = crate::redact::Set::default();
     crate::capability::register(&redactor).await;
@@ -92,25 +120,26 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
             };
             let expected = match row.kind {
                 ItemKind::UserMessage => "Read two files", ItemKind::AgentMessage => "I’ll read both files.",
-                ItemKind::Reasoning => "Compare the current contents.", ItemKind::ToolCall => "Arguments: path: hello.txt",
+                ItemKind::Reasoning => "Compare the current contents.", ItemKind::ToolCall => "",
                 ItemKind::FileChange => "+ hello world", ItemKind::TurnDiff => "+++ b/hello.txt",
                 ItemKind::Terminal => "printf ok", ItemKind::Plan => "In progress: Update greeting",
                 ItemKind::Approval => "Edit hello.txt", ItemKind::Image => "Image: image/png",
                 ItemKind::ContextTrim => trim_expected.as_deref().expect("context trim fixture body"),
-                ItemKind::Usage => "Input: 0 tokens", ItemKind::Compaction => compaction_expected.as_deref().expect("compaction fixture body"),
+                ItemKind::Usage => "0 in · 0 out", ItemKind::Compaction => compaction_expected.as_deref().expect("compaction fixture body"),
                 ItemKind::Notice => "fixture complete", ItemKind::Subagent => "Session: 00000000000000000000000009",
                 ItemKind::Unknown => return Err("unexpected unknown fixture item".into()),
             };
-            if let crate::protocol::Item::ToolCall { name, .. } = &row.body
-                && !frame.item_text(row.id).is_some_and(|text| text.contains(name)) { return Err(format!("tool card {} lacks its name", row.id)); }
+            // a tool card names its action: the verb the rich face derives from the tool
+            if let crate::protocol::Item::ToolCall { name, tool_kind, input_raw, output, .. } = &row.body
+                && !frame.item_text(row.id).is_some_and(|text| text.contains(&super::face::describe(name, *tool_kind, input_raw, output, "").verb)) { return Err(format!("tool card {} lacks its action", row.id)); }
             if !frame.item_text(row.id).is_some_and(|text| text.contains(expected)) { return Err(format!("card {} lacks {expected}", row.id)); }
         }
         let text = layout_text(frame.layout.as_ref().ok_or("missing solved layout")?);
         let required = [
             "Read two files and update hello.txt", "I’ll read both files.",
-            "Compare the current contents.", "Arguments: path: hello.txt", "printf ok", "Exit code: 0",
+            "Compare the current contents.", "Read hello.txt", "printf ok", "exit 0",
             "--- a/hello.txt", "+ hello world", "In progress: Update greeting", "Edit hello.txt",
-            "Image: image/png", "0 bytes", "Input: 0 tokens", "Output: 0 tokens",
+            "Image: image/png", "0 bytes", "0 in · 0 out",
             "Session: 00000000000000000000000009", "Context trimmed through event ", "fixture complete",
         ];
         for expected in required { if !text.contains(expected) { return Err(format!("missing readable content: {expected}; actual text: {text}")); } }
@@ -119,7 +148,11 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         if approval_count != 3 || !["Allow", "Always", "Deny"].iter().all(|s| text.contains(s)) { return Err("approval buttons missing".into()); }
         let layout=frame.layout.as_ref().ok_or("smoke layout missing")?;
         for (index, id) in state.transcript.order.iter().enumerate() {
-            let card=super::view::find(layout,&format!("e{index}")).ok_or("missing StreamDock card")?.rect;
+            // folded into its tool card: no row of its own, but addressable inside the card
+            let Some(card)=super::view::find(layout,&format!("e{index}")).map(|n|n.rect) else {
+                super::view::find(layout,&format!("item/{id}")).ok_or("folded item is not addressable")?;
+                continue;
+            };
             let body=super::view::find(layout,&format!("body/{id}")).ok_or("missing inset item body")?.rect;
             if body.x < card.x + 4. || body.right() > card.right() - 4. || body.y < card.y || body.bottom() > card.bottom()+0.5 {
                 return Err(format!("body {id} is outside its inset card: body={body:?}, card={card:?}"));
@@ -138,12 +171,13 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         }
         if !highlighted(layout) {return Err("code block has no syntax-highlighted colour spans".into());}
         let change=state.transcript.items.values().find(|r|r.kind==crate::protocol::ItemKind::FileChange).ok_or("missing diff")?;
-        let removed=super::view::find(layout,&format!("diff/{}/hunk/0/line/0",change.id)).ok_or("diff remove line missing")?;
-        let added=super::view::find(layout,&format!("diff/{}/hunk/0/line/1",change.id)).ok_or("diff add line missing")?;
-        if !layout_text(removed).contains("- hello")||!layout_text(added).contains("+ hello world")||colours(removed)==colours(added) {return Err("diff add/remove meaning or colours missing".into());}
+        let removed=super::view::find(layout,&format!("diff/{}/line/0",change.id)).ok_or("diff remove line missing")?;
+        let added=super::view::find(layout,&format!("diff/{}/line/1",change.id)).ok_or("diff add line missing")?;
+        if !layout_text(removed).contains("− hello")||!layout_text(added).contains("+ hello world")||colours(removed)==colours(added) {return Err("diff add/remove meaning or colours missing".into());}
         for row in state.transcript.items.values().filter(|r|r.kind==crate::protocol::ItemKind::ToolCall) {
-            let node=super::view::find(layout,&format!("tool/{}/status",row.id)).ok_or("tool status chip missing")?;
-            if !layout_text(node).contains("Succeeded") {return Err("tool status chip lacks completed status".into());}
+            let node=super::view::find(layout,&format!("tool/{}/status",row.id)).ok_or("tool status disc missing")?;
+            let ok=bbt_ui::Paint::solid(bbt_ui::Color::Rgba(super::face::ink(super::view::context()).ok)).resolve(super::view::context())?;
+            if fill(node)!=Some(ok.map(f32::to_bits)) {return Err("tool status disc lacks the completed colour".into());}
         }
         fn fill(node:&bbt_ui::components::Layout)->Option<[u32;4]> {
             if let bbt_ui::components::LayoutKind::Box{style,..}=&node.kind && style.fill[3]>0. {return Some(style.fill.map(f32::to_bits));}
@@ -161,20 +195,14 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
             if layout_text(button).trim()!=name {return Err(format!("approval {name} has unexpected key/badge content"));}
         }
         for row in state.transcript.items.values().filter(|r|r.kind==ItemKind::ToolCall) {
-            for part in ["arguments","output"] {
-                if super::view::find(layout,&format!("tool/{}/{part}/head/count",row.id)).is_some() {return Err("tool accordion exposes a meaningless count".into());}
-                let key = format!("tool/{}/{part}",row.id);
-                let content=super::view::find(layout,&format!("{key}/content")).ok_or("tool content inset missing")?;
-                fn inset_text(node:&bbt_ui::components::Layout, area:bbt_ui_model::layout::Rect)->bool {
-                    if let bbt_ui::components::LayoutKind::Text {runs,..}=&node.kind
-                        && runs.iter().any(|r| !r.text.trim().is_empty() && (r.rect.x < area.x+7.5 || r.rect.y < area.y+5.5 || r.rect.right()>area.right()-7.5 || r.rect.bottom()>area.bottom()-5.5)) {return false;}
-                    node.children.iter().all(|child|inset_text(child,area))
-                }
-                if !inset_text(content,content.rect) {return Err("tool text touches the accordion border".into());}
-                let disclosure=super::view::find(layout,&format!("{key}/head/right/swatch")).ok_or("tool disclosure missing")?;
-                let foreground=bbt_ui::Paint::solid(bbt_ui::Color::Foreground).resolve(super::view::context())?.map(f32::to_bits);
-                if !colours(disclosure).contains(&foreground) {return Err("tool disclosure lacks a contrasting theme glyph".into());}
+            fn inset_text(node:&bbt_ui::components::Layout, area:bbt_ui_model::layout::Rect)->bool {
+                if let bbt_ui::components::LayoutKind::Text {runs,..}=&node.kind
+                    && runs.iter().any(|r| !r.text.trim().is_empty() && (r.rect.x < area.x+7.5 || r.rect.y < area.y+5.5 || r.rect.right()>area.right()-7.5 || r.rect.bottom()>area.bottom()-5.5)) {return false;}
+                node.children.iter().all(|child|inset_text(child,area))
             }
+            let card=super::view::find(layout,&format!("tool/{}",row.id)).ok_or("tool card missing")?;
+            if !inset_text(card,card.rect) {return Err("tool text touches the card border".into());}
+            super::view::find(layout,&format!("toolhead/{}",row.id)).ok_or("tool disclosure header missing")?;
         }
         let trim=state.transcript.items.values().find(|r|r.kind==ItemKind::ContextTrim).ok_or("fixture lacks ContextTrim")?;
         let trim_body=super::view::find(layout,&format!("body/{}",trim.id)).ok_or("trim callout missing")?;
@@ -185,11 +213,19 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         }
         if !emphasized(trim_body) {return Err("trim callout has no rich heading/emphasis".into());}
         let mut bottom = 0.;
+        let mut rows: Vec<bbt_ui_model::layout::Rect> = vec![];
         for (id, kind, r) in &frame.visible {
-            if r.y < bottom - 0.5 {
+            // a folded item paints inside an earlier tool card's row, not after it
+            let nested = rows.iter().any(|row| r.x >= row.x - 0.5 && r.right() <= row.right() + 0.5 && r.y >= row.y - 0.5 && r.bottom() <= row.bottom() + 0.5);
+            if !nested {
+                rows.push(*r);
+            }
+            if !nested && r.y < bottom - 0.5 {
                 return Err(format!("overlapping item {id}"));
             }
-            bottom = r.bottom();
+            if !nested {
+                bottom = r.bottom();
+            }
             let mut colors = BTreeSet::new();
             for y in r.y.ceil().max(0.) as u32..r.bottom().floor().min(height as f32) as u32 {
                 for x in r.x.ceil().max(0.) as u32..r.right().floor().min(width as f32) as u32 {
@@ -270,4 +306,18 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         Ok(())
     })
     .await
+}
+
+fn write_png(path: &std::path::Path, width: u32, height: u32, rgba: &[u8]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    let mut encoder = png::Encoder::new(file, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder
+        .write_header()
+        .and_then(|mut w| w.write_image_data(rgba))
+        .map_err(|e| e.to_string())
 }

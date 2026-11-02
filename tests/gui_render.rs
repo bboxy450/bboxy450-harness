@@ -99,8 +99,8 @@ async fn actual_layout_sticks_releases_and_renders_approval_actions() {
     ));
     assert_eq!(
         grown.prepared.as_ref().unwrap().layout_builds,
-        state.prepared.as_ref().unwrap().layout_builds + 2,
-        "only the open approval and appended item rebuild"
+        state.prepared.as_ref().unwrap().layout_builds + 3,
+        "only the open approval, the appended item, and the row handing it the turn receipt rebuild"
     );
     let frame = view.render(&grown, [1120., 860.]).unwrap();
     assert_eq!(frame.scroll, old_max - 100.);
@@ -238,7 +238,7 @@ async fn cards_show_readable_content_instead_of_serialized_payloads() {
         "raw JSON is not a readable card: {text}"
     );
     assert!(
-        text.contains("Exit code: 0"),
+        text.contains("exit 0"),
         "terminal exit must be explicit readable text"
     );
     assert!(!text.contains("Some("));
@@ -319,7 +319,7 @@ async fn live_terminal_heads_snapshots_and_completed_blob_reach_the_view() {
     let frame = view.render(&bridge.state, [1120., 7000.]).unwrap();
     let text = frame.item_text(terminal_id).unwrap();
     assert!(text.contains(command));
-    assert!(text.contains("Exit code: 0"));
+    assert!(text.contains("exit 0"));
     assert!(
         text.contains("stream-headstream-tail"),
         "completed blob must supply output, not just the command: {text}"
@@ -386,7 +386,12 @@ async fn structural_layout_smoke_checks_restored_geometry() {
     )
     .unwrap();
     println!("prepared structural geometry: {checked:?}");
-    assert_eq!(checked.cards, state.transcript.items.len());
+    // every item is addressable; folded ones (approval, terminal, diff) live inside a tool card
+    let layout = frame.layout.as_ref().unwrap();
+    assert!(state.transcript.order.iter().all(|id| {
+        bboxy450_harness::frontends::gui::view::find(layout, &format!("item/{id}")).is_some()
+    }));
+    assert!(checked.cards > 0 && checked.cards <= state.transcript.items.len());
     assert_eq!(checked.disclosures, checked.accordion_headers);
     for key in ["jump", "interrupt", "stop"] {
         let button =
@@ -406,7 +411,17 @@ async fn structural_layout_smoke_checks_restored_geometry() {
             button.rect
         );
     }
+    // rich face: one disclosure per tool card and per reasoning row
+    let disclosures = state
+        .transcript
+        .items
+        .values()
+        .filter(|r| matches!(r.kind, ItemKind::ToolCall | ItemKind::Reasoning))
+        .count();
     assert!(
-        checked.markdown_blocks >= 6 && checked.accordion_headers >= 8 && checked.inline_rows >= 4
+        checked.markdown_blocks >= 4
+            && checked.accordion_headers == disclosures
+            && checked.inline_rows >= 2,
+        "{checked:?}"
     );
 }
