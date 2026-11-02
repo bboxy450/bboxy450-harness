@@ -39,6 +39,18 @@ fn provider_controls_reach_retry_after_output_wrong_finish_and_double_ending() {
         checked
             .states
             .iter()
+            .any(|s| s[calls] == 2 && s[outcome] == 3)
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[calls] == 2 && s[outcome] == 4)
+    );
+    assert!(
+        checked
+            .states
+            .iter()
             .any(|s| s[phase] == 2 && s[output] == 0)
     );
     for (name, property) in [

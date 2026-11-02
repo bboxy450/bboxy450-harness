@@ -184,8 +184,9 @@ SSE frames, argument strings and individual content strings are capped at
 `message_delta` records the stop reason and updates cumulative Usage;
 `message_stop` emits exactly one terminal event. `end_turn|stop_sequence` maps
 to Stop, `tool_use` to ToolCalls, `max_tokens` to Length and `refusal` to
-ContentFilter. Missing/unknown reasons or a tool-presence mismatch are Malformed;
-a truncated tool invocation is never dispatched under a non-tool stop reason.
+ContentFilter. Missing/unknown reasons, Stop with calls or ToolCalls without calls are
+Malformed. Length/refusal may terminate an incomplete tool block; no
+ToolCallReady is emitted and no tool is dispatched for those endings.
 Events following a terminal are ignored. EOF without message_stop is Malformed.
 
 Anthropic's input_tokens excludes cached input. ModelEvent Usage.input_tokens
@@ -212,7 +213,7 @@ neither response bodies nor raw reqwest diagnostics are included.
 text-then-tool, parallel, utf8-split, duplicate-id, missing-finish,
 429-then-success, 500-after-output (transport disconnect), stall and cancel.
 It adds thinking-signature, redacted-thinking, refusal, error-after-output,
-stop-sequence, length, unknown/contradictory-finish, invalid-args and
+stop-sequence, length, length-tool, refusal-tool, unknown/contradictory-finish, invalid-args and
 error-before-output. `tests/anthropic_provider.rs` uses the real client through
 `tests/support/sse_server.rs`, compares exact event sequences, and inspects
 captured HTTP requests for pairing, cache placement, stable bytes and headers.
@@ -228,3 +229,5 @@ remain implementation witnesses, not claims of Rust refinement.
 
 Protocol references: [Messages streaming](https://platform.claude.com/docs/en/build-with-claude/streaming),
 [prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
+
+Truncated tool parameters and refusal endings follow the [stop-reason contract](https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons); only ToolCalls makes collected calls ready.

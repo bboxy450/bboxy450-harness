@@ -209,19 +209,23 @@ impl Parser {
                     return Err("message_stop before block stop");
                 }
                 let finish = self.finish.take().ok_or("missing stop reason")?;
-                if matches!(finish, Finish::ToolCalls) == self.ids.is_empty() {
+                if matches!(finish, Finish::Stop) && !self.ids.is_empty()
+                    || matches!(finish, Finish::ToolCalls) && self.ids.is_empty()
+                {
                     return Err("stop reason contradicts tool calls");
                 }
                 let mut events = self.opaque();
-                for (&index, block) in &self.blocks {
-                    if block.value["type"] == "tool_use" {
-                        events.push(ModelEvent::ToolCallReady {
-                            index,
-                            id: block.value["id"].as_str().unwrap().into(),
-                            name: block.value["name"].as_str().unwrap().into(),
-                            args_raw: block.args.clone(),
-                            args: arguments(&block.args),
-                        });
+                if matches!(finish, Finish::ToolCalls) {
+                    for (&index, block) in &self.blocks {
+                        if block.value["type"] == "tool_use" {
+                            events.push(ModelEvent::ToolCallReady {
+                                index,
+                                id: block.value["id"].as_str().unwrap().into(),
+                                name: block.value["name"].as_str().unwrap().into(),
+                                args_raw: block.args.clone(),
+                                args: arguments(&block.args),
+                            });
+                        }
                     }
                 }
                 self.terminal = true;

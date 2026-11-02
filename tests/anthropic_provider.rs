@@ -125,6 +125,10 @@ async fn fixtures_have_exact_events_through_real_http() {
         ErrorClass::Malformed,
         "stop reason contradicts tool calls",
     ));
+    let mut length_tool = tool_events(0, "call_a", "read", r#"{"path":"#);
+    length_tool.push(ModelEvent::Finish(Finish::Length));
+    let mut refusal_tool = tool_events(0, "call_a", "read", r#"{"path":"#);
+    refusal_tool.push(ModelEvent::Finish(Finish::ContentFilter));
     let mut invalid = tool_events(0, "call_a", "read", "[1]");
     invalid.extend([
         ready(0, "call_a", "read", "[1]"),
@@ -193,6 +197,8 @@ async fn fixtures_have_exact_events_through_real_http() {
         ),
         ("contradictory-finish", contradiction),
         ("invalid-args", invalid),
+        ("length-tool", length_tool),
+        ("refusal-tool", refusal_tool),
         (
             "error-after-output",
             vec![
@@ -953,5 +959,54 @@ async fn signed_and_redacted_native_blocks_replay_verbatim_beside_cache_marker()
             content[1],
             json!({"type":"text","text":"Answer","cache_control":{"type":"ephemeral"}})
         );
+    }
+}
+
+#[tokio::test]
+async fn truncated_or_refused_calls_remain_paired_without_execution() {
+    use bboxy450_harness::{gateway::Gateway, protocol::*};
+    use std::sync::Arc;
+    for name in ["length-tool", "refusal-tool"] {
+        let server = sse_server::Server::start(vec![sse_server::ok(fixture(name))]).await;
+        let session = support::with_provider(Arc::new(client(&server)), true).await;
+        let mut sub = support::subscribe(&session.gateway, false);
+        session
+            .gateway
+            .send(support::prompt(&session.gateway, "Read the file"))
+            .unwrap();
+        let events = support::end(&mut sub).await;
+        assert!(events.iter().any(|e| match &e.event {
+            Event::TurnEnded {
+                reason: StopReason::MaxTokens,
+                ..
+            } => name == "length-tool",
+            Event::TurnEnded {
+                reason:
+                    StopReason::Error {
+                        class: ErrorClass::BadRequest,
+                        ..
+                    },
+                ..
+            } => name == "refusal-tool",
+            _ => false,
+        }));
+        let log = support::close(session).await;
+        let calls = log
+            .iter()
+            .filter_map(|e| match &e.event {
+                Event::ItemCompleted {
+                    body: Item::ToolCall { output, .. },
+                    ..
+                } => Some(output),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            calls,
+            vec![&vec![OutputBlock::Error {
+                text: "tool call was not completed".into()
+            }]]
+        );
+        assert_eq!(server.attempts.load(Ordering::SeqCst), 1);
     }
 }

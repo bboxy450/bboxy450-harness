@@ -2143,7 +2143,10 @@ fn provider_stream(mode: u8) -> Model {
     }
     for reason in 0..=5 {
         for calls in 0..=2 {
-            let consistent = reason != 0 && reason != 5 && ((reason == 2) == (calls > 0));
+            let consistent = reason != 0
+                && reason != 5
+                && (reason != 1 || calls == 0)
+                && (reason != 2 || calls > 0);
             let outcome = if consistent || mode == 2 && reason == 1 {
                 reason
             } else {
