@@ -828,12 +828,30 @@ impl LineProjection {
             }
             Event::ProfileChanged { profile, model } => {
                 let pen = self.pen();
-                let l = vec![
-                    sp("  profile ").fg(DIM),
-                    sp(profile.clone()).fg(BRIGHT).bold(),
-                    sp(" · ").fg(FAINT),
-                    sp(model.clone()).fg(DIM),
-                ];
+                let l = match acp_model(model) {
+                    // an ACP agent: its round tile, `profile · model`, then the ACP tag
+                    Some((agent, m)) => {
+                        let (mark, color) = agent_mark(&agent);
+                        let mut l = vec![
+                            sp("  "),
+                            sp(format!(" {mark} ")).fg(BRIGHT).bg(color).bold(),
+                            sp(" "),
+                            sp(profile.clone()).fg(BRIGHT).bold(),
+                        ];
+                        if !m.is_empty() {
+                            l.push(sp(format!(" · {m}")).fg(DIM));
+                        }
+                        l.push(sp(" "));
+                        l.push(sp(" ACP ").fg(mix(SEAT, FG, 0.85)).bg(rgb(0x16313C)).bold());
+                        l
+                    }
+                    None => vec![
+                        sp("  ● ").fg(SEAT),
+                        sp(profile.clone()).fg(BRIGHT).bold(),
+                        sp(" · ").fg(FAINT),
+                        sp(model.clone()).fg(DIM),
+                    ],
+                };
                 self.block(
                     &mut out,
                     Family::Card,
@@ -1159,11 +1177,15 @@ impl LineProjection {
     fn notice_line(&mut self, out: &mut String, text: &str, level: &Level) {
         let pen = self.pen();
         let (mark, color) = match level {
-            Level::Warn => ("⚠ ", ASK),
+            Level::Warn => ("● ", ASK),
             Level::Error => ("✗ ", BAD),
             _ => ("· ", DIM),
         };
-        let mut s = sp(text).fg(color);
+        let mut s = sp(text).fg(if matches!(level, Level::Warn) {
+            DIM
+        } else {
+            color
+        });
         if matches!(level, Level::Info | Level::Unknown) {
             s = s.ital();
         }
@@ -1655,6 +1677,11 @@ impl LineProjection {
             .filter(|l| !l.trim_start().starts_with("```"))
             .collect::<Vec<_>>()
             .join("\n");
+        // placeholders an agent sends instead of output count as none
+        let t = d.out.trim();
+        if t == "(no output)" || (t.starts_with("[terminal ") && t.ends_with(']')) {
+            d.out.clear();
+        }
         let approval = self
             .kid(&id, ItemKind::Approval)
             .and_then(|a| match &a.body {
@@ -1747,7 +1774,16 @@ impl LineProjection {
                 })
                 .unwrap_or_default()
             };
-            term_body(pen, &d.target, &live, st)
+            let mut body = term_body(pen, &d.target, &live, st);
+            if live.trim().is_empty() && e.body.is_some() {
+                let note = if name.contains(' ') {
+                    "output stayed in the agent's own terminal"
+                } else {
+                    "no output"
+                };
+                body += &pen.row(&[rail(st), sp(note).fg(DIM).ital()], None);
+            }
+            body
         } else if d.kind == "edit" {
             match &unified {
                 Some(u) => diff_body(pen, u, st),
@@ -1784,6 +1820,32 @@ impl LineProjection {
     }
 }
 
+/// `acp:<command> · <model>` (an ACP session's model string) as (command, model).
+fn acp_model(model: &str) -> Option<(String, String)> {
+    let rest = model.strip_prefix("acp:")?;
+    let (agent, model) = rest.split_once('·').unwrap_or((rest, ""));
+    Some((agent.trim().to_owned(), model.trim().to_owned()))
+}
+/// An agent's tile mark and colour by its command (harness.js AGENTS).
+fn agent_mark(command: &str) -> (String, Rgb) {
+    let c = command.split_whitespace().next().unwrap_or("");
+    let (m, h) = match c {
+        "claude-agent-acp" => ("C", 0xD97757),
+        "codex-acp" => ("Cx", 0x10A37F),
+        "opencode" => ("oc", 0x5B6178),
+        "pi-acp" => ("π", 0xFF4FA3),
+        "omp" => ("ω", 0xB07BFF),
+        "goose" => ("G", 0xC98A1B),
+        _ => {
+            let f = c
+                .chars()
+                .next()
+                .map_or("·".into(), |f| f.to_uppercase().to_string());
+            return (f, rgb(0x2EE6A8));
+        }
+    };
+    (m.into(), rgb(h))
+}
 fn kind_of(body: &Item) -> ItemKind {
     match body {
         Item::UserMessage { .. } => ItemKind::UserMessage,
@@ -1806,12 +1868,14 @@ fn kind_of(body: &Item) -> ItemKind {
 }
 /// The first sentence of a thought, on one line.
 fn gist(text: &str) -> String {
-    let flat = text
+    let first = text.trim().lines().next().unwrap_or("");
+    let flat = first
         .split_whitespace()
         .filter(|w| !w.chars().all(|c| c == '#'))
         .collect::<Vec<_>>()
         .join(" ")
         .replace("**", "")
+        .replace("__", "")
         .replace('`', "");
     let mut end = flat.len();
     for (i, c) in flat.char_indices() {
@@ -1840,6 +1904,8 @@ fn describe_subject(s: &str) -> String {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum St {
     Running,
+    /// interrupted or cancelled: neutral, not red
+    Stopped,
     Done,
     Failed,
     Denied,
@@ -1848,6 +1914,7 @@ fn status_of(s: Option<&ItemStatus>, exit: Option<i32>) -> St {
     match s {
         None => St::Running,
         Some(ItemStatus::Completed) if exit.is_none_or(|c| c == 0) => St::Done,
+        Some(ItemStatus::Interrupted | ItemStatus::Cancelled) => St::Stopped,
         _ => St::Failed,
     }
 }
@@ -1967,6 +2034,7 @@ fn mark_of(st: St) -> (&'static str, Rgb) {
         St::Done => ("✓", OK),
         St::Failed => ("✗", BAD),
         St::Denied => ("⊘", BAD),
+        St::Stopped => ("■", DIM),
     }
 }
 fn rail(st: St) -> Sp {
@@ -2161,16 +2229,43 @@ fn hits_body(pen: &Pen, out: &str, pattern: Option<&str>, cwd: &str) -> String {
     rows
 }
 fn receipt(pen: &Pen, t: &TurnStat, ts: u64, reason: &StopReason, usage: Option<&Usage>) -> String {
-    let (ok, label) = match reason {
-        StopReason::EndTurn => (true, "Done".to_owned()),
-        StopReason::Cancelled => (false, "Cancelled".to_owned()),
-        StopReason::Interrupted => (false, "Interrupted".to_owned()),
-        StopReason::MaxTokens => (false, "Max tokens".to_owned()),
-        StopReason::MaxRounds => (false, "Max rounds".to_owned()),
-        StopReason::Error { message, .. } => (false, format!("Error: {message}")),
-        StopReason::Unknown => (false, "Ended".to_owned()),
+    // harness-spec.md "Turn receipt": ok, soft (stopped by someone) or bad, said in words
+    let mut message = None;
+    let (ok, soft, label) = match reason {
+        StopReason::EndTurn => (true, false, "Done"),
+        StopReason::Cancelled => (false, true, "Cancelled"),
+        StopReason::Interrupted => (false, true, "Interrupted"),
+        StopReason::MaxTokens => (false, false, "Hit the output limit"),
+        StopReason::MaxRounds => (false, false, "Stopped at the round limit"),
+        StopReason::Error { class, message: m } => {
+            message = Some(m.clone()).filter(|m| !m.trim().is_empty());
+            (
+                false,
+                false,
+                match class {
+                    ErrorClass::Transient => "Connection dropped",
+                    ErrorClass::RateLimited => "Rate limited",
+                    ErrorClass::Auth => "Not signed in",
+                    ErrorClass::BadRequest => "Request refused",
+                    ErrorClass::Malformed => "Unreadable reply",
+                    ErrorClass::MidStream => "Reply cut off",
+                    ErrorClass::Config => "Profile misconfigured",
+                    ErrorClass::Store => "Could not save the session",
+                    ErrorClass::Tool => "Tool failed",
+                    ErrorClass::Cancelled => "Cancelled",
+                    _ => "Harness error",
+                },
+            )
+        }
+        StopReason::Unknown => (false, false, "Ended"),
     };
-    let c = if ok { OK } else { BAD };
+    let c = if ok {
+        OK
+    } else if soft {
+        DIM
+    } else {
+        BAD
+    };
     let mut facts = vec![];
     if let Some(t0) = t.t0 {
         facts.push(core::duration(ts.saturating_sub(t0)));
@@ -2194,9 +2289,18 @@ fn receipt(pen: &Pen, t: &TurnStat, ts: u64, reason: &StopReason, usage: Option<
     }
     // one span: "✓ Done" stays a literal a watcher can find, coloured or not
     let mut l = vec![
-        sp(format!("{} {label}", if ok { "✓" } else { "✗" }))
-            .fg(c)
-            .bold(),
+        sp(format!(
+            "{} {label}",
+            if ok {
+                "✓"
+            } else if soft {
+                "■"
+            } else {
+                "✗"
+            }
+        ))
+        .fg(c)
+        .bold(),
     ];
     for f in facts {
         l.push(sp(" · ").fg(FAINT));
@@ -2205,6 +2309,16 @@ fn receipt(pen: &Pen, t: &TurnStat, ts: u64, reason: &StopReason, usage: Option<
     let mut rows = String::new();
     for w in wrap(l, pen.width, vec![sp("  ")], vec![sp("    ")]) {
         rows += &pen.row(&w, None);
+    }
+    if let Some(m) = message {
+        for w in wrap(
+            vec![sp(m).fg(mix(BAD, FG, 0.8))],
+            pen.width,
+            vec![sp("    ")],
+            vec![sp("    ")],
+        ) {
+            rows += &pen.row(&w, None);
+        }
     }
     rows
 }

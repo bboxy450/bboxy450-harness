@@ -1436,20 +1436,74 @@ pub fn notice(text_value: &str, level: &Level, ink: &Ink) -> c::Element {
     )
 }
 
-/// The session bar: mark, name, profile chip, folder chip, live phase, and the three
-/// controls the window binds by name (jump, interrupt, stop).
+/// What the header says on its right: one phase, coloured by tone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tone {
+    Idle,
+    Live,
+    Ask,
+}
+/// An ACP session's model string, `acp:<command> · <model>`, as (command, model).
+pub fn acp_model(model: &str) -> Option<(String, String)> {
+    let rest = model.strip_prefix("acp:")?;
+    let (agent, model) = rest.split_once('·').unwrap_or((rest, ""));
+    Some((agent.trim().to_owned(), model.trim().to_owned()))
+}
+/// An agent's tile: mark text and colour, by the first word of its command (harness.js AGENTS).
+pub fn agent_mark(command: &str) -> (String, Rgba) {
+    let c = command.split_whitespace().next().unwrap_or("");
+    let (m, h) = match c {
+        "claude-agent-acp" => ("C", "#D97757"),
+        "codex-acp" => ("Cx", "#10A37F"),
+        "opencode" => ("oc", "#5B6178"),
+        "pi-acp" => ("π", "#FF4FA3"),
+        "omp" => ("ω", "#B07BFF"),
+        "goose" => ("G", "#C98A1B"),
+        _ => {
+            let first = c
+                .chars()
+                .next()
+                .map_or("·".into(), |f| f.to_uppercase().to_string());
+            return (first, hex("#2EE6A8"));
+        }
+    };
+    (m.into(), hex(h))
+}
+/// The `ACP` tag: 9.5 bold on the seat-14 kind fill.
+pub fn acp_tag(ink: &Ink) -> c::Element {
+    frame(
+        Frame {
+            fill: hex("#16313C"),
+            radius: [4.; 4],
+            padding: [0., 5., 0., 5.],
+            row: true,
+            ..Default::default()
+        },
+        vec![fixed(line(
+            "ACP",
+            9.5,
+            700,
+            mix(hex("#2EE6A8"), ink.fg, 0.85),
+            false,
+        ))],
+    )
+}
+
+/// The session bar: mark, name, profile chip (`profile`, opens the switcher), folder chip, and the live
+/// phase. Interrupt and stop live in the composer (esc, the stop button, `/interrupt`,
+/// `/stop`); the header carries no controls.
 pub fn header(
-    profile: Option<String>,
+    profile: Option<(String, String)>,
     folder: Option<String>,
     status: &str,
-    live: bool,
+    tone: Tone,
     menu_open: bool,
     ink: &Ink,
 ) -> c::Element {
     let chip = |kids: Vec<c::Item>| {
         frame(
             Frame {
-                fill: alpha(ink.fg, 0.05),
+                fill: alpha(ink.fg, 0.04),
                 radius: [999.; 4],
                 padding: [1., 8., 1., 8.],
                 gap: 5.,
@@ -1459,22 +1513,49 @@ pub fn header(
             kids,
         )
     };
-    let mut kids = vec![
-        fixed(tile(
-            runs(
-                vec![("b".into(), ink.surface, 800, false)],
-                12.,
-                false,
-                false,
-            ),
-            20.,
-            6.,
-            ink.seat,
-        )),
-        fixed(line("bboxy", 13., 700, ink.fg, false)),
-    ];
-    if let Some(p) = profile {
-        // web .hx-model: the profile chip opens the switcher
+    // the identity portrait at 20px, radius 6, inside a 1px seat-55 ring
+    let mark = frame(
+        Frame {
+            fill: alpha(ink.seat, 0.55),
+            radius: [7.; 4],
+            padding: [1.; 4],
+            ..Default::default()
+        },
+        vec![fixed(c::Element::Image {
+            asset: super::assets::MARK.into(),
+            size: ui::Length::Px(20.),
+            radius: ui::Length::Px(6.),
+        })],
+    );
+    let mut kids = vec![fixed(mark), fixed(line("bboxy", 13., 700, ink.fg, false))];
+    if let Some((p, m)) = profile {
+        let mut parts = vec![];
+        let text_c = if menu_open { ink.fg } else { ink.dim };
+        if let Some((agent, model)) = acp_model(&m) {
+            let (mark, color) = agent_mark(&agent);
+            parts.push(fixed(tile(
+                runs(vec![(mark, hex("#ffffff"), 800, false)], 8.5, false, false),
+                18.,
+                9.,
+                color,
+            )));
+            let mut t = vec![(if p.is_empty() { agent } else { p }, text_c, 400, false)];
+            if !model.is_empty() {
+                t.push((format!(" · {model}"), alpha(ink.dim, 0.75), 400, false));
+            }
+            parts.push(fixed(runs(t, 11.5, false, false)));
+            parts.push(fixed(acp_tag(ink)));
+        } else {
+            parts.push(fixed(dot(6., ink.seat)));
+            let label = if p.is_empty() || p == m {
+                m
+            } else {
+                format!("{p} · {m}")
+            };
+            parts.push(fixed(line(label, 11.5, 400, text_c, false)));
+        }
+        parts.push(fixed(down_chevron(alpha(ink.dim, 0.7))));
+        // web .hx-model: the chip opens the profile switcher; open, it takes the seat
         kids.push(fixed(named(
             "profile",
             frame(
@@ -1482,10 +1563,10 @@ pub fn header(
                     fill: if menu_open {
                         alpha(ink.seat, 0.1)
                     } else {
-                        alpha(ink.fg, 0.05)
+                        alpha(ink.fg, 0.04)
                     },
                     border: Some(if menu_open {
-                        alpha(ink.seat, 0.5)
+                        alpha(ink.seat, 0.55)
                     } else {
                         [0.; 4]
                     }),
@@ -1495,17 +1576,7 @@ pub fn header(
                     row: true,
                     ..Default::default()
                 },
-                vec![
-                    fixed(dot(6., ink.seat)),
-                    fixed(line(
-                        p,
-                        11.5,
-                        400,
-                        if menu_open { ink.fg } else { ink.dim },
-                        false,
-                    )),
-                    fixed(down_chevron(alpha(ink.dim, 0.7))),
-                ],
+                parts,
             ),
         )));
     }
@@ -1516,31 +1587,18 @@ pub fn header(
         ])));
     }
     kids.push(spacer());
-    kids.push(fixed(dot(7., if live { ink.seat } else { ink.dim })));
-    kids.push(fixed(line(
-        status.to_owned(),
-        11.5,
-        400,
-        if live { ink.fg } else { ink.dim },
-        false,
-    )));
-    for (key, label) in [
-        ("jump", "Latest"),
-        ("interrupt", "Interrupt"),
-        ("stop", "Stop"),
-    ] {
-        kids.push(fixed(named(
-            key,
-            frame(
-                Frame {
-                    radius: [6.; 4],
-                    padding: [2., 6., 2., 6.],
-                    ..Default::default()
-                },
-                vec![line(label, 11.5, 500, alpha(ink.dim, 0.85), false).into()],
-            ),
-        )));
-    }
+    let (dot_c, text_c) = match tone {
+        Tone::Idle => (ink.dim, ink.dim),
+        Tone::Live => (ink.seat, ink.fg),
+        Tone::Ask => (ink.ask, ink.ask),
+    };
+    kids.push(fixed(dot(7., dot_c)));
+    let say: String = if status.chars().count() > 48 {
+        status.chars().take(47).chain(['…']).collect()
+    } else {
+        status.to_owned()
+    };
+    kids.push(fixed(named("phase", line(say, 11.5, 400, text_c, false))));
     frame(
         Frame {
             fill: alpha(ink.seat, 0.06),

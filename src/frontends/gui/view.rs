@@ -208,6 +208,9 @@ pub struct HarnessView {
     profiles: Arc<Vec<ProfileInfo>>,
     /// The session's current profile name, from the latest frame.
     current_profile: Option<String>,
+    /// The actor birth the latest frame showed: `/stop` is fenced to it, as the header
+    /// Stop button was, so a stop typed against one actor never closes its replacement.
+    birth: Option<Epoch>,
 }
 impl Default for HarnessView {
     fn default() -> Self {
@@ -235,6 +238,7 @@ impl Default for HarnessView {
             focused: false,
             profiles: Arc::new(vec![]),
             current_profile: None,
+            birth: None,
         }
     }
 }
@@ -252,6 +256,7 @@ impl HarnessView {
     pub fn render(&mut self, state: &FrameState, size: [f32; 2]) -> Result<&Frame, String> {
         self.profiles = state.profiles.clone();
         self.current_profile = state.transcript.profile.as_ref().map(|(p, _)| p.clone());
+        self.birth = Some(state.transcript.epoch);
         let offset = self.scroll.layout_offset();
         let draft = format!(
             "{:?}{:?}{:?}{:?}{}{:?}",
@@ -327,18 +332,15 @@ impl HarnessView {
             .or(state.error.as_ref())
             .or(state.notice.as_ref())
             .cloned()
-            .unwrap_or_else(|| {
-                if state.replay {
-                    "Offline replay".into()
-                } else {
-                    phase_text(&model.phase)
-                }
-            });
+            .map(|s| (s, super::face::Tone::Idle))
+            .unwrap_or_else(|| phase_now(model));
+        let (status, tone) = status;
+        // the composer's states (p2) follow the live phase; the header shows `tone`
         let live = !matches!(model.phase, Phase::Idle | Phase::Closed) && !state.replay;
         let ask = live && matches!(model.phase, Phase::Approval { .. });
         let focused = self.focused;
         let controls_key = format!(
-            "{draft}{status}{live}{focused}{}{:?}{:?}{:?}",
+            "{draft}{status}{tone:?}{live}{focused}{}{:?}{:?}{:?}",
             self.profile_menu.is_some(),
             state.ready,
             model.profile,
@@ -388,20 +390,14 @@ impl HarnessView {
             let header = named(
                 "toolbar",
                 super::face::header(
-                    model.profile.as_ref().map(|(p, m)| {
-                        if p == m {
-                            m.clone()
-                        } else {
-                            format!("{p} · {m}")
-                        }
-                    }),
+                    model.profile.clone(),
                     model
                         .meta
                         .as_ref()
                         .and_then(|m| m.cwd.file_name())
                         .map(|n| n.to_string_lossy().into_owned()),
                     &status,
-                    live,
+                    tone,
                     self.profile_menu.is_some(),
                     &super::face::ink(ctx),
                 ),
@@ -855,9 +851,15 @@ impl HarnessView {
                         self.switch_to(&name, bridge);
                         return;
                     }
+                    if text == "/stop" {
+                        self.composer.stored(&sent);
+                        let birth = self.birth.unwrap_or(bridge.state.transcript.epoch);
+                        self.activate(Action::StopAt(birth), bridge);
+                        self.scroll.follow_latest();
+                        return;
+                    }
                     let op = match text {
                         "/interrupt" => Op::Interrupt { turn: None },
-                        "/stop" => Op::Close,
                         _ => Op::UserTurn {
                             blocks: vec![InputBlock::Text {
                                 text: sent.text.clone(),
@@ -1029,6 +1031,65 @@ pub fn kind_label(kind: ItemKind) -> &'static str {
         ItemKind::Notice => "Notice",
         ItemKind::Subagent => "Subagent",
         ItemKind::Unknown => "Unknown item",
+    }
+}
+/// The header's phase, from the transcript as the web reference reads it (harness.js
+/// phaseNow): closed, a tool waiting on its approval, the newest running item, else the
+/// live phase.
+fn phase_now(model: &super::model::Transcript) -> (String, super::face::Tone) {
+    use super::face::Tone;
+    if model.closed || matches!(model.phase, Phase::Closed) {
+        return ("Session closed".into(), Tone::Idle);
+    }
+    let cwd = model
+        .meta
+        .as_ref()
+        .map(|m| m.cwd.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let asking: std::collections::HashSet<ItemId> = model
+        .items
+        .values()
+        .filter_map(|r| match &r.body {
+            Item::Approval {
+                subject,
+                decision: None,
+                ..
+            } => Some(subject.tool_call),
+            _ => None,
+        })
+        .collect();
+    for id in model.order.iter().rev() {
+        let r = &model.items[id];
+        if r.status.is_some() {
+            continue;
+        }
+        match &r.body {
+            Item::Reasoning { .. } => return ("Thinking".into(), Tone::Live),
+            Item::AgentMessage { .. } => return ("Writing".into(), Tone::Live),
+            Item::ToolCall {
+                name,
+                tool_kind,
+                input_raw,
+                output,
+                ..
+            } => {
+                let d = crate::frontends::face_core::describe(
+                    name, *tool_kind, input_raw, output, &cwd,
+                );
+                if asking.contains(id) {
+                    return (format!("Waiting for you · {}", d.verb), Tone::Ask);
+                }
+                return (
+                    format!("{} {}", d.verb, d.target).trim().to_owned(),
+                    Tone::Live,
+                );
+            }
+            _ => {}
+        }
+    }
+    match model.phase {
+        Phase::Idle | Phase::Unknown => ("Ready".into(), Tone::Idle),
+        ref p => (phase_text(p), Tone::Live),
     }
 }
 fn phase_text(phase: &Phase) -> String {

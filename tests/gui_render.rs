@@ -514,22 +514,28 @@ async fn structural_layout_smoke_checks_restored_geometry() {
     }));
     assert!(checked.cards > 0 && checked.cards <= state.transcript.items.len());
     assert_eq!(checked.disclosures, checked.accordion_headers);
+    // header: no controls (interrupt/stop live in the composer); the phase and the
+    // profile chip sit centred in the toolbar row
+    let find = |k: &str| bboxy450_harness::frontends::gui::view::find(layout, k);
+    let toolbar = find("toolbar").unwrap();
     for key in ["jump", "interrupt", "stop"] {
-        let button =
-            bboxy450_harness::frontends::gui::view::find(frame.layout.as_ref().unwrap(), key)
-                .unwrap();
-        fn text(n: &bbt_ui::components::Layout) -> Option<bbt_ui_model::layout::Rect> {
-            if matches!(n.kind, bbt_ui::components::LayoutKind::Text { .. }) {
-                Some(n.rect)
-            } else {
-                n.children.iter().find_map(text)
-            }
-        }
-        let label = text(button).unwrap();
+        let inside = find(key).is_some_and(|n| {
+            n.rect.y >= toolbar.rect.y && n.rect.y + n.rect.h <= toolbar.rect.y + toolbar.rect.h
+        });
+        assert!(!inside, "HeaderHasNoControls: {key}");
+    }
+    // the chip only exists once a profile resolved
+    let chip = state.transcript.profile.is_some();
+    for key in ["phase", "profile"]
+        .into_iter()
+        .filter(|k| chip || *k == "phase")
+    {
+        let node = find(key).unwrap();
         assert!(
-            ((button.rect.y + button.rect.h / 2.) - (label.y + label.h / 2.)).abs() < 0.5,
-            "ToolbarLabelCentered: {key} button {:?} label {label:?}",
-            button.rect
+            ((toolbar.rect.y + toolbar.rect.h / 2.) - (node.rect.y + node.rect.h / 2.)).abs() < 0.5,
+            "ToolbarLabelCentered: {key} {:?} in {:?}",
+            node.rect,
+            toolbar.rect
         );
     }
     // rich face: one disclosure per tool card and per reasoning row

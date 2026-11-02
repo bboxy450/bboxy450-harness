@@ -33,5 +33,5 @@ session 00000000000000000000000001 · scripted
 
   ✓ Done · 7ms · 42 in · 21 out
 › 
-  ⚠ transcript lagged; reconnect after 54
+  ● transcript lagged; reconnect after 54
 › 

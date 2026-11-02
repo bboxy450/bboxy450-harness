@@ -7,9 +7,33 @@
 // Copied from bboxy450-term lab/web/components.js SVG dictionary, using the
 // bboxybook build.rs bake pattern. Compiled in; no filesystem IO at frame time.
 // https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
+/// The header mark: the bboxy identity portrait (~/.agents/identity/bboxy.png), baked at 64px.
+pub const MARK: &str = "bboxy-mark";
+fn mark() -> Vec<bbt_render::chrome::icons::Image> {
+    let bytes: &[u8] = include_bytes!("bboxy-mark.png");
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::ALPHA);
+    let Ok(mut reader) = decoder.read_info() else {
+        return vec![];
+    };
+    let mut rgba = vec![0; reader.output_buffer_size().unwrap_or(0)];
+    let Ok(info) = reader.next_frame(&mut rgba) else {
+        return vec![];
+    };
+    rgba.truncate(info.buffer_size());
+    if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
+        return vec![];
+    }
+    vec![bbt_render::chrome::icons::Image {
+        name: MARK.into(),
+        width: info.width,
+        height: info.height,
+        rgba,
+    }]
+}
 pub fn icons() -> bbt_render::chrome::icons::Assets {
     bbt_render::chrome::icons::Assets::with_svgs(
-        vec![],
+        mark(),
         &[
             (
                 "claude",

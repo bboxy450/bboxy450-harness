@@ -371,13 +371,12 @@ async fn closing_an_old_gateway_does_not_close_a_reopened_actor_in_the_same_stor
     ready(&mut attached).await;
     let old_birth = old.hello().epoch;
     let mut view = HarnessView::default();
-    let captured = view
-        .render(&attached.state, [1120., 860.])
-        .unwrap()
-        .actions
-        .iter()
-        .find_map(|(_, a)| matches!(a, Action::StopAt(_)).then(|| a.clone()))
-        .expect("rendered Stop captures its actor birth");
+    // the header has no Stop; `/stop` from the composer is fenced to the rendered birth
+    view.render(&attached.state, [1120., 860.]).unwrap();
+    view.composer
+        .handle(bbt_ui::modules::composer::Command::Edit(
+            bbt_ui::text_edit::Command::Insert("/stop".into()),
+        ));
     attached.detach().unwrap().await.unwrap();
     // Crash/recovery of the SAME session directory, not two disjoint identities.
     old_task.abort();
@@ -404,7 +403,7 @@ async fn closing_an_old_gateway_does_not_close_a_reopened_actor_in_the_same_stor
     ));
     // A delayed rendered Close admitted by the old attachment must not be
     // delivered to the replacement merely because the public session matches.
-    view.activate(captured, &attached);
+    view.activate(Action::Send, &attached);
     let stale_notice = view.notice.clone();
     let done = support::end(&mut events).await;
     assert!(!done.iter().any(|e| matches!(e.event, Event::SessionClosed)));
