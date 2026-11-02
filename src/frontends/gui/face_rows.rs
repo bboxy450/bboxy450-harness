@@ -49,6 +49,8 @@ pub(super) struct Folds {
     loops: HashMap<ItemId, Vec<ItemId>>,
     /// turn -> replies folded into its loop (the receipt says so)
     folded: HashMap<TurnId, usize>,
+    /// the transcript's last visible row carries .hx-feed's 18 px bottom padding
+    tail: Option<ItemId>,
 }
 /// harness-spec.md "Runaway loop card": first line, lowercased, letters only, 48 chars.
 fn line_key(markdown: &str) -> String {
@@ -142,6 +144,12 @@ impl Folds {
                 f.kids.entry(to).or_default().push(*id);
             }
         }
+        f.tail = model
+            .order
+            .iter()
+            .rev()
+            .find(|id| !f.parent.contains_key(id))
+            .copied();
         let mut seen = std::collections::HashSet::new();
         for id in model.order.iter().rev() {
             let r = &model.items[id];
@@ -166,6 +174,10 @@ impl Folds {
         // rows without folded children or a receipt carry no signature (0)
         let mut any = false;
         let mut h = std::collections::hash_map::DefaultHasher::new();
+        if self.tail == Some(*id) {
+            any = true;
+            "tail".hash(&mut h);
+        }
         if let Some(t) = self.last.get(id) {
             any = true;
             format!("{:?}", model.turns.get(t)).hash(&mut h);
@@ -580,7 +592,12 @@ impl Preparer {
         Ok((
             f::frame(
                 f::Frame {
-                    padding: [top, gutter, gap, gutter],
+                    padding: [
+                        top,
+                        gutter,
+                        if folds.tail == Some(id) { 18. } else { gap },
+                        gutter,
+                    ],
                     ..Default::default()
                 },
                 vec![region.into()],
