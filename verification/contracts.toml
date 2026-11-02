@@ -191,6 +191,16 @@ checks = ["make test-formal", "make test"]
 
 
 [[contract]]
+name = "HarnessAcpAgentTurn"
+title = "ACP agent backend: one TurnEnded per prompt; after session/cancel no permission stays pending; a cancelled turn ends."
+models = ["HarnessAcpAgentTurn", "BrokenHarnessAcpAgentTurn"]
+sources = ["src/backend/acp_agent.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/acp_agent.rs"]
+assumptions = "One prompt in flight, at most one permission request per prompt, a face answer only while awaited, the agent ends its prompt only when not awaiting an answer (it blocks on request_permission), turn end settles open permissions. Weak fairness on the agent ending its prompt and on TurnEnded. The kill-after-grace path (CANCEL_GRACE), child crashes, malformed lines and -32601 replies are implementation witnesses in tests/acp_agent.rs."
+property = "A freshly ended turn is the only ending of its prompt; a cancel answers every pending permission cancelled; a cancelled turn ends."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
 name = "HarnessFoldedCard"
 title = "A cached tool card is rebuilt when a folded child (approval, terminal, file change) changes."
 models = ["HarnessFoldedCard", "BrokenHarnessFoldedCard"]

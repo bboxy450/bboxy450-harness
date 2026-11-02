@@ -16,10 +16,12 @@ repository = "https://github.com/bboxy450/bboxy450-harness"
 license-file = "LICENSE"
 
 [features]
-default = []
+default = ["acp-agent"]
 standalone = ["embedded", "dep:winit", "dep:wgpu"]
 embedded = ["dep:bbt_doc", "dep:bbt_ui", "dep:bbt_ui_model", "dep:bbt_render", "dep:png"]
 acp = ["dep:agent-client-protocol"]
+# The harness as the UI for any ACP agent (src/backend/acp_agent.rs).
+acp-agent = ["dep:agent-client-protocol"]
 test-fixtures = []
 
 [dependencies]

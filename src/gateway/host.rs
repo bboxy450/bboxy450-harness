@@ -107,19 +107,20 @@ impl Host {
         if self.cancel.is_cancelled() {
             return Err(Refused::Closed);
         }
+        let agent = self.acp_agent(&mut config, profile.as_deref()).await;
         config.meta.profile = profile;
-        let (gateway, task) =
-            SessionActor::load_with_mcp(config, op.op_id, None, overrides, self.launch.clone())
-                .await
-                .map_err(|e| {
-                    if e.kind() == std::io::ErrorKind::AlreadyExists {
-                        Refused::SessionExists
-                    } else if e.kind() == std::io::ErrorKind::InvalidInput {
-                        Refused::BadFork
-                    } else {
-                        Refused::Closed
-                    }
-                })?;
+        let (gateway, task) = self
+            .actor(config, op.op_id, None, overrides, agent)
+            .await
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::AlreadyExists {
+                    Refused::SessionExists
+                } else if e.kind() == std::io::ErrorKind::InvalidInput {
+                    Refused::BadFork
+                } else {
+                    Refused::Closed
+                }
+            })?;
         state.loaded = Some(Loaded {
             gateway: gateway.clone(),
             start: op.op_id,
@@ -203,6 +204,7 @@ impl Host {
                 }
             })
             .or_else(|| meta.profile.clone());
+        let agent = self.acp_agent(&mut config, selected.as_deref()).await;
         self.profile(&mut config, selected).await;
         if self.cancel.is_cancelled() {
             return Err(Refused::Closed);
@@ -210,14 +212,9 @@ impl Host {
         let notice = state
             .failed_open
             .then_some("previous session recovery attempt failed".to_string());
-        let (gateway, task) = match SessionActor::load_with_mcp(
-            config,
-            start,
-            notice,
-            Default::default(),
-            self.launch.clone(),
-        )
-        .await
+        let (gateway, task) = match self
+            .actor(config, start, notice, Default::default(), agent)
+            .await
         {
             Ok(value) => value,
             Err(_) => {
@@ -232,6 +229,53 @@ impl Host {
             task: Some(task),
         });
         Ok(gateway)
+    }
+    /// An `acp-agent` profile selects the ACP agent backend instead of the engine.
+    async fn acp_agent(
+        &self,
+        config: &mut Config,
+        name: Option<&str>,
+    ) -> Option<(crate::provider::profile::AgentSpec, bool)> {
+        let path = Profile::file_in(&config.profiles, name?).ok()?;
+        let profile = Profile::load(&path).await.ok()?;
+        if !profile.is_acp_agent() {
+            return None;
+        }
+        config.policy = profile.policy();
+        Some((
+            profile.agent.clone().unwrap_or_default(),
+            profile.policy.as_deref() == Some("yolo"),
+        ))
+    }
+    async fn actor(
+        &self,
+        config: Config,
+        start: crate::protocol::OpId,
+        notice: Option<String>,
+        overrides: crate::mcp::Servers,
+        agent: Option<(crate::provider::profile::AgentSpec, bool)>,
+    ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
+        match agent {
+            #[cfg(feature = "acp-agent")]
+            Some((spec, yolo)) => {
+                crate::backend::acp_agent::AcpAgentActor::load(config, start, spec, yolo).await
+            }
+            #[cfg(not(feature = "acp-agent"))]
+            Some(_) => {
+                SessionActor::load_with_mcp(
+                    config,
+                    start,
+                    Some("ACP agent backend not enabled in this build".into()),
+                    overrides,
+                    self.launch.clone(),
+                )
+                .await
+            }
+            None => {
+                SessionActor::load_with_mcp(config, start, notice, overrides, self.launch.clone())
+                    .await
+            }
+        }
     }
     async fn profile(&self, config: &mut Config, name: Option<String>) {
         if name == self.config.meta.profile && self.config.profile_error.is_none() {

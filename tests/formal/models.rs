@@ -2008,6 +2008,90 @@ fn folded_card(b: bool) -> Model {
     );
     m
 }
+// ACP agent backend (src/backend/acp_agent.rs): one prompt in flight. After
+// session/cancel the client must answer every pending request_permission
+// `cancelled`; the agent then ends the prompt itself. One TurnEnded per prompt.
+// phase: 0 idle, 1 prompting, 2 awaiting permission, 3 cancelling, 4 ended
+// perm: 0 none, 1 pending, 2 answered
+fn acp_agent_turn(b: bool) -> Model {
+    let mut m = base::<5>(
+        "AcpAgentTurn",
+        b,
+        &[
+            ("phase", 4, 0),
+            ("perm", 2, 0),
+            ("cancel", 1, 0),
+            ("agent_done", 1, 0),
+            ("ends", 2, 0),
+        ],
+    );
+    act(&mut m, "Prompt", eq(0, 0), &[(0, Int(1))]);
+    act(
+        &mut m,
+        "PermissionRequested",
+        all([eq(0, 1), eq(1, 0), eq(3, 0)]),
+        &[(0, Int(2)), (1, Int(1))],
+    );
+    act(
+        &mut m,
+        "FaceAnswers",
+        all([eq(0, 2), eq(1, 1), eq(2, 0)]),
+        &[(0, Int(1)), (1, Int(2))],
+    );
+    act(
+        &mut m,
+        "InterruptPrompting",
+        all([eq(0, 1), eq(2, 0), eq(1, 1).negate()]),
+        &[(0, Int(3)), (2, Int(1))],
+    );
+    // the protocol: a pending permission is answered `cancelled` with the cancel
+    act(
+        &mut m,
+        "InterruptAwaitingPermission",
+        all([eq(0, 2), eq(2, 0)]),
+        &[
+            (0, Int(3)),
+            (2, Int(1)),
+            (1, if b { Int(1) } else { Int(2) }),
+        ],
+    );
+    // the agent ends its prompt only when it is not waiting on a permission answer
+    act(
+        &mut m,
+        "AgentEndsPrompt",
+        all([eq(0, 1).or(eq(0, 3)), eq(1, 1).negate(), eq(3, 0)]),
+        &[(3, Int(1))],
+    );
+    act(
+        &mut m,
+        "TurnEnded",
+        all([eq(3, 1), eq(0, 4).negate()]),
+        // end_turn settles every open permission (cancelled) before TurnEnded
+        &[(0, Int(4)), (1, Int(0)), (4, Var(4).plus(Int(1)))],
+    );
+    act(
+        &mut m,
+        "NextPrompt",
+        eq(0, 4),
+        &[
+            (0, Int(0)),
+            (1, Int(0)),
+            (2, Int(0)),
+            (3, Int(0)),
+            (4, Int(0)),
+        ],
+    );
+    safe(&mut m, "OneTurnEndedPerPrompt", Var(4).lt(Int(2)));
+    safe(
+        &mut m,
+        "NoPermissionPendingAfterCancel",
+        eq(2, 0).or(eq(1, 1).negate()),
+    );
+    if !b {
+        progress(&mut m, "CancelledTurnEnds", eq(2, 1), eq(0, 4), vec![5, 6]);
+    }
+    m
+}
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
         (gui_markdown(0), "pass"),
@@ -2033,6 +2117,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
             stream_to_view(b),
             dirty_wake_frame(b),
             scroll_stick(b),
+            acp_agent_turn(b),
             folded_card(b),
             embed_lifecycle(b),
             profile_load(b),

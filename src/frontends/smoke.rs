@@ -53,6 +53,7 @@ async fn smoke(acp_mode: bool) -> Result<(Value, i32), Box<dyn std::error::Error
         auto_compact: true,
         context_tokens: None,
         mcp_servers: Default::default(),
+        agent: None,
         name: "nemotron".into(),
         provider: Some("openrouter".into()),
         model: "nvidia/nemotron-3.5-super-vl:free".into(),

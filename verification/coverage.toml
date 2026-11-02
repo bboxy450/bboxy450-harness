@@ -32,6 +32,7 @@ models = [
     "HarnessDirtyWakeFrame",
     "HarnessScrollStick",
     "HarnessFoldedCard",
+    "HarnessAcpAgentTurn",
     "HarnessEmbedLifecycle",
     "HarnessGuiMarkdownBudget",
     "HarnessGuiApprovalChoice",
@@ -84,6 +85,8 @@ sources = [
     "src/frontends/gui/layout_checks.rs",
     "src/frontends/gui/face.rs",
     "src/frontends/gui/face_rows.rs",
+    "src/backend/mod.rs",
+    "src/backend/acp_agent.rs",
 ]
 implementation_only = [
     "Seat-capability file syscalls and exact bytes: O_NOFOLLOW/O_NONBLOCK, pre-open metadata and fstat regular/euid/exact0600 checks, 64 lowercase hex plus newline, safe refusal text; src/capability.rs unit witnesses. HarnessMcpServer abstracts a valid versus unavailable file and registration before projection, not kernel/filesystem correctness.",

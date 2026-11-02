@@ -13,7 +13,10 @@ use std::{
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Profile {
     pub name: String,
+    /// An ACP agent profile may omit model and endpoint: the agent brings its own.
+    #[serde(default)]
     pub model: String,
+    #[serde(default)]
     pub endpoint: String,
     #[serde(default)]
     pub provider: Option<String>,
@@ -33,6 +36,21 @@ pub struct Profile {
     pub context_tokens: Option<u64>,
     #[serde(default, rename = "mcpServers")]
     pub mcp_servers: crate::mcp::Servers,
+    /// `provider: acp-agent`: the ACP agent to spawn. Keys never live here; the
+    /// agent authenticates itself (API key, console login, Bedrock or Vertex).
+    #[serde(default)]
+    pub agent: Option<AgentSpec>,
+}
+/// The command line of an ACP agent, run without a shell in the session cwd.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AgentSpec {
+    pub command: Vec<String>,
+}
+impl Profile {
+    /// True when this profile drives an external ACP agent instead of a model.
+    pub fn is_acp_agent(&self) -> bool {
+        self.provider.as_deref() == Some("acp-agent")
+    }
 }
 fn enabled() -> bool {
     true
@@ -83,7 +101,23 @@ impl Profile {
             .ok_or_else(|| ProviderError::new(ErrorClass::Config, "missing profile frontmatter"))?;
         let p: Self = serde_yaml::from_str(yaml)
             .map_err(|_| ProviderError::new(ErrorClass::Config, "invalid profile frontmatter"))?;
-        validate_endpoint(&p.endpoint)?;
+        if p.is_acp_agent() {
+            // the agent brings its own model and transport; it needs a command instead
+            if p.agent.as_ref().is_none_or(|a| a.command.is_empty()) {
+                return Err(ProviderError::new(
+                    ErrorClass::Config,
+                    "acp-agent profile needs agent.command",
+                ));
+            }
+        } else {
+            if p.model.is_empty() {
+                return Err(ProviderError::new(
+                    ErrorClass::Config,
+                    "profile needs model",
+                ));
+            }
+            validate_endpoint(&p.endpoint)?;
+        }
         Ok(p)
     }
     pub async fn load(path: &Path) -> Result<Self, ProviderError> {
