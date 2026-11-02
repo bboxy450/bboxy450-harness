@@ -31,6 +31,6 @@ updated: 2026-11-02T23:00:00Z
 - **Starting fresh at 1.0 with a cleaned-up shape.** Rejected. It breaks every existing log for cosmetic gains. The few awkward shapes, such as the `fork` tuple, stay forever.
 
 **Consequences.**
-- Every future protocol change is either a pure addition or a new major with a reader for all older ones. The second needs an Architect decision and is not planned.
+- Every future protocol change is either a pure addition within the major or an explicit major bump. **The bump is the escape hatch** (operator, 2026-11-02): when a drastic change is needed, increase the major, let it be incompatible, and update the entire system together; readers refuse a higher major, and old logs get a one-way converter only if they are worth keeping. The design is never contorted to avoid a bump.
 - [[protocol]]'s change rule ("additive = minor") is now enforced, not advisory.
 - The code currently violates E5/E6 in two places (fork re-serializes; GUI rejects major ≠ 0). Brief [[2026-11-02-log-ir-v1-compat]] makes the code compatible by construction before any v1.0 addition lands.
