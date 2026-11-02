@@ -14,7 +14,7 @@ The surface is flattened from the schemars export: every definition, every field
 signature and required flag, every variant of a tagged union or string enum. Allowed: a new
 definition, a new optional field, a new variant. Refused: a removed definition, field or variant;
 a changed type, tag key or definition shape; a required field that was not required; a retired
-name in use again; a union or enum without its `unknown` variant; a frozen corpus file changed.
+name in use again; a union or enum without an `unknown` or untagged catch-all variant; a frozen corpus file changed.
 """
 import copy, hashlib, json, sys
 from pathlib import Path
@@ -128,8 +128,8 @@ def compare(lock, cur):
                 if v not in old['variants']:
                     bad += [f'{name}.{v}.{k}: new variant has required field' for k, x in f.items() if x['required']]
     for name, new in cur.items():
-        if new['shape'] in ('union', 'enum') and 'unknown' not in new['variants']:
-            bad.append(f'{name}: no `unknown` variant, so an older reader cannot tolerate a new one')
+        if new['shape'] in ('union', 'enum') and not ('unknown' in new['variants'] or any(v.startswith('<untagged:') for v in new['variants'])):
+            bad.append(f'{name}: no `unknown` or untagged catch-all variant, so an older reader cannot tolerate a new one')
         names = [name] + [f'{name}.{v}' for v in new.get('variants', {})] + [f'{name}.{f}' for f in new.get('fields', {})]
         names += [f'{name}.{v}.{f}' for v, fs in new.get('variants', {}).items() for f in fs]
         bad += [f'{n}: retired name reused' for n in names if n in retired]

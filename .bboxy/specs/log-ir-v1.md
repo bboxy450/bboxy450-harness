@@ -29,7 +29,7 @@ updated: 2026-11-02T23:00:00Z
 | E1 | **Only add.** A change may add a definition, a field that is optional (`Option<T>`, or `#[serde(default)]` with `skip_serializing_if`), a variant to a union or enum, or a value to a string enum | `ir-compat check` |
 | E2 | **Never change or remove.** No removed definition, field or variant. No renamed name. No changed type, tag key or definition shape. No optional field made required. No new required field, including inside a new variant | `ir-compat check` |
 | E3 | **Meaning is fixed too.** An existing field keeps its unit, range and semantics (e.g. `ts_ms` is Unix milliseconds, `cost_micros_usd` is micro-dollars). A new meaning needs a new field | review: [[protocol]] change log entry naming the field; the Architect signs |
-| E4 | **Every union and enum has `unknown`.** A reader maps a variant it does not know to `Unknown` and keeps going: it counts it, renders a neutral placeholder, never fails the stream | `ir-compat check` (schema); `tests/protocol_golden.rs::future_variants_and_fields` |
+| E4 | **Every union and enum has `unknown`, and `Unknown` keeps its payload.** A reader maps a variant it does not know to `Unknown(raw)` holding the whole value, tag included; it counts it, renders a neutral placeholder naming the tag, and never fails the stream. Nothing a reader cannot type is lost in memory either | `ir-compat check` (one named `unknown` or one untagged catch-all per union); `tests/protocol_golden.rs::future_variants_and_fields` asserts the payload round-trips |
 | E5 | **Writers never write `unknown`.** It is a reader-side value | `laws::check_authored` (brief [[2026-11-02-log-ir-v1-compat]]) |
 | E6 | **Only the author serializes.** A component that stores, forwards, forks or replays an envelope it did not create passes on the original line bytes. Unknown fields and variants therefore survive store → replay → fork → socket in any build | `tests/ir_v1_corpus.rs` future-data case (brief) |
 | E7 | **Retired names are never reused.** Removing a name is impossible (E2). A name that is deprecated stays readable forever; writers may stop writing it only if it is optional. Its name goes into `retired` in the lock, and the gate refuses any new use of it | `ir-compat check` |
@@ -72,7 +72,7 @@ These come from the render-gap survey (2026-11-02, file:line evidence in [[2026-
 | Subagents | `Subagent.{name?, call?: ItemId}`; sidechains import as their own session plus this item |
 | Context and modes | `Event::ContextChanged{mode?, permission_mode?, config?: map}` (durable) |
 | Commands, hooks, system | `Item::Command{name, args}`, `Item::Hook{event, name, outcome, output?}`, `Item::SystemMessage{role: system\|developer, text}` |
-| Honest gaps | `Item::Native{provider, record_type, summary?}`: a native record the projector keeps but does not map. It replaces silent drops |
+| Nothing dropped | `Item::Native{provider, record_type, raw: Value, blob?: BlobRef}` (§7): the verbatim record a projector could not map. `Envelope.ext[provider]` carries the fields of a mapped record the projector did not consume |
 | Errors | `ItemStatus::Failed.code?: String` |
 | Sealed reasoning | `Reasoning.provider_opaque` keeps its type (`any`). Its value is fixed as `{provider, form, data}` and is never rendered or sent to another provider |
 | Plans | `PlanEntry.id?: String` |
@@ -144,7 +144,29 @@ The render rule for every addition: a face that predates it shows the item kind'
 
 The IR is the contract of the whole suite, not of one consumer. Its home is a crate in the bboxy450-term workspace (d5087), consumed by the harness the way it consumes `bbt-ui`. The move is sequenced in [[d5977-rich-view-dependency-direction]]; until then the types, the lock, the corpus and the gate stay in this repository and move together.
 
+## 7. Nothing is dropped at the edge
+
+The only data a mapping can ever be built from is the data the edge kept. From 1.1 every projector (native import, ACP backend, any future backend) obeys:
+
+1. **Unmapped record → `Item::Native`.** A native record, an ACP `session/update` kind or a notification the projector has no arm for becomes `Item::Native { provider, record_type, raw, blob }`: `raw` is the verbatim value after the redactor; over 64 KiB the value goes to a blob and `raw` keeps its first 4 KiB. It is a durable item of the turn it arrived in, or `turn: None`. It replaces today's `_ => {}` arms (`src/import/mod.rs:309, 355, 431`) and the ACP Warn-notice arm (`src/backend/acp_agent.rs:1210`). A face renders it collapsed: provider, kind, size.
+2. **Mapped record, unconsumed fields → `ext`.** A projector records which keys it read; the rest of the object, minus a per-provider allowlist of fields already carried elsewhere (ids now in `native`, timestamps now in `ts_ms`), goes to `Envelope.ext[<provider>]` on the item it produced. ACP `_meta` goes there whole.
+3. **Never silently narrowed.** A value the typed field cannot hold (a stop reason with no variant, a content block with no arm) is not coerced to the nearest value: the typed field gets its `Unknown`/`Other` **and** the original goes to `ext`. The placeholder-text arms (`acp_agent.rs:1580, 1594, 1626`) are retired.
+4. **Writers still never emit `unknown`** (E5): `Native` and `ext` are typed; `Unknown` stays a reader-side value.
+
+Consequence: promotion is retroactive. Once a mapping lands, `bboxy450-harness reproject <session>` derives a new session log from the old one's `Native` and `ext` data, as a fork-like derived log. The original is never rewritten (E8, [[log-is-truth]]).
+
+## 8. The unknown scanner: the IR grows from observed data
+
+`bboxy450-harness ir-scan [--json] [--propose DIR] PATH…` (brief [[2026-11-02-ir-unknown-scanner]]).
+
+- **Catalogue.** Walks logs and collects every `Item::Native` (provider + record_type), every `Unknown` payload (enum + tag), every `ext` namespace and key, and every unknown field of a known type (raw object keys absent from the schema for that type). An entry is keyed by a shape fingerprint (sorted key paths with value kinds) and holds count, sessions, first and last seen, and one redacted sample ≤ 4 KiB. It is written to `~/.bboxy450-harness/ir-unknowns/<fingerprint>.json` and merged across runs.
+- **Proposal.** With `--propose`, every fingerprint yields an additive proposal: a schema fragment (a new `Item`/`OutputBlock`/`InputBlock` variant, or optional fields on an existing one, names taken from the source's own names in snake_case), a projector-arm skeleton for that provider, a fixture line from the sample into `tests/fixtures/ir-v1/pending/`, and a task record `.bboxy/tasks/<date>-ir-extend-<fingerprint>.md` in the brief format, ready for the Oracle to dispatch. A proposal that `ir-compat check` would refuse is a scanner bug.
+- **When it runs.** (a) At session close, in-process on that session's log, off the hot path: a new fingerprint gives one Info notice, "N unmapped kinds from <provider>; run ir-scan --propose". (b) In `make test`, over `tests/fixtures/`, as a dry run: a fixture whose unknowns have no pending proposal fails. (c) In the night run over real sessions, with `--propose`.
+- **Landing an extension.** The proposal is an ordinary executor task: implement the arm, move the fixture into the frozen corpus as `v1.<n>-<provider>-<kind>.jsonl`, pass `make test-ir`. Because the gate proves additivity, `scripts/land.sh` refreshes the lock itself (`ir-compat lock` after `check` passes); no Architect sits in the loop. The Architect reviews names and meaning (E3) afterwards and can correct only by adding (E7).
+- **Bounds.** Samples pass the redactor. One sample per fingerprint. Scan cost stays under 1 ms CPU between awaits ([[budgets]] §1), never on the UI thread, and is bounded by the log's size.
+
 ## Change log
 
+- 2026-11-02, at the operator's direction ("log into the IR what we could not parse, mark it unknown, and have an automated scanner extend the IR the moment we meet an unknown"): E4 strengthened (payload-carrying `Unknown`), §7 edge rule, §8 scanner and self-extension pipeline, [[d5978-unknown-is-preserved-and-promoted]].
 - 2026-11-02, Lumen Foxglove <ARCHITECT>, on the operator's direction relayed by the Oracle: v1 law and gate; locked from 0.4 at 3c78fcf; corpus = the 5 protocol fixtures + 5 real ACP sessions.
 - 2026-11-02, second pass at the operator's request ("rethink your choices"). Found by reading the store: E9 (readers take durability from `seq`; `store.rs:144`/`:215` violate it). 1.0 is now the lock and the additions are 1.1. Usage provenance simplified from a per-field map to one `source` per record plus `unreported`; the report never adds scopes together. §6 names the IR's future home.

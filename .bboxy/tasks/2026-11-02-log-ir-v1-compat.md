@@ -43,11 +43,12 @@ ROLE: EXECUTOR. Repo bboxy450/bboxy450-harness, own worktree off origin/main. Sp
    - every line of `tests/fixtures/ir-v1/*.jsonl` parses as `Envelope`, with no top-level `Event::Unknown`, and `check_transcript` passes per file;
    - a future-data case: a temp log with one line whose event type is unknown **and durable (it carries the next `seq`)** and which has an unknown field is opened (E9), replayed over Unix and forked; the bytes of that line are identical in all three, and the replayed seq list is gapless;
    - **broken controls:** (a) the old re-serializing fork path behind a `#[cfg(test)]` switch must fail the byte-identity assertion; (b) `is_durable()` restored on the read path must fail the open.
+8. **`Unknown` keeps its payload (E4).** Every `#[serde(other)] Unknown` becomes an untagged catch-all `Unknown(serde_json::Value)` (serde's variant-level `untagged`) holding the whole value, tag included; `kind()` of such an item is `ItemKind::Unknown`; `apply` ignores deltas to it. `future_variants_and_fields` asserts the payload round-trips. The schema export shows one catch-all per union and `make test-ir` must still pass (the gate accepts a named `unknown` or an untagged catch-all).
 7. Record the contract in `verification/contracts.toml` (E6 pass-through: sources, witness `tests/ir_v1_corpus.rs`, assumptions) and list `src/store/fork.rs` coverage in `verification/coverage.toml`.
 
 ## Part B: 1.1 additions (spec §3, §4, §4a; each optional or a new variant)
 
-1. Add the types exactly as named in spec §3–§4a. Every new union or enum has `#[serde(other)] Unknown`. Every new field is `Option` or `#[serde(default, skip_serializing_if = …)]`. Regenerate `protocol.schema.json` with `UPDATE_GOLDENS=1`. `make test-ir` must pass with no lock change.
+1. Add the types exactly as named in spec §3–§4a, including `Item::Native { provider, record_type, raw: Value, blob: Option<BlobRef> }` (§7; the projector rules that write it are task #5979's, not yours). Every new union or enum has `#[serde(other)] Unknown`. Every new field is `Option` or `#[serde(default, skip_serializing_if = …)]`. Regenerate `protocol.schema.json` with `UPDATE_GOLDENS=1`. `make test-ir` must pass with no lock change.
 2. Every in-repo face gets display arms (GUI, seat line mode, ACP export, web replay if present). Unknown kinds keep the neutral placeholder.
 3. **Usage (§4a), writers:**
    - The engine writes `scope`, `backend{engine, provider id}`, `model`, `sources` and `cost` with `price_source`.

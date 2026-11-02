@@ -75,6 +75,8 @@ updated: "2026-11-02T22:00:00Z"
 | R26 | Our log is the center: native Claude/Codex logs project into logs that pass `check_transcript`; switch forks and hands over | `tests/import_native.rs`, `tests/acp_agent.rs` switch test ([[d5972-our-log-format-is-the-center]]) | `make test` |
 | R27 | Rich-face parity: the native GUI renders a replay like the web reference | `python3 -I scripts/parity-gate.py OUT [--target]` over `tests/fixtures/parity/*.jsonl` (§Rich-face parity) | executor acceptance (macOS, Chrome); **not** `make test` |
 | R28 | The log IR only grows by addition; 0.x logs stay valid; unknown data survives store, replay and fork; usage is never invented ([[log-ir-v1]], [[d5974-log-ir-v1-only-add]]) | `make test-ir` (`scripts/ir-compat.py` check + control, frozen corpus hashes); `tests/ir_v1_corpus.rs` and `tests/usage_report.rs` (brief [[2026-11-02-log-ir-v1-compat]]): **unproven** until it lands | `make test` |
+| R29 | Nothing is dropped at the edge: an unmapped record becomes `Item::Native` with its raw value, unconsumed fields go to `ext`, `Unknown` keeps its payload ([[log-ir-v1]] §7, E4, [[d5978-unknown-is-preserved-and-promoted]]) | `tests/ir_edge.rs` (brief [[2026-11-02-ir-unknown-scanner]]): a never-seen record through each projector round-trips raw; broken control: a restored `_ => {}` arm must fail. **unproven** | `make test` |
+| R30 | The IR grows from observed data: `ir-scan` catalogues every unknown and emits an additive proposal that passes `ir-compat`; `make test` fails on a fixture unknown with no pending proposal; `land.sh` refreshes the lock ([[log-ir-v1]] §8) | `tests/ir_scan.rs` (same brief); broken control: a proposal that renames a field is refused. **unproven** | `make test` |
 
 ## Rich-face parity (R27)
 
