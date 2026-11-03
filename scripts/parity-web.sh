@@ -70,7 +70,7 @@ const v = Hx.view({opts}); document.getElementById('f').append(v.node);
 {open_menu}
 </script></body></html>''')
 PY
-"$CHROME" --headless=new --use-mock-keychain --password-store=basic --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --user-data-dir="$OUT/.chrome" \
+"$CHROME" --headless=new --use-mock-keychain --password-store=basic --force-prefers-reduced-motion --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --user-data-dir="$OUT/.chrome" \
   --window-size="$W,$H" --virtual-time-budget=2000 --screenshot="$OUT/web.png" "file://$OUT/page.html" >/dev/null 2>&1
 rm -rf "$OUT/.chrome"
 python3 -I - "$OUT" <<'PY'
