@@ -21,6 +21,68 @@ fn variable(m: &bbt_tlc::Model, name: &str) -> usize {
         .unwrap_or_else(|| panic!("missing state variable {name}"))
 }
 #[test]
+fn socket_delivery_controls_duplicate_effect_and_retarget_across_session_births() {
+    let good = model("HarnessSocketDelivery");
+    let current = variable(&good, "session");
+    let bound = variable(&good, "bound");
+    let target = variable(&good, "target");
+    let msg = variable(&good, "msg");
+    let a = variable(&good, "turns_A");
+    let b = variable(&good, "turns_B");
+    let checked = good.check(100_000).unwrap();
+    assert!(checked.violations.is_empty());
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[current] == 2 && s[bound] == 0 && s[target] == 0 && s[msg] == 1),
+        "a pending A message must survive B and the third A birth"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[current] == 2 && s[bound] == 0 && s[msg] == 3),
+        "an old socket must actually refuse the pending message"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[a] == 1 && s[variable(&good, "resent")] == 1 && s[msg] == 2),
+        "duplicate ack must remain reachable"
+    );
+    let fresh = model("BrokenHarnessSocketDeliveryFreshId")
+        .check(100_000)
+        .unwrap();
+    assert!(
+        fresh
+            .violations
+            .iter()
+            .any(|v| v.property == "OneTurnPerMessage")
+    );
+    assert!(
+        fresh.states.iter().any(|s| s[a] == 2),
+        "fresh resend ID must create two actual turns"
+    );
+    let retarget = model("BrokenHarnessSocketDeliveryRetarget")
+        .check(100_000)
+        .unwrap();
+    assert!(
+        retarget
+            .violations
+            .iter()
+            .any(|v| v.property.starts_with("NoTurnOnUnannouncedSession"))
+    );
+    assert!(
+        retarget
+            .states
+            .iter()
+            .any(|s| s[a] == 1 && s[b] == 1 && s[bound] == 0),
+        "retarget must deliver one message to two real sessions"
+    );
+}
+#[test]
 fn native_import_controls_expose_duplicate_accounting_and_references_before_blobs() {
     let m = model("HarnessNativeUsage");
     let turn = variable(&m, "turn");

@@ -5,6 +5,21 @@
 # Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 [[model]]
+name = "HarnessSocketDelivery"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessSocketDeliveryFreshId"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessSocketDeliveryRetarget"
+expected = "safety"
+frontend = "project"
+
+[[model]]
 name = "HarnessTurnLifecycle"
 expected = "pass"
 frontend = "project"

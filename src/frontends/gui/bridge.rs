@@ -10,7 +10,10 @@
 use super::model::{Effect, Transcript};
 use crate::{
     engine::Config,
-    gateway::{Gateway, Host, InProc, Refused, Subscribe},
+    gateway::{
+        Ack, Gateway, Host, InProc, Refused, Subscribe, Subscription,
+        unix::{ClientError, UnixClient},
+    },
     protocol::*,
 };
 use bbt_rt::{DirtySet, Latest, UiMsg, UiReceiver, UiSender, Waker};
@@ -28,7 +31,7 @@ use tokio_util::sync::CancellationToken;
 pub struct FrameState {
     pub revision: u64,
     pub transcript: Arc<Transcript>,
-    pub gateway: Option<InProc>,
+    pub gateway: Option<ViewGateway>,
     pub error: Option<String>,
     pub notice: Option<String>,
     pub replay: bool,
@@ -39,6 +42,117 @@ pub struct FrameState {
     pub prepared: Option<Arc<super::view::PreparedRows>>,
     #[cfg(feature = "embedded")]
     pub faces: Arc<super::rich::Faces>,
+}
+
+/// Local admission is synchronous. A Unix dispatch is explicitly pending until
+/// its correlated server response arrives on the background worker.
+#[derive(Debug)]
+pub enum Submission {
+    Admitted(Ack),
+    Pending { op_id: OpId },
+}
+#[derive(Clone)]
+pub enum ViewGateway {
+    InProc(InProc),
+    Unix(RemoteGateway),
+}
+#[derive(Clone)]
+pub struct RemoteGateway {
+    client: UnixClient,
+    session: SessionId,
+    work: Arc<tokio::sync::Semaphore>,
+    outcomes: tokio::sync::mpsc::UnboundedSender<(OpId, Result<Ack, ClientError>)>,
+}
+struct ConnectionGuard(Option<UnixClient>);
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        if let Some(client) = &self.0 {
+            client.close();
+        }
+    }
+}
+impl ViewGateway {
+    fn session(&self) -> SessionId {
+        match self {
+            Self::InProc(g) => g.session(),
+            Self::Unix(g) => g.session,
+        }
+    }
+    fn send(&self, op: OpEnvelope) -> Result<Submission, Refused> {
+        match self {
+            Self::InProc(g) => g.send(op).map(Submission::Admitted),
+            Self::Unix(g) => {
+                // Bound in-flight work without making Stop/approval wait for it.
+                let permit = if matches!(
+                    op.op,
+                    Op::Interrupt { .. } | Op::ResolveApproval { .. } | Op::Close
+                ) {
+                    None
+                } else {
+                    Some(
+                        g.work
+                            .clone()
+                            .try_acquire_owned()
+                            .map_err(|_| Refused::Busy)?,
+                    )
+                };
+                let client = g.client.clone();
+                let outcomes = g.outcomes.clone();
+                let op_id = op.op_id;
+                bbt_rt::handle().spawn(async move {
+                    let result = client.send(op).await;
+                    let _ = outcomes.send((op_id, result));
+                    drop(permit);
+                });
+                Ok(Submission::Pending { op_id })
+            }
+        }
+    }
+}
+enum Source {
+    InProc(InProc),
+    Unix { socket: PathBuf, session: SessionId },
+}
+impl Source {
+    async fn subscribe(
+        &self,
+        after: Option<(Epoch, Seq)>,
+        approver: bool,
+        outcomes: tokio::sync::mpsc::UnboundedSender<(OpId, Result<Ack, ClientError>)>,
+    ) -> Result<(ViewGateway, Subscription), String> {
+        let session = match self {
+            Self::InProc(g) => g.session(),
+            Self::Unix { session, .. } => *session,
+        };
+        let request = Subscribe {
+            session,
+            after,
+            ephemeral: true,
+        };
+        match self {
+            Self::InProc(g) => g
+                .subscribe(request)
+                .map(|sub| (ViewGateway::InProc(g.clone()), sub))
+                .map_err(|e| refusal_text(&e).to_string()),
+            Self::Unix { socket, .. } => {
+                let (client, sub) = UnixClient::connect_with_approver(socket, request, approver)
+                    .await
+                    .map_err(|e| client_error_text(&e))?;
+                if sub.hello().meta.session != session {
+                    return Err("session identity mismatch".into());
+                }
+                Ok((
+                    ViewGateway::Unix(RemoteGateway {
+                        client,
+                        session,
+                        work: Arc::new(tokio::sync::Semaphore::new(64)),
+                        outcomes,
+                    }),
+                    sub,
+                ))
+            }
+        }
+    }
 }
 struct Mailbox {
     latest: Latest<FrameState>,
@@ -189,13 +303,21 @@ impl Bridge {
         tx.send(profile).map_err(|_| "the session host has stopped")
     }
     pub fn create(&mut self, config: Config) {
-        self.start(config, None)
+        self.start(config, None, None)
+    }
+    pub fn resume(&mut self, config: Config, session: SessionId) {
+        self.start(config, None, Some(session))
     }
     /// Render another harness's native session live (read-only until `/profile` forks it).
     pub fn watch(&mut self, config: Config, native: Option<crate::import::Native>, path: PathBuf) {
-        self.start(config, Some((native, path)))
+        self.start(config, Some((native, path)), None)
     }
-    fn start(&mut self, config: Config, watch: Option<(Option<crate::import::Native>, PathBuf)>) {
+    fn start(
+        &mut self,
+        config: Config,
+        watch: Option<(Option<crate::import::Native>, PathBuf)>,
+        resume: Option<SessionId>,
+    ) {
         let mailbox = self.mailbox.clone();
         let detach = self.detach.clone();
         let (switch_tx, mut switches) = tokio::sync::mpsc::unbounded_channel::<String>();
@@ -204,7 +326,7 @@ impl Bridge {
         let before_host = self.before_host.take();
         self.worker = Some(bbt_rt::handle().spawn(async move {
             crate::capability::register(&config.redactor).await;
-            let session = config.meta.session;
+            let session = resume.unwrap_or(config.meta.session);
             mailbox.blobs.store(Some(Arc::new(crate::store::Blobs {
                 dir: config.sessions.join(session.to_string()).join("blobs"),
                 redactor: config.redactor.clone(),
@@ -219,21 +341,40 @@ impl Bridge {
                 observe(&config.redactor);
             }
             let sessions = config.sessions.clone();
+            let root = config.profiles.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
             let redactor = config.redactor.clone();
             mailbox.profiles.store(Arc::new(profile_names(&config.profiles).await));
             let cwd = config.meta.cwd.clone();
             let host = Host::new(config);
-            let created = match watch {
+            let created = if resume.is_some() {
+                host.open(session).await.map(|g| (g, crate::gateway::Ack { op_id: OpId::new(), duplicate: false }))
+            } else { match watch {
                 Some((native, path)) => host.watch(native, path, cwd).await.map(|g| (g, crate::gateway::Ack { op_id: OpId::new(), duplicate: false })),
                 None => host.create(OpEnvelope { v: PROTOCOL, op_id: OpId::new(), session, op }).await,
-            };
+            }};
             match created {
                 Ok((mut gateway, _)) => {
+                    let mut socket = match crate::frontends::seat::bind_session(&root, gateway.clone(), resume.is_some()).await {
+                        Ok(socket) => socket,
+                        Err(error) => {
+                            mailbox.publish(FrameState { error: Some(error), ..Default::default() });
+                            host.close_all().await;
+                            return;
+                        }
+                    };
                     loop {
                         tokio::select! {
-                            _ = consume(gateway.clone(), mailbox.clone(), detach.clone()) => break,
+                            _ = consume(Source::InProc(gateway.clone()), None, mailbox.clone(), detach.clone()) => break,
                             Some(profile) = switches.recv() => match host.switch(&gateway, profile.clone()).await {
                                 Ok(next) => {
+                                    match crate::frontends::seat::bind_session(&root, next.clone(), false).await {
+                                        Ok(next_socket) => { let _ = std::mem::replace(&mut socket, next_socket).close().await; }
+                                        Err(error) => {
+                                            mailbox.publish(FrameState { error: Some(error), ..Default::default() });
+                                            host.close_all().await;
+                                            break;
+                                        }
+                                    }
                                     mailbox.blobs.store(Some(Arc::new(crate::store::Blobs {
                                         dir: sessions.join(next.session().to_string()).join("blobs"),
                                         redactor: redactor.clone(),
@@ -247,6 +388,7 @@ impl Bridge {
                             },
                         }
                     }
+                    let _ = socket.close().await;
                     // Keep the actor host alive through detached work. A detach
                     // sends no Close. The idle log remains resumable on disk.
                     drop(host);
@@ -265,7 +407,32 @@ impl Bridge {
     pub fn attach(&mut self, gateway: InProc) {
         let mailbox = self.mailbox.clone();
         let detach = self.detach.clone();
-        self.worker = Some(bbt_rt::handle().spawn(consume(gateway, mailbox, detach)));
+        self.worker =
+            Some(bbt_rt::handle().spawn(consume(Source::InProc(gateway), None, mailbox, detach)));
+    }
+    /// Connect to run/<session>.sock. All socket IO, decoding, retries and row
+    /// preparation run on bbt_rt; the caller only schedules and drains Latest.
+    pub fn connect(&mut self, socket: PathBuf, after: Option<(Epoch, Seq)>) {
+        let session = socket
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .and_then(|s| s.parse().ok())
+            .map(SessionId);
+        let Some(session) = session else {
+            self.mailbox.publish(FrameState {
+                error: Some("invalid session socket name".into()),
+                ..Default::default()
+            });
+            return;
+        };
+        let mailbox = self.mailbox.clone();
+        let detach = self.detach.clone();
+        self.worker = Some(bbt_rt::handle().spawn(consume(
+            Source::Unix { socket, session },
+            after,
+            mailbox,
+            detach,
+        )));
     }
     /// A real frame drains under 0.3ms. complete_drain re-marks any remainder,
     /// including a publication racing the just-completed frame.
@@ -307,7 +474,7 @@ impl Bridge {
         self.mailbox.latest.complete_drain();
         changed
     }
-    pub fn send(&self, op: Op) -> Result<crate::gateway::Ack, Refused> {
+    pub fn send(&self, op: Op) -> Result<Submission, Refused> {
         let gateway = self.state.gateway.as_ref().ok_or(Refused::Closed)?;
         let turn = matches!(op, Op::UserTurn { .. });
         let op_id = OpId::new();
@@ -406,51 +573,103 @@ fn apply_event(
     }
     model.apply(event)
 }
-async fn consume(gateway: InProc, mailbox: Arc<Mailbox>, detach: CancellationToken) {
+async fn consume(
+    source: Source,
+    initial_after: Option<(Epoch, Seq)>,
+    mailbox: Arc<Mailbox>,
+    detach: CancellationToken,
+) {
     let mut model = Transcript::default();
-    let mut after = None;
+    let mut after = initial_after;
     let mut detached = false;
     let mut owned_turns = std::collections::BTreeMap::new();
     let mut preparer = Preparer::default();
+    let (outcomes, mut responses) = tokio::sync::mpsc::unbounded_channel();
+    let mut dispatch_error = None;
     loop {
-        let mut sub = match gateway.subscribe(Subscribe {
-            session: gateway.session(),
-            after,
-            ephemeral: true,
-        }) {
-            Ok(sub) => sub,
+        if detached && mailbox.pending_turns.load().is_empty() {
+            return;
+        }
+        let (gateway, mut sub) = match tokio::select! {
+            _ = detach.cancelled(), if !detached => { detached = true; continue; }
+            result = source.subscribe(after, !detached, outcomes.clone()) => result,
+        } {
+            Ok(connected) => connected,
             Err(error) => {
                 mailbox.publish(FrameState {
-                    transcript: Arc::new(model),
-                    error: Some(format!("Subscription ended: {}", refusal_text(&error))),
+                    transcript: Arc::new(model.clone()),
+                    error: Some(format!("Subscription unavailable: {error}")),
                     ..Default::default()
                 });
-                return;
+                if matches!(source, Source::InProc(_)) || detached {
+                    return;
+                }
+                tokio::select! {
+                    _ = detach.cancelled() => return,
+                    _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+                }
+                continue;
             }
         };
+        let connection_guard = ConnectionGuard(match &gateway {
+            ViewGateway::Unix(remote) => Some(remote.client.clone()),
+            ViewGateway::InProc(_) => None,
+        });
+        if model.session.is_none() && after.is_some_and(|(_, seq)| seq > model.cursor) {
+            // A fresh view has no retained prefix for an external cursor. Probe
+            // the requested cursor, then rebuild the missing prefix from the log.
+            // Internal lag/reconnect retains its model and needs only the suffix.
+            after = None;
+            continue;
+        }
         sub.set_approver(!detached);
         model.hello(gateway.session(), sub.hello().epoch);
-        mailbox.publish(FrameState {
-            transcript: Arc::new(model.clone()),
-            gateway: Some(gateway.clone()),
-            ready: true,
-            ..Default::default()
-        });
+        publish_frame(
+            FrameState {
+                transcript: Arc::new(model.clone()),
+                gateway: Some(gateway.clone()),
+                ready: true,
+                ..Default::default()
+            },
+            &mailbox,
+            &mut preparer,
+        )
+        .await;
         loop {
             if detached && mailbox.pending_turns.load().is_empty() {
                 return;
             }
             let event = tokio::select! {
                 biased;
-                _ = detach.cancelled(), if !detached => { detached = true; after = Some((model.epoch, model.cursor)); break; }
+                _ = detach.cancelled(), if !detached => {
+                    detached = true;
+                    // Reconnect without the server's approver lease while an
+                    // owned turn finishes. Detaching sends no Close.
+                    after = Some((model.epoch, model.cursor));
+                    break;
+                }
+                Some((op, result)) = responses.recv() => {
+                    if let Err(error) = result {
+                        mailbox.pending(op, false);
+                        dispatch_error = Some(format!("Dispatch {op}: {}", client_error_text(&error)));
+                        if !detached {
+                            publish_frame(FrameState { transcript: Arc::new(model.clone()), gateway: Some(gateway.clone()), error: dispatch_error.clone(), ready: true, ..Default::default() }, &mailbox, &mut preparer).await;
+                        }
+                    }
+                    continue;
+                }
                 _ = mailbox.resized.notified(), if !detached => {
-                    publish_frame(FrameState { transcript: Arc::new(model.clone()), gateway: Some(gateway.clone()), ready: true, ..Default::default() }, &mailbox, &mut preparer).await;
+                    publish_frame(FrameState { transcript: Arc::new(model.clone()), gateway: Some(gateway.clone()), error: dispatch_error.clone(), ready: true, ..Default::default() }, &mailbox, &mut preparer).await;
                     continue;
                 }
                 event = sub.recv() => event,
             };
             let Some(event) = event else {
-                return;
+                if matches!(source, Source::InProc(_)) || model.closed {
+                    return;
+                }
+                after = Some((model.epoch, model.cursor));
+                break;
             };
             let mut effect = apply_event(&mut model, &event, &mut owned_turns, &mailbox);
             let start = Instant::now();
@@ -472,6 +691,7 @@ async fn consume(gateway: InProc, mailbox: Arc<Mailbox>, detach: CancellationTok
                     FrameState {
                         transcript: Arc::new(model.clone()),
                         gateway: Some(gateway.clone()),
+                        error: dispatch_error.clone(),
                         ready: true,
                         ..Default::default()
                     },
@@ -485,10 +705,48 @@ async fn consume(gateway: InProc, mailbox: Arc<Mailbox>, detach: CancellationTok
                 break;
             }
             if closed {
-                return;
+                if matches!(source, Source::InProc(_)) || model.closed {
+                    return;
+                }
+                after = Some((model.epoch, model.cursor));
+                break;
             }
             tokio::task::yield_now().await;
         }
+        // Lag/Reset reconnects and transport failure share the same cursor path.
+        // Never spin on a malformed peer or move an intent to another session.
+        if matches!(source, Source::Unix { .. }) {
+            if !detached {
+                publish_frame(
+                    FrameState {
+                        transcript: Arc::new(model.clone()),
+                        error: Some("Socket reconnecting".into()),
+                        ..Default::default()
+                    },
+                    &mailbox,
+                    &mut preparer,
+                )
+                .await;
+            }
+            drop(gateway);
+            drop(connection_guard);
+            tokio::select! {
+                _ = detach.cancelled(), if !detached => return,
+                _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+            }
+        }
+    }
+}
+fn client_error_text(error: &ClientError) -> String {
+    match error {
+        ClientError::Refused(error) => refusal_text(error).into(),
+        ClientError::Timeout { .. } => {
+            "ack timeout; outcome unknown; retry only the same op_id".into()
+        }
+        ClientError::Disconnected => {
+            "socket unavailable; outcome unknown; retry only the same op_id".into()
+        }
+        ClientError::Protocol(_) => "invalid socket protocol".into(),
     }
 }
 /// Validation and projection of large fixture files use the same four-permit

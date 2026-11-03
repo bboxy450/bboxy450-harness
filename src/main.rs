@@ -17,7 +17,7 @@ fn main() {
 fn gui() -> i32 {
     if std::env::args().skip(2).any(|a| a == "--help" || a == "-h") {
         println!(
-            "bboxy450-harness gui [--profile P] [--cwd D]\nbboxy450-harness gui --replay FIXTURE.jsonl [--headless --screenshot PATH | --capture WxH [--no-chrome] [--zoom FACTOR (0.9–1.6, step 0.1)] [--expand all] [--open-menu profiles|slash] --screenshot PATH]"
+            "bboxy450-harness gui [--profile P] [--cwd D] [--resume SESSION]\nbboxy450-harness gui --replay FIXTURE.jsonl [--headless --screenshot PATH | --capture WxH [--no-chrome] [--zoom FACTOR (0.9–1.6, step 0.1)] [--expand all] [--open-menu profiles|slash] --screenshot PATH]"
         );
         return 0;
     }

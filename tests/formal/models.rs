@@ -3214,8 +3214,130 @@ fn text_zoom(b: bool) -> Model {
     progress(&mut m, "SaveCompletes", eq(2, 1), eq(2, 0), vec![3]);
     m
 }
+// rich-pane §5: one message retains its op_id and admission session. Births
+// 0/1/2 stand for distinct A/B/A sessions, never a reused socket identity.
+fn socket_delivery(mode: u8) -> Model {
+    let mut m = base::<13>(
+        "SocketDelivery",
+        false,
+        &[
+            ("session", 2, 0),
+            ("announced", 3, 3),
+            ("msg", 3, 0), // new, sent, acked, refused
+            ("bound", 2, 0),
+            ("target", 2, 0),
+            ("op_key", 1, 0),
+            ("resent", 1, 0),
+            ("turns_A", 2, 0),
+            ("turns_B", 2, 0),
+            ("turns_A2", 2, 0),
+            ("seen_A", 1, 0),
+            ("seen_B", 1, 0),
+            ("seen_A2", 1, 0),
+        ],
+    );
+    m.name = match mode {
+        0 => "HarnessSocketDelivery",
+        1 => "BrokenHarnessSocketDeliveryFreshId",
+        _ => "BrokenHarnessSocketDeliveryRetarget",
+    }
+    .into();
+    act(
+        &mut m,
+        "Announce",
+        Var(1).eq(Var(0)).negate(),
+        &[(1, Var(0))],
+    );
+    act(
+        &mut m,
+        "SendBoundMessage",
+        all([eq(2, 0), Var(1).eq(Var(0))]),
+        &[(2, Int(1)), (3, Var(0)), (4, Var(0))],
+    );
+    act(
+        &mut m,
+        "SwitchToNewSession",
+        Var(0).lt(Int(2)),
+        &[(0, Var(0).plus(Int(1))), (1, Int(3))],
+    );
+    act(
+        &mut m,
+        "ResendSameIntent",
+        all([eq(2, 0).negate(), eq(6, 0)]),
+        &[
+            (2, Int(1)),
+            (4, if mode == 2 { Var(0) } else { Var(3) }),
+            (5, Int(if mode == 1 { 1 } else { 0 })),
+            (6, Int(1)),
+        ],
+    );
+    let mut ack = vec![];
+    for session in 0..=2 {
+        let turns = 7 + session;
+        let seen = 10 + session;
+        ack.push(m.actions.len());
+        act(
+            &mut m,
+            "AckFirstEffect",
+            all([
+                eq(2, 1),
+                eq(0, session as i64),
+                eq(4, session as i64),
+                eq(seen, 0).or(eq(5, 1)),
+                Var(turns).lt(Int(2)),
+            ]),
+            &[
+                (2, Int(2)),
+                (turns, Var(turns).plus(Int(1))),
+                (seen, Int(1)),
+            ],
+        );
+        ack.push(m.actions.len());
+        act(
+            &mut m,
+            "AckDuplicateWithoutEffect",
+            all([
+                eq(2, 1),
+                eq(0, session as i64),
+                eq(4, session as i64),
+                eq(seen, 1),
+                eq(5, 0),
+            ]),
+            &[(2, Int(2))],
+        );
+        safe(
+            &mut m,
+            &format!("NoTurnOnUnannouncedSession{session}"),
+            eq(3, session as i64).or(eq(turns, 0)),
+        );
+    }
+    ack.push(m.actions.len());
+    act(
+        &mut m,
+        "AckRefusedClosedSocket",
+        all([eq(2, 1), Var(4).eq(Var(0)).negate()]),
+        &[(2, Int(3))],
+    );
+    safe(
+        &mut m,
+        "OneTurnPerMessage",
+        Var(7).plus(Var(8)).plus(Var(9)).le(Int(1)),
+    );
+    progress(
+        &mut m,
+        "SentEventuallyAckedOrRefused",
+        eq(2, 1),
+        eq(2, 2).or(eq(2, 3)),
+        ack,
+    );
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (socket_delivery(0), "pass"),
+        (socket_delivery(1), "safety"),
+        (socket_delivery(2), "safety"),
         (agent_path(0), "pass"),
         (agent_path(1), "safety"),
         (agent_path(2), "liveness"),

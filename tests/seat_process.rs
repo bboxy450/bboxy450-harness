@@ -15,6 +15,8 @@ mod seat_launch;
 #[cfg(feature = "test-fixtures")]
 #[path = "support/seat_shutdown.rs"]
 mod seat_shutdown;
+#[path = "support/seat_socket.rs"]
+mod seat_socket;
 // Match portable-pty's pre-exec descriptor fence for the one non-PTY child.
 // openpty publishes descriptors before setting CLOEXEC; concurrent fixtures
 // must never hand a sibling's master to the key-resolution process.

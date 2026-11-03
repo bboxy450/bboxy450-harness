@@ -423,27 +423,7 @@ async fn run_cli(
             .map_err(|_| "session could not be created")?
             .0
     };
-    let socket_path = root.join("run").join(format!("{session}.sock"));
-    if resume.is_some() {
-        // Successful open owns the session's exclusive writer lease. Its old
-        // process is gone, but SIGKILL cannot unlink the bound socket pathname.
-        use std::os::unix::fs::{FileTypeExt, MetadataExt};
-        match tokio::fs::symlink_metadata(&socket_path).await {
-            Ok(meta)
-                if meta.file_type().is_socket() && meta.uid() == unsafe { libc::geteuid() } =>
-            {
-                tokio::fs::remove_file(&socket_path)
-                    .await
-                    .map_err(|_| "stale session socket unavailable")?;
-            }
-            Ok(_) => return Err("session socket path is not an owned socket".into()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return Err("session socket unavailable".into()),
-        }
-    }
-    let mut socket = crate::gateway::unix::UnixServer::bind(socket_path, gateway.clone())
-        .await
-        .map_err(|_| "session socket unavailable")?;
+    let mut socket = super::seat::bind_session(&root, gateway.clone(), resume.is_some()).await?;
     let mut session = session;
     let mut subscription = gateway
         .subscribe(Subscribe {
@@ -543,9 +523,7 @@ async fn run_cli(
                                 let _ = socket.close().await;
                                 let hello = next.hello();
                                 session = hello.meta.session;
-                                socket = crate::gateway::unix::UnixServer::bind(root.join("run").join(format!("{session}.sock")), next.clone())
-                                    .await
-                                    .map_err(|_| "session socket unavailable")?;
+                                socket = super::seat::bind_session(&root, next.clone(), false).await?;
                                 subscription = next
                                     .subscribe(Subscribe { session, after: Some((hello.epoch, hello.head)), ephemeral: seat && !json })
                                     .map_err(|_| "subscribe refused")?;

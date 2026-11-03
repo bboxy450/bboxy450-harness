@@ -142,63 +142,244 @@ async fn background_subscription_and_detach_preserves_run() {
     assert!(wake.0.load(Ordering::Relaxed) > 0);
     support::close(s).await;
 }
+
+#[cfg(feature = "test-fixtures")]
+#[tokio::test]
+async fn unix_and_inproc_views_equal_every_ir_v1_fixture() {
+    use bboxy450_harness::gateway::{InProc, unix::UnixServer};
+    let mut fixtures = std::fs::read_dir("tests/fixtures/ir-v1")
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|s| s == "jsonl"))
+        .collect::<Vec<_>>();
+    fixtures.sort();
+    assert_eq!(
+        fixtures.len(),
+        10,
+        "every locked IR v1 fixture must be covered"
+    );
+    for path in fixtures {
+        let events = std::fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str::<Envelope>(l).unwrap())
+            .collect::<Vec<_>>();
+        laws::check_transcript(&events).unwrap();
+        let Event::SessionStarted { meta } = &events[0].event else {
+            panic!("fixture has no session");
+        };
+        let (gateway, publish) = InProc::fixture(meta.clone(), events[0].epoch);
+        let own = tempfile::tempdir_in("/tmp").unwrap();
+        let socket = own.path().join(format!("{}.sock", meta.session));
+        let server = UnixServer::bind(socket.clone(), gateway.clone())
+            .await
+            .unwrap();
+        let mut local = Bridge::new(Arc::new(Wake::default()));
+        let mut unix = Bridge::new(Arc::new(Wake::default()));
+        local.attach(gateway);
+        unix.connect(socket, None);
+        wait(&mut local, |b| b.state.ready).await;
+        wait(&mut unix, |b| b.state.ready).await;
+        for event in &events {
+            publish(event.clone());
+        }
+        let expected = bboxy450_harness::frontends::gui::bridge::read_replay(path.clone())
+            .await
+            .unwrap();
+        for bridge in [&mut local, &mut unix] {
+            wait(bridge, |b| {
+                b.state.ready && b.state.error.is_none() && *b.state.transcript == expected
+            })
+            .await;
+            assert!(
+                bridge.state.error.is_none(),
+                "{}: {:?}",
+                path.display(),
+                bridge.state.error
+            );
+            assert_eq!(bridge.state.transcript.duplicate_durable, 0);
+        }
+        #[cfg(feature = "embedded")]
+        {
+            use bboxy450_harness::frontends::gui::view::{HarnessView, layout_text};
+            let mut local_view = HarnessView::default();
+            let mut unix_view = HarnessView::default();
+            let a = local_view.render(&local.state, [1120., 16000.]).unwrap();
+            let b = unix_view.render(&unix.state, [1120., 16000.]).unwrap();
+            assert_eq!(
+                layout_text(a.layout.as_ref().unwrap()),
+                layout_text(b.layout.as_ref().unwrap()),
+                "{}",
+                path.display()
+            );
+        }
+        local.detach().unwrap().await.unwrap();
+        unix.detach().unwrap().await.unwrap();
+        server.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn unix_bridge_dispatches_off_thread_and_detach_keeps_its_turn() {
+    use bboxy450_harness::{frontends::gui::bridge::Submission, gateway::unix::UnixServer};
+    let mut provider =
+        bboxy450_harness::provider::ScriptedProvider::new(vec![support::sse("text")]);
+    provider.delay = Duration::from_millis(5);
+    let s = support::with_provider(Arc::new(provider), true).await;
+    let own = tempfile::tempdir_in("/tmp").unwrap();
+    let socket = own.path().join(format!("{}.sock", s.gateway.session()));
+    let server = UnixServer::bind(socket.clone(), s.gateway.clone())
+        .await
+        .unwrap();
+    let mut observer = support::subscribe(&s.gateway, false);
+    let mut bridge = Bridge::new(Arc::new(Wake::default()));
+    bbt_rt::register_ui_thread();
+    bridge.connect(socket.clone(), None);
+    wait(&mut bridge, |b| b.state.ready).await;
+    let sent = bridge
+        .send(Op::UserTurn {
+            blocks: vec![InputBlock::Text {
+                text: "socket turn".into(),
+            }],
+            mode: TurnMode::Queue,
+        })
+        .unwrap();
+    let Submission::Pending { op_id } = sent else {
+        panic!("local scheduling must never claim a server Ack");
+    };
+    wait(&mut bridge, |b| {
+        b.state
+            .transcript
+            .turns
+            .values()
+            .any(|t| matches!(t, TurnState::Running))
+    })
+    .await;
+    let detached = bridge.detach().unwrap();
+    let events = support::end(&mut observer).await;
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e.cause == Some(op_id) && matches!(e.event, Event::TurnQueued { .. }))
+            .count(),
+        1
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e.event, Event::SessionClosed))
+    );
+    tokio::time::timeout(Duration::from_secs(8), detached)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        socket.exists(),
+        "view detach must not unlink the session socket"
+    );
+    support::close(s).await;
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while socket.exists() {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap();
+    server.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn unix_bridge_unavailable_connect_is_cancelled_without_ui_io() {
+    let own = tempfile::tempdir_in("/tmp").unwrap();
+    let mut bridge = Bridge::new(Arc::new(Wake::default()));
+    bridge.connect(own.path().join(format!("{}.sock", SessionId::new())), None);
+    wait(&mut bridge, |b| b.state.error.is_some()).await;
+    assert!(!bridge.state.ready);
+    assert!(matches!(
+        bridge.send(Op::Interrupt { turn: None }),
+        Err(bboxy450_harness::gateway::Refused::Closed)
+    ));
+    tokio::time::timeout(Duration::from_secs(1), bridge.detach().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+}
 #[cfg(feature = "embedded")]
 #[tokio::test]
 async fn rendered_approval_actions_use_control_lane() {
-    for decision in [
-        ApprovalDecision::Allow,
-        ApprovalDecision::AllowAlways,
-        ApprovalDecision::Deny { reason: None },
-    ] {
-        let s = support::session(vec![support::sse("edit"), support::sse("text")], false).await;
-        let mut observer = support::subscribe(&s.gateway, false);
-        let mut bridge = Bridge::new(Arc::new(Wake::default()));
-        bridge.attach(s.gateway.clone());
-        wait(&mut bridge, |b| b.state.ready).await;
-        bridge
-            .send(Op::UserTurn {
-                blocks: vec![InputBlock::Text {
-                    text: "edit input".into(),
-                }],
-                mode: TurnMode::Queue,
+    for remote in [false, true] {
+        for decision in [
+            ApprovalDecision::Allow,
+            ApprovalDecision::AllowAlways,
+            ApprovalDecision::Deny { reason: None },
+        ] {
+            let s = support::session(vec![support::sse("edit"), support::sse("text")], false).await;
+            let mut observer = support::subscribe(&s.gateway, false);
+            let mut bridge = Bridge::new(Arc::new(Wake::default()));
+            let own = tempfile::tempdir_in("/tmp").unwrap();
+            let server = if remote {
+                let socket = own.path().join(format!("{}.sock", s.gateway.session()));
+                let server = bboxy450_harness::gateway::unix::UnixServer::bind(
+                    socket.clone(),
+                    s.gateway.clone(),
+                )
+                .await
+                .unwrap();
+                bridge.connect(socket, None);
+                Some(server)
+            } else {
+                bridge.attach(s.gateway.clone());
+                None
+            };
+            wait(&mut bridge, |b| b.state.ready).await;
+            bridge
+                .send(Op::UserTurn {
+                    blocks: vec![InputBlock::Text {
+                        text: "edit input".into(),
+                    }],
+                    mode: TurnMode::Queue,
+                })
+                .unwrap();
+            wait(&mut bridge, |b| {
+                b.state
+                    .transcript
+                    .items
+                    .values()
+                    .any(|r| r.kind == ItemKind::Approval && r.status.is_none())
             })
-            .unwrap();
-        wait(&mut bridge, |b| {
-            b.state
+            .await;
+            let id = bridge
+                .state
                 .transcript
                 .items
                 .values()
-                .any(|r| r.kind == ItemKind::Approval && r.status.is_none())
-        })
-        .await;
-        let id = bridge
-            .state
-            .transcript
-            .items
-            .values()
-            .find(|r| r.kind == ItemKind::Approval)
-            .unwrap()
-            .id;
-        let mut view = bboxy450_harness::frontends::gui::view::HarnessView::default();
-        let frame = view.render(&bridge.state, [1120., 7000.]).unwrap();
-        let action = frame
-            .actions
-            .iter()
-            .find_map(|(_, a)| match a {
-                bboxy450_harness::frontends::gui::view::Action::Approval(item, d)
-                    if *item == id && d == &decision =>
-                {
-                    Some(a.clone())
-                }
-                _ => None,
-            })
-            .expect("approval decision must be a rendered button");
-        view.activate(action, &bridge);
-        assert!(view.notice.is_none());
-        let events = support::end(&mut observer).await;
-        assert!(events.iter().any(|e| matches!(&e.event, Event::ItemCompleted { body: Item::Approval { decision: Some(d), .. }, .. } if d == &decision)));
-        let job = bridge.detach().unwrap();
-        job.await.unwrap();
-        support::close(s).await;
+                .find(|r| r.kind == ItemKind::Approval)
+                .unwrap()
+                .id;
+            let mut view = bboxy450_harness::frontends::gui::view::HarnessView::default();
+            let frame = view.render(&bridge.state, [1120., 7000.]).unwrap();
+            let action = frame
+                .actions
+                .iter()
+                .find_map(|(_, a)| match a {
+                    bboxy450_harness::frontends::gui::view::Action::Approval(item, d)
+                        if *item == id && d == &decision =>
+                    {
+                        Some(a.clone())
+                    }
+                    _ => None,
+                })
+                .expect("approval decision must be a rendered button");
+            view.activate(action, &bridge);
+            assert!(view.notice.is_none());
+            let events = support::end(&mut observer).await;
+            assert!(events.iter().any(|e| matches!(&e.event, Event::ItemCompleted { body: Item::Approval { decision: Some(d), .. }, .. } if d == &decision)));
+            let job = bridge.detach().unwrap();
+            job.await.unwrap();
+            if let Some(server) = server {
+                server.close().await.unwrap();
+            }
+            support::close(s).await;
+        }
     }
 }

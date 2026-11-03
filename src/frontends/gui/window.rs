@@ -193,7 +193,10 @@ impl App {
         } else {
             match self.options.watch.clone() {
                 Some((native, path)) => self.bridge.watch(config(&self.options)?, native, path),
-                None => self.bridge.create(config(&self.options)?),
+                None => match self.options.resume {
+                    Some(session) => self.bridge.resume(config(&self.options)?, session),
+                    None => self.bridge.create(config(&self.options)?),
+                },
             }
         }
         self.window = Some(window);

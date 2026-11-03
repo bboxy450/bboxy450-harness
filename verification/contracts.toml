@@ -26,6 +26,17 @@ assumptions = "One pending small/large event, one blob, success/failure of persi
 property = "Every published spill reference has an already-persisted blob; envelopes stay bounded and failed writes publish no reference. Edge records retain raw Native data or their mapped remainder in ext."
 checks = ["make test-formal", "make test"]
 [[contract]]
+name = "HarnessSocketDelivery"
+title = "One socket-delivered turn per message; resends retain their session and op_id."
+models = ["HarnessSocketDelivery", "BrokenHarnessSocketDeliveryFreshId", "BrokenHarnessSocketDeliveryRetarget"]
+controls = [{name="BrokenHarnessSocketDeliveryFreshId", expected="safety"}, {name="BrokenHarnessSocketDeliveryRetarget", expected="safety"}]
+sources = ["src/frontends/seat.rs", "src/frontends/headless.rs", "src/frontends/gui/bridge.rs", "src/gateway/unix.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/seat_process.rs", "tests/support/seat_socket.rs", "tests/gateway_unix.rs", "tests/gui_bridge.rs", "tests/formal_nonvacuity.rs"]
+assumptions = "One message, one resend, two op keys and three distinct session births A/B/A; counters 0..2 per birth. Announce binds first intent only after the current session is known. Switching closes old admission; transport failure/delayed replies are arbitrary delays before Ack or refusal. Weak fairness of the enabled Ack/refusal group discharges sent leads-to acked or refused. Controls change only the resend key or destination. Actual term delivery/op_id derivation is a Side A process witness still outstanding; PTY/NDJSON bytes, uid checks, wall-clock limits and OS cleanup remain implementation-only. No arbitrary Rust refinement claim."
+property = "OneTurnPerMessage; NoTurnOnUnannouncedSession; SentEventuallyAckedOrRefused under WF{Ack}."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
 name = "HarnessTurnLifecycle"
 title = "Exactly one ending; paired results at end; replay never redispatches; every queued turn eventually ends under weak fairness."
 models = ["HarnessTurnLifecycle", "BrokenHarnessTurnLifecycle"]

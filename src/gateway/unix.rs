@@ -70,7 +70,7 @@ async fn write(
 pub struct UnixServer {
     pub path: PathBuf,
     cancel: CancellationToken,
-    task: JoinHandle<io::Result<()>>,
+    task: Option<JoinHandle<io::Result<()>>>,
 }
 impl UnixServer {
     pub async fn bind(path: PathBuf, gateway: InProc) -> io::Result<Self> {
@@ -82,12 +82,65 @@ impl UnixServer {
         let cancel = CancellationToken::new();
         let stop = cancel.clone();
         let own = path.clone();
-        let task=bbt_rt::handle().spawn(async move{let mut tasks=JoinSet::new();loop{tokio::select!{biased;_=stop.cancelled()=>break,peer=listener.accept()=>{let (socket,_)=peer?;if socket.peer_cred()?.uid()!=unsafe{libc::geteuid()}{continue;}let g=gateway.clone();let c=stop.child_token();tasks.spawn_on(async move{let _=connection(socket,g,c).await;},bbt_rt::handle());},_=tasks.join_next(),if !tasks.is_empty()=>{}}}stop.cancel();while tasks.join_next().await.is_some(){}let _=tokio::fs::remove_file(own).await;Ok(())});
-        Ok(Self { path, cancel, task })
+        let hello = gateway.hello();
+        let mut lifecycle = gateway
+            .subscribe(Subscribe {
+                session: gateway.session(),
+                after: Some((hello.epoch, hello.head)),
+                ephemeral: false,
+            })
+            .map_err(|_| io::Error::other("session closed"))?;
+        lifecycle.set_approver(false);
+        let task = bbt_rt::handle().spawn(async move {
+            let mut tasks = JoinSet::new();
+            let mut unlinked = false;
+            let result = loop {
+                tokio::select! {
+                    biased;
+                    _ = stop.cancelled() => break Ok(()),
+                    event = lifecycle.recv(), if !unlinked => {
+                        if gateway.is_closed() || event.as_ref().is_some_and(|e| matches!(e.event, Event::SessionClosed)) {
+                            let _ = tokio::fs::remove_file(&own).await;
+                            unlinked = true;
+                        } else if event.is_none() {
+                            // A lifecycle observer can lag too. Resubscribe at
+                            // the head; losing observer history never unlinks a
+                            // live session's address.
+                            let hello = gateway.hello();
+                            lifecycle = gateway.subscribe(Subscribe {
+                                session: gateway.session(), after: Some((hello.epoch, hello.head)), ephemeral: false,
+                            }).map_err(|_| io::Error::other("session closed"))?;
+                        }
+                    }
+                    peer = listener.accept() => {
+                        let (socket, _) = match peer { Ok(peer) => peer, Err(error) => break Err(error) };
+                        if socket.peer_cred().map_or(true, |cred| cred.uid() != unsafe { libc::geteuid() }) { continue; }
+                        let g = gateway.clone();
+                        let c = stop.child_token();
+                        tasks.spawn_on(async move { let _ = connection(socket, g, c).await; }, bbt_rt::handle());
+                    }
+                    _ = tasks.join_next(), if !tasks.is_empty() => {}
+                }
+            };
+            stop.cancel();
+            while tasks.join_next().await.is_some() {}
+            if !unlinked { let _ = tokio::fs::remove_file(own).await; }
+            result
+        });
+        Ok(Self {
+            path,
+            cancel,
+            task: Some(task),
+        })
     }
-    pub async fn close(self) -> io::Result<()> {
+    pub async fn close(mut self) -> io::Result<()> {
         self.cancel.cancel();
-        self.task.await.map_err(io::Error::other)?
+        self.task.take().unwrap().await.map_err(io::Error::other)?
+    }
+}
+impl Drop for UnixServer {
+    fn drop(&mut self) {
+        self.cancel.cancel();
     }
 }
 async fn connection(
@@ -109,6 +162,14 @@ async fn connection(
             return Ok(());
         }
     };
+    // Read-only/legacy clients stay non-approvers. A rich face opts in for the
+    // lifetime of this connection; dropping it releases the server-side lease.
+    subscription.set_approver(
+        value
+            .get("approver")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+    );
     write(&mut writer, subscription.hello()).await?;
     loop {
         let next = frame(&mut reader);
@@ -146,13 +207,21 @@ pub struct UnixClient {
 }
 impl UnixClient {
     pub async fn connect(path: &Path, sub: Subscribe) -> Result<(Self, Subscription), ClientError> {
+        Self::connect_with_approver(path, sub, false).await
+    }
+    pub async fn connect_with_approver(
+        path: &Path,
+        sub: Subscribe,
+        approver: bool,
+    ) -> Result<(Self, Subscription), ClientError> {
+        bbt_rt::assert_not_ui_thread();
         let socket = UnixStream::connect(path)
             .await
             .map_err(|_| ClientError::Disconnected)?;
         let (read, mut writer) = socket.into_split();
         write(
             &mut writer,
-            &serde_json::json!({"subscribe":sub,"v":PROTOCOL}),
+            &serde_json::json!({"subscribe":sub,"v":PROTOCOL,"approver":approver}),
         )
         .await
         .map_err(|_| ClientError::Disconnected)?;
@@ -215,6 +284,7 @@ impl UnixClient {
         Ok((Self { shared }, subscription))
     }
     pub async fn send(&self, op: OpEnvelope) -> Result<Ack, ClientError> {
+        bbt_rt::assert_not_ui_thread();
         let op_id = op.op_id;
         if self.shared.closed.load(Ordering::Acquire) {
             return Err(ClientError::Disconnected);

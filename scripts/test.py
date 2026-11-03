@@ -25,6 +25,9 @@ def main():
     env['RUSTUP_HOME']=env.get('RUSTUP_HOME',str(original/'.rustup'))
     env.pop('BBOXY_CAPABILITY',None)
     env.pop('BBOXY_CAPABILITY_FILE',None)
+    # Test sessions must not announce themselves as the operator's live seat.
+    # PTY lifecycle fixtures supply their own disposable seat identity.
+    env.pop('BBOXY_SEAT_ID',None)
     inputs=source_hashes()
     rows=[]
     with tempfile.TemporaryDirectory(prefix='harness-tests-',dir='/tmp') as own:

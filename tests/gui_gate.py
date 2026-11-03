@@ -20,6 +20,7 @@ env['RUSTUP_HOME'] = env.get('RUSTUP_HOME', str(original / '.rustup'))
 env['CLIPPY_CONF_DIR'] = str(ROOT / 'src/frontends/gui/lint')
 env.pop('BBOXY_CAPABILITY', None)
 env.pop('BBOXY_CAPABILITY_FILE', None)
+env.pop('BBOXY_SEAT_ID', None)  # PTY fixtures supply their own test seat identity.
 rows = []
 with tempfile.TemporaryDirectory(prefix='harness-gui-tests-', dir='/tmp') as own:
     env['HOME'] = own

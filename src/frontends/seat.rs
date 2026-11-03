@@ -17,6 +17,78 @@
 //! https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
 use super::face_core::{self as core, Tok, Verdict};
 use crate::protocol::*;
+
+/// Bind only after Host owns the writer lease. Resume may remove an owned stale
+/// socket left by SIGKILL; it must never replace another kind of filesystem node.
+pub async fn bind_session(
+    root: &std::path::Path,
+    gateway: crate::gateway::InProc,
+    resume: bool,
+) -> Result<crate::gateway::unix::UnixServer, String> {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    tokio::fs::create_dir_all(root)
+        .await
+        .map_err(|_| "session root unavailable")?;
+    let root = tokio::fs::canonicalize(root)
+        .await
+        .map_err(|_| "session root unavailable")?;
+    let path = root.join("run").join(format!("{}.sock", gateway.session()));
+    if resume {
+        match tokio::fs::symlink_metadata(&path).await {
+            Ok(meta)
+                if meta.file_type().is_socket() && meta.uid() == unsafe { libc::geteuid() } =>
+            {
+                tokio::fs::remove_file(&path)
+                    .await
+                    .map_err(|_| "stale session socket unavailable")?;
+            }
+            Ok(_) => return Err("session socket path is not an owned socket".into()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err("session socket unavailable".into()),
+        }
+    }
+    let socket = crate::gateway::unix::UnixServer::bind(path, gateway.clone())
+        .await
+        .map_err(|_| "session socket unavailable")?;
+    // A standalone process has no PTY seat identity and emits no hook. Validate
+    // the inherited ID before placing it outside the base64 payload.
+    if let Ok(seat) = std::env::var("BBOXY_SEAT_ID") {
+        let seat = seat.parse::<ulid::Ulid>().map_err(|_| "invalid seat id")?;
+        let bytes = session_announcement(seat, &socket.path, &gateway.hello())?;
+        use tokio::io::AsyncWriteExt;
+        let mut stdout = tokio::io::stdout();
+        stdout
+            .write_all(&bytes)
+            .await
+            .map_err(|_| "output unavailable")?;
+        stdout.flush().await.map_err(|_| "output unavailable")?;
+    }
+    Ok(socket)
+}
+
+/// Adapted from bboxy450-term's #348 hook encoder:
+/// https://github.com/bboxy450/bboxy450-term/blob/main/crates/bboxy450-harness-wake-up/src/hook.rs
+/// The PTY attributes the frame. No capability or other environment is carried.
+pub fn session_announcement(
+    seat: ulid::Ulid,
+    socket: &std::path::Path,
+    hello: &crate::gateway::Hello,
+) -> Result<Vec<u8>, String> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let raw = serde_json::json!({"raw": {
+        "session": hello.meta.session, "socket": socket, "epoch": hello.epoch,
+        "protocol": hello.v,
+    }});
+    let payload = STANDARD.encode(serde_json::to_vec(&raw).map_err(|_| "invalid announcement")?);
+    let bytes =
+        format!("\x1b]7502;v=1:seat={seat}:ev=HarnessSession:d={payload}\x1b\\").into_bytes();
+    if bytes.len() > 4096 {
+        return Err("session announcement exceeds hook bound".into());
+    }
+    Ok(bytes)
+}
+
+
 use base64::{Engine, engine::general_purpose::STANDARD};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::time::Duration;

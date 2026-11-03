@@ -4,12 +4,23 @@ The native backend is crates.io `bboxy450-tlc =0.1.1`, using its finite integer
 and Boolean Model/Variable/Action API. Yarn 0.1.1 projects the production
 `harness_turn_topology!` declaration. This repository contains no checker fork.
 
-The corpus has 99 model variants mapped to 34 contracts, including the shared
+The corpus has 102 model variants mapped to 35 contracts, including the shared
 Yarn scheduling projection.
 It explores two queued turns, two tools/rounds, three birth generations (A-B-A),
 a two-slot stand-in for the bounded work lane, and a three-entry replay log.
 Explicit weak-fair action groups discharge turn, steer, approval and healthy
 subscriber response obligations. No fairness is assumed for arbitrary OS IO.
+
+`HarnessSocketDelivery` binds one message to its announced session and op_id
+across three distinct A/B/A births. Under weak fairness of acknowledgement or
+closed-session refusal, every sent message settles and produces at most one
+turn. Its controls mint a fresh resend ID or redirect a resend to the new
+session; both must fail safety. PTY capture of headless and GUI host workers
+checks real discovery, socket mode/lifetime, switch and crash/resume epochs.
+Unix/InProc bridge tests project every IR v1 fixture through the shared worker
+and compare the complete transcript and rendered `layout_text`. These are
+implementation witnesses; Side A delivery and aggregate multi-pane budgets
+remain outside this B1/B2 change.
 
 Broken controls cover double endings, omitted synthetic results, stale
 completions, leader-only cancellation, a blocked interrupt, stale approvals,

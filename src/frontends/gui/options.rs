@@ -23,6 +23,7 @@ pub struct Options {
     pub expand_all: bool,
     /// `--watch [claude:|codex:]PATH`: render another harness's native session live.
     pub watch: Option<(Option<crate::import::Native>, PathBuf)>,
+    pub resume: Option<crate::protocol::SessionId>,
     /// `--open-menu profiles|slash`: a capture renders that menu open (parity).
     pub open_menu: Option<Menu>,
 }
@@ -47,6 +48,7 @@ impl Options {
             zoom: None,
             expand_all: false,
             watch: None,
+            resume: None,
             open_menu: None,
         };
         let mut args = args.into_iter();
@@ -54,6 +56,14 @@ impl Options {
             match arg.as_str() {
                 "--replay" => out.replay = Some(args.next().ok_or("missing replay path")?.into()),
                 "--profile" => out.profile = args.next().ok_or("missing profile")?,
+                "--resume" => {
+                    out.resume = Some(crate::protocol::SessionId(
+                        args.next()
+                            .ok_or("missing session")?
+                            .parse()
+                            .map_err(|_| "invalid session id")?,
+                    ))
+                }
                 "--cwd" => out.cwd = args.next().ok_or("missing cwd")?.into(),
                 "--headless" => out.headless = true,
                 "--no-chrome" => out.no_chrome = true,
@@ -124,6 +134,7 @@ impl Options {
         if out.headless && out.replay.is_none() {
             return Err("--headless requires --replay".into());
         }
+        if out.resume.is_some() && (out.replay.is_some() || out.watch.is_some()) { return Err("--resume cannot be combined with --replay or --watch".into()); }
         Ok(out)
     }
 }

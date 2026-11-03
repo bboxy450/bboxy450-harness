@@ -394,6 +394,16 @@ pub struct InProc {
     notices: Option<mpsc::Sender<crate::engine::Internal>>,
 }
 impl InProc {
+    /// Replay-only fixture publisher, without an actor or filesystem. Production
+    /// admission always uses Host; this source exists only in unattended tests.
+    #[cfg(feature = "test-fixtures")]
+    pub fn fixture(meta: SessionMeta, epoch: Epoch) -> (Self, impl Fn(Envelope)) {
+        let hub = Arc::new(Hub::new(meta, epoch, &[], Set::default()));
+        let (work, _) = mpsc::channel(1);
+        let (control, _) = mpsc::channel(1);
+        let gateway = Self::new(hub.clone(), work, control, OpId::new());
+        (gateway, move |event| hub.publish(event))
+    }
     pub(crate) fn new(
         hub: Arc<Hub>,
         work: mpsc::Sender<Admitted>,
