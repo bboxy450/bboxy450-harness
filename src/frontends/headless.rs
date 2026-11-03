@@ -429,11 +429,11 @@ async fn run_cli(
     if seat {
         gateway = gateway.with_profile_switch(switch_tx);
     }
+    let mut socket = super::seat::bind_session(&root, gateway.clone(), resume.is_some()).await?;
     let mut alias = match &socket_path {
         Some(path) => Some(super::seat::bind_alias(path, gateway.clone()).await?),
         None => None,
     };
-    let mut socket = super::seat::bind_session(&root, gateway.clone(), resume.is_some()).await?;
     let mut session = session;
     let mut subscription = gateway
         .subscribe(Subscribe {

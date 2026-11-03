@@ -137,10 +137,20 @@ fn wait_hello(
     root: &Path,
     gui: bool,
     previous: Option<SessionId>,
+    seat: &mut Seat,
 ) -> (PathBuf, bboxy450_harness::gateway::Hello) {
     bbt_rt::handle().block_on(async {
         tokio::time::timeout(Duration::from_secs(15), async {
             loop {
+                for chunk in seat.chunks.try_iter() {
+                    seat.bytes.extend(chunk);
+                }
+                if let Some(status) = seat.child.try_wait().unwrap() {
+                    panic!(
+                        "socket child exited {status:?}: {}",
+                        String::from_utf8_lossy(&seat.bytes)
+                    );
+                }
                 let path = if gui {
                     std::fs::read_dir(root.join(".bboxy450-harness/run"))
                         .ok()
@@ -174,7 +184,12 @@ fn wait_hello(
             }
         })
         .await
-        .expect("session socket did not bind")
+        .unwrap_or_else(|_| {
+            panic!(
+                "session socket did not bind: gui={gui}, previous={previous:?}, output={}",
+                String::from_utf8_lossy(&seat.bytes)
+            )
+        })
     })
 }
 fn lifecycle(gui: bool) {
@@ -183,7 +198,7 @@ fn lifecycle(gui: bool) {
         .tempdir_in("/tmp")
         .unwrap();
     let mut seat = Seat::start(own.path(), gui, None);
-    let (path, first) = wait_hello(own.path(), gui, None);
+    let (path, first) = wait_hello(own.path(), gui, None, &mut seat);
     let first_path = own
         .path()
         .join(format!(".bboxy450-harness/run/{}.sock", first.meta.session));
@@ -261,7 +276,7 @@ fn lifecycle(gui: bool) {
         .unwrap();
     });
     let switched = Instant::now();
-    let (second_path, second) = wait_hello(own.path(), gui, Some(first.meta.session));
+    let (second_path, second) = wait_hello(own.path(), gui, Some(first.meta.session), &mut seat);
     assert!(switched.elapsed() < Duration::from_secs(2));
     wait_removed(&first_path);
     if !gui {
@@ -280,7 +295,7 @@ fn lifecycle(gui: bool) {
         next.close();
     });
     seat.input(b"/profile scripted\n");
-    let (third_path, third) = wait_hello(own.path(), gui, Some(second.meta.session));
+    let (third_path, third) = wait_hello(own.path(), gui, Some(second.meta.session), &mut seat);
     assert_ne!(
         first.meta.session, third.meta.session,
         "A-B-A is a third birth"
@@ -292,7 +307,7 @@ fn lifecycle(gui: bool) {
     // The stale address initially refuses connections; wait for the recovered epoch.
     let deadline = Instant::now() + Duration::from_secs(15);
     let reopened = loop {
-        let (_, hello) = wait_hello(own.path(), gui, None);
+        let (_, hello) = wait_hello(own.path(), gui, None, &mut resumed);
         if hello.epoch > third.epoch {
             break hello;
         }
@@ -377,8 +392,8 @@ fn restart_retains_durable_message_id_and_has_one_effect() {
         .prefix("retry-")
         .tempdir_in("/tmp")
         .unwrap();
-    let seat = Seat::start(own.path(), false, None);
-    let (path, first) = wait_hello(own.path(), false, None);
+    let mut seat = Seat::start(own.path(), false, None);
+    let (path, first) = wait_hello(own.path(), false, None, &mut seat);
     let op = OpEnvelope {
         v: PROTOCOL,
         session: first.meta.session,
@@ -406,8 +421,8 @@ fn restart_retains_durable_message_id_and_has_one_effect() {
         .unwrap();
     });
     seat.finish(true);
-    let resumed = Seat::start(own.path(), false, Some(&first.meta.session.to_string()));
-    let (_, second) = wait_hello(own.path(), false, None);
+    let mut resumed = Seat::start(own.path(), false, Some(&first.meta.session.to_string()));
+    let (_, second) = wait_hello(own.path(), false, None, &mut resumed);
     assert!(second.epoch > first.epoch);
     bbt_rt::handle().block_on(async {
         let (client, _) = UnixClient::discover(&path, None, false, false)
