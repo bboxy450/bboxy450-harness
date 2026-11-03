@@ -415,7 +415,14 @@ impl SessionActor {
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
         let cancel = CancellationToken::new();
         let (steer, rx) = mpsc::channel(64);
-        self.publish(Event::TurnStarted { turn }, None).await?;
+        self.publish(
+            Event::TurnStarted {
+                turn,
+                model: Some(self.config.model.clone()),
+            },
+            None,
+        )
+        .await?;
         let (messages, _) = crate::context::replay(&self.store.events, &self.store.blobs).await?;
         let (definitions, bindings, warnings) = self.mcp.snapshot();
         for text in warnings {
@@ -1195,6 +1202,7 @@ mod hardening_tests {
         };
         let config = Config {
             meta: SessionMeta {
+                source: None,
                 session,
                 cwd: temp.path().into(),
                 profile: None,
@@ -1268,6 +1276,7 @@ mod hardening_tests {
         let session = SessionId::new();
         let config = Config {
             meta: SessionMeta {
+                source: None,
                 session,
                 cwd: temp.path().into(),
                 profile: Some("scripted".into()),
@@ -1306,7 +1315,7 @@ mod hardening_tests {
             .await
             .unwrap();
         actor
-            .publish(Event::TurnStarted { turn }, None)
+            .publish(Event::TurnStarted { turn, model: None }, None)
             .await
             .unwrap();
         actor
@@ -1371,6 +1380,7 @@ mod hardening_tests {
         provider.delay = Duration::from_millis(1);
         let config = Config {
             meta: SessionMeta {
+                source: None,
                 session,
                 cwd: temp.path().into(),
                 profile: Some("scripted".into()),
@@ -1471,7 +1481,7 @@ mod hardening_tests {
         ))
         .unwrap();
         let b = loop {
-            if let Event::TurnStarted { turn } = event(&mut sub).await.event {
+            if let Event::TurnStarted { turn, .. } = event(&mut sub).await.event {
                 break turn;
             }
         };

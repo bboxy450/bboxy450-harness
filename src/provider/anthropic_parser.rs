@@ -369,11 +369,17 @@ impl Parser {
         if !value.is_object() {
             return vec![];
         }
+        if self.usage.source.is_none() {
+            self.usage.reported("input_tokens", false);
+            self.usage.reported("output_tokens", false);
+        }
         if let Some(n) = value["input_tokens"].as_u64() {
             self.uncached = n;
+            self.usage.reported("input_tokens", true);
         }
         if let Some(n) = value["output_tokens"].as_u64() {
             self.usage.output_tokens = n;
+            self.usage.reported("output_tokens", true);
         }
         if let Some(n) = value["cache_read_input_tokens"].as_u64() {
             self.usage.cached_input_tokens = Some(n);
@@ -381,10 +387,16 @@ impl Parser {
         if let Some(n) = value["cache_creation_input_tokens"].as_u64() {
             self.usage.cache_creation_input_tokens = Some(n);
         }
-        self.usage.input_tokens = self
-            .uncached
-            .saturating_add(self.usage.cached_input_tokens.unwrap_or(0))
-            .saturating_add(self.usage.cache_creation_input_tokens.unwrap_or(0));
+        if !self.usage.unreported.iter().any(|s| s == "input_tokens") {
+            let Some(total) = self
+                .uncached
+                .checked_add(self.usage.cached_input_tokens.unwrap_or(0))
+                .and_then(|n| n.checked_add(self.usage.cache_creation_input_tokens.unwrap_or(0)))
+            else {
+                return self.fail("usage input counter overflow");
+            };
+            self.usage.input_tokens = total;
+        }
         vec![ModelEvent::Usage(self.usage.clone())]
     }
 }

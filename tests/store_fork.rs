@@ -68,7 +68,7 @@ async fn parent(temp: &tempfile::TempDir) -> Store {
     let answer = ItemId::new();
     for event in [
         Event::TurnQueued { turn },
-        Event::TurnStarted { turn },
+        Event::TurnStarted { turn, model: None },
         Event::ItemStarted {
             turn: Some(turn),
             item: user,

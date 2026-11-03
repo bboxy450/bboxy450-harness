@@ -397,7 +397,14 @@ impl AcpAgentActor {
                     target.and_then(|t| self.queue.iter().position(|q| q.0 == t))
                 {
                     let (turn, ..) = self.queue.remove(pos).expect("queued turn");
-                    self.publish(Event::TurnStarted { turn }, Some(id)).await?;
+                    self.publish(
+                        Event::TurnStarted {
+                            turn,
+                            model: self.model.clone(),
+                        },
+                        Some(id),
+                    )
+                    .await?;
                     self.publish(
                         Event::TurnEnded {
                             turn,
@@ -452,7 +459,14 @@ impl AcpAgentActor {
                 .await?;
         }
         while let Some((turn, _, _)) = self.queue.pop_front() {
-            self.publish(Event::TurnStarted { turn }, Some(id)).await?;
+            self.publish(
+                Event::TurnStarted {
+                    turn,
+                    model: self.model.clone(),
+                },
+                Some(id),
+            )
+            .await?;
             self.publish(
                 Event::TurnEnded {
                     turn,
@@ -474,7 +488,14 @@ impl AcpAgentActor {
         blocks: Vec<InputBlock>,
         cause: OpId,
     ) -> std::io::Result<()> {
-        self.publish(Event::TurnStarted { turn }, None).await?;
+        self.publish(
+            Event::TurnStarted {
+                turn,
+                model: self.model.clone(),
+            },
+            None,
+        )
+        .await?;
         self.running = Some(Running {
             turn,
             blocks: blocks.clone(),
@@ -508,6 +529,7 @@ impl AcpAgentActor {
                             message,
                         },
                         ItemStatus::Failed {
+                            code: None,
                             reason: "agent unavailable".into(),
                         },
                     )
@@ -793,6 +815,7 @@ impl AcpAgentActor {
                     message,
                 },
                 ItemStatus::Failed {
+                    code: None,
                     reason: "agent exited".into(),
                 },
             )
@@ -876,6 +899,7 @@ impl AcpAgentActor {
                             message,
                         },
                         ItemStatus::Failed {
+                            code: None,
                             reason: "agent error".into(),
                         },
                     )
@@ -1262,6 +1286,7 @@ impl AcpAgentActor {
                         .expect("tool");
                     let st = if status == "failed" {
                         ItemStatus::Failed {
+                            code: None,
                             reason: "tool failed".into(),
                         }
                     } else {
@@ -1285,6 +1310,7 @@ impl AcpAgentActor {
                     .into_iter()
                     .flatten()
                     .map(|e| PlanEntry {
+                        id: None,
                         text: e
                             .get("content")
                             .and_then(Value::as_str)
@@ -1484,6 +1510,9 @@ impl AcpAgentActor {
         let item = t.item;
         if fresh {
             let head = Item::ToolCall {
+                title: None,
+                server: None,
+                raw_output: None,
                 call_id: t.call_id.clone(),
                 name: t.name.clone(),
                 tool_kind: t.kind.clone(),
@@ -1687,6 +1716,9 @@ pub fn tool_kind(k: &str) -> ToolKind {
 }
 fn tool_body(t: Tool, empty: &str) -> Item {
     Item::ToolCall {
+        title: None,
+        server: None,
+        raw_output: None,
         call_id: t.call_id,
         name: t.name,
         tool_kind: t.kind.clone(),
@@ -1736,13 +1768,27 @@ pub fn output_block(c: &Value) -> Option<OutputBlock> {
             Some(OutputBlock::Diff {
                 path: path.into(),
                 unified: unified(path, old, new),
+                old_text: c.get("oldText").and_then(Value::as_str).map(str::to_owned),
+                new_text: c.get("newText").and_then(Value::as_str).map(str::to_owned),
+                change: Some(if c.get("oldText").is_none_or(Value::is_null) {
+                    ChangeKind::Add
+                } else if c.get("newText").is_none_or(Value::is_null) {
+                    ChangeKind::Delete
+                } else {
+                    ChangeKind::Modify
+                }),
             })
         }
-        "terminal" => Some(OutputBlock::Text {
-            text: format!(
-                "[terminal {}]",
-                c.get("terminalId").and_then(Value::as_str).unwrap_or("?")
-            ),
+        "terminal" => Some(OutputBlock::Terminal {
+            terminal: c
+                .get("terminalId")
+                .and_then(Value::as_str)
+                .unwrap_or("?")
+                .into(),
+            exit: c
+                .get("exitCode")
+                .and_then(Value::as_i64)
+                .and_then(|n| i32::try_from(n).ok()),
         }),
         _ => None,
     }
@@ -1774,7 +1820,14 @@ pub fn content_block(b: &InputBlock) -> Value {
         InputBlock::Image { blob } => {
             json!({ "type": "text", "text": format!("[image {} · {} bytes not sent]", blob.mime, blob.len) })
         }
-        InputBlock::Unknown(_) => json!({ "type": "text", "text": "" }),
+        InputBlock::ResourceLink { uri, title } => {
+            json!({"type":"resource_link","uri":uri,"name":title.as_deref().unwrap_or(uri)})
+        }
+        InputBlock::Resource { uri, mime, .. } => {
+            json!({"type":"resource_link","uri":uri,"name":uri,"mimeType":mime})
+        }
+        InputBlock::Audio { .. } => json!({"type":"text","text":b.display_text()}),
+        InputBlock::Unknown(_) => json!({ "type": "text", "text": "Unsupported input" }),
     }
 }
 fn permission_reply(id: &Value, option: Option<&str>) -> Value {

@@ -120,7 +120,7 @@ async fn deny_star_never_executes_the_counting_tool() {
         let log = support::close(s).await;
         if !allow {
             assert!(log.iter().any(|e|matches!(&e.event,Event::ItemCompleted{body:Item::Approval{by:Some(Resolver::Rule{id}),decision:Some(ApprovalDecision::Deny{..}),..},..} if id=="deny")));
-            assert!(log.iter().any(|e|matches!(&e.event,Event::ItemCompleted {body:Item::ToolCall {output,..},status:ItemStatus::Failed {reason},..} if reason.contains("denied by rule deny-all") && serde_json::to_string(output).unwrap().contains("denied by rule deny-all"))));
+            assert!(log.iter().any(|e|matches!(&e.event,Event::ItemCompleted {body:Item::ToolCall {output,..},status:ItemStatus::Failed {reason,..},..} if reason.contains("denied by rule deny-all") && serde_json::to_string(output).unwrap().contains("denied by rule deny-all"))));
         }
     }
 }

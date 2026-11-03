@@ -95,6 +95,8 @@ fn colour_fixtures_use_only_sgr_and_osc8() {
 fn envelope(seq: u64, ts: u64, event: Event) -> Envelope {
     Envelope {
         raw: None,
+        ext: Default::default(),
+        native: None,
         v: PROTOCOL,
         session: SessionId(ulid::Ulid(1)),
         epoch: Epoch(1),
@@ -114,7 +116,7 @@ fn message_events(markdown: &str, deltas: bool) -> Vec<Envelope> {
         envelope(seq, seq, event)
     };
     let mut events = vec![
-        next(Event::TurnStarted { turn }),
+        next(Event::TurnStarted { turn, model: None }),
         next(Event::ItemStarted {
             turn: Some(turn),
             item,
@@ -211,7 +213,9 @@ fn state_reports_have_exact_transition_bytes() {
     let turn = TurnId::new();
     let item = ItemId::new();
     assert_eq!(
-        state.apply(&Event::TurnStarted { turn }).unwrap(),
+        state
+            .apply(&Event::TurnStarted { turn, model: None })
+            .unwrap(),
         b"\x1b]7501;state=working:title=cCDCtyBt\x07"
     );
     assert_eq!(
@@ -263,7 +267,7 @@ fn state_reports_have_exact_transition_bytes() {
             .unwrap(),
         b"\x1b]7501;state=idle:title=cCDCtyBt\x07"
     );
-    state.apply(&Event::TurnStarted { turn });
+    state.apply(&Event::TurnStarted { turn, model: None });
     assert_eq!(
         state
             .apply(&Event::TurnEnded {
@@ -286,7 +290,9 @@ fn state_reports_have_exact_transition_bytes() {
         b"\x1b]7501;state=error:title=cCDCtyBt:msg=YmFk\x07"
     );
     assert_eq!(
-        state.apply(&Event::TurnStarted { turn }).unwrap(),
+        state
+            .apply(&Event::TurnStarted { turn, model: None })
+            .unwrap(),
         b"\x1b]7501;state=working:title=cCDCtyBt\x07"
     );
     // A -> B -> A changes the title even though the state is unchanged.

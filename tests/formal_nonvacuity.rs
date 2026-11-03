@@ -134,6 +134,14 @@ fn provider_controls_reach_retry_after_output_wrong_finish_and_double_ending() {
     let calls = variable(&good, "calls");
     let output = variable(&good, "output");
     let outcome = variable(&good, "outcome");
+    let reported = variable(&good, "usage_reported_total");
+    let flushed = variable(&good, "usage_flushed_total");
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[reported] == 4 && s[flushed] == 4)
+    );
     assert!(
         checked
             .states
@@ -162,6 +170,8 @@ fn provider_controls_reach_retry_after_output_wrong_finish_and_double_ending() {
         ("BrokenHarnessProviderRetry", "RetryOnlyBeforeOutput"),
         ("BrokenHarnessProviderFinish", "StopAgreesWithCalls"),
         ("BrokenHarnessProviderEnding", "OneTerminal"),
+        ("BrokenHarnessProviderEnding", "OneUsageRecordPerResponse"),
+        ("BrokenHarnessProviderEnding", "NoUsageLostAcrossRetries"),
     ] {
         let bad = model(name).check(100_000).unwrap();
         assert!(

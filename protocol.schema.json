@@ -204,6 +204,26 @@
         true
       ]
     },
+    "Citation": {
+      "properties": {
+        "snippet": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "Cost": {
       "properties": {
         "amount_micros": {
@@ -362,6 +382,20 @@
         "event": {
           "$ref": "#/$defs/Event"
         },
+        "ext": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "native": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Native"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "seq": {
           "format": "uint64",
           "minimum": 0,
@@ -499,6 +533,12 @@
         },
         {
           "properties": {
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "turn": {
               "$ref": "#/$defs/TurnId"
             },
@@ -510,6 +550,37 @@
           "required": [
             "type",
             "turn"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "config": {
+              "additionalProperties": true,
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "mode": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "permission_mode": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "context_changed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
           ],
           "type": "object"
         },
@@ -787,6 +858,70 @@
         },
         {
           "properties": {
+            "blob": {
+              "$ref": "#/$defs/BlobRef"
+            },
+            "type": {
+              "const": "audio",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "blob": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/BlobRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "mime": {
+              "type": "string"
+            },
+            "type": {
+              "const": "resource",
+              "type": "string"
+            },
+            "uri": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "resource_link",
+              "type": "string"
+            },
+            "uri": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "path": {
               "type": "string"
             },
@@ -891,6 +1026,13 @@
               },
               "type": "array"
             },
+            "raw_output": true,
+            "server": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "spill": {
               "anyOf": [
                 {
@@ -899,6 +1041,12 @@
                 {
                   "type": "null"
                 }
+              ]
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
               ]
             },
             "tool_kind": {
@@ -1167,9 +1315,25 @@
         },
         {
           "properties": {
+            "call": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ItemId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "kind": {
               "const": "subagent",
               "type": "string"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "session": {
               "$ref": "#/$defs/SessionId"
@@ -1178,6 +1342,98 @@
           "required": [
             "kind",
             "session"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "args": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "command",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "event": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "hook",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string"
+            },
+            "output": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "system_message",
+              "type": "string"
+            },
+            "role": {
+              "$ref": "#/$defs/SystemRole"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "blob": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/BlobRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "const": "native",
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "raw": true,
+            "record_type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
           ],
           "type": "object"
         },
@@ -1254,7 +1510,11 @@
             "context_trim",
             "usage",
             "notice",
-            "subagent"
+            "subagent",
+            "command",
+            "hook",
+            "system_message",
+            "native"
           ],
           "type": "string"
         },
@@ -1277,6 +1537,12 @@
         },
         {
           "properties": {
+            "code": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "reason": {
               "type": "string"
             },
@@ -1356,6 +1622,28 @@
       "required": [
         "path"
       ],
+      "type": "object"
+    },
+    "Native": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "parent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ts_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "NumberSource": {
@@ -1597,6 +1885,28 @@
         },
         {
           "properties": {
+            "change": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ChangeKind"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "new_text": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "old_text": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "path": {
               "type": "string"
             },
@@ -1612,6 +1922,89 @@
             "type",
             "path",
             "unified"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "blob": {
+              "$ref": "#/$defs/BlobRef"
+            },
+            "type": {
+              "const": "audio",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "blob": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/BlobRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "mime": {
+              "type": "string"
+            },
+            "type": {
+              "const": "resource",
+              "type": "string"
+            },
+            "uri": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "exit": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "terminal": {
+              "type": "string"
+            },
+            "type": {
+              "const": "terminal",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "entries": {
+              "items": {
+                "$ref": "#/$defs/Citation"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "citations",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
           ],
           "type": "object"
         },
@@ -1763,6 +2156,12 @@
     },
     "PlanEntry": {
       "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "priority": {
           "anyOf": [
             {
@@ -2048,6 +2447,16 @@
         },
         "session": {
           "$ref": "#/$defs/SessionId"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -2057,6 +2466,34 @@
         "harness",
         "created_ms"
       ],
+      "type": "object"
+    },
+    "Source": {
+      "properties": {
+        "harness": {
+          "type": "string"
+        },
+        "native_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parser_revision": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "StopReason": {
@@ -2150,6 +2587,18 @@
           "enum": [
             "stdout",
             "stderr"
+          ],
+          "type": "string"
+        },
+        true
+      ]
+    },
+    "SystemRole": {
+      "anyOf": [
+        {
+          "enum": [
+            "system",
+            "developer"
           ],
           "type": "string"
         },

@@ -7,10 +7,11 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use ulid::Ulid;
 pub mod laws;
-pub const PROTOCOL: Version = Version { major: 1, minor: 0 };
+mod usage;
+pub const PROTOCOL: Version = Version { major: 1, minor: 1 };
 pub const MAX_ENVELOPE_BYTES: usize = 256 * 1024;
 macro_rules! identity {($($name:ident),*)=>{$(
 #[derive(Clone,Copy,Debug,PartialEq,Eq,PartialOrd,Ord,Hash,Serialize,Deserialize,JsonSchema)]
@@ -105,6 +106,24 @@ pub enum InputBlock {
     Image {
         blob: BlobRef,
     },
+    Audio {
+        #[serde(default, skip_serializing_if = "BlobRef::is_empty")]
+        blob: BlobRef,
+    },
+    Resource {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        uri: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        mime: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        blob: Option<BlobRef>,
+    },
+    ResourceLink {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        uri: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+    },
     Mention {
         path: PathBuf,
     },
@@ -129,6 +148,11 @@ pub struct Envelope {
     #[serde(skip)]
     #[schemars(skip)]
     pub raw: Option<Arc<str>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub ext: BTreeMap<String, Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<Native>,
+
     pub v: Version,
     pub session: SessionId,
     pub epoch: Epoch,
@@ -159,6 +183,16 @@ pub enum Event {
     },
     TurnStarted {
         turn: TurnId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+    },
+    ContextChanged {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        permission_mode: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        config: Option<BTreeMap<String, Value>>,
     },
     ItemStarted {
         turn: Option<TurnId>,
@@ -213,6 +247,8 @@ pub enum ItemStatus {
     Completed,
     Failed {
         reason: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<String>,
     },
     Cancelled,
     Interrupted,
@@ -279,6 +315,12 @@ pub enum Item {
         output: Vec<OutputBlock>,
         locations: Vec<Location>,
         spill: Option<BlobRef>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        server: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        raw_output: Option<Value>,
     },
     FileChange {
         path: PathBuf,
@@ -326,6 +368,42 @@ pub enum Item {
     },
     Subagent {
         session: SessionId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        call: Option<ItemId>,
+    },
+    Command {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        name: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        args: String,
+    },
+    Hook {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        event: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        name: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        outcome: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output: Option<String>,
+    },
+    SystemMessage {
+        #[serde(default, skip_serializing_if = "SystemRole::is_unknown")]
+        role: SystemRole,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        text: String,
+    },
+    Native {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        provider: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        record_type: String,
+        #[serde(default, skip_serializing_if = "Value::is_null")]
+        raw: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        blob: Option<BlobRef>,
     },
     #[serde(untagged)]
     Unknown(Value),
@@ -381,6 +459,8 @@ pub struct SessionMeta {
     pub protocol: Version,
     pub harness: String,
     pub created_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<Source>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -400,6 +480,10 @@ pub enum ItemKind {
     Usage,
     Notice,
     Subagent,
+    Command,
+    Hook,
+    SystemMessage,
+    Native,
     #[serde(untagged)]
     Unknown(Value),
 }
@@ -490,6 +574,34 @@ pub enum OutputBlock {
     Diff {
         path: PathBuf,
         unified: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        old_text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        new_text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        change: Option<ChangeKind>,
+    },
+    Audio {
+        #[serde(default, skip_serializing_if = "BlobRef::is_empty")]
+        blob: BlobRef,
+    },
+    Resource {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        uri: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        mime: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        blob: Option<BlobRef>,
+    },
+    Terminal {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        terminal: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exit: Option<i32>,
+    },
+    Citations {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        entries: Vec<Citation>,
     },
     Error {
         text: String,
@@ -525,6 +637,9 @@ pub enum Stream {
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PlanEntry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+
     pub text: String,
     pub status: PlanStatus,
     pub priority: Option<Priority>,
@@ -668,6 +783,7 @@ impl Event {
             Self::SessionStarted { .. }
                 | Self::SessionRecovered { .. }
                 | Self::ProfileChanged { .. }
+                | Self::ContextChanged { .. }
                 | Self::TurnQueued { .. }
                 | Self::TurnStarted { .. }
                 | Self::ItemStarted { .. }
@@ -696,6 +812,10 @@ impl Item {
             Self::Usage { .. } => ItemKind::Usage,
             Self::Notice { .. } => ItemKind::Notice,
             Self::Subagent { .. } => ItemKind::Subagent,
+            Self::Command { .. } => ItemKind::Command,
+            Self::Hook { .. } => ItemKind::Hook,
+            Self::SystemMessage { .. } => ItemKind::SystemMessage,
+            Self::Native { .. } => ItemKind::Native,
             Self::Unknown(raw) => ItemKind::Unknown(raw.clone()),
         }
     }
@@ -802,6 +922,9 @@ impl Item {
                 provider_opaque: None,
             },
             ItemKind::ToolCall => Self::ToolCall {
+                title: None,
+                server: None,
+                raw_output: None,
                 call_id: id.to_string(),
                 name: "interrupted".into(),
                 tool_kind: ToolKind::Other,
@@ -855,14 +978,44 @@ impl Item {
                 clipped_through: Seq(0),
             },
             ItemKind::Usage => Self::Usage {
-                usage: Usage::default(),
+                usage: Usage::default().authored(
+                    UsageScope::Call,
+                    Backend {
+                        kind: BackendKind::Engine,
+                        name: "harness-recovery".into(),
+                        version: Some(env!("CARGO_PKG_VERSION").into()),
+                    },
+                    None,
+                ),
             },
             ItemKind::Notice => Self::Notice {
                 level: Level::Warn,
                 text: "interrupted".into(),
             },
             ItemKind::Subagent => Self::Subagent {
+                name: None,
+                call: None,
                 session: SessionId(id.0),
+            },
+            ItemKind::Command => Self::Command {
+                name: String::new(),
+                args: String::new(),
+            },
+            ItemKind::Hook => Self::Hook {
+                event: String::new(),
+                name: String::new(),
+                outcome: "interrupted".into(),
+                output: None,
+            },
+            ItemKind::SystemMessage => Self::SystemMessage {
+                role: SystemRole::System,
+                text: String::new(),
+            },
+            ItemKind::Native => Self::Native {
+                provider: "unknown".into(),
+                record_type: "interrupted".into(),
+                raw: Value::Null,
+                blob: None,
             },
             ItemKind::Unknown(raw) => Self::Notice {
                 level: Level::Warn,
@@ -907,6 +1060,8 @@ impl PartialEq for Envelope {
             && self.ts_ms == other.ts_ms
             && self.cause == other.cause
             && self.event == other.event
+            && self.ext == other.ext
+            && self.native == other.native
     }
 }
 impl Envelope {
@@ -962,7 +1117,8 @@ unknown_predicate!(
     BackendKind,
     NumberSource,
     ApprovalDecision,
-    Rejection
+    Rejection,
+    SystemRole
 );
 /// A neutral reader label keeps the source's own tag, never its opaque payload.
 pub fn unknown_tag(value: &Value) -> &str {
@@ -994,5 +1150,137 @@ impl StopReason {
             ),
             _ => format!("{self:?}"),
         }
+    }
+}
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Native {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ts_ms: Option<u64>,
+}
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Source {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub harness: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parser_revision: Option<u32>,
+}
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Citation {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SystemRole {
+    System,
+    Developer,
+    #[serde(untagged)]
+    Unknown(Value),
+}
+impl Default for SystemRole {
+    fn default() -> Self {
+        Self::Unknown(Value::Null)
+    }
+}
+impl Default for BlobRef {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+impl BlobRef {
+    fn is_empty(&self) -> bool {
+        self.len == 0 && self.sha256 == Self::empty().sha256
+    }
+}
+
+impl InputBlock {
+    pub fn display_text(&self) -> String {
+        match self {
+            Self::Text { text } => text.clone(),
+            Self::Image { blob } => format!("Image: {} · {} bytes", blob.mime, blob.len),
+            Self::Audio { blob } => format!("Audio: {} · {} bytes", blob.mime, blob.len),
+            Self::Resource { uri, mime, .. } => format!("Resource: {uri} · {mime}"),
+            Self::ResourceLink { uri, title } => {
+                format!("{}: {uri}", title.as_deref().unwrap_or("Resource"))
+            }
+            Self::Mention { path } => format!("@{}", path.display()),
+            Self::Unknown(raw) => format!("Unsupported input: {}", unknown_tag(raw)),
+        }
+    }
+}
+impl OutputBlock {
+    pub fn display_text(&self) -> String {
+        match self {
+            Self::Text { text } | Self::Error { text } => text.clone(),
+            Self::Json { value } => value.to_string(),
+            Self::Diff { unified, .. } => unified.clone(),
+            Self::Image { blob } => format!("Image: {} · {} bytes", blob.mime, blob.len),
+            Self::Audio { blob } => format!("Audio: {} · {} bytes", blob.mime, blob.len),
+            Self::Resource { uri, mime, .. } => format!("Resource: {uri} · {mime}"),
+            Self::Terminal { terminal, exit } => format!(
+                "Terminal: {terminal}{}",
+                exit.map(|n| format!(" · exit {n}")).unwrap_or_default()
+            ),
+            Self::Citations { entries } => entries
+                .iter()
+                .map(|c| {
+                    format!(
+                        "{}: {}{}",
+                        c.title.as_deref().unwrap_or("Citation"),
+                        c.url,
+                        c.snippet
+                            .as_ref()
+                            .map(|s| format!(" — {s}"))
+                            .unwrap_or_default()
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+            Self::Unknown(raw) => format!("Unsupported tool output: {}", unknown_tag(raw)),
+        }
+    }
+}
+impl Item {
+    pub fn extension_text(&self) -> Option<String> {
+        Some(match self {
+            Self::Command { name, args } => format!("Command: /{name} {args}"),
+            Self::Hook {
+                event,
+                name,
+                outcome,
+                output,
+            } => format!(
+                "Hook: {event} · {name} · {outcome}{}",
+                output
+                    .as_ref()
+                    .map(|s| format!("\n{s}"))
+                    .unwrap_or_default()
+            ),
+            Self::SystemMessage { role, text } => format!("{}: {text}", role.reader_label()),
+            Self::Native {
+                provider,
+                record_type,
+                raw,
+                blob,
+            } => format!(
+                "Native: {provider}/{record_type} · {} bytes",
+                blob.as_ref()
+                    .map(|b| b.len)
+                    .unwrap_or_else(|| raw.to_string().len() as u64)
+            ),
+            _ => return None,
+        })
     }
 }

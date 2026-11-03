@@ -64,10 +64,52 @@ async fn future_bytes_survive_open_unix_fork_and_headless() {
         .unwrap()
         .write_all(future.as_bytes())
         .unwrap();
-    let parent = Store::open(root.clone(), meta.clone(), None, Default::default())
+    let mut parent = Store::open(root.clone(), meta.clone(), None, Default::default())
         .await
         .unwrap();
     assert_eq!(parent.events[1].wire_bytes().unwrap(), future.as_bytes());
+    let usage = Usage {
+        input_tokens: 13,
+        output_tokens: 2,
+        ..Default::default()
+    }
+    .authored(
+        UsageScope::Call,
+        Backend {
+            kind: BackendKind::Engine,
+            name: "fixture".into(),
+            version: None,
+        },
+        Some("fixture-model".into()),
+    );
+    let item = ItemId::new();
+    parent
+        .append(
+            Event::ItemStarted {
+                turn: None,
+                item,
+                kind: ItemKind::Usage,
+                parent: None,
+                head: None,
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    parent
+        .append(
+            Event::ItemCompleted {
+                item,
+                status: ItemStatus::Completed,
+                body: Item::Usage { usage },
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    let parent_usage =
+        bboxy450_harness::frontends::usage::report_logs(std::slice::from_ref(&parent.events))
+            .unwrap();
     let at = parent.head();
     drop(parent);
     let config = Config {
@@ -113,6 +155,11 @@ async fn future_bytes_survive_open_unix_fork_and_headless() {
         .await
         .unwrap();
     assert_eq!(child.events[1].wire_bytes().unwrap(), future.as_bytes());
+    assert_eq!(
+        bboxy450_harness::frontends::usage::report_logs(std::slice::from_ref(&child.events))
+            .unwrap(),
+        parent_usage
+    );
     let bytes = std::fs::read_to_string(log_path(&root, child.session)).unwrap();
     assert_eq!(bytes.split_inclusive('\n').nth(1).unwrap(), future);
     drop(child);

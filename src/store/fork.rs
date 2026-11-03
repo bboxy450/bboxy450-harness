@@ -15,9 +15,17 @@ fn references(body: &Item, out: &mut BTreeMap<String, BlobRef>) {
         out.insert(b.sha256.clone(), b.clone());
     }
     match body {
+        Item::Native {
+            blob: Some(blob), ..
+        } => add(out, blob),
         Item::UserMessage { blocks } => {
             for b in blocks {
-                if let InputBlock::Image { blob } = b {
+                if let InputBlock::Image { blob }
+                | InputBlock::Audio { blob }
+                | InputBlock::Resource {
+                    blob: Some(blob), ..
+                } = b
+                {
                     add(out, blob);
                 }
             }
@@ -27,7 +35,12 @@ fn references(body: &Item, out: &mut BTreeMap<String, BlobRef>) {
                 add(out, b);
             }
             for b in output {
-                if let OutputBlock::Image { blob } = b {
+                if let OutputBlock::Image { blob }
+                | OutputBlock::Audio { blob }
+                | OutputBlock::Resource {
+                    blob: Some(blob), ..
+                } = b
+                {
                     add(out, blob);
                 }
             }
@@ -165,6 +178,8 @@ pub(super) fn materialize(
             .open(&temp)?;
         let first = Envelope {
             raw: None,
+            ext: Default::default(),
+            native: None,
             v: PROTOCOL,
             session: meta.session,
             epoch: Epoch(1),

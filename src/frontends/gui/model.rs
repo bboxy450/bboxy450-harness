@@ -52,6 +52,7 @@ pub struct Transcript {
     pub cursor: Seq,
     pub meta: Option<SessionMeta>,
     pub profile: Option<(String, String)>,
+    pub context: Option<String>,
     pub items: OrdMap<ItemId, ViewItem>,
     pub order: Vector<ItemId>,
     pub turns: OrdMap<TurnId, TurnState>,
@@ -69,6 +70,7 @@ impl Default for Transcript {
             cursor: Seq(0),
             meta: None,
             profile: None,
+            context: None,
             items: OrdMap::new(),
             order: Vector::new(),
             turns: OrdMap::new(),
@@ -145,7 +147,7 @@ impl Transcript {
             Event::TurnQueued { turn } => {
                 self.turns.insert(*turn, TurnState::Queued);
             }
-            Event::TurnStarted { turn } => {
+            Event::TurnStarted { turn, .. } => {
                 self.turns.insert(*turn, TurnState::Running);
             }
             Event::TurnEnded {
@@ -242,6 +244,21 @@ impl Transcript {
             Event::Unknown(raw) => {
                 self.unknown += 1;
                 self.last_unknown_tag = Some(unknown_tag(raw).into());
+            }
+            Event::ContextChanged {
+                mode,
+                permission_mode,
+                config,
+            } => {
+                self.context = Some(format!(
+                    "Context: {} · {}{}",
+                    mode.as_deref().unwrap_or("unreported"),
+                    permission_mode.as_deref().unwrap_or("unreported"),
+                    config
+                        .as_ref()
+                        .map(|c| format!(" · {} settings", c.len()))
+                        .unwrap_or_default()
+                ))
             }
             Event::SessionRecovered { .. } | Event::OpRejected { .. } | Event::Reset { .. } => {}
         }

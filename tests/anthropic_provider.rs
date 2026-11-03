@@ -8,7 +8,7 @@
 mod sse_server;
 mod support;
 use bboxy450_harness::{
-    protocol::{ErrorClass, Usage},
+    protocol::{ErrorClass, NumberSource, Usage},
     provider::*,
     redact::{Secret, Set},
 };
@@ -139,6 +139,7 @@ async fn fixtures_have_exact_events_through_real_http() {
             "text",
             vec![
                 ModelEvent::Usage(Usage {
+                    source: Some(NumberSource::Reported),
                     input_tokens: 18,
                     output_tokens: 0,
                     cached_input_tokens: Some(5),
@@ -147,6 +148,7 @@ async fn fixtures_have_exact_events_through_real_http() {
                 }),
                 ModelEvent::Text("Hello".into()),
                 ModelEvent::Usage(Usage {
+                    source: Some(NumberSource::Reported),
                     input_tokens: 18,
                     output_tokens: 2,
                     cached_input_tokens: Some(5),
@@ -1077,4 +1079,41 @@ async fn legacy_http_classes_and_redirects_remain_compatible() {
         )]
     );
     assert_eq!(native.attempts.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn partial_usage_names_missing_input_and_overflow_is_not_a_fabricated_total() {
+    for overflow in [false, true] {
+        let text = String::from_utf8(fixture("text")).unwrap();
+        let text = if overflow {
+            text.replace(
+                "\"input_tokens\":10",
+                "\"input_tokens\":18446744073709551615",
+            )
+        } else {
+            text.replace("\"input_tokens\":10,", "")
+        };
+        let server = sse_server::Server::start(vec![sse_server::ok(text.into_bytes())]).await;
+        let events: Vec<_> = client(&server)
+            .stream(request(), CancellationToken::new())
+            .collect()
+            .await;
+        if overflow {
+            assert!(events.iter().any(|e| matches!(e, ModelEvent::Failed(_))));
+            assert!(!events.iter().any(|e| matches!(e, ModelEvent::Usage(_))));
+        } else {
+            let usage = events
+                .iter()
+                .filter_map(|e| match e {
+                    ModelEvent::Usage(u) => Some(u),
+                    _ => None,
+                })
+                .next_back()
+                .unwrap();
+            assert_eq!(usage.input_tokens, 0);
+            assert_eq!(usage.output_tokens, 2);
+            assert_eq!(usage.unreported, ["input_tokens"]);
+            assert_eq!(usage.cached_input_tokens, Some(5));
+        }
+    }
 }

@@ -326,6 +326,10 @@ pub fn describe<'a>(
             OutputBlock::Text { text } | OutputBlock::Error { text } => Some(text.clone()),
             OutputBlock::Diff { unified, .. } => Some(unified.clone()),
             OutputBlock::Json { value } => Some(value.to_string()),
+            OutputBlock::Audio { .. }
+            | OutputBlock::Resource { .. }
+            | OutputBlock::Terminal { .. }
+            | OutputBlock::Citations { .. } => Some(b.display_text()),
             _ => None,
         })
         .collect::<Vec<_>>()

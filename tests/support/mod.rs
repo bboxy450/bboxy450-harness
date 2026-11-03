@@ -21,6 +21,7 @@ pub struct Session {
 }
 pub fn meta(cwd: PathBuf) -> SessionMeta {
     SessionMeta {
+        source: None,
         session: SessionId::new(),
         cwd,
         profile: Some("scripted".into()),

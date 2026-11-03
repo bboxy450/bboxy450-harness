@@ -245,7 +245,8 @@ fn crash_fixture() -> tempfile::TempDir {
     let root = temp.path();
     // Crash the shared core through the headless face. It has the same durable
     // log without introducing a second PTY/session-leader teardown race.
-    let child = std::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"));
+    command
         .env_clear()
         .env("HOME", root)
         .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
@@ -259,9 +260,10 @@ fn crash_fixture() -> tempfile::TempDir {
         .arg(root.join("mcp.json"))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .unwrap();
+        .stderr(std::process::Stdio::null());
+    // This non-PTY child must not inherit a sibling openpty's master during
+    // the descriptor-to-CLOEXEC publication window, just like key resolution.
+    let child = super::spawn_without_sibling_fds(&mut command);
     let mut seat = Seat {
         root: root.into(),
         master: None,

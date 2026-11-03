@@ -26,7 +26,7 @@ async fn running_session() -> (
         .unwrap();
     let turn = loop {
         let e = sub.recv().await.unwrap();
-        if let Event::TurnStarted { turn } = e.event {
+        if let Event::TurnStarted { turn, .. } = e.event {
             break turn;
         }
     };

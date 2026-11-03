@@ -9,7 +9,8 @@
   "tests/fixtures/ir-v1/v0.4-interrupt-mid-tool.jsonl": "c504d1671fbe9fc1a5bf067bdf9f574feb11c7a6218884cf8c1b87266067cc58",
   "tests/fixtures/ir-v1/v0.4-lagged.jsonl": "0ee568f5135f4319c604c8dd3b1ca9914883d0c6a246f78c8d321462048c4d0a",
   "tests/fixtures/ir-v1/v0.4-recovery.jsonl": "9618bc8b716d688afc8eb4a23108937badb3b001ad5fa5ca54ca4fc9fdb95b5d",
-  "tests/fixtures/ir-v1/v0.4-reset.jsonl": "2cd2f036c6bdc4ab22fead6ca85f4981c2af0871a0410a3b366a8550b0082ccf"
+  "tests/fixtures/ir-v1/v0.4-reset.jsonl": "2cd2f036c6bdc4ab22fead6ca85f4981c2af0871a0410a3b366a8550b0082ccf",
+  "tests/fixtures/ir-v1/v1.1-all-items.jsonl": "cf36a73a193c15e2ebe60a422924766a09a1f8600f8f3e9d4df573b1a8cea747"
  },
  "ir": "bboxy log IR",
  "retired": [],
@@ -123,6 +124,23 @@
     "unknown": {}
    }
   },
+  "Citation": {
+   "fields": {
+    "snippet": {
+     "required": false,
+     "type": "string|null"
+    },
+    "title": {
+     "required": false,
+     "type": "string|null"
+    },
+    "url": {
+     "required": false,
+     "type": "string"
+    }
+   },
+   "shape": "struct"
+  },
   "Cost": {
    "fields": {
     "amount_micros": {
@@ -213,6 +231,14 @@
      "required": true,
      "type": "Event"
     },
+    "ext": {
+     "required": false,
+     "type": "{any}"
+    },
+    "native": {
+     "required": false,
+     "type": "Native|null"
+    },
     "seq": {
      "required": false,
      "type": "uint64|null"
@@ -253,6 +279,20 @@
    "shape": "union",
    "tag": "type",
    "variants": {
+    "context_changed": {
+     "config": {
+      "required": false,
+      "type": "{any}|null"
+     },
+     "mode": {
+      "required": false,
+      "type": "string|null"
+     },
+     "permission_mode": {
+      "required": false,
+      "type": "string|null"
+     }
+    },
     "item_completed": {
      "body": {
       "required": true,
@@ -393,6 +433,10 @@
      }
     },
     "turn_started": {
+     "model": {
+      "required": false,
+      "type": "string|null"
+     },
      "turn": {
       "required": true,
       "type": "TurnId"
@@ -405,6 +449,12 @@
    "shape": "union",
    "tag": "type",
    "variants": {
+    "audio": {
+     "blob": {
+      "required": false,
+      "type": "BlobRef"
+     }
+    },
     "image": {
      "blob": {
       "required": true,
@@ -414,6 +464,30 @@
     "mention": {
      "path": {
       "required": true,
+      "type": "string"
+     }
+    },
+    "resource": {
+     "blob": {
+      "required": false,
+      "type": "BlobRef|null"
+     },
+     "mime": {
+      "required": false,
+      "type": "string"
+     },
+     "uri": {
+      "required": false,
+      "type": "string"
+     }
+    },
+    "resource_link": {
+     "title": {
+      "required": false,
+      "type": "string|null"
+     },
+     "uri": {
+      "required": false,
       "type": "string"
      }
     },
@@ -454,6 +528,16 @@
       "type": "ApprovalSubject"
      }
     },
+    "command": {
+     "args": {
+      "required": false,
+      "type": "string"
+     },
+     "name": {
+      "required": false,
+      "type": "string"
+     }
+    },
     "compaction": {
      "replaced_through": {
       "required": true,
@@ -484,6 +568,24 @@
       "type": "string"
      }
     },
+    "hook": {
+     "event": {
+      "required": false,
+      "type": "string"
+     },
+     "name": {
+      "required": false,
+      "type": "string"
+     },
+     "outcome": {
+      "required": false,
+      "type": "string"
+     },
+     "output": {
+      "required": false,
+      "type": "string|null"
+     }
+    },
     "image": {
      "blob": {
       "required": true,
@@ -491,6 +593,24 @@
      },
      "mime": {
       "required": true,
+      "type": "string"
+     }
+    },
+    "native": {
+     "blob": {
+      "required": false,
+      "type": "BlobRef|null"
+     },
+     "provider": {
+      "required": false,
+      "type": "string"
+     },
+     "raw": {
+      "required": false,
+      "type": "any"
+     },
+     "record_type": {
+      "required": false,
       "type": "string"
      }
     },
@@ -525,9 +645,27 @@
      }
     },
     "subagent": {
+     "call": {
+      "required": false,
+      "type": "ItemId|null"
+     },
+     "name": {
+      "required": false,
+      "type": "string|null"
+     },
      "session": {
       "required": true,
       "type": "SessionId"
+     }
+    },
+    "system_message": {
+     "role": {
+      "required": false,
+      "type": "SystemRole"
+     },
+     "text": {
+      "required": false,
+      "type": "string"
      }
     },
     "terminal": {
@@ -577,9 +715,21 @@
       "required": true,
       "type": "[OutputBlock]"
      },
+     "raw_output": {
+      "required": false,
+      "type": "any"
+     },
+     "server": {
+      "required": false,
+      "type": "string|null"
+     },
      "spill": {
       "required": false,
       "type": "BlobRef|null"
+     },
+     "title": {
+      "required": false,
+      "type": "string|null"
      },
      "tool_kind": {
       "required": true,
@@ -647,14 +797,18 @@
    "variants": {
     "agent_message": {},
     "approval": {},
+    "command": {},
     "compaction": {},
     "context_trim": {},
     "file_change": {},
+    "hook": {},
     "image": {},
+    "native": {},
     "notice": {},
     "plan": {},
     "reasoning": {},
     "subagent": {},
+    "system_message": {},
     "terminal": {},
     "tool_call": {},
     "turn_diff": {},
@@ -670,6 +824,10 @@
     "cancelled": {},
     "completed": {},
     "failed": {
+     "code": {
+      "required": false,
+      "type": "string|null"
+     },
      "reason": {
       "required": true,
       "type": "string"
@@ -701,6 +859,23 @@
     "path": {
      "required": true,
      "type": "string"
+    }
+   },
+   "shape": "struct"
+  },
+  "Native": {
+   "fields": {
+    "id": {
+     "required": false,
+     "type": "string"
+    },
+    "parent": {
+     "required": false,
+     "type": "string|null"
+    },
+    "ts_ms": {
+     "required": false,
+     "type": "uint64|null"
     }
    },
    "shape": "struct"
@@ -798,7 +973,31 @@
    "shape": "union",
    "tag": "type",
    "variants": {
+    "audio": {
+     "blob": {
+      "required": false,
+      "type": "BlobRef"
+     }
+    },
+    "citations": {
+     "entries": {
+      "required": false,
+      "type": "[Citation]"
+     }
+    },
     "diff": {
+     "change": {
+      "required": false,
+      "type": "ChangeKind|null"
+     },
+     "new_text": {
+      "required": false,
+      "type": "string|null"
+     },
+     "old_text": {
+      "required": false,
+      "type": "string|null"
+     },
      "path": {
       "required": true,
       "type": "string"
@@ -824,6 +1023,30 @@
      "value": {
       "required": true,
       "type": "any"
+     }
+    },
+    "resource": {
+     "blob": {
+      "required": false,
+      "type": "BlobRef|null"
+     },
+     "mime": {
+      "required": false,
+      "type": "string"
+     },
+     "uri": {
+      "required": false,
+      "type": "string"
+     }
+    },
+    "terminal": {
+     "exit": {
+      "required": false,
+      "type": "int32|null"
+     },
+     "terminal": {
+      "required": false,
+      "type": "string"
      }
     },
     "text": {
@@ -876,6 +1099,10 @@
   },
   "PlanEntry": {
    "fields": {
+    "id": {
+     "required": false,
+     "type": "string|null"
+    },
     "priority": {
      "required": false,
      "type": "Priority|null"
@@ -1000,6 +1227,31 @@
     "session": {
      "required": true,
      "type": "SessionId"
+    },
+    "source": {
+     "required": false,
+     "type": "Source|null"
+    }
+   },
+   "shape": "struct"
+  },
+  "Source": {
+   "fields": {
+    "harness": {
+     "required": false,
+     "type": "string"
+    },
+    "native_id": {
+     "required": false,
+     "type": "string|null"
+    },
+    "parser_revision": {
+     "required": false,
+     "type": "uint32|null"
+    },
+    "version": {
+     "required": false,
+     "type": "string|null"
     }
    },
    "shape": "struct"
@@ -1031,6 +1283,14 @@
    "variants": {
     "stderr": {},
     "stdout": {},
+    "unknown": {}
+   }
+  },
+  "SystemRole": {
+   "shape": "enum",
+   "variants": {
+    "developer": {},
+    "system": {},
     "unknown": {}
    }
   },

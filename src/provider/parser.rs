@@ -112,15 +112,23 @@ impl SseParser {
         }
         let mut out = vec![];
         if let Some(u) = v.get("usage").filter(|v| v.is_object()) {
-            out.push(ModelEvent::Usage(Usage {
+            let mut usage = Usage {
                 input_tokens: u["prompt_tokens"].as_u64().unwrap_or(0),
                 output_tokens: u["completion_tokens"].as_u64().unwrap_or(0),
                 cached_input_tokens: u["prompt_tokens_details"]["cached_tokens"].as_u64(),
                 cache_creation_input_tokens: None,
                 reasoning_tokens: u["completion_tokens_details"]["reasoning_tokens"].as_u64(),
-                cost_micros_usd: u["cost"].as_f64().map(|n| (n * 1_000_000.) as u64),
+                cost_micros_usd: u["cost"]
+                    .as_f64()
+                    .filter(|n| n.is_finite() && *n >= 0. && *n * 1_000_000. < u64::MAX as f64)
+                    .map(|n| (n * 1_000_000.) as u64),
+                request_id: v["id"].as_str().map(str::to_owned),
+                model: v["model"].as_str().map(str::to_owned),
                 ..Default::default()
-            }));
+            };
+            usage.reported("input_tokens", u["prompt_tokens"].as_u64().is_some());
+            usage.reported("output_tokens", u["completion_tokens"].as_u64().is_some());
+            out.push(ModelEvent::Usage(usage));
         }
         let Some(choices) = v.get("choices").and_then(Value::as_array) else {
             return Err("missing choices");

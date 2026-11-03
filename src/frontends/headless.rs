@@ -110,6 +110,30 @@ async fn run_cli(
                 );
                 return Ok(0);
             }
+            "usage" => {
+                let mut paths = vec![];
+                for arg in args.by_ref() {
+                    if arg == "--json" {
+                        json = true;
+                    } else {
+                        paths.push(PathBuf::from(arg));
+                    }
+                }
+                if paths.is_empty() {
+                    return Err("usage requires session directories or JSONL files".into());
+                }
+                let report =
+                    crate::runtime::blocking(move || super::usage::report_paths(&paths)).await?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
+                    );
+                } else {
+                    print!("{}", super::usage::render(&report));
+                }
+                return Ok(0);
+            }
             "import" => {
                 // bboxy450-harness import [claude|codex] FILE: project a native session into our log
                 let first = args.next().ok_or("missing native log path")?;
@@ -142,7 +166,7 @@ async fn run_cli(
             }
             "--help" | "-h" => {
                 println!(
-                    "bboxy450-harness -p PROMPT --json [--profile NAME] [--cwd DIR]\nbboxy450-harness --json --resume CLOSED_SESSION\nbboxy450-harness seat [--profile NAME] [--resume SESSION] [--cwd DIR]   (in a seat: /profiles, /profile NAME) [--append-system-prompt TEXT] [--mcp-config PATH]\nbboxy450-harness seat --replay LOG.jsonl   (render a stored log through the seat face)\n--scripted SSE (repeat for rounds) --sessions DIR --yolo"
+                    "bboxy450-harness -p PROMPT --json [--profile NAME] [--cwd DIR]\nbboxy450-harness --json --resume CLOSED_SESSION\nbboxy450-harness seat [--profile NAME] [--resume SESSION] [--cwd DIR]   (in a seat: /profiles, /profile NAME) [--append-system-prompt TEXT] [--mcp-config PATH]\nbboxy450-harness seat --replay LOG.jsonl   (render a stored log through the seat face)\n--scripted SSE (repeat for rounds) --sessions DIR --yolo\nbboxy450-harness usage [--json] PATH…"
                 );
                 return Ok(0);
             }
@@ -288,6 +312,7 @@ async fn run_cli(
     };
     let config = Config {
         meta: SessionMeta {
+            source: None,
             session,
             cwd,
             profile: Some(profile),

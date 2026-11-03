@@ -1,0 +1,67 @@
+{
+  "rows": [
+    {
+      "backend_kind": "engine",
+      "backend": "fixture-provider",
+      "model": "fixture-model",
+      "currency": "USD",
+      "scope": "call",
+      "source": "estimated",
+      "cost_source": "reported",
+      "missing": {},
+      "numbers": {
+        "cached_input_tokens": 10,
+        "cost_micros": 1200,
+        "input_tokens": 100,
+        "output_tokens": 20
+      },
+      "records": 1
+    },
+    {
+      "backend_kind": "import",
+      "backend": "codex",
+      "model": "fixture-codex",
+      "currency": "EUR",
+      "scope": "call",
+      "source": "reported",
+      "cost_source": "reported",
+      "missing": {},
+      "numbers": {
+        "cost_micros": 50,
+        "input_tokens": 7,
+        "output_tokens": 3
+      },
+      "records": 1
+    },
+    {
+      "backend_kind": "unknown",
+      "backend": "unknown",
+      "model": null,
+      "currency": null,
+      "scope": "call",
+      "source": "unknown",
+      "cost_source": null,
+      "missing": {
+        "input_tokens": 1,
+        "output_tokens": 1
+      },
+      "numbers": {},
+      "records": 1
+    },
+    {
+      "backend_kind": "unknown",
+      "backend": "unknown",
+      "model": null,
+      "currency": null,
+      "scope": "turn",
+      "source": "unknown",
+      "cost_source": null,
+      "missing": {},
+      "numbers": {
+        "input_tokens": 84,
+        "output_tokens": 42
+      },
+      "records": 2
+    }
+  ]
+}

@@ -263,6 +263,8 @@ impl Store {
     pub fn ephemeral(&self, event: Event) -> Envelope {
         Envelope {
             raw: None,
+            ext: Default::default(),
+            native: None,
             v: PROTOCOL,
             session: self.session,
             epoch: self.epoch,
@@ -283,6 +285,19 @@ impl Store {
         cause: Option<OpId>,
         ts_ms: u64,
     ) -> io::Result<Envelope> {
+        self.append_projected_at(event, cause, ts_ms, None, Default::default())
+            .await
+    }
+    /// Persist a projector's provenance and unconsumed fields under the normal
+    /// redaction, envelope-size and durability rules.
+    pub async fn append_projected_at(
+        &mut self,
+        event: Event,
+        cause: Option<OpId>,
+        ts_ms: u64,
+        native: Option<Native>,
+        ext: std::collections::BTreeMap<String, serde_json::Value>,
+    ) -> io::Result<Envelope> {
         if self.closed || !event.is_durable() {
             return Err(io::Error::other("log is closed or event is ephemeral"));
         }
@@ -293,6 +308,8 @@ impl Store {
             .ok_or_else(|| io::Error::other("seq exhausted"))?);
         let e = Envelope {
             raw: None,
+            ext,
+            native,
             v: PROTOCOL,
             session: self.session,
             epoch: self.epoch,
@@ -450,6 +467,7 @@ mod durability_controls {
     async fn writer_durability_on_read_refuses_a_forward_compatible_log() {
         let temp = tempfile::tempdir().unwrap();
         let meta = SessionMeta {
+            source: None,
             session: SessionId::new(),
             cwd: temp.path().into(),
             profile: None,

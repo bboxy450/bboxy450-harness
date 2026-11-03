@@ -90,7 +90,7 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                     return Err(fail("one-ending", "turn queued twice"));
                 }
             }
-            Event::TurnStarted { turn } => {
+            Event::TurnStarted { turn, .. } => {
                 if !queued.contains(turn) || ended.contains(turn) || !started.insert(*turn) {
                     return Err(fail("one-ending", "invalid turn start"));
                 }
@@ -261,6 +261,49 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
 pub fn check_authored(events: &[Envelope]) -> Result<(), LawViolation> {
     check_transcript(events)?;
     for (i, e) in events.iter().enumerate() {
+        if e.v.major == 1 && e.v.minor >= 1 {
+            let usage = match &e.event {
+                Event::TurnEnded {
+                    usage: Some(usage), ..
+                }
+                | Event::ItemCompleted {
+                    body: Item::Usage { usage },
+                    ..
+                }
+                | Event::ItemSnapshot {
+                    partial: Item::Usage { usage },
+                    ..
+                } => Some(usage),
+                _ => None,
+            };
+            if let Some(usage) = usage
+                && let Err(detail) = check_usage(usage)
+            {
+                return Err(LawViolation {
+                    line: i + 1,
+                    law: "usage-provenance",
+                    detail: detail.into(),
+                });
+            }
+            if let Event::ItemCompleted {
+                body:
+                    Item::Reasoning {
+                        provider_opaque: Some(value),
+                        ..
+                    },
+                ..
+            } = &e.event
+                && !(value["provider"].is_string()
+                    && value["form"].is_string()
+                    && value.get("data").is_some())
+            {
+                return Err(LawViolation {
+                    line: i + 1,
+                    law: "sealed-reasoning",
+                    detail: "opaque reasoning needs provider, form and data".into(),
+                });
+            }
+        }
         if event_unknown(&e.event) {
             return Err(LawViolation {
                 line: i + 1,
@@ -290,7 +333,14 @@ fn plan_unknown(entries: &[PlanEntry]) -> bool {
         .any(|e| e.status.is_unknown() || e.priority.as_ref().is_some_and(Priority::is_unknown))
 }
 fn output_unknown(block: &OutputBlock) -> bool {
-    matches!(block, OutputBlock::Unknown(_))
+    matches!(
+        block,
+        OutputBlock::Unknown(_)
+            | OutputBlock::Diff {
+                change: Some(ChangeKind::Unknown(_)),
+                ..
+            }
+    )
 }
 fn usage_unknown(usage: &Usage) -> bool {
     usage.scope.as_ref().is_some_and(UsageScope::is_unknown)
@@ -319,6 +369,7 @@ fn item_unknown(item: &Item) -> bool {
                 || matches!(by, Some(Resolver::Unknown(_)))
         }
         Item::Notice { level, .. } => level.is_unknown(),
+        Item::SystemMessage { role, .. } => role.is_unknown(),
         Item::Usage { usage } => usage_unknown(usage),
         _ => false,
     }
@@ -367,4 +418,41 @@ fn event_unknown(event: &Event) -> bool {
         Event::Status { phase } => matches!(phase, Phase::Unknown(_)),
         _ => false,
     }
+}
+
+fn check_usage(usage: &Usage) -> Result<(), &'static str> {
+    if usage.scope.is_none() || usage.backend.is_none() || usage.source.is_none() {
+        return Err("usage needs scope, backend and source");
+    }
+    if usage.backend.as_ref().is_some_and(|b| b.name.is_empty()) {
+        return Err("usage backend name is empty");
+    }
+    let mut named = std::collections::BTreeSet::new();
+    for key in &usage.unreported {
+        let value = match key.as_str() {
+            "input_tokens" => usage.input_tokens,
+            "output_tokens" => usage.output_tokens,
+            _ => return Err("unreported only names required counters"),
+        };
+        if value != 0 || !named.insert(key) {
+            return Err("an unreported required counter must be a unique zero placeholder");
+        }
+    }
+    if let Some(cost) = &usage.cost {
+        if cost.currency.len() != 3 || !cost.currency.bytes().all(|b| b.is_ascii_uppercase()) {
+            return Err("cost currency must be ISO 4217");
+        }
+        if cost.currency == "USD" && usage.cost_micros_usd != Some(cost.amount_micros) {
+            return Err("USD cost must retain the legacy mirror");
+        }
+        if usage
+            .backend
+            .as_ref()
+            .is_some_and(|b| b.kind == BackendKind::Engine)
+            && cost.price_source.as_ref().is_none_or(String::is_empty)
+        {
+            return Err("engine cost needs price_source");
+        }
+    }
+    Ok(())
 }

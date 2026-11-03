@@ -25,7 +25,7 @@ pub fn ended_through(log: &[Envelope]) -> Seq {
     let mut open = std::collections::BTreeMap::new();
     for e in log {
         match e.event {
-            Event::TurnStarted { turn } => {
+            Event::TurnStarted { turn, .. } => {
                 if let Some(seq) = e.seq {
                     open.insert(turn, seq);
                 }

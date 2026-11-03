@@ -108,6 +108,7 @@ pub(crate) struct TurnRunner {
     round: u32,
     pending: VecDeque<(OpId, Vec<InputBlock>)>,
     usage: Option<Usage>,
+    call_usages: Vec<Usage>,
 }
 impl TurnRunner {
     pub fn new(
@@ -133,6 +134,7 @@ impl TurnRunner {
             round: 0,
             pending: VecDeque::new(),
             usage: None,
+            call_usages: vec![],
         }
     }
     pub async fn run(mut self) {
@@ -223,6 +225,7 @@ impl TurnRunner {
             ItemStatus::Cancelled
         } else if matches!(reason, StopReason::Error { .. }) {
             ItemStatus::Failed {
+                code: None,
                 reason: "turn failed".into(),
             }
         } else {
@@ -271,7 +274,17 @@ impl TurnRunner {
             )
             .await;
         }
-        let usage = self.usage.take();
+        self.flush_call_usage().await;
+        let usage = match Usage::sum_calls(&self.call_usages) {
+            Ok(usage) => usage,
+            Err(message) => {
+                reason = StopReason::Error {
+                    class: ErrorClass::Internal,
+                    message: message.into(),
+                };
+                None
+            }
+        };
         self.emit(
             Event::TurnEnded {
                 turn: self.ctx.turn,
@@ -330,6 +343,26 @@ impl TurnRunner {
         self.ctx
             .messages
             .push(json!({"role":"user","content":history::input(&blocks)}));
+    }
+    async fn flush_call_usage(&mut self) {
+        let Some(usage) = self.usage.take() else {
+            return;
+        };
+        let usage = usage.authored(
+            UsageScope::Call,
+            Backend {
+                kind: BackendKind::Engine,
+                name: self.ctx.provider.id().into(),
+                version: Some(env!("CARGO_PKG_VERSION").into()),
+            },
+            Some(self.ctx.model.clone()),
+        );
+        if !usage.has_reported_numbers() {
+            return;
+        }
+        self.call_usages.push(usage.clone());
+        let item = self.started(Item::Usage { usage }, None, None).await;
+        self.completed(item, ItemStatus::Completed).await;
     }
     async fn next_round(&mut self) -> Result<(), String> {
         if self.round >= self.ctx.max_rounds {
@@ -443,7 +476,9 @@ impl TurnRunner {
                     provider_opaque, ..
                 } = &mut self.open.get_mut(&id).unwrap().1
                 {
-                    *provider_opaque = Some(value);
+                    *provider_opaque = Some(
+                        json!({"provider":self.ctx.provider.id(),"form":"native","data":value}),
+                    );
                 }
             }
             Message::Model(ModelEvent::ToolCallDelta {
@@ -472,6 +507,9 @@ impl TurnRunner {
                 let started = call.started;
                 let item = call.item;
                 let body = Item::ToolCall {
+                    title: None,
+                    server: None,
+                    raw_output: None,
                     call_id: call.id.clone(),
                     name: call.name.clone(),
                     tool_kind: self
@@ -546,15 +584,14 @@ impl TurnRunner {
                 }
             }
             Message::Model(ModelEvent::Usage(usage)) => {
-                self.usage = Some(usage.clone());
-                let item = self.started(Item::Usage { usage }, None, None).await;
-                self.completed(item, ItemStatus::Completed).await;
+                self.usage = Some(usage);
             }
             Message::Model(ModelEvent::Retrying {
                 attempt,
                 wait_ms,
                 class,
             }) => {
+                self.flush_call_usage().await;
                 let id = self
                     .started(
                         Item::Notice {
@@ -585,6 +622,7 @@ impl TurnRunner {
                 }));
             }
             Message::Model(ModelEvent::Finish(finish)) => {
+                self.flush_call_usage().await;
                 self.save_assistant(matches!(finish, Finish::ToolCalls))
                     .await;
                 if matches!(finish, Finish::ToolCalls) {
@@ -657,6 +695,7 @@ impl TurnRunner {
                         item,
                         if output.failed {
                             ItemStatus::Failed {
+                                code: None,
                                 reason: output
                                     .output
                                     .iter()
@@ -688,6 +727,7 @@ impl TurnRunner {
                     call.item,
                     if output.failed {
                         ItemStatus::Failed {
+                            code: None,
                             reason: output
                                 .output
                                 .iter()

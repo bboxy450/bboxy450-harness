@@ -195,12 +195,11 @@ impl Profile {
             client.max_tokens = self.max_tokens;
             Ok(Arc::new(client))
         } else {
-            Ok(Arc::new(OpenAiCompat::new(
-                &self.endpoint,
-                key,
-                redactor,
-                options,
-            )?))
+            let mut client = OpenAiCompat::new(&self.endpoint, key, redactor, options)?;
+            if let Some(provider) = &self.provider {
+                client.provider_id = provider.clone();
+            }
+            Ok(Arc::new(client))
         }
     }
 }

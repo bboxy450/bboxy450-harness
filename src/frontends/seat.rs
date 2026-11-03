@@ -58,7 +58,7 @@ impl StateReporter {
         let force = matches!(event, Event::TurnStarted { .. } | Event::TurnEnded { .. });
         match event {
             Event::ProfileChanged { profile, model } => self.title = format!("{profile} · {model}"),
-            Event::TurnStarted { turn } => {
+            Event::TurnStarted { turn, .. } => {
                 self.turns.insert(*turn);
                 self.error = None;
             }
@@ -1070,7 +1070,7 @@ impl LineProjection {
                     pen.row(&fit(l, pen.width), None),
                 );
             }
-            Event::TurnStarted { turn } => {
+            Event::TurnStarted { turn, .. } => {
                 self.running = true;
                 self.turns.entry(*turn).or_default().t0 = Some(ts);
             }
@@ -1117,6 +1117,12 @@ impl LineProjection {
                         | ItemKind::Notice
                         | ItemKind::Terminal
                         | ItemKind::FileChange
+                        | ItemKind::Command
+                        | ItemKind::Hook
+                        | ItemKind::SystemMessage
+                        | ItemKind::Native
+                        | ItemKind::Subagent
+                        | ItemKind::Usage
                 ) || kind.is_unknown()
                 {
                     self.queue.push_back(*item);
@@ -1156,6 +1162,22 @@ impl LineProjection {
             }
             Event::ItemCompleted { item, status, body } => {
                 self.complete(*item, status, body, ts, &mut out);
+            }
+            Event::ContextChanged {
+                mode,
+                permission_mode,
+                config,
+            } => {
+                self.notice_line(
+                    &mut out,
+                    &format!(
+                        "Context: {} · {} · {} settings",
+                        mode.as_deref().unwrap_or("unreported"),
+                        permission_mode.as_deref().unwrap_or("unreported"),
+                        config.as_ref().map_or(0, |c| c.len())
+                    ),
+                    &Level::Info,
+                );
             }
             Event::TurnEnded {
                 turn,
@@ -1427,11 +1449,7 @@ impl LineProjection {
             (ItemKind::UserMessage, Some(Item::UserMessage { blocks })) => {
                 let text = blocks
                     .iter()
-                    .filter_map(|b| match b {
-                        InputBlock::Text { text } => Some(text.clone()),
-                        InputBlock::Mention { path } => Some(format!("@{}", path.display())),
-                        _ => None,
-                    })
+                    .map(InputBlock::display_text)
                     .collect::<Vec<_>>()
                     .join("\n");
                 let plain = pen.mode == ColorMode::None;
@@ -1589,6 +1607,44 @@ impl LineProjection {
             }
             (ItemKind::Notice, Some(Item::Notice { level, text })) => {
                 self.notice_line(out, &text, &level);
+            }
+            (_, Some(body)) if body.extension_text().is_some() => {
+                self.notice_line(out, &body.extension_text().unwrap(), &Level::Info);
+            }
+            (
+                ItemKind::Subagent,
+                Some(Item::Subagent {
+                    session,
+                    name,
+                    call,
+                }),
+            ) if name.is_some() || call.is_some() => {
+                self.notice_line(
+                    out,
+                    &format!("Subagent {} · {session}", name.as_deref().unwrap_or("")),
+                    &Level::Info,
+                );
+            }
+            (ItemKind::Usage, Some(Item::Usage { usage })) if usage.scope.is_some() => {
+                self.notice_line(
+                    out,
+                    &format!(
+                        "Usage: {} · context {}/{}",
+                        usage
+                            .numbers()
+                            .into_iter()
+                            .map(|(k, v)| format!("{k}={v}"))
+                            .collect::<Vec<_>>()
+                            .join(" · "),
+                        usage
+                            .context_used
+                            .map_or_else(|| "unreported".into(), |v| v.to_string()),
+                        usage
+                            .context_window
+                            .map_or_else(|| "unreported".into(), |v| v.to_string())
+                    ),
+                    &Level::Info,
+                );
             }
             (_, Some(Item::Unknown(raw))) => self.notice_line(
                 out,
@@ -1987,7 +2043,7 @@ impl LineProjection {
             st,
         );
         let failed_reason = match e.status.as_ref() {
-            Some(ItemStatus::Failed { reason }) => Some(reason.clone()),
+            Some(ItemStatus::Failed { reason, .. }) => Some(reason.clone()),
             _ => None,
         };
         let body = if denied {
@@ -2048,7 +2104,42 @@ impl LineProjection {
         } else {
             String::new()
         };
-        head + &body
+        let mut extras = output
+            .iter()
+            .filter(|block| {
+                matches!(
+                    block,
+                    OutputBlock::Audio { .. }
+                        | OutputBlock::Resource { .. }
+                        | OutputBlock::Terminal { .. }
+                        | OutputBlock::Citations { .. }
+                )
+            })
+            .map(OutputBlock::display_text)
+            .collect::<Vec<_>>()
+            .join("\n");
+        if let Some(Item::ToolCall {
+            title,
+            server,
+            raw_output,
+            ..
+        }) = &e.body
+        {
+            let caption = [title.as_deref(), server.as_deref()]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" · ");
+            if !caption.is_empty() {
+                extras = format!("{caption}\n{extras}");
+            }
+            if output.is_empty()
+                && let Some(value) = raw_output
+            {
+                extras.push_str(&value.to_string());
+            }
+        }
+        head + &body + &out_body(pen, &extras)
     }
 }
 

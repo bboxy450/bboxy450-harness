@@ -2220,7 +2220,7 @@ fn acp_agent_turn(mode: u8) -> Model {
 // Shared HTTP retry/terminal ownership and Anthropic stop-reason translation.
 // Wire framing and token arithmetic are separate real-HTTP witnesses.
 fn provider_stream(mode: u8) -> Model {
-    let mut m = base::<7>(
+    let mut m = base::<12>(
         "ProviderStream",
         false,
         &[
@@ -2231,6 +2231,11 @@ fn provider_stream(mode: u8) -> Model {
             ("reason", 5, 0),   // absent, stop, tools, length, refusal, unknown
             ("outcome", 11, 0), // four finishes, malformed, midstream, cancel, auth, bad, transient, rate
             ("endings", 2, 0),
+            ("usage_snapshot", 2, 0),
+            ("usage_writes", 2, 0),
+            ("usage_written_value", 2, 0),
+            ("usage_reported_total", 4, 0),
+            ("usage_flushed_total", 4, 0),
         ],
     );
     m.name = match mode {
@@ -2257,6 +2262,50 @@ fn provider_stream(mode: u8) -> Model {
         "ToolUse",
         all([eq(0, 1), eq(4, 0), Var(3).lt(Int(2))]),
         &[(2, Int(1)), (3, Var(3).plus(Int(1)))],
+    );
+    act(
+        &mut m,
+        "ReceiveCumulativeUsageSnapshot",
+        all([eq(0, 1), Var(7).lt(Int(2))]),
+        &[(7, Var(7).plus(Int(1))), (10, Var(10).plus(Int(1)))],
+    );
+    let flush = m.actions.len();
+    act(
+        &mut m,
+        "FlushLastUsageAtResponseEnd",
+        all([eq(0, 3).or(eq(0, 2)), eq(8, 0), Int(0).lt(Var(7))]),
+        &[(8, Int(1)), (9, Var(7)), (11, Var(11).plus(Var(7)))],
+    );
+    if mode == 3 {
+        act(
+            &mut m,
+            "BrokenWriteEverySnapshot",
+            all([eq(0, 1), eq(7, 2)]),
+            &[(8, Int(2))],
+        );
+    }
+    safe(&mut m, "OneUsageRecordPerResponse", Var(8).le(Int(1)));
+    safe(
+        &mut m,
+        "UsageNeverDoubleCountedAcrossRetries",
+        Var(11).le(Var(10)),
+    );
+    safe(
+        &mut m,
+        "NoUsageLostAcrossRetries",
+        eq(8, 0).negate().or(Var(10).eq(Var(11).plus(Var(7)))),
+    );
+    safe(
+        &mut m,
+        "FlushedUsageIsLastSnapshot",
+        eq(8, 0).or(Var(9).eq(Var(7))),
+    );
+    progress(
+        &mut m,
+        "ReportedUsageEventuallyPreserved",
+        all([eq(0, 3), Int(0).lt(Var(10))]),
+        Var(11).eq(Var(10)),
+        vec![flush],
     );
     for reason in 1..=5 {
         act(
@@ -2300,8 +2349,18 @@ fn provider_stream(mode: u8) -> Model {
     act(
         &mut m,
         "BackoffCompletes",
-        eq(0, 2),
+        all([
+            eq(0, 2),
+            if mode == 3 {
+                Bool(true)
+            } else {
+                eq(7, 0).or(eq(8, 1))
+            },
+        ]),
         &[
+            (7, Int(0)),
+            (8, Int(0)),
+            (9, Int(0)),
             (0, Int(1)),
             (1, Var(1).plus(Int(1))),
             (4, Int(0)),

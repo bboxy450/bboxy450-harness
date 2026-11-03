@@ -151,6 +151,7 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
                 ItemKind::ContextTrim => trim_expected.as_deref().expect("context trim fixture body"),
                 ItemKind::Usage => "0 in · 0 out", ItemKind::Compaction => compaction_expected.as_deref().expect("compaction fixture body"),
                 ItemKind::Notice => "fixture complete", ItemKind::Subagent => "Session: 00000000000000000000000009",
+                ItemKind::Command | ItemKind::Hook | ItemKind::SystemMessage | ItemKind::Native => "",
                 ItemKind::Unknown(_) => return Err("unexpected unknown fixture item".into()),
             };
             // a tool card names its action: the verb the rich face derives from the tool

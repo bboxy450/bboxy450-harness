@@ -63,7 +63,8 @@ impl Anthropic {
         let mut messages: Vec<Value> = Vec::new();
         let mut stable_end = None;
         for (index, message) in req.messages.into_iter().enumerate() {
-            let message = self.redactor.value(message);
+            let mut message = self.redactor.value(message);
+            super::filter_opaque(&mut message, "anthropic");
             let role = message["role"]
                 .as_str()
                 .ok_or_else(|| bad("missing message role"))?;
@@ -138,6 +139,9 @@ impl Anthropic {
     }
 }
 impl Provider for Anthropic {
+    fn id(&self) -> &str {
+        "anthropic"
+    }
     fn caps(&self) -> Caps {
         Caps {
             images: false,

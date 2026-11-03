@@ -125,7 +125,10 @@ impl Projector {
         }
         let turn = TurnId::new();
         out.push(Event::TurnQueued { turn });
-        out.push(Event::TurnStarted { turn });
+        out.push(Event::TurnStarted {
+            turn,
+            model: self.model.clone(),
+        });
         self.turn = Some(turn);
         turn
     }
@@ -356,6 +359,7 @@ impl Projector {
         }];
         let status = if failed {
             ItemStatus::Failed {
+                code: None,
                 reason: "tool failed".into(),
             }
         } else {
@@ -687,6 +691,9 @@ fn add_usage(a: &Usage, b: &Usage) -> Option<Usage> {
 
 fn tool_body(t: OpenTool, output: Vec<OutputBlock>) -> Item {
     Item::ToolCall {
+        title: None,
+        server: None,
+        raw_output: None,
         call_id: t.call_id,
         name: t.name,
         tool_kind: t.kind.clone(),
@@ -748,6 +755,12 @@ pub async fn import_file(
     let at = p.ts_ms.unwrap_or_else(crate::store::now_ms);
     events.extend(p.finish(StopReason::EndTurn).into_iter().map(|e| (e, at)));
     let meta = SessionMeta {
+        source: Some(Source {
+            harness: native.label().into(),
+            native_id: None,
+            version: p.native_version.clone(),
+            parser_revision: Some(1),
+        }),
         session: SessionId::new(),
         cwd: p.cwd.clone().unwrap_or_else(|| "/".into()).into(),
         profile: Some(native.label().into()),

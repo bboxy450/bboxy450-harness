@@ -116,6 +116,9 @@ impl std::fmt::Display for ProviderError {
 }
 impl std::error::Error for ProviderError {}
 pub trait Provider: Send + Sync {
+    fn id(&self) -> &str {
+        "custom"
+    }
     fn caps(&self) -> Caps;
     fn stream(
         &self,
@@ -125,6 +128,7 @@ pub trait Provider: Send + Sync {
 }
 #[derive(Clone)]
 pub struct OpenAiCompat {
+    pub provider_id: String,
     http: http::Http,
     pub redactor: Set,
     pub options: Options,
@@ -158,6 +162,16 @@ impl OpenAiCompat {
     ) -> Result<Self, ProviderError> {
         profile::validate_endpoint(endpoint)?;
         Ok(Self {
+            provider_id: if reqwest::Url::parse(endpoint)
+                .ok()
+                .and_then(|u| u.host_str().map(str::to_owned))
+                .as_deref()
+                == Some("openrouter.ai")
+            {
+                "openrouter".into()
+            } else {
+                "openai-compatible".into()
+            },
             http: http::Http::new(
                 format!("{}/chat/completions", endpoint.trim_end_matches('/')),
                 key,
@@ -169,6 +183,9 @@ impl OpenAiCompat {
     }
 }
 impl Provider for OpenAiCompat {
+    fn id(&self) -> &str {
+        &self.provider_id
+    }
     fn caps(&self) -> Caps {
         Caps {
             images: true,
@@ -179,9 +196,12 @@ impl Provider for OpenAiCompat {
     }
     fn stream(
         &self,
-        req: ModelRequest,
+        mut req: ModelRequest,
         cancel: CancellationToken,
     ) -> Pin<Box<dyn Stream<Item = ModelEvent> + Send>> {
+        for message in &mut req.messages {
+            filter_opaque(message, self.id());
+        }
         let choice = match req.tool_choice {
             ToolChoice::Auto => json!("auto"),
             ToolChoice::None => json!("none"),
@@ -227,6 +247,9 @@ impl ScriptedProvider {
     }
 }
 impl Provider for ScriptedProvider {
+    fn id(&self) -> &str {
+        "scripted"
+    }
     fn caps(&self) -> Caps {
         Caps {
             images: true,
@@ -256,6 +279,9 @@ impl Provider for ScriptedProvider {
 #[derive(Clone)]
 pub struct FailedProvider(pub ProviderError);
 impl Provider for FailedProvider {
+    fn id(&self) -> &str {
+        "unconfigured"
+    }
     fn caps(&self) -> Caps {
         Caps {
             images: false,
@@ -273,5 +299,21 @@ impl Provider for FailedProvider {
         Box::pin(futures_util::stream::once(async move {
             ModelEvent::Failed(error)
         }))
+    }
+}
+
+/// A sealed payload is replayable only by its original provider.
+pub(super) fn filter_opaque(message: &mut Value, provider: &str) {
+    if let Some(opaque) = message.get("reasoning_details")
+        && opaque.get("provider").is_some()
+    {
+        let own = opaque["provider"].as_str() == Some(provider);
+        let data = opaque.get("data").cloned();
+        if let Some(object) = message.as_object_mut() {
+            object.remove("reasoning_details");
+            if own && let Some(data) = data {
+                object.insert("reasoning_details".into(), data);
+            }
+        }
     }
 }

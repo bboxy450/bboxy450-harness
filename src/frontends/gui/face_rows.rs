@@ -241,6 +241,7 @@ impl Preparer {
                         InputBlock::Unknown(raw) => {
                             format!("Unsupported input: {}", unknown_tag(raw))
                         }
+                        other => other.display_text(),
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
@@ -534,6 +535,14 @@ impl Preparer {
                     &ink,
                 )
             }
+            Item::Command { .. }
+            | Item::Hook { .. }
+            | Item::SystemMessage { .. }
+            | Item::Native { .. } => f::notice(
+                &row.body.extension_text().unwrap_or_default(),
+                &Level::Info,
+                &ink,
+            ),
             Item::Unknown(raw) => f::notice(
                 &format!("Unsupported item: {}", unknown_tag(raw)),
                 &Level::Info,
@@ -635,6 +644,9 @@ impl Preparer {
             tool_kind,
             input_raw,
             output,
+            title,
+            server,
+            raw_output,
             ..
         } = &row.body
         else {
@@ -660,6 +672,11 @@ impl Preparer {
         };
         // the terminal's own command is authoritative over the call's arguments
         let mut d = d;
+        if output.is_empty()
+            && let Some(value) = raw_output
+        {
+            d.out = value.to_string();
+        }
         if let Some(Item::Terminal { command, .. }) = term.as_ref().map(|t| &t.body)
             && !command.is_empty()
         {
@@ -722,6 +739,14 @@ impl Preparer {
             .into(),
         ];
         let mut inside: Vec<c::Item> = vec![];
+        let caption = [title.as_deref(), server.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · ");
+        if !caption.is_empty() {
+            inside.push(f::notice(&caption, &Level::Info, ink).into());
+        }
         let wrap = |kid: &Option<ViewItem>, e: c::Element| match kid {
             Some(k) => named(format!("item/{}", k.id), e),
             None => e,
@@ -731,7 +756,7 @@ impl Preparer {
                 let reason = match &decision {
                     Some(ApprovalDecision::Deny { reason: Some(r) }) => r.clone(),
                     _ => match &row.status {
-                        Some(ItemStatus::Failed { reason }) => reason.clone(),
+                        Some(ItemStatus::Failed { reason, .. }) => reason.clone(),
                         _ => "denied".into(),
                     },
                 };
@@ -832,7 +857,7 @@ impl Preparer {
                     }
                     .into(),
                 );
-            } else if failed && let Some(ItemStatus::Failed { reason }) = &row.status {
+            } else if failed && let Some(ItemStatus::Failed { reason, .. }) = &row.status {
                 inside.push(error_box(reason, ink).into());
             }
         } else {

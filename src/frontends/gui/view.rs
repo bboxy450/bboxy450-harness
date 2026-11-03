@@ -344,6 +344,10 @@ impl HarnessView {
                 }
             });
         let (status, tone) = status;
+        let status = model
+            .context
+            .as_ref()
+            .map_or_else(|| status.clone(), |context| format!("{status} · {context}"));
         // the composer's states (p2) follow the live phase; the header shows `tone`
 
         let live = !matches!(model.phase, Phase::Idle | Phase::Closed) && !state.replay;
@@ -1040,6 +1044,10 @@ pub fn kind_label(kind: ItemKind) -> &'static str {
         ItemKind::Usage => "Usage",
         ItemKind::Notice => "Notice",
         ItemKind::Subagent => "Subagent",
+        ItemKind::Command => "Command",
+        ItemKind::Hook => "Hook",
+        ItemKind::SystemMessage => "System message",
+        ItemKind::Native => "Native record",
         ItemKind::Unknown(_) => "Unknown item",
     }
 }
@@ -1122,7 +1130,7 @@ fn phase_text(phase: &Phase) -> String {
 fn status_text(status: &ItemStatus) -> String {
     match status {
         ItemStatus::Completed => "Completed".into(),
-        ItemStatus::Failed { reason } => format!("Failed: {reason}"),
+        ItemStatus::Failed { reason, .. } => format!("Failed: {reason}"),
         ItemStatus::Cancelled => "Cancelled".into(),
         ItemStatus::Interrupted => "Interrupted".into(),
         ItemStatus::Unknown(raw) => format!("Unsupported status: {}", unknown_tag(raw)),
@@ -1205,6 +1213,7 @@ fn display_body(row: &ViewItem, terminal_output: Option<&String>) -> String {
                 InputBlock::Image { blob } => format!("Image: {} · {} bytes", blob.mime, blob.len),
                 InputBlock::Mention { path } => format!("Mention: {}", path.display()),
                 InputBlock::Unknown(raw) => format!("Unsupported input: {}", unknown_tag(raw)),
+                other => other.display_text(),
             })
             .collect::<Vec<_>>()
             .join("\n"),
@@ -1222,11 +1231,14 @@ fn display_body(row: &ViewItem, terminal_output: Option<&String>) -> String {
                         format!("Image: {} · {} bytes", blob.mime, blob.len)
                     }
                     OutputBlock::Json { value } => arguments(&value.to_string()),
-                    OutputBlock::Diff { path, unified } => format!("{}\n{unified}", path.display()),
+                    OutputBlock::Diff { path, unified, .. } => {
+                        format!("{}\n{unified}", path.display())
+                    }
                     OutputBlock::Error { text } => format!("Error: {text}"),
                     OutputBlock::Unknown(raw) => {
                         format!("Unsupported tool output: {}", unknown_tag(raw))
                     }
+                    other => other.display_text(),
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
@@ -1312,7 +1324,11 @@ fn display_body(row: &ViewItem, terminal_output: Option<&String>) -> String {
             usage.reasoning_tokens.unwrap_or(0)
         ),
         Item::Notice { text, .. } => text.clone(),
-        Item::Subagent { session } => format!("Session: {session}"),
+        Item::Subagent { session, .. } => format!("Session: {session}"),
+        Item::Command { .. }
+        | Item::Hook { .. }
+        | Item::SystemMessage { .. }
+        | Item::Native { .. } => row.body.extension_text().unwrap_or_default(),
         Item::Unknown(raw) => format!("Unsupported item: {}", unknown_tag(raw)),
     };
     if text.is_empty() { "…".into() } else { text }

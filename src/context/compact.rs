@@ -48,7 +48,7 @@ pub fn compact_summary(prev: Option<&str>, window: &[Envelope]) -> String {
     let mut through = Seq(0);
     for e in window {
         match &e.event {
-            Event::TurnStarted { turn } => {
+            Event::TurnStarted { turn, .. } => {
                 turns
                     .entry(*turn)
                     .or_insert(Turn {

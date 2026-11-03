@@ -7,6 +7,7 @@
 pub mod face_core;
 pub mod headless;
 pub mod seat;
+pub mod usage;
 
 pub mod smoke;
 

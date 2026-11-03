@@ -319,6 +319,8 @@ impl Hub {
                 }
                 let e = Envelope {
                     raw: None,
+                    ext: Default::default(),
+                    native: None,
                     v: PROTOCOL,
                     session: state.hello.meta.session,
                     epoch: state.hello.epoch,
@@ -581,6 +583,8 @@ impl Gateway for InProc {
         if self.faulted.load(Ordering::Acquire) || req.after.is_some_and(|(_, s)| s > trusted) {
             let e = Envelope {
                 raw: None,
+                ext: Default::default(),
+                native: None,
                 v: PROTOCOL,
                 session: req.session,
                 epoch: hello.epoch,
@@ -600,6 +604,8 @@ impl Gateway for InProc {
                 for (&item, (_, _, body)) in &state.open {
                     snapshots.push_back(Envelope {
                         raw: None,
+                        ext: Default::default(),
+                        native: None,
                         v: PROTOCOL,
                         session: req.session,
                         epoch: hello.epoch,
@@ -643,6 +649,7 @@ mod admission_tests {
     fn held_capacity_returns_busy_without_an_actor_or_runtime() {
         let session = SessionId::new();
         let meta = SessionMeta {
+            source: None,
             session,
             cwd: std::path::PathBuf::new(),
             profile: None,

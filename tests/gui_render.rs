@@ -348,8 +348,9 @@ async fn cards_show_readable_content_instead_of_serialized_payloads() {
         replay: true,
         ..Default::default()
     };
+    let mut preparer = Preparer::default();
     state.prepared = Some(Arc::new(
-        prepare(&mut Preparer::default(), state.transcript.clone(), 1120.).await,
+        prepare(&mut preparer, state.transcript.clone(), 1120.).await,
     ));
     let mut view = HarnessView::default();
     let frame = view.render(&state, [1120., 7000.]).unwrap();
@@ -496,8 +497,9 @@ async fn structural_layout_smoke_checks_restored_geometry() {
         replay: true,
         ..Default::default()
     };
+    let mut preparer = Preparer::default();
     state.prepared = Some(Arc::new(
-        prepare(&mut Preparer::default(), state.transcript.clone(), 1120.).await,
+        prepare(&mut preparer, state.transcript.clone(), 1120.).await,
     ));
     let mut view = HarnessView::default();
     let frame = view.render(&state, [1120., 7000.]).unwrap();
@@ -625,4 +627,36 @@ fn composer_box_follows_phase_and_keeps_hit_contract() {
         find(&ask, "composer/hint").is_some(),
         "ask shows the 1/2/3 hint"
     );
+}
+
+#[tokio::test]
+async fn v1_additions_have_readable_rich_cards() {
+    let model = read_replay("tests/fixtures/ir-v1/v1.1-all-items.jsonl".into())
+        .await
+        .unwrap();
+    let mut state = FrameState {
+        transcript: Arc::new(model),
+        ready: true,
+        replay: true,
+        ..Default::default()
+    };
+    let mut preparer = Preparer::default();
+    state.prepared = Some(Arc::new(
+        prepare(&mut preparer, state.transcript.clone(), 1120.).await,
+    ));
+    let mut view = HarnessView::default();
+    let frame = view.render(&state, [1120., 14000.]).unwrap();
+    let text = bboxy450_harness::frontends::gui::view::layout_text(frame.layout.as_ref().unwrap());
+    for label in [
+        "Command:",
+        "Hook:",
+        "Developer:",
+        "Native:",
+        "Audio:",
+        "Read reference",
+        "fixture-mcp",
+    ] {
+        assert!(text.contains(label), "missing {label}: {text}");
+    }
+    assert!(!text.contains("opaque fixture"));
 }

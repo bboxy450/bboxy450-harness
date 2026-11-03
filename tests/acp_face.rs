@@ -1119,3 +1119,57 @@ async fn permission_rpc_errors_use_the_sessions_unattended_policy() {
         c.close().await;
     }
 }
+
+#[tokio::test]
+async fn load_v1_additions_exports_valid_updates_and_keeps_sealed_reasoning_private() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut client = client(&temp, vec![]).await;
+    let log: Vec<Envelope> = include_str!("fixtures/ir-v1/v1.1-all-items.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .filter(|e: &Envelope| !matches!(e.event, Event::SessionClosed))
+        .collect();
+    let Event::SessionStarted { meta } = &log[0].event else {
+        panic!()
+    };
+    std::fs::create_dir_all(&client.config.sessions).unwrap();
+    std::fs::write(
+        bboxy450_harness::store::log_path(&client.config.sessions, meta.session),
+        log.iter()
+            .map(|e| serde_json::to_string(e).unwrap() + "\n")
+            .collect::<String>(),
+    )
+    .unwrap();
+    client
+        .request(
+            1,
+            "session/load",
+            json!({"sessionId":meta.session.to_string(),"cwd":meta.cwd,"mcpServers":[]}),
+        )
+        .await;
+    let mut updates = vec![];
+    loop {
+        let value = client.next().await;
+        validate(&value);
+        if value["id"] == 1 {
+            assert!(value.get("result").is_some(), "{value}");
+            break;
+        }
+        updates.push(value);
+    }
+    let text = serde_json::to_string(&updates).unwrap();
+    for needle in [
+        "Command: /help",
+        "Hook: pre_tool",
+        "Developer:",
+        "Native: fixture/unmapped",
+        "Audio:",
+        "usage_update",
+        "Read reference",
+        "rawOutput",
+    ] {
+        assert!(text.contains(needle), "missing {needle}: {text}");
+    }
+    assert!(!text.contains("opaque fixture"));
+    client.close().await;
+}

@@ -25,11 +25,12 @@ impl Fixture {
         };
         f.emit(Event::SessionStarted {
             meta: SessionMeta {
+                source: None,
                 session,
                 cwd: PathBuf::from("/fixture/project"),
                 profile: Some("scripted".into()),
                 fork: None,
-                protocol: PROTOCOL,
+                protocol: Version { major: 1, minor: 0 },
                 harness: "0.1.0".into(),
                 created_ms: 0,
             },
@@ -54,7 +55,9 @@ impl Fixture {
         };
         self.events.push(Envelope {
             raw: None,
-            v: PROTOCOL,
+            ext: Default::default(),
+            native: None,
+            v: Version { major: 1, minor: 0 },
             session: SessionId(ulid::Ulid::from(1u128)),
             epoch: self.epoch,
             seq,
@@ -66,7 +69,10 @@ impl Fixture {
     }
     fn start_turn(&mut self) {
         self.emit(Event::TurnQueued { turn: self.turn });
-        self.emit(Event::TurnStarted { turn: self.turn });
+        self.emit(Event::TurnStarted {
+            turn: self.turn,
+            model: None,
+        });
     }
     fn start(&mut self, kind: ItemKind, parent: Option<ItemId>) -> ItemId {
         let item = ItemId(ulid::Ulid::from(self.next));
@@ -117,6 +123,9 @@ impl Fixture {
 }
 fn tool(id: &str, name: &str, kind: ToolKind) -> Item {
     Item::ToolCall {
+        title: None,
+        server: None,
+        raw_output: None,
         call_id: id.into(),
         name: name.into(),
         tool_kind: kind,
@@ -188,6 +197,7 @@ fn fixtures() -> Vec<(&'static str, Vec<Envelope>)> {
     f.complete(a, tool("read-a", "read", ToolKind::Read));
     f.item(Item::Plan {
         entries: vec![PlanEntry {
+            id: None,
             text: "Update greeting".into(),
             status: PlanStatus::InProgress,
             priority: Some(Priority::High),
@@ -258,6 +268,8 @@ fn fixtures() -> Vec<(&'static str, Vec<Envelope>)> {
         text: "fixture complete".into(),
     });
     f.item(Item::Subagent {
+        name: None,
+        call: None,
         session: SessionId(ulid::Ulid::from(9u128)),
     });
     f.end(StopReason::EndTurn);
@@ -387,7 +399,7 @@ fn schema_and_golden_transcripts() {
         schema
     );
     for (name, events) in fixtures() {
-        check_transcript(&events).unwrap();
+        laws::check_authored(&events).unwrap();
         let bytes = events
             .iter()
             .map(|e| canonical_json(e) + "\n")
@@ -449,6 +461,7 @@ fn future_variants_and_fields() {
     retained!(Phase,{"phase":"future_phase","payload":42});
     retained!(Rejection,{"reason":"future_rejection","payload":42});
     retained!(UsageScope, "future_scope");
+    retained!(SystemRole, "future_role");
     retained!(BackendKind, "future_backend");
     retained!(NumberSource, "future_source");
     retained!(TurnMode, "future_mode");

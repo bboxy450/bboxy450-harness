@@ -602,6 +602,7 @@ mod gui {
             bbt_rt::handle().block_on(async {
                 let config = Config {
                     meta: SessionMeta {
+                        source: None,
                         session: SessionId::new(),
                         cwd: root.clone(),
                         profile: Some("scripted".into()),
