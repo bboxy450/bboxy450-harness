@@ -72,6 +72,7 @@ impl Fixture {
         self.emit(Event::TurnStarted {
             turn: self.turn,
             model: None,
+            origin: None,
         });
     }
     fn start(&mut self, kind: ItemKind, parent: Option<ItemId>) -> ItemId {
@@ -451,6 +452,7 @@ fn future_variants_and_fields() {
     retained!(InputBlock,{"type":"future_input","payload":42});
     retained!(ApprovalDecision,{"decision":"future_decision","payload":42});
     retained!(ItemStatus,{"status":"future_status","payload":42});
+    retained!(TurnOrigin,{"kind":"future_origin","payload":42});
     retained!(StopReason,{"reason":"future_reason","payload":42});
     retained!(Delta,{"type":"future_delta","payload":42});
     retained!(Item,{"kind":"future_item","payload":42});
@@ -496,4 +498,33 @@ fn recovery_does_not_author_an_unknown_body() {
             ..
         }
     ));
+}
+
+#[test]
+fn old_turn_starts_keep_an_absent_origin_and_new_origins_roundtrip() {
+    let turn = TurnId::new();
+    let legacy = serde_json::json!({"type":"turn_started","turn":turn});
+    let event: Event = serde_json::from_value(legacy.clone()).unwrap();
+    assert!(matches!(event, Event::TurnStarted { origin: None, .. }));
+    assert_eq!(serde_json::to_value(event).unwrap(), legacy);
+    for origin in [TurnOrigin::User, TurnOrigin::Agent] {
+        let event = Event::TurnStarted {
+            turn,
+            model: None,
+            origin: Some(origin),
+        };
+        assert_eq!(
+            serde_json::from_value::<Event>(serde_json::to_value(&event).unwrap()).unwrap(),
+            event
+        );
+    }
+    assert_eq!(
+        serde_json::from_value::<StopReason>(serde_json::json!({"reason":"quiet"})).unwrap(),
+        StopReason::Quiet { ms: 0 }
+    );
+    let reason = StopReason::Quiet { ms: 30000 };
+    assert_eq!(
+        serde_json::to_value(&reason).unwrap(),
+        serde_json::json!({"reason":"quiet","ms":30000})
+    );
 }

@@ -47,6 +47,18 @@ use tokio::{
 pub const MAX_LINE: usize = 8 * 1024 * 1024;
 /// After `session/cancel`, the agent has this long to end the prompt before its group is killed.
 pub const CANCEL_GRACE: Duration = Duration::from_secs(5);
+/// ACP v1 has no unsolicited-turn end signal. Silence closes only an agent turn
+/// with no open tool or permission. Overrides are sampled once at actor load.
+pub const AGENT_TURN_QUIET: Duration = Duration::from_secs(30);
+fn agent_turn_quiet() -> Duration {
+    std::env::var("BBOXY450_ACP_AGENT_TURN_QUIET_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(Duration::from_millis)
+        .unwrap_or(AGENT_TURN_QUIET)
+}
+// Test-only broken control: BBOXY450_ACP_IDLE_CONTROL=hide restores the old
+// hidden idle updates and cancelled idle permissions. Never enable in profiles.
 fn cancel_grace() -> Duration {
     std::env::var("BBOXY450_ACP_CANCEL_GRACE_MS")
         .ok()
@@ -161,9 +173,11 @@ struct Permission {
 struct Running {
     turn: TurnId,
     blocks: Vec<InputBlock>,
-    cause: OpId,
+    cause: Option<OpId>,
     prompt_sent: bool,
     cancel_at: Option<Instant>,
+    quiet_at: Option<Instant>,
+    last_wire_at: Instant,
     interrupted: bool,
     message: Option<(ItemId, String)>,
     thought: Option<(ItemId, String)>,
@@ -192,6 +206,8 @@ pub struct AcpAgentActor {
     /// fresh agent with its first prompt: the agent's own context starts empty.
     handoff: Option<String>,
     cancel_grace: Duration,
+    agent_turn_quiet: Duration,
+    hide_idle: bool,
 }
 
 impl AcpAgentActor {
@@ -259,6 +275,8 @@ impl AcpAgentActor {
             projected_ext: BTreeMap::new(),
             handoff,
             cancel_grace: cancel_grace(),
+            agent_turn_quiet: agent_turn_quiet(),
+            hide_idle: std::env::var("BBOXY450_ACP_IDLE_CONTROL").as_deref() == Ok("hide"),
         };
         let task = bbt_rt::handle().spawn(actor.run());
         Ok((gateway, task))
@@ -363,12 +381,20 @@ impl AcpAgentActor {
                 {
                     self.start(turn, blocks, cause).await?;
                 }
+                // A waiting user prompt shortens the quiet wait, but cannot
+                // overtake a tool or a permission owned by the agent turn.
+                if !self.queue.is_empty() && self.agent_turn_ready() {
+                    self.end_agent_turn().await?;
+                    continue;
+                }
                 let cancel_at = self.running.as_ref().and_then(|r| r.cancel_at);
+                let quiet_at = self.running.as_ref().and_then(|r| r.quiet_at);
                 tokio::select! {biased;
                     Some(op) = self.control.recv() => { if self.op(op).await? { break; } }
                     Some(op) = self.work.recv() => { if self.op(op).await? { break; } }
                     Some(wire) = recv(&mut self.wire) => self.wire(wire).await?,
                     _ = sleep_until(cancel_at) => self.cancel_expired().await?,
+                    _ = sleep_until(quiet_at) => self.quiet_expired().await?,
                     _ = tick.tick() => self.gateway.hub.flush_deltas(),
                     _ = heartbeat.tick(), if self.running.is_none() =>
                         self.publish(Event::Status { phase: Phase::Idle }, None).await?,
@@ -429,6 +455,7 @@ impl AcpAgentActor {
                         Event::TurnStarted {
                             turn,
                             model: self.model.clone(),
+                            origin: Some(TurnOrigin::User),
                         },
                         Some(id),
                     )
@@ -491,6 +518,7 @@ impl AcpAgentActor {
                 Event::TurnStarted {
                     turn,
                     model: self.model.clone(),
+                    origin: Some(TurnOrigin::User),
                 },
                 Some(id),
             )
@@ -520,6 +548,7 @@ impl AcpAgentActor {
             Event::TurnStarted {
                 turn,
                 model: self.model.clone(),
+                origin: Some(TurnOrigin::User),
             },
             None,
         )
@@ -527,9 +556,11 @@ impl AcpAgentActor {
         self.running = Some(Running {
             turn,
             blocks: blocks.clone(),
-            cause,
+            cause: Some(cause),
             prompt_sent: false,
             cancel_at: None,
+            quiet_at: None,
+            last_wire_at: Instant::now(),
             interrupted: false,
             message: None,
             thought: None,
@@ -585,6 +616,78 @@ impl AcpAgentActor {
             self.send_prompt().await?;
         }
         Ok(())
+    }
+    async fn start_agent_turn(&mut self) -> std::io::Result<()> {
+        let turn = TurnId::new();
+        self.publish(
+            Event::TurnStarted {
+                turn,
+                model: self
+                    .agent
+                    .as_ref()
+                    .and_then(|a| a.model.clone())
+                    .or_else(|| self.model.clone()),
+                origin: Some(TurnOrigin::Agent),
+            },
+            None,
+        )
+        .await?;
+        let now = Instant::now();
+        self.running = Some(Running {
+            turn,
+            blocks: vec![],
+            cause: None,
+            // An unsolicited turn must never cause session/prompt to be sent.
+            prompt_sent: true,
+            cancel_at: None,
+            quiet_at: Some(now + self.agent_turn_quiet),
+            last_wire_at: now,
+            interrupted: false,
+            message: None,
+            thought: None,
+            tools: BTreeMap::new(),
+            plan: None,
+            permissions: BTreeMap::new(),
+        });
+        self.publish(
+            Event::Status {
+                phase: Phase::Thinking,
+            },
+            None,
+        )
+        .await
+    }
+    fn agent_turn_ready(&self) -> bool {
+        self.running.as_ref().is_some_and(|r| {
+            r.quiet_at.is_some()
+                && r.cancel_at.is_none()
+                && r.tools.is_empty()
+                && r.permissions.is_empty()
+        })
+    }
+    async fn end_agent_turn(&mut self) -> std::io::Result<()> {
+        let ms = self
+            .running
+            .as_ref()
+            .expect("agent turn")
+            .last_wire_at
+            .elapsed()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
+        self.end_turn(StopReason::Quiet { ms }, ItemStatus::Completed)
+            .await
+    }
+    async fn quiet_expired(&mut self) -> std::io::Result<()> {
+        if self.agent_turn_ready() {
+            self.end_agent_turn().await
+        } else {
+            if let Some(r) = self.running.as_mut() {
+                // Avoid a ready timer spinning while a tool/permission is open.
+                r.quiet_at =
+                    Some(Instant::now() + self.agent_turn_quiet.max(Duration::from_millis(1)));
+            }
+            Ok(())
+        }
     }
     async fn send_prompt(&mut self) -> std::io::Result<()> {
         let Some(r) = self.running.as_mut() else {
@@ -706,7 +809,7 @@ impl AcpAgentActor {
                 reason,
                 usage: None,
             },
-            Some(r.cause),
+            r.cause,
         )
         .await?;
         self.publish(Event::Status { phase: Phase::Idle }, None)
@@ -876,6 +979,12 @@ impl AcpAgentActor {
             Wire::Eof => self.agent_gone("ACP agent exited".into()).await,
             Wire::Bad(why) => self.agent_gone(format!("ACP agent sent {why}")).await,
             Wire::Message(m) => {
+                if let Some(r) = self.running.as_mut()
+                    && r.quiet_at.is_some()
+                {
+                    r.last_wire_at = Instant::now();
+                    r.quiet_at = Some(r.last_wire_at + self.agent_turn_quiet);
+                }
                 let method = m.get("method").and_then(Value::as_str).map(str::to_owned);
                 match (method, m.get("id").cloned()) {
                     (Some(method), Some(id)) => {
@@ -1086,6 +1195,9 @@ impl AcpAgentActor {
                 );
             }
             return Ok(());
+        }
+        if self.running.is_none() && !self.hide_idle {
+            self.start_agent_turn().await?;
         }
         if self.running.as_ref().is_none_or(|r| r.cancel_at.is_some()) {
             if let Some(agent) = self.agent.as_mut() {
@@ -1339,7 +1451,20 @@ impl AcpAgentActor {
             return Ok(());
         }
         if self.running.is_none() {
-            return self.native_update(&u).await;
+            if !self.hide_idle
+                && matches!(
+                    kind.as_str(),
+                    "agent_message_chunk"
+                        | "agent_thought_chunk"
+                        | "tool_call"
+                        | "tool_call_update"
+                        | "plan"
+                )
+            {
+                self.start_agent_turn().await?;
+            } else {
+                return self.native_update(&u).await;
+            }
         }
         match kind.as_str() {
             "agent_message_chunk" | "agent_thought_chunk" => {

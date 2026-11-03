@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 SCENARIO = sys.argv[1] if len(sys.argv) > 1 else "text"
 SESSION = "fake-session-1"
@@ -51,6 +52,33 @@ def request(method, params):
 
 
 CANCELLED = []
+WOKE = False
+
+
+def wake():
+    if SCENARIO != "wake-permission":
+        chunk("agent_message_chunk", "woke")
+        update({"sessionUpdate": "tool_call", "toolCallId": "wake-tool", "title": "Wake tool",
+                "kind": "execute", "status": "pending", "rawInput": {"command": "echo WOKE"}})
+    r = request("session/request_permission", {
+        "sessionId": SESSION,
+        "toolCall": {"toolCallId": "wake-tool", "title": "Wake tool", "kind": "execute",
+                     "rawInput": {"command": "echo WOKE"}},
+        "options": [{"optionId": "allow_once", "name": "Allow", "kind": "allow_once"},
+                    {"optionId": "reject_once", "name": "Deny", "kind": "reject_once"}],
+    })
+    outcome = r["result"]["outcome"]
+    Path("wake-outcome.json").write_text(json.dumps(outcome))
+    update({"sessionUpdate": "tool_call_update", "toolCallId": "wake-tool", "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text", "text": json.dumps(outcome)}}]})
+    chunk("agent_message_chunk", "done")
+    if SCENARIO == "wake-twice":
+        time.sleep(0.3)
+        chunk("agent_message_chunk", "woke again")
+    if SCENARIO == "wake-rearm":
+        for used in [10, 20, 30]:
+            time.sleep(0.15)
+            update({"sessionUpdate": "usage_update", "used": used, "size": 200000})
 
 
 def prompt(rid, text):
@@ -156,6 +184,13 @@ while True:
         text = " ".join(b.get("text", "") for b in m["params"]["prompt"])
         stop = prompt(rid, text)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": stop}})
+        if SCENARIO.startswith("wake") and not WOKE:
+            WOKE = True
+            time.sleep(0.05)
+            wake()
+        if SCENARIO == "idle-gauges":
+            update({"sessionUpdate": "usage_update", "used": 10, "size": 200000})
+            update({"sessionUpdate": "session_info_update", "title": "still idle"})
         if SCENARIO == "usage":
             # Session accounting remains meaningful after the prompt has ended.
             update({"sessionUpdate": "usage_update", "used": 55000, "size": 200000,

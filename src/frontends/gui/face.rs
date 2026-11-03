@@ -863,13 +863,7 @@ pub fn receipt(r: Receipt, ink: &Ink) -> c::Element {
         )),
         fixed(named(
             format!("{}/title", r.key),
-            line(
-                if r.ok { "Done".to_owned() } else { r.reason },
-                12.,
-                650,
-                ink.fg,
-                false,
-            ),
+            line(r.reason, 12., 650, ink.fg, false),
         )),
     ];
     let mut facts = vec![];

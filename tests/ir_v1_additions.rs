@@ -40,7 +40,7 @@ fn fixture() -> Vec<Envelope> {
                 parent: None,
                 ts_ms: Some(seq.0),
             }),
-            v: PROTOCOL,
+            v: Version { major: 1, minor: 1 },
             session,
             epoch: Epoch(1),
             seq: Some(seq),
@@ -62,7 +62,7 @@ fn fixture() -> Vec<Envelope> {
             cwd: "/fixture/project".into(),
             profile: Some("fixture".into()),
             fork: None,
-            protocol: PROTOCOL,
+            protocol: Version { major: 1, minor: 1 },
             harness: "1.0".into(),
             created_ms: 0,
         },
@@ -71,6 +71,7 @@ fn fixture() -> Vec<Envelope> {
     emit(Event::TurnStarted {
         turn,
         model: Some("fixture-model".into()),
+        origin: None,
     });
     emit(Event::ContextChanged {
         mode: Some("code".into()),

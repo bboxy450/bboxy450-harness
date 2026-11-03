@@ -429,6 +429,7 @@ impl SessionActor {
             Event::TurnStarted {
                 turn,
                 model: Some(self.config.model.clone()),
+                origin: Some(TurnOrigin::User),
             },
             None,
         )
@@ -1325,7 +1326,14 @@ mod hardening_tests {
             .await
             .unwrap();
         actor
-            .publish(Event::TurnStarted { turn, model: None }, None)
+            .publish(
+                Event::TurnStarted {
+                    turn,
+                    model: None,
+                    origin: None,
+                },
+                None,
+            )
             .await
             .unwrap();
         actor

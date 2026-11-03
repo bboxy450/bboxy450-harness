@@ -11,7 +11,7 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use ulid::Ulid;
 pub mod laws;
 mod usage;
-pub const PROTOCOL: Version = Version { major: 1, minor: 1 };
+pub const PROTOCOL: Version = Version { major: 1, minor: 2 };
 pub const MAX_ENVELOPE_BYTES: usize = 256 * 1024;
 macro_rules! identity {($($name:ident),*)=>{$(
 #[derive(Clone,Copy,Debug,PartialEq,Eq,PartialOrd,Ord,Hash,Serialize,Deserialize,JsonSchema)]
@@ -185,6 +185,9 @@ pub enum Event {
         turn: TurnId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
+        /// Absent in logs before IR 1.2; absence means user.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<TurnOrigin>,
     },
     ContextChanged {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -259,6 +262,10 @@ pub enum ItemStatus {
 #[serde(tag = "reason", rename_all = "snake_case")]
 pub enum StopReason {
     EndTurn,
+    Quiet {
+        #[serde(default)]
+        ms: u64,
+    },
     Cancelled,
     MaxTokens,
     MaxRounds,
@@ -267,6 +274,14 @@ pub enum StopReason {
         class: ErrorClass,
         message: String,
     },
+    #[serde(untagged)]
+    Unknown(Value),
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TurnOrigin {
+    User,
+    Agent,
     #[serde(untagged)]
     Unknown(Value),
 }

@@ -10,7 +10,8 @@
   "tests/fixtures/ir-v1/v0.4-lagged.jsonl": "0ee568f5135f4319c604c8dd3b1ca9914883d0c6a246f78c8d321462048c4d0a",
   "tests/fixtures/ir-v1/v0.4-recovery.jsonl": "9618bc8b716d688afc8eb4a23108937badb3b001ad5fa5ca54ca4fc9fdb95b5d",
   "tests/fixtures/ir-v1/v0.4-reset.jsonl": "2cd2f036c6bdc4ab22fead6ca85f4981c2af0871a0410a3b366a8550b0082ccf",
-  "tests/fixtures/ir-v1/v1.1-all-items.jsonl": "cf36a73a193c15e2ebe60a422924766a09a1f8600f8f3e9d4df573b1a8cea747"
+  "tests/fixtures/ir-v1/v1.1-all-items.jsonl": "cf36a73a193c15e2ebe60a422924766a09a1f8600f8f3e9d4df573b1a8cea747",
+  "tests/fixtures/ir-v1/v1.2-agent-turn.jsonl": "3b97b9d90c16638f3e04d56dc267d19947bbf72611475b9af4f4c008ee94acd6"
  },
  "ir": "bboxy log IR",
  "retired": [],
@@ -436,6 +437,10 @@
      "model": {
       "required": false,
       "type": "string|null"
+     },
+     "origin": {
+      "required": false,
+      "type": "TurnOrigin|null"
      },
      "turn": {
       "required": true,
@@ -1275,6 +1280,12 @@
     "interrupted": {},
     "max_rounds": {},
     "max_tokens": {},
+    "quiet": {
+     "ms": {
+      "required": false,
+      "type": "uint64"
+     }
+    },
     "unknown": {}
    }
   },
@@ -1319,6 +1330,15 @@
     "queue": {},
     "steer": {},
     "unknown": {}
+   }
+  },
+  "TurnOrigin": {
+   "shape": "union",
+   "tag": "kind",
+   "variants": {
+    "agent": {},
+    "unknown": {},
+    "user": {}
    }
   },
   "Usage": {

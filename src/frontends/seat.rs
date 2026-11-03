@@ -1346,9 +1346,18 @@ impl LineProjection {
                     pen.row(&fit(l, pen.width), None),
                 );
             }
-            Event::TurnStarted { turn, .. } => {
+            Event::TurnStarted { turn, origin, .. } => {
                 self.running = true;
                 self.turns.entry(*turn).or_default().t0 = Some(ts);
+                if origin.as_ref() == Some(&TurnOrigin::Agent) {
+                    let pen = self.pen();
+                    self.block(
+                        &mut out,
+                        Family::User,
+                        false,
+                        pen.row(&[sp("  agent continued").fg(DIM)], None),
+                    );
+                }
             }
             Event::ItemStarted {
                 turn,
@@ -2781,6 +2790,7 @@ fn receipt(pen: &Pen, t: &TurnStat, ts: u64, reason: &StopReason, usage: Option<
     let mut message = None;
     let (ok, soft, label) = match reason {
         StopReason::EndTurn => (true, false, "Done"),
+        StopReason::Quiet { .. } => (true, false, "Quiet"),
         StopReason::Cancelled => (false, true, "Cancelled"),
         StopReason::Interrupted => (false, true, "Interrupted"),
         StopReason::MaxTokens => (false, false, "Hit the output limit"),

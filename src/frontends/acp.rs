@@ -649,6 +649,16 @@ impl Face {
     async fn event(&self, session: &Session, mapper: &mut Mapper, e: Envelope, replay: bool) {
         let sid = e.session;
         match &e.event {
+            Event::TurnStarted {
+                origin: Some(TurnOrigin::Agent),
+                ..
+            } => {
+                self.update(
+                    sid,
+                    chunk("agent_message_chunk", "agent continued\n".into()),
+                )
+                .await;
+            }
             Event::TurnQueued { turn } => {
                 if let Some(op) = e.cause {
                     let mut p = session.pending.lock().unwrap();
@@ -1130,6 +1140,105 @@ mod tests {
         assert_eq!(admitted.cause, Some(op_id));
         assert!(matches!(admitted.event,Event::TurnQueued {turn:t} if t==turn));
         crate::protocol::laws::check_transcript(&log).unwrap();
+    }
+    #[tokio::test]
+    async fn agent_turn_fixture_exports_its_heading_and_work_without_a_prompt() {
+        let events: Vec<Envelope> =
+            include_str!("../../tests/fixtures/ir-v1/v1.2-agent-turn.jsonl")
+                .lines()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect();
+        let temp = tempfile::tempdir().unwrap();
+        let mut meta = match &events[0].event {
+            Event::SessionStarted { meta } => meta.clone(),
+            _ => panic!("fixture metadata missing"),
+        };
+        meta.cwd = temp.path().into();
+        meta.profile = None;
+        let sid = meta.session;
+        let config = Config {
+            meta,
+            sessions: temp.path().join("sessions"),
+            profiles: temp.path().join("profiles"),
+            provider: Arc::new(crate::provider::ScriptedProvider::new(vec![])),
+            model: "scripted".into(),
+            policy: crate::policy::Policy::new(Unattended::Deny),
+            redactor: Default::default(),
+            max_rounds: 1,
+            profile_error: None,
+        };
+        let host = Host::new(config.clone());
+        let gateway = host
+            .create(OpEnvelope {
+                v: PROTOCOL,
+                session: sid,
+                op_id: OpId::new(),
+                op: Op::StartSession {
+                    cwd: temp.path().into(),
+                    profile: None,
+                    fork: None,
+                },
+            })
+            .await
+            .unwrap()
+            .0;
+        let session = Session {
+            gateway: gateway.clone(),
+            pending: Arc::default(),
+            blobs: Blobs {
+                dir: config.sessions.join(sid.to_string()).join("blobs"),
+                redactor: config.redactor.clone(),
+            },
+        };
+        let (output, mut rx) = mpsc::channel(128);
+        let (connection, _requests) = mpsc::unbounded_channel();
+        let cancel = CancellationToken::new();
+        let face = Face {
+            host: Host::new(config.clone()),
+            config,
+            sessions: Mutex::default(),
+            permissions: Mutex::default(),
+            output,
+            drivers: Mutex::new(TaskGroup::new(cancel.clone())),
+            inputs: Mutex::default(),
+            connection,
+            cancel,
+            next: 0.into(),
+            unknown: 0.into(),
+        };
+        let mut mapper = Mapper::default();
+        for event in events {
+            face.event(&session, &mut mapper, event, true).await;
+        }
+        let mut text = String::new();
+        let mut tools = 0;
+        while let Ok(value) = rx.try_recv() {
+            assert_eq!(
+                value["method"], "session/update",
+                "agent turn must not invent a prompt response"
+            );
+            serde_json::from_value::<schema::SessionNotification>(value["params"].clone()).unwrap();
+            let update = &value["params"]["update"];
+            if update["sessionUpdate"] == "agent_message_chunk" {
+                text.push_str(update["content"]["text"].as_str().unwrap());
+            }
+            if update["sessionUpdate"] == "tool_call_update" {
+                tools += 1;
+            }
+        }
+        for expected in ["agent continued", "woke", "done"] {
+            assert!(text.contains(expected), "{text}");
+        }
+        assert!(tools > 0);
+        gateway
+            .send(OpEnvelope {
+                v: PROTOCOL,
+                session: sid,
+                op_id: OpId::new(),
+                op: Op::Close,
+            })
+            .unwrap();
+        host.join().await.unwrap();
     }
     struct HeldFinish {
         inner: crate::provider::ScriptedProvider,

@@ -2388,7 +2388,7 @@ fn seat_report(mode: u8) -> Model {
 // perm: 0 none, 1 pending, 2 answered
 fn acp_agent_turn(mode: u8) -> Model {
     let b = mode == 1;
-    let mut m = base::<9>(
+    let mut m = base::<16>(
         "AcpAgentTurn",
         b,
         &[
@@ -2401,17 +2401,32 @@ fn acp_agent_turn(mode: u8) -> Model {
             ("stubborn", 1, 0),
             ("native_updates", 2, 0),
             ("retained_updates", 2, 0),
+            ("origin", 2, 0), // 0 none, 1 user, 2 agent
+            ("tool_open", 1, 0),
+            ("quiet", 1, 0), // abstract silence deadline; no wall-clock claim
+            ("queued_prompt", 1, 0),
+            ("work_item", 1, 0),
+            ("cancelled_reply", 1, 0),
+            ("tool_started", 1, 0),
         ],
     );
     if mode == 2 {
         m.name = "BrokenHarnessAcpAgentGrace".into();
     }
-    act(&mut m, "Prompt", eq(0, 0), &[(0, Int(1))]);
+    if mode == 3 {
+        m.name = "BrokenHarnessAcpAgentIdleCancel".into();
+    }
+    act(
+        &mut m,
+        "Prompt",
+        eq(0, 0),
+        &[(0, Int(1)), (9, Int(1)), (12, Int(0))],
+    );
     act(
         &mut m,
         "PermissionRequested",
         all([eq(0, 1), eq(1, 0), eq(3, 0)]),
-        &[(0, Int(2)), (1, Int(1))],
+        &[(0, Int(2)), (1, Int(1)), (10, Int(1)), (13, Int(1))],
     );
     act(
         &mut m,
@@ -2434,13 +2449,20 @@ fn acp_agent_turn(mode: u8) -> Model {
             (0, Int(3)),
             (2, Int(1)),
             (1, if b { Int(1) } else { Int(2) }),
+            (14, Int(1)),
         ],
     );
     // the agent ends its prompt only when it is not waiting on a permission answer
     act(
         &mut m,
         "AgentEndsPrompt",
-        all([eq(0, 1).or(eq(0, 3)), eq(1, 1).negate(), eq(3, 0), eq(6, 0)]),
+        all([
+            eq(0, 1).or(eq(0, 3)),
+            eq(1, 1).negate(),
+            eq(3, 0),
+            eq(6, 0),
+            eq(9, 1).or(eq(0, 3)),
+        ]),
         &[(3, Int(1))],
     );
     act(
@@ -2452,7 +2474,13 @@ fn acp_agent_turn(mode: u8) -> Model {
             if b { Bool(true) } else { Var(7).eq(Var(8)) },
         ]),
         // end_turn settles every open permission (cancelled) before TurnEnded
-        &[(0, Int(4)), (1, Int(0)), (4, Var(4).plus(Int(1)))],
+        &[
+            (0, Int(4)),
+            (1, Int(0)),
+            (10, Int(0)),
+            (13, Int(0)),
+            (4, Var(4).plus(Int(1))),
+        ],
     );
     act(
         &mut m,
@@ -2466,6 +2494,12 @@ fn acp_agent_turn(mode: u8) -> Model {
             (4, Int(0)),
             (5, Int(1)),
             (6, Int(0)),
+            (9, Int(0)),
+            (10, Int(0)),
+            (11, Int(0)),
+            (13, Int(0)),
+            (14, Int(0)),
+            (15, Int(0)),
         ],
     );
     act(
@@ -2528,7 +2562,129 @@ fn acp_agent_turn(mode: u8) -> Model {
         );
         m.weak_fair.push(vec![6]);
     }
+    // Idle work opens a fresh turn atomically; a session gauge does not.
+    act(
+        &mut m,
+        "IdleWorkOpensAgentTurn",
+        eq(0, 0),
+        &[(0, Int(1)), (9, Int(2)), (13, Int(1)), (11, Int(0))],
+    );
+    act(
+        &mut m,
+        "IdlePermissionOpensAgentTurn",
+        eq(0, 0),
+        &[
+            (0, Int(if mode == 3 { 0 } else { 2 })),
+            (1, Int(if mode == 3 { 2 } else { 1 })),
+            (9, Int(if mode == 3 { 0 } else { 2 })),
+            (10, Int(i64::from(mode != 3))),
+            (13, Int(i64::from(mode != 3))),
+            (14, Int(i64::from(mode == 3))),
+            (15, Int(i64::from(mode != 3))),
+        ],
+    );
+    act(&mut m, "IdleSessionGauge", eq(0, 0), &[]);
+    act(
+        &mut m,
+        "AgentToolOpens",
+        all([eq(0, 1), eq(9, 2), eq(3, 0), eq(10, 0), eq(13, 0)]),
+        &[(10, Int(1)), (13, Int(1)), (11, Int(0)), (15, Int(1))],
+    );
+    let tool_done = m.actions.len();
+    act(
+        &mut m,
+        "AgentToolCompletes",
+        all([eq(0, 1), eq(10, 1), eq(1, 1).negate()]),
+        &[(10, Int(0)), (11, Int(0))],
+    );
+    act(
+        &mut m,
+        "AgentWireRearmsQuiet",
+        all([eq(0, 1), eq(9, 2), eq(3, 0), Var(7).lt(Int(2))]),
+        &[(11, Int(0)), (7, Var(7).plus(Int(1)))],
+    );
+    let timer = m.actions.len();
+    act(
+        &mut m,
+        "QuietTimerFires",
+        all([eq(0, 1), eq(9, 2), eq(3, 0)]),
+        &[(11, Int(1))],
+    );
+    act(
+        &mut m,
+        "UserPromptQueuesBehindAgent",
+        all([eq(9, 2), eq(0, 1).or(eq(0, 2))]),
+        &[(12, Int(1))],
+    );
+    let quiet_end = m.actions.len();
+    act(
+        &mut m,
+        "QuietOrQueuedPromptEndsAgentTurn",
+        all([
+            eq(0, 1),
+            eq(9, 2),
+            eq(3, 0),
+            eq(2, 0),
+            eq(10, 0),
+            eq(1, 1).negate(),
+            eq(11, 1).or(eq(12, 1)),
+            Var(7).eq(Var(8)),
+        ]),
+        &[(3, Int(1))],
+    );
+    safe(
+        &mut m,
+        "NoWorkItemOutsideTurn",
+        eq(13, 0).or(eq(0, 1).or(eq(0, 2)).or(eq(0, 3))),
+    );
+    safe(
+        &mut m,
+        "PermissionCancelledOnlyAfterCancel",
+        eq(14, 0).or(eq(2, 1)),
+    );
+    safe(
+        &mut m,
+        "QuietEndsOnlyWithoutOpenWork",
+        all([eq(9, 2), eq(3, 1), eq(2, 0)])
+            .negate()
+            .or(all([eq(10, 0), eq(1, 1).negate()])),
+    );
+    if mode == 0 {
+        // A finite burst, answered permissions and completed tools eventually
+        // permit the abstract silence timer or a waiting user to close the turn.
+        m.weak_fair.push(vec![2, tool_done]);
+        m.weak_fair.push(vec![timer]);
+        m.weak_fair.push(vec![quiet_end]);
+        progress(
+            &mut m,
+            "AgentTurnEventuallyEnds",
+            all([eq(9, 2), eq(2, 0)]),
+            eq(0, 4),
+            vec![6],
+        );
+    }
     m
+}
+#[test]
+fn acp_agent_idle_quiet_and_queue_states_are_reachable_and_the_control_is_rejected() {
+    let model = acp_agent_turn(0);
+    let checked = model.check(100_000).unwrap();
+    assert!(checked.violations.is_empty(), "{:?}", checked.violations);
+    for predicate in [
+        |s: &Vec<i64>| s[9] == 2 && s[0] == 1 && s[13] == 1,
+        |s: &Vec<i64>| s[9] == 2 && s[0] == 2 && s[1] == 1,
+        |s: &Vec<i64>| s[9] == 2 && s[3] == 1 && s[11] == 0 && s[12] == 1,
+        |s: &Vec<i64>| s[9] == 2 && s[0] == 4 && s[4] == 1,
+    ] {
+        assert!(checked.states.iter().any(predicate));
+    }
+    let broken = acp_agent_turn(3).check(100_000).unwrap();
+    assert!(
+        broken
+            .violations
+            .iter()
+            .any(|v| v.property == "PermissionCancelledOnlyAfterCancel")
+    );
 }
 // Shared HTTP retry/terminal ownership and Anthropic stop-reason translation.
 // Wire framing and token arithmetic are separate real-HTTP witnesses.
@@ -3077,6 +3233,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (seat_report(4), "safety"),
         (seat_report(5), "safety"),
         (acp_agent_turn(2), "safety"),
+        (acp_agent_turn(3), "safety"),
     ];
     for b in [false, true] {
         for m in [

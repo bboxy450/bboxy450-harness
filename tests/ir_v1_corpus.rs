@@ -38,6 +38,17 @@ fn frozen_corpus_is_readable() {
             })
             .collect();
         laws::check_transcript(&events).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        if path.file_name().unwrap() == "v1.2-agent-turn.jsonl" {
+            laws::check_authored(&events).unwrap();
+            assert!(events.iter().any(|e| matches!(
+                e.event,
+                Event::TurnStarted {
+                    origin: Some(TurnOrigin::Agent),
+                    ..
+                }
+            )));
+            assert!(events.iter().any(|e| matches!(e.event, Event::TurnEnded { reason: StopReason::Quiet { ms }, usage: None, .. } if ms >= 200)));
+        }
         count += 1;
     }
     assert!(count >= 10);
@@ -245,4 +256,132 @@ fn writer_rejects_nested_unknown_without_rejecting_opaque_text() {
         .is_readable()
     );
     assert!(!Version { major: 2, minor: 0 }.is_readable());
+}
+
+#[test]
+fn agent_turn_fixture_renders_in_the_seat_and_reports_an_open_turn() {
+    use bboxy450_harness::frontends::seat::{LineProjection, StateReporter, Style};
+    let events: Vec<Envelope> = include_str!("fixtures/ir-v1/v1.2-agent-turn.jsonl")
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let mut projection = LineProjection::new(Style::default());
+    let mut reporter = StateReporter::default();
+    let mut output = vec![];
+    let mut agent = None;
+    let mut permission = false;
+    for e in &events {
+        output.extend(projection.render(e));
+        reporter.apply(&e.event);
+        match &e.event {
+            Event::TurnStarted {
+                turn,
+                origin: Some(TurnOrigin::Agent),
+                ..
+            } => {
+                agent = Some(*turn);
+                assert!(
+                    String::from_utf8(reporter.report())
+                        .unwrap()
+                        .contains("state=working")
+                );
+            }
+            Event::ItemCompleted {
+                body: Item::Approval { .. },
+                ..
+            } if agent.is_some() => permission = true,
+            Event::TurnEnded { turn, .. } if agent == Some(*turn) => {
+                assert!(permission);
+                assert!(
+                    String::from_utf8(reporter.report())
+                        .unwrap()
+                        .contains("state=idle")
+                );
+            }
+            _ => {}
+        }
+    }
+    let text = String::from_utf8(output).unwrap();
+    for expected in ["agent continued", "woke", "Wake tool", "done", "Quiet"] {
+        assert!(text.contains(expected), "missing {expected}: {text}");
+    }
+}
+
+#[cfg(feature = "embedded")]
+#[tokio::test]
+async fn agent_turn_fixture_renders_in_the_rich_face_without_a_user_bubble() {
+    use bboxy450_harness::frontends::gui::{
+        bridge::{FrameState, read_replay},
+        smoke::capture_frame,
+        view::{HarnessView, find, layout_text},
+    };
+    let model = Arc::new(
+        read_replay("tests/fixtures/ir-v1/v1.2-agent-turn.jsonl".into())
+            .await
+            .unwrap(),
+    );
+    bboxy450_harness::runtime::blocking(move || {
+        let mut state = FrameState {
+            transcript: model,
+            ready: true,
+            replay: true,
+            ..Default::default()
+        };
+        let mut view = HarnessView::default();
+        let frame = capture_frame(
+            &mut view,
+            &mut state,
+            &bboxy450_harness::frontends::gui::options::Options::parse(
+                [
+                    "--replay",
+                    "unused.jsonl",
+                    "--capture",
+                    "900x2400",
+                    "--no-chrome",
+                    "--expand",
+                    "all",
+                ]
+                .map(String::from),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let layout = frame.layout.as_ref().unwrap();
+        let text = layout_text(layout);
+        for expected in ["agent continued", "woke", "Wake tool", "done", "Quiet"] {
+            assert!(text.contains(expected), "missing {expected}: {text}");
+        }
+        let agent = state
+            .transcript
+            .turn_origins
+            .iter()
+            .find(|(_, origin)| **origin == TurnOrigin::Agent)
+            .unwrap()
+            .0;
+        for row in state
+            .transcript
+            .items
+            .values()
+            .filter(|r| r.turn == Some(*agent))
+        {
+            assert_ne!(row.kind, ItemKind::UserMessage);
+            if let Item::Approval {
+                subject, decision, ..
+            } = &row.body
+            {
+                // The current face folds rule-resolved approvals into the tool;
+                // their policy outcome remains in the log and fixture output.
+                assert_eq!(*decision, Some(ApprovalDecision::Allow));
+                assert!(find(layout, &format!("tool/{}", subject.tool_call)).is_some());
+                continue;
+            }
+            assert!(
+                find(layout, &format!("item/{}", row.id)).is_some(),
+                "missing {:?} {}",
+                row.kind,
+                row.id
+            );
+        }
+    })
+    .await;
 }

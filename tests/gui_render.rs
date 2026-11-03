@@ -194,7 +194,22 @@ async fn unstyled_items_are_quiet_notice_lines() {
             ..Default::default()
         };
         let mut view = HarnessView::default();
-        let frame = capture_frame(&mut view, &mut state, &bboxy450_harness::frontends::gui::options::Options::parse(["--replay", "unused.jsonl", "--capture", "900x1100", "--no-chrome"].map(String::from)).unwrap()).unwrap();
+        let frame = capture_frame(
+            &mut view,
+            &mut state,
+            &bboxy450_harness::frontends::gui::options::Options::parse(
+                [
+                    "--replay",
+                    "unused.jsonl",
+                    "--capture",
+                    "900x1100",
+                    "--no-chrome",
+                ]
+                .map(String::from),
+            )
+            .unwrap(),
+        )
+        .unwrap();
         assert_eq!(frame.visible.len(), 5);
         for ((id, _, _), expected) in frame.visible.iter().zip([
             "Ran /help",

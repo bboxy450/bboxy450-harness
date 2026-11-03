@@ -29,6 +29,8 @@ pub(super) struct Folds {
     asking: HashMap<ItemId, ItemId>,
     /// the last visible row of each turn carries the turn's receipt once it ends
     last: HashMap<ItemId, TurnId>,
+    /// First visible item of each agent turn carries its origin heading.
+    pub agent_heads: std::collections::HashSet<ItemId>,
     /// runaway loop: the repeated reply that opens the card -> everything folded after it
     loops: HashMap<ItemId, Vec<ItemId>>,
     /// turn -> replies folded into its loop (the receipt says so)
@@ -192,6 +194,18 @@ impl Folds {
             .find(|id| !f.parent.contains_key(id) && drawn(model, id))
             .copied();
         let mut seen = std::collections::HashSet::new();
+        for id in &model.order {
+            let r = &model.items[id];
+            if let Some(t) = r.turn
+                && !f.parent.contains_key(id)
+                && drawn(model, id)
+                && seen.insert(t)
+                && model.turn_origins.get(&t) == Some(&TurnOrigin::Agent)
+            {
+                f.agent_heads.insert(*id);
+            }
+        }
+        seen.clear();
         for id in model.order.iter().rev() {
             let r = &model.items[id];
             if let Some(t) = r.turn
@@ -216,6 +230,10 @@ impl Folds {
         // rows without folded children or a receipt carry no signature (0)
         let mut any = false;
         let mut h = std::collections::hash_map::DefaultHasher::new();
+        if self.agent_heads.contains(id) {
+            any = true;
+            "agent continued".hash(&mut h);
+        }
         if self.tail == Some(*id) {
             any = true;
             "tail".hash(&mut h);
@@ -282,7 +300,7 @@ impl Preparer {
         // a parallel-call group member is inset 14px behind the rail (.hx-group padding-left)
         let group = folds.group.get(&id).copied();
         let inset = if group.is_some() { 14. } else { 0. };
-        let content: c::Element = match &row.body {
+        let body: c::Element = match &row.body {
             Item::UserMessage { blocks } => {
                 let text = blocks
                     .iter()
@@ -708,11 +726,10 @@ impl Preparer {
                 return Ok((c::Element::Spacer, None));
             }
         };
-        let content = match group {
+        let body = match group {
             Some((i, n)) => {
-                let member = f::group_member(content, i, n, &ink);
+                let member = f::group_member(body, i, n, &ink);
                 if i == 0 {
-                    // the caption's 15px line box sits flush on the group's top edge
                     f::vstack(
                         vec![
                             f::group_caption(&format!("group/{id}/caption"), n, &ink).into(),
@@ -724,9 +741,13 @@ impl Preparer {
                     member
                 }
             }
-            None => content,
+            None => body,
         };
-        let mut content: Vec<c::Item> = vec![content.into()];
+        let mut content: Vec<c::Item> = vec![];
+        if folds.agent_heads.contains(&id) {
+            content.push(f::notice("agent continued", &Level::Info, &ink).into());
+        }
+        content.push(body.into());
         if let Some(turn) = folds.last.get(&id)
             && let Some(TurnState::Ended { reason, usage }) = model.turns.get(turn)
         {
@@ -744,7 +765,7 @@ impl Preparer {
                     format!("turn/{}", turn.0),
                     f::receipt(
                         f::Receipt {
-                            ok: matches!(reason, StopReason::EndTurn),
+                            ok: matches!(reason, StopReason::EndTurn | StopReason::Quiet { .. }),
                             soft: matches!(reason, StopReason::Interrupted | StopReason::Cancelled),
                             reason: stop_title(reason).into(),
                             why: match reason {
@@ -1107,6 +1128,7 @@ impl Preparer {
 fn stop_title(reason: &StopReason) -> &'static str {
     match reason {
         StopReason::EndTurn => "Done",
+        StopReason::Quiet { .. } => "Quiet",
         StopReason::Cancelled => "Cancelled",
         StopReason::Interrupted => "Interrupted",
         StopReason::MaxTokens => "Hit the output limit",

@@ -442,6 +442,11 @@ expected = "safety"
 frontend = "project"
 
 [[model]]
+name = "BrokenHarnessAcpAgentIdleCancel"
+expected = "safety"
+frontend = "project"
+
+[[model]]
 name = "BrokenHarnessAcpAgentGrace"
 expected = "safety"
 frontend = "project"

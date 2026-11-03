@@ -250,6 +250,7 @@ impl Projector {
         out.push(Event::TurnStarted {
             turn,
             model: self.model.clone(),
+            origin: None,
         });
         self.turn = Some(turn);
         turn

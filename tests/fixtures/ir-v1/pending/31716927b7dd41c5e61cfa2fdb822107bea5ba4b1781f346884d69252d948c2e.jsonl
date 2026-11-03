@@ -1,0 +1,1 @@
+{"fingerprint":"31716927b7dd41c5e61cfa2fdb822107bea5ba4b1781f346884d69252d948c2e","provider":"acp","record_type":"tool_call","sample":{"content":[{"content":{"text":"{\"outcome\": \"selected\", \"optionId\": \"allow_once\"}","type":"text"},"type":"content"}],"sessionUpdate":"tool_call_update"}}

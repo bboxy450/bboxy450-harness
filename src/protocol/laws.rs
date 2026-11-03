@@ -90,7 +90,12 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                     return Err(fail("one-ending", "turn queued twice"));
                 }
             }
-            Event::TurnStarted { turn, .. } => {
+            Event::TurnStarted { turn, origin, .. } => {
+                // Agent turns have no UserTurn admission (and no TurnQueued).
+                // Include them in the same accepted-turn/end accounting.
+                if origin.as_ref() == Some(&TurnOrigin::Agent) {
+                    queued.insert(*turn);
+                }
                 if !queued.contains(turn) || ended.contains(turn) || !started.insert(*turn) {
                     return Err(fail("one-ending", "invalid turn start"));
                 }
@@ -414,6 +419,7 @@ fn event_unknown(event: &Event) -> bool {
                         }
                 )
         }
+        Event::TurnStarted { origin, .. } => matches!(origin, Some(TurnOrigin::Unknown(_))),
         Event::OpRejected { reason, .. } => matches!(reason, Rejection::Unknown(_)),
         Event::Status { phase } => matches!(phase, Phase::Unknown(_)),
         _ => false,

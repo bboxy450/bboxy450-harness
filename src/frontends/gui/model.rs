@@ -56,6 +56,7 @@ pub struct Transcript {
     pub items: OrdMap<ItemId, ViewItem>,
     pub order: Vector<ItemId>,
     pub turns: OrdMap<TurnId, TurnState>,
+    pub turn_origins: OrdMap<TurnId, TurnOrigin>,
     pub phase: Phase,
     pub closed: bool,
     pub unknown: u64,
@@ -74,6 +75,7 @@ impl Default for Transcript {
             items: OrdMap::new(),
             order: Vector::new(),
             turns: OrdMap::new(),
+            turn_origins: OrdMap::new(),
             phase: Phase::Idle,
             closed: false,
             unknown: 0,
@@ -147,8 +149,10 @@ impl Transcript {
             Event::TurnQueued { turn } => {
                 self.turns.insert(*turn, TurnState::Queued);
             }
-            Event::TurnStarted { turn, .. } => {
+            Event::TurnStarted { turn, origin, .. } => {
                 self.turns.insert(*turn, TurnState::Running);
+                self.turn_origins
+                    .insert(*turn, origin.clone().unwrap_or(TurnOrigin::User));
             }
             Event::TurnEnded {
                 turn,

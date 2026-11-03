@@ -59,6 +59,14 @@ async fn fake_command(
         format!("---\nname: echo\nprovider: acp-agent\nagent:\n  command: [python3, -I, {}, echo]\n---\n", script.display()),
     )
     .unwrap();
+    // The wake witnesses exercise profile yolo independently of unattended deny.
+    if matches!(scenario, "wake" | "wake-twice") {
+        let path = profiles.join("fake.md");
+        let profile = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("provider: acp-agent", "provider: acp-agent\npolicy: yolo");
+        std::fs::write(path, profile).unwrap();
+    }
     let session = SessionId::new();
     let mut meta = support::meta(temp.path().into());
     meta.session = session;
@@ -778,4 +786,329 @@ async fn cancel_grace_kills_an_unresponsive_agents_whole_process_group() {
         );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
+}
+
+// Environment overrides belong to a private test process, never to parallel
+// actors in this runner. These witnesses drive the real gateway and child wire.
+fn isolated_wake(name: &str, hide: bool) -> bool {
+    if std::env::var("BBOXY450_ACP_WAKE_WITNESS").as_deref() == Ok(name) {
+        return false;
+    }
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command
+        .args(["--exact", name, "--nocapture"])
+        .env("BBOXY450_ACP_WAKE_WITNESS", name)
+        .env("BBOXY450_ACP_AGENT_TURN_QUIET_MS", "200");
+    if hide {
+        command.env("BBOXY450_ACP_IDLE_CONTROL", "hide");
+    }
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    true
+}
+fn agent_turns(log: &[Envelope]) -> Vec<TurnId> {
+    log.iter()
+        .filter_map(|e| match e.event {
+            Event::TurnStarted {
+                turn,
+                origin: Some(TurnOrigin::Agent),
+                ..
+            } => {
+                assert_eq!(e.cause, None);
+                Some(turn)
+            }
+            _ => None,
+        })
+        .collect()
+}
+fn assert_agent_turn(log: &[Envelope]) {
+    let turns = agent_turns(log);
+    assert!(!turns.is_empty(), "idle work must open an agent turn");
+    let mut active = None;
+    let mut open = std::collections::BTreeSet::new();
+    for e in log {
+        match &e.event {
+            Event::TurnStarted { turn, .. } => active = Some(*turn),
+            Event::ItemStarted { item, turn, .. } => {
+                if active.is_some_and(|t| turns.contains(&t)) {
+                    assert_eq!(*turn, active, "every agent-turn item has its owner");
+                    open.insert(*item);
+                }
+            }
+            Event::ItemCompleted { item, body, .. } => {
+                open.remove(item);
+                if active.is_some_and(|t| turns.contains(&t)) {
+                    assert!(!matches!(body, Item::UserMessage { .. }));
+                }
+            }
+            Event::TurnEnded {
+                turn,
+                reason,
+                usage,
+            } => {
+                if turns.contains(turn) {
+                    assert!(matches!(reason, StopReason::Quiet { .. }));
+                    assert_eq!(*usage, None);
+                    assert!(open.is_empty());
+                    assert_eq!(e.cause, None);
+                }
+                active = None;
+            }
+            _ => {}
+        }
+    }
+}
+
+#[tokio::test]
+async fn idle_work_opens_an_agent_turn_resolved_by_policy_and_ended_by_quiet() {
+    let name = "idle_work_opens_an_agent_turn_resolved_by_policy_and_ended_by_quiet";
+    if isolated_wake(name, false) {
+        return;
+    }
+    for scenario in ["wake", "wake-twice"] {
+        let f = fake(scenario, Unattended::Deny).await;
+        let mut sub = subscribe(&f.gateway, false);
+        f.gateway
+            .send(support::prompt(&f.gateway, "start background work"))
+            .unwrap();
+        until_end(&mut sub).await; // prompted user turn
+        until_end(&mut sub).await; // first unsolicited turn
+        if scenario == "wake-twice" {
+            until_end(&mut sub).await;
+        }
+        let log = close(f).await;
+        assert_agent_turn(&log);
+        assert_eq!(
+            agent_turns(&log).len(),
+            if scenario == "wake-twice" { 2 } else { 1 }
+        );
+        assert!(
+            ended(&log)
+                .iter()
+                .skip(1)
+                .all(|r| matches!(r, StopReason::Quiet { ms } if *ms >= 200))
+        );
+        assert!(completed(&log).iter().any(|(_, body)| matches!(body,
+            Item::Approval { decision: Some(ApprovalDecision::Allow), by: Some(Resolver::Rule { id }), .. } if id == "profile-yolo")));
+        assert!(completed(&log).iter().any(|(s, body)| *s == ItemStatus::Completed && matches!(body,
+            Item::ToolCall { output, .. } if serde_json::to_string(output).unwrap().contains("allow_once"))));
+        assert!(completed(&log).iter().any(
+            |(_, body)| matches!(body, Item::AgentMessage { markdown } if markdown == "done")
+        ));
+        if scenario == "wake"
+            && let Some(path) = std::env::var_os("BBOXY450_AGENT_TURN_FIXTURE_OUT")
+        {
+            let text = log
+                .iter()
+                .map(|e| serde_json::to_string(e).unwrap() + "\n")
+                .collect::<String>();
+            std::fs::write(path, text).unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn an_idle_permission_opens_a_turn_and_unattended_deny_rejects_once() {
+    let name = "an_idle_permission_opens_a_turn_and_unattended_deny_rejects_once";
+    if isolated_wake(name, false) {
+        return;
+    }
+    let f = fake("wake-permission", Unattended::Deny).await;
+    let mut sub = subscribe(&f.gateway, false);
+    f.gateway
+        .send(support::prompt(&f.gateway, "start"))
+        .unwrap();
+    until_end(&mut sub).await;
+    until_end(&mut sub).await;
+    let outcome: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(f.temp.path().join("wake-outcome.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        outcome,
+        serde_json::json!({"outcome":"selected","optionId":"reject_once"})
+    );
+    let log = close(f).await;
+    assert_agent_turn(&log);
+    assert!(completed(&log).iter().any(|(_, body)| matches!(body,
+        Item::Approval { decision: Some(ApprovalDecision::Deny { reason }), by: Some(Resolver::Unattended), .. } if reason.as_deref().is_some_and(|r| r.contains("on_unattended=deny")))));
+}
+
+#[tokio::test]
+async fn a_queued_user_turn_shortens_quiet_only_after_the_agent_tool_and_permission_complete() {
+    let name =
+        "a_queued_user_turn_shortens_quiet_only_after_the_agent_tool_and_permission_complete";
+    if isolated_wake(name, false) {
+        return;
+    }
+    let f = fake("wake-permission", Unattended::Deny).await;
+    let mut sub = subscribe(&f.gateway, true);
+    f.gateway
+        .send(support::prompt(&f.gateway, "start"))
+        .unwrap();
+    until_end(&mut sub).await;
+    let mut agent = None;
+    let approval = loop {
+        match next(&mut sub).await.event {
+            Event::TurnStarted {
+                turn,
+                origin: Some(TurnOrigin::Agent),
+                ..
+            } => agent = Some(turn),
+            Event::ItemSnapshot {
+                item,
+                partial: Item::Approval { .. },
+            } => break item,
+            _ => {}
+        }
+    };
+    let agent = agent.expect("the idle permission opens a turn");
+    f.gateway
+        .send(support::prompt(&f.gateway, "next user request"))
+        .unwrap();
+    let queued = loop {
+        match next(&mut sub).await.event {
+            Event::TurnQueued { turn } => break turn,
+            Event::TurnEnded { turn, .. } if turn == agent => panic!("ended with permission open"),
+            _ => {}
+        }
+    };
+    // More than one quiet interval with both a tool and a permission open.
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    let at = std::time::Instant::now();
+    f.gateway
+        .send(support::op(
+            &f.gateway,
+            Op::ResolveApproval {
+                approval,
+                decision: ApprovalDecision::Allow,
+            },
+        ))
+        .unwrap();
+    let events = until_end(&mut sub).await;
+    assert!(
+        at.elapsed() < Duration::from_millis(200),
+        "queued user waited for the quiet interval"
+    );
+    assert!(events.iter().any(|e| matches!(e.event, Event::TurnEnded { turn, reason: StopReason::Quiet { ms }, .. } if turn == agent && ms < 200)));
+    let events = until_end(&mut sub).await;
+    assert!(events.iter().any(|e| matches!(e.event, Event::TurnStarted { turn, origin: Some(TurnOrigin::User), .. } if turn == queued)));
+    let log = close(f).await;
+    assert_agent_turn(&log);
+    let end = log
+        .iter()
+        .position(|e| matches!(e.event, Event::TurnEnded { turn, .. } if turn == agent))
+        .unwrap();
+    let start = log
+        .iter()
+        .position(|e| matches!(e.event, Event::TurnStarted { turn, .. } if turn == queued))
+        .unwrap();
+    assert!(end < start);
+}
+
+#[tokio::test]
+async fn the_idle_hide_control_reproduces_hidden_work_and_cancelled_permission() {
+    let name = "the_idle_hide_control_reproduces_hidden_work_and_cancelled_permission";
+    if isolated_wake(name, true) {
+        return;
+    }
+    let f = fake("wake", Unattended::Deny).await;
+    let mut sub = subscribe(&f.gateway, false);
+    f.gateway
+        .send(support::prompt(&f.gateway, "start"))
+        .unwrap();
+    until_end(&mut sub).await;
+    loop {
+        if matches!(next(&mut sub).await.event, Event::ItemCompleted { body: Item::Native { record_type, raw, .. }, .. }
+            if record_type == "agent_message_chunk" && raw.pointer("/content/text").and_then(serde_json::Value::as_str) == Some("done"))
+        {
+            break;
+        }
+    }
+    let outcome: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(f.temp.path().join("wake-outcome.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(outcome, serde_json::json!({"outcome":"cancelled"}));
+    let log = close(f).await;
+    assert!(agent_turns(&log).is_empty());
+    assert_eq!(ended(&log), vec![StopReason::EndTurn]);
+    assert!(
+        std::panic::catch_unwind(|| assert_agent_turn(&log)).is_err(),
+        "the positive lifecycle assertion must reject the broken control"
+    );
+    println!(
+        "BBOXY450_ACP_IDLE_CONTROL=hide: hidden work, cancelled permission; positive assertion rejected"
+    );
+}
+
+#[tokio::test]
+async fn idle_session_gauges_never_open_an_agent_turn() {
+    let f = fake("idle-gauges", Unattended::Deny).await;
+    let mut sub = subscribe(&f.gateway, false);
+    f.gateway
+        .send(support::prompt(&f.gateway, "start"))
+        .unwrap();
+    until_end(&mut sub).await;
+    loop {
+        if matches!(next(&mut sub).await.event, Event::ItemCompleted { body: Item::Native { record_type, .. }, .. } if record_type == "session_info_update")
+        {
+            break;
+        }
+    }
+    let log = close(f).await;
+    assert!(agent_turns(&log).is_empty());
+    assert!(log.iter().any(|e| matches!(
+        e.event,
+        Event::ItemStarted {
+            kind: ItemKind::Usage,
+            turn: None,
+            ..
+        }
+    )));
+    assert_eq!(ended(&log), vec![StopReason::EndTurn]);
+}
+
+#[tokio::test]
+async fn session_gauges_rearm_the_quiet_deadline_of_an_open_agent_turn() {
+    let name = "session_gauges_rearm_the_quiet_deadline_of_an_open_agent_turn";
+    if isolated_wake(name, false) {
+        return;
+    }
+    let f = fake("wake-rearm", Unattended::Allow).await;
+    let mut sub = subscribe(&f.gateway, false);
+    f.gateway
+        .send(support::prompt(&f.gateway, "start"))
+        .unwrap();
+    until_end(&mut sub).await;
+    let events = until_end(&mut sub).await;
+    let log = close(f).await;
+    assert_agent_turn(&log);
+    assert_eq!(
+        agent_turns(&log).len(),
+        1,
+        "gauges must prevent an early quiet ending"
+    );
+    assert_eq!(
+        completed(&events)
+            .iter()
+            .filter(|(_, body)| matches!(body, Item::Usage { .. }))
+            .count(),
+        3
+    );
+    let first = events
+        .iter()
+        .find(|e| matches!(e.event, Event::TurnStarted { .. }))
+        .unwrap()
+        .ts_ms;
+    let end = events.last().unwrap();
+    assert!(end.ts_ms.saturating_sub(first) >= 650);
+    assert!(
+        matches!(end.event, Event::TurnEnded { reason: StopReason::Quiet { ms }, .. } if ms >= 200)
+    );
 }
