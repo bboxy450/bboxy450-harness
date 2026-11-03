@@ -553,3 +553,27 @@ frontend = "project"
 name = "BrokenHarnessSocketHeartbeat"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessLaunchContext"
+expected = "pass"
+
+[[model]]
+name = "BrokenHarnessLaunchContextPrompt"
+expected = "safety"
+
+[[model]]
+name = "BrokenHarnessLaunchContextMcp"
+expected = "safety"
+
+[[model]]
+name = "BrokenHarnessLaunchContextStale"
+expected = "safety"
+
+[[model]]
+name = "BrokenHarnessLaunchContextDeadline"
+expected = "liveness"
+
+[[model]]
+name = "BrokenHarnessLaunchContextSynthetic"
+expected = "safety"

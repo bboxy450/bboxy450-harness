@@ -43,6 +43,11 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
 
 ## Lineage and credits
 
+- Launch bootstrap context, generation-private MCP stdio relays, process fixtures
+  and formal controls in `src/backend/acp_agent.rs`, `src/mcp/relay.rs` and
+  `tests/acp_launch_context.rs` are project-owned implementations under this policy.
+
+
 - The hidden native startup process witness and missing-title-bar-image control
   in `src/frontends/gui/window.rs` and `scripts/` are project-owned; they drive
   the shared native window, renderer and detach path without desktop input.

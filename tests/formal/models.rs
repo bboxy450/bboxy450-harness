@@ -3700,6 +3700,138 @@ fn socket_heartbeat(broken: bool) -> Model {
     m
 }
 
+// Immutable launch context and relay ownership across three A/B/A births.
+// Real ACP/MCP bytes and priority semantics remain process witnesses.
+// Project policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+fn launch_context(mode: usize) -> Model {
+    let mut m = base::<10>(
+        "LaunchContext",
+        false,
+        &[
+            ("birth", 2, 0),
+            ("stage", 3, 0),
+            ("want_context", 1, 0),
+            ("want_mcp", 1, 0),
+            ("held_birth", 3, 3),
+            ("sent_birth", 3, 3),
+            ("context_sent", 1, 0),
+            ("mcp_sent", 1, 0),
+            ("prompt_count", 2, 0),
+            ("startup_age", 2, 0),
+        ],
+    );
+    m.name = match mode {
+        1 => "BrokenHarnessLaunchContextPrompt",
+        2 => "BrokenHarnessLaunchContextMcp",
+        3 => "BrokenHarnessLaunchContextStale",
+        4 => "BrokenHarnessLaunchContextDeadline",
+        5 => "BrokenHarnessLaunchContextSynthetic",
+        _ => "HarnessLaunchContext",
+    }
+    .into();
+    for context in 0..=1 {
+        for mcp in 0..=1 {
+            act(
+                &mut m,
+                "Admit",
+                eq(1, 0),
+                &[(1, Int(1)), (2, Int(context)), (3, Int(mcp))],
+            );
+        }
+    }
+    act(
+        &mut m,
+        "HoldCompletion",
+        all([eq(1, 1), eq(4, 3)]),
+        &[(4, Var(0))],
+    );
+    act(
+        &mut m,
+        "StartupReady",
+        eq(1, 1),
+        &[
+            (1, Int(2)),
+            (5, Var(0)),
+            (6, if mode == 1 { Int(0) } else { Var(2) }),
+            (7, if mode == 2 { Int(0) } else { Var(3) }),
+        ],
+    );
+    act(
+        &mut m,
+        "HeldCompletion",
+        all([
+            eq(1, 1),
+            Var(4).lt(Int(3)),
+            if mode == 3 {
+                Bool(true)
+            } else {
+                Var(4).eq(Var(0))
+            },
+        ]),
+        &[(1, Int(2)), (5, Var(4)), (6, Var(2)), (7, Var(3))],
+    );
+    act(&mut m, "ServerFailed", eq(1, 1), &[(1, Int(3))]);
+    let tick = m.actions.len();
+    act(
+        &mut m,
+        "StartupTick",
+        all([eq(1, 1), Var(9).lt(Int(2))]),
+        &[(9, Var(9).plus(Int(1)))],
+    );
+    let deadline = m.actions.len();
+    act(
+        &mut m,
+        "StartupDeadline",
+        all([eq(1, 1), eq(9, 2), Bool(mode != 4)]),
+        &[(1, Int(3))],
+    );
+    act(
+        &mut m,
+        "RealPrompt",
+        all([eq(1, 2), eq(8, 0)]),
+        &[(8, Int(if mode == 5 { 2 } else { 1 }))],
+    );
+    act(
+        &mut m,
+        "ReopenSwitchGeneration",
+        Var(0).lt(Int(2)),
+        &[
+            (0, Var(0).plus(Int(1))),
+            (1, Int(0)),
+            (5, Int(3)),
+            (6, Int(0)),
+            (7, Int(0)),
+            (8, Int(0)),
+            (9, Int(0)),
+        ],
+    );
+    act(&mut m, "Wait", Bool(true), &[(0, Var(0))]);
+    safe(
+        &mut m,
+        "AdmittedContextForwarded",
+        eq(1, 2).negate().or(Var(6).eq(Var(2))),
+    );
+    safe(
+        &mut m,
+        "AdmittedMcpForwarded",
+        eq(1, 2).negate().or(Var(7).eq(Var(3))),
+    );
+    safe(
+        &mut m,
+        "CurrentGenerationOnly",
+        eq(1, 2).negate().or(Var(5).eq(Var(0))),
+    );
+    safe(&mut m, "NoSyntheticPrompt", Var(8).le(Int(1)));
+    progress(
+        &mut m,
+        "StartupSettlesWithoutServerFairness",
+        eq(1, 1),
+        eq(1, 1).negate(),
+        vec![tick, deadline],
+    );
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
         (socket_heartbeat(false), "pass"),
@@ -3839,6 +3971,18 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         { Ok(bbt_yarn::reactor::Control::Continue) }
     );
     projected.name = "HarnessTurnLoop".into();
+    for mode in 0..=5 {
+        out.push((
+            launch_context(mode),
+            if mode == 0 {
+                "pass"
+            } else if mode == 4 {
+                "liveness"
+            } else {
+                "safety"
+            },
+        ));
+    }
     out.push((projected, "pass"));
     out
 }
@@ -3868,5 +4012,39 @@ fn embed_stop_control_reaches_a_stale_a_to_b_to_a_delivery() {
             && s[index("held_stop_birth")] == 0
             && s[index("stop_pending")] == 1),
         "the stale A Stop must survive through B into a new A birth"
+    );
+}
+
+#[test]
+fn launch_controls_reach_named_forwarding_and_generation_failures() {
+    for (mode, property) in [
+        (1, "AdmittedContextForwarded"),
+        (2, "AdmittedMcpForwarded"),
+        (3, "CurrentGenerationOnly"),
+        (4, "StartupSettlesWithoutServerFairness"),
+        (5, "NoSyntheticPrompt"),
+    ] {
+        let result = launch_context(mode).check(100_000).unwrap();
+        assert!(
+            result.violations.iter().any(|v| v.property == property),
+            "control {mode} did not reach {property}"
+        );
+    }
+    let model = launch_context(0);
+    let result = model.check(100_000).unwrap();
+    assert!(result.violations.is_empty());
+    assert!(
+        result
+            .states
+            .iter()
+            .any(|s| s[0] == 2 && s[4] == 0 && s[1] == 1),
+        "missing delayed A to B to A completion"
+    );
+    assert!(
+        result
+            .states
+            .iter()
+            .any(|s| s[1] == 2 && s[2] == 1 && s[3] == 1 && s[6] == 1 && s[7] == 1),
+        "no nonempty forwarding state"
     );
 }

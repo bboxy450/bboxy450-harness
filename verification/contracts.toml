@@ -404,3 +404,14 @@ implementation_tests = ["tests/gateway_unix.rs", "tests/formal_nonvacuity.rs", "
 assumptions = "Clock0..21 seconds, existing idle Status atomically published/delivered at15, subscriber item-ephemeral flag0/1, transport and semantic ages0..21, unchanged durable head. The broken old filter suppresses Status for flag0. Weak fairness of tick/heartbeat actions reaches21; atomic receiver delivery and an on-time15s backend tick are explicit bounded scheduling assumptions, not consequences of OS fairness. Actual actor timer, session/epoch envelope validation, immutable JSONL activity, false-subscription Unix bytes and term20s consumer policy are implementation witnesses. No new timer/frame variant or arbitrary Rust refinement proof."
 property = "UnconditionalTransportStatus; SilentConsumerStaysFresh; HeartbeatNeverClaimsSemanticProgress; ItemPreferencePreserved; SilentIntervalObserved under WF{tick,heartbeat}."
 checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessLaunchContext"
+title = "Admitted launch instructions and callable MCP relay belong to one session generation and startup settles without a server response"
+models = ["HarnessLaunchContext", "BrokenHarnessLaunchContextPrompt", "BrokenHarnessLaunchContextMcp", "BrokenHarnessLaunchContextStale", "BrokenHarnessLaunchContextDeadline", "BrokenHarnessLaunchContextSynthetic"]
+controls = [{name="BrokenHarnessLaunchContextPrompt",expected="safety"},{name="BrokenHarnessLaunchContextMcp",expected="safety"},{name="BrokenHarnessLaunchContextStale",expected="safety"},{name="BrokenHarnessLaunchContextDeadline",expected="liveness"},{name="BrokenHarnessLaunchContextSynthetic",expected="safety"}]
+sources = ["src/gateway/host.rs", "src/backend/acp_agent.rs", "src/mcp.rs", "src/mcp/relay.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/acp_launch_context.rs", "tests/acp_agent.rs", "tests/capability_delivery.rs", "scripts/test-launch-parity-control.py"]
+assumptions = "Three distinct launch/session births A-B-A, context and MCP present/absent, one held completion, startup age0..2, ready/failed states and one real prompt. Weak fairness only of the logical timer/deadline group; no server or provider fairness. Admission samples immutable context and selected grants for that birth; reopen/switch create fresh ownership. Controls omit instructions, omit MCP, apply a held stale completion, disable the deadline or create a synthetic prompt. Socket ACLs, uid, bytes, no secret in argv/wire/store, vendor model config and permission semantics, exact file capability custody, real wall-clock bounds, process cleanup and model priority are implementation-only witnesses; ACP v1 bootstrap text is not system-role priority or arbitrary Rust refinement."
+property = "AdmittedContextForwarded; AdmittedMcpForwarded; CurrentGenerationOnly; NoSyntheticPrompt; StartupSettlesWithoutServerFairness."
+checks = ["make test-formal", "make test"]

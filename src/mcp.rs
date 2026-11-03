@@ -58,6 +58,8 @@ impl std::fmt::Debug for ServerConfig {
             .finish()
     }
 }
+pub(crate) mod relay;
+
 pub type Servers = BTreeMap<String, ServerConfig>;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Origin {
@@ -572,15 +574,7 @@ async fn supervise(
         let generation = slot.generation.fetch_add(1, Ordering::AcqRel) + 1;
         let stderr = Arc::new(Mutex::new(Vec::<u8>::new()));
         let result=async {
-            let mut command=tokio::process::Command::new(&slot.config.command);
-            command.args(&slot.config.args).process_group(0).kill_on_drop(true);
-            for (key,source) in &slot.config.env {
-                if slot.origin!=Origin::Launcher && key.starts_with("BBOXY_") {continue;}
-                let value=if let Some(cmd)=source.strip_prefix('!') {crate::provider::profile::resolve_command(cmd,cancel.child_token()).await.map_err(|_|"environment command failed")?} else if let Some(name)=source.strip_prefix('$') {std::env::var(name).map_err(|_|"environment variable unavailable")?}else{source.clone()};
-                if slot.origin!=Origin::Launcher && redactor.contains_capability(&value) {return Err("reserved capability in environment");}
-                redactor.register(&value);command.env(key,value);
-            }
-            if slot.origin!=Origin::Launcher {scrub_bboxy_env(&mut command);}
+            let mut command = server_command(&slot.config, slot.origin, &redactor, &cancel).await?;
             command.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
             let mut child=crate::process::OwnedChild::spawn(command).map_err(|_|"spawn failed")?;
             let err=child.stderr();
@@ -699,4 +693,48 @@ pub mod fixtures {
             .is_err();
         fixture.observe(false, failed).await
     }
+}
+
+/// Both engine-owned and ACP-relayed servers use the same provenance/custody boundary.
+async fn server_command(
+    config: &ServerConfig,
+    origin: Origin,
+    redactor: &Set,
+    cancel: &CancellationToken,
+) -> Result<tokio::process::Command, &'static str> {
+    validate_environment(origin, &config.env).map_err(|_| "reserved environment reference")?;
+    if std::iter::once(&config.command)
+        .chain(&config.args)
+        .any(|arg| redactor.contains_capability(arg))
+    {
+        return Err("reserved capability in argv");
+    }
+    let mut command = tokio::process::Command::new(&config.command);
+    command
+        .args(&config.args)
+        .process_group(0)
+        .kill_on_drop(true);
+    for (key, source) in &config.env {
+        if origin != Origin::Launcher && key.starts_with("BBOXY_") {
+            continue;
+        }
+        let value = if let Some(cmd) = source.strip_prefix('!') {
+            crate::provider::profile::resolve_command(cmd, cancel.child_token())
+                .await
+                .map_err(|_| "environment command failed")?
+        } else if let Some(name) = source.strip_prefix('$') {
+            std::env::var(name).map_err(|_| "environment variable unavailable")?
+        } else {
+            source.clone()
+        };
+        if origin != Origin::Launcher && redactor.contains_capability(&value) {
+            return Err("reserved capability in environment");
+        }
+        redactor.register(&value);
+        command.env(key, value);
+    }
+    if origin != Origin::Launcher {
+        scrub_bboxy_env(&mut command);
+    }
+    Ok(command)
 }

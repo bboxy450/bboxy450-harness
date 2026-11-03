@@ -4,7 +4,7 @@ The native backend is crates.io `bboxy450-tlc =0.1.1`, using its finite integer
 and Boolean Model/Variable/Action API. Yarn 0.1.1 projects the production
 `harness_turn_topology!` declaration. This repository contains no checker fork.
 
-The corpus has 110 model variants mapped to 37 contracts, including the shared
+The corpus has 118 model variants mapped to 39 contracts, including the shared
 Yarn scheduling projection.
 It explores two queued turns, two tools/rounds, three birth generations (A-B-A),
 a two-slot stand-in for the bounded work lane, and a three-entry replay log.
@@ -174,3 +174,22 @@ atomic receipt and an on-time15s tick are explicit bounded scheduling assumption
 Real Unix false-subscription and unchanged JSONL witnesses run for>20s in
 `tests/gateway_unix.rs`; the production-filter mutation requires red/restored green.
 Timer/OS scheduling and the actual term consumer remain implementation coverage.
+
+`HarnessLaunchContext` admits present/absent context and MCP for three A-B-A
+births. A held startup completion cannot cross birth; bounded failure does not
+assume server fairness; no synthetic inference turn is created. Five controls
+omit prompt/MCP, accept a stale completion, disable the deadline or add a turn.
+`tests/acp_launch_context.rs` drives actual Host create/switch/open and downstream
+JSON-RPC with private MCP tool calls, exact file custody, cwd/argv, source
+precedence, model selection and unsupported/absent context. The generic ACP v1
+transport has no system-role field: bootstrap text is a deliberate first-prompt
+content block, not evidence of system-role priority. Profile argv and agent-owned
+permissions remain authoritative; harness yolo/unattended chooses only offered
+permission options, and model selection uses offered ACP config options.
+ACP relays use Darwin's /usr/bin/nc solely as stdio-to-private-Unix transport.
+The host alone resolves server environments using the shared origin/scrubbing
+boundary; wire/argv expose no capability values or credential-bearing configs.
+Relays are per actor generation, uid-restricted, capped to16 servers/128 pending
+requests, with10s startup/write deadlines and server-configured call deadlines.
+Reopen re-admits the current launch config; ACP client overrides are ephemeral
+and must be re-admitted after restart, never recovered from history.

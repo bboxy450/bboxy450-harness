@@ -285,22 +285,14 @@ impl Host {
         Ok(gateway)
     }
     /// An `acp-agent` profile selects the ACP agent backend instead of the engine.
-    async fn acp_agent(
-        &self,
-        config: &mut Config,
-        name: Option<&str>,
-    ) -> Option<(crate::provider::profile::AgentSpec, bool, Option<String>)> {
+    async fn acp_agent(&self, config: &mut Config, name: Option<&str>) -> Option<Profile> {
         let path = Profile::file_in(&config.profiles, name?).ok()?;
         let profile = Profile::load(&path).await.ok()?;
         if !profile.is_acp_agent() {
             return None;
         }
         config.policy = profile.policy();
-        Some((
-            profile.agent.clone().unwrap_or_default(),
-            profile.policy.as_deref() == Some("yolo"),
-            Some(profile.model.clone()).filter(|m| !m.is_empty()),
-        ))
+        Some(profile)
     }
     async fn actor(
         &self,
@@ -308,13 +300,20 @@ impl Host {
         start: crate::protocol::OpId,
         notice: Option<String>,
         overrides: crate::mcp::Servers,
-        agent: Option<(crate::provider::profile::AgentSpec, bool, Option<String>)>,
+        agent: Option<Profile>,
     ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
         match agent {
             #[cfg(feature = "acp-agent")]
-            Some((spec, yolo, model)) => {
-                crate::backend::acp_agent::AcpAgentActor::load(config, start, spec, yolo, model)
-                    .await
+            Some(profile) => {
+                crate::backend::acp_agent::AcpAgentActor::load(
+                    config,
+                    start,
+                    profile,
+                    overrides,
+                    self.launch.clone(),
+                    notice,
+                )
+                .await
             }
             #[cfg(not(feature = "acp-agent"))]
             Some(_) => {

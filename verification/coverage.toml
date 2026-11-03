@@ -8,6 +8,7 @@
 name = "bboxy450-harness"
 status = "contract-model"
 models = [
+    "HarnessLaunchContext",
     "HarnessSocketHeartbeat",
     "HarnessFourViewBudget",
     "HarnessSocketDelivery",
@@ -52,6 +53,7 @@ scope = "Finite two-turn/two-tool lifecycle; birth fencing A-B-A, unattended app
 sources = [
     "src/capability.rs",
     "src/mcp.rs",
+    "src/mcp/relay.rs",
     "src/context/auto.rs",
     "src/frontends/acp.rs",
     "src/context/mod.rs",

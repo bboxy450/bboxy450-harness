@@ -20,7 +20,7 @@
 //! - `*_always` options are never chosen automatically; unattended deny is `reject_once`;
 //! - the harness never offers, selects or triggers an agent's claude.ai login method.
 use crate::{
-    engine::Config,
+    engine::{Config, Internal, LaunchOptions, task_group::TaskGroup},
     gateway::{Admitted, Hub, InProc},
     process::OwnedChild,
     protocol::*,
@@ -147,6 +147,8 @@ struct Agent {
     backend: Backend,
     model: Option<String>,
     pending_model: Option<String>,
+    bootstrap_pending: bool,
+    startup_deadline: Option<Instant>,
     next_id: u64,
     calls: HashMap<u64, Call>,
     stderr: Arc<Mutex<String>>,
@@ -208,16 +210,25 @@ pub struct AcpAgentActor {
     cancel_grace: Duration,
     agent_turn_quiet: Duration,
     hide_idle: bool,
+    launch_context: String,
+    mcp_servers: Vec<Value>,
+    services: TaskGroup,
+    internal: mpsc::Receiver<Internal>,
+    relay: crate::mcp::relay::Relay,
 }
 
 impl AcpAgentActor {
     pub(crate) async fn load(
         mut config: Config,
         start: OpId,
-        spec: AgentSpec,
-        yolo: bool,
-        model: Option<String>,
+        profile: crate::provider::profile::Profile,
+        overrides: crate::mcp::Servers,
+        launch: LaunchOptions,
+        notice: Option<String>,
     ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
+        let spec = profile.agent.clone().unwrap_or_default();
+        let yolo = profile.policy.as_deref() == Some("yolo");
+        let model = Some(profile.model.clone()).filter(|m| !m.is_empty());
         let mut store = Store::open(
             config.sessions.clone(),
             config.meta.clone(),
@@ -258,7 +269,25 @@ impl AcpAgentActor {
         gateway.set_unattended(config.policy.on_unattended);
         // a reopened or forked session restarts its agent: hand it the conversation so far
         let handoff = handoff(&store.events);
-        let actor = Self {
+        let (servers, collisions) =
+            crate::mcp::select_sources(profile.mcp_servers, overrides, launch.mcp_servers);
+        let (output, internal) = mpsc::channel(256);
+        let mut services = TaskGroup::new(tokio_util::sync::CancellationToken::new());
+        let relay = crate::mcp::relay::Relay::start(
+            servers,
+            &config.meta.cwd,
+            config.redactor.clone(),
+            output,
+            &mut services,
+        )
+        .await?;
+        let mcp_servers = relay.servers.clone();
+        let mut actor = Self {
+            launch_context: config.redactor.scrub(&launch.append_system_prompt),
+            mcp_servers,
+            services,
+            internal,
+            relay,
             store,
             gateway: gateway.clone(),
             work,
@@ -278,6 +307,19 @@ impl AcpAgentActor {
             agent_turn_quiet: agent_turn_quiet(),
             hide_idle: std::env::var("BBOXY450_ACP_IDLE_CONTROL").as_deref() == Ok("hide"),
         };
+        for text in notice
+            .into_iter()
+            .chain(launch.notices)
+            .chain(actor.config.redactor.capability_notice())
+        {
+            actor.notice(Level::Warn, text).await?;
+        }
+        for text in collisions {
+            actor.notice(Level::Info, text).await?;
+        }
+        if !actor.launch_context.is_empty() {
+            actor.notice(Level::Info, "ACP v1 has no system-role field; admitted launcher instructions are supplied as bootstrap context in the first real prompt of each child session, without system-role priority.".into()).await?;
+        }
         let task = bbt_rt::handle().spawn(actor.run());
         Ok((gateway, task))
     }
@@ -392,10 +434,16 @@ impl AcpAgentActor {
                 tokio::select! {biased;
                     Some(op) = self.control.recv() => { if self.op(op).await? { break; } }
                     Some(op) = self.work.recv() => { if self.op(op).await? { break; } }
+                    Some(Internal::ServiceNotice { level, text }) = self.internal.recv() => self.notice(level, text).await?,
                     Some(wire) = recv(&mut self.wire) => self.wire(wire).await?,
                     _ = sleep_until(cancel_at) => self.cancel_expired().await?,
                     _ = sleep_until(quiet_at) => self.quiet_expired().await?,
-                    _ = tick.tick() => self.gateway.hub.flush_deltas(),
+                    _ = tick.tick() => {
+                        self.gateway.hub.flush_deltas();
+                        if self.agent.as_ref().and_then(|a| a.startup_deadline).is_some_and(|d| Instant::now() >= d) {
+                            self.agent_gone("ACP agent startup deadline exceeded".into()).await?;
+                        }
+                    },
                     _ = heartbeat.tick(), if self.running.is_none() =>
                         self.publish(Event::Status { phase: Phase::Idle }, None).await?,
                 }
@@ -404,6 +452,8 @@ impl AcpAgentActor {
         }
         .await;
         self.kill();
+        let _ = self.services.cancel_and_join().await;
+        self.relay.remove();
         if result.is_err() {
             self.gateway.mark_faulted();
         }
@@ -704,6 +754,15 @@ impl AcpAgentActor {
         }
         r.prompt_sent = true;
         let mut prompt: Vec<Value> = vec![];
+        if agent.bootstrap_pending {
+            agent.bootstrap_pending = false;
+            agent.startup_deadline = None;
+            if !self.launch_context.is_empty() {
+                prompt.push(json!({"type":"text", "text":format!(
+                    "Launcher context for this session (ACP v1 bootstrap context; supplied instructions, not a system-role transport):\n{}\n--- end launcher context ---", self.config.redactor.scrub(&self.launch_context)
+                )}));
+            }
+        }
         if let Some(text) = self.handoff.take() {
             prompt.push(json!({ "type": "text", "text": format!(
                 "Context: the conversation so far in this session, handed over from an earlier agent. \
@@ -913,6 +972,15 @@ impl AcpAgentActor {
             },
             model: None,
             pending_model: None,
+            bootstrap_pending: true,
+            startup_deadline: Some(
+                Instant::now()
+                    + std::env::var("BBOXY450_ACP_STARTUP_MS")
+                        .ok()
+                        .and_then(|v| v.parse::<u64>().ok())
+                        .map(Duration::from_millis)
+                        .unwrap_or(Duration::from_secs(30)),
+            ),
             next_id: 0,
             calls: HashMap::new(),
             stderr,
@@ -1088,7 +1156,7 @@ impl AcpAgentActor {
                     agent,
                     Call::NewSession,
                     "session/new",
-                    json!({ "cwd": cwd, "mcpServers": [] }),
+                    json!({ "cwd": cwd, "mcpServers": self.mcp_servers }),
                 )
             }
             Call::NewSession => {
