@@ -8,6 +8,7 @@
 //! Retained toolkit transcript and composer. Effects stay with the host bridge.
 #![deny(clippy::disallowed_methods)]
 use super::{
+    anim::{Clock, Ease},
     bridge::{Bridge, FrameState, ProfileInfo},
     chat_scroll,
     model::{Transcript, ViewItem},
@@ -27,7 +28,11 @@ use bbt_ui_model::{
     draw::{Color, DrawList, TextStyle, TypeScale},
     layout::{Axis, Rect, TextMeasure, TextStyle as MeasureStyle},
 };
-use std::{cell::RefCell, collections::HashMap, sync::Arc};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 #[path = "face_rows.rs"]
 mod face_rows;
 use face_rows::Folds;
@@ -139,6 +144,8 @@ pub enum Action {
     Menu(bool),
     /// The switcher's `+ New profile`: the native form is not built yet.
     NewProfile,
+    /// An empty-session chip: 0 opens the "/" menu, 1 inserts `@`, 2 focuses the composer.
+    Chip(u8),
 }
 /// Keys the open profile switcher takes before the composer.
 #[derive(Clone, Debug, PartialEq)]
@@ -211,6 +218,16 @@ pub struct HarnessView {
     /// The actor birth the latest frame showed: `/stop` is fenced to it, as the header
     /// Stop button was, so a stop typed against one actor never closes its replacement.
     birth: Option<Epoch>,
+    /// The window's animation clock (`anim.rs`). Settled by default: headless paths see end
+    /// states; the window installs a live clock.
+    pub anim: Clock,
+    /// Rows a frame of this session has shown; a row not in it enters with the rise.
+    known: HashSet<ItemId>,
+    known_scope: Option<(Option<SessionId>, Epoch)>,
+    /// Rows whose entrance is in flight.
+    entering: HashSet<ItemId>,
+    /// Clock time of the last composer edit: the caret stays solid for 500 ms after it.
+    last_edit: f32,
 }
 impl Default for HarnessView {
     fn default() -> Self {
@@ -239,6 +256,11 @@ impl Default for HarnessView {
             profiles: Arc::new(vec![]),
             current_profile: None,
             birth: None,
+            anim: Clock::default(),
+            known: HashSet::new(),
+            known_scope: None,
+            entering: HashSet::new(),
+            last_edit: 0.,
         }
     }
 }
@@ -252,14 +274,152 @@ impl HarnessView {
     pub fn invalidate(&mut self) {
         self.cached = None;
     }
+    /// The transcript column: one fixed-height slot per prepared row (heights tween over
+    /// 200 ms `out` near the viewport; rows new to this session enter with the rise), or
+    /// the empty session, or a loading label. Returns the element, its content height when
+    /// it is a row column, and the entrance progress of rows still rising.
+    fn transcript(
+        &mut self,
+        state: &FrameState,
+        prepared: Option<&Arc<PreparedRows>>,
+        rows_h: f32,
+        first_frame: bool,
+        ink: &super::face::Ink,
+    ) -> (c::Element, Option<f32>, HashMap<ItemId, f32>) {
+        let model = &state.transcript;
+        let mut children = vec![];
+        let mut total = 0.;
+        let mut enters = HashMap::new();
+        if let Some(prepared) = prepared {
+            // animate only what is visible (plus a margin): offscreen rows take end states
+            let animating = self.anim.animates();
+            let (view_top, view_bottom) =
+                (self.frame.scroll - 240., self.frame.scroll + rows_h + 240.);
+            for id in &model.order {
+                let Some(row) = prepared.rows.get(id) else {
+                    continue;
+                };
+                let h0 = row.layout.rect.h;
+                let near = total + h0 >= view_top && total <= view_bottom;
+                let h = if animating && near {
+                    self.anim.tween(&format!("h/{id}"), h0, 200., Ease::Out)
+                } else {
+                    h0
+                };
+                if !first_frame && animating && self.known.insert(*id) {
+                    self.entering.insert(*id);
+                } else {
+                    self.known.insert(*id);
+                }
+                if self.entering.contains(id) {
+                    let t = self
+                        .anim
+                        .enter(&format!("in/{id}"), 0., 1., 320., Ease::Out);
+                    if t >= 1. || !near {
+                        self.entering.remove(id);
+                    } else {
+                        enters.insert(*id, t);
+                    }
+                }
+                children.push(
+                    named(format!("cached/{id}"), c::Element::Spacer)
+                        .fixed_height(h, id.to_string(), 0.)
+                        .into(),
+                );
+                total += h;
+            }
+        }
+        if children.is_empty() {
+            if state.ready && model.order.is_empty() {
+                // harness-spec.md "Empty session": the page's `who` is the ACP agent line, else
+                // the model, else the profile; `in ~/<cwd leaf>` when the session has a cwd
+                let (profile, model_name) = model.profile.clone().unwrap_or_else(|| {
+                    (
+                        model
+                            .meta
+                            .as_ref()
+                            .and_then(|m| m.profile.clone())
+                            .unwrap_or_default(),
+                        String::new(),
+                    )
+                });
+                let who = match super::face::acp_model(&model_name) {
+                    Some((agent, m)) => {
+                        let p = if profile.is_empty() { agent } else { profile };
+                        if m.is_empty() {
+                            p
+                        } else {
+                            format!("{p} · {m}")
+                        }
+                    }
+                    None if !model_name.is_empty() => model_name,
+                    None => profile,
+                };
+                let leaf = model
+                    .meta
+                    .as_ref()
+                    .and_then(|m| m.cwd.file_name())
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .filter(|n| !n.is_empty());
+                children.push(
+                    super::face::empty_session(
+                        (!who.is_empty()).then_some(who),
+                        leaf,
+                        (0.12 * rows_h).max(0.),
+                        ink,
+                        &mut self.anim,
+                    )
+                    .into(),
+                );
+            } else {
+                children.push(
+                    label(if !state.ready {
+                        "Loading session…"
+                    } else {
+                        "Preparing transcript…"
+                    })
+                    .into(),
+                );
+            }
+        }
+        if prepared.is_some() && !model.order.is_empty() {
+            (
+                column(children, None).fixed_height(total, "transcript-content", 0.),
+                Some(total),
+                enters,
+            )
+        } else {
+            (column(children, None), None, enters)
+        }
+    }
+    /// The scroll offset for this frame: the tail follow glides there with a critically
+    /// damped ~180 ms spring that retargets as content grows; a manual position is exact.
+    fn scroll_offset(&mut self, content_h: Option<f32>, rows_h: f32, first_frame: bool) -> f32 {
+        if !self.scroll.following() {
+            return self.scroll.layout_offset();
+        }
+        let Some(content_h) = content_h else {
+            return 0.;
+        };
+        let max = (content_h - rows_h).max(0.);
+        if first_frame {
+            // a session's first frame shows its tail at once
+            return max;
+        }
+        self.anim
+            .spring_from("scroll", self.frame.scroll.min(max), max, 180.)
+    }
     /// The same Element is used by a standalone surface and the offscreen driver.
     pub fn render(&mut self, state: &FrameState, size: [f32; 2]) -> Result<&Frame, String> {
         self.profiles = state.profiles.clone();
         self.current_profile = state.transcript.profile.as_ref().map(|(p, _)| p.clone());
         self.birth = Some(state.transcript.epoch);
-        let offset = self.scroll.layout_offset();
+        let offset_key = self.scroll.layout_offset();
+        // the caret blink only shows while the composer is focused; otherwise it must not
+        // keep busting the idle frame cache as the clock advances
+        let blink = self.focused && self.anim.blink_at(1000., self.anim.now() - self.last_edit);
         let draft = format!(
-            "{:?}{:?}{:?}{:?}{}{:?}",
+            "{:?}{:?}{:?}{:?}{}{:?}{blink}",
             self.composer.view,
             self.notice,
             state.error,
@@ -267,21 +427,22 @@ impl HarnessView {
             self.focused,
             self.profile_menu
         );
-        if self
-            .cached
-            .as_ref()
-            .is_some_and(|(model, text, s, o, ready, prepared)| {
-                Arc::ptr_eq(model, &state.transcript)
-                    && text == &draft
-                    && s == &size
-                    && *o == offset
-                    && *ready == state.ready
-                    && match (prepared, &state.prepared) {
-                        (Some(prior), Some(next)) => Arc::ptr_eq(prior, next),
-                        (None, None) => true,
-                        _ => false,
-                    }
-            })
+        if !self.anim.in_motion()
+            && self
+                .cached
+                .as_ref()
+                .is_some_and(|(model, text, s, o, ready, prepared)| {
+                    Arc::ptr_eq(model, &state.transcript)
+                        && text == &draft
+                        && s == &size
+                        && *o == offset_key
+                        && *ready == state.ready
+                        && match (prepared, &state.prepared) {
+                            (Some(prior), Some(next)) => Arc::ptr_eq(prior, next),
+                            (None, None) => true,
+                            _ => false,
+                        }
+                })
         {
             return Ok(&self.frame);
         }
@@ -293,38 +454,15 @@ impl HarnessView {
             .prepared
             .as_ref()
             .filter(|p| Arc::ptr_eq(&p.source, &state.transcript));
-        let mut children = vec![];
-        if let Some(prepared) = prepared {
-            for id in &model.order {
-                if let Some(row) = prepared.rows.get(id) {
-                    let height = row.layout.rect.h;
-                    children.push(
-                        named(format!("cached/{id}"), c::Element::Spacer)
-                            .fixed_height(height, id.to_string(), 0.)
-                            .into(),
-                    );
-                }
-            }
+        // A session's first frame takes its end state: nothing enters, the tail is shown.
+        let scope = (model.session, model.epoch);
+        let first_frame = self.known_scope != Some(scope);
+        if first_frame {
+            self.known_scope = Some(scope);
+            self.known.clear();
+            self.entering.clear();
         }
-        if children.is_empty() {
-            children.push(
-                label(if !state.ready {
-                    "Loading session…"
-                } else if model.order.is_empty() {
-                    "Send a message to begin."
-                } else {
-                    "Preparing transcript…"
-                })
-                .into(),
-            );
-        }
-        let transcript = if let Some(prepared) = prepared
-            && !model.order.is_empty()
-        {
-            column(children, None).fixed_height(prepared.height, "transcript-content", 0.)
-        } else {
-            column(children, None)
-        };
+        let ink = super::face::ink(ctx);
         let row_slots = timer.elapsed();
         let status = self
             .notice
@@ -360,11 +498,21 @@ impl HarnessView {
             model.profile,
             model.meta.as_ref().map(|m| &m.cwd)
         );
-        let (mut layout, rows_h) = if let Some(controls) = &self.controls
-            && controls.key == controls_key
-            && controls.size == size
-        {
-            let mut layout = controls.layout.clone();
+        // While the clock moves something the controls are rebuilt every frame (the composer
+        // reads its tweens as it is built); at rest they are reused by key.
+        let reuse = !self.anim.in_motion()
+            && self
+                .controls
+                .as_ref()
+                .is_some_and(|c| c.key == controls_key && c.size == size);
+        let (mut layout, rows_h, enters) = if reuse {
+            let (mut layout, rows_h) = {
+                let controls = self.controls.as_ref().unwrap();
+                (controls.layout.clone(), controls.rows_h)
+            };
+            let (transcript, content_h, enters) =
+                self.transcript(state, prepared, rows_h, first_frame, &ink);
+            let offset = self.scroll_offset(content_h, rows_h, first_frame);
             let slot = find_mut(&mut layout, "transcript")
                 .and_then(|n| n.children.first_mut())
                 .ok_or("transcript slot missing")?;
@@ -375,16 +523,19 @@ impl HarnessView {
                 content: Box::new(transcript),
             })
             .layout(slot.rect, ctx, &self.metrics)?;
-            (layout, controls.rows_h)
+            (layout, rows_h, enters)
         } else {
             let composer = super::face::composer(
                 &self.composer.view,
-                live && !ask,
-                ask,
-                focused,
+                super::face::ComposerPhase {
+                    live: live && !ask,
+                    ask,
+                    focused,
+                },
                 ctx,
                 width,
                 &self.metrics,
+                &mut self.anim,
             )?;
             let composer_h = composer
                 .layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?
@@ -392,6 +543,9 @@ impl HarnessView {
                 .h;
             let header_h = 40.;
             let rows_h = (size[1] - composer_h - header_h).max(1.);
+            let (transcript, content_h, enters) =
+                self.transcript(state, prepared, rows_h, first_frame, &ink);
+            let offset = self.scroll_offset(content_h, rows_h, first_frame);
             let rows = named(
                 "transcript",
                 c::Element::ScrollView(c::ScrollView {
@@ -439,7 +593,7 @@ impl HarnessView {
                 layout: layout.clone(),
                 rows_h,
             });
-            (layout, rows_h)
+            (layout, rows_h, enters)
         };
         let controls = timer.elapsed();
         let solved = timer.elapsed();
@@ -448,7 +602,32 @@ impl HarnessView {
                 .and_then(|n| n.children.first())
                 .map(|n| n.rect)
                 .ok_or("transcript viewport missing")?;
-            restore_rows(&mut layout, &prepared.rows, viewport);
+            restore_rows(&mut layout, &prepared.rows, viewport, &enters);
+        }
+        // the empty session's rise and its chips' staggered rise (opacity is in the element)
+        for (name, key) in [
+            ("empty", "empty/in"),
+            ("empty/chip/0", "empty/chip/0"),
+            ("empty/chip/1", "empty/chip/1"),
+            ("empty/chip/2", "empty/chip/2"),
+        ] {
+            if let Some(t) = self.anim.value(key)
+                && t < 1.
+                && let Some(node) = find_mut(&mut layout, name)
+            {
+                translate(node, 0., 6. * (1. - t));
+            }
+        }
+        // the caret glides to its column over 80 ms, stays solid while typing and blinks
+        // after 500 ms idle
+        if let Some(node) = find_mut(&mut layout, "composer/text/caret") {
+            let r = node.rect;
+            let x = self.anim.tween("caret/x", r.x, 80., Ease::Out);
+            let y = self.anim.tween("caret/y", r.y, 80., Ease::Out);
+            translate(node, x - r.x, y - r.y);
+            if !self.anim.blink(1000., self.anim.now() - self.last_edit) {
+                node.children.clear();
+            }
         }
         let restored = timer.elapsed();
         let mut frame = Frame::default();
@@ -554,12 +733,14 @@ impl HarnessView {
             ("jump", Action::Jump),
             ("interrupt", Action::Interrupt),
             ("stop", Action::StopAt(state.transcript.epoch)),
+            ("empty/chip/0", Action::Chip(0)),
+            ("empty/chip/1", Action::Chip(1)),
+            ("empty/chip/2", Action::Chip(2)),
         ] {
             if let Some(node) = find(&layout, key) {
                 frame.actions.push((node.rect, action));
             }
         }
-        let ink = super::face::ink(ctx);
         if let Some(popover) = &self.completion {
             // Spec: left 12, bottom 4px into the composer's top padding.
             let bottom = 40. + rows_h + 4.;
@@ -635,11 +816,13 @@ impl HarnessView {
         frame.layout = Some(layout);
         self.scroll.layout_solved();
         self.frame = frame;
+        // the clock forgets what nobody asked for and decides whether a frame follows
+        self.anim.end_frame();
         self.cached = Some((
             state.transcript.clone(),
             draft,
             size,
-            offset,
+            offset_key,
             state.ready,
             state.prepared.clone(),
         ));
@@ -651,6 +834,7 @@ impl HarnessView {
     pub fn edit(&mut self, command: ui::text_edit::Command) {
         self.composer.handle(composer::Command::Edit(command));
         self.completion = self.composer.popover(&self.profile_names());
+        self.last_edit = self.anim.now();
         self.invalidate();
     }
     pub fn completion_open(&self) -> bool {
@@ -830,6 +1014,16 @@ impl HarnessView {
                 );
             }
             Action::Toggle(item, toggle) => bridge.toggle(item, toggle),
+            Action::Chip(which) => {
+                // the empty session's three ways in: "/" (opens the menu), "@", or focus
+                self.composer
+                    .handle(composer::Command::Focus(composer::Field::Body));
+                match which {
+                    0 => return self.edit(ui::text_edit::Command::Insert("/".into())),
+                    1 => return self.edit(ui::text_edit::Command::Insert("@".into())),
+                    _ => {}
+                }
+            }
             Action::Complete(request, text) => {
                 let outcome = self.composer.handle(composer::Command::Edit(
                     ui::text_edit::Command::Complete { request, text },
@@ -1338,7 +1532,15 @@ fn display_body(row: &ViewItem, terminal_output: Option<&String>) -> String {
 // immutable; only their placement changes. ScrollView's fixed-height window
 // elides offscreen slots before this walk, so only visible rows are restored.
 // https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
-fn restore_rows(node: &mut c::Layout, rows: &im::HashMap<ItemId, Arc<CachedRow>>, viewport: Rect) {
+// A row whose slot is still growing (its height tween in flight) is clipped to the slot by
+// a synthetic scroll node, so a card never paints over the row below it. A row in `enters`
+// sits 6 px lower and fades with its entrance progress (block enters: 320 ms `out`).
+fn restore_rows(
+    node: &mut c::Layout,
+    rows: &im::HashMap<ItemId, Arc<CachedRow>>,
+    viewport: Rect,
+    enters: &HashMap<ItemId, f32>,
+) {
     if let c::LayoutKind::Named(name) = &node.kind
         && let Some(id) = name
             .strip_prefix("cached/")
@@ -1346,15 +1548,39 @@ fn restore_rows(node: &mut c::Layout, rows: &im::HashMap<ItemId, Arc<CachedRow>>
             .map(ItemId)
         && let Some(row) = rows.get(&id)
     {
-        let dx = node.rect.x - row.layout.rect.x;
-        let dy = node.rect.y - row.layout.rect.y;
-        if let Some(solved) = visible_layout(&row.layout, dx, dy, viewport) {
+        let slot = node.rect;
+        let t = enters.get(&id).copied().unwrap_or(1.);
+        let dx = slot.x - row.layout.rect.x;
+        let dy = slot.y - row.layout.rect.y + 6. * (1. - t);
+        if let Some(mut solved) = visible_layout(&row.layout, dx, dy, viewport) {
+            if row.layout.rect.h > slot.h + 0.5 {
+                solved = c::Layout {
+                    rect: slot,
+                    baseline: solved.baseline,
+                    kind: c::LayoutKind::ScrollView {
+                        content: [slot.w, row.layout.rect.h],
+                        offset: [0., 0.],
+                    },
+                    children: vec![solved],
+                };
+            }
+            if t < 1. {
+                solved = c::Layout {
+                    rect: solved.rect,
+                    baseline: solved.baseline,
+                    kind: c::LayoutKind::Filter {
+                        saturation: 1.,
+                        opacity: t.clamp(0., 1.),
+                    },
+                    children: vec![solved],
+                };
+            }
             *node = solved;
         }
         return;
     }
     for child in &mut node.children {
-        restore_rows(child, rows, viewport);
+        restore_rows(child, rows, viewport, enters);
     }
 }
 // Keep only glyphs/blocks intersecting the viewport. A giant paragraph remains
@@ -1422,7 +1648,8 @@ pub struct PreparedRows {
     pub source: Arc<Transcript>,
     pub width: f32,
     rows: im::HashMap<ItemId, Arc<CachedRow>>,
-    height: f32,
+    /// The rows' solved heights summed: the content height once every height tween rests.
+    pub height: f32,
     pub layout_builds: usize,
     pub parsed_markdown_bytes: usize,
     pub received_markdown_bytes: usize,

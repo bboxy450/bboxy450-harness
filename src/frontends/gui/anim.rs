@@ -279,6 +279,11 @@ impl Clock {
     ) -> f32 {
         self.tween_impl(id, Some((from, delay_ms.max(0.))), target, ms, ease)
     }
+    /// The current value of a tween asked for this frame, without touching it. None when
+    /// nobody asked (the element is at rest and carries no row).
+    pub fn value(&self, id: &str) -> Option<f32> {
+        self.tweens.get(id).map(|t| t.at(self.now))
+    }
     /// Set `id` to `value` with no motion and no history.
     pub fn snap(&mut self, id: &str, value: f32) {
         self.tweens.insert(
@@ -364,9 +369,18 @@ impl Clock {
             last: now,
             touched: true,
         });
+        // A settled spring given a new goal starts its glide here: the clock may have
+        // skipped frames while the window idled, so reset the integration step to one frame
+        // instead of a stale gap that would overshoot and snap to the clamp.
+        if s.done() && s.target != target {
+            s.last = now - 16.;
+            s.v = 0.;
+        }
         s.touched = true;
         s.target = target;
-        let dt = ((now - s.last) / 1000.).clamp(0., 0.05);
+        // Cap the step so one slow or resumed frame stays within the explicit integrator's
+        // stable range (w·dt below ~1), never a jump.
+        let dt = ((now - s.last) / 1000.).clamp(0., 0.025);
         s.last = now;
         if dt > 0. {
             let gap = s.target - s.x;
@@ -401,8 +415,23 @@ impl Clock {
         if self.mode == Mode::Settled || self.paused {
             return true;
         }
+        let (on, until_edge) = Self::blink_phase(period_ms, since_ms);
+        self.blink_edge = Some(
+            self.blink_edge
+                .map_or(until_edge, |e: f32| e.min(until_edge)),
+        );
+        on
+    }
+    /// What `blink` would answer, without scheduling anything: for frame cache keys.
+    pub fn blink_at(&self, period_ms: f32, since_ms: f32) -> bool {
+        if self.mode == Mode::Settled || self.paused {
+            return true;
+        }
+        Self::blink_phase(period_ms, since_ms).0
+    }
+    fn blink_phase(period_ms: f32, since_ms: f32) -> (bool, f32) {
         let period = period_ms.max(1.);
-        let (on, until_edge) = if since_ms < 500. {
+        if since_ms < 500. {
             (true, 500. - since_ms)
         } else {
             let phase = ((since_ms - 500.) / period).rem_euclid(1.);
@@ -413,12 +442,7 @@ impl Clock {
                 1. - phase
             };
             (phase < half, (left * period).max(1.))
-        };
-        self.blink_edge = Some(
-            self.blink_edge
-                .map_or(until_edge, |e: f32| e.min(until_edge)),
-        );
-        on
+        }
     }
 
     /// Whether anything is moving right now: a tween in flight, a spring not settled, or a

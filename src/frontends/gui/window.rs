@@ -30,12 +30,16 @@ use bbt_ui::{
     modules::composer,
     text_edit::{Command as Edit, Motion},
 };
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
-    event::{ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
+    event::{ElementState, Ime, MouseButton, MouseScrollDelta, StartCause, WindowEvent},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{Key, ModifiersState, NamedKey},
     window::{Window, WindowId},
 };
@@ -65,6 +69,10 @@ struct App {
     pointer: [f32; 2],
     modifiers: ModifiersState,
     error: Option<String>,
+    /// The animation clock's zero; frames are timed from it.
+    started: Instant,
+    /// A timed wake the clock asked for (a caret blink edge), applied in `about_to_wait`.
+    wake_at: Option<Instant>,
 }
 impl App {
     fn init(&mut self, event_loop: &ActiveEventLoop) -> Result<(), String> {
@@ -143,6 +151,10 @@ impl App {
         Ok(())
     }
     fn paint(&mut self) -> Result<(), String> {
+        let frame_start = Instant::now();
+        self.view
+            .anim
+            .tick((frame_start - self.started).as_secs_f32() * 1000.);
         self.bridge.drain(Duration::from_micros(300));
         self.gpu_dirty.drain();
         if let Some(gpu) = self.gpu.take() {
@@ -218,6 +230,19 @@ impl App {
                 LogicalSize::new(caret.w, caret.h),
             );
         }
+        // The clock's word on the next frame: now while something moves, at a caret blink
+        // edge otherwise, or never. The frame's cost counts against the 16.6 ms budget.
+        self.view
+            .anim
+            .frame_cost(frame_start.elapsed().as_secs_f32() * 1000.);
+        self.wake_at = match self.view.anim.next_frame() {
+            Some(ms) if ms <= 0. => {
+                window.request_redraw();
+                None
+            }
+            Some(ms) => Some(Instant::now() + Duration::from_secs_f32(ms / 1000.)),
+            None => None,
+        };
         Ok(())
     }
     fn edit(&mut self, command: Edit) {
@@ -242,6 +267,21 @@ impl ApplicationHandler<Wake> for App {
             window.request_redraw();
         }
     }
+    /// A timed wake the clock asked for (a caret blink edge) has come: draw that frame.
+    fn new_events(&mut self, _: &ActiveEventLoop, cause: StartCause) {
+        if matches!(cause, StartCause::ResumeTimeReached { .. })
+            && let Some(window) = &self.window
+        {
+            self.wake_at = None;
+            window.request_redraw();
+        }
+    }
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        event_loop.set_control_flow(match self.wake_at {
+            Some(at) => ControlFlow::WaitUntil(at),
+            None => ControlFlow::Wait,
+        });
+    }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => {
@@ -254,6 +294,14 @@ impl ApplicationHandler<Wake> for App {
                     event_loop.exit();
                 }
                 return;
+            }
+            // Loops pause while the window is occluded (harness-spec.md Frame budget).
+            WindowEvent::Occluded(occluded) => {
+                self.view.anim.pause(occluded);
+                if occluded {
+                    self.wake_at = None;
+                    return;
+                }
             }
             WindowEvent::Resized(size) if size.width > 0 && size.height > 0 => {
                 if let (Some(config), Some(surface), Some(renderer)) =
@@ -388,10 +436,14 @@ pub fn run(options: Options) -> Result<Option<tokio::task::JoinHandle<()>>, Stri
     let waker = Arc::new(WakePort(event_loop.create_proxy()));
     let gpu_dirty = DirtySet::new(1, waker.clone());
     let gpu = Arc::new(Latest::new(gpu_dirty.paint_source(0)));
+    let mut view = HarnessView::default();
+    // the window animates; reduced motion (the OS setting or BBOXY_REDUCED_MOTION=1) draws
+    // end states and keeps only the caret blink
+    view.anim = super::anim::Clock::live(super::anim::Clock::reduced_motion_preferred());
     let mut app = App {
         options,
         bridge: Bridge::new(waker),
-        view: HarnessView::default(),
+        view,
         window: None,
         surface: None,
         renderer: None,
@@ -401,6 +453,8 @@ pub fn run(options: Options) -> Result<Option<tokio::task::JoinHandle<()>>, Stri
         pointer: [0.; 2],
         modifiers: ModifiersState::empty(),
         error: None,
+        started: Instant::now(),
+        wake_at: None,
     };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     let job = app.bridge.detach();

@@ -9,6 +9,7 @@
 //! folded in), reasoning is a one-line disclosure, the user speaks in a bubble.
 //! Translated from bboxy450-term lab/web/harness.js and lab.css (the web reference the
 //! parity script compares against). https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
+use super::anim::{Clock, Ease};
 pub use crate::frontends::face_core::{
     DiffRow, Tool, describe, diff_stat, duration, kilo, minimal_diff,
 };
@@ -1637,24 +1638,39 @@ impl ComposerState {
     }
 }
 
+/// What the session and the window tell the composer: a running turn, a waiting approval,
+/// keyboard focus.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ComposerPhase {
+    pub live: bool,
+    pub ask: bool,
+    pub focused: bool,
+}
+
 /// The composer: one rounded box with the draft, two quiet chips, a state hint and the round
 /// send button. Translated from harness.js composer() and lab.css .hx-comp/.hx-box/.hx-send
 /// (bboxy450-term lab/web, harness-spec.md; https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md).
 /// Node names keep the toolkit composer's hit contract (`composer`, `composer/text`,
 /// `composer/body-viewport`, `composer/send`, `composer/attach`, `composer/priority`,
 /// `composer/address`), so `composer::Regions` still drives clicks, the caret and the IME.
+///
+/// Motion (harness-spec.md Motion table) reads through `anim`: focus border and ring over
+/// 200 ms `std`, the box height over 160 ms `out`, the send fill and icon colour across
+/// idle → ready → stop over 200 ms `std` with an arrow ↔ square crossfade, and the running
+/// sweep looping on the top edge. A settled clock answers the end states, so the static
+/// look is unchanged.
 pub fn composer(
     view: &ui::modules::composer::Composer,
-    live: bool,
-    ask: bool,
-    focused: bool,
+    phase: ComposerPhase,
     ctx: ui::Context,
     width: f32,
     m: &dyn c::Measure,
+    anim: &mut Clock,
 ) -> Result<c::Element, String> {
     use ComposerState as S;
     use bbt_ui::widgets::text_area::TextArea;
     use bbt_ui_model::layout::Rect;
+    let ComposerPhase { live, ask, focused } = phase;
     const LINE: f32 = 20.;
     const MAX_LINES: f32 = 8.;
     let ink = ink(ctx);
@@ -1664,6 +1680,32 @@ pub fn composer(
     let side = ((width - box_w) / 2.).max(0.);
     let inner = (box_w - 22.).max(1.);
     let empty = !has_text && view.edit.as_ref().is_none_or(|e| e.preedit.is_none());
+    // state tweens: 0..1 each, retargeting from wherever they are
+    let focus_t = anim.tween(
+        "composer/focus",
+        f32::from(u8::from(focused)),
+        200.,
+        Ease::Std,
+    );
+    let ask_t = anim.tween(
+        "composer/ask",
+        f32::from(u8::from(state == S::Ask)),
+        200.,
+        Ease::Std,
+    );
+    let ready_t = anim.tween(
+        "composer/send/ready",
+        f32::from(u8::from(has_text)),
+        200.,
+        Ease::Std,
+    );
+    let stop_now = state == S::Run && !has_text;
+    let stop_t = anim.tween(
+        "composer/send/stop",
+        f32::from(u8::from(stop_now)),
+        200.,
+        Ease::Std,
+    );
     let ph_ink = if state == S::Ask {
         alpha(ink.ask, 0.8)
     } else {
@@ -1692,9 +1734,11 @@ pub fn composer(
     if empty {
         tint_placeholder(&mut body, paint(ph_ink));
     }
-    // Grow with the draft up to MAX_LINES, then scroll so the caret stays in view.
+    // Grow with the draft up to MAX_LINES, then scroll so the caret stays in view. The box
+    // height tweens over 160 ms; the caret stays in view at every intermediate height.
     let measured = body.layout(Rect::new(0., 0., inner, 0.), ctx, m)?;
-    let height = measured.rect.h.clamp(LINE, LINE * MAX_LINES);
+    let target_h = measured.rect.h.clamp(LINE, LINE * MAX_LINES);
+    let height = anim.tween("composer/height", target_h, 160., Ease::Out);
     fn caret(n: &c::Layout) -> Option<Rect> {
         if matches!(&n.kind, c::LayoutKind::Named(k) if k == "composer/text/caret") {
             return Some(n.rect);
@@ -1756,25 +1800,43 @@ pub fn composer(
     }
     // .hx-send: a 26 px circle. Empty: card-hi with a dim arrow; with text: seat with an
     // on-accent arrow and a glow; running and empty: a stop square on a hairline inset.
-    let stop = state == S::Run && !has_text;
+    // Fill and icon colour tween across idle → ready → stop; the arrow and the square
+    // crossfade while `stop_t` is in flight.
+    let stop = stop_now;
     let on_accent = hex("#FFFFFF");
+    let arrow_ink = mix(on_accent, ink.dim, ready_t);
+    let arrow = icon("send", arrow_ink, 14., 2.2);
+    let glyph = if stop_t <= 0. {
+        arrow
+    } else if stop_t >= 1. {
+        square(12., 6., 1.1, ink.fg)
+    } else {
+        c::Element::Layers {
+            base: Box::new(c::Element::Filter {
+                content: Box::new(arrow),
+                saturation: 1.,
+                opacity: 1. - stop_t,
+            }),
+            overlays: vec![c::Placed {
+                content: c::Element::Filter {
+                    content: Box::new(square(12., 6., 1.1, ink.fg)),
+                    saturation: 1.,
+                    opacity: stop_t,
+                },
+                left: 1.,
+                bottom: 1.,
+            }],
+        }
+    };
     let mut send = frame(
         Frame {
-            fill: if has_text {
-                ink.seat
-            } else {
-                alpha(ink.fg, 0.07)
-            },
-            border: stop.then_some(alpha(ink.fg, 0.10)),
+            fill: mix(ink.seat, alpha(ink.fg, 0.07), ready_t),
+            border: (stop_t > 0.).then_some(alpha(ink.fg, 0.10 * stop_t)),
             radius: [13.; 4],
             padding: [if stop { 7. } else { 6. }; 4],
             ..Default::default()
         },
-        vec![fixed(if stop {
-            square(12., 6., 1.1, ink.fg)
-        } else {
-            icon("send", if has_text { on_accent } else { ink.dim }, 14., 2.2)
-        })],
+        vec![fixed(glyph)],
     );
     if let c::Element::Box(b) = &mut send {
         // Fixed 26 px whatever the inset border does to the padding box.
@@ -1783,10 +1845,10 @@ pub fn composer(
         if stop {
             b.style.overrides.padding = Some([ui::Length::Px(6.); 4]);
         }
-        if has_text {
+        if ready_t > 0. {
             b.style.overrides.shadow = Some(ui::Shadow::Custom {
                 blur: 11.,
-                color: alpha(ink.seat, 0.55),
+                color: alpha(ink.seat, 0.55 * ready_t),
             });
         }
     }
@@ -1814,16 +1876,16 @@ pub fn composer(
         },
         tools,
     )));
-    let border = if state == S::Ask {
-        alpha(ink.ask, 0.45)
-    } else if focused {
-        alpha(ink.seat, 0.55)
-    } else {
-        alpha(ink.fg, 0.10)
-    };
+    // border hair → seat-55 with focus, then → ask-45 when an approval waits; the ring's
+    // opacity follows focus (both 200 ms std)
+    let border = mix(
+        alpha(ink.ask, 0.45),
+        mix(alpha(ink.seat, 0.55), alpha(ink.fg, 0.10), focus_t),
+        ask_t,
+    );
     let mut panel = frame(
         Frame {
-            fill: alpha(ink.fg, if focused { 0.05 } else { 0.04 }),
+            fill: alpha(ink.fg, 0.04 + 0.01 * focus_t),
             border: Some(border),
             radius: [13.; 4],
             padding: [8., 10., 6., 10.],
@@ -1833,20 +1895,44 @@ pub fn composer(
     );
     if let c::Element::Box(b) = &mut panel {
         b.gap = ui::Length::Px(0.);
-        if focused {
+        if focus_t > 0. {
             // Flat fallback: a solid seat-14 band 3 px outside the box, no blur.
             b.style.overrides.rings = Some(vec![ui::Border {
                 width: ui::Length::Px(3.),
-                paint: paint(alpha(ink.seat, 0.14)),
+                paint: paint(alpha(ink.seat, 0.14 * focus_t)),
                 outside: true,
             }]);
         }
     }
     if state == S::Run {
-        // Running sweep, static flat fallback: a 2 px seat-55 line along the top edge,
-        // inset by the corner radius as the web's overflow clip does.
+        // Running sweep: a 40 %-wide seat highlight crossing the top edge every 1.6 s
+        // ease-in-out (lab.css hx-sweep: background-position −40 % → 140 % of a 40 % image).
+        // Flat fallback: a static 2 px seat-55 line along the top edge. Both are inset by
+        // the corner radius as the web's overflow clip does.
         let h = panel.layout(Rect::new(0., 0., box_w, 0.), ctx, m)?.rect.h;
         let w = (box_w - 26.).max(0.);
+        let rects: Vec<(Rect, ui::Paint)> = if anim.animates() {
+            let phase = Ease::InOut.at(anim.cycle(1600.));
+            let band = 0.4 * w;
+            let x0 = (-0.24 + 1.08 * phase) * w;
+            // the gradient transparent → seat → transparent as 12 slices, clipped to the box
+            const SLICES: usize = 12;
+            (0..SLICES)
+                .filter_map(|i| {
+                    let a = x0 + band * i as f32 / SLICES as f32;
+                    let b = x0 + band * (i + 1) as f32 / SLICES as f32;
+                    let (a, b) = (a.max(0.), b.min(w));
+                    if b <= a {
+                        return None;
+                    }
+                    let mid = (i as f32 + 0.5) / SLICES as f32;
+                    let tri = 1. - (mid - 0.5).abs() * 2.;
+                    Some((Rect::new(a, 0., b - a, 2.), paint(alpha(ink.seat, tri))))
+                })
+                .collect()
+        } else {
+            vec![(Rect::new(0., 0., w, 2.), paint(alpha(ink.seat, 0.55)))]
+        };
         panel = c::Element::Layers {
             base: Box::new(panel),
             overlays: vec![c::Placed {
@@ -1854,10 +1940,7 @@ pub fn composer(
                     "composer/sweep",
                     c::Element::Rects(c::Rects {
                         size: [w, 2.],
-                        rects: Arc::from([(
-                            Rect::new(0., 0., w, 2.),
-                            paint(alpha(ink.seat, 0.55)),
-                        )]),
+                        rects: Arc::from(rects),
                         repeat: None,
                     }),
                 ),
@@ -1873,6 +1956,156 @@ pub fn composer(
         },
         vec![fixed(named("composer", panel))],
     ))
+}
+/// The empty session (harness-spec.md "Empty session"): the 52 px mark inside a breathing
+/// seat halo, "What are we building?", `profile · model in ~/<cwd leaf>`, and three chips
+/// named `empty/chip/0..2` (`/ commands`, `@ a file`, `Describe a change`). Translated
+/// from harness.js empty() and lab.css .hx-empty (bboxy450-term lab/web;
+/// https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md).
+///
+/// Motion: the column rises 6 px and fades in over 420 ms `out`, the chips follow 60 ms
+/// apart, and the halo breathes over 3.2 s (opacity .25–.8, scale .96–1.04). Flat: the
+/// end state with a static ring at .5. `top` is the scroll height's 12 %.
+pub fn empty_session(
+    who: Option<String>,
+    leaf: Option<String>,
+    top: f32,
+    ink: &Ink,
+    anim: &mut Clock,
+) -> c::Element {
+    let rise = anim.enter("empty/in", 0., 1., 420., Ease::Out);
+    let (halo_a, halo_s) = if anim.animates() {
+        let v = 0.5 - 0.5 * (anim.cycle(3200.) * std::f32::consts::TAU).cos();
+        (0.25 + 0.55 * v, 0.96 + 0.08 * v)
+    } else {
+        (0.5, 1.)
+    };
+    // the mark: 52 round; the halo ring 6 px outside it, so a 64 box at rest
+    const SIDE: f32 = 64.;
+    let r = SIDE / 2.;
+    let mut ring = circle(r, r, (r - 0.5) * halo_s);
+    ring.shrink_to_fit();
+    let halo = c::Element::Path(c::Path {
+        size: [SIDE, SIDE],
+        points: Arc::from(ring),
+        stroke: PathStroke {
+            width: 1.,
+            ..Default::default()
+        },
+        paint: paint(alpha(ink.seat, 0.45)),
+        fill: None,
+        opacity: halo_a,
+    });
+    let mark = c::Element::Layers {
+        base: Box::new(named("empty/halo", halo)),
+        overlays: vec![c::Placed {
+            content: named(
+                "empty/mark",
+                c::Element::Image {
+                    asset: super::assets::MARK.into(),
+                    size: ui::Length::Px(52.),
+                    radius: ui::Length::Px(26.),
+                },
+            ),
+            left: 6.,
+            bottom: 6.,
+        }],
+    };
+    let mut title = text("What are we building?", 17., 600, ink.fg, false);
+    title.wrap = false;
+    for run in &mut title.runs {
+        run.style.tracking_em = -0.01;
+    }
+    let mut kids = vec![
+        c::Item {
+            // .hx-emark margin-bottom 6 on top of the column's 8 gap
+            element: frame(
+                Frame {
+                    padding: [0., 0., 6., 0.],
+                    ..Default::default()
+                },
+                vec![fixed(mark)],
+            ),
+            extent: c::Extent::Auto,
+        },
+        fixed(named("empty/title", c::Element::Text(title))),
+    ];
+    let sub = match (who, leaf) {
+        (Some(w), Some(l)) => Some(format!("{w} in ~/{l}")),
+        (Some(w), None) => Some(w),
+        (None, Some(l)) => Some(format!("~/{l}")),
+        (None, None) => None,
+    };
+    if let Some(sub) = sub {
+        kids.push(fixed(named(
+            "empty/sub",
+            line(sub, 12., 400, ink.dim, false),
+        )));
+    }
+    let chips = ["/ commands", "@ a file", "Describe a change"]
+        .iter()
+        .enumerate()
+        .map(|(i, label)| {
+            let t = anim.enter_after(
+                &format!("empty/chip/{i}"),
+                0.,
+                1.,
+                420.,
+                60. * (i + 1) as f32,
+                Ease::Out,
+            );
+            let chip = named(
+                format!("empty/chip/{i}"),
+                frame(
+                    Frame {
+                        fill: alpha(ink.fg, 0.04),
+                        border: Some(alpha(ink.fg, 0.10)),
+                        radius: [999.; 4],
+                        padding: [5., 11., 5., 11.],
+                        row: true,
+                        ..Default::default()
+                    },
+                    vec![fixed(line(*label, 12., 400, ink.dim, false))],
+                ),
+            );
+            fixed(lift(chip, t))
+        })
+        .collect();
+    kids.push(fixed(frame(
+        Frame {
+            // .hx-echips margin-top 10 on top of the column's 8 gap
+            padding: [10., 0., 0., 0.],
+            gap: 6.,
+            row: true,
+            ..Default::default()
+        },
+        chips,
+    )));
+    let mut column = frame(
+        Frame {
+            padding: [top + 14., 16., 0., 16.],
+            gap: 8.,
+            ..Default::default()
+        },
+        kids,
+    );
+    if let c::Element::Box(b) = &mut column {
+        b.align = c::Alignment::Center;
+    }
+    named("empty", lift(column, rise))
+}
+/// An entrance at progress `t`: transparent at 0, opaque at 1. The 6 px rise is applied to
+/// the solved layout by the view (`view::rise`), as a CSS transform leaves flow alone. At 1
+/// the element is returned untouched, so settled layouts carry no extra nodes.
+pub fn lift(element: c::Element, t: f32) -> c::Element {
+    if t >= 1. {
+        return element;
+    }
+    c::Element::Filter {
+        content: Box::new(element),
+        saturation: 1.,
+        opacity: t.clamp(0., 1.),
+    }
 }
 /// A filled rounded square centred in a `box_side` path (the web `stop` glyph).
 fn square(box_side: f32, side: f32, r: f32, color: Rgba) -> c::Element {
