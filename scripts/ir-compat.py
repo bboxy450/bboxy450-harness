@@ -246,9 +246,18 @@ def untagged_form(schema):
     return s
 
 
+SYN_DEF, SYN_FIELD, SYN_VARIANT = '__IrCompatControlAdded', '__ir_compat_control_field', '__ir_compat_control_variant'
+
+
 def control():
     schema = json.loads(SCHEMA.read_text())
     lock = json.loads(LOCK.read_text())
+    # The synthetic additions must never collide with a real one (Citation and Usage.model did):
+    # reserved names, and a loud failure if one ever appears in the schema or the lock.
+    present = set(schema['$defs']) | set(lock['surface']) | set(schema['$defs']['Usage'].get('properties', {})) | set(enum_node(schema, 'ToolKind')['enum'])
+    clash = {SYN_DEF, SYN_FIELD, SYN_VARIANT} & present
+    if clash:
+        print('CONTROL FAIL: reserved synthetic name present in the schema or lock:', sorted(clash)); return 1
 
     def item_variant(s, kind):
         return next(e for e in variants_of(s, 'Item') if variant_tag(e)[1] == kind)
@@ -257,8 +266,8 @@ def control():
     def m_rename_variant(s): item_variant(s, 'agent_message')['properties']['kind']['const'] = 'assistant_message'
     def m_type_change(s): s['$defs']['Usage']['properties']['input_tokens'] = {'type': 'string'}
     def m_new_required(s):
-        s['$defs']['Usage']['properties']['model'] = {'type': 'string'}
-        s['$defs']['Usage']['required'].append('model')
+        s['$defs']['Usage']['properties'][SYN_FIELD] = {'type': 'string'}
+        s['$defs']['Usage']['required'].append(SYN_FIELD)
     def m_now_required(s): s['$defs']['Usage']['required'].append('reasoning_tokens')
     def m_remove_enum(s): enum_node(s, 'ToolKind')['enum'].remove('fetch')
     def m_drop_unknown(s): drop_catch_all(s, 'ToolKind')
@@ -273,9 +282,9 @@ def control():
     broken = [m_remove_field, m_rename_variant, m_type_change, m_new_required, m_now_required,
               m_remove_enum, m_drop_unknown, m_drop_item_unknown, m_remove_def, m_tag_key]
 
-    def a_optional_field(s): s['$defs']['Usage']['properties']['model'] = {'type': ['string', 'null']}
-    def a_variant(s): enum_node(s, 'ToolKind')['enum'].append('browse')
-    def a_definition(s): s['$defs']['Citation'] = {'type': 'object', 'properties': {'url': {'type': 'string'}}, 'required': ['url']}
+    def a_optional_field(s): s['$defs']['Usage']['properties'][SYN_FIELD] = {'type': ['string', 'null']}
+    def a_variant(s): enum_node(s, 'ToolKind')['enum'].append(SYN_VARIANT)
+    def a_definition(s): s['$defs'][SYN_DEF] = {'type': 'object', 'properties': {'url': {'type': 'string'}}, 'required': ['url']}
     def a_untagged_unknown(s): s['$defs'].update(untagged_form(s)['$defs'])
     allowed = [a_optional_field, a_variant, a_definition, a_untagged_unknown]
 
