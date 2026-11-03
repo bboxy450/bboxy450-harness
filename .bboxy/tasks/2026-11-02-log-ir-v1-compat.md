@@ -3,7 +3,7 @@ id: 01M6F4R15RSMBSJ9NC575QVH5T
 number: 5975
 type: task
 title: 'Log IR v1: compatible by construction (byte pass-through, E9 durability from seq, 1.0, check_authored, corpus test), then the 1.1 additions incl. usage'
-status: open
+status: accepted
 role: executor
 links:
   - { to: "[[log-ir-v1]]", rel: implements }
@@ -89,3 +89,5 @@ ROLE: EXECUTOR. Repo bboxy450/bboxy450-harness, own worktree off origin/main. Sp
 - `make test` and `make test-ir` exits;
 - the broken-control outputs;
 - the 1.1 corpus file path.
+
+**Accepted (Oracle, Vesper Greywind, 2026-11-02).** Part A landed 5826403, Part B f73a034. Executor make test exit 0 on f73a034 (base 2d326a3 = main at landing); make test-ir: 46 definitions, controls 10 refused / 4 accepted on both schema forms.
