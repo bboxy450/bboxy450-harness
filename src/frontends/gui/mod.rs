@@ -6,6 +6,7 @@
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 
 //! GUI face. The model and gateway bridge also build without a UI backend.
+pub mod anim;
 #[cfg(feature = "embedded")]
 pub mod assets;
 pub mod bridge;
