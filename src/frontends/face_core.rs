@@ -265,6 +265,48 @@ pub struct Tool<'a> {
     pub name: &'a str,
     /// an agent tool named by its command line whose output only the agent's terminal saw
     pub quiet: bool,
+    /// where a Search or Find looked (harness.js `where`): the head reads `in <path>`
+    pub place: Option<String>,
+}
+/// One grep hit (harness.js `hits`: `/^(.*?):(\d+):(.*)$/`): the file, its line and the
+/// matched text; a line without `:N:` is a file alone.
+pub fn hit_line(l: &str) -> (&str, Option<&str>, &str) {
+    let b = l.as_bytes();
+    let mut i = 0;
+    while let Some(off) = l[i..].find(':') {
+        let colon = i + off;
+        let digits = b[colon + 1..]
+            .iter()
+            .take_while(|c| c.is_ascii_digit())
+            .count();
+        if digits > 0 && b.get(colon + 1 + digits) == Some(&b':') {
+            let end = colon + 1 + digits;
+            return (&l[..colon], Some(&l[colon + 1..end]), &l[end + 1..]);
+        }
+        i = colon + 1;
+    }
+    (l, None, "")
+}
+/// The hit text split at the pattern's matches (`<mark>` on the web): (span, matched).
+pub fn hit_spans(text: &str, re: Option<&regex::Regex>) -> Vec<(String, bool)> {
+    let mut spans = vec![];
+    let mut at = 0;
+    if let Some(re) = re {
+        for m in re.find_iter(text) {
+            if m.is_empty() {
+                continue;
+            }
+            if m.start() > at {
+                spans.push((text[at..m.start()].to_owned(), false));
+            }
+            spans.push((m.as_str().to_owned(), true));
+            at = m.end();
+        }
+    }
+    if at < text.len() {
+        spans.push((text[at..].to_owned(), false));
+    }
+    spans
 }
 /// ACP agents fence their output (```console … ```) or leave a placeholder for output only
 /// their own terminal saw (harness-spec.md, "ACP-agent sessions: fold rules native must match").
@@ -389,6 +431,8 @@ pub fn describe<'a>(
         ),
     };
     let quiet = kind == "execute" && verb == "Run" && name == target && out.is_empty();
+    let place =
+        (matches!(name, "grep" | "glob") && !s("path").is_empty()).then(|| short(s("path")));
     Tool {
         verb,
         target,
@@ -398,5 +442,6 @@ pub fn describe<'a>(
         out,
         name,
         quiet,
+        place,
     }
 }

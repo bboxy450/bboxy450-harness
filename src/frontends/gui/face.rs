@@ -13,7 +13,7 @@ use super::anim::{Clock, Ease};
 pub use crate::frontends::face_core::{
     DiffRow, Tool, describe, diff_stat, duration, kilo, minimal_diff,
 };
-use crate::frontends::face_core::{Tok, Verdict, kind_hex, tokens, verdict};
+use crate::frontends::face_core::{Tok, Verdict, hit_line, hit_spans, kind_hex, tokens, verdict};
 use crate::protocol::*;
 use bbt_ui::{self as ui, components as c, modules::seat_row::named};
 use bbt_ui_model::draw::{Color as DrawColor, LineCap, LineJoin, PathCommand as P, PathStroke};
@@ -293,10 +293,14 @@ pub fn icon_turned(name: &str, color: Rgba, size: f32, weight: f32, deg: f32) ->
 /// when it turns a chevron or spins the think icon.
 pub fn icon_points(name: &str, size: f32, deg: f32) -> Vec<P> {
     let k = size / 16.;
+    // harness.js: ICON[name] || ICON.other
+    let cmds = icon_commands(name)
+        .or_else(|| icon_commands("other"))
+        .unwrap_or_default();
     let cmds = if deg == 0. {
-        icon_commands(name)
+        cmds
     } else {
-        super::stream_motion::turned(&icon_commands(name), deg, [8., 8.])
+        super::stream_motion::turned(&cmds, deg, [8., 8.])
     };
     cmds.into_iter()
         .map(|c| match c {
@@ -306,8 +310,11 @@ pub fn icon_points(name: &str, size: f32, deg: f32) -> Vec<P> {
         })
         .collect()
 }
-fn icon_commands(name: &str) -> Vec<P> {
-    match name {
+/// The 16-unit stroke of a named icon, translated from harness.js `ICON`; None for a name
+/// the web has no icon for. The tool kinds are read, search, execute, edit, delete, move,
+/// fetch and other, each with its own glyph: fetch is the globe, other the sparkle.
+pub fn icon_commands(name: &str) -> Option<Vec<P>> {
+    Some(match name {
         "read" => polys(&[
             vec![
                 [4., 1.75],
@@ -460,7 +467,32 @@ fn icon_commands(name: &str) -> Vec<P> {
             ]));
             v
         }
-        _ => polys(&[vec![
+        // the globe: circle r6, the equator, two meridians (M8 2c2 2 2 10 0 12 / c-2 2-2 10 0 12)
+        "fetch" => {
+            let mut v = circle(8., 8., 6.);
+            v.extend([
+                P::Move([2., 8.]),
+                P::Line([14., 8.]),
+                P::Move([8., 2.]),
+                P::Cubic([[10., 4.], [10., 12.], [8., 14.]]),
+                P::Move([8., 2.]),
+                P::Cubic([[6., 4.], [6., 12.], [8., 14.]]),
+            ]);
+            v
+        }
+        // the bin: lid, handle, tapered body
+        "delete" => polys(&[
+            vec![[3., 4.5], [13., 4.5]],
+            vec![[6.5, 4.5], [6.5, 3.], [9.5, 3.], [9.5, 4.5]],
+            vec![[4.5, 4.5], [5.25, 13.5], [10.75, 13.5], [11.5, 4.5]],
+        ]),
+        // the arrow right
+        "move" => polys(&[
+            vec![[2.5, 8.], [13.5, 8.]],
+            vec![[10., 4.5], [13.5, 8.], [10., 11.5]],
+        ]),
+        // the sparkle (eight-point star)
+        "other" => polys(&[vec![
             [8., 2.],
             [9.6, 6.4],
             [14., 8.],
@@ -471,7 +503,8 @@ fn icon_commands(name: &str) -> Vec<P> {
             [6.4, 6.4],
             [8., 2.],
         ]]),
-    }
+        _ => return None,
+    })
 }
 /// A centred icon in a square tile (tool kind, status disc).
 pub fn tile(icon_el: c::Element, side: f32, radius: f32, bg: Rgba) -> c::Element {
@@ -1078,6 +1111,8 @@ pub struct Head {
     pub verb: String,
     pub target: String,
     pub mono: bool,
+    /// `.hx-where`: where a Search or Find looked, read `in <path>` right after the target
+    pub place: Option<String>,
     pub stat: Option<(usize, usize)>,
     pub meta: Option<(String, Option<bool>)>,
     pub badge: Option<c::Element>,
@@ -1094,14 +1129,28 @@ pub fn head(h: Head, ink: &Ink) -> c::Element {
             alpha(kc, 0.16),
         )),
         fixed(line(h.verb, 13., 650, ink.fg, false)),
-        fill(line(
-            h.target,
-            if h.mono { 12. } else { 13. },
-            400,
-            alpha(ink.fg, 0.82),
-            h.mono,
-        )),
+        // .hx-tgt is content-sized and ellipsised (min-width 0); .hx-sp takes the slack
+        c::Item {
+            element: line(
+                h.target,
+                if h.mono { 12. } else { 13. },
+                400,
+                alpha(ink.fg, 0.82),
+                h.mono,
+            ),
+            extent: c::Extent::Content {
+                grow: 0.,
+                shrink: 1.,
+                min: 0.,
+                max: None,
+                max_fraction: None,
+            },
+        },
     ];
+    if let Some(p) = h.place {
+        kids.push(fixed(line(format!("in {p}"), 12., 400, ink.dim, true)));
+    }
+    kids.push(spacer());
     if let Some((a, d)) = h.stat {
         kids.push(fixed(runs(
             vec![
@@ -1183,46 +1232,156 @@ pub fn body_el(children: Vec<c::Item>) -> c::Element {
         children,
     )
 }
-pub fn hits(out: &str, pattern: &str, cwd: &str, ink: &Ink) -> c::Element {
+/// `.hx-hits`: one row per hit, `file:ln` then the text 10px on, each match in a `mark`
+/// pill (search purple 35%, radius 3, padding 0 2) named `{key}/{row}/mark/{k}`.
+pub fn hits(key: &str, out: &str, pattern: &str, cwd: &str, ink: &Ink) -> c::Element {
     let re = regex::Regex::new(pattern).ok();
+    let mono = |value: String, color: Rgba| {
+        let mut t = text(value, 12., 400, color, true);
+        t.wrap = false;
+        t.ellipsis = true;
+        t.preserve_whitespace = true;
+        c::Element::Text(t)
+    };
+    let shrink = |e: c::Element| c::Item {
+        element: e,
+        extent: c::Extent::Content {
+            grow: 0.,
+            shrink: 1.,
+            min: 0.,
+            max: None,
+            max_fraction: None,
+        },
+    };
     let rows = out
         .lines()
         .filter(|l| !l.is_empty())
-        .map(|l| {
-            let mut parts = l.splitn(3, ':');
-            let (f, n, t) = (
-                parts.next().unwrap_or(""),
-                parts.next().unwrap_or(""),
-                parts.next().unwrap_or(""),
-            );
+        .enumerate()
+        .map(|(i, l)| {
+            let (f, n, t) = hit_line(l);
             let f = f.strip_prefix(&format!("{cwd}/")).unwrap_or(f);
-            let mut spans = vec![
-                (f.to_owned(), ink.fg, 400, false),
-                (format!(":{n}  "), ink.seat, 400, false),
-            ];
+            let mut kids = vec![fixed(runs(
+                vec![
+                    (f.to_owned(), ink.fg, 400, false),
+                    (
+                        n.map(|n| format!(":{n}")).unwrap_or_default(),
+                        ink.seat,
+                        400,
+                        false,
+                    ),
+                ],
+                12.,
+                true,
+                false,
+            ))];
             let t = t.trim();
-            let mut at = 0;
-            if let Some(re) = &re {
-                for m in re.find_iter(t) {
-                    spans.push((t[at..m.start()].to_owned(), ink.dim, 400, false));
-                    spans.push((m.as_str().to_owned(), ink.fg, 700, false));
-                    at = m.end();
-                }
+            if !t.is_empty() {
+                let mut marks = 0;
+                let spans = hit_spans(t, re.as_ref())
+                    .into_iter()
+                    .map(|(span, hit)| {
+                        if hit {
+                            let k = marks;
+                            marks += 1;
+                            fixed(named(
+                                format!("{key}/{i}/mark/{k}"),
+                                frame(
+                                    Frame {
+                                        fill: alpha(hex("#B07BFF"), 0.35),
+                                        radius: [3.; 4],
+                                        padding: [0., 2., 0., 2.],
+                                        row: true,
+                                        ..Default::default()
+                                    },
+                                    vec![fixed(mono(span, ink.fg))],
+                                ),
+                            ))
+                        } else {
+                            shrink(mono(span, ink.dim))
+                        }
+                    })
+                    .collect();
+                kids.push(shrink(hstack(spans, 0.)));
             }
-            spans.push((t[at..].to_owned(), ink.dim, 400, false));
             frame(
                 Frame {
                     fill: alpha(ink.fg, 0.04),
                     radius: [6.; 4],
                     padding: [3., 8., 3., 8.],
+                    gap: 10.,
+                    row: true,
                     ..Default::default()
                 },
-                vec![runs(spans, 12., true, false).into()],
+                kids,
             )
             .into()
         })
         .collect();
     vstack(rows, 2.)
+}
+
+// ---------- parallel tool calls: harness.js mount() puts consecutive tool cards on one rail ----------
+/// `.hx-group::after`: "N CALLS · ONE ROUND", 10px 600 +0.06em, seat 70% over fg-dim, in the
+/// 15px line box that sits on the group's top edge.
+pub fn group_caption(key: &str, n: usize, ink: &Ink) -> c::Element {
+    let mut t = c::Text::new(
+        format!("{n} CALLS · ONE ROUND"),
+        ui::Text {
+            step: ui::TypeStep::Body,
+            size: Some(10.),
+            weight: 600,
+            paint: paint(mix(ink.seat, ink.dim, 0.7)),
+            tracking_em: 0.06,
+            line_height: 1.5,
+            ..Default::default()
+        },
+    );
+    t.wrap = false;
+    named(key.to_owned(), c::Element::Text(t))
+}
+/// `.hx-group`: a member card inset 14px behind a 2px seat rail 4px in from the group's left
+/// edge; the rail starts 8px into the first card and ends 8px before the last. The 6px member
+/// gap is inside the rail column so the rail runs unbroken. The web's seat → seat 15% gradient
+/// down the group is one flat step per member here. The caption sits on the group's left edge:
+/// the row region's 4px inset (the smoke's inset-card rule) leaves no room for the web's -2px.
+pub fn group_member(card: c::Element, index: usize, n: usize, ink: &Ink) -> c::Element {
+    let (first, last) = (index == 0, index + 1 == n);
+    let a = 1. - 0.85 * (index as f32 + 0.5) / n as f32;
+    let rail = frame(
+        Frame {
+            padding: [
+                if first { 8. } else { 0. },
+                8.,
+                if last { 8. } else { 0. },
+                4.,
+            ],
+            ..Default::default()
+        },
+        vec![c::Item {
+            element: bar(2., alpha(ink.seat, a)),
+            extent: c::Extent::Fill,
+        }],
+    );
+    let gap = |h: f32| c::Item {
+        element: c::Element::Spacer,
+        extent: c::Extent::Fixed(h),
+    };
+    let mut column = vec![];
+    if !first {
+        column.push(gap(3.));
+    }
+    column.push(card.into());
+    if !last {
+        column.push(gap(3.));
+    }
+    frame(
+        Frame {
+            row: true,
+            stretch: true,
+            ..Default::default()
+        },
+        vec![fixed(rail).with_width(14.), fill(vstack(column, 0.))],
+    )
 }
 
 // ---------- conversation blocks ----------

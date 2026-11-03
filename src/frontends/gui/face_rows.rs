@@ -53,6 +53,8 @@ pub(super) struct Folds {
     tail: Option<ItemId>,
     /// the first visible row carries .hx-feed's 14 px top padding
     first: Option<ItemId>,
+    /// parallel tool calls (harness.js `mount`): tool card -> (its index, the group size)
+    pub group: HashMap<ItemId, (usize, usize)>,
 }
 /// Usage items never draw a row (harness-spec.md "Refinement pass 2"): their figures feed
 /// the header meter and nothing else, so they carry neither the receipt nor the feed padding.
@@ -154,6 +156,45 @@ impl Folds {
                 f.kids.entry(to).or_default().push(*id);
             }
         }
+        // harness.js mount(): a tool card mounted right after a tool card (or the group it
+        // already sits in) joins its rail. Blocks are what the web draws: folded children and
+        // usage items never mount, so they neither join nor break a run. Any other row, a
+        // loop's members (they mount inside the loop card) and the turn's receipt block end it.
+        let in_loop: std::collections::HashSet<ItemId> =
+            f.loops.values().flatten().copied().collect();
+        let mut run: Vec<ItemId> = vec![];
+        let mut run_turn = None;
+        let flush = |run: &mut Vec<ItemId>, group: &mut HashMap<ItemId, (usize, usize)>| {
+            let n = run.len();
+            if n > 1 {
+                for (i, id) in run.iter().enumerate() {
+                    group.insert(*id, (i, n));
+                }
+            }
+            run.clear();
+        };
+        for id in &model.order {
+            if f.parent.contains_key(id) {
+                continue;
+            }
+            let r = &model.items[id];
+            if r.kind == ItemKind::Usage {
+                continue;
+            }
+            let tool = !in_loop.contains(id)
+                && matches!(
+                    r.kind,
+                    ItemKind::ToolCall | ItemKind::Terminal | ItemKind::FileChange
+                );
+            if !(tool && (run.is_empty() || run_turn == r.turn)) {
+                flush(&mut run, &mut f.group);
+            }
+            if tool {
+                run.push(*id);
+                run_turn = r.turn;
+            }
+        }
+        flush(&mut run, &mut f.group);
         f.tail = model
             .order
             .iter()
@@ -193,6 +234,10 @@ impl Folds {
         if self.tail == Some(*id) {
             any = true;
             "tail".hash(&mut h);
+        }
+        if let Some(g) = self.group.get(id) {
+            any = true;
+            g.hash(&mut h);
         }
         if let Some(t) = self.last.get(id) {
             any = true;
@@ -249,6 +294,9 @@ impl Preparer {
         if matches!(row.body, Item::Usage { .. }) {
             return Ok((c::Element::Spacer, None));
         }
+        // a parallel-call group member is inset 14px behind the rail (.hx-group padding-left)
+        let group = folds.group.get(&id).copied();
+        let inset = if group.is_some() { 14. } else { 0. };
         let content: c::Element = match &row.body {
             Item::UserMessage { blocks } => {
                 let text = blocks
@@ -443,7 +491,8 @@ impl Preparer {
                 f::vstack(kids, 4.)
             }
             Item::ToolCall { .. } => {
-                let (card, doc) = self.tool_card(model, row, face, folds, content_width, &ink)?;
+                let (card, doc) =
+                    self.tool_card(model, row, face, folds, content_width - inset, &ink)?;
                 rich = doc;
                 card
             }
@@ -530,6 +579,7 @@ impl Preparer {
                                 verb: "Run".into(),
                                 target: command.trim_start_matches("bash -c ").to_owned(),
                                 mono: true,
+                                place: None,
                                 stat: None,
                                 // `exit N` only when N ≠ 0 (harness-spec.md "Tight transcript")
                                 meta: exit
@@ -588,6 +638,7 @@ impl Preparer {
                                 verb: "Changed".into(),
                                 target: p,
                                 mono: false,
+                                place: None,
                                 stat: Some(f::diff_stat(unified)),
                                 meta: None,
                                 badge: None,
@@ -624,6 +675,24 @@ impl Preparer {
                 &ink,
             ),
             _ => return Err("face row for an unhandled kind".into()),
+        };
+        let content = match group {
+            Some((i, n)) => {
+                let member = f::group_member(content, i, n, &ink);
+                if i == 0 {
+                    // the caption's 15px line box sits flush on the group's top edge
+                    f::vstack(
+                        vec![
+                            f::group_caption(&format!("group/{id}/caption"), n, &ink).into(),
+                            member.into(),
+                        ],
+                        0.,
+                    )
+                } else {
+                    member
+                }
+            }
+            None => content,
         };
         let mut content: Vec<c::Item> = vec![content.into()];
         if let Some(turn) = folds.last.get(&id)
@@ -679,16 +748,20 @@ impl Preparer {
         let gap = 4.;
         // .hx-feed's 14 px top padding sits on the first drawn row
         let top = if folds.first == Some(id) { 14. } else { gap };
+        let bottom = if folds.tail == Some(id) { 18. } else { gap };
+        // .hx-group: margin-top 12 above the caption's 15px box; the 6px member gap is inside
+        // the rail column, so the members themselves touch
+        let (top, bottom) = match group {
+            Some((0, _)) => (top + 12. - 15., 0.),
+            Some((i, n)) if i + 1 == n => (0., bottom),
+            Some(_) => (0., 0.),
+            None => (top, bottom),
+        };
         let _ = width;
         Ok((
             f::frame(
                 f::Frame {
-                    padding: [
-                        top,
-                        gutter,
-                        if folds.tail == Some(id) { 18. } else { gap },
-                        gutter,
-                    ],
+                    padding: [top, gutter, bottom, gutter],
                     ..Default::default()
                 },
                 vec![region.into()],
@@ -820,6 +893,7 @@ impl Preparer {
                     verb: d.verb.clone(),
                     target: d.target.clone(),
                     mono: d.mono,
+                    place: d.place.clone(),
                     stat: unified.as_deref().map(f::diff_stat),
                     meta,
                     badge,
@@ -951,6 +1025,7 @@ impl Preparer {
                     .unwrap_or("");
                 inside.push(
                     f::hits(
+                        &format!("hits/{id}"),
                         &d.out,
                         if d.verb == "Search" { pattern } else { "$^" },
                         cwd,

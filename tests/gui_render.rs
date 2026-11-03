@@ -1098,6 +1098,9 @@ async fn tight_tool_heads_fold_rule_and_feed_gap() {
     });
     for r in &mut rows {
         r.completed_ms = Some(400);
+        // one run per turn: consecutive tool cards in one round share a rail and a 6 px
+        // member gap (harness.js mount, gaps-hij); this test measures the plain feed gap
+        r.turn = Some(TurnId::new());
     }
     rows[3].completed_ms = Some(2500);
     let state = hand_state(rows).await;
@@ -1311,4 +1314,307 @@ async fn short_thoughts_show_the_gist_alone() {
             "the chevron is hidden at rest"
         );
     }
+}
+
+// ---------- gaps-hij: parallel tool calls, the search head and the kind icons ----------
+fn tool_item(name: &str, kind: &str, input: serde_json::Value, out: &str) -> Item {
+    serde_json::from_value(serde_json::json!({
+        "kind": "tool_call", "call_id": name, "name": name, "tool_kind": kind,
+        "input_raw": input.to_string(),
+        "output": [{"type": "text", "text": out}], "locations": [], "spill": null
+    }))
+    .unwrap()
+}
+fn face_row(
+    turn: TurnId,
+    seq: u64,
+    body: Item,
+) -> bboxy450_harness::frontends::gui::model::ViewItem {
+    bboxy450_harness::frontends::gui::model::ViewItem {
+        id: ItemId::new(),
+        turn: Some(turn),
+        parent: None,
+        started: Seq(seq),
+        completed: Some(Seq(seq + 1)),
+        kind: body.kind(),
+        body,
+        status: Some(ItemStatus::Completed),
+        terminal_tail: String::new(),
+        started_ms: seq,
+        completed_ms: Some(seq + 1),
+    }
+}
+/// Lays the rows out as the face does (cwd /repo, 900 wide) and returns the frame layout.
+async fn face_layout(
+    rows: Vec<bboxy450_harness::frontends::gui::model::ViewItem>,
+) -> bbt_ui::components::Layout {
+    let mut transcript = Transcript {
+        meta: Some(support::meta("/repo".into())),
+        ..Default::default()
+    };
+    for row in rows {
+        transcript.order.push_back(row.id);
+        transcript.items.insert(row.id, row);
+    }
+    let mut state = FrameState {
+        transcript: Arc::new(transcript),
+        ready: true,
+        replay: true,
+        ..Default::default()
+    };
+    state.prepared = Some(Arc::new(
+        prepare(&mut Preparer::default(), state.transcript.clone(), 900.).await,
+    ));
+    let mut view = HarnessView::default();
+    view.render(&state, [900., 4000.])
+        .unwrap()
+        .layout
+        .clone()
+        .unwrap()
+}
+fn caption(layout: &bbt_ui::components::Layout, id: ItemId) -> Option<String> {
+    bboxy450_harness::frontends::gui::view::find(layout, &format!("group/{id}/caption"))
+        .map(bboxy450_harness::frontends::gui::view::layout_text)
+}
+fn card_x(layout: &bbt_ui::components::Layout, id: ItemId) -> f32 {
+    bboxy450_harness::frontends::gui::view::find(layout, &format!("tool/{id}"))
+        .unwrap()
+        .rect
+        .x
+}
+
+/// harness.js mount(): consecutive tool cards with no other block between them share a
+/// rail and a "N CALLS · ONE ROUND" caption. One call is no group; a reasoning or message
+/// block (a new round) and a turn boundary end the run; a usage item never mounts, so it
+/// neither joins nor breaks one.
+#[tokio::test]
+async fn parallel_tool_calls_share_a_rail_and_caption() {
+    let turn = TurnId::new();
+    let read = |n: u64| {
+        face_row(
+            turn,
+            n,
+            tool_item(
+                "read",
+                "read",
+                serde_json::json!({"path": "/repo/src/lib.rs"}),
+                "1: fn main() {}",
+            ),
+        )
+    };
+    let thought = |n: u64| {
+        face_row(
+            turn,
+            n,
+            Item::Reasoning {
+                summary: "Next round.".into(),
+                raw: None,
+                provider_opaque: None,
+            },
+        )
+    };
+    // one call: no caption, the card at the feed's column
+    let one = vec![thought(1), read(3)];
+    let (t, a) = (one[0].id, one[1].id);
+    let layout = face_layout(one).await;
+    assert_eq!(caption(&layout, a), None);
+    assert_eq!(caption(&layout, t), None);
+    let column = card_x(&layout, a);
+
+    // two calls in one round: the caption on the first only, both cards inset 14px
+    let two = vec![read(1), read(3)];
+    let (a, b) = (two[0].id, two[1].id);
+    let layout = face_layout(two).await;
+    assert_eq!(caption(&layout, a).as_deref(), Some("2 CALLS · ONE ROUND"));
+    assert_eq!(caption(&layout, b), None);
+    assert!(
+        (card_x(&layout, a) - column - 14.).abs() < 0.5,
+        "{} vs {column}",
+        card_x(&layout, a)
+    );
+    assert!((card_x(&layout, b) - column - 14.).abs() < 0.5);
+
+    // three calls
+    let three = vec![read(1), read(3), read(5)];
+    let ids: Vec<ItemId> = three.iter().map(|r| r.id).collect();
+    let layout = face_layout(three).await;
+    assert_eq!(
+        caption(&layout, ids[0]).as_deref(),
+        Some("3 CALLS · ONE ROUND")
+    );
+    assert!(ids[1..].iter().all(|id| caption(&layout, *id).is_none()));
+
+    // across rounds: a thought between two calls ends the run; two rounds of two make two groups
+    let rounds = vec![
+        read(1),
+        thought(3),
+        read(5),
+        read(7),
+        thought(9),
+        read(11),
+        read(13),
+    ];
+    let ids: Vec<ItemId> = rounds.iter().map(|r| r.id).collect();
+    let layout = face_layout(rounds).await;
+    assert_eq!(caption(&layout, ids[0]), None);
+    assert!((card_x(&layout, ids[0]) - column).abs() < 0.5);
+    assert_eq!(
+        caption(&layout, ids[2]).as_deref(),
+        Some("2 CALLS · ONE ROUND")
+    );
+    assert_eq!(caption(&layout, ids[3]), None);
+    assert_eq!(
+        caption(&layout, ids[5]).as_deref(),
+        Some("2 CALLS · ONE ROUND")
+    );
+    assert_eq!(caption(&layout, ids[6]), None);
+
+    // across turns: the receipt block sits between them on the web
+    let mut other = read(3);
+    other.turn = Some(TurnId::new());
+    let turns = vec![read(1), other];
+    let ids: Vec<ItemId> = turns.iter().map(|r| r.id).collect();
+    let layout = face_layout(turns).await;
+    assert!(ids.iter().all(|id| caption(&layout, *id).is_none()));
+
+    // a usage item between two calls: the web never mounts it, so the two still share a rail
+    let usage: Item = serde_json::from_value(
+        serde_json::json!({"kind": "usage", "usage": {"input_tokens": 10, "output_tokens": 2}}),
+    )
+    .unwrap();
+    let with_usage = vec![read(1), face_row(turn, 3, usage), read(5)];
+    let ids: Vec<ItemId> = with_usage.iter().map(|r| r.id).collect();
+    let layout = face_layout(with_usage).await;
+    assert_eq!(
+        caption(&layout, ids[0]).as_deref(),
+        Some("2 CALLS · ONE ROUND")
+    );
+}
+
+/// A Search card's head reads `Search <pattern> in <path>` (harness.js `where`), and every
+/// match in a hit is a mark pill (`.hx-hits mark`).
+#[tokio::test]
+async fn search_head_says_where_and_hits_mark_each_match() {
+    use bboxy450_harness::frontends::gui::view::{find, layout_text};
+    let turn = TurnId::new();
+    let grep = face_row(
+        turn,
+        1,
+        tool_item(
+            "grep",
+            "search",
+            serde_json::json!({"pattern": "evict", "path": "/repo/src"}),
+            "/repo/src/lib.rs:20: self.evict();\n/repo/src/lib.rs:47: was evicted, then evict again\n/repo/README.md",
+        ),
+    );
+    let id = grep.id;
+    let layout = face_layout(vec![grep]).await;
+    let head = layout_text(find(&layout, &format!("toolhead/{id}")).unwrap());
+    let (verb, pattern, place) = (
+        head.find("Search").unwrap(),
+        head.find("evict").unwrap(),
+        head.find("in src").unwrap(),
+    );
+    assert!(verb < pattern && pattern < place, "{head}");
+    assert!(head.contains("3 hits"), "{head}");
+    let mark =
+        |row: usize, k: usize| find(&layout, &format!("hits/{id}/{row}/mark/{k}")).map(layout_text);
+    assert_eq!(mark(0, 0).as_deref(), Some("evict"));
+    assert_eq!(mark(0, 1), None);
+    // the second hit matches twice: "evict" inside "evicted" and the bare word
+    assert_eq!(mark(1, 0).as_deref(), Some("evict"));
+    assert_eq!(mark(1, 1).as_deref(), Some("evict"));
+    assert_eq!(mark(1, 2), None);
+    // a line without `:N:` is a file alone: no text, no marks
+    assert_eq!(mark(2, 0), None);
+    let text = layout_text(find(&layout, &format!("item/{id}")).unwrap());
+    assert!(
+        text.contains("src/lib.rs:20") && text.contains("README.md"),
+        "{text}"
+    );
+}
+
+#[test]
+fn hit_lines_split_as_the_web_regex_does() {
+    use bboxy450_harness::frontends::face_core::{hit_line, hit_spans};
+    assert_eq!(
+        hit_line("src/a.rs:12: let x = 1;"),
+        ("src/a.rs", Some("12"), " let x = 1;")
+    );
+    assert_eq!(hit_line("C:/x/y.rs:3:z"), ("C:/x/y.rs", Some("3"), "z"));
+    assert_eq!(hit_line("just/a/file.rs"), ("just/a/file.rs", None, ""));
+    assert_eq!(hit_line("a:b:9:c"), ("a:b", Some("9"), "c"));
+    let re = regex::Regex::new("fo+").unwrap();
+    let spans = |t: &str| hit_spans(t, Some(&re));
+    let own = |v: Vec<(&str, bool)>| -> Vec<(String, bool)> {
+        v.into_iter().map(|(s, b)| (s.to_owned(), b)).collect()
+    };
+    assert_eq!(
+        spans("let x = foo(bar)"),
+        own(vec![("let x = ", false), ("foo", true), ("(bar)", false)])
+    );
+    assert_eq!(
+        spans("fo foo"),
+        own(vec![("fo", true), (" ", false), ("foo", true)])
+    );
+    assert_eq!(spans("none here"), own(vec![("none here", false)]));
+    assert_eq!(hit_spans("plain", None), own(vec![("plain", false)]));
+    assert_eq!(spans(""), vec![]);
+}
+
+/// harness.js ICON and `.hx-ki` colours, one glyph per tool kind: fetch is the globe, other
+/// the sparkle, and no kind falls through to the sparkle by accident.
+#[test]
+fn tool_kind_icons_and_colours_match_the_web_table() {
+    use bboxy450_harness::frontends::{face_core::kind_hex, gui::face::icon_commands};
+    use bbt_ui_model::draw::PathCommand as P;
+    let kinds = [
+        ("read", "#58D7FF"),
+        ("search", "#B07BFF"),
+        ("execute", "#2EE6A8"),
+        ("edit", "#FFC53D"),
+        ("delete", "#FF6B6B"),
+        ("move", "#F2D16B"),
+        ("fetch", "#4FD1FF"),
+        ("other", "#FF4FA3"),
+    ];
+    let glyphs: Vec<Vec<P>> = kinds
+        .iter()
+        .map(|(k, hex)| {
+            assert_eq!(kind_hex(k), *hex, "{k}");
+            icon_commands(k).unwrap_or_else(|| panic!("{k} has no icon of its own"))
+        })
+        .collect();
+    for (i, a) in glyphs.iter().enumerate() {
+        for (j, b) in glyphs.iter().enumerate() {
+            assert!(
+                i == j || a != b,
+                "{} and {} share a glyph",
+                kinds[i].0,
+                kinds[j].0
+            );
+        }
+    }
+    // the globe: a circle (cubic arcs), the equator and two meridians
+    let fetch = &glyphs[6];
+    assert!(fetch.iter().any(|c| matches!(c, P::Cubic(_))));
+    assert!(
+        fetch
+            .windows(2)
+            .any(|w| w == [P::Move([2., 8.]), P::Line([14., 8.])])
+    );
+    assert_eq!(
+        fetch
+            .iter()
+            .filter(|c| matches!(c, P::Move([8., 2.])))
+            .count(),
+        2
+    );
+    // the sparkle is `other`, and only an unknown name borrows it
+    assert_eq!(glyphs[7][0], P::Move([8., 2.]));
+    assert_eq!(glyphs[7].len(), 9);
+    assert_eq!(icon_commands("no-such-icon"), None);
+    // the delete bin and the move arrow carry the web's path points
+    assert_eq!(glyphs[4][0], P::Move([3., 4.5]));
+    assert!(glyphs[5].contains(&P::Line([13.5, 8.])));
 }
