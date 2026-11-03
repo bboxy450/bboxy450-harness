@@ -14,28 +14,28 @@
   },
   "acp-codex-acp": {
    "sha256": "4efaaf9347d0777008d23c5ea0b5798ec795a5e2a58674e59938aeb0455d3221",
-   "mean_abs_diff": 0.0077,
-   "row_structure_mismatch": 0.0418
+   "mean_abs_diff": 0.0075,
+   "row_structure_mismatch": 0.0345
   },
   "acp-omp": {
    "sha256": "b4995a80b27465699c6d97de72ee46555b0a6c0c00072cb386e52e8bb8fbad76",
-   "mean_abs_diff": 0.0084,
-   "row_structure_mismatch": 0.02
+   "mean_abs_diff": 0.0081,
+   "row_structure_mismatch": 0.0182
   },
   "acp-opencode": {
    "sha256": "935ef1f3e1276b32b9d893c4d644e18bcffd01bb4df71d1908445af26d1a6c40",
-   "mean_abs_diff": 0.034,
-   "row_structure_mismatch": 0.4045
+   "mean_abs_diff": 0.0335,
+   "row_structure_mismatch": 0.3909
   },
   "acp-pi": {
    "sha256": "48e703c0f632b96b94c30046bc0a343c8157805ca401a1b310c487f6bb09b184",
-   "mean_abs_diff": 0.0082,
-   "row_structure_mismatch": 0.0345
+   "mean_abs_diff": 0.0078,
+   "row_structure_mismatch": 0.0273
   },
   "glyph-atlas": {
    "sha256": "6d9dc0fe84bef84c79e01cba0a24c5de511fc05b9c353a01aeccbfe2a16dbb1c",
-   "mean_abs_diff": 0.0322,
-   "row_structure_mismatch": 0.2427
+   "mean_abs_diff": 0.0321,
+   "row_structure_mismatch": 0.2409
   },
   "mermaid": {
    "sha256": "4bce464d690c7906a4a2fda7c81f2892780d1a339f548cdc06254b5d54904c27",
@@ -43,7 +43,7 @@
    "row_structure_mismatch": 0.2709
   }
  },
- "lab_sha256": "e2b3d368968358277e3c025b6e4621901e2dda26e074fd9e9116e20022a7fd0e",
+ "lab_sha256": "4b4a1ac688f7756a12f672f4ebfe847536fe12ad7cebd05dc70f9ca605d620b1",
  "lab_files": [
   "lab.css",
   "tokens.js",

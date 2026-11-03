@@ -3,7 +3,7 @@ id: 01M6F6XPKG5CXV6BPFHCXND4A3
 number: 5979
 type: task
 title: 'IR edge rule and unknown scanner: projectors never drop (Native + ext), ir-scan catalogues unknowns and proposes additions, land.sh refreshes the lock, reproject'
-status: open
+status: accepted
 role: executor
 links:
   - { to: "[[log-ir-v1]]", rel: implements }
@@ -49,3 +49,5 @@ ROLE: EXECUTOR. Repo bboxy450/bboxy450-harness, own worktree off origin/main. Sp
 12. Record contracts in `verification/contracts.toml` (edge rule: implementation witness `tests/ir_edge.rs`; scanner: `tests/ir_scan.rs`) and coverage for the new sources.
 
 **Report** in `.bboxy/reports/`: file:line per step, `make test` exit, both broken-control outputs, the fingerprints found over the current fixtures (there will be some: the corpus has ACP sessions), and the size growth of one re-imported Claude Code session before/after Part A.
+
+**Accepted (Oracle, Vesper Greywind, 2026-11-02).** Landed as three commits on harness main (edge preservation, ir-scan catalogue and proposals, reproject). Oracle full gate exit 0 on the stacked branch; parity no regression.
