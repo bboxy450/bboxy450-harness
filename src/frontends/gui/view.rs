@@ -163,7 +163,8 @@ pub struct Frame {
     pub layout: Option<c::Layout>,
     pub visible: Vec<(ItemId, ItemKind, Rect)>,
     pub actions: Vec<(Rect, Action)>,
-    /// Pointer hover zones of the open menu: the row name under each rect.
+    /// Pointer hover zones, front to back: the open menu's rows, then each message row's
+    /// source toggle (`source/{id}/toggle`) and the row itself (`msg/{id}`).
     pub hover: Vec<(Rect, String)>,
     pub scroll: f32,
     pub max_scroll: f32,
@@ -268,11 +269,13 @@ struct Menus {
     last: Option<Card>,
     /// The closed card, fading out over 120ms `std` until it is gone.
     ghost: Option<Card>,
-    /// The row name under the pointer.
+    /// The hover zone under the pointer: a menu row, a message row or its source toggle.
     hover: Option<String>,
     /// The hover changed: the frame must be rebuilt although nothing else did.
     dirty: bool,
 }
+/// harness-spec.md "Refinement pass 2": the message source toggle fades over 150ms `std`.
+const SOURCE_HOVER_MS: f32 = 150.;
 /// harness-spec.md Motion table, the menu rows: open 170ms `out`, close
 /// 120ms `std`, selection 120ms `std`, hover 150ms `std`.
 /// scripts/test-motion-control.py zeroes these: every tween must then snap
@@ -601,8 +604,19 @@ impl HarnessView {
         let live = !matches!(model.phase, Phase::Idle | Phase::Closed) && !state.replay;
         let ask = live && matches!(model.phase, Phase::Approval { .. });
         let focused = self.focused;
+        // the header meter sums every usage item (harness-spec.md "Refinement pass 2")
+        let usage = model
+            .items
+            .values()
+            .fold((0u64, 0u64), |acc, r| match &r.body {
+                Item::Usage { usage } => (
+                    acc.0.saturating_add(usage.input_tokens),
+                    acc.1.saturating_add(usage.output_tokens),
+                ),
+                _ => acc,
+            });
         let controls_key = format!(
-            "{draft}{status}{tone:?}{live}{focused}{}{:?}{:?}{:?}",
+            "{draft}{status}{tone:?}{live}{focused}{}{:?}{:?}{:?}{usage:?}",
             self.profile_menu.is_some(),
             state.ready,
             model.profile,
@@ -677,6 +691,7 @@ impl HarnessView {
                     &status,
                     tone,
                     self.profile_menu.is_some(),
+                    usage,
                     &super::face::ink(ctx),
                 ),
             );
@@ -768,6 +783,33 @@ impl HarnessView {
                 overlays = Some((viewport, prims));
             }
         }
+        // The message source toggle is hover-only (harness-spec.md "Refinement pass 2"):
+        // nothing at rest, .6 while its row is under the pointer, 1 over the control itself,
+        // each over 150 ms `std`. A settled clock answers the end state, so captures and the
+        // parity gate never show it. Its hit zone (the named node's rect) stays.
+        {
+            let hovered = self.menus.hover.as_deref();
+            let anim = &mut self.anim;
+            source_toggles(&mut layout, &mut |key, node| {
+                let row = key
+                    .strip_prefix("source/")
+                    .and_then(|k| k.strip_suffix("/toggle"))
+                    .unwrap_or(key);
+                let target = if hovered == Some(key) {
+                    1.
+                } else if hovered == Some(format!("msg/{row}").as_str()) {
+                    0.6
+                } else {
+                    0.
+                };
+                let a = anim.tween(&format!("{key}/hover"), target, SOURCE_HOVER_MS, Ease::Std);
+                if a <= 0. {
+                    node.children.clear();
+                } else {
+                    stream_motion::fade_node(node, a);
+                }
+            });
+        }
         // the empty session's rise and its chips' staggered rise (opacity is in the element)
         for (name, key) in [
             ("empty", "empty/in"),
@@ -827,6 +869,22 @@ impl HarnessView {
                 let r = intersection(node.rect, scroll_node.rect);
                 if r.w > 0. && r.h > 0. {
                     frame.visible.push((*id, model.items[id].kind.clone(), r));
+                }
+            }
+            // a message row and its source toggle are hover zones; the toggle is listed
+            // first so the pointer over it reads as the control, not only the row
+            if model.items[id].kind == ItemKind::AgentMessage {
+                let toggle = format!("source/{id}/toggle");
+                for (node_key, zone) in [
+                    (toggle.clone(), toggle),
+                    (format!("item/{id}"), format!("msg/{id}")),
+                ] {
+                    if let Some(node) = find(&layout, &node_key) {
+                        let r = intersection(node.rect, scroll_node.rect);
+                        if r.w > 0. && r.h > 0. {
+                            frame.hover.push((r, zone));
+                        }
+                    }
                 }
             }
             for (key, toggle) in [
@@ -1033,10 +1091,18 @@ impl HarnessView {
                 .actions
                 .push((Rect::new(0., 0., width, size[1]), Action::Menu(false)));
         }
+        // the menu zones sit in front of the rows' (message rows and their source toggles)
+        hover.append(&mut self.frame.hover);
         self.frame.hover = hover;
         let shown = open.as_ref().map(|(kind, ..)| *kind);
-        if shown.is_none() {
-            // nothing to hover: a reopened menu starts clean
+        if shown.is_none()
+            && self
+                .menus
+                .hover
+                .as_deref()
+                .is_some_and(|k| k.starts_with("completion/") || k.starts_with("pmenu/"))
+        {
+            // no menu to hover: a reopened menu starts clean
             self.menus.hover = None;
         }
         // The card that closed (or gave way to the other kind) fades out from
@@ -2606,6 +2672,20 @@ fn paint_shapes(node: &mut c::Layout) {
     }
 }
 
+/// Calls `f` on every message source toggle (`source/{id}/toggle`) in the solved layout.
+fn source_toggles(node: &mut c::Layout, f: &mut impl FnMut(&str, &mut c::Layout)) {
+    if let c::LayoutKind::Named(name) = &node.kind
+        && name.starts_with("source/")
+        && name.ends_with("/toggle")
+    {
+        let name = name.clone();
+        f(&name, node);
+        return;
+    }
+    for child in &mut node.children {
+        source_toggles(child, f);
+    }
+}
 fn find_mut<'a>(node: &'a mut c::Layout, key: &str) -> Option<&'a mut c::Layout> {
     if matches!(&node.kind, c::LayoutKind::Named(name) if name == key) {
         Some(node)

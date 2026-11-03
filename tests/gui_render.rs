@@ -343,7 +343,16 @@ async fn actual_layout_sticks_releases_and_renders_approval_actions() {
             .count(),
         3
     );
-    assert_eq!(frame.visible.len(), state.transcript.items.len());
+    // every item but the usage item, which draws no row (harness-spec.md "Refinement pass 2")
+    assert_eq!(
+        frame.visible.len(),
+        state
+            .transcript
+            .items
+            .values()
+            .filter(|r| r.kind != ItemKind::Usage)
+            .count()
+    );
 }
 #[tokio::test]
 async fn composer_send_and_control_buttons_reach_real_gateway() {
@@ -471,6 +480,268 @@ async fn cards_show_readable_content_instead_of_serialized_payloads() {
     assert!(!text.contains("Some("));
 }
 
+fn hand_item(
+    id: ItemId,
+    kind: ItemKind,
+    body: Item,
+    terminal_tail: &str,
+) -> bboxy450_harness::frontends::gui::model::ViewItem {
+    bboxy450_harness::frontends::gui::model::ViewItem {
+        id,
+        turn: None,
+        parent: None,
+        started: Seq(1),
+        completed: Some(Seq(2)),
+        kind,
+        body,
+        status: Some(ItemStatus::Completed),
+        terminal_tail: terminal_tail.into(),
+        started_ms: 0,
+        completed_ms: Some(1),
+    }
+}
+async fn hand_state(rows: Vec<bboxy450_harness::frontends::gui::model::ViewItem>) -> FrameState {
+    let mut t = Transcript::default();
+    for row in rows {
+        t.order.push_back(row.id);
+        t.items.insert(row.id, row);
+    }
+    let mut state = FrameState {
+        transcript: Arc::new(t),
+        ready: true,
+        replay: true,
+        ..Default::default()
+    };
+    let mut preparer = Preparer::default();
+    state.prepared = Some(Arc::new(
+        prepare(&mut preparer, state.transcript.clone(), 900.).await,
+    ));
+    state
+}
+
+/// harness-spec.md "Refinement pass 2": a usage item draws nothing in the feed and adds no
+/// space; the header meter sums the items and shows once input tokens arrive, never for a
+/// 0/0 total (the operator's screenshot showed "0 in · 0 out" rows).
+#[tokio::test]
+async fn usage_items_feed_the_header_meter_and_draw_no_row() {
+    use bboxy450_harness::frontends::gui::view::{find, layout_text};
+    let mut heights = vec![];
+    for (tokens_in, tokens_out, meter) in [(0, 0, false), (1500, 300, true)] {
+        let reply = ItemId::new();
+        let usage = ItemId::new();
+        let state = hand_state(vec![
+            hand_item(
+                reply,
+                ItemKind::AgentMessage,
+                Item::AgentMessage {
+                    markdown: "A reply.".into(),
+                },
+                "",
+            ),
+            hand_item(
+                usage,
+                ItemKind::Usage,
+                Item::Usage {
+                    usage: Usage {
+                        input_tokens: tokens_in,
+                        output_tokens: tokens_out,
+                        ..Default::default()
+                    },
+                },
+                "",
+            ),
+        ])
+        .await;
+        let mut view = HarnessView::default();
+        let frame = view.render(&state, [900., 700.]).unwrap();
+        let layout = frame.layout.as_ref().unwrap();
+        assert!(
+            frame.item_text(usage).unwrap_or_default().trim().is_empty(),
+            "the usage item drew a row"
+        );
+        assert!(
+            !frame.visible.iter().any(|(id, ..)| *id == usage),
+            "a usage item is never a visible row"
+        );
+        let feed = layout_text(find(layout, "transcript").unwrap());
+        assert!(
+            !feed.contains(" in · ") && !feed.contains("token"),
+            "token figures reached the feed: {feed}"
+        );
+        // the usage item's slot is empty: no row, no padding, no height
+        let slot = find(layout, &format!("cached/{usage}")).expect("the usage slot stays");
+        assert_eq!(
+            slot.rect.h, 0.,
+            "the usage item added space: {:?}",
+            slot.rect
+        );
+        assert!(layout_text(slot).is_empty(), "the usage slot drew text");
+        // the reply carries the feed's top and bottom padding either way
+        heights.push(find(layout, &format!("item/{reply}")).unwrap().rect.h);
+        assert_eq!(
+            find(layout, "meter").is_some(),
+            meter,
+            "the meter shows only once input tokens arrive"
+        );
+        if meter {
+            let bar = layout_text(find(layout, "toolbar").unwrap());
+            assert!(bar.contains("1.8k"), "the meter shows in + out: {bar}");
+        }
+    }
+    assert!((heights[0] - heights[1]).abs() < 0.5);
+}
+
+/// harness-spec.md "Refinement pass 2": the exit status is the tool card header's chip; the
+/// terminal body never appends an `exit N` line, and its output sits on 8 px top and 10 px
+/// bottom padding with nothing under the last line.
+#[tokio::test]
+async fn terminal_body_has_no_exit_line_and_keeps_its_padding() {
+    use bboxy450_harness::frontends::gui::view::{find, layout_text};
+    let id = ItemId::new();
+    let state = hand_state(vec![hand_item(
+        id,
+        ItemKind::Terminal,
+        Item::Terminal {
+            terminal: "t1".into(),
+            command: "printf ok".into(),
+            exit: Some(0),
+            signal: None,
+            output: None,
+            live: None,
+        },
+        "ok\nagain",
+    )])
+    .await;
+    let mut view = HarnessView::default();
+    let frame = view.render(&state, [900., 700.]).unwrap();
+    let layout = frame.layout.as_ref().unwrap();
+    let term = find(layout, &format!("term/{id}")).expect("the terminal block");
+    let body = layout_text(term);
+    assert!(
+        body.contains("printf ok") && body.contains("again"),
+        "{body}"
+    );
+    assert!(
+        !body.contains("exit"),
+        "the terminal body appended an exit line: {body}"
+    );
+    assert!(
+        layout_text(find(layout, &format!("toolhead/{id}")).unwrap()).contains("exit 0"),
+        "the header chip carries the exit status"
+    );
+    let out = find(layout, &format!("term/{id}/output")).expect("the output block");
+    // the named node holds the padded box, whose children are the output lines
+    let lines = &out.children.first().expect("the padded box").children;
+    let (first, last) = (
+        lines.first().expect("output lines").rect,
+        lines.last().expect("output lines").rect,
+    );
+    // 8 px from the command row to the first line: the 1 px rule, then 7 px of padding
+    let rule = term
+        .children
+        .first()
+        .expect("the terminal box")
+        .children
+        .iter()
+        .find(|n| (n.rect.bottom() - out.rect.y).abs() < 0.01)
+        .expect("the rule above the output");
+    assert!(
+        (rule.rect.h - 1.).abs() < 0.01 && (first.y - rule.rect.y - 8.).abs() < 0.5,
+        "8 px above the first line: {} under the rule at {} (h {})",
+        first.y,
+        rule.rect.y,
+        rule.rect.h
+    );
+    assert!(
+        (out.rect.bottom() - last.bottom() - 10.).abs() < 0.5,
+        "10 px under the last line: {} above {}",
+        last.bottom(),
+        out.rect.bottom()
+    );
+}
+
+/// harness-spec.md "Refinement pass 2", message text rhythm: headings 15/700 with 8 above and
+/// 6 below, paragraphs 0 above and 6 below, lists 2 above and 8 below on a 20 px indent with
+/// 2 px between items. Adjacent margins collapse to the larger one, as on the web.
+#[tokio::test]
+async fn message_text_rhythm_matches_the_web_reference() {
+    use bboxy450_harness::frontends::gui::view::find;
+    use bbt_ui::components::{Layout, LayoutKind};
+    fn text_node<'a>(n: &'a Layout, want: &str) -> Option<&'a Layout> {
+        if let LayoutKind::Text { runs, .. } = &n.kind
+            && runs
+                .iter()
+                .map(|r| r.text.as_str())
+                .collect::<String>()
+                .trim()
+                == want
+        {
+            return Some(n);
+        }
+        n.children.iter().find_map(|c| text_node(c, want))
+    }
+    let id = ItemId::new();
+    let state = hand_state(vec![hand_item(
+        id,
+        ItemKind::AgentMessage,
+        Item::AgentMessage {
+            markdown: "## Title\n\nOne.\n\n- alpha\n- beta\n\nTwo.".into(),
+        },
+        "",
+    )])
+    .await;
+    let mut view = HarnessView::default();
+    let frame = view.render(&state, [900., 700.]).unwrap();
+    let layout = frame.layout.as_ref().unwrap();
+    let block = |i: usize| {
+        find(layout, &format!("mdblock/{i}"))
+            .expect("markdown block")
+            .rect
+    };
+    let (heading, one, list, two) = (block(0), block(1), block(2), block(3));
+    let gap = |a: bbt_ui_model::layout::Rect, b: bbt_ui_model::layout::Rect| b.y - a.bottom();
+    assert!(
+        (gap(heading, one) - 6.).abs() < 0.01,
+        "heading 6 below: {}",
+        gap(heading, one)
+    );
+    assert!(
+        (gap(one, list) - 6.).abs() < 0.01,
+        "paragraph 6 below, list 2 above: {}",
+        gap(one, list)
+    );
+    assert!(
+        (gap(list, two) - 8.).abs() < 0.01,
+        "list 8 below: {}",
+        gap(list, two)
+    );
+    let title = text_node(layout, "Title").expect("heading text");
+    let LayoutKind::Text { runs, .. } = &title.kind else {
+        unreachable!()
+    };
+    assert!(
+        runs.iter()
+            .all(|r| (r.style.size - 15.).abs() < 0.01 && r.style.weight >= 700),
+        "heading 15/700"
+    );
+    let (alpha, beta, one_text) = (
+        text_node(layout, "alpha").expect("first item"),
+        text_node(layout, "beta").expect("second item"),
+        text_node(layout, "One.").expect("paragraph"),
+    );
+    assert!(
+        (alpha.rect.x - one_text.rect.x - 20.).abs() < 0.01,
+        "list indent 20: {} vs {}",
+        alpha.rect.x,
+        one_text.rect.x
+    );
+    assert!(
+        (beta.rect.y - alpha.rect.bottom() - 2.).abs() < 0.01,
+        "2 px between items: {}",
+        beta.rect.y - alpha.rect.bottom()
+    );
+}
+
 #[tokio::test]
 async fn live_terminal_heads_snapshots_and_completed_blob_reach_the_view() {
     use bboxy450_harness::gateway::Gateway;
@@ -546,7 +817,20 @@ async fn live_terminal_heads_snapshots_and_completed_blob_reach_the_view() {
     let frame = view.render(&bridge.state, [1120., 7000.]).unwrap();
     let text = frame.item_text(terminal_id).unwrap();
     assert!(text.contains(command));
-    assert!(text.contains("exit 0"));
+    // the exit status is the tool card header's chip, never a body line (harness-spec.md
+    // "Refinement pass 2"): the terminal folds into its tool call, whose header shows it
+    assert!(
+        !text.contains("exit 0"),
+        "the terminal body appended an exit line: {text}"
+    );
+    let head = bridge.state.transcript.items[&terminal_id]
+        .parent
+        .map_or(format!("toolhead/{terminal_id}"), |p| {
+            format!("toolhead/{p}")
+        });
+    let head = bboxy450_harness::frontends::gui::view::find(frame.layout.as_ref().unwrap(), &head)
+        .expect("the tool card header");
+    assert!(bboxy450_harness::frontends::gui::view::layout_text(head).contains("exit 0"));
     assert!(
         text.contains("stream-headstream-tail"),
         "completed blob must supply output, not just the command: {text}"
@@ -614,10 +898,12 @@ async fn structural_layout_smoke_checks_restored_geometry() {
     )
     .unwrap();
     println!("prepared structural geometry: {checked:?}");
-    // every item is addressable; folded ones (approval, terminal, diff) live inside a tool card
+    // every drawn item is addressable; folded ones (approval, terminal, diff) live inside a
+    // tool card, and a usage item draws no row at all (harness-spec.md "Refinement pass 2")
     let layout = frame.layout.as_ref().unwrap();
     assert!(state.transcript.order.iter().all(|id| {
-        bboxy450_harness::frontends::gui::view::find(layout, &format!("item/{id}")).is_some()
+        state.transcript.items[id].kind == ItemKind::Usage
+            || bboxy450_harness::frontends::gui::view::find(layout, &format!("item/{id}")).is_some()
     }));
     assert!(checked.cards > 0 && checked.cards <= state.transcript.items.len());
     assert_eq!(checked.disclosures, checked.accordion_headers);

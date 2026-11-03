@@ -51,6 +51,16 @@ pub(super) struct Folds {
     folded: HashMap<TurnId, usize>,
     /// the transcript's last visible row carries .hx-feed's 18 px bottom padding
     tail: Option<ItemId>,
+    /// the first visible row carries .hx-feed's 14 px top padding
+    first: Option<ItemId>,
+}
+/// Usage items never draw a row (harness-spec.md "Refinement pass 2"): their figures feed
+/// the header meter and nothing else, so they carry neither the receipt nor the feed padding.
+fn drawn(model: &Transcript, id: &ItemId) -> bool {
+    model
+        .items
+        .get(id)
+        .is_some_and(|r| r.kind != ItemKind::Usage)
 }
 /// harness-spec.md "Runaway loop card": first line, lowercased, letters only, 48 chars.
 fn line_key(markdown: &str) -> String {
@@ -148,13 +158,19 @@ impl Folds {
             .order
             .iter()
             .rev()
-            .find(|id| !f.parent.contains_key(id))
+            .find(|id| !f.parent.contains_key(id) && drawn(model, id))
+            .copied();
+        f.first = model
+            .order
+            .iter()
+            .find(|id| !f.parent.contains_key(id) && drawn(model, id))
             .copied();
         let mut seen = std::collections::HashSet::new();
         for id in model.order.iter().rev() {
             let r = &model.items[id];
             if let Some(t) = r.turn
                 && !f.parent.contains_key(id)
+                && drawn(model, id)
                 && seen.insert(t)
             {
                 f.last.insert(*id, t);
@@ -228,6 +244,11 @@ impl Preparer {
             .map(|m| m.cwd.display().to_string())
             .unwrap_or_default();
         let mut rich = None;
+        // A usage item draws nothing (harness-spec.md "Refinement pass 2"): the header meter
+        // sums its figures. The row keeps its id at zero height, with no region or padding.
+        if matches!(row.body, Item::Usage { .. }) {
+            return Ok((c::Element::Spacer, None));
+        }
         let content: c::Element = match &row.body {
             Item::UserMessage { blocks } => {
                 let text = blocks
@@ -311,13 +332,16 @@ impl Preparer {
                         doc.element.clone()
                     },
                 );
+                // Hover-only (harness-spec.md "Refinement pass 2"): the view hides it at
+                // rest and fades it to .6 on row hover, 1 on its own, so it is drawn in full
+                // `dim` here.
                 let toggle = named(
                     format!("source/{id}/toggle"),
                     f::line(
                         if face.source { "formatted" } else { "source" },
                         10.5,
                         500,
-                        f::alpha(ink.dim, 0.55),
+                        ink.dim,
                         true,
                     ),
                 );
@@ -492,19 +516,6 @@ impl Preparer {
                 ),
             },
             Item::Notice { text, level } => f::notice(text, level, &ink),
-            Item::Usage { usage } => f::notice(
-                &format!(
-                    "{} in · {} out{}",
-                    kfmt(usage.input_tokens),
-                    kfmt(usage.output_tokens),
-                    usage
-                        .cached_input_tokens
-                        .filter(|c| *c > 0)
-                        .map_or(String::new(), |c| format!(" · {} cached", kfmt(c)))
-                ),
-                &Level::Info,
-                &ink,
-            ),
             Item::Terminal { command, exit, .. } => {
                 let status = term_status(row, *exit);
                 let out = self.terminal_text(row, "");
@@ -534,7 +545,6 @@ impl Preparer {
                                     &format!("term/{id}"),
                                     command.trim_start_matches("bash -c "),
                                     out.map(|o| f::term_output(&o, &ink)),
-                                    *exit,
                                     &ink,
                                 )
                                 .into(),
@@ -647,8 +657,8 @@ impl Preparer {
             ),
         );
         let gap = 5.;
-        // .hx-feed's 14 px top padding sits on the first row (row gaps are 5 + 5)
-        let top = if index == 0 { 14. } else { gap };
+        // .hx-feed's 14 px top padding sits on the first drawn row (row gaps are 5 + 5)
+        let top = if folds.first == Some(id) { 14. } else { gap };
         let _ = width;
         Ok((
             f::frame(
@@ -823,7 +833,7 @@ impl Preparer {
                 let out = out.map(|o| f::term_output(&o, ink)).or_else(|| {
                     (row.status.is_some() && exit.is_none()).then(|| {
                         vec![
-                            f::runs(
+                            f::term_line(
                                 vec![(
                                     if d.quiet {
                                         "output stayed in the agent\u{2019}s own terminal"
@@ -837,7 +847,6 @@ impl Preparer {
                                 )],
                                 12.,
                                 true,
-                                true,
                             )
                             .into(),
                         ]
@@ -846,7 +855,7 @@ impl Preparer {
                 inside.push(
                     wrap(
                         &term,
-                        f::terminal(&format!("term/{id}"), &command, out, exit, ink),
+                        f::terminal(&format!("term/{id}"), &command, out, ink),
                     )
                     .into(),
                 );
@@ -1044,12 +1053,4 @@ fn plain_box(text: &str, ink: &f::Ink) -> c::Element {
         },
         vec![f::runs(vec![(t, ink.fg, 400, false)], 12., true, true).into()],
     )
-}
-fn kfmt(n: u64) -> String {
-    match n {
-        n if n >= 1_000_000 => format!("{:.1}M", n as f64 / 1e6),
-        n if n >= 10_000 => format!("{}k", n / 1000),
-        n if n >= 1000 => format!("{:.1}k", n as f64 / 1e3),
-        n => n.to_string(),
-    }
 }

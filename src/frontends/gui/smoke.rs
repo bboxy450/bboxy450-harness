@@ -168,10 +168,15 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         let rgba = renderer
             .render_to_rgba(&frame.list, width, height, 1.)
             .map_err(|e| e.to_string())?;
+        use crate::protocol::ItemKind;
+        // a usage item draws no row (harness-spec.md "Refinement pass 2"): its figures feed
+        // the header meter, which a 0/0 total (this fixture) leaves out
+        let drawn = |v: &&super::model::ViewItem| v.kind != ItemKind::Usage;
         let expected: BTreeSet<_> = state
             .transcript
             .items
             .values()
+            .filter(drawn)
             .map(|v| format!("{:?}", v.kind))
             .collect();
         let actual: BTreeSet<_> = frame
@@ -179,12 +184,15 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
             .iter()
             .map(|(_, k, _)| format!("{k:?}"))
             .collect();
-        if actual != expected || frame.visible.len() != state.transcript.items.len() {
+        let drawn_count = state.transcript.items.values().filter(drawn).count();
+        if actual != expected || frame.visible.len() != drawn_count {
             return Err(format!(
-                "not every item is visible: expected {expected:?}, got {actual:?}"
+                "not every drawn item is visible: expected {expected:?}, got {actual:?}"
             ));
         }
-        use crate::protocol::ItemKind;
+        if super::view::find(frame.layout.as_ref().ok_or("missing solved layout")?, "meter").is_some() {
+            return Err("a 0/0 usage total drew the header meter".into());
+        }
         for row in state.transcript.items.values() {
             let compaction_expected = match &row.body {
                 crate::protocol::Item::Compaction { replaced_through, .. } =>
@@ -203,7 +211,12 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
                 ItemKind::Terminal => "printf ok", ItemKind::Plan => "In progress: Update greeting",
                 ItemKind::Approval => "Edit hello.txt", ItemKind::Image => "Image: image/png",
                 ItemKind::ContextTrim => trim_expected.as_deref().expect("context trim fixture body"),
-                ItemKind::Usage => "0 in · 0 out", ItemKind::Compaction => compaction_expected.as_deref().expect("compaction fixture body"),
+                ItemKind::Usage => {
+                    // nothing in the feed: never "0 in · 0 out" (the operator's screenshot)
+                    if frame.item_text(row.id).is_some_and(|t| !t.trim().is_empty()) { return Err(format!("usage item {} drew a row: {:?}", row.id, frame.item_text(row.id))); }
+                    continue;
+                }
+                ItemKind::Compaction => compaction_expected.as_deref().expect("compaction fixture body"),
                 ItemKind::Notice => "fixture complete", ItemKind::Subagent => "Session: 00000000000000000000000009",
                 ItemKind::Command | ItemKind::Hook | ItemKind::SystemMessage | ItemKind::Native => "",
                 ItemKind::Unknown(_) => return Err("unexpected unknown fixture item".into()),
@@ -218,15 +231,18 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
             "Read two files and update hello.txt", "I’ll read both files.",
             "Compare the current contents.", "Read hello.txt", "printf ok", "exit 0",
             "--- a/hello.txt", "+ hello world", "In progress: Update greeting", "Edit hello.txt",
-            "Image: image/png", "0 bytes", "0 in · 0 out",
+            "Image: image/png", "0 bytes",
             "Session: 00000000000000000000000009", "Context trimmed through event ", "fixture complete",
         ];
         for expected in required { if !text.contains(expected) { return Err(format!("missing readable content: {expected}; actual text: {text}")); } }
         if text.contains("\"kind\":") || text.contains("Some(") { return Err("serialized payload reached a card".into()); }
+        if text.contains("0 in · 0 out") { return Err("a usage item drew its figures in the feed".into()); }
         let approval_count = frame.actions.iter().filter(|(_, a)| matches!(a, Action::Approval(_, _))).count();
         if approval_count != 3 || !["Allow", "Always", "Deny"].iter().all(|s| text.contains(s)) { return Err("approval buttons missing".into()); }
         let layout=frame.layout.as_ref().ok_or("smoke layout missing")?;
         for (index, id) in state.transcript.order.iter().enumerate() {
+            // a usage item has no row at all
+            if state.transcript.items[id].kind == ItemKind::Usage { continue; }
             // folded into its tool card: no row of its own, but addressable inside the card
             let Some(card)=super::view::find(layout,&format!("e{index}")).map(|n|n.rect) else {
                 super::view::find(layout,&format!("item/{id}")).ok_or("folded item is not addressable")?;
@@ -335,7 +351,7 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
             "Image",
             "Compaction",
             "ContextTrim",
-            "Usage",
+            // Usage draws no row (harness-spec.md "Refinement pass 2"); checked above
             "Notice",
             "Subagent",
         ]

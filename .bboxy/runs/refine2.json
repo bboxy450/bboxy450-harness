@@ -1,0 +1,45 @@
+{
+ "task": "refine2",
+ "branch": "refine/pass2",
+ "source_commit": "8f5b20c171ab091facda05bd76b0b8be3f3afd0d",
+ "base": "9654a93 origin/main (toolkit 775527db; on capture-expand 01fe384, motion-c 7aefccf, markdown-out 131a2e0)",
+ "spec": "harness-spec.md Refinement pass 2 (term 433bd39f), items 1-4",
+ "lab": "/Users/feral/mydev/bboxy450-term-harness-ref/lab/web @ 6f761489 (hash 86de0fcaf064; baseline 4b4a1ac688f7: gate printed REFERENCE MOVED)",
+ "commands": [
+  {"command": "cargo fmt --all --check", "exit": 0},
+  {"command": "cargo test --offline --locked --features standalone,test-fixtures --no-fail-fast --test gui_render --test gui_rich --test gui_bridge --test gui_fixtures --test gui_cli --test gui_budget --test gui_motion --test gui_menu_motion --test gui_motion_stream --test capability_delivery (private HOME)", "exit": 0, "tests": {"gui_render": 13, "gui_rich": 27, "gui_bridge": 3, "gui_fixtures": 7, "gui_cli": 3, "gui_budget": 3, "gui_motion": 9, "gui_menu_motion": 7, "gui_motion_stream": 10, "capability_delivery": 9}},
+  {"command": "cargo clippy --offline --locked --all-features --all-targets -- -D warnings", "exit": 0},
+  {"command": "CLIPPY_CONF_DIR=src/frontends/gui/lint cargo clippy --offline --locked --all-features --lib --bin bboxy450-harness -- -D warnings", "exit": 0},
+  {"command": "bboxy450-harness gui --replay tests/fixtures/gui/rich-all-items.jsonl --headless --screenshot target/refine2/smoke.png", "exit": 0, "note": "gui-smoke PASS, 21 visible items, 14 kinds"},
+  {"command": "LAB=... BIN=<build of 9654a93, sha256 1c62b12d31259562> python3 -I scripts/parity-gate.py target/refine2/parity-before", "exit": 0},
+  {"command": "LAB=... BIN=<build of 9654a93> EXPAND=all python3 -I scripts/parity-gate.py target/refine2/parity-before-x", "exit": 0},
+  {"command": "LAB=... python3 -I scripts/parity-gate.py target/refine2/parity-after (binary sha256 1f0c9b2df654f604, verified not the before binary)", "exit": 0, "note": "no regression (reference moved): the gate skipped its baseline comparison"},
+  {"command": "LAB=... EXPAND=all python3 -I scripts/parity-gate.py target/refine2/parity-after-x", "exit": 0, "note": "no regression (reference moved)"},
+  {"command": "make test", "exit": 0, "note": "23:06-23:12 PST 2026-11-02 on this source, no other scripts/test.py running"}
+ ],
+ "parity_plain_before_after": {
+  "acp-claude-acp": [[0.0083, 0.0382], [0.0077, 0.0236]],
+  "acp-codex-acp": [[0.0075, 0.0345], [0.0075, 0.0345]],
+  "acp-omp": [[0.0081, 0.0182], [0.0081, 0.0182]],
+  "acp-opencode": [[0.0335, 0.3918], [0.0321, 0.3464]],
+  "acp-pi": [[0.0079, 0.0273], [0.0082, 0.0327]],
+  "glyph-atlas": [[0.0322, 0.2409], [0.0393, 0.3436]],
+  "mermaid": [[0.021, 0.2773], [0.0231, 0.32]]
+ },
+ "parity_expand_all_before_after": {
+  "acp-claude-acp": [[0.0083, 0.0382], [0.0077, 0.0236]],
+  "acp-codex-acp": [[0.0084, 0.0636], [0.0084, 0.0636]],
+  "acp-omp": [[0.0081, 0.0182], [0.0081, 0.0182]],
+  "acp-opencode": [[0.0655, 0.4264], [0.0656, 0.3973]],
+  "acp-pi": [[0.0079, 0.0273], [0.0082, 0.0327]],
+  "glyph-atlas": [[0.0371, 0.3018], [0.0414, 0.39]],
+  "mermaid": [[0.0226, 0.3091], [0.0228, 0.3055]]
+ },
+ "diagnosis": "The native terminal card now equals the web's height (glyph-atlas Run card: 143 px from header to the next row on both sides). The residual is a 1-2 px per prose block drift (native rows shorter: message body line-height 1.45 in rich.rs, thought rows), accumulating to ~11 px at the top of a bottom-pinned capture; the old exit line was cancelling it. Not inside items 1-4.",
+ "open": [
+  "message prose line-height: native 1.45 vs the web's inherited value; add to the spec and fix as the next refinement",
+  "terminal body bottom padding 10 (spec) vs .hx-out 7 (page): Architect ruling",
+  "parity baseline for the moved reference: candidate at target/refine2/parity-after/baseline-candidate.json",
+  "SOURCE_HOVER_MS has no broken control in scripts/test-motion-control.py"
+ ]
+}

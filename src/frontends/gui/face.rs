@@ -91,6 +91,17 @@ pub fn line(
     t.ellipsis = true;
     c::Element::Text(t)
 }
+/// A terminal line (.hx-term): mono at line-height 1.55, as the web reference sets it. The
+/// 1.5 of `runs` is 0.6 px short per line, which the old `exit N` line used to mask.
+pub fn term_line(parts: Vec<(String, Rgba, u16, bool)>, size: f32, wrap: bool) -> c::Element {
+    let mut e = runs(parts, size, true, wrap);
+    if let c::Element::Text(t) = &mut e {
+        for r in &mut t.runs {
+            r.style.line_height = 1.55;
+        }
+    }
+    e
+}
 pub fn runs(
     parts: Vec<(String, Rgba, u16, bool)>,
     size: f32,
@@ -757,7 +768,7 @@ pub fn term_output(out: &str, ink: &Ink) -> Vec<c::Item> {
                 Verdict::Dim => hex("#7d8597"),
                 Verdict::Plain => hex("#c9cfdc"),
             };
-            runs(vec![((*l).to_owned(), color, 400, false)], 12., true, true).into()
+            term_line(vec![((*l).to_owned(), color, 400, false)], 12., true).into()
         })
         .collect();
     if more > 0 {
@@ -950,13 +961,10 @@ pub fn stop_glyph(color: Rgba) -> c::Element {
     }
     e
 }
-pub fn terminal(
-    key: &str,
-    command: &str,
-    output: Option<Vec<c::Item>>,
-    exit: Option<i32>,
-    ink: &Ink,
-) -> c::Element {
+/// The terminal block (.hx-term): the command line, then the output on 8 px top and 10 px
+/// bottom padding with nothing under the last line. The exit status is the card header's
+/// chip alone (harness-spec.md "Refinement pass 2"); the body never appends an `exit N` line.
+pub fn terminal(key: &str, command: &str, output: Option<Vec<c::Item>>, ink: &Ink) -> c::Element {
     let mut rows: Vec<c::Item> = vec![
         frame(
             Frame {
@@ -967,55 +975,31 @@ pub fn terminal(
                 ..Default::default()
             },
             vec![
-                fixed(runs(
+                fixed(term_line(
                     vec![("$".into(), ink.seat, 700, false)],
                     12.,
-                    true,
                     false,
                 )),
-                fill(runs(
+                fill(term_line(
                     vec![(command.to_owned(), hex("#ffffff"), 400, false)],
                     12.,
-                    true,
                     true,
                 )),
             ],
         )
         .into(),
+        // .hx-cmd's 1px bottom border
+        hrule(1., alpha(hex("#ffffff"), 0.06)).into(),
     ];
-    let output = match (output, exit) {
-        // the exit status is part of the terminal's own record, readable beside its output
-        (out, Some(code)) => {
-            let mut out = out.unwrap_or_default();
-            out.push(
-                runs(
-                    vec![(
-                        format!("exit {code}"),
-                        if code == 0 {
-                            hex("#5BE08C")
-                        } else {
-                            hex("#FF7A7A")
-                        },
-                        600,
-                        false,
-                    )],
-                    11.,
-                    true,
-                    false,
-                )
-                .into(),
-            );
-            Some(out)
-        }
-        (out, None) => out,
-    };
     if let Some(out) = output {
         rows.push(
             named(
                 format!("{key}/output"),
                 frame(
                     Frame {
-                        padding: [7., 10., 7., 10.],
+                        // 8 px from the command row to the first line (the rule plus
+                        // .hx-out's 7), 10 under the last line
+                        padding: [7., 10., 10., 10.],
                         ..Default::default()
                     },
                     out,
@@ -1535,6 +1519,7 @@ pub fn header(
     status: &str,
     tone: Tone,
     menu_open: bool,
+    usage: (u64, u64),
     ink: &Ink,
 ) -> c::Element {
     let chip = |kids: Vec<c::Item>| {
@@ -1636,6 +1621,36 @@ pub fn header(
         status.to_owned()
     };
     kids.push(fixed(named("phase", line(say, 11.5, 400, text_c, false))));
+    // .hx-meter: the usage items' sum (harness-spec.md "Refinement pass 2"), shown once
+    // input tokens arrive: a 38×4 track filled by input / 2000 %, then the in + out total
+    // at 11 `fg-dim`. A 0/0 total shows no meter. Flat: solid seat for the web's gradient.
+    let (tokens_in, tokens_out) = usage;
+    if tokens_in > 0 {
+        let full = (tokens_in as f32 / 200_000.).min(1.);
+        kids.push(fixed(named(
+            "meter",
+            hstack(
+                vec![
+                    fixed(c::Element::Layers {
+                        base: Box::new(meter_bar(38., 4., alpha(ink.fg, 0.07))),
+                        overlays: vec![c::Placed {
+                            content: meter_bar((38. * full).round().max(4.), 4., ink.seat),
+                            left: 0.,
+                            bottom: 0.,
+                        }],
+                    }),
+                    fixed(line(
+                        kilo(tokens_in.saturating_add(tokens_out)),
+                        11.,
+                        400,
+                        ink.dim,
+                        false,
+                    )),
+                ],
+                6.,
+            ),
+        )));
+    }
     frame(
         Frame {
             fill: alpha(ink.seat, 0.06),
@@ -1646,6 +1661,23 @@ pub fn header(
         },
         kids,
     )
+}
+/// A solid `w`×`h` bar with round ends (the meter's track and its fill).
+pub fn meter_bar(w: f32, h: f32, color: Rgba) -> c::Element {
+    let mut style = ui::Style::new(ui::Preset::Card);
+    style.overrides.material = Some(ui::Material::Flat);
+    style.overrides.fill = Some(paint(color));
+    style.overrides.radii = Some([ui::Length::Px(h / 2.); 4]);
+    style.overrides.border = Some(ui::Border {
+        width: ui::Length::Px(0.),
+        paint: paint([0.; 4]),
+        outside: false,
+    });
+    style.overrides.width = Some(ui::Length::Px(w));
+    style.overrides.height = Some(ui::Length::Px(h));
+    style.overrides.padding = Some([ui::Length::Px(0.); 4]);
+    style.overrides.shadow = None;
+    c::Element::Box(c::Box::new(style, vec![]))
 }
 
 /// Composer states from harness-spec.md (Composer table): the session phase decides `run`
@@ -2224,6 +2256,14 @@ pub fn dot(side: f32, color: Rgba) -> c::Element {
         paint: paint(color),
         fill: Some(paint(color)),
         opacity: 1.,
+    })
+}
+/// A horizontal rule that stretches with its column (.hx-cmd's 1px bottom border).
+pub fn hrule(h: f32, color: Rgba) -> c::Element {
+    c::Element::Rects(c::Rects {
+        size: [1., h],
+        rects: Arc::from([(bbt_ui_model::layout::Rect::new(0., 0., 1., h), paint(color))]),
+        repeat: Some((Axis::Row, 1.)),
     })
 }
 /// A vertical rule that stretches with its row.

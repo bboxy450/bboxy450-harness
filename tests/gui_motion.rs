@@ -813,3 +813,119 @@ fn every_clock_shares_the_end_state() {
     }
     assert_eq!(layout_text(&l), layout_text(&s));
 }
+
+/// The nearest opacity filter wrapping the keyed node, walking down from the root (an
+/// entrance filter further up is passed over). None when the node is at rest.
+fn nearest_filter(root: &Layout, key: &str) -> Option<f32> {
+    let below = root.children.iter().find_map(|c| nearest_filter(c, key));
+    if below.is_some() {
+        return below;
+    }
+    if let LayoutKind::Filter { opacity, .. } = root.kind
+        && find(root, key).is_some()
+    {
+        return Some(opacity);
+    }
+    None
+}
+
+/// The message source toggle is hover-only (harness-spec.md "Refinement pass 2"): nothing at
+/// rest, .6 while its row is under the pointer, 1 over the control itself, each over 150 ms
+/// `std`; back to nothing when the pointer leaves. Its hit zone stays. A settled clock never
+/// shows it and asks for no frame.
+#[tokio::test]
+async fn source_toggle_shows_on_hover_only() {
+    let mut preparer = Preparer::default();
+    let id = ItemId::new();
+    let s = state(&mut preparer, &[message(id, "A reply.", true)]).await;
+    let key = format!("source/{id}/toggle");
+    let mut view = live_view();
+    let l0 = at(&mut view, &s, 0.);
+    let toggle = find(&l0, &key).expect("the toggle keeps its hit zone");
+    assert!(toggle.rect.w > 0., "the hit zone has a width");
+    assert!(layout_text(toggle).is_empty(), "hidden at rest");
+    assert_eq!(nearest_filter(&l0, &key), None);
+    assert_eq!(view.anim.next_frame(), None, "nothing moves at rest");
+
+    // the pointer enters the row: 0 → .6 over 150 ms `std`
+    let row = find(&l0, &format!("item/{id}")).unwrap().rect;
+    assert!(view.pointer([row.x + 10., row.y + 5.]));
+    assert_eq!(view.hovered(), Some(format!("msg/{id}").as_str()));
+    let l1 = at(&mut view, &s, 100.);
+    assert_eq!(
+        view.anim.next_frame(),
+        Some(0.),
+        "the fade asks for a frame"
+    );
+    assert!(
+        layout_text(find(&l1, &key).unwrap()).is_empty(),
+        "still nothing on the first frame of the fade"
+    );
+    let l2 = at(&mut view, &s, 175.);
+    let want = 0.6 * Ease::Std.at(0.5);
+    assert!(
+        near(nearest_filter(&l2, &key).unwrap(), want, 0.01),
+        "half way: {:?} vs {want}",
+        nearest_filter(&l2, &key)
+    );
+    assert!(layout_text(find(&l2, &key).unwrap()).contains("source"));
+    let l3 = at(&mut view, &s, 260.);
+    assert!(
+        near(nearest_filter(&l3, &key).unwrap(), 0.6, 0.001),
+        "row hover rests at .6"
+    );
+    assert_eq!(view.anim.next_frame(), None, "settled at .6");
+
+    // the pointer reaches the control: .6 → 1 over 150 ms `std`, then no filter at all
+    let r = find(&l3, &key).unwrap().rect;
+    assert!(view.pointer([r.x + 2., r.y + r.h / 2.]));
+    assert_eq!(view.hovered(), Some(key.as_str()));
+    let l4 = at(&mut view, &s, 300.);
+    assert!(
+        near(nearest_filter(&l4, &key).unwrap(), 0.6, 0.001),
+        "retargets from .6"
+    );
+    let l5 = at(&mut view, &s, 375.);
+    let want = 0.6 + 0.4 * Ease::Std.at(0.5);
+    assert!(
+        near(nearest_filter(&l5, &key).unwrap(), want, 0.01),
+        "half way up: {:?} vs {want}",
+        nearest_filter(&l5, &key)
+    );
+    let l6 = at(&mut view, &s, 460.);
+    assert_eq!(nearest_filter(&l6, &key), None, "fully shown: no filter");
+    assert!(layout_text(find(&l6, &key).unwrap()).contains("source"));
+    assert_eq!(view.anim.next_frame(), None);
+
+    // the pointer leaves: 1 → 0, then nothing again and no frame
+    assert!(view.pointer([0., 0.]));
+    assert_eq!(view.hovered(), None);
+    let _ = at(&mut view, &s, 500.);
+    let l7 = at(&mut view, &s, 575.);
+    assert!(
+        near(
+            nearest_filter(&l7, &key).unwrap(),
+            1. - Ease::Std.at(0.5),
+            0.01
+        ),
+        "half way out: {:?}",
+        nearest_filter(&l7, &key)
+    );
+    let l8 = at(&mut view, &s, 660.);
+    assert!(
+        layout_text(find(&l8, &key).unwrap()).is_empty(),
+        "hidden again"
+    );
+    assert_eq!(view.anim.next_frame(), None);
+
+    // settled (captures, the parity gate) and reduced motion: nothing, no frame
+    for mut other in [HarnessView::default(), {
+        let mut v = HarnessView::default();
+        v.anim = Clock::live(true);
+        v
+    }] {
+        let l = at(&mut other, &s, 0.);
+        assert!(layout_text(find(&l, &key).unwrap()).is_empty());
+        assert_eq!(other.anim.next_frame(), None);
+    }
+}

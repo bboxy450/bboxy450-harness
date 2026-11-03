@@ -413,13 +413,14 @@ fn transcript_type(e: &mut c::Element, delta: f32, in_flow: bool, reasoning: boo
             if let Some(ui::Length::Px(w)) = &mut b.style.overrides.width {
                 widen(w, delta);
             }
-            // a list: its items are marker layers; .hx-msg li keeps 2 px margins
+            // a list: its items are marker layers; .hx-msg li's 2 px margins collapse to a
+            // 2 px gap between items (harness-spec.md "Refinement pass 2")
             if !b.children.is_empty()
                 && b.children
                     .iter()
                     .all(|i| matches!(i.element, c::Element::Layers { .. }))
             {
-                b.gap = ui::Length::Px(3.);
+                b.gap = ui::Length::Px(2.);
             }
             for item in &mut b.children {
                 if let c::Extent::Fixed(w) = &mut item.extent {
