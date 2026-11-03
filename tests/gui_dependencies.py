@@ -19,4 +19,10 @@ for package in packages:
 assert all(len(entries)==1 for entries in by_name.values()), {name:[p['source'] for p in entries] for name,entries in by_name.items() if len(entries)>1}
 for name in ['bboxy450-ui','bboxy450-doc','bboxy450-render','bboxy450-ui-core','bboxy450-rt']:
     assert len(by_name[name])==1, name
-print('gui-dependencies: PASS; one copy of each toolkit package, shared UI-thread registry')
+toolkit_names = ['bboxy450-ui', 'bboxy450-doc', 'bboxy450-render', 'bboxy450-ui-core', 'bboxy450-mermaid']
+toolkit_sources = {by_name[name][0]['source'] for name in toolkit_names}
+term_source = 'git+https://github.com/bboxy450/bboxy450-term?rev='
+# Term's embedded workspace patches this same toolkit to local paths (source=None).
+assert toolkit_sources == {None} or (len(toolkit_sources) == 1 and next(iter(toolkit_sources)).startswith(term_source)), toolkit_sources
+assert {p['source'] for p in packages if (p['source'] or '').startswith(term_source)} == toolkit_sources - {None}
+print('gui-dependencies: PASS; one toolkit source including Mermaid, one copy of each package, shared UI-thread registry')

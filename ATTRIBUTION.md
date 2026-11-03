@@ -70,7 +70,7 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
   - Aider
   - the Zed Agent Client Protocol
   - the Model Context Protocol
-- **Built on** the bboxy450-term toolkit crates (https://github.com/bboxy450/bboxy450-term), used as dependencies under their own terms.
+- **Built on** the bboxy450-term toolkit crates (https://github.com/bboxy450/bboxy450-term), used as dependencies under their own terms. The standalone UI and native Mermaid layout share revision [775527db](https://github.com/bboxy450/bboxy450-term/commit/775527db16ffe33ee5cafaa0ff8566e3ea7512da); embedded builds use term's workspace crates.
 - **Inspired by bboxy450-term** OSC 7501 seat observation grammar and text limits
   (`crates/bboxy450-harness-wake-up/src/observe.rs`); the harness emits compatible
   state reports. https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md.
