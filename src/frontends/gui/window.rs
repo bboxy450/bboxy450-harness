@@ -440,7 +440,7 @@ pub fn route_key(
             Key::Named(NamedKey::ArrowDown | NamedKey::Tab) => Some(MenuKey::Down),
             Key::Named(NamedKey::Enter) => Some(MenuKey::Enter),
             Key::Named(NamedKey::Backspace) => Some(MenuKey::Backspace),
-            Key::Character(_) if !shortcut => text
+            Key::Character(_) | Key::Named(NamedKey::Space) if !shortcut => text
                 .filter(|t| !t.chars().any(char::is_control))
                 .map(|t| MenuKey::Text(t.into())),
             _ => None,
@@ -511,7 +511,9 @@ pub fn route_key(
         Key::Character(ref s) if shortcut && s.eq_ignore_ascii_case("a") => {
             view.edit(Edit::SelectAll)
         }
-        Key::Character(_) if !shortcut && !view.composer.composing() => {
+        Key::Character(_) | Key::Named(NamedKey::Space)
+            if !shortcut && !view.composer.composing() =>
+        {
             if let Some(text) = text
                 && !text.chars().any(char::is_control)
             {

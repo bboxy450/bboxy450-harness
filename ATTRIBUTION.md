@@ -39,6 +39,7 @@ Every source file starts with this header:
 A distinctive implementation adapted from elsewhere carries its own `// Adapted from <project>: <url>` line beside it.
 The source-header rule includes test fixtures and executable formal models;
 keep the credit when extracting a regression witness or broken control.
+Native text-entry dispatch witnesses and their broken controls follow this policy too.
 
 ## Lineage and credits
 

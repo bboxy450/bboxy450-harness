@@ -1080,6 +1080,141 @@ fn slash_popover_is_a_menu_card_with_details_and_no_debug_keys() {
 
 #[cfg(feature = "standalone")]
 #[test]
+fn named_space_key_preserves_the_composer_draft() {
+    let bridge = Bridge::new(Arc::new(Wake));
+    let mut view = HarnessView::default();
+    dispatch_text_keys(&mut view, &bridge, "a b");
+    assert_eq!(view.composer.view.text, "a b");
+}
+
+#[cfg(feature = "standalone")]
+#[test]
+fn named_space_key_preserves_the_profile_search() {
+    use bbt_ui_model::draw::Prim;
+    let mut bridge = Bridge::new(Arc::new(Wake));
+    bridge.state = switcher_state();
+    let mut view = HarnessView::default();
+    view.render(&bridge.state, [900., 700.]).unwrap();
+    view.toggle_profile_menu();
+    dispatch_text_keys(&mut view, &bridge, "a b");
+    let frame = view.render(&bridge.state, [900., 700.]).unwrap();
+    let painted: Vec<_> = frame
+        .list
+        .primitives
+        .iter()
+        .filter_map(|p| match p {
+            Prim::Text { text, .. } => Some(text.as_ref()),
+            _ => None,
+        })
+        .collect();
+    assert!(painted.contains(&"a b"), "profile search: {painted:?}");
+    assert!(painted.contains(&"No profile matches “a b”"));
+    assert!(view.composer.view.text.is_empty());
+    assert!(view.profile_menu_open());
+}
+
+#[cfg(feature = "standalone")]
+#[test]
+fn named_space_key_preserves_slash_profile_input() {
+    use bboxy450_harness::frontends::gui::{view::Action, window::route_key};
+    use winit::keyboard::{Key, ModifiersState, NamedKey};
+    let mut bridge = Bridge::new(Arc::new(Wake));
+    bridge.state = switcher_state();
+    let mut view = HarnessView::default();
+    view.render(&bridge.state, [900., 700.]).unwrap();
+    dispatch_text_keys(&mut view, &bridge, "/profile");
+    assert!(view.completion_open());
+    let frame = view.render(&bridge.state, [900., 700.]).unwrap();
+    assert!(frame.actions.iter().any(|(_, action)| matches!(
+        action, Action::Complete(_, value) if value == "/profile opus"
+    )));
+    // Whitespace ends the completion token; arguments remain ordinary draft text.
+    dispatch_text_keys(&mut view, &bridge, " opus");
+    assert_eq!(view.composer.view.text, "/profile opus");
+    assert!(!view.completion_open());
+    route_key(
+        &mut view,
+        &bridge,
+        Key::Named(NamedKey::Enter),
+        None,
+        ModifiersState::empty(),
+    );
+    assert_eq!(
+        view.notice.as_deref(),
+        Some("Could not switch: no live session to switch")
+    );
+}
+
+#[cfg(feature = "standalone")]
+fn dispatch_text_keys(view: &mut HarnessView, bridge: &Bridge, text: &str) {
+    use bboxy450_harness::frontends::gui::window::route_key;
+    use winit::keyboard::{Key, ModifiersState, NamedKey};
+    for ch in text.chars() {
+        let text = ch.to_string();
+        let key = if ch == ' ' {
+            Key::Named(NamedKey::Space)
+        } else {
+            Key::Character(text.clone().into())
+        };
+        route_key(view, bridge, key, Some(&text), ModifiersState::empty());
+    }
+}
+
+#[cfg(feature = "standalone")]
+#[test]
+fn named_space_key_keeps_text_and_shortcut_and_composition_guards() {
+    use bboxy450_harness::frontends::gui::window::route_key;
+    use bbt_ui::text_edit::Command as Edit;
+    use winit::keyboard::{Key, ModifiersState, NamedKey};
+    let bridge = Bridge::new(Arc::new(Wake));
+    let mut view = HarnessView::default();
+    for menu in [false, true] {
+        if menu {
+            view.toggle_profile_menu();
+        }
+        for (text, modifiers) in [
+            (Some(" "), ModifiersState::CONTROL),
+            (Some(" "), ModifiersState::SUPER),
+            (None, ModifiersState::empty()),
+            (Some("\t"), ModifiersState::empty()),
+        ] {
+            route_key(
+                &mut view,
+                &bridge,
+                Key::Named(NamedKey::Space),
+                text,
+                modifiers,
+            );
+        }
+        assert!(view.composer.view.text.is_empty());
+        if menu {
+            // An unchanged query still shows the search placeholder.
+            let frame = view.render(&bridge.state, [900., 700.]).unwrap();
+            assert!(frame.list.primitives.iter().any(|p| matches!(
+                p, bbt_ui_model::draw::Prim::Text { text, .. } if text.as_ref() == "Switch profile…"
+            )));
+            view.toggle_profile_menu();
+        }
+    }
+    view.edit(Edit::Preedit {
+        text: "preedit".into(),
+        caret: Some(7),
+    });
+    assert!(view.composer.composing());
+    let draft = view.composer.view.text.clone();
+    route_key(
+        &mut view,
+        &bridge,
+        Key::Named(NamedKey::Space),
+        Some(" "),
+        ModifiersState::empty(),
+    );
+    assert_eq!(view.composer.view.text, draft);
+    assert!(view.composer.composing());
+}
+
+#[cfg(feature = "standalone")]
+#[test]
 fn profile_switcher_keys_filter_move_and_escape_before_the_composer() {
     use bboxy450_harness::frontends::gui::window::route_key;
     use winit::keyboard::{Key, ModifiersState, NamedKey};
