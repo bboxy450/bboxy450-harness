@@ -795,7 +795,6 @@ pub struct Receipt {
     pub soft: bool,
     pub reason: String,
     pub took: Option<u64>,
-    pub rounds: usize,
     pub tools: usize,
     pub edits: usize,
     pub tokens: Option<(u64, u64)>,
@@ -806,6 +805,10 @@ pub struct Receipt {
     /// names the Retry / Switch profile buttons `{key}/retry`, `{key}/switch` (error stops)
     pub key: String,
 }
+/// The turn receipt (.hx-end, harness-spec.md "Tight transcript"): no card. A hairline rule,
+/// then one 11.5 px line: the mark, the title, the duration (from 1s, or always when the turn
+/// did not end ok), tools and edits (zeros omitted, no rounds), tokens. A failure keeps its
+/// red rule, its reason and the Retry / Switch profile actions.
 pub fn receipt(r: Receipt, ink: &Ink) -> c::Element {
     let c = if r.ok {
         ink.ok
@@ -819,17 +822,17 @@ pub fn receipt(r: Receipt, ink: &Ink) -> c::Element {
             if r.soft {
                 stop_glyph(ink.surface)
             } else {
-                icon(if r.ok { "check" } else { "x" }, ink.surface, 11., 2.4)
+                icon(if r.ok { "check" } else { "x" }, ink.surface, 10., 2.4)
             },
-            18.,
-            9.,
+            15.,
+            7.5,
             c,
         )),
         fixed(named(
             format!("{}/title", r.key),
             line(
                 if r.ok { "Done".to_owned() } else { r.reason },
-                12.5,
+                12.,
                 650,
                 ink.fg,
                 false,
@@ -837,11 +840,10 @@ pub fn receipt(r: Receipt, ink: &Ink) -> c::Element {
         )),
     ];
     let mut facts = vec![];
-    if let Some(t) = r.took {
+    if let Some(t) = r.took.filter(|t| *t >= 1000 || !r.ok) {
         facts.push(duration(t));
     }
-    // zeros omitted (harness-spec.md, Turn receipt)
-    for (n, w) in [(r.rounds, "round"), (r.tools, "tool"), (r.edits, "edit")] {
+    for (n, w) in [(r.tools, "tool"), (r.edits, "edit")] {
         if n > 0 {
             facts.push(format!("{n} {w}{}", if n == 1 { "" } else { "s" }));
         }
@@ -877,7 +879,7 @@ pub fn receipt(r: Receipt, ink: &Ink) -> c::Element {
     }
     let facts = frame(
         Frame {
-            gap: 12.,
+            gap: 10.,
             row: true,
             ..Default::default()
         },
@@ -889,11 +891,6 @@ pub fn receipt(r: Receipt, ink: &Ink) -> c::Element {
         t.runs[0].style.line_height = 1.4;
         rows.push(c::Element::Text(t).into());
     }
-    let (fill_c, border) = if r.soft {
-        (alpha(ink.fg, 0.04), alpha(ink.fg, 0.10))
-    } else {
-        (alpha(c, 0.08), alpha(c, 0.25))
-    };
     if !r.ok && !r.soft {
         // .hx-eact: Retry (bad fill, white) and Switch profile (card-hi)
         let button =
@@ -940,16 +937,26 @@ pub fn receipt(r: Receipt, ink: &Ink) -> c::Element {
             .into(),
         );
     }
-    frame(
-        Frame {
-            fill: fill_c,
-            border: Some(border),
-            radius: [11.; 4],
-            padding: [8., 12., 8., 12.],
-            gap: 4.,
-            ..Default::default()
-        },
-        rows,
+    // the rule above: `hair`, or `bad` 35% for a failure (.hx-end border-top)
+    let rule = if r.ok || r.soft {
+        alpha(ink.fg, 0.10)
+    } else {
+        alpha(ink.bad, 0.35)
+    };
+    vstack(
+        vec![
+            hrule(1., rule).into(),
+            frame(
+                Frame {
+                    padding: [8., 2., 2., 2.],
+                    gap: 4.,
+                    ..Default::default()
+                },
+                rows,
+            )
+            .into(),
+        ],
+        0.,
     )
 }
 /// The 9 px stop square of a soft receipt or a stopped tool, in an 11 px icon slot.
@@ -961,53 +968,13 @@ pub fn stop_glyph(color: Rgba) -> c::Element {
     }
     e
 }
-/// The terminal block (.hx-term): the command line, then the output on 8 px top and 10 px
-/// bottom padding with nothing under the last line. The exit status is the card header's
-/// chip alone (harness-spec.md "Refinement pass 2"); the body never appends an `exit N` line.
-pub fn terminal(key: &str, command: &str, output: Option<Vec<c::Item>>, ink: &Ink) -> c::Element {
-    let mut rows: Vec<c::Item> = vec![
-        frame(
-            Frame {
-                fill: alpha(hex("#ffffff"), 0.035),
-                padding: [7., 10., 7., 10.],
-                gap: 8.,
-                row: true,
-                ..Default::default()
-            },
-            vec![
-                fixed(term_line(
-                    vec![("$".into(), ink.seat, 700, false)],
-                    12.,
-                    false,
-                )),
-                fill(term_line(
-                    vec![(command.to_owned(), hex("#ffffff"), 400, false)],
-                    12.,
-                    true,
-                )),
-            ],
-        )
-        .into(),
-        // .hx-cmd's 1px bottom border
-        hrule(1., alpha(hex("#ffffff"), 0.06)).into(),
-    ];
-    if let Some(out) = output {
-        rows.push(
-            named(
-                format!("{key}/output"),
-                frame(
-                    Frame {
-                        // 8 px from the command row to the first line (the rule plus
-                        // .hx-out's 7), 10 under the last line
-                        padding: [7., 10., 10., 10.],
-                        ..Default::default()
-                    },
-                    out,
-                ),
-            )
-            .into(),
-        );
-    }
+/// The terminal block (.hx-term): the output alone, on 7 px top and 10 px bottom padding.
+/// The head names the command and carries a non-zero exit; the body repeats neither
+/// (harness-spec.md "Tight transcript"). No output at all draws nothing but the node.
+pub fn terminal(key: &str, output: Option<Vec<c::Item>>, _ink: &Ink) -> c::Element {
+    let Some(out) = output else {
+        return named(key.to_owned(), c::Element::Spacer);
+    };
     named(
         key.to_owned(),
         frame(
@@ -1017,7 +984,19 @@ pub fn terminal(key: &str, command: &str, output: Option<Vec<c::Item>>, ink: &In
                 radius: [8.; 4],
                 ..Default::default()
             },
-            rows,
+            vec![
+                named(
+                    format!("{key}/output"),
+                    frame(
+                        Frame {
+                            padding: [7., 10., 10., 10.],
+                            ..Default::default()
+                        },
+                        out,
+                    ),
+                )
+                .into(),
+            ],
         ),
     )
 }
@@ -1068,16 +1047,15 @@ pub fn badge(
             },
             ink.bad,
         ),
+        // a rule's allow is routine (harness-spec.md "Tight transcript"): no badge; only a
+        // person's or the unattended policy's decision shows
+        ApprovalDecision::Allow | ApprovalDecision::AllowAlways
+            if matches!(by, Some(Resolver::Rule { .. })) =>
+        {
+            return None;
+        }
         ApprovalDecision::AllowAlways => ("shield", "always", ink.ok),
-        _ => (
-            "shield",
-            if matches!(by, Some(Resolver::Rule { .. })) {
-                "auto"
-            } else {
-                "allowed"
-            },
-            ink.ok,
-        ),
+        _ => ("shield", "allowed", ink.ok),
     };
     Some(frame(
         Frame {
@@ -1146,16 +1124,26 @@ pub fn head(h: Head, ink: &Ink) -> c::Element {
     if let Some(b) = h.badge {
         kids.push(fixed(b));
     }
-    if let Some(d) = h.dur {
-        kids.push(fixed(line(d, 11., 400, ink.dim, false)));
-    }
+    // .hx-dur: a 32 px right-aligned slot, filled only from 1s (the callers pass none
+    // below that; harness-spec.md "Tight transcript")
+    kids.push(
+        c::Item::from(hstack(
+            vec![
+                spacer(),
+                fixed(line(h.dur.unwrap_or_default(), 11., 400, ink.dim, false)),
+            ],
+            0.,
+        ))
+        .with_width(32.),
+    );
     let status_key = h.key.replacen("toolhead/", "tool/", 1) + "/status";
     kids.push(fixed(named(status_key, status_disc(&h.status, ink))));
     named(
         h.key,
         frame(
             Frame {
-                padding: [7., 10., 7., 10.],
+                // .hx-th 6/10 (harness-spec.md "Tight transcript")
+                padding: [6., 10., 6., 10.],
                 gap: 8.,
                 row: true,
                 ..Default::default()
@@ -1368,29 +1356,32 @@ pub fn thought_row(
     open: bool,
     ink: &Ink,
 ) -> c::Element {
-    let label = match took {
-        _ if live => "Thinking".to_owned(),
-        Some(ms) if ms >= 100 => format!("Thought for {}", duration(ms)),
-        _ => "Thought".to_owned(),
+    // harness-spec.md "Tight transcript": a thought under 1s has no label, only its gist
+    let label = if live {
+        Some("Thinking".to_owned())
+    } else {
+        took.filter(|ms| *ms >= 1000)
+            .map(|ms| format!("Thought for {}", duration(ms)))
     };
     // .hx-tk: the icon, the label, then (settled only) the gist and the chevron; live, the
     // label trails three dots. Each part is named for the motion pass.
-    let mut kids = vec![
-        fixed(named(
-            format!("{key}/icon"),
-            icon("think", if live { ink.seat } else { ink.dim }, 14., 1.5),
-        )),
-        fixed(named(
+    let mut kids = vec![fixed(named(
+        format!("{key}/icon"),
+        icon("think", if live { ink.seat } else { ink.dim }, 14., 1.5),
+    ))];
+    if let Some(label) = label {
+        kids.push(fixed(named(
             format!("{key}/label"),
-            line(label, 12.5, 650, ink.fg, false),
-        )),
-    ];
+            line(label, 12., 650, ink.fg, false),
+        )));
+    }
     if live {
         kids.push(fixed(named(format!("{key}/dots"), dots(ink.seat))));
     } else {
-        // .hx-gist: ellipsised, the chevron right after it (.hx-tk is inline flex)
+        // .hx-gist: ellipsised, the chevron right after it (.hx-tk is inline flex); the
+        // view hides the chevron until the row is hovered or open
         kids.push(c::Item {
-            element: line(gist, 12.5, 400, alpha(ink.dim, 0.75), false),
+            element: line(gist, 12., 400, alpha(ink.dim, 0.75), false),
             extent: c::Extent::Content {
                 grow: 0.,
                 shrink: 1.,
@@ -1411,7 +1402,7 @@ pub fn thought_row(
         )));
     }
     kids.push(spacer());
-    named(key.to_owned(), hstack(kids, 7.))
+    named(key.to_owned(), hstack(kids, 6.))
 }
 pub fn thought_body(child: c::Element, ink: &Ink) -> c::Element {
     let gap = 12.;

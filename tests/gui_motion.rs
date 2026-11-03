@@ -929,3 +929,78 @@ async fn source_toggle_shows_on_hover_only() {
         assert_eq!(other.anim.next_frame(), None);
     }
 }
+
+/// harness-spec.md "Tight transcript": a settled thought's chevron shows only while its row
+/// is under the pointer (150 ms `std`) or the thought is open; at rest it draws nothing.
+#[tokio::test]
+async fn thought_chevron_shows_on_hover_or_open() {
+    use bboxy450_harness::frontends::gui::rich::{Face, Faces};
+    let mut preparer = Preparer::default();
+    let id = ItemId::new();
+    let mut row = message(id, "", true);
+    row.kind = ItemKind::Reasoning;
+    row.body = Item::Reasoning {
+        summary: "Compare the files.".into(),
+        raw: None,
+        provider_opaque: None,
+    };
+    row.completed_ms = Some(400);
+    let s = state(&mut preparer, &[row]).await;
+    let key = format!("reasoning/{id}/toggle/chev");
+    let zone = format!("reasoning/{id}/toggle");
+    let mut view = live_view();
+    let l0 = at(&mut view, &s, 0.);
+    let shown = |l: &Layout| find(l, &key).is_some_and(|n| !n.children.is_empty());
+    assert!(!shown(&l0), "hidden at rest");
+    assert_eq!(view.anim.next_frame(), None);
+    let r = find(&l0, &zone).expect("the thought row").rect;
+    assert!(view.pointer([r.x + 5., r.y + r.h / 2.]));
+    let _ = at(&mut view, &s, 100.);
+    let l = at(&mut view, &s, 175.);
+    assert!(
+        near(nearest_filter(&l, &key).unwrap(), Ease::Std.at(0.5), 0.01),
+        "half way in: {:?}",
+        nearest_filter(&l, &key)
+    );
+    let l = at(&mut view, &s, 300.);
+    assert!(
+        shown(&l) && nearest_filter(&l, &key).is_none(),
+        "shown while hovered"
+    );
+    assert!(view.pointer([0., 0.]));
+    let _ = at(&mut view, &s, 400.);
+    let l = at(&mut view, &s, 600.);
+    assert!(!shown(&l), "hidden again");
+    assert_eq!(view.anim.next_frame(), None);
+    // open: shown without a pointer
+    let mut open = s.clone();
+    let mut faces = Faces::default();
+    faces.insert(
+        id,
+        Face {
+            reasoning_open: true,
+            ..Default::default()
+        },
+    );
+    // a toggle re-prepares the rows with the face, as Bridge::toggle does
+    let (_preparer, prepared) = bboxy450_harness::runtime::blocking({
+        let mut owned = std::mem::take(&mut preparer);
+        let source = s.transcript.clone();
+        let faces = faces.clone();
+        move || {
+            let result = owned.prepare_with_faces(source, SIZE[0], &faces);
+            (owned, result)
+        }
+    })
+    .await;
+    open.prepared = Some(Arc::new(prepared.unwrap()));
+    open.faces = Arc::new(faces);
+    // the reveal starts on the first open frame and takes 150 ms
+    let _ = at(&mut view, &open, 700.);
+    let l = at(&mut view, &open, 900.);
+    assert!(shown(&l), "open: shown");
+    // settled: nothing at rest
+    let mut settled = HarnessView::default();
+    let l = at(&mut settled, &s, 0.);
+    assert!(!shown(&l));
+}

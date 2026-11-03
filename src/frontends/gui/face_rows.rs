@@ -400,7 +400,8 @@ impl Preparer {
                         &format!("reasoning/{id}/toggle"),
                         live,
                         row.completed_ms.map(|c| c.saturating_sub(row.started_ms)),
-                        if open { "" } else { &gist },
+                        // the gist stays beside the label open or closed, as .hx-gist does
+                        &gist,
                         open,
                         &ink,
                     )
@@ -530,7 +531,10 @@ impl Preparer {
                                 target: command.trim_start_matches("bash -c ").to_owned(),
                                 mono: true,
                                 stat: None,
-                                meta: exit.map(|e| (format!("exit {e}"), Some(e == 0))),
+                                // `exit N` only when N ≠ 0 (harness-spec.md "Tight transcript")
+                                meta: exit
+                                    .filter(|e| *e != 0)
+                                    .map(|e| (format!("exit {e}"), Some(false))),
                                 badge: None,
                                 dur: None,
                                 status: term_status(row, *exit),
@@ -543,8 +547,24 @@ impl Preparer {
                             f::body_el(vec![
                                 f::terminal(
                                     &format!("term/{id}"),
-                                    command.trim_start_matches("bash -c "),
-                                    out.map(|o| f::term_output(&o, &ink)),
+                                    // a finished run without output says so (.hx-out dim)
+                                    out.map(|o| f::term_output(&o, &ink)).or_else(|| {
+                                        row.status.is_some().then(|| {
+                                            vec![
+                                                f::term_line(
+                                                    vec![(
+                                                        "no output".into(),
+                                                        f::hex("#7d8597"),
+                                                        400,
+                                                        false,
+                                                    )],
+                                                    12.,
+                                                    true,
+                                                )
+                                                .into(),
+                                            ]
+                                        })
+                                    }),
                                     &ink,
                                 )
                                 .into(),
@@ -631,7 +651,6 @@ impl Preparer {
                                 _ => None,
                             },
                             took: start.zip(end).map(|(a, b)| b.saturating_sub(a)),
-                            rounds: count(ItemKind::Reasoning),
                             tools: count(ItemKind::ToolCall),
                             edits: count(ItemKind::FileChange),
                             tokens: usage.as_ref().map(|u| (u.input_tokens, u.output_tokens)),
@@ -656,8 +675,9 @@ impl Preparer {
                 vec![body.into()],
             ),
         );
-        let gap = 5.;
-        // .hx-feed's 14 px top padding sits on the first drawn row (row gaps are 5 + 5)
+        // .hx-feed gap 8 (harness-spec.md "Tight transcript"): 4 + 4 between rows
+        let gap = 4.;
+        // .hx-feed's 14 px top padding sits on the first drawn row
         let top = if folds.first == Some(id) { 14. } else { gap };
         let _ = width;
         Ok((
@@ -760,7 +780,10 @@ impl Preparer {
             .or_else(|| (d.kind == "edit" && d.out.starts_with("---")).then(|| d.out.clone()));
         let lines = d.out.lines().filter(|l| !l.is_empty()).count();
         let meta = match d.kind {
-            "execute" => exit.map(|e| (format!("exit {e}"), Some(e == 0))),
+            // `exit N` only when N ≠ 0: success says nothing, the check mark already did
+            "execute" => exit
+                .filter(|e| *e != 0)
+                .map(|e| (format!("exit {e}"), Some(false))),
             "read" if row.status.is_some() && lines > 0 => Some((format!("{lines} lines"), None)),
             "search" if row.status.is_some() => Some((
                 format!("{lines} hit{}", if lines == 1 { "" } else { "s" }),
@@ -769,9 +792,19 @@ impl Preparer {
             _ => None,
         };
         let failed = matches!(status, f::Status::Failed | f::Status::Denied);
+        // the terminal's output, else the call's: what an execute body shows
+        let out_text = match &term {
+            Some(t) => self.terminal_text(t, &d.out),
+            None => (!d.out.is_empty()).then(|| d.out.clone()),
+        };
+        let out_lines = out_text
+            .as_deref()
+            .map_or(0, |o| o.lines().filter(|l| !l.is_empty()).count());
+        // harness-spec.md "Tight transcript": a finished, successful command opens only when
+        // its output is 6 lines or fewer; running, asking, failed and edit cards stay open
         let auto = failed
-            || matches!(status, f::Status::Asking)
-            || d.kind == "execute"
+            || matches!(status, f::Status::Asking | f::Status::Running)
+            || (d.kind == "execute" && out_lines <= 6)
             || d.kind == "edit"
             || (d.verb == "Search" && lines <= 6);
         let open = auto != face.output_closed;
@@ -790,9 +823,12 @@ impl Preparer {
                     stat: unified.as_deref().map(f::diff_stat),
                     meta,
                     badge,
+                    // the duration only from 1s (harness-spec.md "Tight transcript")
                     dur: row
                         .completed_ms
-                        .map(|c| f::duration(c.saturating_sub(row.started_ms))),
+                        .map(|c| c.saturating_sub(row.started_ms))
+                        .filter(|ms| *ms >= 1000)
+                        .map(f::duration),
                     status,
                 },
                 ink,
@@ -824,14 +860,9 @@ impl Preparer {
                 };
                 inside.push(error_box(&reason, ink).into());
             } else if d.kind == "execute" {
-                let command = d.target.clone();
-                let out = match &term {
-                    Some(t) => self.terminal_text(t, &d.out),
-                    None => (!d.out.is_empty()).then(|| d.out.clone()),
-                };
                 // a finished run without output says so in the terminal's own voice
-                let out = out.map(|o| f::term_output(&o, ink)).or_else(|| {
-                    (row.status.is_some() && exit.is_none()).then(|| {
+                let out = out_text.map(|o| f::term_output(&o, ink)).or_else(|| {
+                    row.status.is_some().then(|| {
                         vec![
                             f::term_line(
                                 vec![(
@@ -852,13 +883,7 @@ impl Preparer {
                         ]
                     })
                 });
-                inside.push(
-                    wrap(
-                        &term,
-                        f::terminal(&format!("term/{id}"), &command, out, ink),
-                    )
-                    .into(),
-                );
+                inside.push(wrap(&term, f::terminal(&format!("term/{id}"), out, ink)).into());
             } else if let Some(u) = &unified {
                 inside.push(
                     wrap(

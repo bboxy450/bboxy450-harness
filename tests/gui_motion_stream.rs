@@ -95,6 +95,20 @@ fn alpha_of(frame: &Frame, needle: &str) -> f32 {
         .style
         .color[3]
 }
+/// As `alpha_of`, inside the node named `key` only (a thought's gist repeats its body's words
+/// in the row above it).
+fn alpha_in(frame: &Frame, key: &str, needle: &str) -> f32 {
+    let mut all = vec![];
+    runs(
+        find(frame.layout.as_ref().unwrap(), key).expect(key),
+        &mut all,
+    );
+    all.iter()
+        .find(|r| r.text.contains(needle))
+        .unwrap_or_else(|| panic!("no run holds {needle:?}"))
+        .style
+        .color[3]
+}
 /// The opacity filter wrapped around the node named `name`, if any.
 fn filter_over(n: &Layout, name: &str) -> Option<f32> {
     if let LayoutKind::Filter { opacity, .. } = &n.kind
@@ -281,6 +295,20 @@ async fn a_fold_turns_the_chevron_and_fades_the_body_over_200ms() {
         let closed = state(&mut p, &model, Faces::default());
         let frame = view.render(&closed, SIZE).unwrap();
         assert!(find(frame.layout.as_ref().unwrap(), &body).is_none());
+        // harness-spec.md "Tight transcript": a settled thought's chevron shows only while
+        // its row is hovered or the thought is open; hover it and let the 150 ms reveal
+        // finish (the warm-up offsets every clock time below)
+        let row = find(
+            frame.layout.as_ref().unwrap(),
+            &format!("reasoning/{id}/toggle"),
+        )
+        .expect("thought row")
+        .rect;
+        assert!(view.pointer([row.x + 5., row.y + row.h / 2.]));
+        // the reveal starts on the first frame after the hover and takes 150 ms
+        view.render(&closed, SIZE).unwrap();
+        view.anim.tick(160.);
+        let frame = view.render(&closed, SIZE).unwrap();
         let chevron = |frame: &Frame| {
             let node = find(frame.layout.as_ref().unwrap(), &chev).expect("chevron");
             let mut ps = vec![];
@@ -320,7 +348,7 @@ async fn a_fold_turns_the_chevron_and_fades_the_body_over_200ms() {
         let open = state(&mut p, &model, faces);
         let mut samples = vec![];
         for t in [0., 50., 100., 150., 200.] {
-            view.anim.tick(t);
+            view.anim.tick(160. + t);
             let frame = view.render(&open, SIZE).unwrap();
             let want = Ease::Out.at(t / stream_motion::FOLD_MS);
             assert!(
@@ -344,13 +372,13 @@ async fn a_fold_turns_the_chevron_and_fades_the_body_over_200ms() {
         assert_eq!(view.anim.next_frame(), None, "the fold has settled");
         // close it again: the chevron turns back from 90°
         let closed_again = state(&mut p, &model, Faces::default());
-        view.anim.tick(300.);
+        view.anim.tick(160. + 300.);
         let frame = view.render(&closed_again, SIZE).unwrap();
         assert!(same(&chevron(frame), &at(90.)), "closing starts from 90°");
-        view.anim.tick(400.);
+        view.anim.tick(160. + 400.);
         let frame = view.render(&closed_again, SIZE).unwrap();
         assert!(same(&chevron(frame), &at(90. * (1. - Ease::Out.at(0.5)))));
-        view.anim.tick(600.);
+        view.anim.tick(160. + 600.);
         view.render(&closed_again, SIZE).unwrap();
         assert_eq!(view.anim.next_frame(), None);
     })
@@ -845,12 +873,13 @@ async fn a_completing_thought_relabels_without_refading_its_body() {
         view.anim.tick(210.);
         let frame = view.render(&state(&mut p, &model, faces), SIZE).unwrap();
         assert_eq!(alpha_of(frame, "Thought"), 1.);
+        let body = format!("reasoning/{id}/body");
         assert_eq!(
-            alpha_of(frame, "Looking"),
+            alpha_in(frame, &body, "Looking"),
             1.,
             "settled body re-faded on completion"
         );
-        assert_eq!(alpha_of(frame, "carefully"), 1.);
+        assert_eq!(alpha_in(frame, &body, "carefully"), 1.);
     })
     .await;
 }

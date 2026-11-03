@@ -855,7 +855,14 @@ async fn disclosure_controls_change_the_view_without_reparsing_or_core_operation
         )
         .is_none()
     );
-    assert!(frame.item_text(reasoning).unwrap().contains("Thought"));
+    // collapsed again: the gist is the row (a thought under 1s carries no "Thought" label,
+    // harness-spec.md "Tight transcript")
+    assert!(
+        frame
+            .item_text(reasoning)
+            .unwrap()
+            .contains("Compare the current contents")
+    );
     bridge.detach().unwrap().await.unwrap();
 }
 #[tokio::test]

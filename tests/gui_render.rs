@@ -473,9 +473,10 @@ async fn cards_show_readable_content_instead_of_serialized_payloads() {
         !text.contains("\"kind\":"),
         "raw JSON is not a readable card: {text}"
     );
+    // harness-spec.md "Tight transcript": a successful command says nothing about its exit
     assert!(
-        text.contains("exit 0"),
-        "terminal exit must be explicit readable text"
+        !text.contains("exit 0"),
+        "a zero exit must not be drawn: {text}"
     );
     assert!(!text.contains("Some("));
 }
@@ -591,73 +592,66 @@ async fn usage_items_feed_the_header_meter_and_draw_no_row() {
     assert!((heights[0] - heights[1]).abs() < 0.5);
 }
 
-/// harness-spec.md "Refinement pass 2": the exit status is the tool card header's chip; the
-/// terminal body never appends an `exit N` line, and its output sits on 8 px top and 10 px
+/// harness-spec.md "Tight transcript": the body never repeats the command and a zero exit
+/// is not drawn; a non-zero exit is the header chip; the output sits on 7 px top and 10 px
 /// bottom padding with nothing under the last line.
 #[tokio::test]
-async fn terminal_body_has_no_exit_line_and_keeps_its_padding() {
+async fn terminal_body_has_no_command_or_exit_line_and_keeps_its_padding() {
     use bboxy450_harness::frontends::gui::view::{find, layout_text};
-    let id = ItemId::new();
-    let state = hand_state(vec![hand_item(
-        id,
-        ItemKind::Terminal,
-        Item::Terminal {
-            terminal: "t1".into(),
-            command: "printf ok".into(),
-            exit: Some(0),
-            signal: None,
-            output: None,
-            live: None,
-        },
-        "ok\nagain",
-    )])
-    .await;
-    let mut view = HarnessView::default();
-    let frame = view.render(&state, [900., 700.]).unwrap();
-    let layout = frame.layout.as_ref().unwrap();
-    let term = find(layout, &format!("term/{id}")).expect("the terminal block");
-    let body = layout_text(term);
-    assert!(
-        body.contains("printf ok") && body.contains("again"),
-        "{body}"
-    );
-    assert!(
-        !body.contains("exit"),
-        "the terminal body appended an exit line: {body}"
-    );
-    assert!(
-        layout_text(find(layout, &format!("toolhead/{id}")).unwrap()).contains("exit 0"),
-        "the header chip carries the exit status"
-    );
-    let out = find(layout, &format!("term/{id}/output")).expect("the output block");
-    // the named node holds the padded box, whose children are the output lines
-    let lines = &out.children.first().expect("the padded box").children;
-    let (first, last) = (
-        lines.first().expect("output lines").rect,
-        lines.last().expect("output lines").rect,
-    );
-    // 8 px from the command row to the first line: the 1 px rule, then 7 px of padding
-    let rule = term
-        .children
-        .first()
-        .expect("the terminal box")
-        .children
-        .iter()
-        .find(|n| (n.rect.bottom() - out.rect.y).abs() < 0.01)
-        .expect("the rule above the output");
-    assert!(
-        (rule.rect.h - 1.).abs() < 0.01 && (first.y - rule.rect.y - 8.).abs() < 0.5,
-        "8 px above the first line: {} under the rule at {} (h {})",
-        first.y,
-        rule.rect.y,
-        rule.rect.h
-    );
-    assert!(
-        (out.rect.bottom() - last.bottom() - 10.).abs() < 0.5,
-        "10 px under the last line: {} above {}",
-        last.bottom(),
-        out.rect.bottom()
-    );
+    for (exit, chip) in [(Some(0), None), (Some(3), Some("exit 3"))] {
+        let id = ItemId::new();
+        let state = hand_state(vec![hand_item(
+            id,
+            ItemKind::Terminal,
+            Item::Terminal {
+                terminal: "t1".into(),
+                command: "printf ok".into(),
+                exit,
+                signal: None,
+                output: None,
+                live: None,
+            },
+            "ok\nagain",
+        )])
+        .await;
+        let mut view = HarnessView::default();
+        let frame = view.render(&state, [900., 700.]).unwrap();
+        let layout = frame.layout.as_ref().unwrap();
+        let term = find(layout, &format!("term/{id}")).expect("the terminal block");
+        let body = layout_text(term);
+        assert!(body.contains("ok") && body.contains("again"), "{body}");
+        assert!(
+            !body.contains("printf") && !body.contains("exit"),
+            "the body repeated the command or the exit: {body}"
+        );
+        let head = layout_text(find(layout, &format!("toolhead/{id}")).unwrap());
+        assert!(
+            head.contains("printf ok"),
+            "the head names the command: {head}"
+        );
+        match chip {
+            Some(chip) => assert!(head.contains(chip), "a non-zero exit is the chip: {head}"),
+            None => assert!(!head.contains("exit"), "a zero exit is not drawn: {head}"),
+        }
+        let out = find(layout, &format!("term/{id}/output")).expect("the output block");
+        let lines = &out.children.first().expect("the padded box").children;
+        let (first, last) = (
+            lines.first().expect("output lines").rect,
+            lines.last().expect("output lines").rect,
+        );
+        assert!(
+            (first.y - out.rect.y - 7.).abs() < 0.5,
+            "7 px above the first line: {} under {}",
+            first.y,
+            out.rect.y
+        );
+        assert!(
+            (out.rect.bottom() - last.bottom() - 10.).abs() < 0.5,
+            "10 px under the last line: {} above {}",
+            last.bottom(),
+            out.rect.bottom()
+        );
+    }
 }
 
 /// harness-spec.md "Refinement pass 2", message text rhythm: headings 15/700 with 8 above and
@@ -816,7 +810,11 @@ async fn live_terminal_heads_snapshots_and_completed_blob_reach_the_view() {
     let mut view = HarnessView::default();
     let frame = view.render(&bridge.state, [1120., 7000.]).unwrap();
     let text = frame.item_text(terminal_id).unwrap();
-    assert!(text.contains(command));
+    // harness-spec.md "Tight transcript": the body never repeats the command the head names
+    assert!(
+        !text.contains(command),
+        "the terminal body repeated the command: {text}"
+    );
     // the exit status is the tool card header's chip, never a body line (harness-spec.md
     // "Refinement pass 2"): the terminal folds into its tool call, whose header shows it
     assert!(
@@ -830,7 +828,12 @@ async fn live_terminal_heads_snapshots_and_completed_blob_reach_the_view() {
         });
     let head = bboxy450_harness::frontends::gui::view::find(frame.layout.as_ref().unwrap(), &head)
         .expect("the tool card header");
-    assert!(bboxy450_harness::frontends::gui::view::layout_text(head).contains("exit 0"));
+    // harness-spec.md "Tight transcript": a zero exit is not drawn anywhere; the check mark
+    // already says it
+    assert!(
+        !bboxy450_harness::frontends::gui::view::layout_text(head).contains("exit"),
+        "the header drew a zero exit"
+    );
     assert!(
         text.contains("stream-headstream-tail"),
         "completed blob must supply output, not just the command: {text}"
@@ -1050,4 +1053,262 @@ async fn v1_additions_have_readable_rich_cards() {
         assert!(text.contains(label), "missing {label}: {text}");
     }
     assert!(!text.contains("opaque fixture"));
+}
+
+fn hand_run(id: ItemId, lines: usize) -> bboxy450_harness::frontends::gui::model::ViewItem {
+    let out = (1..=lines)
+        .map(|i| format!("line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    hand_item(
+        id,
+        ItemKind::ToolCall,
+        Item::ToolCall {
+            call_id: format!("call-{id}"),
+            name: "bash".into(),
+            tool_kind: ToolKind::Execute,
+            input_raw: serde_json::json!({"command": "make test"}).to_string(),
+            output: vec![OutputBlock::Text { text: out }],
+            locations: vec![],
+            spill: None,
+            title: None,
+            server: None,
+            raw_output: None,
+        },
+        "",
+    )
+}
+
+/// harness-spec.md "Tight transcript": the head carries no `auto` badge and no duration under
+/// 1s and pads 6/10; a finished, successful command folds unless its output is 6 lines or
+/// fewer, while a failed one stays open; the feed gap is 8.
+#[tokio::test]
+async fn tight_tool_heads_fold_rule_and_feed_gap() {
+    use bboxy450_harness::frontends::gui::view::{find, layout_text};
+    let (short, long, failed, slow) = (ItemId::new(), ItemId::new(), ItemId::new(), ItemId::new());
+    let mut rows = vec![
+        hand_run(short, 3),
+        hand_run(long, 9),
+        hand_run(failed, 9),
+        hand_run(slow, 2),
+    ];
+    rows[2].status = Some(ItemStatus::Failed {
+        reason: "boom".into(),
+        code: None,
+    });
+    for r in &mut rows {
+        r.completed_ms = Some(400);
+    }
+    rows[3].completed_ms = Some(2500);
+    let state = hand_state(rows).await;
+    let mut view = HarnessView::default();
+    let frame = view.render(&state, [900., 1600.]).unwrap();
+    let layout = frame.layout.as_ref().unwrap();
+    let text = |key: &str| layout_text(find(layout, key).unwrap_or_else(|| panic!("{key}")));
+    for id in [short, long, failed] {
+        let h = text(&format!("toolhead/{id}"));
+        assert!(h.contains("make test"), "the head names the command: {h}");
+        assert!(
+            !h.contains("auto") && !h.contains("ms"),
+            "no badge, no sub-second duration: {h}"
+        );
+    }
+    assert!(
+        text(&format!("toolhead/{slow}")).contains("2.5s"),
+        "the duration shows from 1s"
+    );
+    // head padding 6: the kind tile sits 6 px under the head's top edge
+    let head = find(layout, &format!("toolhead/{short}")).unwrap();
+    let tile = head.children[0].children[0].rect;
+    assert!(
+        (tile.y - head.rect.y - 6.).abs() < 0.01,
+        "head top padding: {}",
+        tile.y - head.rect.y
+    );
+    // the fold rule
+    assert!(
+        find(layout, &format!("term/{short}")).is_some_and(|n| n.rect.h > 0.),
+        "3 lines of output: open"
+    );
+    assert!(
+        find(layout, &format!("term/{long}")).is_none(),
+        "9 lines of output: folded"
+    );
+    assert!(
+        find(layout, &format!("term/{failed}")).is_some_and(|n| n.rect.h > 0.),
+        "failed: open"
+    );
+    // feed gap 8 between rows (4 + 4 around the row bodies)
+    let a = find(layout, &format!("body/{short}")).unwrap().rect;
+    let b = find(layout, &format!("body/{long}")).unwrap().rect;
+    assert!(
+        (b.y - a.bottom() - 8.).abs() < 0.01,
+        "feed gap 8: {}",
+        b.y - a.bottom()
+    );
+}
+
+/// harness-spec.md "Tight transcript": the receipt is a hairline rule and one line: mark,
+/// title, the duration from 1s (always when the turn did not end ok), tools and edits, never
+/// rounds, and no card. A failure keeps its red rule, its reason and the actions.
+#[tokio::test]
+async fn tight_receipt_is_a_rule_and_one_line() {
+    use bboxy450_harness::frontends::gui::{
+        model::TurnState,
+        view::{find, layout_text},
+    };
+    let cases: Vec<(StopReason, u64, Vec<&str>, Vec<&str>)> = vec![
+        (
+            StopReason::EndTurn,
+            400,
+            vec!["Done", "1 tool"],
+            vec!["round", "ms", "Retry"],
+        ),
+        (
+            StopReason::EndTurn,
+            2500,
+            vec!["Done", "2.5s", "1 tool"],
+            vec!["round"],
+        ),
+        (
+            StopReason::Error {
+                class: ErrorClass::Transient,
+                message: "socket closed".into(),
+            },
+            400,
+            vec![
+                "Connection dropped",
+                "400ms",
+                "socket closed",
+                "Retry",
+                "Switch profile",
+            ],
+            vec!["round"],
+        ),
+    ];
+    for (reason, took, wanted, unwanted) in cases {
+        let turn = TurnId::new();
+        let (think, tool, reply) = (ItemId::new(), ItemId::new(), ItemId::new());
+        let mut rows = vec![
+            hand_item(
+                think,
+                ItemKind::Reasoning,
+                Item::Reasoning {
+                    summary: "Plan it.".into(),
+                    raw: None,
+                    provider_opaque: None,
+                },
+                "",
+            ),
+            hand_run(tool, 2),
+            hand_item(
+                reply,
+                ItemKind::AgentMessage,
+                Item::AgentMessage {
+                    markdown: "Done it.".into(),
+                },
+                "",
+            ),
+        ];
+        for r in &mut rows {
+            r.turn = Some(turn);
+            r.completed_ms = Some(took);
+        }
+        let mut t = Transcript::default();
+        for row in rows {
+            t.order.push_back(row.id);
+            t.items.insert(row.id, row);
+        }
+        let ok = matches!(reason, StopReason::EndTurn);
+        t.turns.insert(
+            turn,
+            TurnState::Ended {
+                reason,
+                usage: None,
+            },
+        );
+        let mut state = FrameState {
+            transcript: Arc::new(t),
+            ready: true,
+            replay: true,
+            ..Default::default()
+        };
+        let mut preparer = Preparer::default();
+        state.prepared = Some(Arc::new(
+            prepare(&mut preparer, state.transcript.clone(), 900.).await,
+        ));
+        let mut view = HarnessView::default();
+        let frame = view.render(&state, [900., 900.]).unwrap();
+        let layout = frame.layout.as_ref().unwrap();
+        let receipt = find(layout, &format!("turn/{}", turn.0)).expect("receipt");
+        let text = layout_text(receipt);
+        for w in &wanted {
+            assert!(text.contains(w), "receipt lacks {w:?}: {text}");
+        }
+        for u in &unwanted {
+            assert!(!text.contains(u), "receipt drew {u:?}: {text}");
+        }
+        // a hairline rule above, then the line: no card fill
+        let column = &receipt.children[0];
+        let rule = &column.children[0];
+        assert!(
+            (rule.rect.h - 1.).abs() < 0.01 && rule.rect.w > 100.,
+            "a 1 px rule above: {:?}",
+            rule.rect
+        );
+        let bbt_ui::components::LayoutKind::Box { style, .. } = &column.children[1].kind else {
+            panic!("the receipt line box");
+        };
+        assert_eq!(style.fill[3], 0., "no card fill behind the receipt");
+        let _ = ok;
+    }
+}
+
+/// harness-spec.md "Tight transcript": a thought under 1s has no "Thought" label, only its
+/// 12 px gist; from 1s it reads "Thought for N". Its chevron is hidden at rest.
+#[tokio::test]
+async fn short_thoughts_show_the_gist_alone() {
+    use bboxy450_harness::frontends::gui::view::{find, layout_text};
+    for (took, label) in [(400, None), (1500, Some("Thought for 1.5s"))] {
+        let id = ItemId::new();
+        let mut row = hand_item(
+            id,
+            ItemKind::Reasoning,
+            Item::Reasoning {
+                summary: "Compare the files. Then decide.".into(),
+                raw: None,
+                provider_opaque: None,
+            },
+            "",
+        );
+        row.completed_ms = Some(took);
+        let state = hand_state(vec![row]).await;
+        let mut view = HarnessView::default();
+        let frame = view.render(&state, [900., 700.]).unwrap();
+        let layout = frame.layout.as_ref().unwrap();
+        let toggle = find(layout, &format!("reasoning/{id}/toggle")).expect("thought row");
+        let text = layout_text(toggle);
+        assert!(text.contains("Compare the files."), "the gist: {text}");
+        match label {
+            Some(l) => assert!(text.contains(l), "{text}"),
+            None => assert!(
+                !text.contains("Thought"),
+                "a short thought has no label: {text}"
+            ),
+        }
+        fn gist_size(n: &bbt_ui::components::Layout) -> Option<f32> {
+            if let bbt_ui::components::LayoutKind::Text { runs, .. } = &n.kind
+                && let Some(r) = runs.iter().find(|r| r.text.contains("Compare"))
+            {
+                return Some(r.style.size);
+            }
+            n.children.iter().find_map(gist_size)
+        }
+        assert_eq!(gist_size(toggle), Some(12.), "the gist is 12 px");
+        assert!(
+            find(layout, &format!("reasoning/{id}/toggle/chev"))
+                .is_none_or(|n| n.children.is_empty()),
+            "the chevron is hidden at rest"
+        );
+    }
 }

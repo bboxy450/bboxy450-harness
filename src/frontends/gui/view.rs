@@ -783,24 +783,41 @@ impl HarnessView {
                 overlays = Some((viewport, prims));
             }
         }
-        // The message source toggle is hover-only (harness-spec.md "Refinement pass 2"):
-        // nothing at rest, .6 while its row is under the pointer, 1 over the control itself,
-        // each over 150 ms `std`. A settled clock answers the end state, so captures and the
-        // parity gate never show it. Its hit zone (the named node's rect) stays.
+        // Hover-only controls, each over 150 ms `std`; a settled clock answers the end state,
+        // so captures and the parity gate never show them. Hit zones (the named nodes'
+        // rects) stay.
+        // - The message source toggle (harness-spec.md "Refinement pass 2"): nothing at
+        //   rest, .6 while its row is under the pointer, 1 over the control itself.
+        // - A settled thought's chevron (harness-spec.md "Tight transcript"): nothing at
+        //   rest, shown while the row is under the pointer or the thought is open.
         {
             let hovered = self.menus.hover.as_deref();
             let anim = &mut self.anim;
-            source_toggles(&mut layout, &mut |key, node| {
-                let row = key
-                    .strip_prefix("source/")
-                    .and_then(|k| k.strip_suffix("/toggle"))
-                    .unwrap_or(key);
-                let target = if hovered == Some(key) {
-                    1.
-                } else if hovered == Some(format!("msg/{row}").as_str()) {
-                    0.6
+            let faces = &state.faces;
+            each_named(&mut layout, &mut |key, node| {
+                let target = if key.starts_with("source/") && key.ends_with("/toggle") {
+                    let row = key
+                        .strip_prefix("source/")
+                        .and_then(|k| k.strip_suffix("/toggle"))
+                        .unwrap_or(key);
+                    if hovered == Some(key) {
+                        1.
+                    } else if hovered == Some(format!("msg/{row}").as_str()) {
+                        0.6
+                    } else {
+                        0.
+                    }
+                } else if key.starts_with("reasoning/") && key.ends_with("/toggle/chev") {
+                    let row = key.strip_suffix("/chev").unwrap_or(key);
+                    let open = key
+                        .strip_prefix("reasoning/")
+                        .and_then(|k| k.split('/').next())
+                        .and_then(|s| s.parse().ok())
+                        .map(ItemId)
+                        .is_some_and(|id| faces.get(&id).is_some_and(|f| f.reasoning_open));
+                    if open || hovered == Some(row) { 1. } else { 0. }
                 } else {
-                    0.
+                    return false;
                 };
                 let a = anim.tween(&format!("{key}/hover"), target, SOURCE_HOVER_MS, Ease::Std);
                 if a <= 0. {
@@ -808,6 +825,7 @@ impl HarnessView {
                 } else {
                     stream_motion::fade_node(node, a);
                 }
+                true
             });
         }
         // the empty session's rise and its chips' staggered rise (opacity is in the element)
@@ -869,6 +887,16 @@ impl HarnessView {
                 let r = intersection(node.rect, scroll_node.rect);
                 if r.w > 0. && r.h > 0. {
                     frame.visible.push((*id, model.items[id].kind.clone(), r));
+                }
+            }
+            // a settled thought row is a hover zone: its chevron shows while hovered
+            if model.items[id].kind == ItemKind::Reasoning {
+                let key = format!("reasoning/{id}/toggle");
+                if let Some(node) = find(&layout, &key) {
+                    let r = intersection(node.rect, scroll_node.rect);
+                    if r.w > 0. && r.h > 0. {
+                        frame.hover.push((r, key));
+                    }
                 }
             }
             // a message row and its source toggle are hover zones; the toggle is listed
@@ -2672,18 +2700,17 @@ fn paint_shapes(node: &mut c::Layout) {
     }
 }
 
-/// Calls `f` on every message source toggle (`source/{id}/toggle`) in the solved layout.
-fn source_toggles(node: &mut c::Layout, f: &mut impl FnMut(&str, &mut c::Layout)) {
-    if let c::LayoutKind::Named(name) = &node.kind
-        && name.starts_with("source/")
-        && name.ends_with("/toggle")
-    {
+/// Calls `f` on every named node, nearest the root first; `f` answers whether it took the
+/// node, in which case the walk does not descend into it.
+fn each_named(node: &mut c::Layout, f: &mut impl FnMut(&str, &mut c::Layout) -> bool) {
+    if let c::LayoutKind::Named(name) = &node.kind {
         let name = name.clone();
-        f(&name, node);
-        return;
+        if f(&name, node) {
+            return;
+        }
     }
     for child in &mut node.children {
-        source_toggles(child, f);
+        each_named(child, f);
     }
 }
 fn find_mut<'a>(node: &'a mut c::Layout, key: &str) -> Option<&'a mut c::Layout> {

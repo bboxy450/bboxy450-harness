@@ -208,7 +208,8 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
                 ItemKind::UserMessage => "Read two files", ItemKind::AgentMessage => "I’ll read both files.",
                 ItemKind::Reasoning => "Compare the current contents.", ItemKind::ToolCall => "",
                 ItemKind::FileChange => "+ hello world", ItemKind::TurnDiff => "+++ b/hello.txt",
-                ItemKind::Terminal => "printf ok", ItemKind::Plan => "In progress: Update greeting",
+                // the head names the command; the body is the output alone (the call's text)
+                ItemKind::Terminal => "hello", ItemKind::Plan => "In progress: Update greeting",
                 ItemKind::Approval => "Edit hello.txt", ItemKind::Image => "Image: image/png",
                 ItemKind::ContextTrim => trim_expected.as_deref().expect("context trim fixture body"),
                 ItemKind::Usage => {
@@ -229,7 +230,7 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         let text = layout_text(frame.layout.as_ref().ok_or("missing solved layout")?);
         let required = [
             "Read two files and update hello.txt", "I’ll read both files.",
-            "Compare the current contents.", "Read hello.txt", "printf ok", "exit 0",
+            "Compare the current contents.", "Read hello.txt", "printf ok",
             "--- a/hello.txt", "+ hello world", "In progress: Update greeting", "Edit hello.txt",
             "Image: image/png", "0 bytes",
             "Session: 00000000000000000000000009", "Context trimmed through event ", "fixture complete",
@@ -237,6 +238,8 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         for expected in required { if !text.contains(expected) { return Err(format!("missing readable content: {expected}; actual text: {text}")); } }
         if text.contains("\"kind\":") || text.contains("Some(") { return Err("serialized payload reached a card".into()); }
         if text.contains("0 in · 0 out") { return Err("a usage item drew its figures in the feed".into()); }
+        // harness-spec.md "Tight transcript": success says nothing, no `auto` badge, no rounds
+        for noise in ["exit 0", "auto", "round"] { if text.contains(noise) { return Err(format!("tight transcript drew {noise:?}: {text}")); } }
         let approval_count = frame.actions.iter().filter(|(_, a)| matches!(a, Action::Approval(_, _))).count();
         if approval_count != 3 || !["Allow", "Always", "Deny"].iter().all(|s| text.contains(s)) { return Err("approval buttons missing".into()); }
         let layout=frame.layout.as_ref().ok_or("smoke layout missing")?;

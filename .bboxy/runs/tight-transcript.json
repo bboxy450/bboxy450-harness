@@ -1,0 +1,39 @@
+{
+ "task": "tight-transcript (ledger row k)",
+ "branch": "refine/pass2",
+ "source_commit": "65f718bff66a18b7623fffd3f1093199b2692326",
+ "on": "1e8ac8a refine2, on 9654a93 origin/main",
+ "spec": "harness-spec.md Tight transcript (term 625239e0)",
+ "lab": "/Users/feral/mydev/bboxy450-term-harness-ref/lab/web @ 625239e0 (gate printed REFERENCE MOVED against the adopted baseline)",
+ "commands": [
+  {"command": "cargo fmt --all --check", "exit": 0},
+  {"command": "cargo test --offline --locked --features standalone,test-fixtures --no-fail-fast --test gui_render --test gui_rich --test gui_bridge --test gui_fixtures --test gui_cli --test gui_budget --test gui_motion --test gui_menu_motion --test gui_motion_stream --test capability_delivery (private HOME)", "exit": 0, "tests": {"gui_render": 16, "gui_rich": 27, "gui_bridge": 3, "gui_fixtures": 7, "gui_cli": 3, "gui_budget": 3, "gui_motion": 10, "gui_menu_motion": 7, "gui_motion_stream": 10, "capability_delivery": 9}},
+  {"command": "cargo clippy --offline --locked --all-features --all-targets -- -D warnings", "exit": 0},
+  {"command": "CLIPPY_CONF_DIR=src/frontends/gui/lint cargo clippy --offline --locked --all-features --lib --bin bboxy450-harness -- -D warnings", "exit": 0},
+  {"command": "bboxy450-harness gui --replay tests/fixtures/gui/rich-all-items.jsonl --headless --screenshot target/refine2/tight-smoke.png", "exit": 0, "note": "gui-smoke PASS, 21 visible items, 14 kinds"},
+  {"command": "LAB=... BIN=<build of 1e8ac8a, sha256 eaea27add32aaa73> python3 -I scripts/parity-gate.py target/refine2/tight-before", "exit": 0},
+  {"command": "LAB=... BIN=<build of 1e8ac8a> EXPAND=all python3 -I scripts/parity-gate.py target/refine2/tight-before-x", "exit": 0},
+  {"command": "LAB=... python3 -I scripts/parity-gate.py target/refine2/tight-after (binary sha256 f20c8ebeff113b62, verified not the before binary)", "exit": 0},
+  {"command": "LAB=... EXPAND=all python3 -I scripts/parity-gate.py target/refine2/tight-after-x", "exit": 0},
+  {"command": "make test", "exit": 0, "note": "05:45-05:55 PST 2026-11-03 on this source, queued behind another session's full run"}
+ ],
+ "parity_plain_before_after": {
+  "acp-claude-acp": [[0.0119, 0.0809], [0.0064, 0.0245]],
+  "acp-codex-acp": [[0.009, 0.0827], [0.0056, 0.0164]],
+  "acp-omp": [[0.0094, 0.0255], [0.0072, 0.0173]],
+  "acp-opencode": [[0.0435, 0.4609], [0.0354, 0.3773]],
+  "acp-pi": [[0.0111, 0.0682], [0.0067, 0.03]],
+  "glyph-atlas": [[0.0474, 0.4318], [0.0294, 0.2255]],
+  "mermaid": [[0.0248, 0.3164], [0.023, 0.3273]]
+ },
+ "parity_expand_all_before_after": {
+  "acp-claude-acp": [[0.0119, 0.0809], [0.0064, 0.0245]],
+  "acp-codex-acp": [[0.009, 0.0736], [0.0062, 0.0382]],
+  "acp-omp": [[0.0094, 0.0255], [0.0072, 0.0173]],
+  "acp-opencode": [[0.0709, 0.4755], [0.0664, 0.3936]],
+  "acp-pi": [[0.0111, 0.0682], [0.0067, 0.03]],
+  "glyph-atlas": [[0.0452, 0.3273], [0.0375, 0.3545]],
+  "mermaid": [[0.0228, 0.3045], [0.0227, 0.3155]]
+ },
+ "note": "before = the refine2 binary against the tight lab, so its scores are worse than refine2's own record by design; every fixture's mean difference improves, row structure improves on six of seven plain, glyph-atlas lands under its targets."
+}
