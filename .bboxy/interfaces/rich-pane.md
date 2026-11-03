@@ -13,7 +13,7 @@ links:
   - { to: "[[log-ir-v1]]", rel: constrained-by }
   - { to: "[[d5972-our-log-format-is-the-center]]", rel: builds-on }
 created: 2026-11-02T23:30:00Z
-updated: 2026-11-02T23:30:00Z
+updated: 2026-11-03T14:30:00Z
 ---
 # ICD: rich pane
 
@@ -72,6 +72,8 @@ Term chooses the path, so nothing has to be discovered.
 ## 5. Delivery and readiness (`seat_input_text` for harness seats)
 
 **Readiness.** Positive readiness for a harness seat means **admission**, not idleness: the logic owner holds a `Connected` connection to the seat socket (§2) whose last frame (an envelope or the 15 s heartbeat) is younger than 20 s. It replaces the PTY composer-ready proof for this kind only. `guarded_input` dispatches on kind before the PTY arbiter (`logic.rs:8669`).
+
+**Status.** Seat status (what the harness is doing: rim, sidebar row, `seat_get`) is not derived from socket liveness or output cadence. It comes from the seat's 7501 reports with their 2 s heartbeat and from the session log ([[embed-seat]] p7; #348 phase 1c; operator 2026-11-03). A pane whose rich face holds a `Connected` socket already receives the same events (`TurnStarted`, `TurnEnded`, `Status{phase}`, approval items) and may feed them as a Reported source named `socket`; nothing here requires it.
 
 **Delivery.**
 - The logic owner sends `OpEnvelope{op_id, op: UserTurn{blocks: [Text], mode: Queue}}`.

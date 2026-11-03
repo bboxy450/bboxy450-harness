@@ -10,7 +10,7 @@ links:
   - { to: "bboxy450-term:[[d20-seats-and-jobs]]", rel: constrained-by }
   - { to: "[[architect-review-v0]]", rel: decided-by }
 created: "2026-10-31T00:00:00Z"
-updated: "2026-11-01T00:00:00Z"
+updated: "2026-11-03T14:30:00Z"
 ---
 # ICD: bboxy450-term ↔ harness, phase 1 process seat
 
@@ -97,6 +97,16 @@ Authorized by the Oracle's p6-seat-state brief. In `seat` mode with both stdin a
 - `--json`, headless, and redirected/non-TTY seats emit no OSC 7501 reports. The ordinary transcript renderer remains escape-free.
 
 Verification: `tests/seat_golden.rs` exact bytes, split probes, text bounds; `tests/seat_process.rs` real unattended PTY reply without Enter, filtered saved UserMessage, state transitions and JSON/pipe exclusion; model HarnessSeatReport with state/probe broken controls and A-B-A profile generations. Side A guard readiness, persistence and resume acceptance remain outside this task; this extension makes no new claim for those phase 1b clauses.
+
+## p7 Side B extension: status heartbeat, and the session log as a status source (2026-11-03)
+
+Operator, 2026-11-03, via the Oracle: "the harness should report its active status to term correctly … via logs and ACP". Every open harness executor showed idle/inferred/cadence while working. Term's design spec `lab/web/harness-spec.md` §"Seat status in term" (bboxy450-term 7fdb71ac) is the display contract; this section is the wire contract. Being built by the status-harness and status-term executor seats; recorded so both sides match. Amends #348 as phase 1c (§7 below, term side).
+
+- **Heartbeat.** While any turn is open (`StateReporter.turns` non-empty, `src/frontends/seat.rs:26`; an agent-initiated turn of [[acp-agent]] §4.5 counts), Side B re-sends the current 7501 report every 2 s, unchanged in `state` and `title`, with `msg=` the current phase: `Thinking` or `Writing` for model output, the tool head (`<name> <summary>`, as the transcript prints it) for `Phase::Tool`, and the approval subject for `blocked` (as today). The phase follows `Event::Status{phase}`; a phase change also sends a report at once. No heartbeat while idle; probes still answer. Base64 and byte caps as p6.
+- **The session log is a status source.** Side A may read the seat's own log, `~/.bboxy450-harness/sessions/<harness_session_id>.jsonl` (the id from `Hello.meta.session`, #348 phase 1b), read-only and tail-only, as a second Reported source: `turn_started` → working, `turn_ended` → idle (`reason.reason == "error"` → error), an `Approval` item started and not completed → blocked, `session_closed` → idle; `ts_ms` is the observation time. Side A never writes under `~/.bboxy450-harness` (#348 Versioning row). Where 7501 and the log disagree, the later observation wins; both are grade Reported.
+- **Precedence and staleness (Side A).** A Reported state holds for its generation against every Inferred (cadence) observation; only another Reported observation (7501, the log, a socket envelope), process exit, or the 60 s staleness timeout replaces it. The timeout (no 7501 frame and no log line for 60 s while a turn is open) ends the hold and marks the state stale (`· no word for 1m`, rim dimmed); it never flips the state to idle by itself. Today Side A drops a lower grade only within 5 s of a higher one (`observe.rs` `lower_recent`); the hold replaces that window for harness seats.
+
+Verification: `tests/seat_golden.rs` (fake clock): two heartbeats 2 s apart during an open turn carrying the phase msg, none while idle, a report at once on a phase change; `tests/seat_process.rs`: a real PTY turn of ≥ 5 s yields ≥ 2 heartbeats; model `HarnessSeatReport` gains the heartbeat (enabled only while a turn is open) with the broken control "no heartbeat while a turn is open", under which Side A's staleness must fire falsely. Side A: term `make test-harness-native` reads a seat's log as a source and proves the hold against a cadence observation and the 60 s staleness, with a broken control that lets cadence replace a Reported state. Until these land: **unproven**.
 
 ## 7. Amendment to bboxy450-term ICD #348 (phase 1a, landed)
 
