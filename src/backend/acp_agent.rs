@@ -149,6 +149,8 @@ struct Tool {
     input: String,
     output: Vec<OutputBlock>,
     locations: Vec<Location>,
+    raw_output: Option<Value>,
+    content_seen: bool,
 }
 struct Permission {
     rpc: Value,
@@ -185,7 +187,7 @@ pub struct AcpAgentActor {
     queue: VecDeque<(TurnId, Vec<InputBlock>, OpId)>,
     running: Option<Running>,
     resolved: HashSet<ItemId>,
-    warned: HashSet<String>,
+    projected_ext: BTreeMap<String, Value>,
     /// Earlier turns of this log (a reopened or forked session), handed to the next
     /// fresh agent with its first prompt: the agent's own context starts empty.
     handoff: Option<String>,
@@ -254,7 +256,7 @@ impl AcpAgentActor {
             queue: VecDeque::new(),
             running: None,
             resolved: HashSet::new(),
-            warned: HashSet::new(),
+            projected_ext: BTreeMap::new(),
             handoff,
             cancel_grace: cancel_grace(),
         };
@@ -264,7 +266,23 @@ impl AcpAgentActor {
 
     async fn publish(&mut self, event: Event, cause: Option<OpId>) -> std::io::Result<()> {
         let e = if event.is_durable() {
-            self.store.append(event, cause).await?
+            let ext = if matches!(
+                &event,
+                Event::ItemStarted { .. } | Event::ItemCompleted { .. }
+            ) {
+                std::mem::take(&mut self.projected_ext)
+            } else {
+                Default::default()
+            };
+            crate::import::append_projected(
+                &mut self.store,
+                event,
+                cause,
+                crate::store::now_ms(),
+                None,
+                ext,
+            )
+            .await?
         } else {
             self.config
                 .redactor
@@ -519,6 +537,15 @@ impl AcpAgentActor {
             plan: None,
             permissions: BTreeMap::new(),
         });
+        let non_text: Vec<Value> = blocks
+            .iter()
+            .filter(|b| !matches!(b, InputBlock::Text { .. }))
+            .map(|b| serde_json::to_value(b).expect("input serializes"))
+            .collect();
+        if !non_text.is_empty() {
+            self.projected_ext
+                .insert("acp".into(), json!({"input_blocks":non_text}));
+        }
         self.record(Some(turn), Item::UserMessage { blocks })
             .await?;
         self.publish(
@@ -555,11 +582,11 @@ impl AcpAgentActor {
                 .await?;
             }
         } else {
-            self.send_prompt()?;
+            self.send_prompt().await?;
         }
         Ok(())
     }
-    fn send_prompt(&mut self) -> std::io::Result<()> {
+    async fn send_prompt(&mut self) -> std::io::Result<()> {
         let Some(r) = self.running.as_mut() else {
             return Ok(());
         };
@@ -579,7 +606,15 @@ impl AcpAgentActor {
                 "Context: the conversation so far in this session, handed over from an earlier agent. \
                  Use it as background; the new request follows.\n\n{text}\n\n--- new request ---") }));
         }
-        prompt.extend(r.blocks.iter().map(content_block));
+        for block in &r.blocks {
+            if let InputBlock::Image { blob } = block {
+                use base64::Engine as _;
+                let bytes = self.store.blobs.get(blob).await?;
+                prompt.push(json!({"type":"image","data":base64::engine::general_purpose::STANDARD.encode(bytes),"mimeType":blob.mime}));
+            } else {
+                prompt.push(content_block(block));
+            }
+        }
         let params = json!({ "sessionId": session, "prompt": prompt });
         debug_assert!(
             serde_json::from_value::<agent_client_protocol::schema::v1::PromptRequest>(
@@ -853,7 +888,7 @@ impl AcpAgentActor {
                                 m.pointer("/params/update").cloned().unwrap_or(Value::Null);
                             self.update(update).await
                         } else {
-                            Ok(())
+                            self.native_record_type(&method, &m).await
                         }
                     }
                     (None, Some(id)) => self.response(id, m).await,
@@ -892,7 +927,7 @@ impl AcpAgentActor {
                     self.agent.as_mut().expect("agent").pending_model = None;
                     // the turn still runs, on the agent's own model
                     self.notice(Level::Warn, message).await?;
-                    self.send_prompt()
+                    self.send_prompt().await
                 }
                 Call::Prompt | Call::Initialize | Call::NewSession if self.running.is_some() => {
                     self.notice(Level::Error, message.clone()).await?;
@@ -985,14 +1020,33 @@ impl AcpAgentActor {
                         }
                     }
                 }
-                self.send_prompt()
+                self.send_prompt().await
             }
             Call::SetModel => {
                 let agent = self.agent.as_mut().expect("agent");
                 agent.model = agent.pending_model.take();
-                self.send_prompt()
+                self.send_prompt().await
             }
             Call::Prompt => {
+                if result
+                    .as_object()
+                    .is_some_and(|o| o.keys().any(|k| k != "stopReason"))
+                    || result
+                        .get("stopReason")
+                        .and_then(Value::as_str)
+                        .is_some_and(|s| {
+                            !matches!(
+                                s,
+                                "end_turn"
+                                    | "max_tokens"
+                                    | "max_turn_requests"
+                                    | "cancelled"
+                                    | "refusal"
+                            )
+                        })
+                {
+                    self.native_record_type("prompt_result", &result).await?;
+                }
                 let stop = result
                     .get("stopReason")
                     .and_then(Value::as_str)
@@ -1226,6 +1280,47 @@ impl AcpAgentActor {
 
     // ---------- session/update ----------
     async fn update(&mut self, u: Value) -> std::io::Result<()> {
+        let extra = update_remainder(&u);
+        if extra.as_object().is_some_and(|o| !o.is_empty()) {
+            self.projected_ext.insert("acp".into(), extra);
+        }
+        let result = self.update_inner(u.clone()).await;
+        if result.is_ok() && !self.projected_ext.is_empty() {
+            self.native_update(&u).await?;
+        }
+        self.projected_ext.clear();
+        result
+    }
+    async fn native_update(&mut self, u: &Value) -> std::io::Result<()> {
+        self.native_record_type(
+            u.get("sessionUpdate")
+                .and_then(Value::as_str)
+                .unwrap_or("notification"),
+            u,
+        )
+        .await
+    }
+    async fn native_record_type(&mut self, kind: &str, u: &Value) -> std::io::Result<()> {
+        let provider = self
+            .agent
+            .as_ref()
+            .map(|a| a.backend.name.clone())
+            .unwrap_or_else(|| agent_label(&self.spec));
+        let provider = if provider.starts_with("acp:") {
+            provider
+        } else {
+            format!("acp:{provider}")
+        };
+        let body = Item::Native {
+            provider,
+            record_type: kind.into(),
+            raw: u.clone(),
+            blob: None,
+        };
+        self.record(self.running.as_ref().map(|r| r.turn), body)
+            .await
+    }
+    async fn update_inner(&mut self, u: Value) -> std::io::Result<()> {
         let kind = u
             .get("sessionUpdate")
             .and_then(Value::as_str)
@@ -1238,12 +1333,13 @@ impl AcpAgentActor {
             {
                 self.record(self.running.as_ref().map(|r| r.turn), Item::Usage { usage })
                     .await?;
+            } else {
+                self.native_update(&u).await?;
             }
             return Ok(());
         }
         if self.running.is_none() {
-            // between turns only metadata may arrive; content without a turn is not ours to show
-            return Ok(());
+            return self.native_update(&u).await;
         }
         match kind.as_str() {
             "agent_message_chunk" | "agent_thought_chunk" => {
@@ -1314,6 +1410,22 @@ impl AcpAgentActor {
                 Ok(())
             }
             "plan" => {
+                if u.get("entries")
+                    .and_then(Value::as_array)
+                    .is_some_and(|entries| {
+                        entries.iter().any(|e| {
+                            !matches!(
+                                e.get("status").and_then(Value::as_str),
+                                Some("pending" | "in_progress" | "completed")
+                            ) || e
+                                .get("priority")
+                                .and_then(Value::as_str)
+                                .is_some_and(|p| !matches!(p, "low" | "medium" | "high"))
+                        })
+                    })
+                {
+                    return self.native_update(&u).await;
+                }
                 let entries: Vec<PlanEntry> = u
                     .get("entries")
                     .and_then(Value::as_array)
@@ -1363,22 +1475,7 @@ impl AcpAgentActor {
                 )
                 .await
             }
-            // session metadata: kept by the agent, nothing to draw in phase 1
-            "available_commands_update"
-            | "current_mode_update"
-            | "config_option_update"
-            | "session_info_update"
-            | "user_message_chunk" => Ok(()),
-            other => {
-                if self.warned.insert(other.to_owned()) {
-                    self.notice(
-                        Level::Warn,
-                        format!("ACP agent sent an update this client does not show: {other}"),
-                    )
-                    .await?;
-                }
-                Ok(())
-            }
+            _ => self.native_update(&u).await,
         }
     }
     async fn chunk(&mut self, thought: bool, text: String) -> std::io::Result<()> {
@@ -1495,10 +1592,15 @@ impl AcpAgentActor {
                     input: String::new(),
                     output: vec![],
                     locations: vec![],
+                    raw_output: None,
+                    content_seen: false,
                 },
             );
         }
         let t = r.tools.get_mut(&id).expect("tool");
+        if let Some(raw) = u.get("rawOutput") {
+            t.raw_output = Some(raw.clone());
+        }
         if let Some(raw) = u.get("rawInput").filter(|v| !v.is_null()) {
             t.input = raw.to_string();
         }
@@ -1508,13 +1610,20 @@ impl AcpAgentActor {
                 .filter_map(|l| {
                     Some(Location {
                         path: l.get("path")?.as_str()?.into(),
-                        line: l.get("line").and_then(Value::as_u64).map(|n| n as u32),
-                        end_line: None,
+                        line: l
+                            .get("line")
+                            .and_then(Value::as_u64)
+                            .and_then(|n| u32::try_from(n).ok()),
+                        end_line: l
+                            .get("endLine")
+                            .and_then(Value::as_u64)
+                            .and_then(|n| u32::try_from(n).ok()),
                     })
                 })
                 .collect();
         }
         if let Some(content) = u.get("content").and_then(Value::as_array) {
+            t.content_seen = true;
             t.output = content.iter().filter_map(output_block).collect();
         }
         let item = t.item;
@@ -1538,6 +1647,104 @@ impl AcpAgentActor {
 }
 
 // ---------- pure mapping ----------
+/// Conservative source-key consumption. Nested tool content stays opaque until
+/// every native field has a typed equivalent; _meta and rawOutput always survive.
+pub fn update_remainder(update: &Value) -> Value {
+    let mut extra = update.clone();
+    if let Some(o) = extra.as_object_mut() {
+        o.remove("sessionUpdate");
+        match update.get("sessionUpdate").and_then(Value::as_str) {
+            Some("agent_message_chunk" | "agent_thought_chunk")
+                if update.pointer("/content/type").and_then(Value::as_str) == Some("text") =>
+            {
+                if let Some(content) = o.get_mut("content").and_then(Value::as_object_mut) {
+                    if content.get("text").is_some_and(Value::is_string) {
+                        content.remove("text");
+                        content.remove("type");
+                    }
+                    if content.is_empty() {
+                        o.remove("content");
+                    }
+                }
+            }
+            Some("tool_call" | "tool_call_update") => {
+                if o.get("toolCallId").is_some_and(Value::is_string) {
+                    o.remove("toolCallId");
+                }
+                if o.get("status")
+                    .and_then(Value::as_str)
+                    .is_some_and(|s| matches!(s, "completed" | "failed"))
+                {
+                    o.remove("status");
+                }
+                if o.get("rawInput").is_some_and(|v| !v.is_null()) {
+                    o.remove("rawInput");
+                }
+            }
+            _ => {}
+        }
+        if !o.is_empty()
+            && let Some(kind) = update.get("sessionUpdate")
+        {
+            o.insert("sessionUpdate".into(), kind.clone());
+        }
+    }
+    extra
+}
+/// Offline projection uses the same content and usage primitives as the live
+/// actor, without launching an agent or reusing its lifecycle identifiers.
+pub fn reproject_update(provider: &str, u: &Value) -> Option<Item> {
+    match u.get("sessionUpdate")?.as_str()? {
+        "agent_message_chunk" => Some(Item::AgentMessage {
+            markdown: u.pointer("/content/text")?.as_str()?.into(),
+        }),
+        "agent_thought_chunk" => Some(Item::Reasoning {
+            summary: u.pointer("/content/text")?.as_str()?.into(),
+            raw: None,
+            provider_opaque: None,
+        }),
+        "usage_update" => session_usage(
+            u,
+            Backend {
+                kind: BackendKind::AcpAgent,
+                name: provider.trim_start_matches("acp:").into(),
+                version: None,
+            },
+            None,
+        )
+        .map(|usage| Item::Usage { usage }),
+        "tool_call" | "tool_call_update"
+            if matches!(
+                u.get("status").and_then(Value::as_str),
+                Some("completed" | "failed")
+            ) =>
+        {
+            Some(Item::ToolCall {
+                call_id: u.get("toolCallId")?.as_str()?.into(),
+                name: u
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("tool")
+                    .into(),
+                tool_kind: tool_kind(u.get("kind").and_then(Value::as_str).unwrap_or("other")),
+                title: u.get("title").and_then(Value::as_str).map(str::to_owned),
+                server: None,
+                raw_output: u.get("rawOutput").cloned(),
+                input_raw: u.get("rawInput").map(Value::to_string).unwrap_or_default(),
+                output: u
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(output_block)
+                    .collect(),
+                locations: vec![],
+                spill: None,
+            })
+        }
+        _ => None,
+    }
+}
 /// ACP usage_update is cumulative session context/cost, not call billing.
 /// Log IR v1 §4a keeps provenance and labels required-token placeholders.
 pub fn session_usage(update: &Value, backend: Backend, model: Option<String>) -> Option<Usage> {
@@ -1728,12 +1935,12 @@ fn tool_body(t: Tool, empty: &str) -> Item {
     Item::ToolCall {
         title: None,
         server: None,
-        raw_output: None,
+        raw_output: t.raw_output,
         call_id: t.call_id,
         name: t.name,
         tool_kind: t.kind.clone(),
         input_raw: t.input,
-        output: if t.output.is_empty() {
+        output: if t.output.is_empty() && !t.content_seen {
             vec![OutputBlock::Text { text: empty.into() }]
         } else {
             t.output
@@ -1766,9 +1973,7 @@ pub fn output_block(c: &Value) -> Option<OutputBlock> {
                 "text" => Some(OutputBlock::Text {
                     text: inner.get("text")?.as_str()?.to_owned(),
                 }),
-                other => Some(OutputBlock::Text {
-                    text: format!("[{other} content]"),
-                }),
+                _ => None,
             }
         }
         "diff" => {
@@ -1828,7 +2033,7 @@ pub fn content_block(b: &InputBlock) -> Value {
             "name": path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string()),
         }),
         InputBlock::Image { blob } => {
-            json!({ "type": "text", "text": format!("[image {} · {} bytes not sent]", blob.mime, blob.len) })
+            json!({ "type": "resource_link", "uri":format!("bboxy-blob://{}",blob.sha256), "name":blob.mime,"mimeType":blob.mime })
         }
         InputBlock::ResourceLink { uri, title } => {
             json!({"type":"resource_link","uri":uri,"name":title.as_deref().unwrap_or(uri)})

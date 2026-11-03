@@ -651,7 +651,7 @@ async fn v1_additions_have_readable_rich_cards() {
         "Command:",
         "Hook:",
         "Developer:",
-        "Native:",
+        "fixture · unmapped ·",
         "Audio:",
         "Read reference",
         "fixture-mcp",

@@ -675,7 +675,7 @@ fn profile_load(b: bool) -> Model {
 // Materialized fork: a finite fixed prefix, with parent appends and crashes
 // before the atomic publication. Actual rename/fsync/blob bytes are API witnesses.
 fn fork_materialize(b: bool) -> Model {
-    let mut m = base::<6>(
+    let mut m = base::<8>(
         "ForkMaterialize",
         b,
         &[
@@ -685,6 +685,8 @@ fn fork_materialize(b: bool) -> Model {
             ("visible", 1, 0),
             ("parent_head", 2, 1),
             ("opaque_bytes_preserved", 1, 0),
+            ("source_prefix_preserved", 1, 1),
+            ("typed_suffix", 1, 0),
         ],
     );
     act(&mut m, "CopyBlobs", eq(0, 0), &[(0, Int(1)), (1, Int(1))]);
@@ -730,6 +732,16 @@ fn fork_materialize(b: bool) -> Model {
         "CopiedPrefixPreservesOpaqueBytes",
         eq(2, 0).or(eq(5, 1)),
     );
+    act(&mut m, "ReprojectTypedSuffix", eq(3, 1), &[(7, Int(1))]);
+    if b {
+        act(
+            &mut m,
+            "BrokenPromotionRewritesSource",
+            eq(3, 1),
+            &[(6, Int(0))],
+        );
+    }
+    safe(&mut m, "ReprojectNeverRewritesSource", eq(6, 1));
     m
 }
 fn replay(b: bool) -> Model {
@@ -2259,7 +2271,7 @@ fn seat_report(mode: u8) -> Model {
 // perm: 0 none, 1 pending, 2 answered
 fn acp_agent_turn(mode: u8) -> Model {
     let b = mode == 1;
-    let mut m = base::<7>(
+    let mut m = base::<9>(
         "AcpAgentTurn",
         b,
         &[
@@ -2270,6 +2282,8 @@ fn acp_agent_turn(mode: u8) -> Model {
             ("ends", 2, 0),
             ("agent_alive", 1, 1),
             ("stubborn", 1, 0),
+            ("native_updates", 2, 0),
+            ("retained_updates", 2, 0),
         ],
     );
     if mode == 2 {
@@ -2315,7 +2329,11 @@ fn acp_agent_turn(mode: u8) -> Model {
     act(
         &mut m,
         "TurnEnded",
-        all([eq(3, 1), eq(0, 4).negate()]),
+        all([
+            eq(3, 1),
+            eq(0, 4).negate(),
+            if b { Bool(true) } else { Var(7).eq(Var(8)) },
+        ]),
         // end_turn settles every open permission (cancelled) before TurnEnded
         &[(0, Int(4)), (1, Int(0)), (4, Var(4).plus(Int(1)))],
     );
@@ -2347,6 +2365,32 @@ fn acp_agent_turn(mode: u8) -> Model {
         &[(3, Int(1)), (5, Int(i64::from(mode == 2)))],
     );
     safe(&mut m, "OneTurnEndedPerPrompt", Var(4).lt(Int(2)));
+    let retain = m.actions.len();
+    act(
+        &mut m,
+        "PreserveUpdateAsTypedExtOrNative",
+        Var(8).lt(Var(7)),
+        &[(8, Var(7))],
+    );
+    act(
+        &mut m,
+        "ReceiveUnmappedOrExtraFields",
+        all([
+            eq(0, 1).or(eq(0, 3)),
+            eq(3, 0),
+            Var(7).eq(Var(8)),
+            Var(7).lt(Int(2)),
+        ]),
+        &[(7, Var(7).plus(Int(1)))],
+    );
+    safe(
+        &mut m,
+        "NoUpdateLossAtTurnEnd",
+        eq(0, 4).negate().or(Var(7).eq(Var(8))),
+    );
+    if mode == 0 {
+        m.weak_fair.push(vec![retain]);
+    }
     safe(
         &mut m,
         "NoPermissionPendingAfterCancel",
@@ -2780,7 +2824,7 @@ fn native_usage(mode: u8) -> Model {
 // The import/watch writer owns a pending event. A large text blob must be
 // durable before an event names it; a failed write publishes no reference.
 fn native_spill(b: bool) -> Model {
-    let mut m = base::<5>(
+    let mut m = base::<6>(
         "NativeSpill",
         b,
         &[
@@ -2789,6 +2833,7 @@ fn native_spill(b: bool) -> Model {
             ("blob", 1, 0),
             ("reference", 1, 0),
             ("wire_size", 2, 0), // empty, bounded preview, oversized native text
+            ("native_or_ext_preserved", 1, 0),
         ],
     );
     for large in 0..=1 {
@@ -2796,7 +2841,7 @@ fn native_spill(b: bool) -> Model {
             &mut m,
             "ReceiveNativeText",
             eq(0, 0),
-            &[(0, Int(1)), (1, Int(large))],
+            &[(0, Int(1)), (1, Int(large)), (5, Int(1))],
         );
     }
     let put = m.actions.len();
@@ -2817,7 +2862,11 @@ fn native_spill(b: bool) -> Model {
         &mut m,
         "AppendSmall",
         all([eq(0, 1), eq(1, 0)]),
-        &[(0, Int(3)), (4, Int(1))],
+        &[
+            (0, Int(3)),
+            (4, Int(1)),
+            (5, if b { Int(0) } else { Int(1) }),
+        ],
     );
     let publish_large = m.actions.len();
     act(
@@ -2832,6 +2881,11 @@ fn native_spill(b: bool) -> Model {
     );
     safe(&mut m, "ReferenceOnlyAfterBlob", eq(3, 0).or(eq(2, 1)));
     safe(&mut m, "EnvelopeBounded", Var(4).lt(Int(2)));
+    safe(
+        &mut m,
+        "EdgeNeverDropsPublishedData",
+        eq(0, 3).negate().or(eq(5, 1)),
+    );
     progress(
         &mut m,
         "PendingSettles",

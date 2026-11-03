@@ -1852,10 +1852,10 @@ fn display_body(row: &ViewItem, terminal_output: Option<&String>) -> String {
         ),
         Item::Notice { text, .. } => text.clone(),
         Item::Subagent { session, .. } => format!("Session: {session}"),
-        Item::Command { .. }
-        | Item::Hook { .. }
-        | Item::SystemMessage { .. }
-        | Item::Native { .. } => row.body.extension_text().unwrap_or_default(),
+        Item::Command { .. } | Item::Hook { .. } | Item::SystemMessage { .. } => {
+            row.body.extension_text().unwrap_or_default()
+        }
+        Item::Native { .. } => crate::frontends::native_label(&row.body).unwrap_or_default(),
         Item::Unknown(raw) => format!("Unsupported item: {}", unknown_tag(raw)),
     };
     if text.is_empty() { "…".into() } else { text }

@@ -339,9 +339,16 @@ fn unknown_usage_is_absent_and_cumulative_only_usage_stays_session_scope() {
     let mut p = Projector::new(Native::Codex);
     assert!(
         p.push(&json!({"type":"event_msg","payload":{"type":"token_count","info":null}}))
-            .is_empty()
+            .iter()
+            .all(|e| !matches!(
+                e,
+                Event::ItemCompleted {
+                    body: Item::Usage { .. },
+                    ..
+                }
+            ))
     );
-    assert!(p.push(&json!({"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{}}}})).is_empty());
+    assert!(p.push(&json!({"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{}}}})).iter().all(|e|!matches!(e,Event::ItemCompleted {body:Item::Usage {..},..})));
     let events = p.push(&json!({"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":7,"output_tokens":2}}}}));
     assert_eq!(events.iter().filter(|e| matches!(e, Event::ItemCompleted { body: Item::Usage { usage }, .. } if usage.input_tokens == 7 && usage.output_tokens == 2 && usage.scope == Some(UsageScope::Session) && usage.source == Some(NumberSource::Reported))).count(), 1);
     assert!(
@@ -580,8 +587,10 @@ async fn watched_spill_failure_publishes_no_dangling_completion() {
     );
     let log = read(&sessions.join(format!("{}.jsonl", watch.session())));
     assert!(
-        completed(&log).is_empty(),
-        "failed persistence must not publish a reference"
+        completed(&log)
+            .iter()
+            .all(|(_, body)| matches!(body, Item::Native { blob: None, .. })),
+        "failed persistence must not publish a reference; metadata Native items may precede it"
     );
 }
 
@@ -670,7 +679,7 @@ async fn a_claude_code_session_projects_into_a_valid_log_with_its_own_clock() {
     bboxy450_harness::protocol::laws::check_authored(&log).unwrap();
     let items = completed(&log);
     assert!(
-        matches!(&items[0].1, Item::UserMessage { blocks } if matches!(&blocks[..], [InputBlock::Text { text }] if text == "Find the flaky test."))
+        items.iter().any(|(_,body)|matches!(body, Item::UserMessage { blocks } if matches!(&blocks[..], [InputBlock::Text { text }] if text == "Find the flaky test.")))
     );
     assert!(items.iter().any(|(_, b)| matches!(b, Item::Reasoning { summary, .. } if summary == "Look at the test list first.")));
     assert!(items.iter().any(|(s, b)| matches!(s, ItemStatus::Failed { .. })

@@ -41,6 +41,11 @@ async fn two_shapes_generate_additive_proposals_and_indexable_tasks() {
     assert_eq!(scan.entries.values().map(|e| e.count).sum::<u64>(), 3);
     let proposals = tmp.path().join("proposed");
     propose(&scan, &schema_value(), &proposals).await.unwrap();
+    assert_eq!(
+        bboxy450_harness::frontends::usage::report_paths(std::slice::from_ref(&proposals)).unwrap(),
+        bboxy450_harness::frontends::usage::report_paths(&[]).unwrap(),
+        "draft proposal samples must not enter session billing"
+    );
     check_pending(&scan, &proposals.join("tests/fixtures/ir-v1/pending"))
         .await
         .unwrap();

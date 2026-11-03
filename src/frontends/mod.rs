@@ -15,5 +15,26 @@ pub mod smoke;
 
 pub mod gui;
 
+pub fn native_label(body: &crate::protocol::Item) -> Option<String> {
+    if let crate::protocol::Item::Native {
+        provider,
+        record_type,
+        raw,
+        blob,
+    } = body
+    {
+        let provider = provider.split_whitespace().collect::<Vec<_>>().join(" ");
+        let kind = record_type.split_whitespace().collect::<Vec<_>>().join(" ");
+        Some(format!(
+            "{provider} · {kind} · {} bytes",
+            blob.as_ref()
+                .map(|b| b.len)
+                .unwrap_or_else(|| raw.to_string().len() as u64)
+        ))
+    } else {
+        None
+    }
+}
+
 #[cfg(feature = "acp")]
 pub mod acp;

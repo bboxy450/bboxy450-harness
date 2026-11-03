@@ -92,6 +92,36 @@ async fn run_cli(
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "ir-scan" => return super::ir_scan::cli(args).await,
+            "reproject" => {
+                let source = args.next().ok_or("missing session")?;
+                let mut out = None;
+                while let Some(arg) = args.next() {
+                    match arg.as_str() {
+                        "--out" => {
+                            out = Some(PathBuf::from(
+                                args.next().ok_or("missing output directory")?,
+                            ))
+                        }
+                        _ => return Err(format!("unknown reproject option {arg}")),
+                    }
+                }
+                let root = sessions.clone().unwrap_or_else(|| {
+                    PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+                        .join(".bboxy450-harness/sessions")
+                });
+                let file = if source.ends_with(".jsonl") {
+                    PathBuf::from(source)
+                } else {
+                    let id: SessionId =
+                        SessionId(source.parse().map_err(|_| "invalid source session")?);
+                    root.join(format!("{id}.jsonl"))
+                };
+                let path = crate::import::reproject::run_cli(file, out.unwrap_or(root))
+                    .await
+                    .map_err(|e| e.to_string())?;
+                println!("{}", path.display());
+                return Ok(0);
+            }
             "smoke-live" => return Ok(super::smoke::run().await),
             #[cfg(feature = "acp")]
             "smoke-live-acp" => return Ok(super::smoke::run_acp().await),

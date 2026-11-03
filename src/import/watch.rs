@@ -102,10 +102,10 @@ pub(crate) async fn load(
                         for line in lines {
                             let Ok(record) = serde_json::from_str::<Value>(&line) else { continue };
                             let p = projector.get_or_insert_with(|| Projector::new(Native::sniff(&record).unwrap_or(Native::ClaudeCode)));
-                            let events = p.push(&record);
+                            let events = p.project(&record);
                             let at = p.ts_ms.unwrap_or_else(crate::store::now_ms);
                             for event in events {
-                                let e = spill::append(&mut store, event, at).await?;
+                                let e = spill::append_projected(&mut store, event.event, None, at, event.native, event.ext).await?;
                                 g.hub.publish(e);
                             }
                         }

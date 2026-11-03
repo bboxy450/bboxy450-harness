@@ -24,6 +24,8 @@ fn empty(value: &Value) -> bool {
 fn content(value: &mut Value) {
     if let Some(parts) = value.as_array_mut() {
         for part in parts {
+            let tag = part.get("type").cloned();
+            let call = part.get("tool_use_id").cloned();
             match part.get("type").and_then(Value::as_str) {
                 Some("text" | "input_text" | "output_text" | "summary_text") => {
                     remove(part, &["type", "text"])
@@ -45,6 +47,16 @@ fn content(value: &mut Value) {
                 }
                 _ => {}
             }
+            if !empty(part)
+                && let Some(object) = part.as_object_mut()
+            {
+                if let Some(tag) = tag {
+                    object.insert("type".into(), tag);
+                }
+                if let Some(call) = call {
+                    object.insert("tool_use_id".into(), call);
+                }
+            }
         }
     }
 }
@@ -65,7 +77,11 @@ pub fn remainder(native: Native, record: &Value) -> Value {
     match native {
         Native::ClaudeCode => {
             remove(&mut out, &["type"]);
-            for key in ["uuid", "parentUuid"] {
+            for key in if super::native_identity(record).is_some() {
+                vec!["uuid", "parentUuid"]
+            } else {
+                vec![]
+            } {
                 if record
                     .get(key)
                     .is_some_and(|v| v.is_string() || v.is_null())
@@ -74,7 +90,9 @@ pub fn remainder(native: Native, record: &Value) -> Value {
                 }
             }
             if let Some(message) = out.get_mut("message") {
-                remove(message, &["role"]);
+                if message.get("role") == record.get("type") {
+                    remove(message, &["role"]);
+                }
                 if message.get("content").is_some_and(Value::is_string) {
                     remove(message, &["content"]);
                 } else if let Some(c) = message.get_mut("content") {
@@ -124,9 +142,30 @@ pub fn remainder(native: Native, record: &Value) -> Value {
                     ),
                     "function_call_output"
                     | "custom_tool_call_output"
-                    | "local_shell_call_output" => remove(payload, &["type", "call_id", "output"]),
+                    | "local_shell_call_output" => {
+                        remove(payload, &["type", "call_id"]);
+                        if payload
+                            .pointer("/output/content")
+                            .is_some_and(Value::is_string)
+                        {
+                            if let Some(output) = payload.get_mut("output") {
+                                remove(output, &["content"]);
+                                if empty(output) {
+                                    remove(payload, &["output"]);
+                                }
+                            }
+                        } else {
+                            remove(payload, &["output"]);
+                        }
+                    }
                     "task_started" | "task_complete" | "turn_aborted" => remove(payload, &["type"]),
                     _ => {}
+                }
+                if !empty(payload)
+                    && let (Some(kind), Some(object)) =
+                        (record.pointer("/payload/type"), payload.as_object_mut())
+                {
+                    object.insert("type".into(), kind.clone());
                 }
                 if empty(payload) {
                     remove(&mut out, &["payload"]);

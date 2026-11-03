@@ -55,8 +55,9 @@ def main():
             ['python3','-I','scripts/checks.py','inventory-shape-control'],
             # protocol.schema.json is regenerated and compared by tests/protocol_golden.rs above
             ['make','test-ir'],
-            ['cargo','run','--offline','--locked','--','ir-scan','--propose',str(Path(own)/'ir-proposals'),'--check-pending','tests/fixtures/ir-v1/pending','tests/fixtures/'],
+            ['cargo','run','--offline','--locked','--','ir-scan','--propose','@TEST_HOME@/ir-proposals','--check-pending','tests/fixtures/ir-v1/pending','tests/fixtures/'],
         ]:
+            command=[arg.replace('@TEST_HOME@',own) for arg in command]
             print('test: '+ ' '.join(command),flush=True)
             result=subprocess.run(command,cwd=ROOT,env=env)
             rows.append({'command':command,'exit_code':result.returncode})

@@ -298,7 +298,7 @@ fn v1_additions_frozen_output_and_faces() {
         "Command: /help",
         "Hook: pre_tool",
         "Developer:",
-        "Native: fixture/unmapped",
+        "fixture · unmapped ·",
         "Audio:",
         "Terminal: fixture-terminal",
         "Source:",

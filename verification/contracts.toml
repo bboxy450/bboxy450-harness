@@ -20,10 +20,10 @@ checks = ["make test-formal", "make test"]
 name = "HarnessNativeSpill"
 title = "Imported and watched text persists its blob before publishing a bounded preview."
 models = ["HarnessNativeSpill", "BrokenHarnessNativeSpill"]
-sources = ["src/import/mod.rs", "src/import/watch.rs", "src/import/spill.rs", "tests/formal/models.rs"]
-implementation_tests = ["tests/import_native.rs"]
-assumptions = "One pending small/large event, one blob, success/failure of persistence; local put/append weak fairness settles pending work. Atomic durability is abstract; actual fsync, hash/redaction, JSON escaping and UTF-8 are implementation-only; no Rust refinement proof."
-property = "Every published spill reference has an already-persisted blob; envelopes stay bounded and failed writes publish no reference."
+sources = ["src/import/mod.rs", "src/import/edge.rs", "src/import/watch.rs", "src/import/spill.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/import_native.rs", "tests/ir_edge.rs"]
+assumptions = "One pending small/large event, one blob, success/failure of persistence and one native-or-ext preservation bit; local put/append weak fairness settles pending work. Broken controls publish before blob persistence or clear the retention bit. Atomic durability and value identity are abstract; actual fsync, hash/redaction, JSON escaping, UTF-8, source-key consumption and verbatim Native JSON are implementation-only; no Rust refinement proof."
+property = "Every published spill reference has an already-persisted blob; envelopes stay bounded and failed writes publish no reference. Edge records retain raw Native data or their mapped remainder in ext."
 checks = ["make test-formal", "make test"]
 [[contract]]
 name = "HarnessTurnLifecycle"
@@ -152,10 +152,10 @@ checks=["make test-formal","make test"]
 name="HarnessForkMaterialize"
 title="Publish a complete fixed parent prefix and its blobs atomically"
 models=["HarnessForkMaterialize","BrokenHarnessForkMaterialize"]
-sources=["src/store.rs","src/store/fork.rs","tests/formal/models.rs"]
-implementation_tests=["tests/store_fork.rs","tests/ir_v1_corpus.rs"]
-assumptions="One fixed fork point, two parent heads, four materialization phases, one opaque-line preservation bit (the broken reserialization clears it); crash may repeat forever, so no liveness claim. E9 read durability is the seq marker alone; the actual Store::open_impl broken control restores writer-side is_durable and must refuse a future log. E6 pass-through retains original JSONL lines through open, replay, Unix and fork; unknown durable event types have seq. Byte identity and the deliberately reserializing control are implementation-only witnesses in tests/ir_v1_corpus.rs and src/store/fork.rs. Actual rename, fsync, blob hashes, credentials and filesystem scheduling are implementation-only witnesses."
-property="Visible child implies its blobs and fixed parent prefix are complete, regardless of subsequent parent appends."
+sources=["src/store.rs","src/store/fork.rs","src/import/reproject.rs","tests/formal/models.rs"]
+implementation_tests=["tests/store_fork.rs","tests/ir_v1_corpus.rs","tests/ir_edge.rs"]
+assumptions="One fixed fork point, two parent heads, four materialization phases, one opaque-line preservation bit (the broken reserialization clears it), one source-prefix bit initially true and one typed-suffix bit initially false; crash may repeat forever, so no liveness claim. E9 read durability is the seq marker alone; the actual Store::open_impl broken control restores writer-side is_durable and must refuse a future log. E6 pass-through retains original JSONL lines through open, replay, Unix and fork; unknown durable event types have seq. Byte identity and the deliberately reserializing control are implementation-only witnesses in tests/ir_v1_corpus.rs and src/store/fork.rs. Actual rename, fsync, blob hashes, credentials and filesystem scheduling are implementation-only witnesses."
+property="Visible child implies its blobs and fixed parent prefix are complete, regardless of subsequent parent appends. Reproject appends a typed suffix without changing its source prefix."
 checks=["make test-formal","make test"]
 
 [[contract]]
@@ -228,9 +228,9 @@ title = "ACP agent backend: one TurnEnded per prompt; after session/cancel no pe
 models = ["HarnessAcpAgentTurn", "BrokenHarnessAcpAgentTurn", "BrokenHarnessAcpAgentGrace"]
 controls = [{name="BrokenHarnessAcpAgentTurn",expected="safety"},{name="BrokenHarnessAcpAgentGrace",expected="safety"}]
 sources = ["src/backend/acp_agent.rs", "tests/formal/models.rs"]
-implementation_tests = ["tests/acp_agent.rs"]
-assumptions = "One prompt in flight, at most one permission request per prompt, a face answer only while awaited, the agent ends its prompt only when not awaiting an answer (it blocks on request_permission), turn end settles open permissions. An agent may ignore cancel permanently; weak fairness on the union of agent completion and grace expiry, and on TurnEnded, guarantees cancellation progress without agent cooperation. Grace expiry kills the agent before ending. Real deadlines (including BBOXY450_ACP_CANCEL_GRACE_MS), process-group signals/reaping, child crashes, malformed lines and -32601 replies are implementation witnesses in tests/acp_agent.rs."
-property = "A freshly ended turn is the only ending of its prompt; a cancel answers every pending permission cancelled; a cancelled turn ends."
+implementation_tests = ["tests/acp_agent.rs", "tests/ir_edge.rs"]
+assumptions = "One prompt in flight, at most one permission request per prompt, a face answer only while awaited, the agent ends its prompt only when not awaiting an answer (it blocks on request_permission), turn end settles open permissions. An agent may ignore cancel permanently; weak fairness on the union of agent completion and grace expiry, and on TurnEnded, guarantees cancellation progress without agent cooperation. Grace expiry kills the agent before ending. Two finite active-turn updates use received/retained counters 0..2; local persistence is weak-fair and a correct ending waits for equality. Metadata outside a turn, exact ext values and redaction remain process witnesses. Real deadlines (including BBOXY450_ACP_CANCEL_GRACE_MS), process-group signals/reaping, child crashes, malformed lines and -32601 replies are implementation witnesses in tests/acp_agent.rs."
+property = "A freshly ended turn is the only ending of its prompt; a cancel answers every pending permission cancelled; a cancelled turn ends. Two finite update receipts are retained as typed ext or Native before ending; NoUpdateLossAtTurnEnd."
 checks = ["make test-formal", "make test"]
 
 [[contract]]

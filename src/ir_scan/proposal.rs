@@ -57,7 +57,7 @@ fn fragment(entry: &Entry, schema: &Value) -> Value {
             && let Some(props) = target.get_mut("properties").and_then(Value::as_object_mut)
         {
             for key in keys(entry) {
-                props.entry(key).or_insert(json!({}));
+                props.entry(snake(&key)).or_insert(json!({}));
             }
         }
     } else {

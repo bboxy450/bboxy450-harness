@@ -535,11 +535,13 @@ impl Preparer {
                     &ink,
                 )
             }
-            Item::Command { .. }
-            | Item::Hook { .. }
-            | Item::SystemMessage { .. }
-            | Item::Native { .. } => f::notice(
+            Item::Command { .. } | Item::Hook { .. } | Item::SystemMessage { .. } => f::notice(
                 &row.body.extension_text().unwrap_or_default(),
+                &Level::Info,
+                &ink,
+            ),
+            Item::Native { .. } => f::notice(
+                &crate::frontends::native_label(&row.body).unwrap_or_default(),
                 &Level::Info,
                 &ink,
             ),

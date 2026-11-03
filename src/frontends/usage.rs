@@ -38,6 +38,11 @@ struct Entry {
 }
 type Origin = (SessionId, Seq);
 fn files(path: &Path, out: &mut BTreeSet<PathBuf>) -> Result<(), String> {
+    // ir-scan proposal samples are draft projector evidence, not sessions. Keep
+    // them outside billing totals when walking the frozen corpus and its parent.
+    if path.is_dir() && path.ends_with(Path::new("ir-v1/pending")) {
+        return Ok(());
+    }
     if path.is_dir() {
         for entry in std::fs::read_dir(path).map_err(|e| e.to_string())? {
             let path = entry.map_err(|e| e.to_string())?.path();

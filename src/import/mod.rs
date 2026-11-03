@@ -10,11 +10,13 @@
 //! backend write, so every face renders them and switching/handoff work on them.
 //!
 //! A projector is pure and streaming: `push` one native JSONL record, get the events it
-//! adds; `finish` closes whatever is still open. Records it does not understand (metadata,
-//! API bookkeeping, subagent side chains) add nothing. The result passes check_transcript.
-mod spill;
+//! adds; `finish` closes whatever is still open. Unmapped records remain Native;
+//! unconsumed mapped fields accompany their item in the provider extension.
 pub mod edge;
+pub mod reproject;
+mod spill;
 pub mod watch;
+pub(crate) use spill::append_projected;
 
 use crate::protocol::*;
 use serde_json::Value;
@@ -63,6 +65,42 @@ struct OpenTool {
     input: String,
 }
 
+pub struct Projected {
+    pub event: Event,
+    pub native: Option<crate::protocol::Native>,
+    pub ext: BTreeMap<String, Value>,
+}
+pub fn record_type(record: &Value) -> String {
+    let kind = record
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("record");
+    match record.pointer("/payload/type").and_then(Value::as_str) {
+        Some(sub) => format!("{kind}/{sub}"),
+        None => kind.to_owned(),
+    }
+}
+pub fn native_identity(record: &Value) -> Option<crate::protocol::Native> {
+    let id = record
+        .get("uuid")
+        .or_else(|| record.get("id"))
+        .or_else(|| record.pointer("/payload/id"))
+        .or_else(|| record.pointer("/payload/call_id"))?
+        .as_str()?;
+    Some(crate::protocol::Native {
+        id: id.into(),
+        parent: record
+            .get("parentUuid")
+            .or_else(|| record.get("parent_id"))
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        ts_ms: record
+            .get("timestamp")
+            .and_then(Value::as_str)
+            .and_then(rfc3339_ms),
+    })
+}
+
 /// The streaming projection of one native session.
 pub struct Projector {
     native: Native,
@@ -79,6 +117,8 @@ pub struct Projector {
     pub model: Option<String>,
     /// The native clock of the last record that carried one (ms since the epoch).
     pub ts_ms: Option<u64>,
+    #[cfg(feature = "test-fixtures")]
+    restore_drop: bool,
 }
 impl Projector {
     pub fn new(native: Native) -> Self {
@@ -95,6 +135,8 @@ impl Projector {
             cwd: None,
             model: None,
             ts_ms: None,
+            #[cfg(feature = "test-fixtures")]
+            restore_drop: false,
         }
     }
     pub fn push(&mut self, record: &Value) -> Vec<Event> {
@@ -110,7 +152,86 @@ impl Projector {
             Native::ClaudeCode => self.claude(record, &mut out),
             Native::Codex => self.codex(record, &mut out),
         }
+        if !out
+            .iter()
+            .any(|e| matches!(e, Event::ItemStarted { .. } | Event::ItemCompleted { .. }))
+        {
+            self.native_record(record, &mut out);
+        }
         out
+    }
+    pub fn project(&mut self, record: &Value) -> Vec<Projected> {
+        let events = self.push(record);
+        let complete = events
+            .iter()
+            .position(|e| matches!(e, Event::ItemCompleted { .. }))
+            .unwrap_or(0);
+        let raw_native = events.iter().any(|e| {
+            matches!(
+                e,
+                Event::ItemCompleted {
+                    body: Item::Native { .. },
+                    ..
+                }
+            )
+        });
+        let extra = edge::remainder(self.native, record);
+        events
+            .into_iter()
+            .enumerate()
+            .map(|(i, event)| {
+                let identity = if matches!(
+                    &event,
+                    Event::ItemStarted { .. } | Event::ItemCompleted { .. }
+                ) {
+                    native_identity(record)
+                } else {
+                    None
+                };
+                Projected {
+                    event,
+                    native: identity,
+                    ext: if i == complete
+                        && !raw_native
+                        && extra.as_object().is_some_and(|o| !o.is_empty())
+                    {
+                        BTreeMap::from([(self.native.label().to_owned(), extra.clone())])
+                    } else {
+                        BTreeMap::new()
+                    },
+                }
+            })
+            .collect()
+    }
+    fn native_record(&self, record: &Value, out: &mut Vec<Event>) {
+        #[cfg(feature = "test-fixtures")]
+        if self.restore_drop {
+            return;
+        }
+        if out.iter().any(|e| matches!(e, Event::ItemCompleted { body: Item::Native { raw, .. }, .. } if raw == record)) { return; }
+        let item = ItemId::new();
+        out.push(Event::ItemStarted {
+            turn: self.turn,
+            item,
+            kind: ItemKind::Native,
+            parent: None,
+            head: None,
+        });
+        out.push(Event::ItemCompleted {
+            item,
+            status: ItemStatus::Completed,
+            body: Item::Native {
+                provider: self.native.label().into(),
+                record_type: record_type(record),
+                raw: record.clone(),
+                blob: None,
+            },
+        });
+    }
+    #[cfg(feature = "test-fixtures")]
+    #[doc(hidden)]
+    pub fn restore_drop_control(&mut self) {
+        self.restore_drop = true;
     }
     /// Close the open turn (a file that ends mid-turn ends it Interrupted).
     pub fn finish(&mut self, reason: StopReason) -> Vec<Event> {
@@ -376,7 +497,8 @@ impl Projector {
     // ---------- Claude Code: ~/.claude/projects/<project>/<session>.jsonl ----------
     fn claude(&mut self, r: &Value, out: &mut Vec<Event>) {
         if r.get("isSidechain").and_then(Value::as_bool) == Some(true) {
-            return; // a subagent's own conversation
+            self.native_record(r, out);
+            return;
         }
         if let Some(version) = r.get("version").and_then(Value::as_str) {
             self.native_version = Some(version.to_owned());
@@ -386,6 +508,7 @@ impl Projector {
         }
         let kind = r.get("type").and_then(Value::as_str).unwrap_or("");
         let Some(message) = r.get("message") else {
+            self.native_record(r, out);
             return;
         };
         if let Some(model) = message.get("model").and_then(Value::as_str) {
@@ -394,10 +517,11 @@ impl Projector {
         match kind {
             "user" => {
                 if r.get("isMeta").and_then(Value::as_bool) == Some(true) {
+                    self.native_record(r, out);
                     return;
                 }
                 match message.get("content") {
-                    Some(Value::String(text)) => self.user_prompt(text, out),
+                    Some(Value::String(text)) => self.user_prompt(text, r, out),
                     Some(Value::Array(blocks)) => {
                         let mut prompt = vec![];
                         for b in blocks {
@@ -407,6 +531,9 @@ impl Projector {
                                         b.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
                                     let failed =
                                         b.get("is_error").and_then(Value::as_bool) == Some(true);
+                                    if !self.tools.contains_key(id) {
+                                        self.native_record(r, out);
+                                    }
                                     self.tool_end(id, content_text(b.get("content")), failed, out);
                                 }
                                 Some("text") => prompt.push(
@@ -415,17 +542,24 @@ impl Projector {
                                         .unwrap_or("")
                                         .to_owned(),
                                 ),
-                                _ => {}
+                                _ => self.native_record(r, out),
                             }
                         }
                         if !prompt.is_empty() {
-                            self.user_prompt(&prompt.join("\n"), out);
+                            self.user_prompt(&prompt.join("\n"), r, out);
                         }
                     }
-                    _ => {}
+                    _ => self.native_record(r, out),
                 }
             }
             "assistant" => {
+                if !message
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .is_some_and(|b| !b.is_empty())
+                {
+                    self.native_record(r, out);
+                }
                 for b in message
                     .get("content")
                     .and_then(Value::as_array)
@@ -442,6 +576,8 @@ impl Projector {
                                     },
                                     out,
                                 );
+                            } else {
+                                self.native_record(r, out);
                             }
                         }
                         Some("thinking") => {
@@ -455,15 +591,20 @@ impl Projector {
                                     },
                                     out,
                                 );
+                            } else {
+                                self.native_record(r, out);
                             }
                         }
                         Some("tool_use") => {
                             let id = b.get("id").and_then(Value::as_str).unwrap_or("");
                             let name = b.get("name").and_then(Value::as_str).unwrap_or("tool");
                             let input = b.get("input").map(Value::to_string).unwrap_or_default();
+                            if self.tools.contains_key(id) {
+                                self.native_record(r, out);
+                            }
                             self.tool_start(id, name, input, out);
                         }
-                        _ => {}
+                        _ => self.native_record(r, out),
                     }
                 }
                 self.claude_usage(r, message, out);
@@ -473,10 +614,10 @@ impl Projector {
                     self.end_turn(StopReason::EndTurn, out);
                 }
             }
-            _ => {}
+            _ => self.native_record(r, out),
         }
     }
-    fn user_prompt(&mut self, text: &str, out: &mut Vec<Event>) {
+    fn user_prompt(&mut self, text: &str, record: &Value, out: &mut Vec<Event>) {
         // harness bookkeeping that Claude Code stores as user text is not a prompt
         let t = text.trim_start();
         if t.is_empty()
@@ -484,6 +625,7 @@ impl Projector {
             || t.starts_with("<local-command")
             || t.starts_with("<system-reminder>")
         {
+            self.native_record(record, out);
             return;
         }
         self.end_turn(StopReason::EndTurn, out);
@@ -523,10 +665,23 @@ impl Projector {
                 "task_complete" => self.end_turn(StopReason::EndTurn, out),
                 "turn_aborted" => self.end_turn(StopReason::Interrupted, out),
                 "token_count" => self.codex_usage(&p, out),
-                _ => {}
+                _ => self.native_record(r, out),
             },
             "response_item" => match ptype {
                 "message" => {
+                    if p.get("content")
+                        .and_then(Value::as_array)
+                        .is_some_and(|blocks| {
+                            blocks.iter().any(|b| {
+                                !matches!(
+                                    b.get("type").and_then(Value::as_str),
+                                    Some("input_text" | "output_text" | "text")
+                                )
+                            })
+                        })
+                    {
+                        self.native_record(r, out);
+                    }
                     let role = p.get("role").and_then(Value::as_str).unwrap_or("");
                     let text = p
                         .get("content")
@@ -547,7 +702,7 @@ impl Projector {
                         "assistant" if !t.is_empty() => {
                             self.record(Item::AgentMessage { markdown: text }, out)
                         }
-                        _ => {}
+                        _ => self.native_record(r, out),
                     }
                 }
                 "reasoning" => {
@@ -573,6 +728,9 @@ impl Projector {
                 "function_call" | "custom_tool_call" | "local_shell_call" => {
                     let id = p.get("call_id").and_then(Value::as_str).unwrap_or("");
                     let name = p.get("name").and_then(Value::as_str).unwrap_or("shell");
+                    if self.tools.contains_key(id) {
+                        self.native_record(r, out);
+                    }
                     let input = p
                         .get("arguments")
                         .or_else(|| p.get("input"))
@@ -597,9 +755,9 @@ impl Projector {
                     });
                     self.tool_end(id, output.unwrap_or_default(), false, out);
                 }
-                _ => {}
+                _ => self.native_record(r, out),
             },
-            _ => {}
+            _ => self.native_record(r, out),
         }
     }
 }
@@ -735,6 +893,16 @@ pub async fn import_file(
     path: &std::path::Path,
     sessions: std::path::PathBuf,
 ) -> Result<SessionId, String> {
+    let redactor = crate::redact::Set::default();
+    crate::capability::register(&redactor).await;
+    import_file_with_redactor(native, path, sessions, redactor).await
+}
+pub async fn import_file_with_redactor(
+    native: Option<Native>,
+    path: &std::path::Path,
+    sessions: std::path::PathBuf,
+    redactor: crate::redact::Set,
+) -> Result<SessionId, String> {
     let text = tokio::fs::read_to_string(path)
         .await
         .map_err(|e| format!("{}: {e}", path.display()))?;
@@ -749,18 +917,32 @@ pub async fn import_file(
     let mut events = vec![];
     for r in &records {
         let ts = p.ts_ms;
-        let new = p.push(r);
+        let new = p.project(r);
         let at = p.ts_ms.or(ts).unwrap_or_else(crate::store::now_ms);
         events.extend(new.into_iter().map(|e| (e, at)));
     }
     let at = p.ts_ms.unwrap_or_else(crate::store::now_ms);
-    events.extend(p.finish(StopReason::EndTurn).into_iter().map(|e| (e, at)));
+    events.extend(p.finish(StopReason::EndTurn).into_iter().map(|event| {
+        (
+            Projected {
+                event,
+                native: None,
+                ext: BTreeMap::new(),
+            },
+            at,
+        )
+    }));
     let meta = SessionMeta {
         source: Some(Source {
             harness: native.label().into(),
-            native_id: None,
+            native_id: records.iter().find_map(|r| {
+                r.get("sessionId")
+                    .or_else(|| r.pointer("/payload/id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            }),
             version: p.native_version.clone(),
-            parser_revision: Some(1),
+            parser_revision: Some(2),
         }),
         session: SessionId::new(),
         cwd: p.cwd.clone().unwrap_or_else(|| "/".into()).into(),
@@ -772,7 +954,7 @@ pub async fn import_file(
     };
     let session = meta.session;
     let mut store =
-        crate::store::Store::open(sessions, meta, Some(OpId::new()), Default::default())
+        crate::store::Store::open(sessions.clone(), meta, Some(OpId::new()), redactor.clone())
             .await
             .map_err(|e| e.to_string())?;
     store
@@ -786,7 +968,7 @@ pub async fn import_file(
         .await
         .map_err(|e| e.to_string())?;
     for (e, at) in events {
-        spill::append(&mut store, e, at)
+        spill::append_projected(&mut store, e.event, None, at, e.native, e.ext)
             .await
             .map_err(|e| e.to_string())?;
     }
@@ -794,6 +976,11 @@ pub async fn import_file(
         .append(Event::SessionClosed, None)
         .await
         .map_err(|e| e.to_string())?;
+    drop(crate::frontends::ir_scan::on_close(
+        sessions.join(format!("{session}.jsonl")),
+        redactor,
+        |text| eprintln!("Info: {text}"),
+    ));
     Ok(session)
 }
 

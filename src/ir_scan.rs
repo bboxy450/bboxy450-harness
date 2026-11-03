@@ -422,6 +422,12 @@ async fn scan_inner(
     for path in files(paths).await? {
         let file = tokio::fs::File::open(&path).await?;
         let len = file.metadata().await?.len();
+        let blob_root = path.parent().unwrap_or(Path::new(".")).to_owned();
+        let blob_session = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .filter(|s| s.parse::<ulid::Ulid>().is_ok())
+            .map(str::to_owned);
         let mut lines = tokio::io::BufReader::new(file.take(len));
         loop {
             let mut line = String::new();
@@ -432,6 +438,8 @@ async fn scan_inner(
             let start = cpu_ns();
             let schema = schema.clone();
             let redactor = redactor.clone();
+            let blob_root = blob_root.clone();
+            let blob_session = blob_session.clone();
             if broken {
                 if let Ok(raw) = serde_json::from_str(&line) {
                     scan.inspect(&raw, &schema, &redactor, "log");
@@ -444,16 +452,17 @@ async fn scan_inner(
             }
             scan.max_poll_cpu_ns = scan.max_poll_cpu_ns.max(cpu_ns().saturating_sub(start));
             scan = bbt_rt::handle()
-                .spawn_blocking(move || {
-                    if let Ok(raw) = serde_json::from_str(&line) {
+                .spawn_blocking(move || -> io::Result<Scan> {
+                    if let Ok(mut raw) = serde_json::from_str::<Value>(&line) {
+                        scan.bytes += expand_blobs(&mut raw, &blob_root, blob_session.as_deref())?;
                         scan.inspect(&raw, &schema, &redactor, "log");
                     }
                     scan.bytes += bytes;
                     scan.lines += 1;
-                    scan
+                    Ok(scan)
                 })
                 .await
-                .map_err(io::Error::other)?;
+                .map_err(io::Error::other)??;
             tokio::task::yield_now().await;
         }
     }
@@ -465,6 +474,67 @@ async fn scan_inner(
     }
     assert_budget(scan.max_poll_cpu_ns)?;
     Ok(scan)
+}
+
+/// Logical log size includes referenced immutable JSON blobs. Reads are capped
+/// at their advertised, stat-checked length and run only on the parsing worker.
+fn expand_blobs(raw: &mut Value, root: &Path, session: Option<&str>) -> io::Result<u64> {
+    let session = session
+        .or_else(|| raw.get("session").and_then(Value::as_str))
+        .unwrap_or("")
+        .to_owned();
+    if session.parse::<ulid::Ulid>().is_err() {
+        return Ok(0);
+    }
+    fn load(blob: &Value, root: &Path, session: &str) -> io::Result<Option<(Value, u64)>> {
+        let blob: crate::protocol::BlobRef = serde_json::from_value(blob.clone())?;
+        if blob.sha256.len() != 64 || !blob.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(io::Error::other("invalid JSON blob digest"));
+        }
+        let path = root.join(session).join("blobs").join(&blob.sha256);
+        let meta = match std::fs::symlink_metadata(&path) {
+            Ok(m) => m,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        if !meta.is_file() || meta.len() != blob.len {
+            return Err(io::Error::other("invalid JSON blob size"));
+        }
+        use std::io::Read;
+        let mut bytes = vec![];
+        std::fs::File::open(path)?
+            .take(blob.len.saturating_add(1))
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 != blob.len || format!("{:x}", Sha256::digest(&bytes)) != blob.sha256
+        {
+            return Err(io::Error::other("corrupt JSON blob"));
+        }
+        Ok(Some((serde_json::from_slice(&bytes)?, blob.len)))
+    }
+    let mut bytes = 0;
+    if let Some(body) = raw.pointer_mut("/event/body")
+        && body.get("kind").and_then(Value::as_str) == Some("native")
+        && let Some(blob) = body.get("blob").filter(|v| !v.is_null()).cloned()
+    {
+        match load(&blob, root, &session)? {
+            Some((value, len)) => {
+                body["raw"] = value;
+                bytes += len;
+            }
+            None => body["raw"] = json!({"blob":blob,"preview":body["raw"],"unavailable":true}),
+        }
+    }
+    if let Some(ext) = raw.get_mut("ext").and_then(Value::as_object_mut) {
+        for value in ext.values_mut() {
+            if let Some(blob) = value.get("$blob").cloned()
+                && let Some((full, len)) = load(&blob, root, &session)?
+            {
+                *value = full;
+                bytes += len;
+            }
+        }
+    }
+    Ok(bytes)
 }
 
 pub fn assert_budget(cpu_ns: u64) -> io::Result<()> {
@@ -565,14 +635,29 @@ fn close_job(
             .await
             .map_err(io::Error::other)?;
         let scan = scan_inner(vec![path], schema, redactor, Some(catalogue), broken).await?;
-        let mut providers: BTreeMap<&str, usize> = BTreeMap::new();
-        for key in &scan.new_fingerprints {
-            *providers.entry(&scan.entries[key].provider).or_default() += 1;
-        }
-        for (provider, n) in providers {
-            notice(format!(
-                "{n} unmapped kinds from {provider}; run ir-scan --propose"
-            ));
+        let (mut scan, notices) = bbt_rt::handle()
+            .spawn_blocking(move || {
+                let mut providers: BTreeMap<&str, usize> = BTreeMap::new();
+                for key in &scan.new_fingerprints {
+                    *providers.entry(&scan.entries[key].provider).or_default() += 1;
+                }
+                let notices = providers
+                    .into_iter()
+                    .map(|(provider, n)| {
+                        format!("{n} unmapped kinds from {provider}; run ir-scan --propose")
+                    })
+                    .collect::<Vec<_>>();
+                (scan, notices)
+            })
+            .await
+            .map_err(io::Error::other)?;
+        for text in notices {
+            let start = cpu_ns();
+            notice(text);
+            let used = cpu_ns().saturating_sub(start);
+            scan.max_poll_cpu_ns = scan.max_poll_cpu_ns.max(used);
+            assert_budget(used)?;
+            tokio::task::yield_now().await;
         }
         Ok(scan)
     })

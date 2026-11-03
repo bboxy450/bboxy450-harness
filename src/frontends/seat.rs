@@ -1439,6 +1439,20 @@ impl LineProjection {
         }
         self.block(out, Family::Card, false, rows);
     }
+    fn record_line(&mut self, out: &mut String, text: &str) {
+        let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        let pen = self.pen();
+        let line = wrap(
+            vec![sp(text).fg(DIM)],
+            pen.width,
+            vec![sp("  · ").fg(DIM)],
+            vec![],
+        )
+        .into_iter()
+        .next()
+        .unwrap_or_default();
+        self.block(out, Family::Card, false, pen.row(&line, None));
+    }
     fn print_item(&mut self, id: ItemId, out: &mut String) {
         if !self.printed.insert(id) {
             return;
@@ -1608,6 +1622,12 @@ impl LineProjection {
             (ItemKind::Notice, Some(Item::Notice { level, text })) => {
                 self.notice_line(out, &text, &level);
             }
+            (_, Some(body @ Item::Native { .. })) => {
+                self.record_line(
+                    out,
+                    &crate::frontends::native_label(&body).unwrap_or_default(),
+                );
+            }
             (_, Some(body)) if body.extension_text().is_some() => {
                 self.notice_line(out, &body.extension_text().unwrap(), &Level::Info);
             }
@@ -1646,11 +1666,9 @@ impl LineProjection {
                     &Level::Info,
                 );
             }
-            (_, Some(Item::Unknown(raw))) => self.notice_line(
-                out,
-                &format!("Unsupported item: {}", unknown_tag(&raw)),
-                &Level::Info,
-            ),
+            (_, Some(Item::Unknown(raw))) => {
+                self.record_line(out, &format!("Unsupported item: {}", unknown_tag(&raw)))
+            }
             (ItemKind::Unknown(raw), _) => self.notice_line(
                 out,
                 &format!("Unsupported item: {}", unknown_tag(&raw)),

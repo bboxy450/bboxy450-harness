@@ -448,13 +448,13 @@ async fn an_agent_crash_ends_the_turn_with_its_stderr_and_the_next_turn_restarts
 }
 
 #[tokio::test]
-async fn an_unknown_update_is_a_notice_and_a_malformed_line_ends_the_turn() {
+async fn an_unknown_update_is_native_and_a_malformed_line_ends_the_turn() {
     let f = fake("unknown", Unattended::Deny).await;
     let mut sub = subscribe(&f.gateway, false);
     f.gateway.send(support::prompt(&f.gateway, "?")).unwrap();
     until_end(&mut sub).await;
     let log = close(f).await;
-    assert!(completed(&log).iter().any(|(_, b)| matches!(b, Item::Notice { level: Level::Warn, text } if text.contains("mystery_update"))));
+    assert!(completed(&log).iter().any(|(_, b)| matches!(b, Item::Native {record_type,raw,..} if record_type=="mystery_update" && raw["sessionUpdate"]=="mystery_update")));
     assert_eq!(ended(&log), vec![StopReason::EndTurn]);
 
     let f = fake("malformed", Unattended::Deny).await;

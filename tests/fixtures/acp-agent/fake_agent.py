@@ -54,6 +54,13 @@ CANCELLED = []
 
 
 def prompt(rid, text):
+    if SCENARIO == "ir-edge":
+        update({"sessionUpdate": "never_seen_update", "value": {"secret": "needle", "count": 7}})
+        update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hello"}, "_meta": {"keep": "needle"}, "future_field": {"opaque": [1, 2]}})
+        update({"sessionUpdate": "agent_message_chunk", "content": {"type": "future_media", "data": "needle"}})
+        update({"sessionUpdate": "tool_call", "toolCallId": "edge-call", "title": "initial", "kind": "read", "status": "pending"})
+        update({"sessionUpdate": "tool_call_update", "toolCallId": "edge-call", "title": "changed", "kind": "execute", "status": "completed", "rawOutput": {"future": "needle"}})
+        return "end_turn"
     if SCENARIO == "text":
         chunk("agent_thought_chunk", "Thinking about it.")
         chunk("agent_message_chunk", "Hello ")
