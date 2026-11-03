@@ -903,3 +903,42 @@ fn reap_identity_is_retired_and_both_mcp_notifications_complete() {
             .any(|v| v.property == "NoMemberAfterClose" && v.cycle.is_empty())
     );
 }
+
+#[test]
+fn socket_lifecycle_controls_reach_restart_aba_cancel_duplicate_and_detach() {
+    let good = model("HarnessSocketLifecycle");
+    let checked = good.check(100_000).unwrap();
+    assert!(checked.violations.is_empty());
+    for (name, value) in [
+        ("birth", 2),
+        ("epoch", 1),
+        ("job", 2),
+        ("detached", 1),
+        ("applied", 1),
+    ] {
+        assert!(
+            checked
+                .states
+                .iter()
+                .any(|s| s[variable(&good, name)] == value),
+            "{name} is vacuous"
+        );
+    }
+    for (suffix, property) in [
+        ("Stale", "NoStaleCompletion"),
+        ("Duplicate", "NoDuplicateCompletion"),
+        ("Cancelled", "NoCancelledCompletion"),
+        ("Detach", "DetachPreservesSession"),
+    ] {
+        let broken = model(&format!("BrokenHarnessSocketLifecycle{suffix}"));
+        assert!(
+            broken
+                .check(100_000)
+                .unwrap()
+                .violations
+                .iter()
+                .any(|v| v.property == property),
+            "{suffix} control did not fail {property}"
+        );
+    }
+}

@@ -392,6 +392,7 @@ pub struct InProc {
     face: &'static str,
     unattended: Arc<AtomicBool>,
     notices: Option<mpsc::Sender<crate::engine::Internal>>,
+    profile_switch: Option<mpsc::Sender<Admitted>>,
 }
 impl InProc {
     /// Replay-only fixture publisher, without an actor or filesystem. Production
@@ -404,28 +405,63 @@ impl InProc {
         let gateway = Self::new(hub.clone(), work, control, OpId::new());
         (gateway, move |event| hub.publish(event))
     }
+    /// Seat hosts own profile forks. Keep the normal admission deduplication and
+    /// bounded lane, while handing the admitted operation to that owner.
+    pub(crate) fn with_profile_switch(mut self, tx: mpsc::Sender<Admitted>) -> Self {
+        self.profile_switch = Some(tx);
+        self
+    }
+    pub(crate) fn profile_switch_sender(&self) -> Option<mpsc::Sender<Admitted>> {
+        self.profile_switch.clone()
+    }
     pub(crate) fn new(
         hub: Arc<Hub>,
         work: mpsc::Sender<Admitted>,
         control: mpsc::Sender<Admitted>,
         start: OpId,
     ) -> Self {
-        Self {
-            hub,
-            work,
-            control,
-            recent: Arc::new(ArcSwap::from_pointee(vec![(
+        // Recovery rebuilds the bounded admission window from durable causes;
+        // a lost acknowledgement must not redispatch an already logged turn.
+        let mut seen = std::collections::BTreeSet::new();
+        let mut recovered: Vec<_> = hub
+            .projection()
+            .log
+            .iter()
+            .rev()
+            .filter_map(|e| e.cause)
+            .filter(|op| seen.insert(*op))
+            .take(1024)
+            .map(|op_id| {
+                (
+                    op_id,
+                    Ack {
+                        op_id,
+                        duplicate: false,
+                    },
+                )
+            })
+            .collect();
+        recovered.reverse();
+        if recovered.is_empty() {
+            recovered.push((
                 start,
                 Ack {
                     op_id: start,
                     duplicate: false,
                 },
-            )])),
+            ));
+        }
+        Self {
+            hub,
+            work,
+            control,
+            recent: Arc::new(ArcSwap::from_pointee(recovered)),
             closed: Arc::new(AtomicBool::new(false)),
             faulted: Arc::new(AtomicBool::new(false)),
             face: "gateway",
             unattended: Arc::new(AtomicBool::new(false)),
             notices: None,
+            profile_switch: None,
         }
     }
     pub(crate) fn set_unattended(&self, value: crate::provider::profile::Unattended) {
@@ -510,7 +546,13 @@ impl Gateway for InProc {
             if matches!(op.op, Op::StartSession { .. }) {
                 return Err(Refused::SessionExists);
             }
-            let lane = if matches!(
+            let lane = if let Some(switches) = self
+                .profile_switch
+                .as_ref()
+                .filter(|_| matches!(op.op, Op::SetProfile { .. }))
+            {
+                switches
+            } else if matches!(
                 op.op,
                 Op::Interrupt { .. } | Op::ResolveApproval { .. } | Op::Close
             ) {

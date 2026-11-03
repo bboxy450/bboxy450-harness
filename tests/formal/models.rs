@@ -3333,8 +3333,140 @@ fn socket_delivery(mode: u8) -> Model {
     m
 }
 
+// Two epochs per birth, three births (A-B-A), one job and two completions.
+// All delays/reordering are arbitrary; Connect is weakly fair while live.
+fn socket_lifecycle(mode: u8) -> Model {
+    let mut m = base::<12>(
+        "SocketLifecycle",
+        false,
+        &[
+            ("birth", 2, 0),
+            ("epoch", 1, 0),
+            ("live", 1, 1),
+            ("connected", 1, 0),
+            ("job", 3, 0), // none, running, cancelled, done
+            ("job_birth", 2, 0),
+            ("job_epoch", 1, 0),
+            ("applied", 2, 0),
+            ("stale_applied", 1, 0),
+            ("cancel_applied", 1, 0),
+            ("detached", 1, 0),
+            ("explicit_close", 1, 0),
+        ],
+    );
+    m.name = match mode {
+        0 => "HarnessSocketLifecycle",
+        1 => "BrokenHarnessSocketLifecycleStale",
+        2 => "BrokenHarnessSocketLifecycleDuplicate",
+        3 => "BrokenHarnessSocketLifecycleCancelled",
+        _ => "BrokenHarnessSocketLifecycleDetach",
+    }
+    .into();
+    let connect = m.actions.len();
+    act(
+        &mut m,
+        "ConnectHello",
+        all([eq(2, 1), eq(3, 0), eq(10, 0)]),
+        &[(3, Int(1))],
+    );
+    act(
+        &mut m,
+        "StartJob",
+        all([eq(2, 1), eq(3, 1), eq(4, 0)]),
+        &[(4, Int(1)), (5, Var(0)), (6, Var(1))],
+    );
+    act(&mut m, "Cancel", eq(4, 1), &[(4, Int(2))]);
+    act(
+        &mut m,
+        "Detach",
+        eq(10, 0),
+        &[
+            (10, Int(1)),
+            (3, Int(0)),
+            (2, if mode == 4 { Int(0) } else { Var(2) }),
+        ],
+    );
+    act(&mut m, "Reattach", eq(10, 1), &[(10, Int(0))]);
+    act(
+        &mut m,
+        "Close",
+        eq(2, 1),
+        &[(2, Int(0)), (3, Int(0)), (11, Int(1))],
+    );
+    act(
+        &mut m,
+        "RestartEpoch",
+        all([eq(2, 0), eq(1, 0)]),
+        &[(1, Int(1)), (2, Int(1)), (3, Int(0)), (11, Int(0))],
+    );
+    act(
+        &mut m,
+        "SwitchBirth",
+        Var(0).lt(Int(2)),
+        &[
+            (0, Var(0).plus(Int(1))),
+            (1, Int(0)),
+            (2, Int(1)),
+            (3, Int(0)),
+            (11, Int(0)),
+        ],
+    );
+    let fresh = Var(0).eq(Var(5)).and(Var(1).eq(Var(6)));
+    for job in 1..=3 {
+        if job == 2 && mode != 3 || job == 3 && mode != 2 {
+            continue;
+        }
+        for stale in [false, true] {
+            if stale && mode != 1 {
+                continue;
+            }
+            act(
+                &mut m,
+                "Completion",
+                all([
+                    eq(4, job),
+                    eq(2, 1),
+                    if stale {
+                        fresh.clone().negate()
+                    } else {
+                        fresh.clone()
+                    },
+                    Var(7).lt(Int(2)),
+                ]),
+                &[
+                    (4, Int(3)),
+                    (7, Var(7).plus(Int(1))),
+                    (8, Int(i64::from(stale))),
+                    (9, Int(i64::from(job == 2))),
+                ],
+            );
+        }
+    }
+    safe(&mut m, "NoStaleCompletion", eq(8, 0));
+    safe(&mut m, "NoCancelledCompletion", eq(9, 0));
+    safe(&mut m, "NoDuplicateCompletion", Var(7).le(Int(1)));
+    safe(
+        &mut m,
+        "DetachPreservesSession",
+        eq(10, 0).or(eq(11, 1)).or(eq(2, 1)),
+    );
+    progress(
+        &mut m,
+        "LiveAttachedEventuallyConnected",
+        all([eq(2, 1), eq(10, 0), eq(3, 0)]),
+        eq(3, 1).or(eq(2, 0)).or(eq(10, 1)),
+        vec![connect],
+    );
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (socket_lifecycle(0), "pass"),
+        (socket_lifecycle(1), "safety"),
+        (socket_lifecycle(2), "safety"),
+        (socket_lifecycle(3), "safety"),
+        (socket_lifecycle(4), "safety"),
         (socket_delivery(0), "pass"),
         (socket_delivery(1), "safety"),
         (socket_delivery(2), "safety"),

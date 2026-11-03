@@ -99,9 +99,10 @@ impl UnixServer {
                     biased;
                     _ = stop.cancelled() => break Ok(()),
                     event = lifecycle.recv(), if !unlinked => {
-                        if gateway.is_closed() || event.as_ref().is_some_and(|e| matches!(e.event, Event::SessionClosed)) {
+                        if event.as_ref().is_some_and(|e| matches!(e.event, Event::SessionClosed)) || event.is_none() && gateway.is_closed() {
                             let _ = tokio::fs::remove_file(&own).await;
                             unlinked = true;
+                            break Ok(());
                         } else if event.is_none() {
                             // A lifecycle observer can lag too. Resubscribe at
                             // the head; losing observer history never unlinks a
@@ -122,6 +123,13 @@ impl UnixServer {
                     _ = tasks.join_next(), if !tasks.is_empty() => {}
                 }
             };
+            // Let SessionClosed reach existing subscribers before retiring the
+            // address. A stalled reader has a finite one-second drain budget.
+            if unlinked {
+                let _ = tokio::time::timeout(Duration::from_secs(1), async {
+                    while tasks.join_next().await.is_some() {}
+                }).await;
+            }
             stop.cancel();
             while tasks.join_next().await.is_some() {}
             if !unlinked { let _ = tokio::fs::remove_file(own).await; }
@@ -132,6 +140,9 @@ impl UnixServer {
             cancel,
             task: Some(task),
         })
+    }
+    pub async fn retire(mut self) -> io::Result<()> {
+        self.task.take().unwrap().await.map_err(io::Error::other)?
     }
     pub async fn close(mut self) -> io::Result<()> {
         self.cancel.cancel();
@@ -153,7 +164,13 @@ async fn connection(
     let first = tokio::select! {_=cancel.cancelled()=>return Ok(()),f=frame(&mut reader)=>f?};
     let first = first.ok_or_else(|| io::Error::other("missing subscribe"))?;
     let value: serde_json::Value = serde_json::from_slice(&first)?;
-    let req: Subscribe = serde_json::from_value(value["subscribe"].clone())?;
+    // A host-chosen address has no session in its filename. Discovery is
+    // subscription-only; every operation still names its admitted session.
+    let mut request = value["subscribe"].clone();
+    if request.get("session").is_none() {
+        request["session"] = serde_json::to_value(gateway.session())?;
+    }
+    let req: Subscribe = serde_json::from_value(request)?;
     let version: Version = serde_json::from_value(value["v"].clone())?;
     let mut subscription = match gateway.subscribe_version(req, version) {
         Ok(s) => s,
@@ -206,6 +223,19 @@ pub struct UnixClient {
     shared: Arc<ClientShared>,
 }
 impl UnixClient {
+    /// A stable namespaced key for one bboxy message, independent of retries,
+    /// process epochs or the socket address. Retain the original session too.
+    pub fn message_op_id(message: &str) -> OpId {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(
+            [
+                b"bboxy450-harness:message:v1\0".as_slice(),
+                message.as_bytes(),
+            ]
+            .concat(),
+        );
+        OpId(ulid::Ulid::from_bytes(digest[..16].try_into().unwrap()))
+    }
     pub async fn connect(path: &Path, sub: Subscribe) -> Result<(Self, Subscription), ClientError> {
         Self::connect_with_approver(path, sub, false).await
     }
@@ -214,7 +244,29 @@ impl UnixClient {
         sub: Subscribe,
         approver: bool,
     ) -> Result<(Self, Subscription), ClientError> {
+        Self::connect_request(path, Some(sub.session), sub.after, sub.ephemeral, approver).await
+    }
+    /// Learn the session from Hello at an arbitrary host-chosen seat address.
+    pub async fn discover(
+        path: &Path,
+        after: Option<(Epoch, Seq)>,
+        ephemeral: bool,
+        approver: bool,
+    ) -> Result<(Self, Subscription), ClientError> {
+        Self::connect_request(path, None, after, ephemeral, approver).await
+    }
+    async fn connect_request(
+        path: &Path,
+        session: Option<SessionId>,
+        after: Option<(Epoch, Seq)>,
+        ephemeral: bool,
+        approver: bool,
+    ) -> Result<(Self, Subscription), ClientError> {
         bbt_rt::assert_not_ui_thread();
+        let mut sub = serde_json::json!({"after": after, "ephemeral": ephemeral});
+        if let Some(session) = session {
+            sub["session"] = serde_json::to_value(session).unwrap();
+        }
         let socket = UnixStream::connect(path)
             .await
             .map_err(|_| ClientError::Disconnected)?;
@@ -249,9 +301,9 @@ impl UnixClient {
             terminal: ArcSwapOption::empty(),
             notify: Notify::new(),
             waker: ArcSwapOption::empty(),
-            last: AtomicU64::new(sub.after.map(|(_, s)| s.0).unwrap_or(0)),
+            last: AtomicU64::new(after.map(|(_, s)| s.0).unwrap_or(0)),
             closed: AtomicBool::new(false),
-            ephemeral: sub.ephemeral,
+            ephemeral,
             approver: AtomicBool::new(false),
             drops: AtomicU64::new(0),
         });

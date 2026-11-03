@@ -371,3 +371,14 @@ implementation_tests = ["tests/gui_chrome.rs", "tests/gui_cli.rs", "tests/gui_re
 assumptions = "Eight zoom steps (90..160 by 10, index 1 is 100 %), one saved value, one pending-save flag and the pill's shown flag. ZoomIn/ZoomOut/Reset are atomic user actions; Save is the only weakly fair action (settings IO completes). Layout reflow, the anchored scroll row, pixels, JSON bytes and the OS menu bar are implementation witnesses in tests/gui_chrome.rs and the zoom.rs unit tests; no Rust refinement proof."
 property = "ZoomWithinRange: the zoom never leaves the grid; PersistedFollowsZoom: with no save pending the saved zoom equals the shown one; SaveCompletes: a pending save ends."
 checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessSocketLifecycle"
+title = "Socket lifecycle, detach and completion fencing across restart and A-B-A."
+models = ["HarnessSocketLifecycle", "BrokenHarnessSocketLifecycleStale", "BrokenHarnessSocketLifecycleDuplicate", "BrokenHarnessSocketLifecycleCancelled", "BrokenHarnessSocketLifecycleDetach"]
+controls = [{name="BrokenHarnessSocketLifecycleStale", expected="safety"}, {name="BrokenHarnessSocketLifecycleDuplicate", expected="safety"}, {name="BrokenHarnessSocketLifecycleCancelled", expected="safety"}, {name="BrokenHarnessSocketLifecycleDetach", expected="safety"}]
+sources = ["src/frontends/gui/bridge.rs", "src/frontends/seat.rs", "src/frontends/headless.rs", "src/gateway/unix.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/support/seat_socket.rs", "tests/gui_bridge.rs", "tests/gateway_unix.rs", "tests/formal_nonvacuity.rs"]
+assumptions = "Three distinct births A/B/A, two epochs per birth, one job, applied count 0..2. Close, switch, cancellation, detach, restart, delayed and duplicate completions may interleave arbitrarily. Only current live running work applies once. Connect is weakly fair while attached/live; no arbitrary OS fairness or real-time bound is proved. Implementation witnesses bound Hello/ack to 5s, reconnect to at most once per 2s and server SessionClosed drain to 1s. Socket bytes/permissions/euid, filesystem ownership, wall time, CPU budgets, Rust memory behavior and Side A remain implementation-only. Not a Rust refinement proof."
+property = "NoStaleCompletion; NoCancelledCompletion; NoDuplicateCompletion; DetachPreservesSession; LiveAttachedEventuallyConnected under WF{ConnectHello}."
+checks = ["make test-formal", "make test"]

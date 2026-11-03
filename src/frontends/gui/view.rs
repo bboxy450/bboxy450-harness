@@ -1629,18 +1629,24 @@ impl HarnessView {
     /// `/profile NAME` and the switcher: continue this conversation on NAME.
     fn switch_to(&mut self, name: &str, bridge: &Bridge) {
         self.profile_menu = None;
-        self.notice = Some(if !bridge.state.profiles.iter().any(|p| p.name == name) {
-            format!("No profile named {name} · /profiles lists them")
-        } else if self.current_profile.as_deref() == Some(name) {
-            format!("Already on {name}")
-        } else {
-            match bridge.switch_profile(name.to_owned()) {
-                Ok(()) => {
-                    format!("Switching to {name}: the conversation continues in a new session")
+        self.notice = Some(
+            if !matches!(
+                bridge.state.gateway,
+                Some(super::bridge::ViewGateway::Unix(_))
+            ) && !bridge.state.profiles.iter().any(|p| p.name == name)
+            {
+                format!("No profile named {name} · /profiles lists them")
+            } else if self.current_profile.as_deref() == Some(name) {
+                format!("Already on {name}")
+            } else {
+                match bridge.switch_profile(name.to_owned()) {
+                    Ok(()) => {
+                        format!("Switching to {name}: the conversation continues in a new session")
+                    }
+                    Err(why) => format!("Could not switch: {why}"),
                 }
-                Err(why) => format!("Could not switch: {why}"),
-            }
-        });
+            },
+        );
         self.scroll.follow_latest();
         self.invalidate();
     }

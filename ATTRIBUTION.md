@@ -59,6 +59,10 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
   "What never reaches the transcript" (d68f505e), with replay-equivalence witnesses
   and production mutation controls under this policy.
 
+- Seat socket lifecycle, deterministic message operation IDs and the shared
+  InProc/Unix rich-view bridge in `src/frontends/` and `src/gateway/` are
+  project-owned implementations of `.bboxy/interfaces/rich-pane.md`.
+
 - Capture expansion in `src/frontends/gui/smoke.rs` uses the click-controlled
   face state; `scripts/parity-web.sh` invokes the bboxy450-term web reference's
   own disclosure handlers for its matching expanded view.

@@ -503,3 +503,28 @@ frontend = "project"
 name = "BrokenHarnessTextZoom"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessSocketLifecycle"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessSocketLifecycleStale"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessSocketLifecycleDuplicate"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessSocketLifecycleCancelled"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessSocketLifecycleDetach"
+expected = "safety"
+frontend = "project"

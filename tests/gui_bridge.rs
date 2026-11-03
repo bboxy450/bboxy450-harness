@@ -155,7 +155,7 @@ async fn unix_and_inproc_views_equal_every_ir_v1_fixture() {
     fixtures.sort();
     assert_eq!(
         fixtures.len(),
-        10,
+        11,
         "every locked IR v1 fixture must be covered"
     );
     for path in fixtures {
@@ -187,10 +187,7 @@ async fn unix_and_inproc_views_equal_every_ir_v1_fixture() {
             .await
             .unwrap();
         for bridge in [&mut local, &mut unix] {
-            wait(bridge, |b| {
-                b.state.ready && b.state.error.is_none() && *b.state.transcript == expected
-            })
-            .await;
+            wait(bridge, |b| *b.state.transcript == expected).await;
             assert!(
                 bridge.state.error.is_none(),
                 "{}: {:?}",
@@ -382,4 +379,102 @@ async fn rendered_approval_actions_use_control_lane() {
             support::close(s).await;
         }
     }
+}
+
+#[tokio::test]
+async fn arbitrary_seat_address_reconnects_across_aba_without_retargeting_intent() {
+    use bboxy450_harness::gateway::{Refused, unix::UnixServer};
+    let own = tempfile::tempdir_in("/tmp").unwrap();
+    let socket = own.path().join("host-chosen.sock");
+    let mut bridge = Bridge::new(Arc::new(Wake::default()));
+    bridge.connect(socket.clone(), None);
+    let mut sessions = vec![];
+    let mut first_op = None;
+    for birth in 0..3 {
+        let s = support::session(vec![support::sse("text")], true).await;
+        let session = s.gateway.session();
+        sessions.push(session);
+        let server = UnixServer::bind(socket.clone(), s.gateway.clone())
+            .await
+            .unwrap();
+        wait(&mut bridge, |b| {
+            b.state.ready && b.state.transcript.session == Some(session)
+        })
+        .await;
+        assert_eq!(bridge.state.transcript.duplicate_durable, 0);
+        if birth == 0 {
+            first_op = Some(OpEnvelope {
+                v: PROTOCOL,
+                session,
+                op_id: bboxy450_harness::gateway::unix::UnixClient::message_op_id("one-message"),
+                op: Op::UserTurn {
+                    blocks: vec![InputBlock::Text { text: "one".into() }],
+                    mode: TurnMode::Queue,
+                },
+            });
+        } else {
+            assert!(matches!(
+                bridge.send_envelope(first_op.clone().unwrap()),
+                Err(Refused::UnknownSession)
+            ));
+        }
+        support::close(s).await;
+        server.retire().await.unwrap();
+        assert!(
+            bboxy450_harness::gateway::unix::UnixClient::discover(&socket, None, false, false)
+                .await
+                .is_err(),
+            "the controlled rebind window is unbound"
+        );
+        wait(&mut bridge, |b| !b.state.ready).await;
+    }
+    assert_ne!(sessions[0], sessions[2]);
+    bridge.detach().unwrap().await.unwrap();
+}
+
+#[tokio::test]
+async fn message_ids_are_deterministic_and_namespaced() {
+    use bboxy450_harness::gateway::unix::UnixClient;
+    assert_eq!(
+        UnixClient::message_op_id("message-a"),
+        UnixClient::message_op_id("message-a")
+    );
+    assert_ne!(
+        UnixClient::message_op_id("message-a"),
+        UnixClient::message_op_id("message-b")
+    );
+    assert_ne!(
+        UnixClient::message_op_id(""),
+        UnixClient::message_op_id("message-a")
+    );
+}
+
+#[tokio::test]
+async fn seat_alias_refuses_files_symlinks_and_live_owners() {
+    use bboxy450_harness::{frontends::seat::bind_alias, gateway::unix::UnixClient};
+    let own = tempfile::tempdir_in("/tmp").unwrap();
+    let s = support::session(vec![support::sse("text")], true).await;
+    let file = own.path().join("file");
+    std::fs::write(&file, b"keep").unwrap();
+    let link = own.path().join("link");
+    std::os::unix::fs::symlink(&file, &link).unwrap();
+    for path in [&file, &link] {
+        assert!(bind_alias(path, s.gateway.clone()).await.is_err());
+    }
+    assert_eq!(std::fs::read(&file).unwrap(), b"keep");
+    assert!(
+        bind_alias(std::path::Path::new("relative.sock"), s.gateway.clone())
+            .await
+            .is_err()
+    );
+    let socket = own.path().join("seat.sock");
+    let server = bind_alias(&socket, s.gateway.clone()).await.unwrap();
+    assert!(bind_alias(&socket, s.gateway.clone()).await.is_err());
+    let (client, sub) = UnixClient::discover(&socket, None, false, false)
+        .await
+        .unwrap();
+    assert_eq!(sub.hello().meta.session, s.gateway.session());
+    client.close();
+    support::close(s).await;
+    server.retire().await.unwrap();
 }

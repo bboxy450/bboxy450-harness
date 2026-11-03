@@ -4,11 +4,7 @@
 // License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
-use base64::{Engine, engine::general_purpose::STANDARD};
-use bboxy450_harness::{
-    gateway::{Subscribe, unix::UnixClient},
-    protocol::*,
-};
+use bboxy450_harness::{gateway::unix::UnixClient, protocol::*};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::{
     io::{Read, Write},
@@ -16,38 +12,6 @@ use std::{
     time::{Duration, Instant},
 };
 const SEAT: &str = "00000000000000000000000042";
-
-fn announcements(bytes: &[u8]) -> Vec<serde_json::Value> {
-    let text = String::from_utf8_lossy(bytes);
-    let prefix = format!("\x1b]7502;v=1:seat={SEAT}:ev=HarnessSession:d=");
-    let mut clean = text.to_string();
-    let mut out = vec![];
-    while let Some(start) = clean.find(&prefix) {
-        let Some(end) = clean[start..].find("\x1b\\").map(|n| start + n + 2) else {
-            break;
-        };
-        assert!(end - start <= 4096);
-        let payload = &clean[start + prefix.len()..end - 2];
-        let value: serde_json::Value =
-            serde_json::from_slice(&STANDARD.decode(payload).unwrap()).unwrap();
-        assert_eq!(value.as_object().unwrap().len(), 1);
-        assert_eq!(value["raw"].as_object().unwrap().len(), 4);
-        assert_eq!(
-            value["raw"]["protocol"],
-            serde_json::to_value(PROTOCOL).unwrap()
-        );
-        out.push(value["raw"].clone());
-        clean.replace_range(start..end, "");
-    }
-    // Output is append-only; all complete escapes must be this one hook frame.
-    if !clean.contains(&prefix) {
-        assert!(
-            !clean.contains('\x1b'),
-            "unexpected terminal control: {clean:?}"
-        );
-    }
-    out
-}
 
 struct Seat {
     master: Box<dyn portable_pty::MasterPty + Send>,
@@ -82,7 +46,9 @@ impl Seat {
             c
         } else {
             let mut c = CommandBuilder::new(env!("CARGO_BIN_EXE_bboxy450-harness"));
-            c.args(["seat", "--profile", "scripted", "--scripted"]);
+            c.args(["seat", "--profile", "scripted", "--socket"]);
+            c.arg(root.join("seat.sock"));
+            c.arg("--scripted");
             c.arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sse/text.sse"));
             if let Some(session) = resume {
                 c.args(["--resume", session]);
@@ -114,28 +80,11 @@ impl Seat {
             bytes: vec![],
         }
     }
-    fn announcement(&mut self, count: usize) -> serde_json::Value {
-        let deadline = Instant::now() + Duration::from_secs(15);
-        loop {
-            let values = announcements(&self.bytes);
-            if values.len() >= count {
-                assert_eq!(values.len(), count);
-                return values[count - 1].clone();
-            }
-            let chunk = self
-                .chunks
-                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-                .unwrap_or_else(|_| {
-                    panic!("no announcement: {}", String::from_utf8_lossy(&self.bytes))
-                });
-            self.bytes.extend(chunk);
-        }
-    }
     fn input(&mut self, bytes: &[u8]) {
         self.writer.write_all(bytes).unwrap();
         self.writer.flush().unwrap();
     }
-    fn finish(mut self, crash: bool, count: usize) {
+    fn finish(mut self, crash: bool) {
         if crash {
             assert_eq!(
                 unsafe { libc::kill(self.child.process_id().unwrap() as i32, libc::SIGKILL) },
@@ -161,7 +110,16 @@ impl Seat {
         for chunk in self.chunks.try_iter() {
             self.bytes.extend(chunk);
         }
-        assert_eq!(announcements(&self.bytes).len(), count);
+        assert!(
+            !String::from_utf8_lossy(&self.bytes).contains("\x1b]7502"),
+            "no in-band discovery"
+        );
+        // CSI may style text, but must never address the cursor or redraw.
+        assert!(
+            !regex::bytes::Regex::new(r"\x1b\[[0-9;]*[^m0-9;]")
+                .unwrap()
+                .is_match(&self.bytes)
+        );
     }
 }
 fn wait_removed(path: &Path) {
@@ -171,18 +129,49 @@ fn wait_removed(path: &Path) {
         std::thread::sleep(Duration::from_millis(5));
     }
 }
-fn socket(value: &serde_json::Value) -> PathBuf {
-    use std::os::unix::fs::{FileTypeExt, PermissionsExt};
-    let path = PathBuf::from(value["socket"].as_str().unwrap());
-    assert!(path.is_absolute());
-    assert_eq!(
-        path.file_stem().unwrap().to_str().unwrap(),
-        value["session"].as_str().unwrap()
-    );
-    let meta = std::fs::symlink_metadata(&path).unwrap();
-    assert!(meta.file_type().is_socket());
-    assert_eq!(meta.permissions().mode() & 0o777, 0o600);
-    path
+fn wait_hello(
+    root: &Path,
+    gui: bool,
+    previous: Option<SessionId>,
+) -> (PathBuf, bboxy450_harness::gateway::Hello) {
+    bbt_rt::handle().block_on(async {
+        tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                let path = if gui {
+                    std::fs::read_dir(root.join(".bboxy450-harness/run"))
+                        .ok()
+                        .and_then(|entries| {
+                            entries.flatten().map(|e| e.path()).find(|p| {
+                                p.file_stem()
+                                    .and_then(|s| s.to_str())
+                                    .and_then(|s| s.parse().ok())
+                                    .map(SessionId)
+                                    != previous
+                            })
+                        })
+                } else {
+                    Some(root.join("seat.sock"))
+                };
+                if let Some(path) = path
+                    && let Ok((client, sub)) = UnixClient::discover(&path, None, false, false).await
+                {
+                    let hello = sub.hello().clone();
+                    client.close();
+                    if Some(hello.meta.session) != previous {
+                        use std::os::unix::fs::PermissionsExt;
+                        assert_eq!(
+                            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                            0o600
+                        );
+                        return (path, hello);
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("session socket did not bind")
+    })
 }
 fn lifecycle(gui: bool) {
     let own = tempfile::Builder::new()
@@ -190,12 +179,26 @@ fn lifecycle(gui: bool) {
         .tempdir_in("/tmp")
         .unwrap();
     let mut seat = Seat::start(own.path(), gui, None);
-    let first = seat.announcement(1);
-    let first_path = socket(&first);
-    bbt_rt::handle().block_on(async {
-        let session = SessionId(first["session"].as_str().unwrap().parse().unwrap());
-        let (client, mut sub) = UnixClient::connect(&first_path, Subscribe { session, after: None, ephemeral: false }).await.unwrap();
-        let op = OpEnvelope { v: PROTOCOL, session, op_id: OpId::new(), op: Op::UserTurn { blocks: vec![InputBlock::Text { text: "one socket turn".into() }], mode: TurnMode::Queue } };
+    let (path, first) = wait_hello(own.path(), gui, None);
+    let first_path = own
+        .path()
+        .join(format!(".bboxy450-harness/run/{}.sock", first.meta.session));
+    assert!(first_path.exists(), "per-session socket also binds");
+    let (client, mut sub, op) = bbt_rt::handle().block_on(async {
+        let (client, mut sub) = UnixClient::discover(&path, None, false, false)
+            .await
+            .unwrap();
+        let op = OpEnvelope {
+            v: PROTOCOL,
+            session: first.meta.session,
+            op_id: UnixClient::message_op_id("private-test-message"),
+            op: Op::UserTurn {
+                blocks: vec![InputBlock::Text {
+                    text: "one socket turn".into(),
+                }],
+                mode: TurnMode::Queue,
+            },
+        };
         assert!(!client.send(op.clone()).await.unwrap().duplicate);
         assert!(client.send(op.clone()).await.unwrap().duplicate);
         let events = tokio::time::timeout(Duration::from_secs(10), async {
@@ -203,48 +206,120 @@ fn lifecycle(gui: bool) {
             while let Some(e) = sub.recv().await {
                 let done = matches!(e.event, Event::TurnEnded { .. });
                 events.push(e);
-                if done { break; }
+                if done {
+                    break;
+                }
             }
             events
-        }).await.unwrap();
-        assert_eq!(events.iter().filter(|e| e.cause == Some(op.op_id) && matches!(e.event, Event::TurnQueued { .. })).count(), 1);
-        assert!(events.iter().any(|e| matches!(e.event, Event::TurnEnded { .. })));
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+                events
+                    .iter()
+                    .filter(|e| e.cause == Some(op.op_id)
+                        && matches!(e.event, Event::TurnQueued { .. }))
+                    .count(),
+                1
+            );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e.event, Event::TurnEnded { .. }))
+        );
+        (client, sub, op)
     });
-    seat.input(b"/profile other\n");
-    let second = seat.announcement(2);
-    let second_path = socket(&second);
+    // Exercise both socket SetProfile and the original terminal command.
+    if gui {
+        seat.input(b"/profile other\n");
+    } else {
+        bbt_rt::handle()
+            .block_on(client.send(OpEnvelope {
+                v: PROTOCOL,
+                session: first.meta.session,
+                op_id: OpId::new(),
+                op: Op::SetProfile {
+                    profile: "other".into(),
+                },
+            }))
+            .unwrap();
+    }
+    bbt_rt::handle().block_on(async {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while let Some(e) = sub.recv().await {
+                if matches!(e.event, Event::SessionClosed) {
+                    return;
+                }
+            }
+            panic!("old subscriber lost SessionClosed");
+        })
+        .await
+        .unwrap();
+    });
+    let switched = Instant::now();
+    let (second_path, second) = wait_hello(own.path(), gui, Some(first.meta.session));
+    assert!(switched.elapsed() < Duration::from_secs(2));
     wait_removed(&first_path);
+    if !gui {
+        assert_eq!(second_path, path);
+    }
+    bbt_rt::handle().block_on(async {
+        let (next, _) = UnixClient::discover(&second_path, None, false, false)
+            .await
+            .unwrap();
+        assert_eq!(
+            next.send(op.clone()).await,
+            Err(bboxy450_harness::gateway::unix::ClientError::Refused(
+                bboxy450_harness::gateway::Refused::UnknownSession
+            ))
+        );
+        next.close();
+    });
     seat.input(b"/profile scripted\n");
-    let third = seat.announcement(3);
-    let third_path = socket(&third);
-    wait_removed(&second_path);
-    assert_ne!(first["session"], second["session"]);
-    assert_ne!(first["session"], third["session"]);
-    assert_ne!(second["session"], third["session"]);
-    seat.finish(true, 3);
-    assert!(
-        third_path.exists(),
-        "crash fixture must leave a stale socket"
+    let (third_path, third) = wait_hello(own.path(), gui, Some(second.meta.session));
+    assert_ne!(
+        first.meta.session, third.meta.session,
+        "A-B-A is a third birth"
     );
-    let mut resumed = Seat::start(own.path(), gui, Some(third["session"].as_str().unwrap()));
-    let reopened = resumed.announcement(1);
-    assert_eq!(socket(&reopened), third_path);
-    assert_eq!(reopened["session"], third["session"]);
-    assert!(reopened["epoch"].as_u64().unwrap() > third["epoch"].as_u64().unwrap());
-    resumed.finish(false, 1);
+    assert_ne!(second.meta.session, third.meta.session);
+    seat.finish(true);
+    assert!(third_path.exists(), "crash must leave a stale socket");
+    let mut resumed = Seat::start(own.path(), gui, Some(&third.meta.session.to_string()));
+    // The stale address initially refuses connections; wait for the recovered epoch.
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let reopened = loop {
+        let (_, hello) = wait_hello(own.path(), gui, None);
+        if hello.epoch > third.epoch {
+            break hello;
+        }
+        assert!(Instant::now() < deadline);
+    };
+    assert_eq!(reopened.meta.session, third.meta.session);
+    resumed.input(b"\n"); // release canonical EOT on the worker's stdin
+    resumed.finish(false);
     wait_removed(&third_path);
+    let log = own.path().join(format!(
+        ".bboxy450-harness/sessions/{}.jsonl",
+        third.meta.session
+    ));
+    let events: Vec<Envelope> = std::fs::read_to_string(log)
+        .unwrap()
+        .lines()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
+    laws::check_transcript(&events).unwrap();
 }
 #[test]
-fn headless_socket_announces_start_switch_aba_resume_and_cleans_up() {
+fn headless_socket_start_switch_aba_resume_and_cleanup() {
     lifecycle(false);
 }
 #[test]
-fn gui_socket_announces_start_switch_aba_resume_and_cleans_up() {
+fn gui_socket_start_switch_aba_resume_and_cleanup() {
     lifecycle(true);
 }
 
 // A GUI host worker, driven through a disposable PTY without opening a window.
-// Re-executing this test also captures its real startup/switch/resume OSC bytes.
+// A private HOME and scripted stdin drive startup/switch/resume without OS input.
 #[test]
 fn gui_socket_worker() {
     if std::env::var("HARNESS_GUI_SOCKET_WORKER").as_deref() != Ok("1") {
@@ -266,7 +341,7 @@ fn gui_socket_worker() {
         use tokio::io::AsyncBufReadExt;
         let root = PathBuf::from(std::env::var_os("HOME").unwrap()).join(".bboxy450-harness");
         let config = Config {
-            meta: SessionMeta { session: SessionId::new(), cwd: root.clone(), profile: Some("scripted".into()), fork: None, protocol: PROTOCOL, harness: env!("CARGO_PKG_VERSION").into(), created_ms: 0 },
+            meta: SessionMeta { source: None, session: SessionId::new(), cwd: root.clone(), profile: Some("scripted".into()), fork: None, protocol: PROTOCOL, harness: env!("CARGO_PKG_VERSION").into(), created_ms: 0 },
             sessions: root.join("sessions"), profiles: root.join("profiles"), provider: Arc::new(ScriptedProvider::new(vec![include_bytes!("../fixtures/sse/text.sse").to_vec()])), model: "scripted".into(), profile_error: None, policy: Policy::new(Unattended::Deny), redactor: Set::default(), max_rounds: 50,
         };
         let mut bridge = Bridge::new(Arc::new(Wake));
@@ -290,4 +365,69 @@ fn gui_socket_worker() {
         }
         bridge.detach().unwrap().await.unwrap();
     });
+}
+
+#[test]
+fn restart_retains_durable_message_id_and_has_one_effect() {
+    let own = tempfile::Builder::new()
+        .prefix("retry-")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let seat = Seat::start(own.path(), false, None);
+    let (path, first) = wait_hello(own.path(), false, None);
+    let op = OpEnvelope {
+        v: PROTOCOL,
+        session: first.meta.session,
+        op_id: UnixClient::message_op_id("retry-after-restart"),
+        op: Op::UserTurn {
+            blocks: vec![InputBlock::Text {
+                text: "exactly one".into(),
+            }],
+            mode: TurnMode::Queue,
+        },
+    };
+    bbt_rt::handle().block_on(async {
+        let (client, mut sub) = UnixClient::discover(&path, None, false, false)
+            .await
+            .unwrap();
+        client.send(op.clone()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while let Some(e) = sub.recv().await {
+                if matches!(e.event, Event::TurnEnded { .. }) {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+    });
+    seat.finish(true);
+    let resumed = Seat::start(own.path(), false, Some(&first.meta.session.to_string()));
+    let (_, second) = wait_hello(own.path(), false, None);
+    assert!(second.epoch > first.epoch);
+    bbt_rt::handle().block_on(async {
+        let (client, _) = UnixClient::discover(&path, None, false, false)
+            .await
+            .unwrap();
+        assert!(client.send(op.clone()).await.unwrap().duplicate);
+        client.close();
+    });
+    resumed.finish(false);
+    let text = std::fs::read_to_string(own.path().join(format!(
+        ".bboxy450-harness/sessions/{}.jsonl",
+        first.meta.session
+    )))
+    .unwrap();
+    let events: Vec<Envelope> = text
+        .lines()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e.cause == Some(op.op_id) && matches!(e.event, Event::TurnQueued { .. }))
+            .count(),
+        1
+    );
+    laws::check_transcript(&events).unwrap();
 }

@@ -47,47 +47,41 @@ pub async fn bind_session(
             Err(_) => return Err("session socket unavailable".into()),
         }
     }
-    let socket = crate::gateway::unix::UnixServer::bind(path, gateway.clone())
+    crate::gateway::unix::UnixServer::bind(path, gateway)
         .await
-        .map_err(|_| "session socket unavailable")?;
-    // A standalone process has no PTY seat identity and emits no hook. Validate
-    // the inherited ID before placing it outside the base64 payload.
-    if let Ok(seat) = std::env::var("BBOXY_SEAT_ID") {
-        let seat = seat.parse::<ulid::Ulid>().map_err(|_| "invalid seat id")?;
-        let bytes = session_announcement(seat, &socket.path, &gateway.hello())?;
-        use tokio::io::AsyncWriteExt;
-        let mut stdout = tokio::io::stdout();
-        stdout
-            .write_all(&bytes)
-            .await
-            .map_err(|_| "output unavailable")?;
-        stdout.flush().await.map_err(|_| "output unavailable")?;
-    }
-    Ok(socket)
+        .map_err(|_| "session socket unavailable".into())
 }
 
-/// Adapted from bboxy450-term's #348 hook encoder:
-/// https://github.com/bboxy450/bboxy450-term/blob/main/crates/bboxy450-harness-wake-up/src/hook.rs
-/// The PTY attributes the frame. No capability or other environment is carried.
-pub fn session_announcement(
-    seat: ulid::Ulid,
-    socket: &std::path::Path,
-    hello: &crate::gateway::Hello,
-) -> Result<Vec<u8>, String> {
-    use base64::{Engine, engine::general_purpose::STANDARD};
-    let raw = serde_json::json!({"raw": {
-        "session": hello.meta.session, "socket": socket, "epoch": hello.epoch,
-        "protocol": hello.v,
-    }});
-    let payload = STANDARD.encode(serde_json::to_vec(&raw).map_err(|_| "invalid announcement")?);
-    let bytes =
-        format!("\x1b]7502;v=1:seat={seat}:ev=HarnessSession:d={payload}\x1b\\").into_bytes();
-    if bytes.len() > 4096 {
-        return Err("session announcement exceeds hook bound".into());
+/// The seat owns both addresses; the alias is chosen by its host, never derived
+/// from PTY output. Stale recovery replaces only an owned, disconnected socket.
+pub async fn bind_alias(
+    path: &std::path::Path,
+    gateway: crate::gateway::InProc,
+) -> Result<crate::gateway::unix::UnixServer, String> {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    if !path.is_absolute() || path.as_os_str().as_encoded_bytes().len() > 96 {
+        return Err("seat socket must be absolute and at most 96 bytes".into());
     }
-    Ok(bytes)
+    match tokio::fs::symlink_metadata(path).await {
+        Ok(meta) if meta.file_type().is_socket() && meta.uid() == unsafe { libc::geteuid() } => {
+            match tokio::net::UnixStream::connect(path).await {
+                Ok(_) => return Err("seat socket is already active".into()),
+                Err(e) if matches!(e.raw_os_error(), Some(libc::ECONNREFUSED | libc::ENOENT)) => {
+                    tokio::fs::remove_file(path)
+                        .await
+                        .map_err(|_| "stale seat socket unavailable")?;
+                }
+                Err(_) => return Err("seat socket unavailable".into()),
+            }
+        }
+        Ok(_) => return Err("seat socket path is not an owned socket".into()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err("seat socket unavailable".into()),
+    }
+    crate::gateway::unix::UnixServer::bind(path.into(), gateway)
+        .await
+        .map_err(|_| "seat socket unavailable".into())
 }
-
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};

@@ -60,8 +60,10 @@ pub enum ViewGateway {
 pub struct RemoteGateway {
     client: UnixClient,
     session: SessionId,
+    epoch: Epoch,
     work: Arc<tokio::sync::Semaphore>,
-    outcomes: tokio::sync::mpsc::UnboundedSender<(OpId, Result<Ack, ClientError>)>,
+    outcomes:
+        tokio::sync::mpsc::UnboundedSender<(SessionId, Epoch, OpId, Result<Ack, ClientError>)>,
 }
 struct ConnectionGuard(Option<UnixClient>);
 impl Drop for ConnectionGuard {
@@ -79,6 +81,9 @@ impl ViewGateway {
         }
     }
     fn send(&self, op: OpEnvelope) -> Result<Submission, Refused> {
+        if op.session != self.session() {
+            return Err(Refused::UnknownSession);
+        }
         match self {
             Self::InProc(g) => g.send(op).map(Submission::Admitted),
             Self::Unix(g) => {
@@ -99,9 +104,11 @@ impl ViewGateway {
                 let client = g.client.clone();
                 let outcomes = g.outcomes.clone();
                 let op_id = op.op_id;
+                let session = g.session;
+                let epoch = g.epoch;
                 bbt_rt::handle().spawn(async move {
                     let result = client.send(op).await;
-                    let _ = outcomes.send((op_id, result));
+                    let _ = outcomes.send((session, epoch, op_id, result));
                     drop(permit);
                 });
                 Ok(Submission::Pending { op_id })
@@ -111,40 +118,39 @@ impl ViewGateway {
 }
 enum Source {
     InProc(InProc),
-    Unix { socket: PathBuf, session: SessionId },
+    Unix { socket: PathBuf },
 }
 impl Source {
     async fn subscribe(
         &self,
         after: Option<(Epoch, Seq)>,
         approver: bool,
-        outcomes: tokio::sync::mpsc::UnboundedSender<(OpId, Result<Ack, ClientError>)>,
+        outcomes: tokio::sync::mpsc::UnboundedSender<(
+            SessionId,
+            Epoch,
+            OpId,
+            Result<Ack, ClientError>,
+        )>,
     ) -> Result<(ViewGateway, Subscription), String> {
-        let session = match self {
-            Self::InProc(g) => g.session(),
-            Self::Unix { session, .. } => *session,
-        };
-        let request = Subscribe {
-            session,
-            after,
-            ephemeral: true,
-        };
         match self {
             Self::InProc(g) => g
-                .subscribe(request)
+                .subscribe(Subscribe {
+                    session: g.session(),
+                    after,
+                    ephemeral: true,
+                })
                 .map(|sub| (ViewGateway::InProc(g.clone()), sub))
                 .map_err(|e| refusal_text(&e).to_string()),
             Self::Unix { socket, .. } => {
-                let (client, sub) = UnixClient::connect_with_approver(socket, request, approver)
+                let (client, sub) = UnixClient::discover(socket, after, true, approver)
                     .await
                     .map_err(|e| client_error_text(&e))?;
-                if sub.hello().meta.session != session {
-                    return Err("session identity mismatch".into());
-                }
+                let session = sub.hello().meta.session;
                 Ok((
                     ViewGateway::Unix(RemoteGateway {
                         client,
                         session,
+                        epoch: sub.hello().epoch,
                         work: Arc::new(tokio::sync::Semaphore::new(64)),
                         outcomes,
                     }),
@@ -299,6 +305,12 @@ impl Bridge {
     /// Continue the live session on another profile (any backend): the host forks it
     /// at its head onto `profile` and the view follows the new session.
     pub fn switch_profile(&self, profile: String) -> Result<(), &'static str> {
+        if matches!(self.state.gateway, Some(ViewGateway::Unix(_))) {
+            return self
+                .send(Op::SetProfile { profile })
+                .map(|_| ())
+                .map_err(|_| "profile switch not admitted");
+        }
         let tx = self.switch.as_ref().ok_or("no live session to switch")?;
         tx.send(profile).map_err(|_| "the session host has stopped")
     }
@@ -354,6 +366,8 @@ impl Bridge {
             }};
             match created {
                 Ok((mut gateway, _)) => {
+                    let (remote_tx, mut remote_switches) = tokio::sync::mpsc::channel::<crate::gateway::Admitted>(64);
+                    gateway = gateway.with_profile_switch(remote_tx.clone());
                     let mut socket = match crate::frontends::seat::bind_session(&root, gateway.clone(), resume.is_some()).await {
                         Ok(socket) => socket,
                         Err(error) => {
@@ -365,10 +379,19 @@ impl Bridge {
                     loop {
                         tokio::select! {
                             _ = consume(Source::InProc(gateway.clone()), None, mailbox.clone(), detach.clone()) => break,
-                            Some(profile) = switches.recv() => match host.switch(&gateway, profile.clone()).await {
+                            Some(profile) = async {
+                                tokio::select! {
+                                    profile = switches.recv() => profile,
+                                    request = remote_switches.recv() => request.and_then(|request| {
+                                        if request.env.session != gateway.session() { return None; }
+                                        match request.env.op { Op::SetProfile { profile } => Some(profile), _ => None }
+                                    }),
+                                }
+                            } => match host.switch(&gateway, profile.clone()).await {
                                 Ok(next) => {
+                                    let next = next.with_profile_switch(remote_tx.clone());
                                     match crate::frontends::seat::bind_session(&root, next.clone(), false).await {
-                                        Ok(next_socket) => { let _ = std::mem::replace(&mut socket, next_socket).close().await; }
+                                        Ok(next_socket) => { let _ = std::mem::replace(&mut socket, next_socket).retire().await; }
                                         Err(error) => {
                                             mailbox.publish(FrameState { error: Some(error), ..Default::default() });
                                             host.close_all().await;
@@ -410,29 +433,13 @@ impl Bridge {
         self.worker =
             Some(bbt_rt::handle().spawn(consume(Source::InProc(gateway), None, mailbox, detach)));
     }
-    /// Connect to run/<session>.sock. All socket IO, decoding, retries and row
+    /// Connect to a session or host-chosen seat socket. All socket IO, decoding, retries and row
     /// preparation run on bbt_rt; the caller only schedules and drains Latest.
     pub fn connect(&mut self, socket: PathBuf, after: Option<(Epoch, Seq)>) {
-        let session = socket
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .and_then(|s| s.parse().ok())
-            .map(SessionId);
-        let Some(session) = session else {
-            self.mailbox.publish(FrameState {
-                error: Some("invalid session socket name".into()),
-                ..Default::default()
-            });
-            return;
-        };
         let mailbox = self.mailbox.clone();
         let detach = self.detach.clone();
-        self.worker = Some(bbt_rt::handle().spawn(consume(
-            Source::Unix { socket, session },
-            after,
-            mailbox,
-            detach,
-        )));
+        self.worker =
+            Some(bbt_rt::handle().spawn(consume(Source::Unix { socket }, after, mailbox, detach)));
     }
     /// A real frame drains under 0.3ms. complete_drain re-marks any remainder,
     /// including a publication racing the just-completed frame.
@@ -475,18 +482,29 @@ impl Bridge {
         changed
     }
     pub fn send(&self, op: Op) -> Result<Submission, Refused> {
+        let session = self
+            .state
+            .gateway
+            .as_ref()
+            .ok_or(Refused::Closed)?
+            .session();
+        self.send_envelope(OpEnvelope {
+            v: PROTOCOL,
+            op_id: OpId::new(),
+            session,
+            op,
+        })
+    }
+    /// Resends must carry the original session and op_id, including after a
+    /// timeout or a switch. Scheduling a remote request is not admission.
+    pub fn send_envelope(&self, envelope: OpEnvelope) -> Result<Submission, Refused> {
         let gateway = self.state.gateway.as_ref().ok_or(Refused::Closed)?;
-        let turn = matches!(op, Op::UserTurn { .. });
-        let op_id = OpId::new();
+        let turn = matches!(envelope.op, Op::UserTurn { .. });
+        let op_id = envelope.op_id;
         if turn {
             self.mailbox.pending(op_id, true);
         }
-        let result = gateway.send(OpEnvelope {
-            v: PROTOCOL,
-            op_id,
-            session: gateway.session(),
-            op,
-        });
+        let result = gateway.send(envelope);
         if turn && result.is_err() {
             self.mailbox.pending(op_id, false);
         }
@@ -586,9 +604,19 @@ async fn consume(
     let mut preparer = Preparer::default();
     let (outcomes, mut responses) = tokio::sync::mpsc::unbounded_channel();
     let mut dispatch_error = None;
+    let mut last_connect: Option<tokio::time::Instant> = None;
     loop {
         if detached && mailbox.pending_turns.load().is_empty() {
             return;
+        }
+        if matches!(source, Source::Unix { .. }) {
+            if let Some(last) = last_connect {
+                tokio::select! {
+                    _ = detach.cancelled(), if !detached => return,
+                    _ = tokio::time::sleep_until(last + Duration::from_secs(2)) => {}
+                }
+            }
+            last_connect = Some(tokio::time::Instant::now());
         }
         let (gateway, mut sub) = match tokio::select! {
             _ = detach.cancelled(), if !detached => { detached = true; continue; }
@@ -615,6 +643,17 @@ async fn consume(
             ViewGateway::Unix(remote) => Some(remote.client.clone()),
             ViewGateway::InProc(_) => None,
         });
+        if model
+            .session
+            .is_some_and(|session| session != gateway.session())
+        {
+            model = Transcript::default();
+            owned_turns.clear();
+            dispatch_error = None;
+            preparer = Preparer::default();
+            after = None;
+            continue;
+        }
         if model.session.is_none() && after.is_some_and(|(_, seq)| seq > model.cursor) {
             // A fresh view has no retained prefix for an external cursor. Probe
             // the requested cursor, then rebuild the missing prefix from the log.
@@ -648,7 +687,8 @@ async fn consume(
                     after = Some((model.epoch, model.cursor));
                     break;
                 }
-                Some((op, result)) = responses.recv() => {
+                Some((session, epoch, op, result)) = responses.recv() => {
+                    if session != gateway.session() || epoch != model.epoch { continue; }
                     if let Err(error) = result {
                         mailbox.pending(op, false);
                         dispatch_error = Some(format!("Dispatch {op}: {}", client_error_text(&error)));
@@ -665,7 +705,7 @@ async fn consume(
                 event = sub.recv() => event,
             };
             let Some(event) = event else {
-                if matches!(source, Source::InProc(_)) || model.closed {
+                if matches!(source, Source::InProc(_)) {
                     return;
                 }
                 after = Some((model.epoch, model.cursor));
@@ -692,7 +732,7 @@ async fn consume(
                         transcript: Arc::new(model.clone()),
                         gateway: Some(gateway.clone()),
                         error: dispatch_error.clone(),
-                        ready: true,
+                        ready: !model.closed,
                         ..Default::default()
                     },
                     &mailbox,
@@ -700,12 +740,16 @@ async fn consume(
                 )
                 .await;
             }
+            if model.closed && matches!(source, Source::Unix { .. }) {
+                after = None;
+                break;
+            }
             if let Effect::Resubscribe { after: resume } = effect {
                 after = resume;
                 break;
             }
             if closed {
-                if matches!(source, Source::InProc(_)) || model.closed {
+                if matches!(source, Source::InProc(_)) {
                     return;
                 }
                 after = Some((model.epoch, model.cursor));
@@ -720,7 +764,7 @@ async fn consume(
                 publish_frame(
                     FrameState {
                         transcript: Arc::new(model.clone()),
-                        error: Some("Socket reconnecting".into()),
+                        error: (!model.closed).then(|| "Socket reconnecting".into()),
                         ..Default::default()
                     },
                     &mailbox,

@@ -89,6 +89,7 @@ async fn run_cli(
     let mut append_system_prompt = String::new();
     let mut mcp_config = None;
     let mut replay = None;
+    let mut socket_path: Option<PathBuf> = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "ir-scan" => return super::ir_scan::cli(args).await,
@@ -135,6 +136,7 @@ async fn run_cli(
                 sessions = Some(PathBuf::from(args.next().ok_or("missing sessions path")?))
             }
             "--scripted" => scripts.push(PathBuf::from(args.next().ok_or("missing SSE path")?)),
+            "--socket" => socket_path = Some(args.next().ok_or("missing socket path")?.into()),
             "--resume" => resume = Some(args.next().ok_or("missing session")?),
             "--replay" => replay = Some(PathBuf::from(args.next().ok_or("missing replay path")?)),
             "--yolo" => yolo = true,
@@ -214,7 +216,7 @@ async fn run_cli(
             }
             "--help" | "-h" => {
                 println!(
-                    "bboxy450-harness -p PROMPT --json [--profile NAME] [--cwd DIR]\nbboxy450-harness --json --resume CLOSED_SESSION\nbboxy450-harness seat [--profile NAME] [--resume SESSION] [--cwd DIR]   (in a seat: /profiles, /profile NAME) [--append-system-prompt TEXT] [--mcp-config PATH]\nbboxy450-harness seat --replay LOG.jsonl   (render a stored log through the seat face)\n--scripted SSE (repeat for rounds) --sessions DIR --yolo\nbboxy450-harness usage [--json] PATH…"
+                    "bboxy450-harness -p PROMPT --json [--profile NAME] [--cwd DIR]\nbboxy450-harness --json --resume CLOSED_SESSION\nbboxy450-harness seat [--profile NAME] [--socket PATH] [--resume SESSION] [--cwd DIR]   (in a seat: /profiles, /profile NAME) [--append-system-prompt TEXT] [--mcp-config PATH]\nbboxy450-harness seat --replay LOG.jsonl   (render a stored log through the seat face)\n--scripted SSE (repeat for rounds) --sessions DIR --yolo\nbboxy450-harness usage [--json] PATH…"
                 );
                 return Ok(0);
             }
@@ -423,6 +425,14 @@ async fn run_cli(
             .map_err(|_| "session could not be created")?
             .0
     };
+    let (switch_tx, mut switches) = tokio::sync::mpsc::channel(64);
+    if seat {
+        gateway = gateway.with_profile_switch(switch_tx);
+    }
+    let mut alias = match &socket_path {
+        Some(path) => Some(super::seat::bind_alias(path, gateway.clone()).await?),
+        None => None,
+    };
     let mut socket = super::seat::bind_session(&root, gateway.clone(), resume.is_some()).await?;
     let mut session = session;
     let mut subscription = gateway
@@ -485,6 +495,36 @@ async fn run_cli(
               && (stdout.write_all(&bytes).await.is_err()||stdout.flush().await.is_err())
           {stop_cli(&stop);let _=gateway.send(op(session,Op::Close));break 'events;}
          },
+         Some(request)=switches.recv(),if !stopping=>{
+            // Admission was fenced against the gateway that received the op.
+            // Never retarget a queued old-session request after a fork.
+            if request.env.session != session { continue; }
+            let Op::SetProfile { profile: name } = request.env.op else { continue; };
+            match host.switch(&gateway, name.clone()).await {
+                Ok(next) => {
+                    socket.retire().await.map_err(|_| "socket retirement failed")?;
+                    if let Some(old) = alias.take() { old.retire().await.map_err(|_| "seat socket retirement failed")?; }
+                    let hello = next.hello();
+                    session = hello.meta.session;
+                    gateway = next.with_profile_switch(gateway.profile_switch_sender().unwrap());
+                    socket = super::seat::bind_session(&root, gateway.clone(), false).await?;
+                    if let Some(path) = &socket_path { alias = Some(super::seat::bind_alias(path, gateway.clone()).await?); }
+                    subscription = gateway.subscribe(Subscribe { session, after: Some((hello.epoch, hello.head)), ephemeral: seat && !json }).map_err(|_| "subscribe refused")?;
+                    running = false;
+                    if report_state {
+                        state = super::seat::StateReporter::new(config.redactor.clone());
+                        for event in &gateway.hub.projection().log { state.apply(&event.event); }
+                        stdout.write_all(&state.report()).await.map_err(|_| "output unavailable")?;
+                    }
+                    stdout.write_all(format!("switched to profile {name} · session {session}\n").as_bytes()).await.map_err(|_| "output unavailable")?;
+                    stdout.flush().await.map_err(|_| "output unavailable")?;
+                }
+                Err(error) => {
+                    stdout.write_all(format!("could not switch to {name}: {error:?}\n").as_bytes()).await.map_err(|_| "output unavailable")?;
+                    stdout.flush().await.map_err(|_| "output unavailable")?;
+                }
+            }
+         },
          read=input.read(&mut input_bytes),if seat&&!stopping=>{
            if read.is_err(){stop_cli(&stop);}
            let actions = match read {
@@ -518,27 +558,8 @@ async fn run_cli(
                     if running {
                         "finish or /interrupt the turn before switching\n".to_owned()
                     } else {
-                        match host.switch(&gateway, name.to_owned()).await {
-                            Ok(next) => {
-                                let _ = socket.close().await;
-                                let hello = next.hello();
-                                session = hello.meta.session;
-                                socket = super::seat::bind_session(&root, next.clone(), false).await?;
-                                subscription = next
-                                    .subscribe(Subscribe { session, after: Some((hello.epoch, hello.head)), ephemeral: seat && !json })
-                                    .map_err(|_| "subscribe refused")?;
-                                gateway = next;
-                                if report_state {
-                                    // switch subscriptions begin at head, so their ProfileChanged
-                                    // is already in hello's durable prefix rather than replayed.
-                                    state = super::seat::StateReporter::new(config.redactor.clone());
-                                    for event in &gateway.hub.projection().log {
-                                        state.apply(&event.event);
-                                    }
-                                    if stdout.write_all(&state.report()).await.is_err(){stop_cli(&stop);let _=gateway.send(op(session,Op::Close));break 'events;}
-                                }
-                                format!("switched to profile {name} · session {session}\n")
-                            }
+                        match gateway.send(op(session, Op::SetProfile { profile: name.to_owned() })) {
+                            Ok(_) => continue,
                             Err(error) => format!("could not switch to {name}: {error:?}\n"),
                         }
                     }
@@ -559,6 +580,12 @@ async fn run_cli(
           if matches!(event.event,Event::SessionClosed){break;}
          }
         }
+    }
+    if let Some(alias) = alias {
+        alias
+            .close()
+            .await
+            .map_err(|_| "seat socket shutdown failed")?;
     }
     socket.close().await.map_err(|_| "socket shutdown failed")?;
     host.join().await.map_err(|_| "session actor failed")?;

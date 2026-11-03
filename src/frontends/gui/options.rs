@@ -134,7 +134,9 @@ impl Options {
         if out.headless && out.replay.is_none() {
             return Err("--headless requires --replay".into());
         }
-        if out.resume.is_some() && (out.replay.is_some() || out.watch.is_some()) { return Err("--resume cannot be combined with --replay or --watch".into()); }
+        if out.resume.is_some() && (out.replay.is_some() || out.watch.is_some()) {
+            return Err("--resume cannot be combined with --replay or --watch".into());
+        }
         Ok(out)
     }
 }
