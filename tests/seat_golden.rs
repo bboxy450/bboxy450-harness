@@ -8,6 +8,81 @@ use bboxy450_harness::frontends::seat::{
     ColorMode, InputAction, InputFilter, LineProjection, STATE_PROBE, StateReporter, Style,
 };
 use bboxy450_harness::protocol::*;
+#[path = "support/quiet_replay.rs"]
+mod quiet_replay;
+
+#[test]
+fn native_chunks_do_not_change_replayed_rows() {
+    for count in [1, 16] {
+        let with_native = quiet_replay::replay(count);
+        let without_native = quiet_replay::without_native(&with_native);
+        for color in [ColorMode::None, ColorMode::Ansi256, ColorMode::Truecolor] {
+            let style = Style {
+                color,
+                width: 100,
+                echo: false,
+            };
+            let mut before = LineProjection::new(style.clone());
+            let mut after = LineProjection::new(style);
+            let mut expected = vec![];
+            let mut actual = vec![];
+            for e in &without_native {
+                expected.extend(before.render(e));
+            }
+            for e in &with_native {
+                actual.extend(after.render(e));
+                assert!(expected.starts_with(&actual), "NativeNeverDraws");
+            }
+            assert_eq!(
+                String::from_utf8_lossy(&expected),
+                String::from_utf8_lossy(&actual),
+                "NativeReplayRowsUnchanged: N={count}, color={color:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn unstyled_items_are_quiet_notice_lines() {
+    let bytes = project(Style::default(), &quiet_replay::notices());
+    let text = String::from_utf8(bytes).unwrap();
+    let notices: Vec<_> = text
+        .lines()
+        .filter(|line| line.starts_with("  · "))
+        .collect();
+    assert_eq!(
+        notices,
+        [
+            "  · Ran /help",
+            "  · Hook fixture-hook",
+            "  · Session instructions",
+            "  · Context compacted",
+            "  · Unsupported item: future_renderer",
+        ]
+    );
+    assert!(!text.contains("STAYS_IN_LOG") && !text.contains("Completed"));
+}
+
+#[test]
+fn pending_native_record_does_not_hold_up_visible_output() {
+    let mut events = quiet_replay::replay(1);
+    events.retain(|e| {
+        !matches!(
+            &e.event,
+            Event::ItemCompleted {
+                body: Item::Native { .. },
+                ..
+            }
+        )
+    });
+    quiet_replay::resequence(&mut events);
+    let without = quiet_replay::without_native(&events);
+    assert_eq!(
+        project(Style::default(), &events),
+        project(Style::default(), &without),
+        "PendingNativeNeverBlocks"
+    );
+}
 
 fn fixtures() -> Vec<(String, Vec<Envelope>)> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));

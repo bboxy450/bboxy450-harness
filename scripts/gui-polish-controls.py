@@ -27,24 +27,17 @@ def once(source, old, new):
     return source.replace(old, new)
 
 def main(selected=None):
+    # StreamDock-only header, inline-toggle and disclosure mutations retired with
+    # that renderer. test-quiet-control.py rejects its return; mutate rich-face gutters here.
     cases = [
         ('markdown', 'rich.rs', 'MarkdownBlocksInsideCard',
          'translate(&mut solved, dx, dy);', 'translate(&mut solved, dx + 2048., dy);'),
-        ('header-fill', 'view.rs', 'AccordionHeaderFillCoversRow',
-         'header.style.overrides.fill = Some(ui::Paint::solid(ui::Color::Surface2));',
-         'header.style.overrides.fill = Some(ui::Paint::solid(ui::Color::Transparent));'),
-        ('inline', 'view.rs', 'InlineControlsInsideRow',
-         '.expect("inline control style"),',
-         '.map(|mut e| {if let c::Element::Box(b) = &mut e {b.style.overrides.width = Some(ui::Length::Px(2048.));} e}).expect("inline control style"),'),
         ('empty-box', 'view.rs', 'NoEmptyPaintedBoxes',
          'key: None,\n                }\n                .element(ctx)\n                .expect("approval button style");',
          'key: Some(String::new()),\n                }\n                .element(ctx)\n                .expect("approval button style");'),
-        ('disclosure', 'view.rs', 'DisclosureAtLeastCapHeight',
-         'let side = ui::Style::new(ui::Preset::Band)',
-         'let side = 0.2 * ui::Style::new(ui::Preset::Band)'),
-        ('gutters', 'view.rs', 'CardGuttersSymmetric',
-         '[0., gutter, 0., gutter].map(ui::Length::Px)',
-         '[0., 0., 0., gutter].map(ui::Length::Px)'),
+        ('gutters', 'face_rows.rs', 'CardGuttersSymmetric',
+         'padding: [top, gutter, bottom, gutter]',
+         'padding: [top, 0., bottom, gutter]'),
         ('shape-list', 'view.rs', 'ContentlessShapePatternsStayExplicit',
          '    "composer/address/*/dot", // An address status dot encodes state with colour.',
          '    "composer/address/*/dot", // An address status dot encodes state with colour.\n    "approval/*/badge",'),

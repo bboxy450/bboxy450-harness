@@ -50,6 +50,11 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
   `C.titleBar` and `Hx.view`. Upstream policy:
   https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md.
 
+- Native-record suppression and quiet transcript notices in the GUI and seat
+  are project-owned implementations of bboxy450-term's `lab/web/harness-spec.md`
+  "What never reaches the transcript" (d68f505e), with replay-equivalence witnesses
+  and production mutation controls under this policy.
+
 - Capture expansion in `src/frontends/gui/smoke.rs` uses the click-controlled
   face state; `scripts/parity-web.sh` invokes the bboxy450-term web reference's
   own disclosure handlers for its matching expanded view.

@@ -295,16 +295,16 @@ fn v1_additions_frozen_output_and_faces() {
         .collect::<Vec<_>>();
     let seat = String::from_utf8(seat).unwrap();
     for text in [
-        "Command: /help",
-        "Hook: pre_tool",
-        "Developer:",
-        "fixture · unmapped ·",
+        "Ran /help",
+        "Hook fixture-hook",
+        "Developer instructions",
         "Audio:",
         "Terminal: fixture-terminal",
         "Source:",
     ] {
         assert!(seat.contains(text), "missing {text}");
     }
+    assert!(!seat.contains("unmapped") && !seat.contains("NATIVE_GAP"));
 }
 
 #[tokio::test]

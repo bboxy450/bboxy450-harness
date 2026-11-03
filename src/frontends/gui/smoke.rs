@@ -191,9 +191,9 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         let rgba = compose(&mut renderer, frame, width, height)?;
         use crate::protocol::ItemKind;
-        // a usage item draws no row (harness-spec.md "Refinement pass 2"): its figures feed
-        // the header meter, which a 0/0 total (this fixture) leaves out
-        let drawn = |v: &&super::model::ViewItem| v.kind != ItemKind::Usage;
+        // Native records and usage never draw in the transcript. Usage figures feed
+        // the header meter, which a 0/0 total (this fixture) leaves out.
+        let drawn = |v: &&super::model::ViewItem| !matches!(v.kind, ItemKind::Native | ItemKind::Usage);
         let expected: BTreeSet<_> = state
             .transcript
             .items
@@ -216,11 +216,6 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
             return Err("a 0/0 usage total drew the header meter".into());
         }
         for row in state.transcript.items.values() {
-            let compaction_expected = match &row.body {
-                crate::protocol::Item::Compaction { replaced_through, .. } =>
-                    Some(format!("Compacted through event {}", replaced_through.0)),
-                _ => None,
-            };
             let trim_expected = match &row.body {
                 crate::protocol::Item::ContextTrim { clipped_through } =>
                     Some(format!("Context trimmed through event {}", clipped_through.0)),
@@ -234,14 +229,14 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
                 ItemKind::Terminal => "hello", ItemKind::Plan => "In progress: Update greeting",
                 ItemKind::Approval => "Edit hello.txt", ItemKind::Image => "Image: image/png",
                 ItemKind::ContextTrim => trim_expected.as_deref().expect("context trim fixture body"),
-                ItemKind::Usage => {
+                ItemKind::Usage | ItemKind::Native => {
                     // nothing in the feed: never "0 in · 0 out" (the operator's screenshot)
-                    if frame.item_text(row.id).is_some_and(|t| !t.trim().is_empty()) { return Err(format!("usage item {} drew a row: {:?}", row.id, frame.item_text(row.id))); }
+                    if frame.item_text(row.id).is_some_and(|t| !t.trim().is_empty()) { return Err(format!("hidden item {} drew a row: {:?}", row.id, frame.item_text(row.id))); }
                     continue;
                 }
-                ItemKind::Compaction => compaction_expected.as_deref().expect("compaction fixture body"),
+                ItemKind::Compaction => "Context compacted",
                 ItemKind::Notice => "fixture complete", ItemKind::Subagent => "Session: 00000000000000000000000009",
-                ItemKind::Command | ItemKind::Hook | ItemKind::SystemMessage | ItemKind::Native => "",
+                ItemKind::Command | ItemKind::Hook | ItemKind::SystemMessage => "",
                 ItemKind::Unknown(_) => return Err("unexpected unknown fixture item".into()),
             };
             // a tool card names its action: the verb the rich face derives from the tool
@@ -266,8 +261,8 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         if approval_count != 3 || !["Allow", "Always", "Deny"].iter().all(|s| text.contains(s)) { return Err("approval buttons missing".into()); }
         let layout=frame.layout.as_ref().ok_or("smoke layout missing")?;
         for (index, id) in state.transcript.order.iter().enumerate() {
-            // a usage item has no row at all
-            if state.transcript.items[id].kind == ItemKind::Usage { continue; }
+            // native records and usage have no row at all
+            if matches!(state.transcript.items[id].kind, ItemKind::Native | ItemKind::Usage) { continue; }
             // folded into its tool card: no row of its own, but addressable inside the card
             let Some(card)=super::view::find(layout,&format!("e{index}")).map(|n|n.rect) else {
                 super::view::find(layout,&format!("item/{id}")).ok_or("folded item is not addressable")?;

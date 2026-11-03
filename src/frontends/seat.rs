@@ -1120,9 +1120,8 @@ impl LineProjection {
                         | ItemKind::Command
                         | ItemKind::Hook
                         | ItemKind::SystemMessage
-                        | ItemKind::Native
                         | ItemKind::Subagent
-                        | ItemKind::Usage
+                        | ItemKind::Compaction
                 ) || kind.is_unknown()
                 {
                     self.queue.push_back(*item);
@@ -1458,6 +1457,11 @@ impl LineProjection {
             return;
         }
         let Some(e) = self.items.get(&id) else { return };
+        // Native edge records and usage are retained for replay/accounting only.
+        // Never let their text, status or raw payload become terminal scrollback.
+        if matches!(e.kind, ItemKind::Native | ItemKind::Usage) {
+            return;
+        }
         let pen = self.pen();
         match (e.kind.clone(), e.body.clone()) {
             (ItemKind::UserMessage, Some(Item::UserMessage { blocks })) => {
@@ -1622,15 +1626,15 @@ impl LineProjection {
             (ItemKind::Notice, Some(Item::Notice { level, text })) => {
                 self.notice_line(out, &text, &level);
             }
-            (_, Some(body @ Item::Native { .. })) => {
-                self.record_line(
-                    out,
-                    &crate::frontends::native_label(&body).unwrap_or_default(),
-                );
+            (_, Some(Item::Native { .. } | Item::Usage { .. })) => {}
+            (_, Some(Item::Command { name, .. })) => {
+                self.record_line(out, &format!("Ran /{name}"));
             }
-            (_, Some(body)) if body.extension_text().is_some() => {
-                self.notice_line(out, &body.extension_text().unwrap(), &Level::Info);
+            (_, Some(Item::Hook { name, .. })) => {
+                self.record_line(out, &format!("Hook {name}"));
             }
+            (_, Some(Item::SystemMessage { text, .. })) => self.record_line(out, &text),
+            (_, Some(Item::Compaction { .. })) => self.record_line(out, "Context compacted"),
             (
                 ItemKind::Subagent,
                 Some(Item::Subagent {
@@ -1645,35 +1649,12 @@ impl LineProjection {
                     &Level::Info,
                 );
             }
-            (ItemKind::Usage, Some(Item::Usage { usage })) if usage.scope.is_some() => {
-                self.notice_line(
-                    out,
-                    &format!(
-                        "Usage: {} · context {}/{}",
-                        usage
-                            .numbers()
-                            .into_iter()
-                            .map(|(k, v)| format!("{k}={v}"))
-                            .collect::<Vec<_>>()
-                            .join(" · "),
-                        usage
-                            .context_used
-                            .map_or_else(|| "unreported".into(), |v| v.to_string()),
-                        usage
-                            .context_window
-                            .map_or_else(|| "unreported".into(), |v| v.to_string())
-                    ),
-                    &Level::Info,
-                );
-            }
             (_, Some(Item::Unknown(raw))) => {
                 self.record_line(out, &format!("Unsupported item: {}", unknown_tag(&raw)))
             }
-            (ItemKind::Unknown(raw), _) => self.notice_line(
-                out,
-                &format!("Unsupported item: {}", unknown_tag(&raw)),
-                &Level::Info,
-            ),
+            (ItemKind::Unknown(raw), _) => {
+                self.record_line(out, &format!("Unsupported item: {}", unknown_tag(&raw)))
+            }
             _ => {}
         }
     }

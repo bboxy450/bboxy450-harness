@@ -23,6 +23,8 @@ session 00000000000000000000000001 · scripted
 
   ✓ Done · 38ms · 1 round · 4 tools · 1 edit · 42 in · 21 out
 › 
+  · Context compacted
+› 
  ❯ Read two files again.
 
   I’ll read both files. Continuing.
@@ -30,6 +32,8 @@ session 00000000000000000000000001 · scripted
   ✓ Done · 5ms · 42 in · 21 out
 › 
  ❯ Read two files to finish.
+
+  · Context compacted
 
   ✓ Done · 7ms · 42 in · 21 out
 › 

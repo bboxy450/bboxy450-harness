@@ -11,7 +11,7 @@ use super::{
     anim::{Clock, Ease},
     bridge::{Bridge, FrameState, ProfileInfo},
     chat_scroll, chrome,
-    model::{Transcript, TurnState, ViewItem},
+    model::{Transcript, TurnState},
     stream_motion,
     zoom::Zoom,
 };
@@ -19,11 +19,7 @@ use crate::protocol::*;
 use bbt_render::chrome::materials as m;
 use bbt_ui::{
     self as ui, components as c,
-    modules::{
-        composer,
-        seat_row::named,
-        stream_dock::{Entry, Message, StreamDock},
-    },
+    modules::{composer, seat_row::named},
     widgets::{Button, ButtonKind, ButtonState},
 };
 use bbt_ui_model::{
@@ -474,6 +470,7 @@ impl HarnessView {
         let mut children = vec![];
         let mut total = 0.;
         let mut enters = HashMap::new();
+        let has_rows = model.order.iter().any(|id| face_rows::drawn(model, id));
         if let Some(prepared) = prepared {
             // animate only what is visible (plus a margin): offscreen rows take end states
             let animating = self.anim.animates();
@@ -488,6 +485,9 @@ impl HarnessView {
                     anchor_top = Some(total);
                 }
                 let h0 = row.layout.rect.h;
+                if h0 == 0. {
+                    continue;
+                }
                 let near = total + h0 >= view_top && total <= view_bottom;
                 let h = if animating && near {
                     self.anim.tween(&format!("h/{id}"), h0, 200., Ease::Out)
@@ -529,7 +529,7 @@ impl HarnessView {
             }
         }
         if children.is_empty() {
-            if state.ready && model.order.is_empty() {
+            if state.ready && !has_rows {
                 // harness-spec.md "Empty session": the page's `who` is the ACP agent line, else
                 // the model, else the profile; `in ~/<cwd leaf>` when the session has a cwd
                 let (profile, model_name) = model.profile.clone().unwrap_or_else(|| {
@@ -580,7 +580,7 @@ impl HarnessView {
                 );
             }
         }
-        if prepared.is_some() && !model.order.is_empty() {
+        if prepared.is_some() && has_rows {
             (
                 column(children, None).fixed_height(total, "transcript-content", 0.),
                 Some(total),
@@ -2156,26 +2156,6 @@ fn phase_text(phase: &Phase) -> String {
         Phase::Unknown(raw) => format!("Unsupported status: {}", unknown_tag(raw)),
     }
 }
-fn status_text(status: &ItemStatus) -> String {
-    match status {
-        ItemStatus::Completed => "Completed".into(),
-        ItemStatus::Failed { reason, .. } => format!("Failed: {reason}"),
-        ItemStatus::Cancelled => "Cancelled".into(),
-        ItemStatus::Interrupted => "Interrupted".into(),
-        ItemStatus::Unknown(raw) => format!("Unsupported status: {}", unknown_tag(raw)),
-    }
-}
-fn role(kind: ItemKind) -> &'static str {
-    match kind {
-        ItemKind::UserMessage => "user",
-        ItemKind::AgentMessage | ItemKind::Reasoning | ItemKind::Plan => "assistant",
-        ItemKind::ToolCall | ItemKind::Terminal | ItemKind::FileChange | ItemKind::TurnDiff => {
-            "tool"
-        }
-        ItemKind::Subagent => "subagent",
-        _ => "system",
-    }
-}
 fn arguments(raw: &str) -> String {
     fn readable(value: &serde_json::Value) -> String {
         match value {
@@ -2231,138 +2211,6 @@ pub fn layout_text(layout: &c::Layout) -> String {
         .collect::<Vec<_>>()
         .join(" ")
 }
-fn display_body(row: &ViewItem, terminal_output: Option<&String>) -> String {
-    let text = match &row.body {
-        Item::AgentMessage { markdown } => markdown.clone(),
-        Item::Reasoning { summary, .. } => summary.clone(),
-        Item::UserMessage { blocks } => blocks
-            .iter()
-            .map(|b| match b {
-                InputBlock::Text { text } => text.clone(),
-                InputBlock::Image { blob } => format!("Image: {} · {} bytes", blob.mime, blob.len),
-                InputBlock::Mention { path } => format!("Mention: {}", path.display()),
-                InputBlock::Unknown(raw) => format!("Unsupported input: {}", unknown_tag(raw)),
-                other => other.display_text(),
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
-        Item::ToolCall {
-            name,
-            input_raw,
-            output,
-            ..
-        } => {
-            let output = output
-                .iter()
-                .map(|b| match b {
-                    OutputBlock::Text { text } => text.clone(),
-                    OutputBlock::Image { blob } => {
-                        format!("Image: {} · {} bytes", blob.mime, blob.len)
-                    }
-                    OutputBlock::Json { value } => arguments(&value.to_string()),
-                    OutputBlock::Diff { path, unified, .. } => {
-                        format!("{}\n{unified}", path.display())
-                    }
-                    OutputBlock::Error { text } => format!("Error: {text}"),
-                    OutputBlock::Unknown(raw) => {
-                        format!("Unsupported tool output: {}", unknown_tag(raw))
-                    }
-                    other => other.display_text(),
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            format!("{name}\nArguments: {}\n{output}", arguments(input_raw))
-        }
-        Item::Terminal {
-            command,
-            exit,
-            signal,
-            output,
-            ..
-        } => {
-            let result = exit.map_or_else(
-                || "Exit code: pending".into(),
-                |c| format!("Exit code: {c}"),
-            );
-            let signal = signal.map_or(String::new(), |s| format!(" · Signal: {s}"));
-            let tail = terminal_output.map(String::as_str).unwrap_or_else(|| {
-                if !row.terminal_tail.is_empty() {
-                    &row.terminal_tail
-                } else if output.as_ref().is_some_and(|b| b.len == 0) {
-                    "(no output)"
-                } else {
-                    "Output pending"
-                }
-            });
-            format!("{command}\n{result}{signal}\n{tail}")
-        }
-        Item::FileChange { path, unified, .. } => format!("{}\n{unified}", path.display()),
-        Item::TurnDiff { unified } => unified.clone(),
-        Item::Plan { entries } => entries
-            .iter()
-            .map(|e| {
-                let status = match e.status {
-                    PlanStatus::Pending => "Pending",
-                    PlanStatus::InProgress => "In progress",
-                    PlanStatus::Completed => "Completed",
-                    PlanStatus::Cancelled => "Cancelled",
-                    PlanStatus::Unknown(_) => "Unknown",
-                };
-                format!("{status}: {}", e.text)
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
-        Item::Approval {
-            subject, decision, ..
-        } => {
-            let result = match decision {
-                None => "Awaiting decision",
-                Some(ApprovalDecision::Allow) => "Allowed",
-                Some(ApprovalDecision::AllowAlways) => "Always allowed",
-                Some(ApprovalDecision::Deny { .. }) => "Denied",
-                _ => "Decision unavailable",
-            };
-            let paths = subject
-                .paths
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!(
-                "{}\n{}\n{paths}\n{result}",
-                subject.summary,
-                subject.command.as_deref().unwrap_or("")
-            )
-        }
-        Item::Image { mime, blob } => format!("Image: {mime} · {} bytes", blob.len),
-        Item::Compaction {
-            summary,
-            replaced_through,
-        } => format!(
-            "Compacted through event {} · summary {} bytes",
-            replaced_through.0, summary.len
-        ),
-        Item::ContextTrim { clipped_through } => {
-            format!("Context trimmed through event {}", clipped_through.0)
-        }
-        Item::Usage { usage } => format!(
-            "Input: {} tokens · Output: {} tokens\nCached: {} tokens · Reasoning: {} tokens",
-            usage.input_tokens,
-            usage.output_tokens,
-            usage.cached_input_tokens.unwrap_or(0),
-            usage.reasoning_tokens.unwrap_or(0)
-        ),
-        Item::Notice { text, .. } => text.clone(),
-        Item::Subagent { session, .. } => format!("Session: {session}"),
-        Item::Command { .. } | Item::Hook { .. } | Item::SystemMessage { .. } => {
-            row.body.extension_text().unwrap_or_default()
-        }
-        Item::Native { .. } => crate::frontends::native_label(&row.body).unwrap_or_default(),
-        Item::Unknown(raw) => format!("Unsupported item: {}", unknown_tag(raw)),
-    };
-    if text.is_empty() { "…".into() } else { text }
-}
-
 // Adapted from bbt-ui components::translate_layout. Completed layouts are
 // immutable; only their placement changes. ScrollView's fixed-height window
 // elides offscreen slots before this walk, so only visible rows are restored.
@@ -2649,271 +2497,28 @@ impl Preparer {
                 total_height += h;
                 continue;
             }
-            let trim_callout = if let Item::ContextTrim { clipped_through } = &row.body {
-                Some(format!(
-                    "### Context trimmed through event {}\n\nTool output limited to **2 KiB**; reasoning and images omitted from model context.",
-                    clipped_through.0
-                ))
-            } else {
-                None
-            };
-            if face_rows::handles(model, row) {
-                let deps = folds.deps(model, id, self);
-                // .hx-feed: a centred 860 px column with 14 px padding; the row region
-                // adds its own 4 px inset, so the frame gutter carries the rest
-                let gutter = (((width - 860.) / 2.).max(0.) + 14. - 4.).max(gutter);
-                let content_width = width - 2. * gutter - 8.;
-                let (element, rich) = self.face_row(
-                    model,
-                    row,
-                    &face,
-                    &folds,
-                    index,
-                    width,
-                    gutter,
-                    content_width,
-                )?;
-                let mut element = named(format!("item/{id}"), element);
-                flat(&mut element);
-                super::face::zoom_text(&mut element, scale);
-                let mut layout =
-                    element.layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?;
-                if let Some(rich) = &rich {
-                    super::rich::restore(&mut layout, &rich.blocks);
-                }
-                let height = layout.rect.h;
-                self.rows.insert(
-                    *id,
-                    Arc::new(CachedRow {
-                        width,
-                        zoom: zoom.percent(),
-                        completed: row.completed,
-                        deps,
-                        face,
-                        layout,
-                    }),
-                );
-                self.layout_builds += 1;
-                total_height += height;
-                continue;
-            }
-            let sourceable = matches!(row.kind, ItemKind::AgentMessage | ItemKind::Reasoning);
-            let markdown = match &row.body {
-                Item::AgentMessage { markdown } => Some(markdown.as_str()),
-                Item::Reasoning { summary, .. } => Some(summary.as_str()),
-                Item::ContextTrim { .. } => trim_callout.as_deref(),
-                _ => None,
-            };
-            let message = Message {
-                from: kind_label(row.kind.clone()).into(),
-                role: role(row.kind.clone()).into(),
-                text: if markdown.is_some()
-                    || matches!(
-                        row.kind,
-                        ItemKind::ToolCall
-                            | ItemKind::FileChange
-                            | ItemKind::TurnDiff
-                            | ItemKind::Approval
-                    ) {
-                    String::new()
-                } else {
-                    display_body(row, self.terminal_outputs.get(id))
-                },
-                time: row.status.as_ref().map_or("Streaming".into(), status_text),
-                message_ids: vec![id.to_string()],
-                ..Default::default()
-            };
-            let dock = StreamDock {
-                dock: false,
-                framed: false,
-                entries: vec![Entry::Message {
-                    data: Box::new(message),
-                    show_channel: Some(false),
-                }],
-            };
-            let mut cards = dock.items_at(ctx, index, &self.metrics);
-            let skeleton = cards[0].element.layout(
-                Rect::new(0., 0., width - 2. * gutter, 0.),
-                ctx,
-                &self.metrics,
+            let deps = folds.deps(model, id, self);
+            // .hx-feed: a centred 860 px column with 14 px padding; the row region
+            // adds its own 4 px inset, so the frame gutter carries the rest
+            let gutter = (((width - 860.) / 2.).max(0.) + 14. - 4.).max(gutter);
+            let content_width = width - 2. * gutter - 8.;
+            let (element, rich) = self.face_row(
+                model,
+                row,
+                &face,
+                &folds,
+                index,
+                width,
+                gutter,
+                content_width,
             )?;
-            let content_key = format!("e{index}/body");
-            let content_width = find(&skeleton, &content_key)
-                .ok_or("missing StreamDock body")?
-                .rect
-                .w;
-            let rich = markdown
-                .map(|text| {
-                    self.documents.prepare(
-                        *id,
-                        text,
-                        row.completed.is_some(),
-                        content_width,
-                        scale,
-                        &self.metrics,
-                    )
-                })
-                .transpose()?;
-            let mut body = vec![];
-            let mut toggles = vec![];
-            if row.kind == ItemKind::Reasoning {
-                toggles.push(
-                    inline_control(
-                        format!("reasoning/{id}/toggle"),
-                        if face.reasoning_open {
-                            "Show reasoning"
-                        } else {
-                            "Hide reasoning"
-                        },
-                        ctx,
-                    )
-                    .into(),
-                );
-            }
-            if let Some(rich) = &rich {
-                if !sourceable {
-                    body.push(rich.element.clone().into());
-                } else {
-                    toggles.push(
-                        inline_control(
-                            format!("source/{id}/toggle"),
-                            if face.source {
-                                "View formatted"
-                            } else {
-                                "View source"
-                            },
-                            ctx,
-                        )
-                        .into(),
-                    );
-                    body.push(
-                        named(
-                            format!("inline/{id}/toggles"),
-                            inline_row(std::mem::take(&mut toggles)),
-                        )
-                        .into(),
-                    );
-                    if !face.reasoning_open {
-                        if face.source {
-                            let mut text = c::Text::new(
-                                markdown.unwrap_or_default(),
-                                ui::Text {
-                                    mono: true,
-                                    ..Default::default()
-                                },
-                            );
-                            text.preserve_whitespace = true;
-                            body.push(c::Element::Text(text).into());
-                        } else {
-                            body.push(rich.element.clone().into());
-                        }
-                    }
-                }
-            }
-            match &row.body {
-                Item::ToolCall {
-                    name,
-                    input_raw,
-                    output,
-                    ..
-                } => {
-                    use ui::modules::tool_call::{Status, ToolCall};
-                    let status = match row.status {
-                        None => Status::Running,
-                        Some(ItemStatus::Completed) => Status::Succeeded,
-                        Some(ItemStatus::Failed { .. }) => Status::Failed,
-                        _ => Status::Cancelled,
-                    };
-                    let output = output
-                        .iter()
-                        .map(|b| match b {
-                            OutputBlock::Text { text } | OutputBlock::Error { text } => {
-                                text.clone()
-                            }
-                            OutputBlock::Diff { unified, .. } => unified.clone(),
-                            OutputBlock::Json { value } => arguments(&value.to_string()),
-                            OutputBlock::Image { blob } => {
-                                format!("Image: {} · {} bytes", blob.mime, blob.len)
-                            }
-                            _ => "Unsupported output".into(),
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    let mut tool = ToolCall {
-                        key: format!("tool/{id}"),
-                        title: name.clone(),
-                        status,
-                        arguments: format!("Arguments: {}", arguments(input_raw)),
-                        output,
-                        arguments_open: !face.arguments_closed,
-                        output_open: !face.output_closed,
-                    }
-                    .element(ctx, content_width, &self.metrics);
-                    subdued_tool_parts(&mut tool, &face);
-                    body.push(tool.into());
-                }
-                Item::FileChange { unified, .. } | Item::TurnDiff { unified } => {
-                    use ui::modules::diff::{Diff, DiffView, Folds};
-                    crate::runtime::blocking_hook(crate::runtime::BlockingWork::Diff);
-                    let diff = Diff::parse(unified).map_err(str::to_string)?;
-                    let mut folds = Folds::default();
-                    for h in &face.closed_hunks {
-                        folds.toggle(*h);
-                    }
-                    body.push(
-                        DiffView {
-                            key: &format!("diff/{id}"),
-                            diff: &diff,
-                            folds: &folds,
-                        }
-                        .element(ctx, content_width, &self.metrics)
-                        .into(),
-                    );
-                }
-                Item::Approval {
-                    subject,
-                    options,
-                    decision,
-                    ..
-                } => {
-                    if decision.is_some() {
-                        body.push(label(display_body(row, None)).into());
-                    } else {
-                        let mut prompt = approval_atom(*id, subject, options);
-                        for _ in 0..face.approval_selected {
-                            prompt.handle(ui::modules::approval::Key::Down);
-                        }
-                        body.push(approval_element(&prompt, ctx).into());
-                    }
-                }
-                _ => {}
-            }
-            let content = find_element_mut(&mut cards[0].element, &content_key)
-                .ok_or("missing StreamDock content")?;
-            let c::Element::Box(content) = content else {
-                return Err("unexpected StreamDock body".into());
-            };
-            let mut inside = content.children.split_off(1);
-            inside.extend(body);
-            let mut inset = column(inside, None);
-            if let c::Element::Box(b) = &mut inset {
-                b.gap = ui::Length::Px(6.);
-            }
-            content
-                .children
-                .push(named(format!("body/{id}"), inset).into());
-            let mut row_content = column(cards, None);
-            if let c::Element::Box(b) = &mut row_content {
-                b.style.overrides.padding = Some([0., gutter, 0., gutter].map(ui::Length::Px));
-            }
-            let mut element = named(format!("item/{id}"), row_content);
+            let mut element = named(format!("item/{id}"), element);
             flat(&mut element);
             super::face::zoom_text(&mut element, scale);
             let mut layout = element.layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?;
             if let Some(rich) = &rich {
                 super::rich::restore(&mut layout, &rich.blocks);
             }
-            paint_shapes(&mut layout);
             let height = layout.rect.h;
             self.rows.insert(
                 *id,
@@ -2921,7 +2526,7 @@ impl Preparer {
                     width,
                     zoom: zoom.percent(),
                     completed: row.completed,
-                    deps: 0,
+                    deps,
                     face,
                     layout,
                 }),
@@ -3092,20 +2697,6 @@ fn inline_row(children: Vec<c::Item>) -> c::Element {
         children,
     })
 }
-fn inline_control(key: String, text: &str, ctx: ui::Context) -> c::Element {
-    named(
-        key,
-        Button {
-            label: text.into(),
-            kind: ButtonKind::Ghost,
-            state: ButtonState::Idle,
-            icon: None,
-            key: None,
-        }
-        .element(ctx)
-        .expect("inline control style"),
-    )
-}
 fn approval_element(prompt: &ui::modules::approval::Approval, ctx: ui::Context) -> c::Element {
     let mut atom = prompt.element(ctx);
     if let c::Element::Named { content, .. } = &mut atom
@@ -3156,127 +2747,6 @@ fn approval_element(prompt: &ui::modules::approval::Approval, ctx: ui::Context) 
     }
     atom
 }
-// The toolkit tool card owns disclosure geometry. Status colour belongs to the
-// status chip; argument/output bands use the host's subdued theme surfaces.
-fn subdued_tool_parts(element: &mut c::Element, face: &super::rich::Face) {
-    match element {
-        c::Element::Named { name, content } => {
-            if (name.ends_with("/arguments") || name.ends_with("/output"))
-                && let c::Element::Box(frame) = content.as_mut()
-                && let c::Element::Box(inner) = &mut frame.children[0].element
-            {
-                // Natural height includes the body's inset and wrapped lines.
-                // The toolkit's fixed height was measured before host padding.
-                frame.style.overrides.height = None;
-                frame.style.overrides.fill = Some(ui::Paint::solid(ui::Color::Surface));
-                inner.style.overrides.padding = Some([ui::Length::Px(0.); 4]);
-                if inner.children.len() > 2 {
-                    let body = &mut inner.children[2];
-                    let mut inset = column(vec![body.element.clone().into()], None);
-                    if let c::Element::Box(b) = &mut inset {
-                        b.style.overrides.padding = Some([6., 8., 6., 8.].map(ui::Length::Px));
-                    }
-                    body.element = named(format!("{name}/content"), inset);
-                    body.extent = c::Extent::MinContent;
-                    // Spacing is layout, not an empty painted card.
-                    inner.children[1] = c::Item {
-                        element: c::Element::Spacer,
-                        extent: c::Extent::Fixed(3.),
-                    };
-                }
-                frame.children.truncate(1); // no decorative empty bumper
-                frame.children[0].extent = c::Extent::MinContent;
-            }
-            if name.ends_with("/head")
-                && let c::Element::Box(header) = content.as_mut()
-            {
-                header.style.overrides.fill = Some(ui::Paint::solid(ui::Color::Surface2));
-                header.style.overrides.padding = Some([0., 8., 0., 8.].map(ui::Length::Px));
-            }
-            if name.ends_with("/head/right/swatch") {
-                // A visible disclosure glyph replaces the empty status swatch.
-                let closed = if name.contains("/arguments/") {
-                    face.arguments_closed
-                } else {
-                    face.output_closed
-                };
-                **content = disclosure_glyph(closed, context());
-            }
-            if name.ends_with("/head/sname")
-                && let c::Element::Text(text) = content.as_mut()
-            {
-                for run in &mut text.runs {
-                    run.style.paint = ui::Paint::solid(ui::Color::Foreground);
-                }
-            }
-            subdued_tool_parts(content, face);
-        }
-        c::Element::Box(b) => {
-            b.children.retain(|item| !matches!(&item.element, c::Element::Named { name, .. } if name.ends_with("/head/count")));
-            for item in &mut b.children {
-                subdued_tool_parts(&mut item.element, face);
-            }
-        }
-        c::Element::Stack(stack) => {
-            for item in &mut stack.children {
-                subdued_tool_parts(&mut item.element, face);
-            }
-        }
-        _ => {}
-    }
-}
-fn disclosure_glyph(closed: bool, ctx: ui::Context) -> c::Element {
-    use bbt_ui_model::draw::{PathCommand as P, PathStroke};
-    // One header em bounds its cap height. A path uses the whole ink rectangle,
-    // unlike the font-dependent 3 px ink inside a nominal 13 px triangle span.
-    let side = ui::Style::new(ui::Preset::Band)
-        .resolve(ctx)
-        .expect("header style")
-        .text
-        .size;
-    let points = if closed {
-        [[0., 0.], [side, side / 2.], [0., side], [0., 0.]]
-    } else {
-        [[0., 0.], [side, 0.], [side / 2., side], [0., 0.]]
-    };
-    c::Element::Path(c::Path {
-        size: [side, side],
-        points: Arc::from([
-            P::Move(points[0]),
-            P::Line(points[1]),
-            P::Line(points[2]),
-            P::Line(points[3]),
-        ]),
-        stroke: PathStroke {
-            width: 0.,
-            ..Default::default()
-        },
-        paint: ui::Paint::solid(ui::Color::Foreground),
-        fill: Some(ui::Paint::solid(ui::Color::Foreground)),
-        opacity: 1.,
-    })
-}
-fn find_element_mut<'a>(element: &'a mut c::Element, key: &str) -> Option<&'a mut c::Element> {
-    match element {
-        c::Element::Named { name, content } => {
-            if name == key {
-                Some(content)
-            } else {
-                find_element_mut(content, key)
-            }
-        }
-        c::Element::Box(b) => b
-            .children
-            .iter_mut()
-            .find_map(|i| find_element_mut(&mut i.element, key)),
-        c::Element::Stack(s) => s
-            .children
-            .iter_mut()
-            .find_map(|i| find_element_mut(&mut i.element, key)),
-        _ => None,
-    }
-}
-
 // This host has a flat material pass. Preserve toolkit geometry, colours and
 // actions, while choosing the flat surface override before solving the tree.
 pub(super) fn flat(element: &mut c::Element) {

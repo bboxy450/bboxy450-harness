@@ -438,7 +438,7 @@ fn recursive_consumption_retains_native_extra_keys_and_array_positions() {
 }
 
 #[test]
-fn seat_native_and_unknown_each_render_a_single_summary_line_without_raw_payload() {
+fn seat_native_is_silent_and_unknown_renders_one_notice_without_raw_payload() {
     use bboxy450_harness::frontends::seat::LineProjection;
     let mut face = LineProjection::default();
     let session = SessionId::new();
@@ -486,13 +486,13 @@ fn seat_native_and_unknown_each_render_a_single_summary_line_without_raw_payload
         }
     }
     let text = String::from_utf8(output).unwrap();
-    assert!(text.contains("vendor name · novel ·"));
+    assert!(!text.contains("vendor") && !text.contains("novel"));
     assert!(text.contains("future_renderer"));
     assert!(!text.contains("DO_NOT_RENDER_BLOB"));
     assert_eq!(
         text.lines()
             .filter(|line| line.contains("vendor name") || line.contains("future_renderer"))
             .count(),
-        2
+        1
     );
 }

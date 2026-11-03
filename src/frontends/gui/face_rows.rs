@@ -20,22 +20,6 @@ use bbt_ui::{self as ui, components as c, modules::seat_row::named};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
-/// Kinds drawn by the rich face; the rest keep the toolkit message card.
-pub(super) fn handles(_model: &Transcript, row: &ViewItem) -> bool {
-    matches!(
-        row.kind,
-        ItemKind::UserMessage
-            | ItemKind::AgentMessage
-            | ItemKind::Reasoning
-            | ItemKind::ToolCall
-            | ItemKind::Approval
-            | ItemKind::Notice
-            | ItemKind::Usage
-            | ItemKind::Terminal
-            | ItemKind::FileChange
-    )
-}
-
 #[derive(Default)]
 pub(super) struct Folds {
     /// child -> the tool call that shows it
@@ -56,13 +40,13 @@ pub(super) struct Folds {
     /// parallel tool calls (harness.js `mount`): tool card -> (its index, the group size)
     pub group: HashMap<ItemId, (usize, usize)>,
 }
-/// Usage items never draw a row (harness-spec.md "Refinement pass 2"): their figures feed
-/// the header meter and nothing else, so they carry neither the receipt nor the feed padding.
-fn drawn(model: &Transcript, id: &ItemId) -> bool {
+/// Native records and usage never carry a receipt or feed padding (harness-spec.md
+/// "What never reaches the transcript"). They remain in the replay, not the face.
+pub(super) fn drawn(model: &Transcript, id: &ItemId) -> bool {
     model
         .items
         .get(id)
-        .is_some_and(|r| r.kind != ItemKind::Usage)
+        .is_some_and(|r| !matches!(r.kind, ItemKind::Native | ItemKind::Usage))
 }
 /// harness-spec.md "Runaway loop card": first line, lowercased, letters only, 48 chars.
 fn line_key(markdown: &str) -> String {
@@ -158,8 +142,9 @@ impl Folds {
         }
         // harness.js mount(): a tool card mounted right after a tool card (or the group it
         // already sits in) joins its rail. Blocks are what the web draws: folded children and
-        // usage items never mount, so they neither join nor break a run. Any other row, a
-        // loop's members (they mount inside the loop card) and the turn's receipt block end it.
+        // native records and usage never mount, so they neither join nor break a run.
+        // Any other row, a loop's members (they mount inside the loop card) and the turn's
+        // receipt block end it.
         let in_loop: std::collections::HashSet<ItemId> =
             f.loops.values().flatten().copied().collect();
         let mut run: Vec<ItemId> = vec![];
@@ -178,7 +163,7 @@ impl Folds {
                 continue;
             }
             let r = &model.items[id];
-            if r.kind == ItemKind::Usage {
+            if !drawn(model, id) {
                 continue;
             }
             let tool = !in_loop.contains(id)
@@ -289,9 +274,9 @@ impl Preparer {
             .map(|m| m.cwd.display().to_string())
             .unwrap_or_default();
         let mut rich = None;
-        // A usage item draws nothing (harness-spec.md "Refinement pass 2"): the header meter
-        // sums its figures. The row keeps its id at zero height, with no region or padding.
-        if matches!(row.body, Item::Usage { .. }) {
+        // Raw edge records never draw, including while incomplete. Like usage, they
+        // keep their id at zero height, with no body, gutter, padding or receipt.
+        if matches!(row.kind, ItemKind::Native | ItemKind::Usage) {
             return Ok((c::Element::Spacer, None));
         }
         // a parallel-call group member is inset 14px behind the rail (.hx-group padding-left)
@@ -662,22 +647,66 @@ impl Preparer {
                     &ink,
                 )
             }
-            Item::Command { .. } | Item::Hook { .. } | Item::SystemMessage { .. } => f::notice(
-                &row.body.extension_text().unwrap_or_default(),
+            Item::TurnDiff { unified } => f::notice(unified, &Level::Info, &ink),
+            Item::ContextTrim { clipped_through } => {
+                let doc = self.documents.prepare(
+                    id,
+                    &format!(
+                        "### Context trimmed through event {}\n\nTool output limited to **2 KiB**; reasoning and images omitted from model context.",
+                        clipped_through.0
+                    ),
+                    row.completed.is_some(),
+                    content_width,
+                    self.zoom.scale(),
+                    &self.metrics,
+                )?;
+                let element = doc.element.clone();
+                rich = Some(doc);
+                element
+            }
+            Item::Compaction { .. } => f::vstack(
+                vec![
+                    f::hrule(1., f::alpha(ink.fg, 0.08)).into(),
+                    f::line("Context compacted", 11.5, 400, ink.dim, false).into(),
+                ],
+                6.,
+            ),
+            Item::Command { name, .. } => f::notice(&format!("Ran /{name}"), &Level::Info, &ink),
+            Item::Hook { name, .. } => f::notice(&format!("Hook {name}"), &Level::Info, &ink),
+            Item::SystemMessage { text, .. } => f::notice(text, &Level::Info, &ink),
+            Item::Plan { entries } => {
+                let text = entries
+                    .iter()
+                    .map(|entry| {
+                        let status = match entry.status {
+                            PlanStatus::Pending => "Pending",
+                            PlanStatus::InProgress => "In progress",
+                            PlanStatus::Completed => "Completed",
+                            PlanStatus::Cancelled => "Cancelled",
+                            PlanStatus::Unknown(_) => "Unknown",
+                        };
+                        format!("{status}: {}", entry.text)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" · ");
+                f::notice(&text, &Level::Info, &ink)
+            }
+            Item::Image { mime, blob } => f::notice(
+                &format!("Image: {mime} · {} bytes", blob.len),
                 &Level::Info,
                 &ink,
             ),
-            Item::Native { .. } => f::notice(
-                &crate::frontends::native_label(&row.body).unwrap_or_default(),
-                &Level::Info,
-                &ink,
-            ),
+            Item::Subagent { session, .. } => {
+                f::notice(&format!("Session: {session}"), &Level::Info, &ink)
+            }
             Item::Unknown(raw) => f::notice(
                 &format!("Unsupported item: {}", unknown_tag(raw)),
                 &Level::Info,
                 &ink,
             ),
-            _ => return Err("face row for an unhandled kind".into()),
+            Item::Native { .. } | Item::Usage { .. } => {
+                return Ok((c::Element::Spacer, None));
+            }
         };
         let content = match group {
             Some((i, n)) => {
@@ -705,7 +734,7 @@ impl Preparer {
                 .order
                 .iter()
                 .map(|i| &model.items[i])
-                .filter(|r| r.turn == Some(*turn))
+                .filter(|r| r.turn == Some(*turn) && drawn(model, &r.id))
                 .collect();
             let count = |k: ItemKind| items.iter().filter(|r| r.kind == k).count();
             let start = items.iter().map(|r| r.started_ms).min();

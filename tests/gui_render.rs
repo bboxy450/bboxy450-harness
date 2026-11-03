@@ -6,6 +6,8 @@
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 
 #![cfg(feature = "embedded")]
+#[path = "support/quiet_replay.rs"]
+mod quiet_replay;
 mod support;
 use bboxy450_harness::{
     frontends::gui::{
@@ -167,6 +169,180 @@ async fn capture_defaults_to_live_chrome_and_zoom_reprepares_text_at_120_percent
         );
     })
     .await;
+}
+
+#[tokio::test]
+async fn unstyled_items_are_quiet_notice_lines() {
+    use bboxy450_harness::frontends::gui::{
+        smoke::capture_frame,
+        view::{find, layout_text},
+    };
+    let events = quiet_replay::notices();
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("notices.jsonl");
+    let bytes = events
+        .iter()
+        .map(|e| serde_json::to_string(e).unwrap() + "\n")
+        .collect::<String>();
+    std::fs::write(&path, bytes).unwrap();
+    let transcript = Arc::new(read_replay(path).await.unwrap());
+    bboxy450_harness::runtime::blocking(move || {
+        let mut state = FrameState {
+            transcript,
+            ready: true,
+            replay: true,
+            ..Default::default()
+        };
+        let mut view = HarnessView::default();
+        let frame = capture_frame(&mut view, &mut state, &bboxy450_harness::frontends::gui::options::Options::parse(["--replay", "unused.jsonl", "--capture", "900x1100", "--no-chrome"].map(String::from)).unwrap()).unwrap();
+        assert_eq!(frame.visible.len(), 5);
+        for ((id, _, _), expected) in frame.visible.iter().zip([
+            "Ran /help",
+            "Hook fixture-hook",
+            "Session instructions",
+            "Context compacted",
+            "Unsupported item: future_renderer",
+        ]) {
+            assert_eq!(frame.item_text(*id).unwrap().trim(), expected);
+            let layout = frame.layout.as_ref().unwrap();
+            let body = find(layout, &format!("body/{id}")).unwrap();
+            fn has_hairline(node: &bbt_ui::components::Layout) -> bool {
+                (matches!(&node.kind, bbt_ui::components::LayoutKind::Rects { .. })
+                    && node.rect.h == 1.)
+                    || node.children.iter().any(has_hairline)
+            }
+            if expected == "Context compacted" {
+                assert!(has_hairline(body), "CompactionHairline");
+            } else {
+                assert!(body.rect.h <= 18., "QuietNoticeHasNoCardChrome: {expected}");
+            }
+        }
+        let text = layout_text(frame.layout.as_ref().unwrap());
+        assert!(
+            !text.contains("STAYS_IN_LOG")
+                && !text.contains("Completed")
+                && !text.contains("SYSTEM")
+        );
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn native_chunks_do_not_change_replayed_rows() {
+    use bboxy450_harness::frontends::gui::{view::layout_text, zoom::Zoom};
+    for count in [1, 16] {
+        let with_native = quiet_replay::replay(count);
+        let without_native = quiet_replay::without_native(&with_native);
+        for (native_only, percent) in [
+            (false, 90),
+            (false, 100),
+            (false, 160),
+            (true, 90),
+            (true, 100),
+            (true, 160),
+        ] {
+            let mut frames = vec![];
+            for mut events in [without_native.clone(), with_native.clone()] {
+                if native_only {
+                    let keep: std::collections::HashSet<_> = events
+                        .iter()
+                        .filter_map(|e| match e.event {
+                            Event::ItemStarted {
+                                item,
+                                kind: ItemKind::Native,
+                                ..
+                            } => Some(item),
+                            _ => None,
+                        })
+                        .collect();
+                    events.retain(|e| match e.event {
+                        Event::ItemStarted { item, .. }
+                        | Event::ItemDelta { item, .. }
+                        | Event::ItemSnapshot { item, .. }
+                        | Event::ItemCompleted { item, .. } => keep.contains(&item),
+                        _ => true,
+                    });
+                    quiet_replay::resequence(&mut events);
+                    laws::check_transcript(&events).unwrap();
+                }
+                let temp = tempfile::tempdir().unwrap();
+                let path = temp.path().join("native-chunks.jsonl");
+                let bytes = events
+                    .iter()
+                    .map(|e| serde_json::to_string(e).unwrap() + "\n")
+                    .collect::<String>();
+                std::fs::write(&path, bytes).unwrap();
+                let transcript = Arc::new(read_replay(path).await.unwrap());
+                let frame = bboxy450_harness::runtime::blocking(move || {
+                    let mut state = FrameState {
+                        transcript,
+                        ready: true,
+                        replay: true,
+                        ..Default::default()
+                    };
+                    let mut view = HarnessView::default();
+                    view.chrome = true;
+                    let zoom = Zoom::from_percent(percent);
+                    view.restore_zoom(zoom, &Bridge::new(Arc::new(Wake)));
+                    let mut preparer = Preparer::default();
+                    preparer.set_zoom(zoom);
+                    state.prepared = Some(Arc::new(
+                        preparer.prepare(state.transcript.clone(), 900.).unwrap(),
+                    ));
+                    let frame = view.render(&state, [900., 1100.]).unwrap();
+                    assert!(
+                        bboxy450_harness::frontends::gui::view::find(
+                            frame.layout.as_ref().unwrap(),
+                            "bar"
+                        )
+                        .is_some(),
+                        "NativeReplayChromeMounted"
+                    );
+                    assert!(
+                        frame
+                            .visible
+                            .iter()
+                            .all(|(_, kind, _)| *kind != ItemKind::Native),
+                        "NativeNeverDraws"
+                    );
+                    if !native_only {
+                        let first_tool = state
+                            .transcript
+                            .order
+                            .iter()
+                            .find(|id| state.transcript.items[id].kind == ItemKind::ToolCall)
+                            .unwrap();
+                        assert_eq!(
+                            caption(frame.layout.as_ref().unwrap(), *first_tool).as_deref(),
+                            Some("2 CALLS · ONE ROUND"),
+                            "NativeReplayGroupUnchanged"
+                        );
+                    }
+                    (
+                        frame.visible.clone(),
+                        (frame.scroll, frame.max_scroll),
+                        layout_text(frame.layout.as_ref().unwrap()),
+                        format!(
+                            "{:?}{:?}{:?}",
+                            frame.list.primitives, frame.rims, frame.over.primitives
+                        ),
+                    )
+                })
+                .await;
+                frames.push(frame);
+            }
+            let [before, after] = frames.as_slice() else {
+                unreachable!()
+            };
+            assert_eq!(
+                before.0, after.0,
+                "NativeReplayRowsUnchanged: N={count}, native_only={native_only}, zoom={percent}"
+            );
+            assert_eq!(before.1, after.1, "NativeReplayScrollUnchanged");
+            assert_eq!(before.2, after.2, "NativeReplayTextUnchanged");
+            assert_eq!(before.3, after.3, "NativeReplayPaintUnchanged");
+        }
+    }
 }
 
 #[tokio::test]
@@ -495,7 +671,7 @@ async fn actual_layout_sticks_releases_and_renders_approval_actions() {
             .transcript
             .items
             .values()
-            .filter(|r| r.kind != ItemKind::Usage)
+            .filter(|r| !matches!(r.kind, ItemKind::Usage | ItemKind::Native))
             .count()
     );
 }
@@ -714,14 +890,15 @@ async fn usage_items_feed_the_header_meter_and_draw_no_row() {
             !feed.contains(" in · ") && !feed.contains("token"),
             "token figures reached the feed: {feed}"
         );
-        // the usage item's slot is empty: no row, no padding, no height
-        let slot = find(layout, &format!("cached/{usage}")).expect("the usage slot stays");
-        assert_eq!(
-            slot.rect.h, 0.,
-            "the usage item added space: {:?}",
-            slot.rect
-        );
-        assert!(layout_text(slot).is_empty(), "the usage slot drew text");
+        // A hidden item needs no display slot; any retained slot must remain empty.
+        if let Some(slot) = find(layout, &format!("cached/{usage}")) {
+            assert_eq!(
+                slot.rect.h, 0.,
+                "the usage item added space: {:?}",
+                slot.rect
+            );
+            assert!(layout_text(slot).is_empty(), "the usage slot drew text");
+        }
         // the reply carries the feed's top and bottom padding either way
         heights.push(find(layout, &format!("item/{reply}")).unwrap().rect.h);
         assert_eq!(
@@ -1050,8 +1227,10 @@ async fn structural_layout_smoke_checks_restored_geometry() {
     // tool card, and a usage item draws no row at all (harness-spec.md "Refinement pass 2")
     let layout = frame.layout.as_ref().unwrap();
     assert!(state.transcript.order.iter().all(|id| {
-        state.transcript.items[id].kind == ItemKind::Usage
-            || bboxy450_harness::frontends::gui::view::find(layout, &format!("item/{id}")).is_some()
+        matches!(
+            state.transcript.items[id].kind,
+            ItemKind::Usage | ItemKind::Native
+        ) || bboxy450_harness::frontends::gui::view::find(layout, &format!("item/{id}")).is_some()
     }));
     assert!(checked.cards > 0 && checked.cards <= state.transcript.items.len());
     assert_eq!(checked.disclosures, checked.accordion_headers);
@@ -1182,7 +1361,7 @@ fn composer_box_follows_phase_and_keeps_hit_contract() {
 }
 
 #[tokio::test]
-async fn v1_additions_have_readable_rich_cards() {
+async fn v1_additions_have_quiet_notices_and_no_native_rows() {
     let model = read_replay("tests/fixtures/ir-v1/v1.1-all-items.jsonl".into())
         .await
         .unwrap();
@@ -1200,10 +1379,9 @@ async fn v1_additions_have_readable_rich_cards() {
     let frame = view.render(&state, [1120., 14000.]).unwrap();
     let text = bboxy450_harness::frontends::gui::view::layout_text(frame.layout.as_ref().unwrap());
     for label in [
-        "Command:",
-        "Hook:",
-        "Developer:",
-        "fixture · unmapped ·",
+        "Ran /help",
+        "Hook fixture-hook",
+        "Developer instructions",
         "Audio:",
         "Read reference",
         "fixture-mcp",
@@ -1211,6 +1389,13 @@ async fn v1_additions_have_readable_rich_cards() {
         assert!(text.contains(label), "missing {label}: {text}");
     }
     assert!(!text.contains("opaque fixture"));
+    assert!(!text.contains("unmapped") && !text.contains("NATIVE_GAP"));
+    for row in state.transcript.items.values() {
+        if row.kind == ItemKind::Native {
+            assert!(!frame.visible.iter().any(|(id, _, _)| *id == row.id));
+            assert!(frame.item_text(row.id).is_none());
+        }
+    }
 }
 
 fn hand_run(id: ItemId, lines: usize) -> bboxy450_harness::frontends::gui::model::ViewItem {
