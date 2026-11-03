@@ -11,6 +11,7 @@
 #   sh scripts/parity-web.sh REPLAY.jsonl OUT [WxH]    LAB=path/to/bboxy450-term/lab/web BIN=path/to/bboxy450-harness
 # MENU=profiles|slash renders that floating menu open on both sides; the profile list is the
 # fixture home PROFILES_HOME (default tests/fixtures/gui/profiles-home), never the operator's.
+# EXPAND=all opens tool cards, reasoning and repeated-reply groups on both sides.
 # The fixture's env-key profiles name BBOXY450_PARITY_KEY (set here, a placeholder, never a key)
 # and BBOXY450_PARITY_UNSET_KEY (never set), so `env` and `missing env` render on both sides.
 set -eu
@@ -19,18 +20,21 @@ W=${SIZE%x*}; H=${SIZE#*x}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 LAB=${LAB:-$ROOT/../bboxy450-term/lab/web}; LAB=$(cd "$LAB" && pwd)
 BIN=${BIN:-$ROOT/target/debug/bboxy450-harness}
-MENU=${MENU:-}; PROFILES_HOME=${PROFILES_HOME:-$ROOT/tests/fixtures/gui/profiles-home}
+MENU=${MENU:-}; EXPAND=${EXPAND:-}; PROFILES_HOME=${PROFILES_HOME:-$ROOT/tests/fixtures/gui/profiles-home}
+case "$EXPAND" in ''|all) ;; *) echo 'EXPAND takes all' >&2; exit 1 ;; esac
 CHROME=${CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
+set -- "$BIN" gui --replay "$REPLAY" --capture "${W}x${H}" --screenshot "$OUT/native.png"
+if [ "$EXPAND" = all ]; then set -- "$@" --expand all; fi
 if [ -n "$MENU" ]; then
   export BBOXY450_PARITY_KEY=placeholder; unset BBOXY450_PARITY_UNSET_KEY 2>/dev/null || true
-  HOME="$PROFILES_HOME" "$BIN" gui --replay "$REPLAY" --capture "${W}x${H}" --open-menu "$MENU" --screenshot "$OUT/native.png"
+  HOME="$PROFILES_HOME" "$@" --open-menu "$MENU"
 else
-  "$BIN" gui --replay "$REPLAY" --capture "${W}x${H}" --screenshot "$OUT/native.png"
+  "$@"
 fi
-python3 -I - "$REPLAY" "$OUT/page.html" "$LAB" "$W" "$H" "$MENU" "$PROFILES_HOME/.bboxy450-harness/profiles" <<'PY'
+python3 -I - "$REPLAY" "$OUT/page.html" "$LAB" "$W" "$H" "$MENU" "$PROFILES_HOME/.bboxy450-harness/profiles" "$EXPAND" <<'PY'
 import json, os, sys
-replay, page, lab, w, h, menu, pdir = sys.argv[1:]
+replay, page, lab, w, h, menu, pdir, expand = sys.argv[1:]
 envs = [json.loads(l) for l in open(replay) if l.strip()]
 # the web face's profile records, from the same fixture files the native capture lists
 profiles = []
@@ -57,6 +61,12 @@ if menu and os.path.isdir(pdir):
         profiles.append(p)
 opts = json.dumps({'interactive': True, 'profiles': profiles}) if menu else '{}'
 open_menu = {'profiles': 'v.openProfiles();', 'slash': "v.compose({ focus: true, text: '/', menu: 'slash', sel: 0 });"}.get(menu, '')
+# Hx exposes the state but no public touch/rebuild API. Its disclosure buttons mutate
+# it.open (or the loop's open) and rebuild through the reference's normal click handler.
+expand_all = """v.node.querySelectorAll('.hx-tool:not(.open) > .hx-th, .hx-think:not(.live):not(.open) > .hx-tk, .hx-loop:not(.open) > .hx-lh').forEach(b => b.click());
+// Disclosure clicks do not call Hx's follow(); settle at the tail like the native capture.
+const scroller = v.node.querySelector('.hx-scroll'); scroller.scrollTop = scroller.scrollHeight;
+""" if expand == 'all' else ''
 src = lambda f: 'file://' + lab + '/' + f
 open(page, 'w').write(f'''<!doctype html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="{src('lab.css')}">
@@ -67,6 +77,7 @@ Lab.prefs.theme = 'dark'; Lab.prefs.density = 'cozy'; Lab.applyTokens();
 document.documentElement.classList.add('parity');
 const v = Hx.view({opts}); document.getElementById('f').append(v.node);
 {json.dumps(envs)}.forEach(e => v.apply(e));
+{expand_all}
 {open_menu}
 </script></body></html>''')
 PY

@@ -942,8 +942,17 @@ impl Preparer {
                 inside.push(named(format!("item/{}", k.id), c::Element::Spacer).into());
             }
         }
-        if !inside.is_empty() {
-            kids.push(named(format!("toolbody/{id}"), f::body_el(inside)).into());
+        if open || !inside.is_empty() {
+            let mut body = if inside.is_empty() {
+                c::Element::Spacer
+            } else {
+                f::body_el(inside)
+            };
+            if open {
+                body = named(format!("tool/{id}/body"), body);
+            }
+            // Keep the motion hook around the capture's open-body marker.
+            kids.push(named(format!("toolbody/{id}"), body).into());
         }
         let _ = d.name;
         Ok((

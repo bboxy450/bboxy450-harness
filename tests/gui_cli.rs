@@ -14,6 +14,7 @@ fn replay_cli_is_offline_and_invalid_inputs_fail_without_a_window() {
     let output = Command::new(exe).args(["gui", "--help"]).output().unwrap();
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).contains("--replay"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("--expand all"));
     let output = Command::new(exe)
         .env("HOME", temp.path())
         .args(["gui", "--headless"])
@@ -31,6 +32,66 @@ fn replay_cli_is_offline_and_invalid_inputs_fail_without_a_window() {
         !temp.path().join(".bboxy450-harness").exists(),
         "offline replay never creates a session or looks up a profile"
     );
+}
+
+#[test]
+fn capture_expansion_is_opt_in_and_requires_all_and_capture() {
+    use bboxy450_harness::frontends::gui::options::{Menu, Options};
+    let parse = |args: &[&str]| Options::parse(args.iter().map(|s| s.to_string()));
+    let default = parse(&["--replay", "fixture.jsonl", "--capture", "900x1100"]).unwrap();
+    assert!(!default.expand_all);
+    for args in [
+        vec![
+            "--replay",
+            "fixture.jsonl",
+            "--capture",
+            "900x1100",
+            "--expand",
+            "all",
+        ],
+        vec![
+            "--expand",
+            "all",
+            "--replay",
+            "fixture.jsonl",
+            "--capture",
+            "900x1100",
+        ],
+    ] {
+        let options = parse(&args).unwrap();
+        assert!(options.expand_all && options.headless);
+        assert_eq!(options.capture, Some([900, 1100]));
+    }
+    let menu = parse(&[
+        "--replay",
+        "fixture.jsonl",
+        "--capture",
+        "900x1100",
+        "--expand",
+        "all",
+        "--open-menu",
+        "profiles",
+    ])
+    .unwrap();
+    assert!(menu.expand_all);
+    assert_eq!(menu.open_menu, Some(Menu::Profiles));
+    for (args, expected) in [
+        (vec!["--expand"], "--expand takes all"),
+        (vec!["--expand", "tools"], "--expand takes all"),
+        (
+            vec!["--replay", "fixture.jsonl", "--headless", "--expand", "all"],
+            "--expand requires --capture",
+        ),
+    ] {
+        assert_eq!(parse(&args).unwrap_err(), expected);
+        let output = Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
+            .arg("gui")
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&output.stderr).contains(expected));
+    }
 }
 #[test]
 fn escape_and_control_c_route_interrupt() {

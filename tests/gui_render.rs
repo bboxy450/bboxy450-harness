@@ -36,6 +36,111 @@ async fn prepare(
 }
 
 #[tokio::test]
+async fn capture_expand_all_contains_every_tool_and_reasoning_body_including_folded_groups() {
+    use bboxy450_harness::frontends::gui::{
+        rich::{Face, Toggle},
+        smoke::capture_frame,
+        view::find,
+    };
+    for fixture in [
+        "tests/fixtures/gui/rich-all-items.jsonl",
+        "tests/fixtures/parity/acp-opencode.jsonl",
+    ] {
+        let transcript = Arc::new(read_replay(fixture.into()).await.unwrap());
+        bboxy450_harness::runtime::blocking(move || {
+            let mut state = FrameState {
+                transcript,
+                ready: true,
+                replay: true,
+                ..Default::default()
+            };
+            // Tall enough that viewport clipping cannot remove any fixture row.
+            let size = [900, 32_000];
+            let mut default_view = HarnessView::default();
+            let default = capture_frame(&mut default_view, &mut state, size, None, false).unwrap();
+            assert!(
+                state.faces.is_empty(),
+                "default capture creates no face overrides"
+            );
+            let mut expanded_view = HarnessView::default();
+            let expanded = capture_frame(&mut expanded_view, &mut state, size, None, true).unwrap();
+            assert_eq!(expanded.max_scroll, 0., "fixture must fit in this capture");
+            let before = default.layout.as_ref().unwrap();
+            let after = expanded.layout.as_ref().unwrap();
+            let mut tools = 0;
+            let mut thoughts = 0;
+            let mut default_closed_tools = 0;
+            let mut default_closed_thoughts = 0;
+            for row in state.transcript.items.values() {
+                let (key, toggle) = match row.kind {
+                    ItemKind::ToolCall => {
+                        tools += 1;
+                        (format!("tool/{}/body", row.id), Toggle::Output)
+                    }
+                    ItemKind::Reasoning => {
+                        thoughts += 1;
+                        (format!("reasoning/{}/body", row.id), Toggle::Reasoning)
+                    }
+                    _ => continue,
+                };
+                assert!(
+                    find(after, &key).is_some(),
+                    "{fixture}: missing expanded {key}"
+                );
+                if row.kind == ItemKind::ToolCall {
+                    let motion_body = find(after, &format!("toolbody/{}", row.id))
+                        .expect("expanded tool retains its fold-motion hook");
+                    assert!(find(motion_body, &key).is_some());
+                }
+                if find(before, &key).is_none() {
+                    if row.kind == ItemKind::Reasoning {
+                        default_closed_thoughts += 1;
+                    } else {
+                        default_closed_tools += 1;
+                        if find(before, &format!("tool/{}", row.id)).is_none() {
+                            // Its repeated-reply group was folded, so it had no default card.
+                            continue;
+                        }
+                    }
+                    let mut clicked = Face::default();
+                    clicked.apply(toggle);
+                    assert_eq!(state.faces.get(&row.id), Some(&clicked));
+                } else if row.kind == ItemKind::ToolCall {
+                    assert!(
+                        !state.faces.get(&row.id).is_some_and(|f| f.output_closed),
+                        "an automatically open tool must stay open"
+                    );
+                }
+            }
+            assert!(tools > 0 && thoughts > 0);
+            assert!(default_closed_tools > 0 && default_closed_thoughts > 0);
+            if fixture.ends_with("acp-opencode.jsonl") {
+                assert!(
+                    state.transcript.items.values().any(|row| {
+                        row.kind == ItemKind::AgentMessage
+                            && find(after, &format!("loop/{}", row.id)).is_some()
+                            && state.faces.get(&row.id).is_some_and(|f| f.output_closed)
+                    }),
+                    "the repeated-reply group itself must be open"
+                );
+            }
+            // The opt-in capture must not affect the next ordinary capture.
+            let mut restored_view = HarnessView::default();
+            let restored =
+                capture_frame(&mut restored_view, &mut state, size, None, false).unwrap();
+            assert!(state.faces.is_empty());
+            assert_eq!(
+                bboxy450_harness::frontends::gui::view::layout_text(before),
+                bboxy450_harness::frontends::gui::view::layout_text(
+                    restored.layout.as_ref().unwrap()
+                )
+            );
+        })
+        .await;
+    }
+}
+
+#[tokio::test]
 async fn completion_surface_occludes_acp_error_notice_and_red_turn_receipt() {
     use bboxy450_harness::frontends::gui::model::{TurnState, ViewItem};
     let item = ItemId::new();

@@ -17,7 +17,7 @@ fn main() {
 fn gui() -> i32 {
     if std::env::args().skip(2).any(|a| a == "--help" || a == "-h") {
         println!(
-            "bboxy450-harness gui [--profile P] [--cwd D]\nbboxy450-harness gui --replay FIXTURE.jsonl [--headless --screenshot PATH | --capture WxH [--open-menu profiles|slash] --screenshot PATH]"
+            "bboxy450-harness gui [--profile P] [--cwd D]\nbboxy450-harness gui --replay FIXTURE.jsonl [--headless --screenshot PATH | --capture WxH [--expand all] [--open-menu profiles|slash] --screenshot PATH]"
         );
         return 0;
     }
@@ -32,6 +32,7 @@ fn gui() -> i32 {
                     options.screenshot,
                     size,
                     options.open_menu,
+                    options.expand_all,
                 ));
             }
             if options.headless {

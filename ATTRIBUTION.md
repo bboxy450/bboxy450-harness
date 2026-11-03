@@ -43,6 +43,10 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
 
 ## Lineage and credits
 
+- Capture expansion in `src/frontends/gui/smoke.rs` uses the click-controlled
+  face state; `scripts/parity-web.sh` invokes the bboxy450-term web reference's
+  own disclosure handlers for its matching expanded view.
+
 - Markdown tool-output detection, numbered Read projection and inset scrolling in
   `src/frontends/gui/` are project-owned implementations of the bboxy450-term
   `lab/web/harness-spec.md` Markdown-everywhere contract, using its `bbt_doc` renderer.

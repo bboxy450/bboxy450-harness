@@ -15,6 +15,8 @@ pub struct Options {
     pub screenshot: PathBuf,
     /// Render-only capture size (parity): no fixture assertions, transcript top.
     pub capture: Option<[u32; 2]>,
+    /// `--expand all`: open every disclosure before a capture.
+    pub expand_all: bool,
     /// `--watch [claude:|codex:]PATH`: render another harness's native session live.
     pub watch: Option<(Option<crate::import::Native>, PathBuf)>,
     /// `--open-menu profiles|slash`: a capture renders that menu open (parity).
@@ -37,6 +39,7 @@ impl Options {
             headless: false,
             screenshot: ".bboxy/runs/gui-smoke.png".into(),
             capture: None,
+            expand_all: false,
             watch: None,
             open_menu: None,
         };
@@ -66,6 +69,10 @@ impl Options {
                         _ => return Err("--open-menu takes profiles or slash".into()),
                     })
                 }
+                "--expand" => match args.next().as_deref() {
+                    Some("all") => out.expand_all = true,
+                    _ => return Err("--expand takes all".into()),
+                },
                 "--capture" => {
                     let size = args.next().ok_or("missing capture size")?;
                     let (w, h) = size.split_once('x').ok_or("capture size is WxH")?;
@@ -80,6 +87,9 @@ impl Options {
         }
         if out.open_menu.is_some() && out.capture.is_none() {
             return Err("--open-menu requires --capture".into());
+        }
+        if out.expand_all && out.capture.is_none() {
+            return Err("--expand requires --capture".into());
         }
         if out.headless && out.replay.is_none() {
             return Err("--headless requires --replay".into());

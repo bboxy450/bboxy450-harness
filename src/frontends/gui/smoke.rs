@@ -8,7 +8,8 @@
 //! Offscreen Metal frame witness. No window, display permission or model.
 use super::{
     bridge::{FrameState, read_replay_with_redactor},
-    view::{Action, HarnessView, layout_text},
+    rich::{Faces, Toggle},
+    view::{Action, Frame, HarnessView, Preparer, find, layout_text},
 };
 use bbt_render::{chrome::ChromeRenderer, device::DeviceContext};
 use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
@@ -22,6 +23,7 @@ pub async fn capture(
     screenshot: PathBuf,
     size: [u32; 2],
     menu: Option<super::options::Menu>,
+    expand_all: bool,
 ) -> Result<(), String> {
     let model = read_replay_with_redactor(replay, crate::redact::Set::default()).await?;
     let profiles = match std::env::var_os("HOME") {
@@ -41,20 +43,8 @@ pub async fn capture(
             profiles: Arc::new(profiles),
             ..Default::default()
         };
-        state.prepared = Some(Arc::new(
-            super::view::Preparer::default().prepare(state.transcript.clone(), width as f32)?,
-        ));
         let mut view = HarnessView::default();
-        // Render once so the view holds this frame's profiles, then open.
-        view.render(&state, [width as f32, height as f32])?;
-        match menu {
-            Some(super::options::Menu::Profiles) => view.toggle_profile_menu(),
-            Some(super::options::Menu::Slash) => {
-                view.edit(bbt_ui::text_edit::Command::Insert("/".into()))
-            }
-            None => {}
-        }
-        let frame = view.render(&state, [width as f32, height as f32])?;
+        let frame = capture_frame(&mut view, &mut state, size, menu, expand_all)?;
         let mut renderer = ChromeRenderer::with_context(context, super::assets::icons())
             .map_err(|e| e.to_string())?;
         let rgba = renderer
@@ -63,6 +53,70 @@ pub async fn capture(
         write_png(&screenshot, width, height, &rgba)
     })
     .await
+}
+
+/// Solve the production capture frame without the GPU, so tests can inspect its nodes.
+/// Call on the blocking preparation pool, just like `capture`.
+pub fn capture_frame<'a>(
+    view: &'a mut HarnessView,
+    state: &mut FrameState,
+    size: [u32; 2],
+    menu: Option<super::options::Menu>,
+    expand_all: bool,
+) -> Result<&'a Frame, String> {
+    use crate::protocol::ItemKind;
+    let [width, height] = size.map(|v| v as f32);
+    let mut preparer = Preparer::default();
+    let mut faces = Faces::default();
+    loop {
+        let prepared = preparer.prepare_with_faces(state.transcript.clone(), width, &faces)?;
+        let mut changed = false;
+        if expand_all {
+            for row in state.transcript.items.values() {
+                let mut face = faces.get(&row.id).cloned().unwrap_or_default();
+                let has = |key: &str| prepared.layouts().any(|layout| find(layout, key).is_some());
+                let toggle = match row.kind {
+                    ItemKind::Reasoning if !face.reasoning_open => Some(Toggle::Reasoning),
+                    ItemKind::AgentMessage
+                        if !face.output_closed && has(&format!("loop/{}", row.id)) =>
+                    {
+                        Some(Toggle::Output)
+                    }
+                    ItemKind::ToolCall
+                        if has(&format!("tool/{}", row.id))
+                            && !has(&format!("tool/{}/body", row.id)) =>
+                    {
+                        Some(Toggle::Output)
+                    }
+                    _ => None,
+                };
+                if let Some(toggle) = toggle {
+                    // Exactly the state mutation used by Bridge::toggle on a click.
+                    // Solved bodies preserve kind/status defaults, including auto-open tools.
+                    face.apply(toggle);
+                    faces.insert(row.id, face);
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            state.faces = Arc::new(faces);
+            state.prepared = Some(Arc::new(prepared));
+            break;
+        }
+        // Opening a repeated-reply group exposes its cards on the next preparation.
+        // Each iteration only opens disclosures in this immutable replay.
+    }
+    // Render once so the view holds this frame's profiles, then open the menu.
+    view.render(state, [width, height])?;
+    match menu {
+        Some(super::options::Menu::Profiles) => view.toggle_profile_menu(),
+        Some(super::options::Menu::Slash) => {
+            view.edit(bbt_ui::text_edit::Command::Insert("/".into()))
+        }
+        None => {}
+    }
+    view.render(state, [width, height])
 }
 
 pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
