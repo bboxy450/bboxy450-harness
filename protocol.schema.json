@@ -539,6 +539,17 @@
                 "null"
               ]
             },
+            "origin": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/TurnOrigin"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Absent in logs before IR 1.2; absence means user."
+            },
             "turn": {
               "$ref": "#/$defs/TurnId"
             },
@@ -2512,6 +2523,24 @@
         },
         {
           "properties": {
+            "ms": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reason": {
+              "const": "quiet",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "reason": {
               "const": "cancelled",
               "type": "string"
@@ -2635,6 +2664,35 @@
             "steer"
           ],
           "type": "string"
+        },
+        true
+      ]
+    },
+    "TurnOrigin": {
+      "anyOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "user",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "agent",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
         },
         true
       ]
