@@ -11,6 +11,7 @@ test:
 	python3 -I scripts/test.py
 	$(MAKE) test-gui
 	$(MAKE) test-app-packaging
+	$(MAKE) smoke-app
 
 help:
 	@printf '%s\n' \
@@ -22,7 +23,8 @@ help:
 	  'make install-unsigned           Ad-hoc app into target/install-unsigned' \
 	  'make install-cli                Link the installed binary if ~/.local/bin exists; no sudo' \
 	  'make test-app-packaging         Private launcher, signing and repeated-install checks' \
-	  'make smoke-app                  Private offline replay and empty-HOME launch' \
+	  'make smoke-app                  Private replay and hidden native-window startup' \
+	  'make test-app-startup-control   Reject the missing title-bar image, then restore' \
 	  'make release-dry / release      Signed archive / publish verified main' \
 	  'Overrides: TARGET_DIR=... INSTALL_DIR=... UNSIGNED_INSTALL_DIR=...'
 
@@ -80,7 +82,7 @@ SIGNING_IDENTITY := 3943AF130A015B36824B7FBC86AA672E7B25F3C4
 GPG_KEY := 9B07E849480C68328CA20684844ECC0587DE7AB0
 REQUIREMENT := identifier "com.bboxy450.harness" and anchor apple generic and certificate leaf[subject.OU] = "UQB3368A84"
 
-.PHONY: app-files app app-unsigned install install-unsigned install-cli smoke-app release-dry release test-app-packaging
+.PHONY: test-app-startup-control app-files app app-unsigned install install-unsigned install-cli smoke-app release-dry release test-app-packaging
 app-files:
 	@test "$$(uname -s)" = Darwin || { echo 'macOS is required' >&2; exit 2; }
 	cargo build --locked --release --features standalone --target-dir '$(TARGET_DIR)'
@@ -142,6 +144,9 @@ install-cli:
 
 test-app-packaging:
 	python3 -I tests/app_packaging.py
+
+test-app-startup-control:
+	python3 -I scripts/test-startup-control.py
 
 smoke-app: app-unsigned
 	python3 -I scripts/smoke-app.py '$(BUNDLE)' '$(TARGET_DIR)/app-smoke'

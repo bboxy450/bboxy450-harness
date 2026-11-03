@@ -4,15 +4,13 @@
 # License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 # Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
-"""Real bundled replay and empty-HOME launch, with no credentials or UI input."""
+"""Bundled replay plus hidden native-window startup; no credentials or desktop input."""
 import json
 from pathlib import Path
 import plistlib
-import signal
 import subprocess
 import sys
 import tempfile
-import time
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -21,6 +19,7 @@ def main():
     bundle, out = (Path(arg).resolve() for arg in sys.argv[1:])
     out.mkdir(parents=True, exist_ok=True)
     (out / 'evidence.json').unlink(missing_ok=True)
+    (out / 'native-process.json').unlink(missing_ok=True)
     binary = bundle / 'Contents/MacOS/bboxy450-harness'
     assert bundle.name == 'bboxy450-harness.app', bundle
     plist = plistlib.loads((bundle / 'Contents/Info.plist').read_bytes())
@@ -31,7 +30,8 @@ def main():
         home = Path(private)
         # No inherited API keys, seat capability, profiles, MCP or developer tools.
         env = {'HOME': private, 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin',
-               'TMPDIR': private, 'LANG': 'en_US.UTF-8'}
+               'TMPDIR': private, 'LANG': 'en_US.UTF-8',
+               'BBOXY450_HARNESS_SMOKE_WINDOW': '1'}
         screenshot = out / 'replay.png'
         screenshot.unlink(missing_ok=True)
         subprocess.run([str(binary), 'gui', '--replay',
@@ -46,8 +46,14 @@ def main():
                                        cwd=home, env=env, stdin=subprocess.DEVNULL,
                                        stdout=log, stderr=subprocess.STDOUT)
             try:
-                time.sleep(3)
-                assert process.poll() is None, 'empty-HOME GUI exited before 3 seconds'
+                native_code = process.wait(timeout=30)
+                (out / 'native-process.json').write_text(json.dumps({
+                    'pid': process.pid, 'exit_code': native_code,
+                    'private_home': True, 'operator_input': False,
+                    'window_hidden': True, 'visible_presentation_checked': False}, indent=2) + '\n')
+                assert native_code == 0, 'hidden native startup failed'
+                text = (out / 'launcher.log').read_text()
+                assert 'native window created; surface configured; live frame submitted to private texture; visible=false' in text, text
                 sessions = list((home / '.bboxy450-harness/sessions').glob('*.jsonl'))
                 assert len(sessions) == 1, 'GUI did not create its own session'
                 events = [json.loads(line)['event'] for line in sessions[0].read_text().splitlines()]
@@ -58,8 +64,6 @@ def main():
                            and 'profile' in event['body']['text'] for event in events), events
                 subprocess.run([str(binary), 'check-transcript', str(sessions[0])],
                                env=env, check=True, timeout=10, stdin=subprocess.DEVNULL)
-                process.terminate()
-                assert process.wait(timeout=5) in (0, -signal.SIGTERM)
             finally:
                 if process.poll() is None:
                     process.kill()
@@ -67,12 +71,14 @@ def main():
         record = {'source': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
                   'private_home': True, 'operator_input': False, 'replay_exit_code': 0,
                   'screenshot': str(screenshot), 'screenshot_bytes': screenshot.stat().st_size,
-                  'launcher_alive_seconds': 3, 'launcher_exit_code': process.returncode,
+                  'native_window': 'hidden', 'surface_configured': True,
+                  'live_frame_submitted': 'private texture', 'visible_presentation_checked': False,
+                  'launcher_pid': process.pid, 'launcher_exit_code': process.returncode,
                   'cwd': meta['cwd'], 'profile': meta['profile'], 'notice': True,
                   'bundle': str(bundle), 'app_name': plist['CFBundleDisplayName'],
                   'codesign_exit_code': 0, 'transcript_exit_code': 0}
         (out / 'evidence.json').write_text(json.dumps(record, indent=2) + '\n')
-        print('smoke-app: PASS; bundled PNG, empty-HOME notice, 3s live GUI, SIGTERM/reap, strict codesign')
+        print('smoke-app: PASS; bundled PNG, empty-HOME notice, hidden native window/surface/live frame, exit/reap, strict codesign')
 
 
 if __name__ == '__main__':

@@ -70,6 +70,9 @@ struct Gpu {
 }
 struct App {
     options: Options,
+    /// Private unattended startup witness: never show or activate a window.
+    smoke_window: bool,
+    rendered: bool,
     bridge: Bridge,
     view: HarnessView,
     window: Option<Arc<Window>>,
@@ -125,7 +128,8 @@ impl App {
                         .with_title("bboxy450-harness")
                         .with_inner_size(LogicalSize::new(1120., 860.))
                         .with_min_inner_size(LogicalSize::new(480., 360.))
-                        .with_decorations(false),
+                        .with_decorations(false)
+                        .with_visible(!self.smoke_window),
                 )
                 .map_err(|e| e.to_string())?,
         );
@@ -250,20 +254,27 @@ impl App {
         )?;
         let renderer = self.renderer.as_mut().unwrap();
         let surface = self.surface.as_ref().unwrap();
-        let texture = match surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(v)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(v) => v,
-            wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
-                surface.configure(&renderer.context.device, config);
-                window.request_redraw();
-                return Ok(());
-            }
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                return Ok(());
-            }
-            wgpu::CurrentSurfaceTexture::Validation => {
-                return Err("surface validation failed".into());
-            }
+        // A hidden NSWindow is always occluded on macOS. Validate the real window,
+        // surface configuration and live renderer, but encode into a private texture;
+        // never order a smoke window onto the operator's desktop to get a drawable.
+        let texture = if self.smoke_window {
+            None
+        } else {
+            Some(match surface.get_current_texture() {
+                wgpu::CurrentSurfaceTexture::Success(v)
+                | wgpu::CurrentSurfaceTexture::Suboptimal(v) => v,
+                wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
+                    surface.configure(&renderer.context.device, config);
+                    window.request_redraw();
+                    return Ok(());
+                }
+                wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                    return Ok(());
+                }
+                wgpu::CurrentSurfaceTexture::Validation => {
+                    return Err("surface validation failed".into());
+                }
+            })
         };
         if self
             .backdrop
@@ -278,7 +289,31 @@ impl App {
             .as_ref()
             .unwrap()
             .create_view(&Default::default());
-        let target_view = texture.texture.create_view(&Default::default());
+        let smoke_target = self.smoke_window.then(|| {
+            renderer
+                .context
+                .device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("private native startup frame"),
+                    size: wgpu::Extent3d {
+                        width: config.width,
+                        height: config.height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: config.format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &config.view_formats,
+                })
+        });
+        let target_view = texture
+            .as_ref()
+            .map(|t| &t.texture)
+            .or(smoke_target.as_ref())
+            .ok_or("frame target missing")?
+            .create_view(&Default::default());
         let target = || ChromeTarget {
             width: config.width,
             height: config.height,
@@ -321,7 +356,10 @@ impl App {
         pass.flush(&renderer.context);
         renderer.flush();
         renderer.context.queue.submit([encoder.finish()]);
-        renderer.context.queue.present(texture);
+        if let Some(texture) = texture {
+            renderer.context.queue.present(texture);
+        }
+        self.rendered = true;
         if let Some(layout) = &frame.layout
             && let Ok(regions) = composer::Regions::new(layout)
             && let Some(caret) = regions.caret
@@ -491,6 +529,29 @@ impl ApplicationHandler<Wake> for App {
         }
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self.smoke_window {
+            if let Err(error) = self.paint() {
+                self.error = Some(error);
+                event_loop.exit();
+                return;
+            }
+            if self.rendered && self.bridge.state.ready && self.bridge.state.prepared.is_some() {
+                if self.window.as_ref().and_then(|w| w.is_visible()) != Some(false) {
+                    self.error = Some("smoke window must stay hidden".into());
+                } else {
+                    eprintln!(
+                        "smoke-window: native window created; surface configured; live frame submitted to private texture; visible=false"
+                    );
+                }
+                self.bridge.request_detach();
+                event_loop.exit();
+            } else {
+                event_loop.set_control_flow(ControlFlow::WaitUntil(
+                    Instant::now() + Duration::from_millis(16),
+                ));
+            }
+            return;
+        }
         event_loop.set_control_flow(match self.wake_at {
             Some(at) => ControlFlow::WaitUntil(at),
             None => ControlFlow::Wait,
@@ -652,9 +713,17 @@ fn config(options: &Options) -> Result<Config, String> {
 /// Returns the detached background drain to main, after all UI callbacks have
 /// ended. Main keeps the process alive until already-admitted turns finish.
 pub fn run(options: Options) -> Result<Option<tokio::task::JoinHandle<()>>, String> {
-    let event_loop = EventLoop::<Wake>::with_user_event()
-        .build()
-        .map_err(|e| e.to_string())?;
+    let smoke_window = std::env::var("BBOXY450_HARNESS_SMOKE_WINDOW").as_deref() == Ok("1");
+    let mut builder = EventLoop::<Wake>::with_user_event();
+    #[cfg(target_os = "macos")]
+    if smoke_window {
+        use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+        builder
+            .with_activation_policy(ActivationPolicy::Prohibited)
+            .with_activate_ignoring_other_apps(false)
+            .with_default_menu(false);
+    }
+    let event_loop = builder.build().map_err(|e| e.to_string())?;
     bbt_rt::register_ui_thread();
     let proxy = event_loop.create_proxy();
     let waker = Arc::new(WakePort(proxy.clone()));
@@ -676,6 +745,8 @@ pub fn run(options: Options) -> Result<Option<tokio::task::JoinHandle<()>>, Stri
     }
     let mut app = App {
         options,
+        smoke_window,
+        rendered: false,
         bridge: Bridge::new(waker),
         view,
         window: None,

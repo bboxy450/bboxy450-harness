@@ -83,7 +83,13 @@ default destination is separate from the trusted signed app. After installing,
 `make help` lists the targets and directory overrides.
 
 `make smoke-app` checks that test bundle with an offline rendered replay and a
-three-second empty-HOME launch, without credentials or operator input.
+hidden native-window startup, without credentials or operator input. The smoke
+creates a real window and Metal surface, configures the surface, and submits the
+live chrome frame into a private texture because macOS occludes hidden windows.
+It never shows a test window or captures the desktop; visible presentation is
+outside this unattended check. `make test-app-startup-control` restores the
+missing title-bar asset registration from 0c40316 and requires native startup to
+fail before restoring the fix.
 `make release-dry` packages the ad-hoc
 test bundle and verifies its GPG signature/checksum in `target/release-artifacts/`;
 it creates no tag or release. The Oracle uses `make release` on verified, clean

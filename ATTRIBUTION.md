@@ -43,6 +43,10 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
 
 ## Lineage and credits
 
+- The hidden native startup process witness and missing-title-bar-image control
+  in `src/frontends/gui/window.rs` and `scripts/` are project-owned; they drive
+  the shared native window, renderer and detach path without desktop input.
+
 - Full-window captures reuse the live standalone chrome tree and text zoom in
   `src/frontends/gui/`; face-only captures keep the parity baseline comparable.
   **Adapted from bboxy450-term** `lab/web/harness.html`'s standalone-window state,
