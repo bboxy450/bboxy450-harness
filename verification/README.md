@@ -4,7 +4,7 @@ The native backend is crates.io `bboxy450-tlc =0.1.1`, using its finite integer
 and Boolean Model/Variable/Action API. Yarn 0.1.1 projects the production
 `harness_turn_topology!` declaration. This repository contains no checker fork.
 
-The corpus has 118 model variants mapped to 39 contracts, including the shared
+The corpus has 119 model variants mapped to 39 contracts, including the shared
 Yarn scheduling projection.
 It explores two queued turns, two tools/rounds, three birth generations (A-B-A),
 a two-slot stand-in for the bounded work lane, and a three-entry replay log.
@@ -177,14 +177,16 @@ Timer/OS scheduling and the actual term consumer remain implementation coverage.
 
 `HarnessLaunchContext` admits present/absent context and MCP for three A-B-A
 births. A held startup completion cannot cross birth; bounded failure does not
-assume server fairness; no synthetic inference turn is created. Five controls
-omit prompt/MCP, accept a stale completion, disable the deadline or add a turn.
+assume server fairness; no synthetic inference turn is created. Six controls
+omit prompt/MCP, accept a stale completion, disable the deadline add a turn or omit launcher approval intent.
 `tests/acp_launch_context.rs` drives actual Host create/switch/open and downstream
 JSON-RPC with private MCP tool calls, exact file custody, cwd/argv, source
 precedence, model selection and unsupported/absent context. The generic ACP v1
 transport has no system-role field: bootstrap text is a deliberate first-prompt
 content block, not evidence of system-role priority. Profile argv and agent-owned
-permissions remain authoritative; harness yolo/unattended chooses only offered
+permissions remain authoritative; explicit launcher --yolo overrides profile approval
+through allow_once rather than copying vendor-specific flags. Absent --yolo, profile
+yolo/unattended chooses only offered
 permission options, and model selection uses offered ACP config options.
 ACP relays use Darwin's /usr/bin/nc solely as stdio-to-private-Unix transport.
 The host alone resolves server environments using the shared origin/scrubbing

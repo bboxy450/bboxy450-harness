@@ -48,6 +48,8 @@ pub struct Config {
 /// Trusted process-launch settings, separate from profile/ACP server data.
 #[derive(Clone, Default)]
 pub struct LaunchOptions {
+    /// Explicit launcher approval intent; map to offered allow_once, never vendor flags.
+    pub yolo: bool,
     pub append_system_prompt: String,
     pub mcp_servers: crate::mcp::Servers,
     pub notices: Vec<String>,
@@ -126,6 +128,7 @@ pub struct SessionActor {
     window_warned: bool,
     mcp: crate::mcp::Manager,
     append_system_prompt: String,
+    launch_yolo: bool,
 }
 impl SessionActor {
     pub async fn open(
@@ -167,6 +170,9 @@ impl SessionActor {
         overrides: crate::mcp::Servers,
         launch: LaunchOptions,
     ) -> std::io::Result<Self> {
+        if launch.yolo {
+            config.policy = Policy::allow_all(config.policy.on_unattended);
+        }
         let mut store = Store::open(
             config.sessions.clone(),
             config.meta.clone(),
@@ -336,6 +342,7 @@ impl SessionActor {
             auto,
             window_warned,
             append_system_prompt: launch.append_system_prompt,
+            launch_yolo: launch.yolo,
         };
         Ok(actor)
     }
@@ -674,7 +681,11 @@ impl SessionActor {
 
                         self.config.profile_error = None;
                         self.config.model = profile.model.clone();
-                        self.config.policy = profile.policy();
+                        self.config.policy = if self.launch_yolo {
+                            Policy::allow_all(profile.on_unattended)
+                        } else {
+                            profile.policy()
+                        };
                         self.gateway
                             .set_unattended(self.config.policy.on_unattended);
                         self.config.provider = provider;

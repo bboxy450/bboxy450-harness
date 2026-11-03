@@ -227,7 +227,10 @@ impl AcpAgentActor {
         notice: Option<String>,
     ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
         let spec = profile.agent.clone().unwrap_or_default();
-        let yolo = profile.policy.as_deref() == Some("yolo");
+        let yolo = launch.yolo || profile.policy.as_deref() == Some("yolo");
+        if launch.yolo {
+            config.policy = crate::policy::Policy::allow_all(profile.on_unattended);
+        }
         let model = Some(profile.model.clone()).filter(|m| !m.is_empty());
         let mut store = Store::open(
             config.sessions.clone(),

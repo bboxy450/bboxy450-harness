@@ -63,8 +63,15 @@ def call_server(config):
     except (BrokenPipeError, ValueError, KeyError):
         return None
     finally:
-        child.stdin.close()
-        child.terminate()
+        try:
+            child.stdin.close()
+        except OSError:
+            pass
+        try:
+            if child.poll() is None:
+                child.terminate()
+        except ProcessLookupError:
+            pass
         child.wait(timeout=3)
 
 

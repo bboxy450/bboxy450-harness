@@ -577,3 +577,7 @@ expected = "liveness"
 [[model]]
 name = "BrokenHarnessLaunchContextSynthetic"
 expected = "safety"
+
+[[model]]
+name = "BrokenHarnessLaunchContextApproval"
+expected = "safety"

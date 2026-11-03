@@ -3704,7 +3704,7 @@ fn socket_heartbeat(broken: bool) -> Model {
 // Real ACP/MCP bytes and priority semantics remain process witnesses.
 // Project policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 fn launch_context(mode: usize) -> Model {
-    let mut m = base::<10>(
+    let mut m = base::<13>(
         "LaunchContext",
         false,
         &[
@@ -3718,6 +3718,9 @@ fn launch_context(mode: usize) -> Model {
             ("mcp_sent", 1, 0),
             ("prompt_count", 2, 0),
             ("startup_age", 2, 0),
+            ("launcher_allow", 1, 0),
+            ("profile_allow", 1, 0),
+            ("effective_allow", 1, 0),
         ],
     );
     m.name = match mode {
@@ -3726,17 +3729,36 @@ fn launch_context(mode: usize) -> Model {
         3 => "BrokenHarnessLaunchContextStale",
         4 => "BrokenHarnessLaunchContextDeadline",
         5 => "BrokenHarnessLaunchContextSynthetic",
+        6 => "BrokenHarnessLaunchContextApproval",
         _ => "HarnessLaunchContext",
     }
     .into();
     for context in 0..=1 {
         for mcp in 0..=1 {
-            act(
-                &mut m,
-                "Admit",
-                eq(1, 0),
-                &[(1, Int(1)), (2, Int(context)), (3, Int(mcp))],
-            );
+            for launcher in 0..=1 {
+                for profile in 0..=1 {
+                    act(
+                        &mut m,
+                        "Admit",
+                        eq(1, 0),
+                        &[
+                            (1, Int(1)),
+                            (2, Int(context)),
+                            (3, Int(mcp)),
+                            (10, Int(launcher)),
+                            (11, Int(profile)),
+                            (
+                                12,
+                                Int(if mode == 6 {
+                                    profile
+                                } else {
+                                    i64::from(launcher == 1 || profile == 1)
+                                }),
+                            ),
+                        ],
+                    );
+                }
+            }
         }
     }
     act(
@@ -3822,6 +3844,13 @@ fn launch_context(mode: usize) -> Model {
         eq(1, 2).negate().or(Var(5).eq(Var(0))),
     );
     safe(&mut m, "NoSyntheticPrompt", Var(8).le(Int(1)));
+    safe(
+        &mut m,
+        "LauncherApprovalMapped",
+        eq(1, 0).or(Var(12)
+            .eq(Var(10).plus(Var(11)))
+            .or(all([eq(10, 1), eq(11, 1), eq(12, 1)]))),
+    );
     progress(
         &mut m,
         "StartupSettlesWithoutServerFairness",
@@ -3971,7 +4000,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         { Ok(bbt_yarn::reactor::Control::Continue) }
     );
     projected.name = "HarnessTurnLoop".into();
-    for mode in 0..=5 {
+    for mode in 0..=6 {
         out.push((
             launch_context(mode),
             if mode == 0 {
@@ -4023,6 +4052,7 @@ fn launch_controls_reach_named_forwarding_and_generation_failures() {
         (3, "CurrentGenerationOnly"),
         (4, "StartupSettlesWithoutServerFairness"),
         (5, "NoSyntheticPrompt"),
+        (6, "LauncherApprovalMapped"),
     ] {
         let result = launch_context(mode).check(100_000).unwrap();
         assert!(

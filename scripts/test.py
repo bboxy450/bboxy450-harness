@@ -49,6 +49,7 @@ def main():
             ['python3','-I','scripts/test-capability-control.py'],
             ['python3','-I','scripts/test-socket-heartbeat-control.py'],
             ['python3','-I','scripts/test-launch-parity-control.py'],
+            ['python3','-I','scripts/test-launch-approval-control.py'],
             ['make','test-formal-native'],
             ['make','test-formal-parity'],
             ['python3','-I','scripts/checks.py','secrets'],

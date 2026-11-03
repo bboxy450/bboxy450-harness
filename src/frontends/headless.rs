@@ -384,7 +384,8 @@ async fn run_cli(
         redactor,
         max_rounds,
     };
-    let launch = tokio::select! {biased;_=stop.cancelled()=>return Ok(0),launch=read_launch(append_system_prompt,mcp_config)=>launch};
+    let mut launch = tokio::select! {biased;_=stop.cancelled()=>return Ok(0),launch=read_launch(append_system_prompt,mcp_config)=>launch};
+    launch.yolo = yolo;
     let host = Host::new(config.clone()).with_launch(launch);
     if acp {
         #[cfg(feature = "acp")]

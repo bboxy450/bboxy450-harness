@@ -34,7 +34,10 @@ fn isolated(name: &str) -> bool {
     if std::env::var_os("PARITY_CHILD").is_some() {
         return false;
     }
-    let home = tempfile::tempdir().unwrap();
+    let home = tempfile::Builder::new()
+        .prefix("launch-")
+        .tempdir_in("/tmp")
+        .unwrap();
     use std::os::unix::fs::PermissionsExt;
     let cap = home.path().join("capability");
     std::fs::write(
@@ -141,6 +144,7 @@ impl Fixture {
     }
     fn host(&self, context: &str, servers: Servers) -> Host {
         Host::new(self.config.clone()).with_launch(LaunchOptions {
+            yolo: false,
             append_system_prompt: context.into(),
             mcp_servers: servers,
             notices: vec![],
@@ -210,7 +214,7 @@ fn reply(events: &[Envelope]) -> Value {
                 None
             }
         })
-        .expect("downstream process did not complete");
+        .unwrap_or_else(|| panic!("downstream process did not complete: {events:?}"));
     serde_json::from_str(text).unwrap()
 }
 fn assert_context(journal: &[Value], expected: &str, turns: usize) {
@@ -426,6 +430,7 @@ async fn reopen_switch_and_generation_context() {
     let mut config = f.config.clone();
     config.sessions = sessions;
     let next = Host::new(config).with_launch(LaunchOptions {
+        yolo: false,
         append_system_prompt: "generation two".into(),
         mcp_servers: Servers::new(),
         notices: vec![],
@@ -620,4 +625,65 @@ async fn unavailable_slow_server_does_not_hang_delivery() {
         std::fs::read_to_string(f.config.sessions.join(format!("{}.jsonl", g.session()))).unwrap();
     assert!(bytes.contains("relay unavailable or request deadline exceeded"));
     host.close_all().await;
+}
+
+#[tokio::test]
+async fn outer_cli_maps_yolo_and_invalid_config_to_downstream() {
+    if isolated("outer_cli_maps_yolo_and_invalid_config_to_downstream") {
+        return;
+    }
+    let f = Fixture::new();
+    f.profile("cli", "model-A", Servers::new());
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+    let profiles = home.join(".bboxy450-harness/profiles");
+    std::fs::create_dir_all(&profiles).unwrap();
+    std::fs::copy(f.profiles.join("cli.md"), profiles.join("cli.md")).unwrap();
+    let mcp = f.temp.path().join("mcp.json");
+    std::fs::write(
+        &mcp,
+        serde_json::to_vec(&json!({"mcpServers":{"seat":f.server("launcher")}})).unwrap(),
+    )
+    .unwrap();
+    for (index, config) in [mcp.clone(), f.temp.path().join("unavailable.json")]
+        .into_iter()
+        .enumerate()
+    {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
+            .args([
+                "--profile",
+                "cli",
+                "--json",
+                "--yolo",
+                "-p",
+                "one real CLI request",
+                "--append-system-prompt",
+                CONTEXT,
+                "--cwd",
+            ])
+            .arg(&f.config.meta.cwd)
+            .arg("--sessions")
+            .arg(f.temp.path().join(format!("cli-sessions-{index}")))
+            .arg("--socket")
+            .arg(home.join(format!("cli-{index}.sock")))
+            .arg("--mcp-config")
+            .arg(config)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "outer CLI failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let wire = String::from_utf8(output.stdout).unwrap();
+        if index == 1 {
+            assert!(wire.contains("launcher MCP configuration unavailable or invalid"));
+        }
+        let j = f.journal("cli");
+        let permission = j.iter().rev().find(|r| r["id"] == "permission").unwrap();
+        assert_eq!(
+            permission["result"]["outcome"]["optionId"], "yes",
+            "launcher --yolo approval semantics dropped"
+        );
+        assert_context(&j, CONTEXT, index + 1);
+    }
 }
