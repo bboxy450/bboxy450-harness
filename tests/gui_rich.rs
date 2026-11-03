@@ -598,11 +598,21 @@ async fn the_view_shows_live_tool_role_and_tail_then_the_full_terminal_blob() {
                     .find(|r| r.kind == ItemKind::ToolCall)
                     .unwrap()
                     .id;
-                // the terminal folds into its tool card, which reads as running
+                // the terminal folds into its tool card, which reads as running: the
+                // verb, and the three seat dots in the status slot (harness-spec.md
+                // "Tool card": run = three bouncing seat dots)
+                fn dots(n: &bbt_ui::components::Layout) -> usize {
+                    usize::from(matches!(
+                        n.kind,
+                        bbt_ui::components::LayoutKind::Path { .. }
+                    )) + n.children.iter().map(dots).sum::<usize>()
+                }
+                let status = frame.layout.as_ref().and_then(|l| {
+                    bboxy450_harness::frontends::gui::view::find(l, &format!("tool/{tool}/status"))
+                });
                 if text.contains("LIVE-TAIL")
-                    && frame
-                        .item_text(tool)
-                        .is_some_and(|s| s.contains("Run") && s.contains("running"))
+                    && frame.item_text(tool).is_some_and(|s| s.contains("Run"))
+                    && status.is_some_and(|n| dots(n) == 3)
                 {
                     return Ok::<_, String>(id);
                 }

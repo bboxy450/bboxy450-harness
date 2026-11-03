@@ -12,6 +12,7 @@ use super::{
     bridge::{Bridge, FrameState, ProfileInfo},
     chat_scroll,
     model::{Transcript, ViewItem},
+    stream_motion,
 };
 use crate::protocol::*;
 use bbt_ui::{
@@ -237,6 +238,8 @@ pub struct HarnessView {
     /// Menu motion state: the card the last frame painted, the row under the
     /// pointer and the closed card still fading out.
     menus: Menus,
+    /// Stream and card motion: what is new (chunks, folds, ended turns) and the frame pass.
+    pub motion: stream_motion::Motion,
 }
 /// Which floating menu is open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -321,6 +324,7 @@ impl Default for HarnessView {
             entering: HashSet::new(),
             last_edit: 0.,
             menus: Menus::default(),
+            motion: stream_motion::Motion::default(),
         }
     }
 }
@@ -552,6 +556,8 @@ impl HarnessView {
         let timer = std::time::Instant::now();
         let ctx = context();
         let model = &state.transcript;
+        let now = self.anim.now();
+        self.motion.begin_frame(state, now);
         let width = size[0].max(240.);
         let prepared = state
             .prepared
@@ -701,18 +707,66 @@ impl HarnessView {
         };
         let controls = timer.elapsed();
         let solved = timer.elapsed();
+        // the orbit arcs and the sheen, painted over the rows inside the viewport
+        let mut overlays: Option<(Rect, Vec<bbt_ui_model::draw::Prim>)> = None;
         if let Some(prepared) = prepared {
             let viewport = find(&layout, "transcript")
                 .and_then(|n| n.children.first())
                 .map(|n| n.rect)
                 .ok_or("transcript viewport missing")?;
+            // Streaming rows: each chunk's glyphs fade in over 140ms `out` (harness-spec.md
+            // Motion). The tracker compares the row's glyphs with the last frame's, so text
+            // already on screen never re-fades; the visitor splits runs at chunk boundaries.
+            let animating = self.anim.animates();
+            let frame_no = self.motion.frame;
+            let (anim, motion, metrics, markdown_scroll) = (
+                &mut self.anim,
+                &mut self.motion,
+                &self.metrics,
+                &self.markdown_scroll,
+            );
             restore_rows(
                 &mut layout,
                 &prepared.rows,
                 viewport,
                 &enters,
-                &self.markdown_scroll,
+                markdown_scroll,
+                &mut |id| {
+                    if !animating || !motion.streaming(state, &id) {
+                        return Box::new(stream_motion::Plain);
+                    }
+                    let Some(row) = prepared.rows.get(&id) else {
+                        return Box::new(stream_motion::Plain);
+                    };
+                    let Some(text) = stream_motion::stream_glyphs(&row.layout) else {
+                        return Box::new(stream_motion::Plain);
+                    };
+                    let chunks: Vec<(usize, f32)> = motion
+                        .fades
+                        .observe(id, &text, now, frame_no)
+                        .into_iter()
+                        .map(|(start, _)| {
+                            let alpha = anim.enter(
+                                &format!("fade/{id}/{start}"),
+                                0.,
+                                1.,
+                                stream_motion::FADE_MS,
+                                Ease::Out,
+                            );
+                            (start, alpha)
+                        })
+                        .collect();
+                    if chunks.is_empty() {
+                        Box::new(stream_motion::Plain)
+                    } else {
+                        Box::new(stream_motion::Fader::new(chunks, metrics))
+                    }
+                },
             );
+            let prims = self.motion.pass(&mut self.anim, &mut layout, state, &ink);
+            if !prims.is_empty() {
+                overlays = Some((viewport, prims));
+            }
         }
         // the empty session's rise and its chips' staggered rise (opacity is in the element)
         for (name, key) in [
@@ -748,6 +802,11 @@ impl HarnessView {
         );
         for paint in c::paint(&layout, ctx) {
             append_paint(&mut frame.list, paint)?;
+        }
+        if let Some((viewport, prims)) = overlays {
+            frame.list.clip(viewport, [0.; 4]);
+            frame.list.primitives.extend(prims);
+            frame.list.unclip();
         }
         frame.timings = [
             row_slots,
@@ -1919,12 +1978,15 @@ fn display_body(row: &ViewItem, terminal_output: Option<&String>) -> String {
 // A row whose slot is still growing (its height tween in flight) is clipped to the slot by
 // a synthetic scroll node, so a card never paints over the row below it. A row in `enters`
 // sits 6 px lower and fades with its entrance progress (block enters: 320 ms `out`).
-fn restore_rows(
+// `runs` sees every text run of the row in paint order, elided or not, so a streaming
+// fade can count glyphs from the row's start whatever the viewport shows.
+fn restore_rows<'a>(
     node: &mut c::Layout,
     rows: &im::HashMap<ItemId, Arc<CachedRow>>,
     viewport: Rect,
     enters: &HashMap<ItemId, f32>,
     markdown_scroll: &HashMap<ItemId, f32>,
+    runs: &mut dyn FnMut(ItemId) -> Box<dyn stream_motion::Runs + 'a>,
 ) {
     if let c::LayoutKind::Named(name) = &node.kind
         && let Some(id) = name
@@ -1937,7 +1999,15 @@ fn restore_rows(
         let t = enters.get(&id).copied().unwrap_or(1.);
         let dx = slot.x - row.layout.rect.x;
         let dy = slot.y - row.layout.rect.y + 6. * (1. - t);
-        if let Some(mut solved) = visible_layout(&row.layout, dx, dy, viewport, markdown_scroll) {
+        let mut visitor = runs(id);
+        if let Some(mut solved) = visible_layout(
+            &row.layout,
+            dx,
+            dy,
+            viewport,
+            markdown_scroll,
+            visitor.as_mut(),
+        ) {
             if row.layout.rect.h > slot.h + 0.5 {
                 solved = c::Layout {
                     rect: slot,
@@ -1965,21 +2035,25 @@ fn restore_rows(
         return;
     }
     for child in &mut node.children {
-        restore_rows(child, rows, viewport, enters, markdown_scroll);
+        restore_rows(child, rows, viewport, enters, markdown_scroll, runs);
     }
 }
 // Keep only glyphs/blocks intersecting the viewport. A giant paragraph remains
 // fully scrollable without cloning/painting its entire cached solved layout.
+// `runs` sees every text run of the row in paint order, elided or not, so a
+// streaming fade can count glyphs from the row's start whatever the viewport shows.
 fn visible_layout(
     node: &c::Layout,
     dx: f32,
     dy: f32,
     viewport: Rect,
     markdown_scroll: &HashMap<ItemId, f32>,
+    runs: &mut dyn stream_motion::Runs,
 ) -> Option<c::Layout> {
     let rect = Rect::new(node.rect.x + dx, node.rect.y + dy, node.rect.w, node.rect.h);
     let visible = intersection(rect, viewport);
     if visible.w <= 0. || visible.h <= 0. {
+        runs.skip(node);
         return None;
     }
     if let c::LayoutKind::Named(name) = &node.kind
@@ -2007,7 +2081,14 @@ fn visible_layout(
                     .children
                     .iter()
                     .filter_map(|child| {
-                        visible_layout(child, dx, dy + offset[1] - y, visible, markdown_scroll)
+                        visible_layout(
+                            child,
+                            dx,
+                            dy + offset[1] - y,
+                            visible,
+                            markdown_scroll,
+                            runs,
+                        )
                     })
                     .collect(),
             }],
@@ -2015,18 +2096,18 @@ fn visible_layout(
     }
     let kind = match &node.kind {
         c::LayoutKind::Text {
-            runs,
+            runs: text_runs,
             selectable,
             ellipsis,
             shadow,
         } => c::LayoutKind::Text {
             runs: runs
-                .iter()
+                .visit(text_runs)
+                .into_iter()
                 .filter(|r| {
                     r.rect.bottom() + dy >= viewport.y && r.rect.y + dy <= viewport.bottom()
                 })
-                .map(|r| {
-                    let mut r = r.clone();
+                .map(|mut r| {
                     r.rect.x += dx;
                     r.rect.y += dy;
                     r.baseline += dy;
@@ -2039,15 +2120,26 @@ fn visible_layout(
         },
         other => other.clone(),
     };
+    let name = match &node.kind {
+        c::LayoutKind::Named(name) => Some(name.as_str()),
+        _ => None,
+    };
+    if let Some(name) = name {
+        runs.enter(name);
+    }
+    let children = node
+        .children
+        .iter()
+        .filter_map(|child| visible_layout(child, dx, dy, viewport, markdown_scroll, runs))
+        .collect();
+    if let Some(name) = name {
+        runs.leave(name);
+    }
     Some(c::Layout {
         rect,
         baseline: node.baseline,
         kind,
-        children: node
-            .children
-            .iter()
-            .filter_map(|child| visible_layout(child, dx, dy, viewport, markdown_scroll))
-            .collect(),
+        children,
     })
 }
 pub(super) fn translate(node: &mut c::Layout, dx: f32, dy: f32) {

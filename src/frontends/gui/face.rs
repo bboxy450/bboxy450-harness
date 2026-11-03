@@ -259,7 +259,44 @@ fn polys(lines: &[Poly]) -> Vec<P> {
         .collect()
 }
 pub fn icon(name: &str, color: Rgba, size: f32, weight: f32) -> c::Element {
-    let cmds: Vec<P> = match name {
+    icon_turned(name, color, size, weight, 0.)
+}
+/// `icon` turned clockwise by `deg` about its centre (the chevron open at 90°).
+pub fn icon_turned(name: &str, color: Rgba, size: f32, weight: f32, deg: f32) -> c::Element {
+    let k = size / 16.;
+    c::Element::Path(c::Path {
+        size: [size, size],
+        points: Arc::from(icon_points(name, size, deg)),
+        stroke: PathStroke {
+            width: weight * k,
+            cap: LineCap::Round,
+            join: LineJoin::Round,
+            ..Default::default()
+        },
+        paint: paint(color),
+        fill: None,
+        opacity: 1.,
+    })
+}
+/// The glyph's commands in a `size` slot, turned by `deg`: what a motion pass rebuilds
+/// when it turns a chevron or spins the think icon.
+pub fn icon_points(name: &str, size: f32, deg: f32) -> Vec<P> {
+    let k = size / 16.;
+    let cmds = if deg == 0. {
+        icon_commands(name)
+    } else {
+        super::stream_motion::turned(&icon_commands(name), deg, [8., 8.])
+    };
+    cmds.into_iter()
+        .map(|c| match c {
+            P::Move(p) => P::Move([p[0] * k, p[1] * k]),
+            P::Line(p) => P::Line([p[0] * k, p[1] * k]),
+            P::Cubic(ps) => P::Cubic(ps.map(|p| [p[0] * k, p[1] * k])),
+        })
+        .collect()
+}
+fn icon_commands(name: &str) -> Vec<P> {
+    match name {
         "read" => polys(&[
             vec![
                 [4., 1.75],
@@ -423,29 +460,7 @@ pub fn icon(name: &str, color: Rgba, size: f32, weight: f32) -> c::Element {
             [6.4, 6.4],
             [8., 2.],
         ]]),
-    };
-    let k = size / 16.;
-    let scaled: Vec<P> = cmds
-        .into_iter()
-        .map(|c| match c {
-            P::Move(p) => P::Move([p[0] * k, p[1] * k]),
-            P::Line(p) => P::Line([p[0] * k, p[1] * k]),
-            P::Cubic(ps) => P::Cubic(ps.map(|p| [p[0] * k, p[1] * k])),
-        })
-        .collect();
-    c::Element::Path(c::Path {
-        size: [size, size],
-        points: Arc::from(scaled),
-        stroke: PathStroke {
-            width: weight * k,
-            cap: LineCap::Round,
-            join: LineJoin::Round,
-            ..Default::default()
-        },
-        paint: paint(color),
-        fill: None,
-        opacity: 1.,
-    })
+    }
 }
 /// A centred icon in a square tile (tool kind, status disc).
 pub fn tile(icon_el: c::Element, side: f32, radius: f32, bg: Rgba) -> c::Element {
@@ -799,12 +814,15 @@ pub fn receipt(r: Receipt, ink: &Ink) -> c::Element {
             9.,
             c,
         )),
-        fixed(line(
-            if r.ok { "Done".to_owned() } else { r.reason },
-            12.5,
-            650,
-            ink.fg,
-            false,
+        fixed(named(
+            format!("{}/title", r.key),
+            line(
+                if r.ok { "Done".to_owned() } else { r.reason },
+                12.5,
+                650,
+                ink.fg,
+                false,
+            ),
         )),
     ];
     let mut facts = vec![];
@@ -820,11 +838,13 @@ pub fn receipt(r: Receipt, ink: &Ink) -> c::Element {
     if let Some((i, o)) = r.tokens.filter(|t| t.0 > 0) {
         facts.push(format!("{} in · {} out", kilo(i), kilo(o)));
     }
-    kids.extend(
-        facts
-            .into_iter()
-            .map(|t| fixed(line(t, 11.5, 400, ink.dim, false))),
-    );
+    // each fact is named: the motion pass counts its numbers up as the receipt arrives
+    kids.extend(facts.into_iter().enumerate().map(|(i, t)| {
+        fixed(named(
+            format!("{}/fact/{i}", r.key),
+            line(t, 11.5, 400, ink.dim, false),
+        ))
+    }));
     if r.folded > 0 {
         kids.push(fixed(hstack(
             vec![
@@ -1029,17 +1049,20 @@ pub enum Status {
     /// interrupted / cancelled: a dim stop disc, default border, not red
     Stopped,
 }
+/// Three 3px seat dots (.hx-dots): a running card's status, a live thought's tail. At rest
+/// they step 1 → .75 → .5; a motion pass bounces them.
+pub fn dots(seat: Rgba) -> c::Element {
+    hstack(
+        [1., 0.75, 0.5]
+            .into_iter()
+            .map(|a| fixed(dot(3., alpha(seat, a))))
+            .collect(),
+        2.,
+    )
+}
 pub fn status_disc(st: &Status, ink: &Ink) -> c::Element {
     match st {
-        Status::Running => runs(
-            vec![
-                ("running ".into(), ink.dim, 500, false),
-                ("•••".into(), ink.seat, 700, false),
-            ],
-            11.,
-            false,
-            false,
-        ),
+        Status::Running => dots(ink.seat),
         Status::Asking => icon("shield", ink.ask, 14., 1.6),
         Status::Done => tile(icon("check", ink.surface, 11., 2.4), 18., 9., ink.ok),
         Status::Failed | Status::Denied => tile(icon("x", ink.surface, 11., 2.4), 18., 9., ink.bad),
@@ -1175,6 +1198,10 @@ pub fn card(status: &Status, children: Vec<c::Item>, ink: &Ink) -> c::Element {
     )
 }
 pub fn body(children: Vec<c::Item>) -> c::Item {
+    body_el(children).into()
+}
+/// The card body (.hx-tb): what a fold reveals.
+pub fn body_el(children: Vec<c::Item>) -> c::Element {
     frame(
         Frame {
             padding: [0., 10., 10., 10.],
@@ -1183,7 +1210,6 @@ pub fn body(children: Vec<c::Item>) -> c::Item {
         },
         children,
     )
-    .into()
 }
 pub fn hits(out: &str, pattern: &str, cwd: &str, ink: &Ink) -> c::Element {
     let re = regex::Regex::new(pattern).ok();
@@ -1309,11 +1335,15 @@ pub fn loop_head(key: &str, counts: &str, open: bool, ink: &Ink) -> c::Element {
                     },
                     vec![fixed(line("folded", 10.5, 400, ink.dim, false))],
                 )),
-                fixed(icon(
-                    if open { "chevdown" } else { "chev" },
-                    alpha(ink.dim, 0.6),
-                    12.,
-                    1.5,
+                fixed(named(
+                    format!("{key}/chev"),
+                    icon_turned(
+                        "chev",
+                        alpha(ink.dim, 0.6),
+                        12.,
+                        1.5,
+                        if open { 90. } else { 0. },
+                    ),
                 )),
             ],
         ),
@@ -1359,39 +1389,45 @@ pub fn thought_row(
         Some(ms) if ms >= 100 => format!("Thought for {}", duration(ms)),
         _ => "Thought".to_owned(),
     };
-    named(
-        key.to_owned(),
-        hstack(
-            vec![
-                fixed(icon(
-                    "think",
-                    if live { ink.seat } else { ink.dim },
-                    14.,
-                    1.5,
-                )),
-                fixed(line(label, 12.5, 650, ink.fg, false)),
-                // .hx-gist: ellipsised, the chevron right after it (.hx-tk is inline flex)
-                c::Item {
-                    element: line(gist, 12.5, 400, alpha(ink.dim, 0.75), false),
-                    extent: c::Extent::Content {
-                        grow: 0.,
-                        shrink: 1.,
-                        min: 0.,
-                        max: None,
-                        max_fraction: None,
-                    },
-                },
-                fixed(icon(
-                    if open { "chevdown" } else { "chev" },
-                    alpha(ink.dim, 0.6),
-                    12.,
-                    1.5,
-                )),
-                spacer(),
-            ],
-            7.,
-        ),
-    )
+    // .hx-tk: the icon, the label, then (settled only) the gist and the chevron; live, the
+    // label trails three dots. Each part is named for the motion pass.
+    let mut kids = vec![
+        fixed(named(
+            format!("{key}/icon"),
+            icon("think", if live { ink.seat } else { ink.dim }, 14., 1.5),
+        )),
+        fixed(named(
+            format!("{key}/label"),
+            line(label, 12.5, 650, ink.fg, false),
+        )),
+    ];
+    if live {
+        kids.push(fixed(named(format!("{key}/dots"), dots(ink.seat))));
+    } else {
+        // .hx-gist: ellipsised, the chevron right after it (.hx-tk is inline flex)
+        kids.push(c::Item {
+            element: line(gist, 12.5, 400, alpha(ink.dim, 0.75), false),
+            extent: c::Extent::Content {
+                grow: 0.,
+                shrink: 1.,
+                min: 0.,
+                max: None,
+                max_fraction: None,
+            },
+        });
+        kids.push(fixed(named(
+            format!("{key}/chev"),
+            icon_turned(
+                "chev",
+                alpha(ink.dim, 0.6),
+                12.,
+                1.5,
+                if open { 90. } else { 0. },
+            ),
+        )));
+    }
+    kids.push(spacer());
+    named(key.to_owned(), hstack(kids, 7.))
 }
 pub fn thought_body(child: c::Element, ink: &Ink) -> c::Element {
     let gap = 12.;

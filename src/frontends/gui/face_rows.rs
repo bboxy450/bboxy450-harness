@@ -276,7 +276,13 @@ impl Preparer {
                         content_width - 36.,
                         &self.metrics,
                     )?;
-                    kids.push(f::loop_body(doc.element.clone(), &ink).into());
+                    kids.push(
+                        named(
+                            format!("loopbody/{id}"),
+                            f::loop_body(doc.element.clone(), &ink),
+                        )
+                        .into(),
+                    );
                     rich = Some(doc);
                 } else {
                     // folded rows stay addressable while the card is closed
@@ -294,13 +300,17 @@ impl Preparer {
                     content_width,
                     &self.metrics,
                 )?;
-                let base = if face.source {
-                    let mut t = f::text(markdown.clone(), 12., 400, ink.fg, true);
-                    t.preserve_whitespace = true;
-                    c::Element::Text(t)
-                } else {
-                    doc.element.clone()
-                };
+                // `stream/{id}`: the text a chunk fade counts glyphs in (stream_motion)
+                let base = named(
+                    format!("stream/{id}"),
+                    if face.source {
+                        let mut t = f::text(markdown.clone(), 12., 400, ink.fg, true);
+                        t.preserve_whitespace = true;
+                        c::Element::Text(t)
+                    } else {
+                        doc.element.clone()
+                    },
+                );
                 let toggle = named(
                     format!("source/{id}/toggle"),
                     f::line(
@@ -378,7 +388,10 @@ impl Preparer {
                     kids.push(
                         named(
                             format!("reasoning/{id}/body"),
-                            f::thought_body(c::Element::Text(text), &ink),
+                            f::thought_body(
+                                named(format!("stream/{id}"), c::Element::Text(text)),
+                                &ink,
+                            ),
                         )
                         .into(),
                     );
@@ -514,16 +527,20 @@ impl Preparer {
                             &ink,
                         )
                         .into(),
-                        f::body(vec![
-                            f::terminal(
-                                &format!("term/{id}"),
-                                command.trim_start_matches("bash -c "),
-                                out.map(|o| f::term_output(&o, &ink)),
-                                *exit,
-                                &ink,
-                            )
-                            .into(),
-                        ]),
+                        named(
+                            format!("toolbody/{id}"),
+                            f::body_el(vec![
+                                f::terminal(
+                                    &format!("term/{id}"),
+                                    command.trim_start_matches("bash -c "),
+                                    out.map(|o| f::term_output(&o, &ink)),
+                                    *exit,
+                                    &ink,
+                                )
+                                .into(),
+                            ]),
+                        )
+                        .into(),
                     ],
                     &ink,
                 )
@@ -550,9 +567,13 @@ impl Preparer {
                             &ink,
                         )
                         .into(),
-                        f::body(vec![
-                            f::diff_view(&format!("diff/{id}"), unified, &ink).into(),
-                        ]),
+                        named(
+                            format!("toolbody/{id}"),
+                            f::body_el(vec![
+                                f::diff_view(&format!("diff/{id}"), unified, &ink).into(),
+                            ]),
+                        )
+                        .into(),
                     ],
                     &ink,
                 )
@@ -922,7 +943,7 @@ impl Preparer {
             }
         }
         if !inside.is_empty() {
-            kids.push(f::body(inside));
+            kids.push(named(format!("toolbody/{id}"), f::body_el(inside)).into());
         }
         let _ = d.name;
         Ok((

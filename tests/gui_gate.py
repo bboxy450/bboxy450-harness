@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix='harness-gui-tests-', dir='/tmp') as own
     for command in [
         ['python3', '-I', 'tests/gui_dependencies.py'],
         ['cargo', 'clippy', '--offline', '--locked', '--all-features', '--lib', '--bin', 'bboxy450-harness', '--', '-D', 'warnings'],
-        ['cargo', 'test', '--offline', '--locked', '--features', 'standalone,test-fixtures', '--test', 'gui_rich', '--test', 'gui_render', '--test', 'gui_bridge', '--test', 'gui_fixtures', '--test', 'gui_budget', '--test', 'gui_cli', '--test', 'gui_motion', '--test', 'gui_menu_motion', '--test', 'capability_delivery', '--', '--nocapture'],
+        ['cargo', 'test', '--offline', '--locked', '--features', 'standalone,test-fixtures', '--test', 'gui_rich', '--test', 'gui_render', '--test', 'gui_bridge', '--test', 'gui_fixtures', '--test', 'gui_budget', '--test', 'gui_cli', '--test', 'gui_motion', '--test', 'gui_menu_motion', '--test', 'gui_motion_stream', '--test', 'capability_delivery', '--', '--nocapture'],
         ['make', 'test-gui-smoke'],
     ]:
         print('gui-test: ' + ' '.join(command), flush=True)

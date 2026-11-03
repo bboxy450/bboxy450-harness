@@ -32,3 +32,5 @@ pub mod editor;
 pub mod face;
 #[cfg(feature = "embedded")]
 pub mod menu;
+#[cfg(feature = "embedded")]
+pub mod stream_motion;
