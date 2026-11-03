@@ -162,9 +162,13 @@ pub struct Frame {
     pub layout: Option<c::Layout>,
     pub visible: Vec<(ItemId, ItemKind, Rect)>,
     pub actions: Vec<(Rect, Action)>,
+    /// Pointer hover zones of the open menu: the row name under each rect.
+    pub hover: Vec<(Rect, String)>,
     pub scroll: f32,
     pub max_scroll: f32,
     pub timings: [std::time::Duration; 5],
+    /// Primitive count of the frame under the menus; the menus' primitives follow it.
+    pub base: usize,
 }
 impl Frame {
     pub fn item_text(&self, id: ItemId) -> Option<String> {
@@ -228,6 +232,58 @@ pub struct HarnessView {
     entering: HashSet<ItemId>,
     /// Clock time of the last composer edit: the caret stays solid for 500 ms after it.
     last_edit: f32,
+    /// Menu motion state: the card the last frame painted, the row under the
+    /// pointer and the closed card still fading out.
+    menus: Menus,
+}
+/// Which floating menu is open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MenuKind {
+    Slash,
+    Profiles,
+}
+impl MenuKind {
+    fn id(self) -> &'static str {
+        match self {
+            MenuKind::Slash => "menu/slash",
+            MenuKind::Profiles => "menu/profiles",
+        }
+    }
+}
+/// A painted card: its kind, solved layout, selection highlight and opacity.
+struct Card {
+    kind: MenuKind,
+    layout: c::Layout,
+    sel: Option<Rect>,
+    opacity: f32,
+}
+#[derive(Default)]
+struct Menus {
+    /// The card the last frame painted.
+    last: Option<Card>,
+    /// The closed card, fading out over 120ms `std` until it is gone.
+    ghost: Option<Card>,
+    /// The row name under the pointer.
+    hover: Option<String>,
+    /// The hover changed: the frame must be rebuilt although nothing else did.
+    dirty: bool,
+}
+/// harness-spec.md Motion table, the menu rows: open 170ms `out`, close
+/// 120ms `std`, selection 120ms `std`, hover 150ms `std`.
+/// scripts/test-motion-control.py zeroes these: every tween must then snap
+/// and tests/gui_menu_motion.rs must go red.
+const MENU_OPEN_MS: f32 = 170.;
+const MENU_CLOSE_MS: f32 = 120.;
+const MENU_SELECT_MS: f32 = 120.;
+const MENU_HOVER_MS: f32 = 150.;
+/// One frame of a menu's motion: the card's opacity, drop and scale, and the
+/// sliding selection highlight.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MenuMotion {
+    pub opacity: f32,
+    pub dy: f32,
+    pub scale: f32,
+    pub sel: Option<Rect>,
 }
 impl Default for HarnessView {
     fn default() -> Self {
@@ -261,6 +317,7 @@ impl Default for HarnessView {
             known_scope: None,
             entering: HashSet::new(),
             last_edit: 0.,
+            menus: Menus::default(),
         }
     }
 }
@@ -427,7 +484,9 @@ impl HarnessView {
             self.focused,
             self.profile_menu
         );
+        // a hover change rebuilds too: the menu row's fill starts its fade
         if !self.anim.in_motion()
+            && !self.menus.dirty
             && self
                 .cached
                 .as_ref()
@@ -741,81 +800,11 @@ impl HarnessView {
                 frame.actions.push((node.rect, action));
             }
         }
-        if let Some(popover) = &self.completion {
-            // Spec: left 12, bottom 4px into the composer's top padding.
-            let bottom = 40. + rows_h + 4.;
-            // 32 px rows under ~84 px of labels, insets and footer; at most 8
-            let max_rows = ((bottom - 44. - 84.) / 32.).floor().max(1.) as usize;
-            // The card's surface_2 fill is opaque: transcript ink never shows through.
-            let mut popup = named(
-                "completion-overlay",
-                super::menu::slash_menu(popover, &self.profiles, max_rows, &ink),
-            );
-            flat(&mut popup);
-            let mut popup = popup.layout(
-                Rect::new(12., 0., super::menu::slash_menu_width(width), 0.),
-                ctx,
-                &self.metrics,
-            )?;
-            let top = (bottom - popup.rect.h).max(44.);
-            translate(&mut popup, 0., top);
-            for (i, choice) in popover.choices.options.iter().enumerate() {
-                if let Some(node) = find(&popup, &format!("completion/{i}")) {
-                    frame.actions.insert(
-                        0,
-                        (
-                            node.rect,
-                            Action::Complete(popover.request.clone(), choice.label.clone()),
-                        ),
-                    );
-                }
-            }
-            paint_overlay(&mut frame.list, &popup, ctx, &ink)?;
-            // the selected row's 2px seat bar, inset 8px top and bottom
-            if let Some(node) = popover
-                .choices
-                .selected()
-                .and_then(|i| find(&popup, &format!("completion/{i}")))
-            {
-                let r = node.rect;
-                frame.list.rect(
-                    Rect::new(r.x - 3., r.y + 8., 2., (r.h - 16.).max(1.)),
-                    1.,
-                    Color(ink.seat),
-                );
-            }
-        }
-        if let Some(menu) = &self.profile_menu {
-            let current = model
-                .profile
-                .as_ref()
-                .map(|(p, m)| (p.as_str(), m.as_str()));
-            let mut popup = menu.element(&self.profiles, current, &ink);
-            flat(&mut popup);
-            let popup = popup.layout(
-                Rect::new(10., 40., super::menu::profile_menu_width(width), 0.),
-                ctx,
-                &self.metrics,
-            )?;
-            frame.actions.insert(0, (popup.rect, Action::Menu(true)));
-            if let Some(node) = find(&popup, "pmenu/new") {
-                frame.actions.insert(0, (node.rect, Action::NewProfile));
-            }
-            for p in menu.rows(&self.profiles) {
-                if let Some(node) = find(&popup, &format!("pmenu/row/{}", p.name)) {
-                    frame
-                        .actions
-                        .insert(0, (node.rect, Action::SwitchProfile(p.name.clone())));
-                }
-            }
-            frame
-                .actions
-                .push((Rect::new(0., 0., width, size[1]), Action::Menu(false)));
-            paint_overlay(&mut frame.list, &popup, ctx, &ink)?;
-        }
         frame.layout = Some(layout);
         self.scroll.layout_solved();
         self.frame = frame;
+        // the floating menus over everything, with this frame's motion
+        self.paint_menus(state, size, rows_h)?;
         // the clock forgets what nobody asked for and decides whether a frame follows
         self.anim.end_frame();
         self.cached = Some((
@@ -827,6 +816,211 @@ impl HarnessView {
             state.prepared.clone(),
         ));
         Ok(&self.frame)
+    }
+    /// Paint the floating menus over the frame: the open card with this frame's
+    /// motion, its hit zones (front of `actions`) and hover rows, and the card
+    /// that closed, fading. Its tweens are read every frame a card shows, so
+    /// the clock keeps them and a change tweens from where the value is.
+    fn paint_menus(
+        &mut self,
+        state: &FrameState,
+        size: [f32; 2],
+        rows_h: f32,
+    ) -> Result<(), String> {
+        let ctx = context();
+        let ink = super::face::ink(ctx);
+        let width = size[0].max(240.);
+        self.frame.base = self.frame.list.primitives.len();
+        let mut hover = vec![];
+        let mut front = vec![];
+        let hovered = self.menus.hover.clone();
+        let open = if let Some(popover) = &self.completion {
+            // Spec: left 12, bottom 4px into the composer's top padding.
+            let bottom = 40. + rows_h + 4.;
+            // 32 px rows under ~84 px of labels, insets and footer; at most 8
+            let max_rows = ((bottom - 44. - 84.) / 32.).floor().max(1.) as usize;
+            let selected = super::menu::slash_selected_key(popover);
+            let keys: Vec<String> = (0..popover.choices.options.len())
+                .map(|i| format!("completion/{i}"))
+                .collect();
+            let look = look(
+                &mut self.anim,
+                &keys,
+                selected.as_deref(),
+                hovered.as_deref(),
+            );
+            // The card's surface_2 fill is opaque: transcript ink never shows through.
+            let mut popup = named(
+                "completion-overlay",
+                super::menu::slash_menu(popover, &self.profiles, max_rows, &ink, &look),
+            );
+            flat(&mut popup);
+            let mut popup = popup.layout(
+                Rect::new(12., 0., super::menu::slash_menu_width(width), 0.),
+                ctx,
+                &self.metrics,
+            )?;
+            let top = (bottom - popup.rect.h).max(44.);
+            translate(&mut popup, 0., top);
+            for (i, choice) in popover.choices.options.iter().enumerate() {
+                let key = format!("completion/{i}");
+                if let Some(node) = find(&popup, &key) {
+                    front.push((
+                        node.rect,
+                        Action::Complete(popover.request.clone(), choice.label.clone()),
+                    ));
+                    hover.push((node.rect, key));
+                }
+            }
+            Some((MenuKind::Slash, popup, selected, false))
+        } else if let Some(menu) = &self.profile_menu {
+            let current = state
+                .transcript
+                .profile
+                .as_ref()
+                .map(|(p, m)| (p.as_str(), m.as_str()));
+            let selected = menu.selected_key(&self.profiles);
+            let keys: Vec<String> = menu
+                .rows(&self.profiles)
+                .iter()
+                .filter(|p| !super::menu::off(p))
+                .map(|p| format!("pmenu/row/{}", p.name))
+                .collect();
+            let look = look(
+                &mut self.anim,
+                &keys,
+                selected.as_deref(),
+                hovered.as_deref(),
+            );
+            let mut popup = menu.element(&self.profiles, current, &ink, &look);
+            flat(&mut popup);
+            let popup = popup.layout(
+                Rect::new(10., 40., super::menu::profile_menu_width(width), 0.),
+                ctx,
+                &self.metrics,
+            )?;
+            front.push((popup.rect, Action::Menu(true)));
+            if let Some(node) = find(&popup, "pmenu/new") {
+                front.push((node.rect, Action::NewProfile));
+            }
+            for p in menu.rows(&self.profiles) {
+                let key = format!("pmenu/row/{}", p.name);
+                if let Some(node) = find(&popup, &key) {
+                    front.push((node.rect, Action::SwitchProfile(p.name.clone())));
+                    hover.push((node.rect, key));
+                }
+            }
+            Some((MenuKind::Profiles, popup, selected, true))
+        } else {
+            None
+        };
+        // hit-tested front to back: the last row wins first, as inserted at 0
+        front.reverse();
+        self.frame.actions.splice(0..0, front);
+        if open.as_ref().is_some_and(|(.., outside)| *outside) {
+            // a click anywhere else closes the switcher
+            self.frame
+                .actions
+                .push((Rect::new(0., 0., width, size[1]), Action::Menu(false)));
+        }
+        self.frame.hover = hover;
+        let shown = open.as_ref().map(|(kind, ..)| *kind);
+        if shown.is_none() {
+            // nothing to hover: a reopened menu starts clean
+            self.menus.hover = None;
+        }
+        // The card that closed (or gave way to the other kind) fades out from
+        // where it was: 120ms `std`, no movement. Settled clocks drop it at once.
+        if let Some(last) = self.menus.last.take()
+            && shown != Some(last.kind)
+        {
+            self.menus.ghost = Some(last);
+        }
+        if let Some(ghost) = &self.menus.ghost {
+            let opacity = self.anim.enter(
+                &format!("{}/out", ghost.kind.id()),
+                ghost.opacity,
+                0.,
+                MENU_CLOSE_MS,
+                Ease::Std,
+            );
+            if opacity > 0. {
+                let motion = MenuMotion {
+                    opacity,
+                    dy: 0.,
+                    scale: 1.,
+                    sel: ghost.sel,
+                };
+                paint_overlay(
+                    &mut self.frame.list,
+                    &ghost.layout,
+                    ctx,
+                    &ink,
+                    ghost.kind,
+                    &motion,
+                )?;
+            } else {
+                self.menus.ghost = None;
+            }
+        }
+        if let Some((kind, popup, selected, _)) = open {
+            // open: 170ms `out`, a 6px drop, scale .98 → 1 and a fade, one tween
+            let p = self.anim.enter(
+                &format!("{}/in", kind.id()),
+                0.,
+                1.,
+                MENU_OPEN_MS,
+                Ease::Out,
+            );
+            // the selection highlight slides between rows over 120ms `std`;
+            // on first sight it sits on its row
+            let sel = selected.and_then(|k| find(&popup, &k)).map(|n| {
+                let r = n.rect;
+                let id = kind.id();
+                let y = self
+                    .anim
+                    .tween(&format!("{id}/sel/y"), r.y, MENU_SELECT_MS, Ease::Std);
+                let h = self
+                    .anim
+                    .tween(&format!("{id}/sel/h"), r.h, MENU_SELECT_MS, Ease::Std);
+                Rect::new(r.x, y, r.w, h)
+            });
+            let motion = MenuMotion {
+                opacity: p,
+                dy: -6. * (1. - p),
+                scale: 0.98 + 0.02 * p,
+                sel,
+            };
+            paint_overlay(&mut self.frame.list, &popup, ctx, &ink, kind, &motion)?;
+            self.menus.last = Some(Card {
+                kind,
+                layout: popup,
+                sel,
+                opacity: p,
+            });
+        }
+        self.menus.dirty = false;
+        Ok(())
+    }
+    /// The pointer moved to `at`: track the menu row under it. True when the
+    /// hovered row changed, so the host repaints.
+    pub fn pointer(&mut self, at: [f32; 2]) -> bool {
+        let key = self
+            .frame
+            .hover
+            .iter()
+            .find(|(r, _)| at[0] >= r.x && at[0] < r.right() && at[1] >= r.y && at[1] < r.bottom())
+            .map(|(_, k)| k.clone());
+        if key == self.menus.hover {
+            return false;
+        }
+        self.menus.hover = key;
+        self.menus.dirty = true;
+        true
+    }
+    /// The row the pointer rests on, when it is over an open menu.
+    pub fn hovered(&self) -> Option<&str> {
+        self.menus.hover.as_deref()
     }
     fn profile_names(&self) -> Vec<String> {
         self.profiles.iter().map(|p| p.name.clone()).collect()
@@ -1162,24 +1356,163 @@ pub fn intersection(a: Rect, b: Rect) -> Rect {
         (a.bottom().min(b.bottom()) - y).max(0.),
     )
 }
+/// The per-row look of a menu this frame: each row's selected weight (120ms
+/// `std`) and hover weight (150ms `std`), read from the clock for every row
+/// so a change tweens from where the row is. First sight is the end state.
+fn look(
+    anim: &mut Clock,
+    keys: &[String],
+    selected: Option<&str>,
+    hovered: Option<&str>,
+) -> super::menu::Look {
+    let mut look = super::menu::Look::default();
+    for key in keys {
+        let target = |on: bool| if on { 1. } else { 0. };
+        let sel = anim.tween(
+            &format!("{key}/sel"),
+            target(selected == Some(key.as_str())),
+            MENU_SELECT_MS,
+            Ease::Std,
+        );
+        let hover = anim.tween(
+            &format!("{key}/hover"),
+            target(hovered == Some(key.as_str())),
+            MENU_HOVER_MS,
+            Ease::Std,
+        );
+        if sel > 0. {
+            look.sel.push((key.clone(), sel));
+        }
+        if hover > 0. {
+            look.hover.push((key.clone(), hover));
+        }
+    }
+    look
+}
 /// A floating menu over the frame. Spec flat fallback: no drop shadow, a 1px
-/// bg line under the bottom edge.
+/// bg line under the bottom edge. The card chrome paints first, then the
+/// sliding selection highlight, then the rows over it; the whole card then
+/// takes the frame's drop, scale (about its centre, as CSS) and opacity.
 fn paint_overlay(
     list: &mut DrawList,
     popup: &c::Layout,
     ctx: ui::Context,
     ink: &super::face::Ink,
+    kind: MenuKind,
+    motion: &MenuMotion,
 ) -> Result<(), String> {
-    for paint in c::paint(popup, ctx) {
-        append_paint(list, paint)?;
+    use super::face::alpha;
+    let mut chrome = popup.clone();
+    if let Some(rows) = find_mut(&mut chrome, super::menu::LIST) {
+        rows.children.clear();
+    }
+    let mut prims = DrawList::default();
+    for paint in c::paint(&chrome, ctx) {
+        append_paint(&mut prims, paint)?;
+    }
+    if let Some(r) = motion.sel {
+        match kind {
+            // seat-14, radius 8, and the 2px seat bar inset 8px top and bottom
+            MenuKind::Slash => {
+                prims.rect(r, 8., Color(alpha(ink.seat, 0.14)));
+                prims.rect(
+                    Rect::new(r.x - 3., r.y + 8., 2., (r.h - 16.).max(1.)),
+                    1.,
+                    Color(ink.seat),
+                );
+            }
+            MenuKind::Profiles => prims.rect(r, 9., Color(alpha(ink.seat, 0.12))),
+        }
+    }
+    if let Some(rows) = find(popup, super::menu::LIST) {
+        for paint in c::paint(rows, ctx) {
+            append_paint(&mut prims, paint)?;
+        }
     }
     let r = popup.rect;
-    list.rect(
+    prims.rect(
         Rect::new(r.x + 13., r.bottom(), (r.w - 26.).max(0.), 1.),
         0.,
         Color(ink.bg),
     );
+    if motion.scale != 1. || motion.dy != 0. {
+        transform(
+            &mut prims.primitives,
+            motion.scale,
+            [r.x + r.w / 2., r.y + r.h / 2.],
+            motion.dy,
+        );
+    }
+    if motion.opacity < 1. {
+        list.push(bbt_ui_model::draw::Prim::Group {
+            primitives: prims.primitives,
+            opacity: motion.opacity.max(0.),
+            saturation: 1.,
+            mask: None,
+        });
+    } else {
+        list.primitives.extend(prims.primitives);
+    }
     Ok(())
+}
+/// Scale primitives by `s` about `origin`, then shift them down by `dy`. Text
+/// keeps its glyph size and width: at the .98 a menu opens from, a 2% larger
+/// run is invisible, while a 2% narrower max width would ellipsize it.
+fn transform(prims: &mut [bbt_ui_model::draw::Prim], s: f32, origin: [f32; 2], dy: f32) {
+    use bbt_ui_model::draw::Prim;
+    let pt = |p: [f32; 2]| {
+        [
+            origin[0] + (p[0] - origin[0]) * s,
+            origin[1] + (p[1] - origin[1]) * s + dy,
+        ]
+    };
+    let rect = |r: Rect| {
+        let [x, y] = pt([r.x, r.y]);
+        Rect::new(x, y, r.w * s, r.h * s)
+    };
+    for prim in prims {
+        match prim {
+            Prim::Rect { rect: r, .. }
+            | Prim::Gloss { rect: r, .. }
+            | Prim::Icon { rect: r, .. }
+            | Prim::Image { rect: r, .. }
+            | Prim::Clip { rect: r, .. } => *r = rect(*r),
+            Prim::Hairline { from, to, .. } => {
+                *from = pt(*from);
+                *to = pt(*to);
+            }
+            Prim::Text {
+                origin: o,
+                baseline,
+                ..
+            }
+            | Prim::TextShadow {
+                origin: o,
+                baseline,
+                ..
+            } => {
+                *o = pt(*o);
+                if let Some(b) = baseline {
+                    *b = origin[1] + (*b - origin[1]) * s + dy;
+                }
+            }
+            Prim::Path {
+                origin: o,
+                scale: ps,
+                ..
+            }
+            | Prim::PathShadow {
+                origin: o,
+                scale: ps,
+                ..
+            } => {
+                *o = pt(*o);
+                *ps *= s;
+            }
+            Prim::Group { primitives, .. } => transform(primitives, s, origin, dy),
+            Prim::Unclip => {}
+        }
+    }
 }
 fn append_paint(list: &mut DrawList, paint: c::Paint) -> Result<(), String> {
     match paint {

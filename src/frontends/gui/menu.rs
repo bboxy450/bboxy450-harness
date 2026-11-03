@@ -26,6 +26,38 @@ pub fn slash_menu_width(width: f32) -> f32 {
 }
 /// The "/" menu shows at most eight rows.
 pub const SLASH_ROWS: usize = 8;
+/// The card's row list, split from the card chrome so the view can paint the
+/// sliding selection highlight between them (harness-spec.md Motion).
+pub const LIST: &str = "menu/list";
+
+/// Per-row animated weights in 0..1, keyed by row name: `sel` is how far a
+/// row wears the selected look (the "/" tile tint), `hover` its pointer fill.
+/// The sliding selection fill itself is painted by the view under [`LIST`].
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Look {
+    pub sel: Vec<(String, f32)>,
+    pub hover: Vec<(String, f32)>,
+}
+impl Look {
+    /// The settled look: one row fully selected, nothing hovered.
+    pub fn settled(selected: Option<String>) -> Self {
+        Self {
+            sel: selected.into_iter().map(|k| (k, 1.)).collect(),
+            hover: vec![],
+        }
+    }
+    fn weight(list: &[(String, f32)], key: &str) -> f32 {
+        list.iter()
+            .find(|(k, _)| k == key)
+            .map_or(0., |(_, w)| w.clamp(0., 1.))
+    }
+    pub fn sel(&self, key: &str) -> f32 {
+        Self::weight(&self.sel, key)
+    }
+    pub fn hover(&self, key: &str) -> f32 {
+        Self::weight(&self.hover, key)
+    }
+}
 
 /// Spec flat fallback: solid surface_2 instead of the blurred surface glass.
 const SURFACE_2: &str = "#1B1F3F";
@@ -339,12 +371,18 @@ impl ProfileMenu {
             .copied()
             .filter(|p| !off(p))
     }
+    /// The name of the keyboard-selected row, when it can be chosen.
+    pub fn selected_key(&self, profiles: &[ProfileInfo]) -> Option<String> {
+        self.chosen(profiles)
+            .map(|p| format!("pmenu/row/{}", p.name))
+    }
     /// Choosable rows are named `pmenu/row/{name}`; the footer link `pmenu/new`.
     pub fn element(
         &self,
         profiles: &[ProfileInfo],
         current: Option<(&str, &str)>,
         ink: &Ink,
+        look: &Look,
     ) -> c::Element {
         let rows = self.rows(profiles);
         let mut list: Vec<c::Item> = vec![];
@@ -353,7 +391,7 @@ impl ProfileMenu {
         {
             list.push(profile_row(
                 "pmenu/current".into(),
-                (true, false, false),
+                (true, 0., false),
                 tile(
                     runs(
                         vec![("·".into(), hex("#FFFFFF"), 800, false)],
@@ -419,13 +457,15 @@ impl ProfileMenu {
                 tail.push(fixed(tight(kilo(n), 10.5, 400, ink.dim, false)));
             }
             tail.push(fixed(auth_chip(p, ink)));
+            let key = if off(p) {
+                format!("pmenu/off/{}", p.name)
+            } else {
+                format!("pmenu/row/{}", p.name)
+            };
+            let hover = if off(p) { 0. } else { look.hover(&key) };
             list.push(profile_row(
-                if off(p) {
-                    format!("pmenu/off/{}", p.name)
-                } else {
-                    format!("pmenu/row/{}", p.name)
-                },
-                (on, i == self.selected, off(p)),
+                key,
+                (on, hover, off(p)),
                 mark_tile(p, 24.),
                 vec![
                     fixed(frame(
@@ -517,12 +557,15 @@ impl ProfileMenu {
         card(
             vec![
                 fixed(search),
-                fixed(frame(
-                    Frame {
-                        padding: [0., 6., 6., 6.],
-                        ..Default::default()
-                    },
-                    list,
+                fixed(named(
+                    LIST,
+                    frame(
+                        Frame {
+                            padding: [0., 6., 6., 6.],
+                            ..Default::default()
+                        },
+                        list,
+                    ),
                 )),
                 fixed(hairline(ink)),
                 fixed(foot),
@@ -555,21 +598,19 @@ fn kind_group(glyph: &str, label: &str, count: usize, ink: &Ink) -> c::Item {
     ))
 }
 /// .hx-prow: padding 6 8, radius 9, gap 9; tile, name block, spacer, tail, check.
+/// The current row is seat-9; a hover fades to seat-12 over it (the web's
+/// `:hover:not(.off)` wins over `.on`). The keyboard selection's seat-12 is the
+/// view's sliding highlight, painted under the list.
 fn profile_row(
     key: String,
-    (on, selected, off): (bool, bool, bool),
+    (on, hover, off): (bool, f32, bool),
     tile_el: c::Element,
     block: Vec<c::Item>,
     tail: Vec<c::Item>,
     ink: &Ink,
 ) -> c::Item {
-    let tint = if selected && !off {
-        alpha(ink.seat, 0.12)
-    } else if on {
-        alpha(ink.seat, 0.09)
-    } else {
-        [0.; 4]
-    };
+    let base = if on { 0.09 } else { 0. };
+    let tint = alpha(ink.seat, base + (0.12 - base) * hover);
     let mut block = frame(Frame::default(), block);
     let mut tile_el = tile_el;
     if off && !on {
@@ -616,12 +657,24 @@ pub fn slash_window(selected: Option<usize>, rows: usize) -> usize {
     selected.map_or(0, |s| (s + 1).saturating_sub(rows.max(1)))
 }
 
+/// The name of the "/" menu's selected row.
+pub fn slash_selected_key(popover: &ui::text_edit::CompletionPopover) -> Option<String> {
+    popover
+        .choices
+        .selected()
+        .map(|i| format!("completion/{i}"))
+}
+
 /// The "/" menu card. Rows are named `completion/{i}`; at most `rows` show.
+/// The selected row's seat-14 fill is the view's sliding highlight under
+/// [`LIST`]; here its tile wears the seat tint by `look.sel`, and a hovered
+/// row fades in `card-hi`.
 pub fn slash_menu(
     popover: &ui::text_edit::CompletionPopover,
     profiles: &[ProfileInfo],
     rows: usize,
     ink: &Ink,
+    look: &Look,
 ) -> c::Element {
     let selected = popover.choices.selected();
     let rows = rows.clamp(1, SLASH_ROWS);
@@ -652,17 +705,15 @@ pub fn slash_menu(
                 ))],
             )));
         }
-        let sel = selected == Some(i);
+        let key = format!("completion/{i}");
+        let sel = look.sel(&key);
+        let hover = look.hover(&key);
         let lead = match (command, profile) {
             (Some((.., glyph)), _) => tile(
-                icon(glyph, if sel { ink.seat } else { ink.dim }, 11., 1.5),
+                icon(glyph, mix(ink.seat, ink.dim, sel), 11., 1.5),
                 18.,
                 5.,
-                if sel {
-                    alpha(ink.seat, 0.16)
-                } else {
-                    card_hi(ink)
-                },
+                mix(alpha(ink.seat, 0.16), card_hi(ink), sel),
             ),
             (None, Some(p)) => mark_tile(p, 18.),
             (None, None) => tile(c::Element::Spacer, 18., 5., card_hi(ink)),
@@ -698,10 +749,10 @@ pub fn slash_menu(
             )));
         }
         list.push(fixed(named(
-            format!("completion/{i}"),
+            key,
             frame(
                 Frame {
-                    fill: if sel { alpha(ink.seat, 0.14) } else { [0.; 4] },
+                    fill: alpha(ink.fg, 0.07 * hover),
                     radius: [8.; 4],
                     padding: [7., 8., 7., 8.],
                     gap: 9.,
@@ -742,12 +793,15 @@ pub fn slash_menu(
     );
     card(
         vec![
-            fixed(frame(
-                Frame {
-                    padding: [4., 6., 4., 6.],
-                    ..Default::default()
-                },
-                list,
+            fixed(named(
+                LIST,
+                frame(
+                    Frame {
+                        padding: [4., 6., 4., 6.],
+                        ..Default::default()
+                    },
+                    list,
+                ),
             )),
             fixed(hairline(ink)),
             fixed(foot),

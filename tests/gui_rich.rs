@@ -1060,7 +1060,13 @@ fn slash_popover_is_a_menu_card_with_details_and_no_debug_keys() {
     let ctx = bboxy450_harness::frontends::gui::view::context();
     let mut popover = view.composer.popover(&["opus".into()]).unwrap();
     popover.handle(bbt_ui::modules::approval::Key::Down);
-    let element = menu::slash_menu(&popover, &state.profiles, 10, &face::ink(ctx));
+    let element = menu::slash_menu(
+        &popover,
+        &state.profiles,
+        10,
+        &face::ink(ctx),
+        &menu::Look::settled(menu::slash_selected_key(&popover)),
+    );
     let metrics = bboxy450_harness::frontends::gui::view::Metrics::default();
     let layout = element
         .layout(

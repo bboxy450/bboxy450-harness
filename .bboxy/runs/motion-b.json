@@ -1,0 +1,29 @@
+{
+  "task": "motion-b",
+  "branch": "motion-b-menus",
+  "base": "motion-a-clock e16e84f (3dca947 Animation clock, 9950097, e16e84f) on origin/main a6440fd",
+  "spec": "bboxy450-term 055e473b lab/web/harness-spec.md: Motion (menu open/close, menu selection, hover), Empty session",
+  "date": "2026-11-02",
+  "sources_sha256": {
+    "src/frontends/gui/anim.rs": "25a3883ba535b91fce2a0de63b8f710d1ad33cf0a3ae924666ca9189927796e3",
+    "src/frontends/gui/view.rs": "9eaa90338359154f4473da97efccf319767d8a57e8034319536a07a6ca9d3047",
+    "src/frontends/gui/menu.rs": "230e0c64df98c39f6ded9443ef47066f45994110aebb51b3a66d4a41b7414a53",
+    "tests/gui_menu_motion.rs": "35c497eb1a98fa0b56eea32ec2f2d0cb308867f22e59a81cb13b5f925dda72d8"
+  },
+  "commands": [
+    {"command": "cargo fmt --check", "exit": 0},
+    {"command": "cargo clippy --offline --locked --all-features --all-targets -- -D warnings", "exit": 0},
+    {"command": "CLIPPY_CONF_DIR=src/frontends/gui/lint cargo clippy --offline --locked --all-features --lib --bin bboxy450-harness -- -D warnings", "exit": 0},
+    {"command": "HOME=<tmp> cargo test --offline --locked --features standalone,test-fixtures --test gui_menu_motion --test gui_motion --test gui_render --test gui_rich --test gui_bridge --test gui_fixtures --test gui_cli", "exit": 0, "passed": [7, 8, 9, 24, 7, 7, 2]},
+    {"command": "python3 -I tests/gui_gate.py", "exit": 0, "commands": [0, 0, 0, 0]},
+    {"command": "python3 -I scripts/test-motion-control.py", "exit": 0, "snapped_exit": 101, "required_failures": 5, "restored_exit": 0},
+    {"command": "python3 -I scripts/checks.py headers|secrets|inventory-shape", "exit": 0},
+    {"command": "LAB=bboxy450-term-harness-ref/lab/web python3 -I scripts/parity-gate.py OUT", "exit": 0, "note": "REFERENCE MOVED; native.png byte-identical to a clock-only (16ec2ab) build on all 7 fixtures; TARGET misses are pre-existing and on the web side"}
+  ],
+  "menu_animation_frame_debug_ms": {"median": 3.7, "max": 9.3, "note": "full rebuild per frame while the clock is in motion, the view's rule for all motion"},
+  "menu_captures_900x1100_glyph_atlas": {
+    "slash": {"mean_abs_diff": 0.0591, "row_structure_mismatch": 0.5109, "note": "web side scrolled differently this run; native card unchanged"},
+    "profiles": {"mean_abs_diff": 0.0416, "row_structure_mismatch": 0.2236}
+  },
+  "operator_input": false
+}

@@ -321,6 +321,8 @@ impl ApplicationHandler<Wake> for App {
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = self.window.as_ref().unwrap().scale_factor() as f32;
                 self.pointer = [position.x as f32 / scale, position.y as f32 / scale];
+                // menu rows take a hover fill (harness-spec.md Motion: hover)
+                self.view.pointer(self.pointer);
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let dy = match delta {
