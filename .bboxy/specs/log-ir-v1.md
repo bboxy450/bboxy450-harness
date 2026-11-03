@@ -127,6 +127,13 @@ Totals across sessions are computed offline, never written.
 
 The render rule for every addition: a face that predates it shows the item kind's neutral placeholder (E4). A face that knows it renders it. Parity fixtures (R27) gain one replay per new kind.
 
+### 4b. v1.2 additions (2026-11-03, [[d5980-agent-initiated-turns-are-first-class]])
+
+| Area | Addition |
+|---|---|
+| Turn origin | `TurnStarted.origin?: TurnOrigin {user \| agent \| unknown}`: who began the turn. Absent means user (every 1.0/1.1 log has only user turns). `agent` is a turn the agent began with no prompt open, such as Claude Code's follow-up after a background job; it has no `UserMessage` and `cause: None` |
+| Quiet end | `StopReason::Quiet{ms}`: the harness closed a turn because the agent gave no end signal and was silent for `ms` with no tool item or permission open. Never written for a turn the agent ended itself; `TurnEnded.usage` stays `None` (never invented) |
+
 ## 5. Gate
 
 | Command | Exit 0 means |
@@ -167,6 +174,7 @@ Consequence: promotion is retroactive. Once a mapping lands, `bboxy450-harness r
 
 ## Change log
 
+- 2026-11-03, Lumen Foxglove <ARCHITECT>: §4b v1.2 additions, `TurnStarted.origin` and `StopReason::Quiet`, from [[d5980-agent-initiated-turns-are-first-class]] (Claude Code wakes itself after a background job; the harness must show that turn, not hide it).
 - 2026-11-02, at the operator's direction ("log into the IR what we could not parse, mark it unknown, and have an automated scanner extend the IR the moment we meet an unknown"): E4 strengthened (payload-carrying `Unknown`), §7 edge rule, §8 scanner and self-extension pipeline, [[d5978-unknown-is-preserved-and-promoted]].
 - 2026-11-02, Lumen Foxglove <ARCHITECT>, on the operator's direction relayed by the Oracle: v1 law and gate; locked from 0.4 at 3c78fcf; corpus = the 5 protocol fixtures + 5 real ACP sessions.
 - 2026-11-02, second pass at the operator's request ("rethink your choices"). Found by reading the store: E9 (readers take durability from `seq`; `store.rs:144`/`:215` violate it). 1.0 is now the lock and the additions are 1.1. Usage provenance simplified from a per-field map to one `source` per record plus `unreported`; the report never adds scopes together. §6 names the IR's future home.
