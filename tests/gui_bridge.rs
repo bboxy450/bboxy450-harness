@@ -187,7 +187,11 @@ async fn unix_and_inproc_views_equal_every_ir_v1_fixture() {
             .await
             .unwrap();
         for bridge in [&mut local, &mut unix] {
-            wait(bridge, |b| *b.state.transcript == expected).await;
+            wait(bridge, |b| {
+                *b.state.transcript == expected
+                    && (expected.closed || b.state.ready && b.state.error.is_none())
+            })
+            .await;
             assert!(
                 bridge.state.error.is_none(),
                 "{}: {:?}",

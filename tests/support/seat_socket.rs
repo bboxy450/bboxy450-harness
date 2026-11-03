@@ -55,6 +55,10 @@ impl Seat {
             }
             c
         };
+        // A direct invocation is isolated too, without relying on make's wrapper.
+        for key in ["BBOXY_CAPABILITY", "BBOXY_CAPABILITY_FILE", "BBOXY_SOCK"] {
+            command.env_remove(key);
+        }
         command.env("HOME", root);
         command.env("TERM", "dumb");
         command.env("BBOXY_SEAT_ID", SEAT);
