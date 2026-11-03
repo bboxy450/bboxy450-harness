@@ -342,13 +342,13 @@ checks = ["make test-formal", "make test"]
 
 [[contract]]
 name = "HarnessSeatReport"
-title = "Seat reports its state and current profile; probes are answered without becoming user input."
-models = ["HarnessSeatReport", "BrokenHarnessSeatReportState", "BrokenHarnessSeatReportProbe"]
-controls = [{name="BrokenHarnessSeatReportState",expected="safety"},{name="BrokenHarnessSeatReportProbe",expected="safety"}]
+title = "Seat reports its live phase and current profile; open turns refresh every two seconds; probes never become user input."
+models = ["HarnessSeatReport", "BrokenHarnessSeatReportState", "BrokenHarnessSeatReportProbe", "BrokenHarnessSeatReportHeartbeat", "BrokenHarnessSeatReportPhase", "BrokenHarnessSeatReportChild"]
+controls = [{name="BrokenHarnessSeatReportState",expected="safety"},{name="BrokenHarnessSeatReportProbe",expected="safety"},{name="BrokenHarnessSeatReportHeartbeat",expected="safety"},{name="BrokenHarnessSeatReportPhase",expected="safety"},{name="BrokenHarnessSeatReportChild",expected="safety"}]
 sources = ["src/frontends/seat.rs", "src/frontends/headless.rs", "tests/formal/models.rs"]
-implementation_tests = ["tests/seat_golden.rs", "tests/seat_process.rs", "tests/cli_headless.rs", "tests/formal_nonvacuity.rs"]
-assumptions = "One turn, one permission, idle/working/blocked/error, three profile generations A-B-A, one pending probe. Event application and reporting are atomic. Weak fairness only on replying to a received probe. No fairness on OS IO; real PTY termios, split byte reads, UTF-8/base64 caps, concurrent turns/permissions and TTY-only emission are implementation witnesses."
-property = "ReportMatchesState, TitleMatchesProfile, ProbeNeverBecomesInput; ProbeEventuallyAnswered."
+implementation_tests = ["tests/seat_golden.rs", "tests/seat_process.rs", "tests/cli_headless.rs", "tests/formal_nonvacuity.rs", "scripts/hardening-controls.py"]
+assumptions = "One open turn (user or agent origin), one permission, idle/working/blocked/error, three profile generations A-B-A, one pending probe, report age 0..2 seconds and a toggled heartbeat bit. Three work phases Thinking/Writing/Tool and their reports change atomically without a clock step; an explicit-phase flag and one arriving/completing child distinguish native item inference from Status ownership. A child cannot replace an explicit phase; retry returns to native inference; approval subjects and exact tool heads remain byte-level witnesses. Event application and reporting are atomic; event changes/probes never reset report age. The weak-fair clock group advances one second then emits at the second tick while a turn is open; ended/error states have no clock action. Weak fairness on replying to a received probe. No fairness on OS IO; real PTY termios, split byte reads, two-second fake-clock deadlines, delayed-writer skip behavior, live item phase selection, ACP launcher prefix, redaction, UTF-8/base64 caps, concurrent turns/permissions and TTY-only emission are implementation witnesses. No real-time or arbitrary Rust refinement proof."
+property = "ReportMatchesState, TitleMatchesProfile, ProbeNeverBecomesInput, WorkingReportFresh, IdleHasNoTimer, PhaseReportedImmediately, OpenTurnHasOrigin; ProbeEventuallyAnswered and WorkingTurnRefreshes0/1. The no-heartbeat control reaches an expired active report; the stale-phase control changes work phase without publishing it; the child control replaces an explicit phase with an arriving child."
 checks = ["make test-formal", "make test"]
 
 [[contract]]

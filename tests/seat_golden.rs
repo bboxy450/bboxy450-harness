@@ -84,6 +84,13 @@ fn pending_native_record_does_not_hold_up_visible_output() {
     );
 }
 
+// A missing origin is a user turn in both old logs and IR 1.2. Deserialize
+// fixtures so #5981 can add its optional typed field without constructor churn.
+fn turn_started(turn: TurnId) -> Event {
+    serde_json::from_value(serde_json::json!({"type":"turn_started","turn":turn,"model":null}))
+        .unwrap()
+}
+
 fn fixtures() -> Vec<(String, Vec<Envelope>)> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut out = vec![];
@@ -191,7 +198,7 @@ fn message_events(markdown: &str, deltas: bool) -> Vec<Envelope> {
         envelope(seq, seq, event)
     };
     let mut events = vec![
-        next(Event::TurnStarted { turn, model: None }),
+        next(turn_started(turn)),
         next(Event::ItemStarted {
             turn: Some(turn),
             item,
@@ -288,10 +295,8 @@ fn state_reports_have_exact_transition_bytes() {
     let turn = TurnId::new();
     let item = ItemId::new();
     assert_eq!(
-        state
-            .apply(&Event::TurnStarted { turn, model: None })
-            .unwrap(),
-        b"\x1b]7501;state=working:title=cCDCtyBt\x07"
+        state.apply(&turn_started(turn)).unwrap(),
+        b"\x1b]7501;state=working:title=cCDCtyBt:msg=VGhpbmtpbmc=\x07"
     );
     assert_eq!(
         state
@@ -330,7 +335,7 @@ fn state_reports_have_exact_transition_bytes() {
                 body: approval
             })
             .unwrap(),
-        b"\x1b]7501;state=working:title=cCDCtyBt\x07"
+        b"\x1b]7501;state=working:title=cCDCtyBt:msg=VGhpbmtpbmc=\x07"
     );
     assert_eq!(
         state
@@ -342,7 +347,7 @@ fn state_reports_have_exact_transition_bytes() {
             .unwrap(),
         b"\x1b]7501;state=idle:title=cCDCtyBt\x07"
     );
-    state.apply(&Event::TurnStarted { turn, model: None });
+    state.apply(&turn_started(turn));
     assert_eq!(
         state
             .apply(&Event::TurnEnded {
@@ -365,10 +370,8 @@ fn state_reports_have_exact_transition_bytes() {
         b"\x1b]7501;state=error:title=cCDCtyBt:msg=YmFk\x07"
     );
     assert_eq!(
-        state
-            .apply(&Event::TurnStarted { turn, model: None })
-            .unwrap(),
-        b"\x1b]7501;state=working:title=cCDCtyBt\x07"
+        state.apply(&turn_started(turn)).unwrap(),
+        b"\x1b]7501;state=working:title=cCDCtyBt:msg=VGhpbmtpbmc=\x07"
     );
     // A -> B -> A changes the title even though the state is unchanged.
     state.apply(&Event::ProfileChanged {
@@ -382,8 +385,435 @@ fn state_reports_have_exact_transition_bytes() {
                 model: "m".into()
             })
             .unwrap(),
-        b"\x1b]7501;state=working:title=cCDCtyBt\x07"
+        b"\x1b]7501;state=working:title=cCDCtyBt:msg=VGhpbmtpbmc=\x07"
     );
+}
+
+fn report_field(bytes: &[u8], field: &str) -> Option<String> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let text = std::str::from_utf8(bytes).unwrap();
+    text.trim_end_matches('\x07').split(':').find_map(|part| {
+        part.strip_prefix(&format!("{field}="))
+            .map(|value| String::from_utf8(STANDARD.decode(value).unwrap()).unwrap())
+    })
+}
+
+#[tokio::test(start_paused = true)]
+async fn state_heartbeat_uses_two_seconds_of_fake_time_only_while_a_turn_is_open() {
+    use std::time::Duration;
+    let mut state = StateReporter::default();
+    tokio::time::advance(Duration::from_secs(20)).await;
+    assert!(state.heartbeat().is_none());
+    assert!(state.heartbeat_deadline().is_none());
+    let turn = TurnId::new();
+    state.apply(&turn_started(turn));
+    for _ in 0..4 {
+        let start = tokio::time::Instant::now();
+        assert_eq!(
+            state.heartbeat_deadline().unwrap() - start,
+            Duration::from_secs(2)
+        );
+        tokio::time::advance(Duration::from_millis(1999)).await;
+        assert!(state.heartbeat().is_none());
+        // A phase update and a probe reply cannot reset the deadline.
+        state.apply(&Event::Status {
+            phase: Phase::Thinking,
+        });
+        state.report();
+        tokio::time::advance(Duration::from_millis(1)).await;
+        let bytes = state
+            .heartbeat()
+            .expect("silent working turn lost its heartbeat");
+        assert_eq!(report_field(&bytes, "msg").as_deref(), Some("Thinking"));
+        assert_eq!(tokio::time::Instant::now() - start, Duration::from_secs(2));
+    }
+    // A late poll emits once, then schedules from now rather than catching up.
+    tokio::time::advance(Duration::from_secs(11)).await;
+    assert!(state.heartbeat().is_some());
+    assert!(state.heartbeat().is_none());
+    let bytes = state
+        .apply(&Event::TurnEnded {
+            turn,
+            reason: StopReason::EndTurn,
+            usage: None,
+        })
+        .unwrap();
+    assert!(bytes.starts_with(b"\x1b]7501;state=idle"));
+    assert!(report_field(&bytes, "msg").is_none());
+    assert!(state.heartbeat_deadline().is_none());
+    tokio::time::advance(Duration::from_secs(20)).await;
+    assert!(state.heartbeat().is_none());
+    state.apply(&turn_started(turn));
+    let bytes = state
+        .apply(&Event::TurnEnded {
+            turn,
+            reason: StopReason::Error {
+                class: ErrorClass::Config,
+                message: "failed".into(),
+            },
+            usage: None,
+        })
+        .unwrap();
+    assert!(bytes.starts_with(b"\x1b]7501;state=error"));
+    tokio::time::advance(Duration::from_secs(20)).await;
+    assert!(state.heartbeat().is_none());
+    assert_eq!(
+        state.report(),
+        bytes,
+        "idle must preserve the failed-turn detail"
+    );
+}
+
+#[test]
+fn state_phase_follows_live_items_and_acp_identity_without_changing_the_title() {
+    let mut state = StateReporter::default();
+    state.apply(&Event::ProfileChanged {
+        profile: "claude".into(),
+        model: "acp:claude-agent-acp · sonnet".into(),
+    });
+    let turn = TurnId::new();
+    state.apply(&turn_started(turn));
+    let title = report_field(&state.report(), "title").unwrap();
+    assert_eq!(title, "claude · acp:claude-agent-acp · sonnet");
+    let cases = [
+        (
+            serde_json::json!({"kind":"reasoning", "summary":"private", "raw":null,"provider_opaque":null}),
+            "Thinking",
+        ),
+        (
+            serde_json::json!({"kind":"agent_message", "markdown":"answer"}),
+            "Writing",
+        ),
+        (
+            serde_json::json!({"kind":"tool_call","call_id":"1","name":"bash","tool_kind":"execute","input_raw":"{\"command\":\"sh test.sh\"}","output":[],"locations":[],"spill":null}),
+            "Run sh test.sh",
+        ),
+        (
+            serde_json::json!({"kind":"tool_call","call_id":"2","name":"exec","tool_kind":"execute","input_raw":"{\"program\":\"sh\",\"args\":[\"test.sh\"]}","output":[],"locations":[],"spill":null}),
+            "Run sh test.sh",
+        ),
+        (
+            serde_json::json!({"kind":"tool_call","call_id":"3","name":"edit","tool_kind":"edit","input_raw":"{\"path\":\"src/main.rs\"}","output":[],"locations":[],"spill":null}),
+            "Edit src/main.rs",
+        ),
+        (
+            serde_json::json!({"kind":"tool_call","call_id":"write","name":"write","tool_kind":"edit","input_raw":"{\"path\":\"src/new.rs\"}","output":[],"locations":[],"spill":null}),
+            "Write src/new.rs",
+        ),
+        (
+            serde_json::json!({"kind":"tool_call","call_id":"search","name":"grep","tool_kind":"search","input_raw":"{\"pattern\":\"needle\",\"path\":\"src\"}","output":[],"locations":[],"spill":null}),
+            "Search needle in src",
+        ),
+        (
+            serde_json::json!({"kind":"tool_call","call_id":"4","name":"sh test.sh","tool_kind":"execute","input_raw":"","output":[],"locations":[],"spill":null}),
+            "Run sh test.sh",
+        ),
+        (
+            serde_json::json!({"kind":"terminal","terminal":"t","command":"cargo test","exit":null,"signal":null,"output":null}),
+            "Run cargo test",
+        ),
+        (
+            serde_json::json!({"kind":"file_change","path":"src/lib.rs","change":"modify","unified":""}),
+            "Changed src/lib.rs",
+        ),
+    ];
+    for (body, expected) in cases {
+        let body: Item = serde_json::from_value(body).unwrap();
+        let item = ItemId::new();
+        state.apply(&Event::ItemStarted {
+            turn: Some(turn),
+            item,
+            kind: body.kind(),
+            parent: None,
+            head: body.head(),
+        });
+        state.apply(&Event::ItemSnapshot {
+            item,
+            partial: body.clone(),
+        });
+        assert_eq!(
+            report_field(&state.report(), "msg").unwrap(),
+            format!("acp:claude-agent-acp · {expected}")
+        );
+        assert_eq!(
+            report_field(&state.report(), "title").as_deref(),
+            Some(title.as_str())
+        );
+        state.apply(&Event::ItemCompleted {
+            item,
+            body,
+            status: ItemStatus::Completed,
+        });
+        assert_eq!(
+            report_field(&state.report(), "msg").as_deref(),
+            Some("acp:claude-agent-acp · Thinking")
+        );
+    }
+    // A -> B -> A must clear and restore the ACP prefix as well as the title.
+    state.apply(&Event::ProfileChanged {
+        profile: "native".into(),
+        model: "m".into(),
+    });
+    assert_eq!(
+        report_field(&state.report(), "msg").as_deref(),
+        Some("Thinking")
+    );
+    state.apply(&Event::ProfileChanged {
+        profile: "claude".into(),
+        model: "acp:claude-agent-acp · sonnet".into(),
+    });
+    assert_eq!(
+        report_field(&state.report(), "msg").as_deref(),
+        Some("acp:claude-agent-acp · Thinking")
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn status_phases_report_immediately_and_agent_turns_keep_the_same_heartbeat() {
+    use serde_json::json;
+    use std::time::Duration;
+    // #5981 owns the typed origin/Quiet additions. These wire events exercise
+    // both old logs and its additive shapes without requiring that parallel
+    // implementation to be present: every TurnStarted/TurnEnded counts alike.
+    for origin in [None, Some("user"), Some("agent")] {
+        let mut state = StateReporter::default();
+        let turn = TurnId::new();
+        let mut wire = json!({"type":"turn_started","turn":turn,"model":null});
+        if let Some(origin) = origin {
+            wire["origin"] = json!({"kind":origin});
+        }
+        let event: Event = serde_json::from_value(wire).unwrap();
+        let started = state.apply(&event).unwrap();
+        assert_eq!(report_field(&started, "msg").as_deref(), Some("Thinking"));
+        let deadline = state.heartbeat_deadline().unwrap();
+        let tool = ItemId::new();
+        let body: Item = serde_json::from_value(json!({"kind":"tool_call","call_id":"run","name":"bash","tool_kind":"execute","input_raw":"{\"command\":\"sh test.sh\"}","output":[],"locations":[],"spill":null})).unwrap();
+        state.apply(&Event::ItemStarted {
+            turn: Some(turn),
+            item: tool,
+            kind: body.kind(),
+            parent: None,
+            head: body.head(),
+        });
+        state.apply(&Event::ItemSnapshot {
+            item: tool,
+            partial: body.clone(),
+        });
+        for (phase, expected) in [
+            (Phase::Tool { item: tool }, "Run sh test.sh"),
+            (Phase::Thinking, "Thinking"),
+            (Phase::Streaming, "Writing"),
+        ] {
+            let now = tokio::time::Instant::now();
+            let bytes = state
+                .apply(&Event::Status { phase })
+                .expect("phase change must emit immediately");
+            assert_eq!(report_field(&bytes, "msg").as_deref(), Some(expected));
+            assert_eq!(
+                tokio::time::Instant::now(),
+                now,
+                "phase change waited for a tick"
+            );
+            assert_eq!(state.heartbeat_deadline(), Some(deadline));
+        }
+        // The old tool remains open. Its late snapshot must not replace Writing.
+        assert!(
+            state
+                .apply(&Event::ItemSnapshot {
+                    item: tool,
+                    partial: body.clone()
+                })
+                .is_none()
+        );
+        tokio::time::advance(Duration::from_millis(1999)).await;
+        assert!(state.heartbeat().is_none());
+        tokio::time::advance(Duration::from_millis(1)).await;
+        let bytes = state.heartbeat().expect("agent-origin turn lost its timer");
+        assert_eq!(report_field(&bytes, "msg").as_deref(), Some("Writing"));
+        let bytes = state
+            .apply(&Event::Status {
+                phase: Phase::Tool { item: tool },
+            })
+            .unwrap();
+        assert_eq!(
+            report_field(&bytes, "msg").as_deref(),
+            Some("Run sh test.sh")
+        );
+        let approval = ItemId::new();
+        let approval_body = Item::Approval {
+            subject: ApprovalSubject {
+                tool_call: tool,
+                effect: Effect::Exec,
+                summary: "Allow sh test.sh?".into(),
+                paths: vec![],
+                command: None,
+            },
+            options: vec![],
+            decision: None,
+            by: None,
+        };
+        let bytes = state
+            .apply(&Event::ItemSnapshot {
+                item: approval,
+                partial: approval_body.clone(),
+            })
+            .unwrap();
+        assert_eq!(
+            report_field(&bytes, "msg").as_deref(),
+            Some("Allow sh test.sh?")
+        );
+        tokio::time::advance(Duration::from_secs(2)).await;
+        let bytes = state.heartbeat().unwrap();
+        assert_eq!(
+            report_field(&bytes, "msg").as_deref(),
+            Some("Allow sh test.sh?")
+        );
+        state.apply(&Event::ItemCompleted {
+            item: approval,
+            status: ItemStatus::Completed,
+            body: approval_body,
+        });
+        state.apply(&Event::ItemCompleted {
+            item: tool,
+            status: ItemStatus::Completed,
+            body,
+        });
+        let end: Event = serde_json::from_value(json!({"type":"turn_ended","turn":turn,"reason":{"reason":"quiet","ms":200},"usage":null})).unwrap();
+        let bytes = state.apply(&end).unwrap();
+        assert!(bytes.starts_with(b"\x1b]7501;state=idle"));
+        assert!(state.heartbeat_deadline().is_none());
+        tokio::time::advance(Duration::from_secs(20)).await;
+        assert!(state.heartbeat().is_none());
+    }
+}
+
+#[test]
+fn state_details_are_scrubbed_before_clipping_and_escape_encoding() {
+    let redactor = bboxy450_harness::redact::Set::default();
+    redactor.register("SECRET-SENTINEL");
+    let mut state = StateReporter::new(redactor);
+    let turn = TurnId::new();
+    state.apply(&Event::ProfileChanged {
+        profile: "p SECRET-SENTINEL".into(),
+        model: "m".into(),
+    });
+    state.apply(&turn_started(turn));
+    let item = ItemId::new();
+    let subject = format!(
+        "SECRET-SENTINEL\x1b]7501;state=idle\x07\n{}",
+        "🦊".repeat(1000)
+    );
+    state.apply(&Event::ItemSnapshot {
+        item,
+        partial: Item::Approval {
+            subject: ApprovalSubject {
+                tool_call: ItemId::new(),
+                effect: Effect::Exec,
+                summary: subject,
+                paths: vec![],
+                command: None,
+            },
+            options: vec![],
+            decision: None,
+            by: None,
+        },
+    });
+    let bytes = state.report();
+    assert_eq!(bytes.iter().filter(|b| **b == 0x1b).count(), 1);
+    assert_eq!(bytes.iter().filter(|b| **b == 7).count(), 1);
+    let detail = report_field(&bytes, "msg").unwrap();
+    assert!(detail.starts_with("<redacted>"));
+    assert!(detail.len() <= 2048);
+    assert!(!detail.chars().any(char::is_control));
+    assert!(!detail.contains("SECRET-SENTINEL"));
+    assert!(
+        !report_field(&bytes, "title")
+            .unwrap()
+            .contains("SECRET-SENTINEL")
+    );
+    let bytes = state
+        .apply(&Event::TurnEnded {
+            turn,
+            reason: StopReason::Error {
+                class: ErrorClass::Config,
+                message: format!("SECRET-SENTINEL {}", "🦊".repeat(1000)),
+            },
+            usage: None,
+        })
+        .unwrap();
+    assert!(bytes.starts_with(b"\x1b]7501;state=error"));
+    let detail = report_field(&bytes, "msg").unwrap();
+    assert!(detail.starts_with("<redacted>"));
+    assert!(detail.len() <= 256);
+}
+
+#[tokio::test(start_paused = true)]
+async fn child_items_cannot_override_an_explicit_status_phase() {
+    use std::time::Duration;
+    let mut state = StateReporter::default();
+    let turn = TurnId::new();
+    state.apply(&turn_started(turn));
+    let parent = ItemId::new();
+    let parent_body: Item = serde_json::from_value(serde_json::json!({"kind":"tool_call","call_id":parent,"name":"bash","tool_kind":"execute","input_raw":"{\"command\":\"parent command\"}","output":[],"locations":[],"spill":null})).unwrap();
+    state.apply(&Event::ItemStarted {
+        turn: Some(turn),
+        item: parent,
+        kind: parent_body.kind(),
+        parent: None,
+        head: parent_body.head(),
+    });
+    state.apply(&Event::ItemSnapshot {
+        item: parent,
+        partial: parent_body,
+    });
+    for (phase, expected) in [(Phase::Thinking, "Thinking"), (Phase::Streaming, "Writing")] {
+        state.apply(&Event::Status { phase });
+        let child = ItemId::new();
+        let body = Item::Terminal {
+            terminal: "child".into(),
+            command: "nested command".into(),
+            exit: None,
+            signal: None,
+            output: None,
+            live: None,
+        };
+        assert!(
+            state
+                .apply(&Event::ItemStarted {
+                    turn: Some(turn),
+                    item: child,
+                    kind: body.kind(),
+                    parent: Some(parent),
+                    head: body.head(),
+                })
+                .is_none(),
+            "a child start replaced the explicit phase"
+        );
+        assert!(
+            state
+                .apply(&Event::ItemSnapshot {
+                    item: child,
+                    partial: body.clone()
+                })
+                .is_none()
+        );
+        tokio::time::advance(Duration::from_secs(2)).await;
+        let bytes = state.heartbeat().unwrap();
+        assert_eq!(report_field(&bytes, "msg").as_deref(), Some(expected));
+        assert!(
+            state
+                .apply(&Event::ItemCompleted {
+                    item: child,
+                    status: ItemStatus::Completed,
+                    body
+                })
+                .is_none()
+        );
+        assert_eq!(
+            report_field(&state.report(), "msg").as_deref(),
+            Some(expected)
+        );
+    }
 }
 
 #[test]

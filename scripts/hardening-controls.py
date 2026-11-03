@@ -26,6 +26,9 @@ def log_only_epoch(source):
     a=source.index('                read_epoch(&fork_root.join(session.to_string()))?');b=source.index('                    .checked_add(1)',a)
     return source[:a]+'                observed\n'+source[b:]
 CASES=[
+ ('status-child-phase','src/frontends/seat.rs',lambda s:replace_once(s,'if started && !self.explicit_phase {','if started {'),['cargo','test','--offline','--locked','--test','seat_golden','child_items_cannot_override_an_explicit_status_phase','--','--exact']),
+ ('status-stale-phase','src/frontends/seat.rs',lambda s:replace_once(s,'        self.phase = phase.into();\n        self.current = current;','        let _ = (phase, current);'),['cargo','test','--offline','--locked','--test','seat_golden','status_phases_report_immediately_and_agent_turns_keep_the_same_heartbeat','--','--exact']),
+ ('status-no-heartbeat','src/frontends/headless.rs',lambda s:replace_once(s,'if report_state&&heartbeat.is_some()=>{','if false&&report_state&&heartbeat.is_some()=>{'),['cargo','test','--offline','--locked','--test','seat_process','silent_tool_keeps_reporting_working_until_interrupted','--','--exact']),
  ('item08-fence','src/engine/mod.rs',lambda s:replace_once(s,'.is_none_or(|r| r.generation != generation)','.is_none_or(|_| false)'),['cargo','test','--offline','--locked','--lib','a_b_a_is_fenced_by_birth_not_identity']),
  ('item09-deny','src/engine/mod.rs',deny_allow,['cargo','test','--offline','--locked','--test','policy_gate','deny_star_never_executes_the_counting_tool']),
  ('item09-stale','src/engine/mod.rs',lambda s:replace_once(s,'Op::ResolveApproval { approval, decision } => {','Op::ResolveApproval { approval, decision } => { let approval=self.approvals.keys().next().copied().unwrap_or(approval);'),['cargo','test','--offline','--locked','--test','policy_gate','old_turn_approval_cannot_resolve_the_current_turn']),

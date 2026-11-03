@@ -463,7 +463,7 @@ async fn run_cli(
         .then(super::seat::TerminalInput::enable)
         .transpose()
         .map_err(|_| "terminal input unavailable")?;
-    let mut state = super::seat::StateReporter::default();
+    let mut state = super::seat::StateReporter::new(config.redactor.clone());
     if report_state {
         stdout
             .write_all(&state.report())
@@ -496,9 +496,15 @@ async fn run_cli(
             .map_err(|_| "turn refused")?;
     }
     'events: loop {
+        let heartbeat = state.heartbeat_deadline();
         tokio::select! {biased;
          _=stop.cancelled(),if !stopping=>{let _=gateway.send(op(session,Op::Close));stopping=true;},
          _=tokio::signal::ctrl_c()=>{input_filter.interrupt();if running{let _=gateway.send(op(session,Op::Interrupt{turn:None}));}},
+         _=tokio::time::sleep_until(heartbeat.unwrap_or_else(tokio::time::Instant::now)),if report_state&&heartbeat.is_some()=>{
+          if let Some(bytes)=state.heartbeat()
+              && (stdout.write_all(&bytes).await.is_err()||stdout.flush().await.is_err())
+          {stop_cli(&stop);let _=gateway.send(op(session,Op::Close));break 'events;}
+         },
          read=input.read(&mut input_bytes),if seat&&!stopping=>{
            if read.is_err(){stop_cli(&stop);}
            let actions = match read {
@@ -547,7 +553,7 @@ async fn run_cli(
                                 if report_state {
                                     // switch subscriptions begin at head, so their ProfileChanged
                                     // is already in hello's durable prefix rather than replayed.
-                                    state = super::seat::StateReporter::default();
+                                    state = super::seat::StateReporter::new(config.redactor.clone());
                                     for event in &gateway.hub.projection().log {
                                         state.apply(&event.event);
                                     }

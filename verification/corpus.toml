@@ -427,6 +427,21 @@ expected = "safety"
 frontend = "project"
 
 [[model]]
+name = "BrokenHarnessSeatReportHeartbeat"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessSeatReportPhase"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessSeatReportChild"
+expected = "safety"
+frontend = "project"
+
+[[model]]
 name = "BrokenHarnessAcpAgentGrace"
 expected = "safety"
 frontend = "project"

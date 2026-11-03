@@ -2188,9 +2188,13 @@ fn folded_card(b: bool) -> Model {
 }
 // Seat state: initial idle, one turn/permission, profile generations A-B-A.
 // Applying an event and reporting its state is atomic. Probe receipt/reply are
-// separate actions; only the reply is weakly fair. Bytes/termios are PTY witnesses.
+// separate actions. While a turn is open a weak-fair one-second clock step
+// refreshes the report every second tick, regardless of protocol activity.
+// Both user and agent starts own the timer. Explicit work phases are reported
+// atomically, without advancing the clock. Bytes, tool/approval strings and
+// wall-clock scheduling are implementation witnesses.
 fn seat_report(mode: u8) -> Model {
-    let mut m = base::<6>(
+    let mut m = base::<13>(
         "SeatReport",
         false,
         &[
@@ -2200,20 +2204,41 @@ fn seat_report(mode: u8) -> Model {
             ("title", 2, 0),
             ("probe", 1, 0),
             ("probe_as_input", 1, 0),
+            ("report_age", 2, 0),
+            ("heartbeat", 1, 0),
+            ("origin", 2, 0),
+            ("work_phase", 2, 0),
+            ("reported_phase", 2, 0),
+            ("explicit_phase", 1, 0),
+            ("child", 1, 0),
         ],
     );
     m.name = match mode {
         0 => "HarnessSeatReport",
         1 => "BrokenHarnessSeatReportState",
-        _ => "BrokenHarnessSeatReportProbe",
+        2 => "BrokenHarnessSeatReportProbe",
+        3 => "BrokenHarnessSeatReportHeartbeat",
+        4 => "BrokenHarnessSeatReportPhase",
+        _ => "BrokenHarnessSeatReportChild",
     }
     .into();
-    act(
-        &mut m,
-        "TurnStarts",
-        eq(0, 0).or(eq(0, 3)),
-        &[(0, Int(1)), (1, Int(1))],
-    );
+    for (name, origin) in [("UserTurnStarts", 1), ("AgentTurnStarts", 2)] {
+        act(
+            &mut m,
+            name,
+            eq(0, 0).or(eq(0, 3)),
+            &[
+                (0, Int(1)),
+                (1, Int(1)),
+                (6, Int(0)),
+                (8, Int(origin)),
+                (9, Int(0)),
+                (10, Int(0)),
+                (11, Int(0)),
+                (12, Int(0)),
+            ],
+        );
+    }
     act(
         &mut m,
         "PermissionPending",
@@ -2226,17 +2251,66 @@ fn seat_report(mode: u8) -> Model {
         eq(0, 2),
         &[(0, Int(1)), (1, Int(1))],
     );
+    for (name, phase) in [("Thinking", 0), ("Writing", 1), ("Tool", 2)] {
+        act(
+            &mut m,
+            name,
+            eq(0, 1).and(eq(9, phase).negate().or(eq(11, 0))),
+            &[
+                (9, Int(phase)),
+                (10, if mode == 4 { Var(10) } else { Int(phase) }),
+                (11, Int(1)),
+            ],
+        );
+    }
+    act(
+        &mut m,
+        "ChildArrivesInferred",
+        all([eq(0, 1), eq(11, 0), eq(12, 0)]),
+        &[(12, Int(1)), (9, Int(2)), (10, Int(2))],
+    );
+    act(
+        &mut m,
+        "ChildArrivesExplicit",
+        all([eq(0, 1), eq(11, 1), eq(12, 0)]),
+        &[(12, Int(1)), (10, if mode == 5 { Int(2) } else { Var(10) })],
+    );
+    act(&mut m, "ChildCompletes", eq(12, 1), &[(12, Int(0))]);
+    act(
+        &mut m,
+        "Retrying",
+        eq(0, 1),
+        &[(9, Int(0)), (10, Int(0)), (11, Int(0))],
+    );
     act(
         &mut m,
         "TurnEnds",
         eq(0, 1).or(eq(0, 2)),
-        &[(0, Int(0)), (1, Int(0))],
+        &[
+            (0, Int(0)),
+            (1, Int(0)),
+            (6, Int(0)),
+            (8, Int(0)),
+            (9, Int(0)),
+            (10, Int(0)),
+            (11, Int(0)),
+            (12, Int(0)),
+        ],
     );
     act(
         &mut m,
         "TurnErrors",
         eq(0, 1).or(eq(0, 2)),
-        &[(0, Int(3)), (1, Int(3))],
+        &[
+            (0, Int(3)),
+            (1, Int(3)),
+            (6, Int(0)),
+            (8, Int(0)),
+            (9, Int(0)),
+            (10, Int(0)),
+            (11, Int(0)),
+            (12, Int(0)),
+        ],
     );
     act(
         &mut m,
@@ -2252,9 +2326,43 @@ fn seat_report(mode: u8) -> Model {
         eq(4, 1),
         &[(4, Int(0)), (5, Int(i64::from(mode == 2)))],
     );
+    let tick = m.actions.len();
+    act(
+        &mut m,
+        "SecondElapses",
+        eq(0, 1).or(eq(0, 2)).and(eq(6, 0)),
+        &[(6, Int(1))],
+    );
+    act(
+        &mut m,
+        "HeartbeatDue",
+        eq(0, 1).or(eq(0, 2)).and(eq(6, 1)),
+        &[
+            (6, Int(if mode == 3 { 2 } else { 0 })),
+            (
+                7,
+                if mode == 3 {
+                    Var(7)
+                } else {
+                    Int(1).minus(Var(7))
+                },
+            ),
+        ],
+    );
     safe(&mut m, "ReportMatchesState", Var(0).eq(Var(1)));
     safe(&mut m, "TitleMatchesProfile", Var(2).eq(Var(3)));
     safe(&mut m, "ProbeNeverBecomesInput", eq(5, 0));
+    safe(&mut m, "WorkingReportFresh", Var(6).lt(Int(2)));
+    safe(&mut m, "IdleHasNoTimer", eq(0, 1).or(eq(0, 2)).or(eq(6, 0)));
+    safe(&mut m, "PhaseReportedImmediately", Var(9).eq(Var(10)));
+    safe(
+        &mut m,
+        "OpenTurnHasOrigin",
+        eq(0, 1)
+            .or(eq(0, 2))
+            .negate()
+            .or(Var(8).lt(Int(1)).negate()),
+    );
     progress(
         &mut m,
         "ProbeEventuallyAnswered",
@@ -2262,6 +2370,15 @@ fn seat_report(mode: u8) -> Model {
         eq(4, 0),
         vec![reply],
     );
+    for bit in [0, 1] {
+        progress(
+            &mut m,
+            &format!("WorkingTurnRefreshes{bit}"),
+            eq(0, 1).or(eq(0, 2)).and(eq(7, bit)),
+            eq(0, 0).or(eq(0, 3)).or(eq(7, 1 - bit)),
+            vec![tick, tick + 1],
+        );
+    }
     m
 }
 // ACP agent backend (src/backend/acp_agent.rs): one prompt in flight. After
@@ -2956,6 +3073,9 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (seat_report(0), "pass"),
         (seat_report(1), "safety"),
         (seat_report(2), "safety"),
+        (seat_report(3), "safety"),
+        (seat_report(4), "safety"),
+        (seat_report(5), "safety"),
         (acp_agent_turn(2), "safety"),
     ];
     for b in [false, true] {

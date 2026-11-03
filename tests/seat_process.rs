@@ -188,7 +188,12 @@ fn tty_seat_answers_a_probe_without_enter_and_filters_it_out_of_the_turn() {
         "the probe must not submit a turn"
     );
     seat.write(b"lo\n");
-    seat.until(|out| contains(out, b"Done") && report_count(out) >= reports + 3);
+    seat.until(|out| {
+        contains(out, b"Done")
+            && out.split(|b| *b == 0x1b).next_back().is_some_and(|last| {
+                last.starts_with(b"]7501;state=idle:title=") && last.ends_with(b"\x07")
+            })
+    });
     assert!(contains(&seat.output, b"state=working:title="));
     let last_report = seat.output.split(|b| *b == 0x1b).next_back().unwrap();
     assert!(last_report.starts_with(b"]7501;state=idle:title="));
@@ -234,6 +239,51 @@ fn tty_seat_reports_a_pending_permission_and_resumes_after_unattended_denial() {
         "approval completion restores working"
     );
     seat.close();
+}
+
+#[test]
+fn silent_tool_keeps_reporting_working_until_interrupted() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let mut seat = ReportingSeat::spawn("bash", true, false);
+    seat.until(|out| contains(out, b"state=idle:title="));
+    let started = Instant::now();
+    seat.write(b"run a quiet tool\n");
+    let detail = STANDARD.encode("Run sleep 600 & sleep 600; wait");
+    let needle = format!(":msg={detail}\x07");
+    seat.until(|out| contains(out, needle.as_bytes()));
+    // The initial phase report plus three periodic reports crosses term's old
+    // five-second reported-state shield while the actual process stays silent.
+    seat.until(|out| {
+        out.windows(needle.len())
+            .filter(|w| *w == needle.as_bytes())
+            .count()
+            >= 4
+    });
+    assert!(started.elapsed() >= Duration::from_secs(5));
+    assert!(started.elapsed() < Duration::from_secs(9));
+    let idle = seat
+        .output
+        .windows(b"state=idle".len())
+        .filter(|w| *w == b"state=idle")
+        .count();
+    assert_eq!(
+        unsafe { libc::kill(seat.child.process_id().unwrap() as i32, libc::SIGINT) },
+        0
+    );
+    seat.until(|out| {
+        out.windows(b"state=idle".len())
+            .filter(|w| *w == b"state=idle")
+            .count()
+            > idle
+    });
+    let log = seat.close();
+    assert!(log.iter().any(|e| matches!(
+        &e.event,
+        bboxy450_harness::protocol::Event::TurnEnded {
+            reason: bboxy450_harness::protocol::StopReason::Cancelled,
+            ..
+        }
+    )));
 }
 
 #[test]

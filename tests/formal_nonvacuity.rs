@@ -470,12 +470,101 @@ fn seat_probes_and_stubborn_acp_agents_have_nonvacuous_controls() {
     let phase = variable(&m, "phase");
     let profile = variable(&m, "profile");
     let probe = variable(&m, "probe");
+    let age = variable(&m, "report_age");
+    let heartbeat = variable(&m, "heartbeat");
+    let origin = variable(&m, "origin");
+    let work_phase = variable(&m, "work_phase");
+    let reported_phase = variable(&m, "reported_phase");
+    let explicit_phase = variable(&m, "explicit_phase");
+    let child = variable(&m, "child");
     assert!(
         report
             .states
             .iter()
             .any(|s| s[phase] == 2 && s[profile] == 2 && s[probe] == 1)
     );
+    for state in [1, 2] {
+        assert!(
+            report
+                .states
+                .iter()
+                .any(|s| s[phase] == state && s[age] == 1)
+        );
+        assert!(
+            report
+                .states
+                .iter()
+                .enumerate()
+                .any(|(i, s)| s[phase] == state
+                    && s[age] == 1
+                    && report.edges[i].iter().any(|edge| {
+                        let next = &report.states[edge.to];
+                        next[phase] == state && next[age] == 0 && next[heartbeat] != s[heartbeat]
+                    })),
+            "no heartbeat in active state {state}"
+        );
+    }
+    for source in [1, 2] {
+        assert!(
+            report
+                .states
+                .iter()
+                .enumerate()
+                .any(|(i, s)| s[origin] == source
+                    && s[age] == 1
+                    && report.edges[i].iter().any(|edge| {
+                        let next = &report.states[edge.to];
+                        next[origin] == source && next[age] == 0 && next[heartbeat] != s[heartbeat]
+                    })),
+            "origin {source} never refreshes"
+        );
+        for phase_value in 0..3 {
+            assert!(
+                report
+                    .states
+                    .iter()
+                    .enumerate()
+                    .any(|(i, s)| s[origin] == source
+                        && s[phase] == 1
+                        && s[work_phase] != phase_value
+                        && report.edges[i].iter().any(|edge| {
+                            let next = &report.states[edge.to];
+                            next[work_phase] == phase_value
+                                && next[reported_phase] == phase_value
+                                && next[age] == s[age]
+                                && next[heartbeat] == s[heartbeat]
+                        })),
+                "origin {source} phase {phase_value} waits for a heartbeat"
+            );
+        }
+    }
+    assert!(
+        report
+            .states
+            .iter()
+            .enumerate()
+            .any(|(i, s)| s[explicit_phase] == 1
+                && s[work_phase] == 1
+                && s[child] == 0
+                && report.edges[i].iter().any(|edge| {
+                    let next = &report.states[edge.to];
+                    next[child] == 1 && next[work_phase] == 1 && next[reported_phase] == 1
+                })),
+        "child arrival never preserves explicit Writing"
+    );
+    for (i, s) in report
+        .states
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s[phase] == 0 || s[phase] == 3)
+    {
+        assert!(
+            report.edges[i]
+                .iter()
+                .all(|e| report.states[e.to][heartbeat] == s[heartbeat]),
+            "heartbeat while idle/error"
+        );
+    }
     let m = model("HarnessAcpAgentTurn");
     let report = m.check(100_000).unwrap();
     assert!(report.violations.is_empty());
@@ -491,6 +580,9 @@ fn seat_probes_and_stubborn_acp_agents_have_nonvacuous_controls() {
     for (name, property) in [
         ("BrokenHarnessSeatReportState", "ReportMatchesState"),
         ("BrokenHarnessSeatReportProbe", "ProbeNeverBecomesInput"),
+        ("BrokenHarnessSeatReportHeartbeat", "WorkingReportFresh"),
+        ("BrokenHarnessSeatReportPhase", "PhaseReportedImmediately"),
+        ("BrokenHarnessSeatReportChild", "PhaseReportedImmediately"),
         (
             "BrokenHarnessAcpAgentGrace",
             "StubbornAgentKilledBeforeEnding",

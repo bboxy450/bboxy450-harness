@@ -4,7 +4,7 @@ The native backend is crates.io `bboxy450-tlc =0.1.1`, using its finite integer
 and Boolean Model/Variable/Action API. Yarn 0.1.1 projects the production
 `harness_turn_topology!` declaration. This repository contains no checker fork.
 
-The corpus has 95 model variants mapped to 34 contracts, including the shared
+The corpus has 98 model variants mapped to 34 contracts, including the shared
 Yarn scheduling projection.
 It explores two queued turns, two tools/rounds, three birth generations (A-B-A),
 a two-slot stand-in for the bounded work lane, and a three-entry replay log.
@@ -123,3 +123,16 @@ Neither model proves parsing, byte arithmetic or filesystem durability.
 Native usage also separates three cumulative session snapshots (1-3-1) from
 call and turn totals; `BrokenHarnessNativeUsageScopes` deliberately sums both
 scopes. Provenance and absent-number labels are parser/API witnesses.
+
+`HarnessSeatReport` also explores a two-tick heartbeat clock while working or
+awaiting approval. Protocol activity and probes cannot postpone its deadline;
+turn end removes the timer. User and agent starts share that ownership. Explicit
+Thinking/Writing/Tool changes publish immediately without waiting for a tick;
+`BrokenHarnessSeatReportPhase` keeps the old report and fails safety.
+An arriving child may infer a phase only before explicit Status selection;
+`BrokenHarnessSeatReportChild` overwrites an explicit phase and fails safety.
+`BrokenHarnessSeatReportHeartbeat` lets the report
+expire without refreshing. Weak fairness on clock steps abstracts scheduling;
+fake Tokio time verifies the two-second interval, and a silent tool under a
+private PTY witnesses repeated live reports beyond five seconds. Phase text,
+ACP identity, redaction and terminal bytes remain implementation witnesses.

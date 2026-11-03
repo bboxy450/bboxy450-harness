@@ -19,33 +19,91 @@ use super::face_core::{self as core, Tok, Verdict};
 use crate::protocol::*;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::time::Duration;
+use tokio::time::Instant;
+
+pub const STATE_HEARTBEAT: Duration = Duration::from_secs(2);
+
+struct Activity {
+    item: ItemId,
+    turn: Option<TurnId>,
+    detail: String,
+}
 
 /// Trusted OSC 7501 metadata, kept separate from the escape-stripping transcript.
 /// Text fields use term's base64 grammar and UTF-8 byte limits.
 #[derive(Default)]
 pub struct StateReporter {
     title: String,
+    agent: Option<String>,
     turns: BTreeSet<TurnId>,
     permissions: BTreeMap<ItemId, String>,
+    activities: Vec<Activity>,
+    current: Option<ItemId>,
+    explicit_phase: bool,
+    phase: String,
+    cwd: String,
     error: Option<String>,
+    heartbeat_at: Option<Instant>,
+    redactor: crate::redact::Set,
 }
 impl StateReporter {
+    pub fn new(redactor: crate::redact::Set) -> Self {
+        Self {
+            redactor,
+            ..Self::default()
+        }
+    }
+    pub fn heartbeat_deadline(&self) -> Option<Instant> {
+        self.heartbeat_at
+    }
+    /// Only open turns own a timer. Phase updates and probes never postpone it.
+    /// Skip missed ticks instead of emitting a burst after a stalled writer.
+    pub fn heartbeat(&mut self) -> Option<Vec<u8>> {
+        let now = Instant::now();
+        if now < self.heartbeat_at? {
+            return None;
+        }
+        self.heartbeat_at = Some(now + STATE_HEARTBEAT);
+        Some(self.report())
+    }
     pub fn report(&self) -> Vec<u8> {
         let (state, detail) = if let Some(error) = &self.error {
-            ("error", Some(error.as_str()))
+            ("error", Some(error.clone()))
         } else if let Some(subject) = self.permissions.values().next() {
-            ("blocked", Some(subject.as_str()))
+            ("blocked", Some(subject.clone()))
         } else if self.turns.is_empty() {
             ("idle", None)
         } else {
-            ("working", None)
+            let activity = self
+                .activities
+                .iter()
+                .find(|a| Some(a.item) == self.current);
+            (
+                "working",
+                Some(
+                    activity
+                        .map_or(self.phase.as_str(), |a| a.detail.as_str())
+                        .to_owned(),
+                ),
+            )
         };
         let mut text = format!("\x1b]7501;state={state}");
         if !self.title.is_empty() {
-            text.push_str(&format!(":title={}", encode_text(&self.title, 192)));
+            text.push_str(&format!(
+                ":title={}",
+                encode_text(&self.text(&self.title, 192), 192)
+            ));
         }
         if let Some(detail) = detail {
-            text.push_str(&format!(":msg={}", encode_text(detail, 2048)));
+            let detail = match &self.agent {
+                Some(agent) => format!("{agent} · {detail}"),
+                None => detail,
+            };
+            text.push_str(&format!(
+                ":msg={}",
+                encode_text(&self.text(&detail, 2048), 2048)
+            ));
         }
         if state == "blocked" {
             text.push_str(":kind=permission");
@@ -55,19 +113,64 @@ impl StateReporter {
     }
     pub fn apply(&mut self, event: &Event) -> Option<Vec<u8>> {
         let before = self.report();
-        let force = matches!(event, Event::TurnStarted { .. } | Event::TurnEnded { .. });
+        let mut force = matches!(event, Event::TurnStarted { .. } | Event::TurnEnded { .. });
         match event {
-            Event::ProfileChanged { profile, model } => self.title = format!("{profile} · {model}"),
+            Event::SessionStarted { meta } => self.cwd = meta.cwd.to_string_lossy().into_owned(),
+            Event::ProfileChanged { profile, model } => {
+                self.title = self.text(&format!("{profile} · {model}"), 192);
+                // ACP profiles already publish their launcher identity in model.
+                // Keep the title intact; only the detail gets an agent prefix.
+                self.agent = model
+                    .strip_prefix("acp:")
+                    .and_then(|s| s.split_whitespace().next())
+                    .map(|name| self.text(&format!("acp:{name}"), 192));
+            }
+            // Origin is deliberately irrelevant: user and agent turns own the
+            // same timer, including #5981's origin=agent and Quiet endings.
             Event::TurnStarted { turn, .. } => {
+                if self.turns.is_empty() {
+                    self.heartbeat_at = Some(Instant::now() + STATE_HEARTBEAT);
+                    self.phase = "Thinking".into();
+                    self.current = None;
+                    self.explicit_phase = false;
+                }
                 self.turns.insert(*turn);
                 self.error = None;
             }
             Event::TurnEnded { turn, reason, .. } => {
                 self.turns.remove(turn);
+                self.activities.retain(|a| a.turn != Some(*turn));
+                if self
+                    .current
+                    .is_some_and(|item| !self.activities.iter().any(|a| a.item == item))
+                {
+                    self.current = if self.explicit_phase {
+                        None
+                    } else {
+                        self.activities.last().map(|a| a.item)
+                    };
+                }
+                if self.turns.is_empty() {
+                    self.heartbeat_at = None;
+                    self.activities.clear();
+                    self.current = None;
+                    self.explicit_phase = false;
+                    self.permissions.clear();
+                }
                 self.error = match reason {
-                    StopReason::Error { message, .. } => Some(message.clone()),
+                    StopReason::Error { message, .. } => Some(self.text(message, 256)),
                     _ => None,
                 };
+            }
+            Event::ItemStarted {
+                turn,
+                item,
+                kind,
+                head,
+                ..
+            } => {
+                let body = Item::interrupted_from_head(kind.clone(), *item, head.as_ref());
+                self.activity(*item, *turn, &body, true);
             }
             Event::ItemSnapshot {
                 item,
@@ -78,25 +181,198 @@ impl StateReporter {
                         ..
                     },
             } => {
-                self.permissions.insert(*item, subject.summary.clone());
+                self.permissions
+                    .insert(*item, self.text(&subject.summary, 2048));
+            }
+            Event::ItemSnapshot { item, partial } => self.activity(*item, None, partial, false),
+            Event::ItemDelta { item, delta } => {
+                let body = match delta {
+                    Delta::Text { .. } => Some(Item::AgentMessage {
+                        markdown: String::new(),
+                    }),
+                    Delta::Reasoning { .. } => Some(Item::Reasoning {
+                        summary: String::new(),
+                        raw: None,
+                        provider_opaque: None,
+                    }),
+                    _ => None,
+                };
+                if let Some(body) = body {
+                    self.activity(*item, None, &body, false);
+                }
             }
             Event::Status {
                 phase: Phase::Approval { item },
             } => {
                 self.permissions.entry(*item).or_default();
             }
-            Event::ItemCompleted {
-                item,
-                body: Item::Approval { .. },
-                ..
-            } => {
+            Event::ItemCompleted { item, .. } => {
                 self.permissions.remove(item);
+                self.activities.retain(|a| a.item != *item);
+                if self.current == Some(*item) {
+                    self.current = if self.explicit_phase {
+                        None
+                    } else {
+                        self.activities.last().map(|a| a.item)
+                    };
+                    self.phase = "Thinking".into();
+                }
+            }
+            Event::Status {
+                phase: Phase::Thinking,
+            } if !self.turns.is_empty() => force |= self.set_phase("Thinking", None),
+            Event::Status {
+                phase: Phase::Retrying { .. },
+            } if !self.turns.is_empty() => {
+                force |= self.set_phase("Thinking", None);
+                // The native engine resumes with item events after its retry.
+                self.explicit_phase = false;
+            }
+            Event::Status {
+                phase: Phase::Streaming,
+            } if !self.turns.is_empty() => force |= self.set_phase("Writing", None),
+            Event::Status {
+                phase: Phase::Tool { item },
+            } if !self.turns.is_empty() => force |= self.set_phase("Tool", Some(*item)),
+            Event::SessionClosed => {
+                self.turns.clear();
+                self.permissions.clear();
+                self.activities.clear();
+                self.current = None;
+                self.explicit_phase = false;
+                self.heartbeat_at = None;
             }
             _ => {}
         }
         let after = self.report();
         (force || before != after).then_some(after)
     }
+    fn set_phase(&mut self, phase: &str, current: Option<ItemId>) -> bool {
+        let changed = self.phase != phase || self.current != current;
+        self.phase = phase.into();
+        self.current = current;
+        self.explicit_phase = true;
+        changed
+    }
+    fn text(&self, text: &str, limit: usize) -> String {
+        let text = clean(&self.redactor.scrub(text))
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut end = text.len().min(limit);
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text[..end].to_owned()
+    }
+    fn activity(&mut self, item: ItemId, turn: Option<TurnId>, body: &Item, started: bool) {
+        if self.turns.is_empty() {
+            return;
+        }
+        let detail = match body {
+            Item::AgentMessage { .. } => "Writing".into(),
+            Item::Reasoning { .. } | Item::Plan { .. } => "Thinking".into(),
+            Item::Terminal { command, .. } => format!(
+                "Run {}",
+                command.strip_prefix("bash -c ").unwrap_or(command)
+            ),
+            Item::FileChange { path, .. } => {
+                format!("Changed {}", short_path(&path.to_string_lossy(), &self.cwd))
+            }
+            Item::ToolCall {
+                name,
+                tool_kind,
+                input_raw,
+                locations,
+                ..
+            } => {
+                let description = seat_tool(
+                    name,
+                    tool_kind.clone(),
+                    input_raw,
+                    &[],
+                    locations,
+                    &self.cwd,
+                );
+                format!(
+                    "{} {}",
+                    description.verb,
+                    tool_target(&description, &self.cwd)
+                )
+            }
+            _ => return,
+        };
+        let owner = self
+            .activities
+            .iter()
+            .find(|a| a.item == item)
+            .and_then(|a| a.turn)
+            .or(turn);
+        self.activities.retain(|a| a.item != item);
+        self.activities.push(Activity {
+            item,
+            turn: owner,
+            detail: self.text(&detail, 2048),
+        });
+        // Snapshots repair the selected item's head; they cannot resurrect a
+        // tool after an explicit Thinking/Writing status selected another phase.
+        if started && !self.explicit_phase {
+            self.current = Some(item);
+        }
+    }
+}
+
+fn short_path(path: &str, cwd: &str) -> String {
+    if !cwd.is_empty()
+        && let Some(rest) = path.strip_prefix(&format!("{cwd}/"))
+    {
+        return rest.to_owned();
+    }
+    path.to_owned()
+}
+
+/// Shared by OSC metadata and the actual transcript head (embed-seat p7).
+fn seat_tool<'a>(
+    name: &'a str,
+    kind: ToolKind,
+    input: &str,
+    output: &[OutputBlock],
+    locations: &[Location],
+    cwd: &str,
+) -> core::Tool<'a> {
+    let mut d = core::describe(name, kind, input, output, cwd);
+    let known = matches!(
+        name,
+        "read" | "grep" | "glob" | "bash" | "exec" | "edit" | "apply_patch" | "write"
+    ) || name.starts_with("mcp__");
+    if d.target.is_empty() && !known {
+        let arg = |k: &str| d.args.get(k).and_then(|v| v.as_str()).map(str::to_owned);
+        if let Some(c) = arg("command").or_else(|| arg("cmd")) {
+            d.verb = "Run".into();
+            d.target = c;
+            d.mono = true;
+            d.kind = "execute";
+        } else if let Some(p) = arg("path").or_else(|| arg("file_path")) {
+            d.target = short_path(&p, cwd);
+        } else if d.kind == "execute" && name.contains(' ') {
+            d.verb = "Run".into();
+            d.target = name.to_owned();
+            d.mono = true;
+        } else if let Some(l) = locations.first() {
+            d.target = short_path(&l.path.to_string_lossy(), cwd);
+        }
+    }
+    d
+}
+
+fn tool_target(d: &core::Tool<'_>, cwd: &str) -> String {
+    let mut target = d.target.clone();
+    if d.verb == "Search"
+        && let Some(path) = d.args.get("path").and_then(|v| v.as_str())
+    {
+        target = format!("{target}  in {}", short_path(path, cwd));
+    }
+    target.lines().next().unwrap_or("").trim().to_owned()
 }
 fn encode_text(text: &str, limit: usize) -> String {
     let mut end = text.len().min(limit);
@@ -1659,12 +1935,7 @@ impl LineProjection {
         }
     }
     fn short(&self, p: &str) -> String {
-        if !self.cwd.is_empty()
-            && let Some(rest) = p.strip_prefix(&format!("{}/", self.cwd))
-        {
-            return rest.to_owned();
-        }
-        p.to_owned()
+        short_path(p, &self.cwd)
     }
     fn kid(&self, tool: &ItemId, kind: ItemKind) -> Option<&Entry> {
         self.kids
@@ -1932,31 +2203,11 @@ impl LineProjection {
                 _ => ("tool".into(), ToolKind::Other, String::new(), vec![]),
             },
         };
-        let mut d = core::describe(&name, kind.clone(), &input, &output, &self.cwd);
-        let known = matches!(
-            name.as_str(),
-            "read" | "grep" | "glob" | "bash" | "exec" | "edit" | "apply_patch" | "write"
-        ) || name.starts_with("mcp__");
-        if d.target.is_empty() && !known {
-            // agents name tools freely ("Terminal", "ls -la"): find the subject in the args
-            let arg = |k: &str| d.args.get(k).and_then(|v| v.as_str()).map(str::to_owned);
-            if let Some(c) = arg("command").or_else(|| arg("cmd")) {
-                d.verb = "Run".into();
-                d.target = c;
-                d.mono = true;
-                d.kind = "execute";
-            } else if let Some(p) = arg("path").or_else(|| arg("file_path")) {
-                d.target = self.short(&p);
-            } else if d.kind == "execute" && name.contains(' ') {
-                d.verb = "Run".into();
-                d.target = name.clone();
-                d.mono = true;
-            } else if let Some(Item::ToolCall { locations, .. }) = &e.body
-                && let Some(l) = locations.first()
-            {
-                d.target = self.short(&l.path.to_string_lossy());
-            }
-        }
+        let locations = match &e.body {
+            Some(Item::ToolCall { locations, .. }) => locations.as_slice(),
+            _ => &[],
+        };
+        let mut d = seat_tool(&name, kind.clone(), &input, &output, locations, &self.cwd);
         // agent output often arrives as a fenced block: the card is the frame already
         d.out = d
             .out
@@ -2015,16 +2266,8 @@ impl LineProjection {
         };
         let stat = unified.as_deref().map(core::diff_stat);
         let badge = approval.as_ref().map(|(d, by)| badge_of(d, by.as_ref()));
-        let mut target = d.target.clone();
-        let mut chip = None;
-        if name.starts_with("mcp__") {
-            chip = Some("mcp");
-        }
-        if d.verb == "Search"
-            && let Some(p) = d.args.get("path").and_then(|v| v.as_str())
-        {
-            target = format!("{target}  in {}", self.short(p));
-        }
+        let target = tool_target(&d, &self.cwd);
+        let chip = name.starts_with("mcp__").then_some("mcp");
         let head = card_head(
             pen,
             Head {
