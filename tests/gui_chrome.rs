@@ -551,7 +551,7 @@ fn composer_rim_reads_the_session() {
 }
 
 /// The standalone window's title bar: dots, mark, title, crumb, theme control, no sidebar
-/// toggle; its hit regions come from the painted tree. Captures and tests draw no bar.
+/// toggle; its hit regions come from the painted tree. Embedded views draw no bar.
 #[test]
 fn title_bar_is_drawn_with_the_crumb_and_hits_follow_the_tree() {
     let state = FrameState {

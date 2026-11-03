@@ -250,7 +250,7 @@ pub struct HarnessView {
     /// Stream and card motion: what is new (chunks, folds, ended turns) and the frame pass.
     pub motion: stream_motion::Motion,
     /// The standalone window draws the term's title bar above the face (harness-spec.md
-    /// Standalone window); captures and tests do not.
+    /// Standalone window), also used by full-window captures. Embedded views omit it.
     pub chrome: bool,
     /// The title bar's hit regions, retained from the solved tree each frame.
     pub titlebar: chrome::Titlebar,
@@ -367,6 +367,15 @@ const PILL_IN_MS: f32 = 170.;
 const PILL_HOLD_MS: f32 = 900.;
 const PILL_OUT_MS: f32 = 150.;
 impl HarnessView {
+    /// The live standalone window and offscreen captures share this chrome and text scale.
+    /// Startup zoom creates no transient pill and performs no settings IO.
+    pub fn standalone(zoom: Zoom) -> Self {
+        Self {
+            chrome: true,
+            zoom,
+            ..Self::default()
+        }
+    }
     /// A wheel over an inset first scrolls that document, then the transcript at its edge.
     pub fn wheel(&mut self, at: [f32; 2], dy: f32) -> bool {
         fn contains(r: Rect, at: [f32; 2]) -> bool {

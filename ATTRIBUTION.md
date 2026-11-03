@@ -43,6 +43,13 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
 
 ## Lineage and credits
 
+- Full-window captures reuse the live standalone chrome tree and text zoom in
+  `src/frontends/gui/`; face-only captures keep the parity baseline comparable.
+  **Adapted from bboxy450-term** `lab/web/harness.html`'s standalone-window state,
+  the `CHROME=1` web composition and CSS zoom in `scripts/parity-web.sh` use
+  `C.titleBar` and `Hx.view`. Upstream policy:
+  https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md.
+
 - Capture expansion in `src/frontends/gui/smoke.rs` uses the click-controlled
   face state; `scripts/parity-web.sh` invokes the bboxy450-term web reference's
   own disclosure handlers for its matching expanded view.

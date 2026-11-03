@@ -15,6 +15,10 @@ pub struct Options {
     pub screenshot: PathBuf,
     /// Render-only capture size (parity): no fixture assertions, transcript top.
     pub capture: Option<[u32; 2]>,
+    /// Capture the face alone instead of the standalone window's chrome.
+    pub no_chrome: bool,
+    /// Capture text scale on the same 90–160 %, 10 % grid as the saved app zoom.
+    pub zoom: Option<super::zoom::Zoom>,
     /// `--expand all`: open every disclosure before a capture.
     pub expand_all: bool,
     /// `--watch [claude:|codex:]PATH`: render another harness's native session live.
@@ -39,6 +43,8 @@ impl Options {
             headless: false,
             screenshot: ".bboxy/runs/gui-smoke.png".into(),
             capture: None,
+            no_chrome: false,
+            zoom: None,
             expand_all: false,
             watch: None,
             open_menu: None,
@@ -50,6 +56,24 @@ impl Options {
                 "--profile" => out.profile = args.next().ok_or("missing profile")?,
                 "--cwd" => out.cwd = args.next().ok_or("missing cwd")?.into(),
                 "--headless" => out.headless = true,
+                "--no-chrome" => out.no_chrome = true,
+                "--zoom" => {
+                    let factor: f64 = args
+                        .next()
+                        .ok_or("missing zoom factor")?
+                        .parse()
+                        .map_err(|_| "--zoom takes 0.9 to 1.6 in 0.1 steps")?;
+                    let percent = factor * 100.;
+                    let zoom = super::zoom::Zoom::from_percent(percent.round() as i32);
+                    if !factor.is_finite()
+                        || !(f64::from(super::zoom::MIN)..=f64::from(super::zoom::MAX))
+                            .contains(&percent)
+                        || (percent - f64::from(zoom.percent())).abs() > 1e-7
+                    {
+                        return Err("--zoom takes 0.9 to 1.6 in 0.1 steps".into());
+                    }
+                    out.zoom = Some(zoom);
+                }
                 "--screenshot" => {
                     out.screenshot = args.next().ok_or("missing screenshot path")?.into()
                 }
@@ -90,6 +114,12 @@ impl Options {
         }
         if out.expand_all && out.capture.is_none() {
             return Err("--expand requires --capture".into());
+        }
+        if out.no_chrome && out.capture.is_none() {
+            return Err("--no-chrome requires --capture".into());
+        }
+        if out.zoom.is_some() && out.capture.is_none() {
+            return Err("--zoom requires --capture".into());
         }
         if out.headless && out.replay.is_none() {
             return Err("--headless requires --replay".into());

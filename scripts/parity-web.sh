@@ -12,6 +12,9 @@
 # MENU=profiles|slash renders that floating menu open on both sides; the profile list is the
 # fixture home PROFILES_HOME (default tests/fixtures/gui/profiles-home), never the operator's.
 # EXPAND=all opens tool cards, reasoning and repeated-reply groups on both sides.
+# CHROME=1 compares full standalone windows; the default stays face-only for the parity gate.
+# ZOOM=1.2 selects the app's text scale on both sides (0.9–1.6 in 0.1 steps).
+# CHROME_BIN overrides the headless browser executable.
 # The fixture's env-key profiles name BBOXY450_PARITY_KEY (set here, a placeholder, never a key)
 # and BBOXY450_PARITY_UNSET_KEY (never set), so `env` and `missing env` render on both sides.
 set -eu
@@ -21,10 +24,14 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 LAB=${LAB:-$ROOT/../bboxy450-term/lab/web}; LAB=$(cd "$LAB" && pwd)
 BIN=${BIN:-$ROOT/target/debug/bboxy450-harness}
 MENU=${MENU:-}; EXPAND=${EXPAND:-}; PROFILES_HOME=${PROFILES_HOME:-$ROOT/tests/fixtures/gui/profiles-home}
+CHROME=${CHROME:-0}; ZOOM=${ZOOM:-1}
+case "$CHROME" in 0|1) ;; *) echo 'CHROME takes 0 or 1 (browser path: CHROME_BIN)' >&2; exit 1 ;; esac
 case "$EXPAND" in ''|all) ;; *) echo 'EXPAND takes all' >&2; exit 1 ;; esac
-CHROME=${CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}
+CHROME_BIN=${CHROME_BIN:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
 set -- "$BIN" gui --replay "$REPLAY" --capture "${W}x${H}" --screenshot "$OUT/native.png"
+set -- "$@" --zoom "$ZOOM"
+if [ "$CHROME" = 0 ]; then set -- "$@" --no-chrome; fi
 if [ "$EXPAND" = all ]; then set -- "$@" --expand all; fi
 if [ -n "$MENU" ]; then
   export BBOXY450_PARITY_KEY=placeholder; unset BBOXY450_PARITY_UNSET_KEY 2>/dev/null || true
@@ -32,9 +39,9 @@ if [ -n "$MENU" ]; then
 else
   "$@"
 fi
-python3 -I - "$REPLAY" "$OUT/page.html" "$LAB" "$W" "$H" "$MENU" "$PROFILES_HOME/.bboxy450-harness/profiles" "$EXPAND" <<'PY'
+python3 -I - "$REPLAY" "$OUT/page.html" "$LAB" "$W" "$H" "$MENU" "$PROFILES_HOME/.bboxy450-harness/profiles" "$EXPAND" "$CHROME" "$ZOOM" <<'PY'
 import json, os, sys
-replay, page, lab, w, h, menu, pdir, expand = sys.argv[1:]
+replay, page, lab, w, h, menu, pdir, expand, chrome, zoom = sys.argv[1:]
 envs = [json.loads(l) for l in open(replay) if l.strip()]
 # the web face's profile records, from the same fixture files the native capture lists
 profiles = []
@@ -68,20 +75,35 @@ expand_all = """v.node.querySelectorAll('.hx-tool:not(.open) > .hx-th, .hx-think
 const scroller = v.node.querySelector('.hx-scroll'); scroller.scrollTop = scroller.scrollHeight;
 """ if expand == 'all' else ''
 src = lambda f: 'file://' + lab + '/' + f
+base = f'<base href="{src("")}">' if chrome == '1' else ''
+# Adapted from bboxy450-term lab/web/harness.html standalone() ("standalone window"):
+# C.titleBar above the unzoomed host; CSS zoom on the Hx view alone, no transient pill.
+# https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
+standalone = """
+const profile = v.state.profile || v.state.meta?.profile || '';
+const leaf = (v.state.meta?.cwd || '').split('/').filter(Boolean).pop() || '';
+const bar = C.titleBar({ title: 'bboxy450-harness', crumb: [profile, leaf].filter(Boolean).join(' · '), theme: 'dark' });
+bar.querySelector('.tbtn:not(.theme)')?.remove(); bar.style.borderRadius = '0'; bar.style.border = '0'; bar.style.borderBottom = 'var(--hair-w) solid var(--line)';
+const host = Lab.el('div', { style: 'flex:1;min-height:0;display:flex;position:relative' }, v.node);
+v.node.style.flex = '1'; document.getElementById('f').append(bar, host);
+""" if chrome == '1' else ''
 open(page, 'w').write(f'''<!doctype html><html><head><meta charset="utf-8">
+{base}
 <link rel="stylesheet" href="{src('lab.css')}">
 <script src="{src('tokens.js')}"></script><script src="{src('lab.js')}"></script><script src="{src('components.js')}"></script><script src="{src('harness.js')}"></script>
-<style>html,body{{margin:0;height:100%;overflow:hidden;background:var(--bg)}} #f{{width:{w}px;height:{h}px;--seat:var(--accent)}}</style>
+<style>html,body{{margin:0;height:100%;overflow:hidden;background:var(--bg)}} #f{{width:{w}px;height:{h}px;--seat:var(--accent){';display:flex;flex-direction:column' if chrome == '1' else ''}}}</style>
 </head><body><div id="f"></div><script>
 Lab.prefs.theme = 'dark'; Lab.prefs.density = 'cozy'; Lab.applyTokens();
 document.documentElement.classList.add('parity');
 const v = Hx.view({opts}); document.getElementById('f').append(v.node);
 {json.dumps(envs)}.forEach(e => v.apply(e));
+{standalone}
+v.node.style.zoom = {json.dumps(float(zoom))};
 {expand_all}
 {open_menu}
 </script></body></html>''')
 PY
-"$CHROME" --headless=new --use-mock-keychain --password-store=basic --force-prefers-reduced-motion --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --user-data-dir="$OUT/.chrome" \
+"$CHROME_BIN" --headless=new --use-mock-keychain --password-store=basic --force-prefers-reduced-motion --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --user-data-dir="$OUT/.chrome" \
   --window-size="$W,$H" --virtual-time-budget=2000 --screenshot="$OUT/web.png" "file://$OUT/page.html" >/dev/null 2>&1
 rm -rf "$OUT/.chrome"
 python3 -I - "$OUT" <<'PY'

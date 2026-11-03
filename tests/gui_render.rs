@@ -36,8 +36,143 @@ async fn prepare(
 }
 
 #[tokio::test]
+async fn full_window_capture_renders_its_shared_title_bar_assets_to_png() {
+    use bboxy450_harness::frontends::gui::{options::Options, smoke::capture};
+    let temp = tempfile::tempdir().unwrap();
+    let mut images = vec![];
+    for (name, extra) in [
+        ("window", vec![]),
+        ("face", vec!["--no-chrome"]),
+        ("zoom", vec!["--zoom", "1.2"]),
+    ] {
+        let path = temp.path().join(format!("{name}.png"));
+        let options = Options::parse(
+            [
+                "--replay",
+                "tests/fixtures/parity/acp-claude-acp.jsonl",
+                "--capture",
+                "900x1100",
+                "--screenshot",
+                path.to_str().unwrap(),
+            ]
+            .into_iter()
+            .chain(extra)
+            .map(String::from),
+        )
+        .unwrap();
+        capture(options).await.unwrap();
+        let decoder = png::Decoder::new(std::io::Cursor::new(std::fs::read(path).unwrap()));
+        let mut reader = decoder.read_info().unwrap();
+        assert_eq!((reader.info().width, reader.info().height), (900, 1100));
+        let mut rgba = vec![0; reader.output_buffer_size().unwrap()];
+        reader.next_frame(&mut rgba).unwrap();
+        images.push(rgba);
+    }
+    assert_ne!(
+        images[0], images[1],
+        "title bar must change the captured pixels"
+    );
+    assert_ne!(images[0], images[2], "zoom must change the captured pixels");
+}
+
+#[tokio::test]
+async fn capture_defaults_to_live_chrome_and_zoom_reprepares_text_at_120_percent() {
+    use bboxy450_harness::frontends::gui::{
+        options::Options,
+        smoke::capture_frame,
+        view::{find, layout_text},
+    };
+    let fixture = "tests/fixtures/parity/acp-claude-acp.jsonl";
+    let transcript = Arc::new(read_replay(fixture.into()).await.unwrap());
+    bboxy450_harness::runtime::blocking(move || {
+        let mut state = FrameState {
+            transcript,
+            ready: true,
+            replay: true,
+            ..Default::default()
+        };
+        let options = |extra: &[&str]| {
+            Options::parse(
+                ["--replay", fixture, "--capture", "900x32000"]
+                    .into_iter()
+                    .chain(extra.iter().copied())
+                    .map(String::from),
+            )
+            .unwrap()
+        };
+        let mut view = HarnessView::default();
+        let full = capture_frame(&mut view, &mut state, &options(&[])).unwrap();
+        let full = full.layout.as_ref().unwrap().clone();
+        for key in [
+            "bar",
+            "bar/logo",
+            "bar/win/i",
+            "bar/win/i1",
+            "bar/win/i2",
+            "bar/tbtn1",
+        ] {
+            assert!(find(&full, key).is_some(), "default capture lacks {key}");
+        }
+        assert!(layout_text(find(&full, "bar").unwrap()).contains("claude-acp · acpdemo"));
+        let face = capture_frame(&mut view, &mut state, &options(&["--no-chrome"])).unwrap();
+        let face = face.layout.as_ref().unwrap();
+        assert!(find(face, "bar").is_none());
+        assert_eq!(find(face, "toolbar").unwrap().rect.y, 0.);
+        let zoomed = capture_frame(&mut view, &mut state, &options(&["--zoom", "1.2"])).unwrap();
+        let zoomed = zoomed.layout.as_ref().unwrap();
+        assert_eq!(state.prepared.as_ref().unwrap().zoom, 120);
+        fn text(n: &bbt_ui::components::Layout, out: &mut Vec<(String, Vec<f32>, f32)>) {
+            if let bbt_ui::components::LayoutKind::Text { runs, .. } = &n.kind {
+                out.push((
+                    layout_text(n),
+                    runs.iter().map(|r| r.style.size).collect(),
+                    n.rect.h,
+                ));
+            }
+            for child in &n.children {
+                text(child, out);
+            }
+        }
+        let reply = state
+            .transcript
+            .items
+            .values()
+            .find(|r| r.kind == ItemKind::AgentMessage)
+            .unwrap();
+        for key in [
+            "toolbar".to_string(),
+            "composer".to_string(),
+            format!("body/{}", reply.id),
+        ] {
+            let (mut before, mut after) = (vec![], vec![]);
+            text(find(&full, &key).unwrap(), &mut before);
+            text(find(zoomed, &key).unwrap(), &mut after);
+            assert!(!before.is_empty(), "{key} has no measurable text");
+            assert_eq!(before.len(), after.len(), "{key}");
+            for ((s, a, h), (t, b, k)) in before.iter().zip(&after) {
+                assert_eq!(s, t, "{key}");
+                assert_eq!(a.len(), b.len());
+                for (a, b) in a.iter().zip(b) {
+                    assert!((b / a - 1.2).abs() < 0.001, "{key}: font {a} -> {b}");
+                }
+                assert!((k - h * 1.2).abs() <= 1., "{key}: text height {h} -> {k}");
+            }
+        }
+        let (mut bar, mut zoomed_bar) = (vec![], vec![]);
+        text(find(&full, "bar").unwrap(), &mut bar);
+        text(find(zoomed, "bar").unwrap(), &mut zoomed_bar);
+        assert_eq!(
+            bar, zoomed_bar,
+            "the live title bar stays outside text zoom"
+        );
+    })
+    .await;
+}
+
+#[tokio::test]
 async fn capture_expand_all_contains_every_tool_and_reasoning_body_including_folded_groups() {
     use bboxy450_harness::frontends::gui::{
+        options::Options,
         rich::{Face, Toggle},
         smoke::capture_frame,
         view::find,
@@ -55,15 +190,18 @@ async fn capture_expand_all_contains_every_tool_and_reasoning_body_including_fol
                 ..Default::default()
             };
             // Tall enough that viewport clipping cannot remove any fixture row.
-            let size = [900, 32_000];
+            let mut options =
+                Options::parse(["--replay", fixture, "--capture", "900x32000"].map(String::from))
+                    .unwrap();
             let mut default_view = HarnessView::default();
-            let default = capture_frame(&mut default_view, &mut state, size, None, false).unwrap();
+            let default = capture_frame(&mut default_view, &mut state, &options).unwrap();
             assert!(
                 state.faces.is_empty(),
                 "default capture creates no face overrides"
             );
             let mut expanded_view = HarnessView::default();
-            let expanded = capture_frame(&mut expanded_view, &mut state, size, None, true).unwrap();
+            options.expand_all = true;
+            let expanded = capture_frame(&mut expanded_view, &mut state, &options).unwrap();
             assert_eq!(expanded.max_scroll, 0., "fixture must fit in this capture");
             let before = default.layout.as_ref().unwrap();
             let after = expanded.layout.as_ref().unwrap();
@@ -126,8 +264,8 @@ async fn capture_expand_all_contains_every_tool_and_reasoning_body_including_fol
             }
             // The opt-in capture must not affect the next ordinary capture.
             let mut restored_view = HarnessView::default();
-            let restored =
-                capture_frame(&mut restored_view, &mut state, size, None, false).unwrap();
+            options.expand_all = false;
+            let restored = capture_frame(&mut restored_view, &mut state, &options).unwrap();
             assert!(state.faces.is_empty());
             assert_eq!(
                 bboxy450_harness::frontends::gui::view::layout_text(before),

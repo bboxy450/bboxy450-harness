@@ -24,12 +24,17 @@ fn mark() -> Vec<bbt_render::chrome::icons::Image> {
     if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
         return vec![];
     }
-    vec![bbt_render::chrome::icons::Image {
-        name: MARK.into(),
-        width: info.width,
-        height: info.height,
-        rgba,
-    }]
+    // The shared TitleBar requests `bboxy`; the face requests MARK. Both use the same
+    // baked identity portrait, so standalone windows and captures resolve the same tree.
+    [MARK, "bboxy"]
+        .into_iter()
+        .map(|name| bbt_render::chrome::icons::Image {
+            name: name.into(),
+            width: info.width,
+            height: info.height,
+            rgba: rgba.clone(),
+        })
+        .collect()
 }
 pub fn icons() -> bbt_render::chrome::icons::Assets {
     bbt_render::chrome::icons::Assets::with_svgs(

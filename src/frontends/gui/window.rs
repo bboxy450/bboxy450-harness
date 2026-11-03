@@ -660,12 +660,10 @@ pub fn run(options: Options) -> Result<Option<tokio::task::JoinHandle<()>>, Stri
     let waker = Arc::new(WakePort(proxy.clone()));
     let gpu_dirty = DirtySet::new(1, waker.clone());
     let gpu = Arc::new(Latest::new(gpu_dirty.paint_source(0)));
-    let mut view = HarnessView::default();
+    let mut view = HarnessView::standalone(Zoom::default());
     // the window animates; reduced motion (the OS setting or BBOXY_REDUCED_MOTION=1) draws
     // end states and keeps only the caret blink
     view.anim = super::anim::Clock::live(super::anim::Clock::reduced_motion_preferred());
-    // the standalone window wears the term's title bar (harness-spec.md Standalone window)
-    view.chrome = true;
     let settings_root =
         std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".bboxy450-harness"));
     if let Some(root) = settings_root.clone() {

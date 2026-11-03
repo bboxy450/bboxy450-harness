@@ -19,6 +19,9 @@ moved since, a regression against the old reference is not measurable: the gate 
 REFERENCE MOVED, skips only the no-regression comparison, still enforces sizes, hashes and
 targets, and writes OUT/baseline-candidate.json for the Architect to adopt.
 
+The baseline is face-only at 100 %: the gate fixes CHROME=0 (--no-chrome) and ZOOM=1,
+even when the caller's environment requests standalone-window captures.
+
 --ratchet, after a landed cut: with no regression and the same reference, lower each baseline score to
 the measured one. It never raises a score and never changes the fixtures or the reference, so anyone
 may run it; the slack an improvement would otherwise leave behind is removed.
@@ -83,7 +86,8 @@ def main():
             bad.append(f'{n}: fixture hash differs from baseline (re-baseline by Architect decision)')
             continue
         d = os.path.join(out, n)
-        r = subprocess.run(['sh', 'scripts/parity-web.sh', f, d, f'{w}x{h}'], capture_output=True, text=True)
+        r = subprocess.run(['sh', 'scripts/parity-web.sh', f, d, f'{w}x{h}'],
+                           env={**os.environ, 'CHROME': '0', 'ZOOM': '1'}, capture_output=True, text=True)
         if r.returncode != 0:
             bad.append(f'{n}: parity-web.sh exited {r.returncode}: {r.stderr.strip()[-300:]}')
             continue

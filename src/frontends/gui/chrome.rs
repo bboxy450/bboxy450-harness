@@ -105,8 +105,8 @@ fn near(a: [f32; 2], b: [f32; 2]) -> bool {
 }
 
 impl Titlebar {
-    /// Read the bar and its controls off the solved tree. No bar (a capture, a test without
-    /// chrome) retains nothing and hits nothing.
+    /// Read the bar and its controls off the solved tree. A face-only capture or an
+    /// embedded view without chrome retains nothing and hits nothing.
     pub fn retain(&mut self, layout: &c::Layout) {
         self.bounds = named(layout, "bar").map(|l| l.rect);
         self.controls = [

@@ -8,6 +8,7 @@
 //! Offscreen Metal frame witness. No window, display permission or model.
 use super::{
     bridge::{FrameState, read_replay_with_redactor},
+    options::Options,
     rich::{Faces, Toggle},
     view::{Action, Frame, HarnessView, Preparer, find, layout_text},
 };
@@ -43,18 +44,14 @@ fn compose(
 
 /// Render-only frame of a replay at a fixed size, for web/native parity. No
 /// fixture assertions; the transcript shows from its top.
-/// `menu` renders a floating menu open; the profile switcher lists
+/// Chrome is the live standalone tree; `--no-chrome` omits its title bar.
+/// `--open-menu` renders a floating menu open; the profile switcher lists
 /// `$HOME/.bboxy450-harness/profiles` (switcher-safe fields only).
-pub async fn capture(
-    replay: PathBuf,
-    screenshot: PathBuf,
-    size: [u32; 2],
-    menu: Option<super::options::Menu>,
-    expand_all: bool,
-) -> Result<(), String> {
+pub async fn capture(options: Options) -> Result<(), String> {
+    let replay = options.replay.clone().ok_or("capture requires --replay")?;
     let model = read_replay_with_redactor(replay, crate::redact::Set::default()).await?;
     let profiles = match std::env::var_os("HOME") {
-        Some(home) if menu.is_some() => {
+        Some(home) if options.open_menu.is_some() => {
             super::bridge::profile_names(&PathBuf::from(home).join(".bboxy450-harness/profiles"))
                 .await
         }
@@ -62,7 +59,7 @@ pub async fn capture(
     };
     let context = DeviceContext::new().await.map_err(|e| e.to_string())?;
     crate::runtime::blocking(move || {
-        let [width, height] = size;
+        let [width, height] = options.capture.ok_or("capture requires --capture WxH")?;
         let mut state = FrameState {
             transcript: Arc::new(model),
             ready: true,
@@ -71,32 +68,34 @@ pub async fn capture(
             ..Default::default()
         };
         let mut view = HarnessView::default();
-        let frame = capture_frame(&mut view, &mut state, size, menu, expand_all)?;
+        let frame = capture_frame(&mut view, &mut state, &options)?;
         let mut renderer = ChromeRenderer::with_context(context, super::assets::icons())
             .map_err(|e| e.to_string())?;
         let rgba = compose(&mut renderer, frame, width, height)?;
-        write_png(&screenshot, width, height, &rgba)
+        write_png(&options.screenshot, width, height, &rgba)
     })
     .await
 }
 
-/// Solve the production capture frame without the GPU, so tests can inspect its nodes.
+/// Start and solve a production capture without the GPU, so tests can inspect its nodes.
 /// Call on the blocking preparation pool, just like `capture`.
 pub fn capture_frame<'a>(
     view: &'a mut HarnessView,
     state: &mut FrameState,
-    size: [u32; 2],
-    menu: Option<super::options::Menu>,
-    expand_all: bool,
+    options: &Options,
 ) -> Result<&'a Frame, String> {
     use crate::protocol::ItemKind;
+    let size = options.capture.ok_or("capture requires --capture WxH")?;
+    *view = HarnessView::standalone(options.zoom.unwrap_or_default());
+    view.chrome = !options.no_chrome;
     let [width, height] = size.map(|v| v as f32);
     let mut preparer = Preparer::default();
+    preparer.set_zoom(view.zoom());
     let mut faces = Faces::default();
     loop {
         let prepared = preparer.prepare_with_faces(state.transcript.clone(), width, &faces)?;
         let mut changed = false;
-        if expand_all {
+        if options.expand_all {
             for row in state.transcript.items.values() {
                 let mut face = faces.get(&row.id).cloned().unwrap_or_default();
                 let has = |key: &str| prepared.layouts().any(|layout| find(layout, key).is_some());
@@ -134,7 +133,7 @@ pub fn capture_frame<'a>(
     }
     // Render once so the view holds this frame's profiles, then open the menu.
     view.render(state, [width, height])?;
-    match menu {
+    match options.open_menu {
         Some(super::options::Menu::Profiles) => view.toggle_profile_menu(),
         Some(super::options::Menu::Slash) => {
             view.edit(bbt_ui::text_edit::Command::Insert("/".into()))
