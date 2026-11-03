@@ -92,6 +92,7 @@ sources = [
     "src/frontends/gui/view.rs",
     "src/frontends/gui/window.rs",
     "src/frontends/gui/budget.rs",
+    "src/frontends/gui/anim.rs",
     "src/frontends/gui/rich.rs",
     "src/frontends/gui/editor.rs",
     "src/frontends/gui/layout_checks.rs",
@@ -139,4 +140,5 @@ implementation_only = [
     "Native named-Space text admission, event.text, shortcut/IME guards, composer draft, profile search and slash filter: tests/gui_rich.rs; scripts/test-space-control.py rejects the old character-only dispatch. Logical-key classification is implementation-only; concurrency, ownership and lifecycle contracts are unchanged",
     "Floating menus (src/frontends/gui/menu.rs) to lab harness-spec.md: \"/\" menu rows/anchor/8-row window and Enter or click runs the command; header profile switcher (chip, ACP agents then models by provider, filter keys, Esc before interrupt, rows switch through the same Bridge::switch_profile path as /profile NAME; switcher-safe ProfileInfo: key source kind and env presence, agent env count, never a key, a key env value or an agent env value): tests/gui_rich.rs and scripts/parity-web.sh MENU=profiles|slash. Menu open/closed is view-local UI state; the profile switch itself is Host::switch, unchanged. Pixels and geometry are implementation-only",
     "Solved GUI geometry, disclosure ink size, symmetric gutters, explicit shape patterns, card containment, full header fills, inline control bounds and empty painted boxes: tests/gui_render.rs + test-gui-smoke, with production mutations in scripts/gui-polish-controls.py; pure layout is implementation-only",
+    "Window animation clock (src/frontends/gui/anim.rs) to harness-spec.md Motion: tweens keyed by element id that retarget from the current value, a critically damped tail-follow spring, loops awake only while asked, a caret blink costing one frame per edge, the cubic-bezier curves, reduced motion and the two-missed-frames flat fallback; and its wiring into the empty session, block entrances, card-height growth, tail follow and composer (src/frontends/gui/view.rs, face.rs, window.rs). A deterministic single-threaded state machine ticked by the host clock, with no concurrency, ownership or arbitration of its own; witnesses step the clock in fixed increments and assert the tween values (opacity, offset, height, colour, scroll, caret) against the spec curves at sample times, plus a settled/idle control asserting zero redraw requests and no rebuild, in tests/gui_motion.rs and the src/frontends/gui/anim.rs unit tests. Which frames the host requests is HarnessDirtyWakeFrame; pixels, wall-clock timing and the macOS reduce-motion preference are implementation-only",
 ]
