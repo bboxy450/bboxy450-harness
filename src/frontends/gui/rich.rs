@@ -19,6 +19,66 @@ use bbt_ui::{self as ui, components as c, modules::seat_row::named};
 use bbt_ui_model::layout::Rect;
 use std::{collections::HashMap, ops::Range, sync::Arc};
 
+/// Only prose bodies enter the document worker; terminal and failed output stay literal.
+pub(super) fn tool_markdown(kind: &str, path: &str, failed: bool, text: &str) -> Option<String> {
+    if kind == "execute" || failed || text.is_empty() {
+        return None;
+    }
+    let markdown_read = kind == "read"
+        && std::path::Path::new(path)
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| {
+                ["md", "markdown", "mdx"]
+                    .iter()
+                    .any(|e| s.eq_ignore_ascii_case(e))
+            });
+    let text = if markdown_read {
+        text.lines()
+            .map(|line| {
+                let digits = line.bytes().take_while(u8::is_ascii_digit).count();
+                if digits > 0
+                    && let Some(rest) = line[digits..].strip_prefix(':')
+                {
+                    rest.strip_prefix(' ').unwrap_or(rest)
+                } else {
+                    line
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        text.to_owned()
+    };
+    (markdown_read || looks_markdown(&text)).then_some(text)
+}
+
+fn looks_markdown(text: &str) -> bool {
+    let mut structured = 0;
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        if line.len() - trimmed.len() <= 3
+            && (trimmed.starts_with("```") || trimmed.starts_with("~~~"))
+        {
+            return true;
+        }
+        let heading = line.bytes().take_while(|b| *b == b'#').count();
+        let ordered = trimmed.bytes().take_while(u8::is_ascii_digit).count();
+        if (1..=6).contains(&heading) && line[heading..].starts_with(' ')
+            || ["- ", "* ", "+ "].iter().any(|p| trimmed.starts_with(p))
+            || ordered > 0 && trimmed[ordered..].starts_with(". ")
+            || line.starts_with('|') && line.trim_end().ends_with('|')
+            || line.starts_with("> ")
+        {
+            structured += 1;
+            if structured >= 2 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Face {
     pub reasoning_open: bool,
@@ -61,6 +121,7 @@ struct Document {
     width: f32,
     received: usize,
     parsed: usize,
+    reasoning: bool,
     // A credit bounds reparsing even for one unfinished paragraph/fence or
     // document-wide reference definitions. Unparsed bytes remain visible as
     // literal tail text; completion always flushes through streaming append.
@@ -90,6 +151,44 @@ pub struct Body {
     /// bottom. A row can seat a small control beside it instead of on a line of its own.
     pub tail: Option<[f32; 2]>,
 }
+impl Body {
+    pub(super) fn inset(
+        &self,
+        id: ItemId,
+        width: f32,
+        metrics: &impl c::Measure,
+    ) -> Result<c::Element, String> {
+        let ink = super::face::ink(context());
+        let ([_, height], _) = self
+            .element
+            .natural(width, context(), metrics)
+            .map_err(|e| format!("{e:?}"))?;
+        Ok(named(
+            format!("mdpanel/{id}"),
+            super::face::frame(
+                super::face::Frame {
+                    fill: super::face::alpha(ink.bg, 0.35),
+                    border: Some(super::face::alpha(ink.fg, 0.10)),
+                    radius: [8.; 4],
+                    padding: [8., 12., 10., 12.],
+                    ..Default::default()
+                },
+                vec![
+                    named(
+                        format!("mdout/{id}"),
+                        c::Element::ScrollView(c::ScrollView {
+                            viewport: [width, height.min(400.)],
+                            offset: [0., 0.],
+                            content_width: None,
+                            content: Box::new(self.element.clone()),
+                        }),
+                    )
+                    .into(),
+                ],
+            ),
+        ))
+    }
+}
 impl Documents {
     pub fn prepare(
         &mut self,
@@ -98,6 +197,27 @@ impl Documents {
         complete: bool,
         width: f32,
         metrics: &impl c::Measure,
+    ) -> Result<Body, String> {
+        self.prepare_styled(id, text, complete, width, metrics, false)
+    }
+    pub(super) fn reasoning(
+        &mut self,
+        id: ItemId,
+        text: &str,
+        complete: bool,
+        width: f32,
+        metrics: &impl c::Measure,
+    ) -> Result<Body, String> {
+        self.prepare_styled(id, text, complete, width, metrics, true)
+    }
+    fn prepare_styled(
+        &mut self,
+        id: ItemId,
+        text: &str,
+        complete: bool,
+        width: f32,
+        metrics: &impl c::Measure,
+        reasoning: bool,
     ) -> Result<Body, String> {
         let doc = self.docs.entry(id).or_default();
         if !text.starts_with(&doc.stream.document().source) {
@@ -123,9 +243,10 @@ impl Documents {
             doc.parsed += range.len();
             changed = Some(range.start);
         }
-        if doc.width != width {
+        if doc.width != width || doc.reasoning != reasoning {
             doc.blocks.clear();
             doc.width = width;
+            doc.reasoning = reasoning;
         }
         if let Some(start) = changed {
             doc.blocks.retain(|b| b.source.end <= start);
@@ -142,7 +263,7 @@ impl Documents {
             let mut element =
                 fragment.transcript_body_element(&highlights, context(), metrics, width);
             super::view::flat(&mut element);
-            transcript_type(&mut element, (width - MEASURE).max(0.), false);
+            transcript_type(&mut element, (width - MEASURE).max(0.), false, reasoning);
             let mut layout = element.layout(Rect::new(0., 0., width, 0.), context(), metrics)?;
             chips_and_bullets(&mut layout, metrics)?;
             let prose = matches!(
@@ -286,7 +407,7 @@ fn widen(v: &mut f32, delta: f32) {
     }
 }
 
-fn transcript_type(e: &mut c::Element, delta: f32, in_flow: bool) {
+fn transcript_type(e: &mut c::Element, delta: f32, in_flow: bool, reasoning: bool) {
     match e {
         c::Element::Box(b) => {
             if let Some(ui::Length::Px(w)) = &mut b.style.overrides.width {
@@ -304,33 +425,35 @@ fn transcript_type(e: &mut c::Element, delta: f32, in_flow: bool) {
                 if let c::Extent::Fixed(w) = &mut item.extent {
                     widen(w, delta);
                 }
-                transcript_type(&mut item.element, delta, false);
+                transcript_type(&mut item.element, delta, false, reasoning);
             }
         }
         c::Element::Stack(s) => {
             for item in &mut s.children {
-                transcript_type(&mut item.element, delta, false);
+                transcript_type(&mut item.element, delta, false, reasoning);
             }
         }
         c::Element::Flow(f) => {
             for item in &mut f.children {
-                transcript_type(&mut item.element, delta, true);
+                transcript_type(&mut item.element, delta, true, reasoning);
             }
         }
         c::Element::ScrollView(s) => {
             widen(&mut s.viewport[0], delta);
-            transcript_type(&mut s.content, delta, false);
+            transcript_type(&mut s.content, delta, false, reasoning);
         }
         c::Element::Named { content, .. }
         | c::Element::FixedHeight { content, .. }
         | c::Element::Filter { content, .. }
         | c::Element::InlineMiddle { content, .. }
-        | c::Element::Baseline { content, .. } => transcript_type(content, delta, in_flow),
-        c::Element::Overlay(o) => transcript_type(&mut o.content, delta, false),
+        | c::Element::Baseline { content, .. } => {
+            transcript_type(content, delta, in_flow, reasoning)
+        }
+        c::Element::Overlay(o) => transcript_type(&mut o.content, delta, false, reasoning),
         c::Element::Layers { base, overlays } => {
-            transcript_type(base, delta, false);
+            transcript_type(base, delta, false, reasoning);
             for p in overlays {
-                transcript_type(&mut p.content, delta, false);
+                transcript_type(&mut p.content, delta, false, reasoning);
                 // li::marker takes the seat colour
                 if let c::Element::Named { name, content } = &mut p.content
                     && name.contains("/bullet")
@@ -353,6 +476,11 @@ fn transcript_type(e: &mut c::Element, delta: f32, in_flow: bool) {
                 let s = &mut run.style;
                 if !s.mono && s.step == ui::TypeStep::Body {
                     match s.size {
+                        _ if reasoning => {
+                            s.size = Some(12.5);
+                            s.line_height = BODY_LINE;
+                            s.paint = super::face::paint(super::face::ink(context()).dim);
+                        }
                         None => {
                             s.size = Some(BODY);
                             s.line_height = BODY_LINE;
@@ -478,4 +606,63 @@ fn chips_and_bullets(node: &mut c::Layout, metrics: &impl c::Measure) -> Result<
     }
     node.children = out;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tool_markdown;
+
+    #[test]
+    fn tool_markdown_detection_accepts_structure_and_markdown_reads() {
+        for text in [
+            "```mermaid\ngraph LR\nA --> B\n```",
+            "~~~rust\nfn main() {}\n~~~",
+            "# Heading\n## Next",
+            "- one\n  + two",
+            "1. one\n2. two",
+            "| a | b |\n|---|---|",
+            "> one\n> two",
+            "# Heading\n- item",
+        ] {
+            assert_eq!(
+                tool_markdown("other", "", false, text).as_deref(),
+                Some(text)
+            );
+        }
+        for path in ["README.md", "notes.markdown", "page.MDX"] {
+            assert_eq!(
+                tool_markdown(
+                    "read",
+                    path,
+                    false,
+                    "12: # Title\n13:\n14: - one\n15: - two"
+                ),
+                Some("# Title\n\n- one\n- two".into())
+            );
+        }
+    }
+
+    #[test]
+    fn tool_markdown_detection_rejects_plain_failed_and_execute_output() {
+        for text in [
+            "plain output\nsecond line",
+            "# one heading\nplain body",
+            "- one item",
+            "value: # heading\nnot > a quote",
+            "####### too deep\n####### still too deep",
+            "x ``` embedded fence",
+            "",
+        ] {
+            assert!(
+                tool_markdown("other", "", false, text).is_none(),
+                "{text:?}"
+            );
+        }
+        let markdown = "# Title\n- item\n```mermaid\ngraph LR\nA --> B\n```";
+        assert!(tool_markdown("execute", "README.md", false, markdown).is_none());
+        assert!(tool_markdown("read", "README.md", true, markdown).is_none());
+        assert!(tool_markdown("other", "", true, markdown).is_none());
+        assert!(tool_markdown("read", "README.md.txt", false, "plain").is_none());
+        assert!(tool_markdown("other", "README.md", false, "plain").is_none());
+    }
 }

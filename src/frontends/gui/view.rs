@@ -208,6 +208,8 @@ pub struct HarnessView {
     completion: Option<ui::text_edit::CompletionPopover>,
     profile_menu: Option<super::menu::ProfileMenu>,
     pub scroll: chat_scroll::State,
+    /// View-local offsets into worker-prepared Markdown tool panels.
+    markdown_scroll: HashMap<ItemId, f32>,
     metrics: Metrics,
     cached: Option<CacheKey>,
     controls: Option<Controls>,
@@ -303,6 +305,7 @@ impl Default for HarnessView {
             completion: None,
             profile_menu: None,
             scroll: Default::default(),
+            markdown_scroll: HashMap::new(),
             metrics: Metrics::default(),
             cached: None,
             controls: None,
@@ -322,6 +325,47 @@ impl Default for HarnessView {
     }
 }
 impl HarnessView {
+    /// A wheel over an inset first scrolls that document, then the transcript at its edge.
+    pub fn wheel(&mut self, at: [f32; 2], dy: f32) -> bool {
+        fn contains(r: Rect, at: [f32; 2]) -> bool {
+            at[0] >= r.x && at[0] < r.right() && at[1] >= r.y && at[1] < r.bottom()
+        }
+        fn panel(node: &c::Layout, at: [f32; 2]) -> Option<(ItemId, f32, f32)> {
+            if let c::LayoutKind::Named(name) = &node.kind
+                && let Some(id) = name.strip_prefix("mdout/").and_then(|s| s.parse().ok())
+                && contains(node.rect, at)
+                && let Some(scroll) = node.children.first()
+                && let c::LayoutKind::ScrollView { content, offset } = scroll.kind
+            {
+                return Some((ItemId(id), offset[1], (content[1] - scroll.rect.h).max(0.)));
+            }
+            node.children.iter().find_map(|n| panel(n, at))
+        }
+        if let Some((id, offset, max)) = self
+            .frame
+            .layout
+            .as_ref()
+            .and_then(|root| find(root, "transcript"))
+            .filter(|n| contains(n.rect, at))
+            .and_then(|n| panel(n, at))
+        {
+            let next = (offset + dy).clamp(0., max);
+            if next != offset {
+                self.markdown_scroll.insert(id, next);
+                self.invalidate();
+                return true;
+            }
+        }
+        if self
+            .scroll
+            .wheel(self.frame.scroll, self.frame.max_scroll, dy)
+        {
+            self.invalidate();
+            return true;
+        }
+        false
+    }
+
     /// Running with an empty draft, the send button is the stop square (.hx-send.stop).
     pub fn send_stops(&self, state: &FrameState) -> bool {
         !state.replay
@@ -520,6 +564,7 @@ impl HarnessView {
             self.known_scope = Some(scope);
             self.known.clear();
             self.entering.clear();
+            self.markdown_scroll.clear();
         }
         let ink = super::face::ink(ctx);
         let row_slots = timer.elapsed();
@@ -661,7 +706,13 @@ impl HarnessView {
                 .and_then(|n| n.children.first())
                 .map(|n| n.rect)
                 .ok_or("transcript viewport missing")?;
-            restore_rows(&mut layout, &prepared.rows, viewport, &enters);
+            restore_rows(
+                &mut layout,
+                &prepared.rows,
+                viewport,
+                &enters,
+                &self.markdown_scroll,
+            );
         }
         // the empty session's rise and its chips' staggered rise (opacity is in the element)
         for (name, key) in [
@@ -1873,6 +1924,7 @@ fn restore_rows(
     rows: &im::HashMap<ItemId, Arc<CachedRow>>,
     viewport: Rect,
     enters: &HashMap<ItemId, f32>,
+    markdown_scroll: &HashMap<ItemId, f32>,
 ) {
     if let c::LayoutKind::Named(name) = &node.kind
         && let Some(id) = name
@@ -1885,7 +1937,7 @@ fn restore_rows(
         let t = enters.get(&id).copied().unwrap_or(1.);
         let dx = slot.x - row.layout.rect.x;
         let dy = slot.y - row.layout.rect.y + 6. * (1. - t);
-        if let Some(mut solved) = visible_layout(&row.layout, dx, dy, viewport) {
+        if let Some(mut solved) = visible_layout(&row.layout, dx, dy, viewport, markdown_scroll) {
             if row.layout.rect.h > slot.h + 0.5 {
                 solved = c::Layout {
                     rect: slot,
@@ -1913,16 +1965,53 @@ fn restore_rows(
         return;
     }
     for child in &mut node.children {
-        restore_rows(child, rows, viewport, enters);
+        restore_rows(child, rows, viewport, enters, markdown_scroll);
     }
 }
 // Keep only glyphs/blocks intersecting the viewport. A giant paragraph remains
 // fully scrollable without cloning/painting its entire cached solved layout.
-fn visible_layout(node: &c::Layout, dx: f32, dy: f32, viewport: Rect) -> Option<c::Layout> {
+fn visible_layout(
+    node: &c::Layout,
+    dx: f32,
+    dy: f32,
+    viewport: Rect,
+    markdown_scroll: &HashMap<ItemId, f32>,
+) -> Option<c::Layout> {
     let rect = Rect::new(node.rect.x + dx, node.rect.y + dy, node.rect.w, node.rect.h);
     let visible = intersection(rect, viewport);
     if visible.w <= 0. || visible.h <= 0. {
         return None;
+    }
+    if let c::LayoutKind::Named(name) = &node.kind
+        && let Some(id) = name.strip_prefix("mdout/").and_then(|s| s.parse().ok())
+        && let Some(scroll) = node.children.first()
+        && let c::LayoutKind::ScrollView { content, offset } = scroll.kind
+    {
+        let y = markdown_scroll
+            .get(&ItemId(id))
+            .copied()
+            .unwrap_or(0.)
+            .clamp(0., (content[1] - rect.h).max(0.));
+        return Some(c::Layout {
+            rect,
+            baseline: node.baseline,
+            kind: node.kind.clone(),
+            children: vec![c::Layout {
+                rect,
+                baseline: scroll.baseline,
+                kind: c::LayoutKind::ScrollView {
+                    content,
+                    offset: [offset[0], y],
+                },
+                children: scroll
+                    .children
+                    .iter()
+                    .filter_map(|child| {
+                        visible_layout(child, dx, dy + offset[1] - y, visible, markdown_scroll)
+                    })
+                    .collect(),
+            }],
+        });
     }
     let kind = match &node.kind {
         c::LayoutKind::Text {
@@ -1957,7 +2046,7 @@ fn visible_layout(node: &c::Layout, dx: f32, dy: f32, viewport: Rect) -> Option<
         children: node
             .children
             .iter()
-            .filter_map(|child| visible_layout(child, dx, dy, viewport))
+            .filter_map(|child| visible_layout(child, dx, dy, viewport, markdown_scroll))
             .collect(),
     })
 }

@@ -43,6 +43,10 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
 
 ## Lineage and credits
 
+- Markdown tool-output detection, numbered Read projection and inset scrolling in
+  `src/frontends/gui/` are project-owned implementations of the bboxy450-term
+  `lab/web/harness-spec.md` Markdown-everywhere contract, using its `bbt_doc` renderer.
+
 - Native-log usage accounting and blob previews in `src/import/` are project-owned
   implementations under the license and attribution policy above.
 

@@ -331,13 +331,7 @@ impl ApplicationHandler<Wake> for App {
                         -p.y as f32 / self.window.as_ref().unwrap().scale_factor() as f32
                     }
                 };
-                if self
-                    .view
-                    .scroll
-                    .wheel(self.view.frame.scroll, self.view.frame.max_scroll, dy)
-                {
-                    self.view.invalidate();
-                }
+                self.view.wheel(self.pointer, dy);
             }
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,

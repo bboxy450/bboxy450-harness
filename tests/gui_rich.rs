@@ -69,6 +69,328 @@ async fn ready(bridge: &mut Bridge) {
     .await
     .unwrap();
 }
+
+fn markdown_tool(kind: ToolKind, name: &str, path: &str, text: &str) -> Item {
+    serde_json::from_value(serde_json::json!({
+        "kind": "tool_call", "call_id": name, "name": name, "tool_kind": kind,
+        "input_raw": serde_json::json!({"path": path, "command": "printf markdown"}).to_string(),
+        "output": [{"type": "text", "text": text}], "locations": [], "spill": null
+    }))
+    .unwrap()
+}
+
+fn markdown_replay(
+    root: &std::path::Path,
+    items: Vec<(Item, Option<ItemStatus>)>,
+) -> (std::path::PathBuf, Vec<ItemId>) {
+    let base: Envelope = serde_json::from_str(
+        include_str!("fixtures/protocol/all-items.jsonl")
+            .lines()
+            .next()
+            .unwrap(),
+    )
+    .unwrap();
+    let mut events = vec![base.clone()];
+    let mut ids = vec![];
+    for (body, status) in items {
+        let item = ItemId::new();
+        ids.push(item);
+        let mut event = base.clone();
+        event.seq = Some(Seq(events.len() as u64 + 1));
+        event.at = event.seq.unwrap();
+        event.event = Event::ItemStarted {
+            turn: None,
+            item,
+            kind: body.kind(),
+            parent: None,
+            head: body.head(),
+        };
+        events.push(event.clone());
+        if let Some(status) = status {
+            event.seq = Some(Seq(events.len() as u64 + 1));
+            event.at = event.seq.unwrap();
+            event.event = Event::ItemCompleted { item, status, body };
+        } else if let Item::Reasoning { summary, .. } = body {
+            event.seq = None;
+            event.event = Event::ItemDelta {
+                item,
+                delta: Delta::Reasoning { append: summary },
+            };
+        } else {
+            panic!("live fixture is reasoning");
+        }
+        events.push(event);
+    }
+    let path = root.join("markdown-output.jsonl");
+    let mut bytes = Vec::new();
+    for event in events {
+        serde_json::to_writer(&mut bytes, &event).unwrap();
+        bytes.push(b'\n');
+    }
+    std::fs::write(&path, bytes).unwrap();
+    (path, ids)
+}
+
+fn markdown_canvas(node: &bbt_ui::components::Layout) -> bool {
+    if matches!(&node.kind, bbt_ui::components::LayoutKind::Named(name) if name.ends_with("/canvas"))
+    {
+        return true;
+    }
+    node.children.iter().any(markdown_canvas)
+}
+
+#[tokio::test]
+async fn markdown_output_read_renders_headings_lists_and_scrolls_without_reparsing() {
+    use bboxy450_harness::frontends::gui::{rich::Toggle, view::find};
+    let temp = tempfile::tempdir().unwrap();
+    let mut text = "1: # Worker-rendered title\n2:\n".to_owned();
+    for i in 0..60 {
+        text.push_str(&format!("{}: - list entry {i}\n", i + 3));
+    }
+    text.push_str("63: - END-OF-MARKDOWN-READ\n");
+    let (path, ids) = markdown_replay(
+        temp.path(),
+        vec![(
+            markdown_tool(ToolKind::Read, "read", "notes.md", &text),
+            Some(ItemStatus::Completed),
+        )],
+    );
+    let id = ids[0];
+    let mut bridge = Bridge::new(Arc::new(Wake));
+    bridge.replay(path);
+    ready(&mut bridge).await;
+    bridge.toggle(id, Toggle::Output);
+    until(&mut bridge, |b| {
+        b.state.faces.get(&id).is_some_and(|f| f.output_closed)
+    })
+    .await;
+    let parsed = bridge
+        .state
+        .prepared
+        .as_ref()
+        .unwrap()
+        .parsed_markdown_bytes;
+    assert!(parsed > 0, "Read must enter the production Markdown worker");
+    let mut view = HarnessView::default();
+    let frame = view.render(&bridge.state, [900., 1100.]).unwrap();
+    let layout = frame.layout.as_ref().unwrap();
+    let panel = find(layout, &format!("mdpanel/{id}")).expect("Read has an inset panel");
+    assert!(panel.rect.h <= 420.01, "panel height {}", panel.rect.h);
+    let scroll = find(layout, &format!("mdout/{id}"))
+        .unwrap()
+        .children
+        .first()
+        .unwrap();
+    assert!(
+        matches!(scroll.kind, bbt_ui::components::LayoutKind::ScrollView { content, .. } if content[1] > scroll.rect.h)
+    );
+    fn heading_and_list(node: &bbt_ui::components::Layout, heading: &mut bool, list: &mut bool) {
+        if let bbt_ui::components::LayoutKind::Text { runs, .. } = &node.kind {
+            *heading |= runs
+                .iter()
+                .any(|r| r.text.contains("title") && r.style.weight >= 600 && !r.style.mono);
+        }
+        if let bbt_ui::components::LayoutKind::Named(name) = &node.kind {
+            *list |= name.contains("/bullet");
+        }
+        for child in &node.children {
+            heading_and_list(child, heading, list);
+        }
+    }
+    let (mut heading, mut list) = (false, false);
+    heading_and_list(panel, &mut heading, &mut list);
+    assert!(
+        heading && list,
+        "Read must contain a styled heading ({heading}) and list markers ({list})"
+    );
+    let visible = frame.item_text(id).unwrap();
+    assert!(!visible.contains("1:") && !visible.contains("# Worker-rendered"));
+    assert!(!visible.contains("END-OF-MARKDOWN-READ"));
+    let at = [scroll.rect.x + 20., scroll.rect.y + 20.];
+    assert!(view.wheel(at, 100_000.));
+    let frame = view.render(&bridge.state, [900., 1100.]).unwrap();
+    assert!(
+        frame
+            .item_text(id)
+            .unwrap()
+            .contains("END-OF-MARKDOWN-READ")
+    );
+    assert_eq!(
+        bridge
+            .state
+            .prepared
+            .as_ref()
+            .unwrap()
+            .parsed_markdown_bytes,
+        parsed
+    );
+    assert!(view.wheel(at, -100_000.));
+    assert!(
+        view.render(&bridge.state, [900., 1100.])
+            .unwrap()
+            .item_text(id)
+            .unwrap()
+            .contains("Worker-rendered title")
+    );
+    bridge.detach().unwrap().await.unwrap();
+}
+
+#[tokio::test]
+async fn markdown_output_mermaid_tool_result_is_a_native_figure_and_execute_stays_literal() {
+    use bboxy450_harness::frontends::gui::{rich::Toggle, view::find};
+    let text = "```mermaid\ngraph LR\nA[Worker] --> B[Figure]\n```";
+    let temp = tempfile::tempdir().unwrap();
+    let (path, ids) = markdown_replay(
+        temp.path(),
+        vec![
+            (
+                markdown_tool(ToolKind::Fetch, "fetch", "", text),
+                Some(ItemStatus::Completed),
+            ),
+            (
+                markdown_tool(ToolKind::Execute, "bash", "", text),
+                Some(ItemStatus::Completed),
+            ),
+            (
+                markdown_tool(ToolKind::Read, "read", "failed.md", text),
+                Some(ItemStatus::Failed {
+                    code: None,
+                    reason: "read failed".into(),
+                }),
+            ),
+        ],
+    );
+    let mut bridge = Bridge::new(Arc::new(Wake));
+    bridge.replay(path);
+    ready(&mut bridge).await;
+    bridge.toggle(ids[0], Toggle::Output);
+    until(&mut bridge, |b| {
+        b.state.faces.get(&ids[0]).is_some_and(|f| f.output_closed)
+    })
+    .await;
+    let mut view = HarnessView::default();
+    let frame = view.render(&bridge.state, [900., 1800.]).unwrap();
+    let layout = frame.layout.as_ref().unwrap();
+    let figure = find(layout, &format!("mdout/{}", ids[0])).expect("tool Markdown panel");
+    assert!(
+        markdown_canvas(figure),
+        "Mermaid must paint a native diagram canvas"
+    );
+    let prose = frame.item_text(ids[0]).unwrap();
+    assert!(prose.contains("Drawing") && prose.contains("Source"));
+    assert!(!prose.contains("graph LR"));
+    assert!(find(layout, &format!("mdout/{}", ids[1])).is_none());
+    assert!(
+        frame.item_text(ids[1]).unwrap().contains("graph LR"),
+        "execute output must stay literal mono"
+    );
+    assert!(
+        find(layout, &format!("mdout/{}", ids[2])).is_none(),
+        "failed Read stays raw"
+    );
+    bridge.detach().unwrap().await.unwrap();
+}
+
+#[tokio::test]
+async fn markdown_output_reasoning_is_dim_prose_and_live_text_is_literal() {
+    use bboxy450_harness::frontends::gui::{rich::Toggle, view::find};
+    let text = "# Reasoned heading\n\n- first option\n- second option\n\n```mermaid\ngraph LR\nA --> B\n```";
+    let temp = tempfile::tempdir().unwrap();
+    let (path, ids) = markdown_replay(
+        temp.path(),
+        vec![
+            (
+                Item::Reasoning {
+                    summary: text.into(),
+                    raw: None,
+                    provider_opaque: None,
+                },
+                Some(ItemStatus::Completed),
+            ),
+            (
+                Item::Reasoning {
+                    summary: "**still thinking**".into(),
+                    raw: None,
+                    provider_opaque: None,
+                },
+                Some(ItemStatus::Completed),
+            ),
+        ],
+    );
+    let mut bridge = Bridge::new(Arc::new(Wake));
+    bridge.replay(path);
+    ready(&mut bridge).await;
+    let parsed = bridge
+        .state
+        .prepared
+        .as_ref()
+        .unwrap()
+        .parsed_markdown_bytes;
+    bridge.toggle(ids[0], Toggle::Reasoning);
+    until(&mut bridge, |b| {
+        b.state.faces.get(&ids[0]).is_some_and(|f| f.reasoning_open)
+    })
+    .await;
+    let mut view = HarnessView::default();
+    let frame = view.render(&bridge.state, [900., 1800.]).unwrap();
+    let body = find(
+        frame.layout.as_ref().unwrap(),
+        &format!("reasoning/{}/body", ids[0]),
+    )
+    .unwrap();
+    assert!(markdown_canvas(body));
+    fn dim_prose(node: &bbt_ui::components::Layout) -> bool {
+        if let bbt_ui::components::LayoutKind::Text { runs, .. } = &node.kind
+            && runs.iter().any(|r| {
+                r.text.contains("Reasoned")
+                    && (r.style.size - 12.5).abs() < 0.01
+                    && r.style.color == bbt_ui_model::draw::Color::hex("#8A90B0").0
+            })
+        {
+            return true;
+        }
+        node.children.iter().any(dim_prose)
+    }
+    assert!(dim_prose(body));
+    assert_eq!(
+        bridge
+            .state
+            .prepared
+            .as_ref()
+            .unwrap()
+            .parsed_markdown_bytes,
+        parsed,
+        "opening reasoning must reuse prepared blocks"
+    );
+    let mut model = (*bridge.state.transcript).clone();
+    let live = model.items.get_mut(&ids[1]).unwrap();
+    live.status = None;
+    live.completed = None;
+    let source = Arc::new(model);
+    let prepared = runtime::blocking({
+        let source = source.clone();
+        move || {
+            bboxy450_harness::frontends::gui::view::Preparer::default()
+                .prepare(source, 900.)
+                .unwrap()
+        }
+    })
+    .await;
+    let state = bboxy450_harness::frontends::gui::bridge::FrameState {
+        transcript: source,
+        prepared: Some(Arc::new(prepared)),
+        ..Default::default()
+    };
+    assert!(
+        view.render(&state, [900., 1800.])
+            .unwrap()
+            .item_text(ids[1])
+            .unwrap()
+            .contains("**still thinking** ▍")
+    );
+    bridge.detach().unwrap().await.unwrap();
+}
+
 #[tokio::test]
 async fn large_markdown_uses_the_production_replay_preparation_worker() {
     bbt_rt::register_ui_thread();

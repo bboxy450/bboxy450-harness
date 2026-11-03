@@ -351,7 +351,13 @@ impl Preparer {
                 rich = Some(doc);
                 content
             }
-            Item::Reasoning { summary, .. } => {
+            Item::Reasoning { summary, raw, .. } => {
+                let summary = if summary.trim().is_empty() {
+                    raw.as_deref().unwrap_or(summary)
+                } else {
+                    summary
+                }
+                .trim();
                 let live = row.status.is_none();
                 let open = live || face.reasoning_open;
                 let gist = gist(summary);
@@ -366,27 +372,43 @@ impl Preparer {
                     )
                     .into(),
                 ];
-                // parsed once whether or not it is shown: a disclosure never reparses
-                let doc = self.documents.prepare(
-                    id,
-                    summary,
-                    row.completed.is_some(),
-                    content_width - 20.,
-                    &self.metrics,
-                )?;
-                if open {
+                if live {
+                    let mut text = f::text(format!("{summary} ▍"), 12.5, 400, ink.dim, false);
+                    text.preserve_whitespace = true;
                     kids.push(
                         named(
                             format!("reasoning/{id}/body"),
-                            f::thought_body(doc.element.clone(), &ink),
+                            f::thought_body(c::Element::Text(text), &ink),
                         )
                         .into(),
                     );
-                    rich = Some(doc);
+                } else {
+                    // Completed thoughts are prepared once even while collapsed.
+                    let doc = self.documents.reasoning(
+                        id,
+                        summary,
+                        true,
+                        content_width - 20.,
+                        &self.metrics,
+                    )?;
+                    if open {
+                        kids.push(
+                            named(
+                                format!("reasoning/{id}/body"),
+                                f::thought_body(doc.element.clone(), &ink),
+                            )
+                            .into(),
+                        );
+                        rich = Some(doc);
+                    }
                 }
                 f::vstack(kids, 4.)
             }
-            Item::ToolCall { .. } => self.tool_card(model, row, face, folds, &cwd, &ink)?,
+            Item::ToolCall { .. } => {
+                let (card, doc) = self.tool_card(model, row, face, folds, content_width, &ink)?;
+                rich = doc;
+                card
+            }
             Item::Approval {
                 subject,
                 options,
@@ -638,9 +660,15 @@ impl Preparer {
         row: &ViewItem,
         face: &Face,
         folds: &Folds,
-        cwd: &str,
+        content_width: f32,
         ink: &f::Ink,
-    ) -> Result<c::Element, String> {
+    ) -> Result<(c::Element, Option<super::super::rich::Body>), String> {
+        let cwd = model
+            .meta
+            .as_ref()
+            .map(|m| m.cwd.display().to_string())
+            .unwrap_or_default();
+        let cwd = cwd.as_str();
         let Item::ToolCall {
             name,
             tool_kind,
@@ -741,6 +769,7 @@ impl Preparer {
             .into(),
         ];
         let mut inside: Vec<c::Item> = vec![];
+        let mut rich = None;
         let caption = [title.as_deref(), server.as_deref()]
             .into_iter()
             .flatten()
@@ -812,6 +841,30 @@ impl Preparer {
                     )
                     .into(),
                 );
+            } else if let Some(text) = {
+                // describe() unwraps ACP's console envelope. Preserve actual Markdown
+                // fences (especially a tool result consisting of one Mermaid figure).
+                let raw = output
+                    .iter()
+                    .map(OutputBlock::display_text)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let text = if raw.is_empty() || raw.trim_start().starts_with("```console\n") {
+                    d.out.as_str()
+                } else {
+                    raw.as_str()
+                };
+                super::super::rich::tool_markdown(d.kind, &d.target, failed, text)
+            } {
+                let doc = self.documents.prepare(
+                    id,
+                    &text,
+                    row.completed.is_some(),
+                    content_width - 48.,
+                    &self.metrics,
+                )?;
+                inside.push(doc.inset(id, content_width - 48., &self.metrics)?.into());
+                rich = Some(doc);
             } else if d.verb == "Read" && !d.out.is_empty() {
                 let limit = if face.arguments_closed {
                     usize::MAX
@@ -872,7 +925,10 @@ impl Preparer {
             kids.push(f::body(inside));
         }
         let _ = d.name;
-        Ok(named(format!("tool/{id}"), f::card(&status, kids, ink)))
+        Ok((
+            named(format!("tool/{id}"), f::card(&status, kids, ink)),
+            rich,
+        ))
     }
 }
 /// The receipt title says what happened in words (harness-spec.md, Turn receipt).
