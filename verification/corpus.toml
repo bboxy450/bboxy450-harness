@@ -543,3 +543,13 @@ frontend = "project"
 name = "BrokenHarnessFourViewBudgetTail"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessSocketHeartbeat"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessSocketHeartbeat"
+expected = "safety"
+frontend = "project"

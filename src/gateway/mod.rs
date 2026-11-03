@@ -294,7 +294,9 @@ impl Hub {
         }
         drop(pending);
         for sub in self.subs.load().iter().filter_map(Weak::upgrade) {
-            if e.seq.is_some() || sub.ephemeral {
+            // Status is transport liveness even for durable-only subscribers.
+            // Item deltas/snapshots still obey their ephemeral preference.
+            if e.seq.is_some() || sub.ephemeral || matches!(e.event, Event::Status { .. }) {
                 sub.push(e.clone());
             }
         }

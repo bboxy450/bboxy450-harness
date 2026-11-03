@@ -3627,8 +3627,83 @@ fn four_view_budget(broken: bool) -> Model {
     m
 }
 
+// Existing idle Status at tick 15 reaches both subscriber preferences. Delivery
+// is atomic here; wall-clock scheduling and <=20s receiver freshness are real
+// socket witnesses. A heartbeat changes transport age, never semantic age/head.
+// bboxy450-harness; credit reuse: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+fn socket_heartbeat(broken: bool) -> Model {
+    let mut m = base::<8>(
+        "SocketHeartbeat",
+        broken,
+        &[
+            ("clock", 21, 0),
+            ("transport_age", 21, 0),
+            ("semantic_age", 21, 0),
+            ("ephemeral", 1, 0),
+            ("heartbeat", 1, 0),
+            ("delivered", 1, 0),
+            ("item_delivered", 1, 0),
+            ("durable_head", 0, 0),
+        ],
+    );
+    act(&mut m, "AllowItemEphemeral", eq(0, 0), &[(3, Int(1))]);
+    act(&mut m, "ItemSnapshot", Bool(true), &[(6, Var(3))]);
+    let tick = m.actions.len();
+    act(
+        &mut m,
+        "ClockTick",
+        all([
+            Var(0).lt(Int(21)),
+            Var(0).lt(Int(14)).or(Int(14).lt(Var(0))),
+        ]),
+        &[
+            (0, Var(0).plus(Int(1))),
+            (1, Var(1).plus(Int(1))),
+            (2, Var(2).plus(Int(1))),
+        ],
+    );
+    let heartbeat = m.actions.len();
+    for ephemeral in 0..=1 {
+        let routed = !broken || ephemeral == 1;
+        act(
+            &mut m,
+            "ExistingIdleStatusTick",
+            all([eq(0, 14), eq(3, ephemeral)]),
+            &[
+                (0, Int(15)),
+                (1, if routed { Int(0) } else { Var(1).plus(Int(1)) }),
+                (2, Int(15)),
+                (4, Int(1)),
+                (5, Int(i64::from(routed))),
+            ],
+        );
+    }
+    safe(
+        &mut m,
+        "UnconditionalTransportStatus",
+        eq(4, 0).or(eq(5, 1)),
+    );
+    safe(&mut m, "SilentConsumerStaysFresh", Var(1).le(Int(20)));
+    safe(
+        &mut m,
+        "HeartbeatNeverClaimsSemanticProgress",
+        Var(2).eq(Var(0)).and(eq(7, 0)),
+    );
+    safe(&mut m, "ItemPreferencePreserved", eq(3, 1).or(eq(6, 0)));
+    progress(
+        &mut m,
+        "SilentIntervalObserved",
+        Bool(true),
+        eq(0, 21),
+        vec![tick, heartbeat, heartbeat + 1],
+    );
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (socket_heartbeat(false), "pass"),
+        (socket_heartbeat(true), "safety"),
         (four_view_budget(false), "pass"),
         (four_view_budget(true), "safety"),
         (socket_lifecycle(0), "pass"),

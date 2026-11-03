@@ -393,3 +393,14 @@ implementation_tests = ["tests/gui_budget.rs", "tests/formal_nonvacuity.rs", "sc
 assumptions = "Four preloaded immutable views with one admitted notification and render each. One logical clock unit is 100us: drains cost 1, renders cost 2, per-frame aggregate shares are 3 and 6. Separate retained round-robin cursors carry the first deferred view into the next frame. Weak fairness of the scheduling-action group guarantees retirement; Wait may otherwise stutter. The broken control omits the projection deadline guard and consumes the fourth 200us render after spending 600us. Actual callbacks, 128 deltas per view, prepared native layout, notification wake tails, serialization and CPU time are implementation witnesses; injected charges do not prove real-time performance or arbitrary Rust refinement. Term owns loaded-machine p99 and unmeasured margins."
 property = "NotificationConserved; AggregateDrainBudget; AggregateProjectionBudget; AllAdmittedWorkRetires under WF{schedule}."
 checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessSocketHeartbeat"
+title = "Existing idle Status keeps durable-only consumers live without semantic progress."
+models = ["HarnessSocketHeartbeat", "BrokenHarnessSocketHeartbeat"]
+controls = [{name="BrokenHarnessSocketHeartbeat", expected="safety"}]
+sources = ["src/gateway/mod.rs", "src/gateway/unix.rs", "src/engine/mod.rs", "src/backend/acp_agent.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/gateway_unix.rs", "tests/formal_nonvacuity.rs", "scripts/test-socket-heartbeat-control.py"]
+assumptions = "Clock0..21 seconds, existing idle Status atomically published/delivered at15, subscriber item-ephemeral flag0/1, transport and semantic ages0..21, unchanged durable head. The broken old filter suppresses Status for flag0. Weak fairness of tick/heartbeat actions reaches21; atomic receiver delivery and an on-time15s backend tick are explicit bounded scheduling assumptions, not consequences of OS fairness. Actual actor timer, session/epoch envelope validation, immutable JSONL activity, false-subscription Unix bytes and term20s consumer policy are implementation witnesses. No new timer/frame variant or arbitrary Rust refinement proof."
+property = "UnconditionalTransportStatus; SilentConsumerStaysFresh; HeartbeatNeverClaimsSemanticProgress; ItemPreferencePreserved; SilentIntervalObserved under WF{tick,heartbeat}."
+checks = ["make test-formal", "make test"]

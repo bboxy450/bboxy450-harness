@@ -173,3 +173,153 @@ async fn disconnection_resolves_all_pending_sends() {
     assert_eq!(b, Err(ClientError::Disconnected));
     server.await.unwrap();
 }
+
+// The term delivery consumer requests ephemeral=false and expires at 20s.
+// Exercise the existing real 15s actor timer, without requests or fake activity.
+// An optional separately built term probe supplies actual-consumer evidence;
+// the canonical test always verifies the same false-subscription wire boundary.
+#[tokio::test]
+async fn idle_durable_subscriber_keeps_transport_fresh_without_semantic_activity() {
+    let s = support::session(vec![], false).await;
+    let path = s.temp.path().join("idle.sock");
+    let server = UnixServer::bind(path.clone(), s.gateway.clone())
+        .await
+        .unwrap();
+    let hello = s.gateway.hello();
+    let log = s
+        .temp
+        .path()
+        .join("sessions")
+        .join(format!("{}.jsonl", hello.meta.session));
+    let before = std::fs::read(&log).unwrap();
+    let (client, mut sub) = UnixClient::connect(
+        &path,
+        Subscribe {
+            session: hello.meta.session,
+            after: Some((hello.epoch, hello.head)),
+            ephemeral: false,
+        },
+    )
+    .await
+    .unwrap();
+    let probe = std::env::var_os("BBOXY_TERM_HEARTBEAT_PROBE").map(|executable| {
+        let mut command = tokio::process::Command::new(executable);
+        command
+            .arg(&path)
+            .kill_on_drop(true)
+            .stdout(std::process::Stdio::piped());
+        for key in [
+            "BBOXY_CAPABILITY",
+            "BBOXY_CAPABILITY_FILE",
+            "BBOXY_SEAT_ID",
+            "BBOXY_SOCK",
+        ] {
+            command.env_remove(key);
+        }
+        command.spawn().unwrap()
+    });
+    let start = Instant::now();
+    let deadline = tokio::time::sleep(Duration::from_secs(21));
+    tokio::pin!(deadline);
+    let mut heartbeats = 0;
+    let mut last_frame = start;
+    loop {
+        tokio::select! {
+            _ = &mut deadline => break,
+            event = sub.recv() => {
+                let event = event.expect("silent subscriber must remain connected");
+                assert_eq!(event.session, hello.meta.session);
+                assert_eq!(event.epoch, hello.epoch);
+                assert!(event.seq.is_none());
+                assert!(event.cause.is_none());
+                assert!(matches!(event.event, Event::Status { phase: Phase::Idle }));
+                assert!(last_frame.elapsed() < Duration::from_secs(20), "heartbeat exceeded consumer freshness bound");
+                last_frame = Instant::now();
+                heartbeats += 1;
+            }
+        }
+    }
+    assert!(start.elapsed() > Duration::from_secs(20));
+    assert!(
+        heartbeats > 0,
+        "durable-only subscriber filtered the idle heartbeat"
+    );
+    assert!(last_frame.elapsed() < Duration::from_secs(20));
+    assert_eq!(
+        std::fs::read(&log).unwrap(),
+        before,
+        "transport heartbeat must not fabricate durable semantic activity"
+    );
+    assert_eq!(s.gateway.hello().head, hello.head);
+    if let Some(probe) = probe {
+        let output = tokio::time::timeout(Duration::from_secs(5), probe.wait_with_output())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "actual term consumer failed: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        println!(
+            "actual term consumer: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+    }
+    println!(
+        "idle socket: elapsed={:?}, heartbeats={heartbeats}, ephemeral=false, unchanged durable semantic activity",
+        start.elapsed()
+    );
+    client.close();
+    server.close().await.unwrap();
+    support::close(s).await;
+}
+
+#[cfg(feature = "test-fixtures")]
+#[tokio::test]
+async fn transport_status_bypasses_only_the_item_ephemeral_filter() {
+    let own = tempfile::tempdir().unwrap();
+    let meta = support::meta(own.path().into());
+    let (gateway, publish) = bboxy450_harness::gateway::InProc::fixture(meta.clone(), Epoch(1));
+    let mut sub = gateway
+        .subscribe(Subscribe {
+            session: meta.session,
+            after: None,
+            ephemeral: false,
+        })
+        .unwrap();
+    let item = ItemId::new();
+    for event in [
+        Event::ItemSnapshot {
+            item,
+            partial: Item::AgentMessage {
+                markdown: "filtered".into(),
+            },
+        },
+        Event::Status { phase: Phase::Idle },
+    ] {
+        publish(Envelope {
+            v: PROTOCOL,
+            session: meta.session,
+            epoch: Epoch(1),
+            seq: None,
+            at: Seq(0),
+            ts_ms: 0,
+            cause: None,
+            event,
+            raw: None,
+            native: None,
+            ext: Default::default(),
+        });
+    }
+    let event = tokio::time::timeout(Duration::from_secs(1), sub.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(event.event, Event::Status { .. }));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), sub.recv())
+            .await
+            .is_err()
+    );
+}

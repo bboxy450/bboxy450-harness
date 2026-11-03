@@ -993,3 +993,32 @@ fn four_view_budget_defers_a_real_tail_and_the_missing_guard_exceeds_the_share()
             .any(|v| v.property == "AggregateProjectionBudget")
     );
 }
+
+#[test]
+fn idle_status_reaches_durable_only_consumers_without_claiming_progress() {
+    let good = model("HarnessSocketHeartbeat");
+    let checked = good.check(100_000).unwrap();
+    assert!(checked.violations.is_empty());
+    assert!(checked.states.iter().any(|s| {
+        s[variable(&good, "clock")] == 21
+            && s[variable(&good, "ephemeral")] == 0
+            && s[variable(&good, "delivered")] == 1
+            && s[variable(&good, "transport_age")] == 6
+            && s[variable(&good, "semantic_age")] == 21
+    }));
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[variable(&good, "item_delivered")] == 1)
+    );
+    let bad = model("BrokenHarnessSocketHeartbeat")
+        .check(100_000)
+        .unwrap();
+    assert!(
+        bad.violations
+            .iter()
+            .any(|v| v.property == "UnconditionalTransportStatus")
+    );
+    assert!(bad.states.iter().any(|s| s[variable(&good, "clock")] == 21 && s[variable(&good, "transport_age")] == 21));
+}

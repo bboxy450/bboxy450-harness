@@ -164,3 +164,13 @@ omitting the projection guard must fail safety. The four-real-view injected
 clock witness and actual production-guard mutation live in tests/gui_budget.rs
 and scripts/test-gui-budget-control.py. Injected time is an allocation proof;
 loaded-machine p99 and callback-time margins remain UNMEASURED here.
+
+`HarnessSocketHeartbeat` checks the existing idle Status fan-out to both
+item-ephemeral preferences. Logical time0..21 includes the existing15s heartbeat;
+transport age resets while semantic age and durable head remain unchanged.
+The broken old filter excludes durable-only subscribers and violates unconditional
+routing/freshness. Tick/heartbeat weak fairness guarantees observation of21;
+atomic receipt and an on-time15s tick are explicit bounded scheduling assumptions.
+Real Unix false-subscription and unchanged JSONL witnesses run for>20s in
+`tests/gateway_unix.rs`; the production-filter mutation requires red/restored green.
+Timer/OS scheduling and the actual term consumer remain implementation coverage.
