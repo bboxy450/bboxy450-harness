@@ -942,3 +942,24 @@ fn socket_lifecycle_controls_reach_restart_aba_cancel_duplicate_and_detach() {
         );
     }
 }
+
+#[test]
+fn stale_socket_intent_control_keeps_a_real_pending_owner_and_breaks_retirement() {
+    let m = model("BrokenHarnessSocketLifecycleStalePending");
+    let checked = m.check(100_000).unwrap();
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[variable(&m, "pending")] == 1
+                && s[variable(&m, "birth")] == 2
+                && s[variable(&m, "job_birth")] == 0
+                && s[variable(&m, "detached")] == 1)
+    );
+    assert!(
+        checked
+            .violations
+            .iter()
+            .any(|v| v.property == "DetachedOldIntentEventuallyRetired")
+    );
+}

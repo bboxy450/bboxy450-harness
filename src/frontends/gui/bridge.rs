@@ -647,6 +647,11 @@ async fn consume(
             .session
             .is_some_and(|session| session != gateway.session())
         {
+            // These intents belong to the retired session. Waiting for their
+            // endings on its replacement would keep detach alive forever.
+            for op in mailbox.pending_turns.load_full().iter() {
+                mailbox.pending(*op, false);
+            }
             model = Transcript::default();
             owned_turns.clear();
             dispatch_error = None;
@@ -688,7 +693,10 @@ async fn consume(
                     break;
                 }
                 Some((session, epoch, op, result)) = responses.recv() => {
-                    if session != gateway.session() || epoch != model.epoch { continue; }
+                    if session != gateway.session() || epoch != model.epoch {
+                        mailbox.pending(op, false);
+                        continue;
+                    }
                     if let Err(error) = result {
                         mailbox.pending(op, false);
                         dispatch_error = Some(format!("Dispatch {op}: {}", client_error_text(&error)));
@@ -756,6 +764,9 @@ async fn consume(
                 break;
             }
             tokio::task::yield_now().await;
+        }
+        if detached && mailbox.pending_turns.load().is_empty() {
+            return;
         }
         // Lag/Reset reconnects and transport failure share the same cursor path.
         // Never spin on a malformed peer or move an intent to another session.

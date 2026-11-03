@@ -528,3 +528,8 @@ frontend = "project"
 name = "BrokenHarnessSocketLifecycleDetach"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "BrokenHarnessSocketLifecycleStalePending"
+expected = "liveness"
+frontend = "project"

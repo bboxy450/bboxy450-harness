@@ -482,3 +482,88 @@ async fn seat_alias_refuses_files_symlinks_and_live_owners() {
     support::close(s).await;
     server.retire().await.unwrap();
 }
+
+#[tokio::test]
+async fn stale_unknown_dispatch_does_not_hold_detach_on_the_replacement_session() {
+    use bboxy450_harness::gateway::unix::UnixServer;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let first = support::session(vec![support::sse("text")], true).await;
+    let own = tempfile::tempdir_in("/tmp").unwrap();
+    let socket = own.path().join("seat.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let hello = first.gateway.hello();
+    let (sent, received) = tokio::sync::oneshot::channel();
+    let (release, released) = tokio::sync::oneshot::channel();
+    let peer = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (read, mut write) = stream.into_split();
+        let mut read = tokio::io::BufReader::new(read);
+        let mut line = String::new();
+        read.read_line(&mut line).await.unwrap();
+        let mut bytes = serde_json::to_vec(&hello).unwrap();
+        bytes.push(b'\n');
+        write.write_all(&bytes).await.unwrap();
+        line.clear();
+        read.read_line(&mut line).await.unwrap();
+        let op: OpEnvelope = serde_json::from_str(&line).unwrap();
+        assert!(matches!(op.op, Op::UserTurn { .. }));
+        // Close the session before the deliberately withheld admission reply.
+        // The consumer leaves this connection's receive loop while the reply
+        // task is still pending, making stale-outcome ordering deterministic.
+        let closed = Envelope {
+            v: PROTOCOL,
+            session: hello.meta.session,
+            epoch: hello.epoch,
+            seq: Some(Seq(1)),
+            at: Seq(1),
+            ts_ms: 0,
+            cause: None,
+            event: Event::SessionClosed,
+            raw: None,
+            ext: Default::default(),
+            native: None,
+        };
+        write
+            .write_all(&closed.wire_bytes().unwrap())
+            .await
+            .unwrap();
+        sent.send(()).unwrap();
+        released.await.unwrap();
+    });
+    let mut bridge = Bridge::new(Arc::new(Wake::default()));
+    bridge.connect(socket.clone(), None);
+    wait(&mut bridge, |b| b.state.ready).await;
+    bridge
+        .send(Op::UserTurn {
+            blocks: vec![InputBlock::Text {
+                text: "old intent".into(),
+            }],
+            mode: TurnMode::Queue,
+        })
+        .unwrap();
+    received.await.unwrap();
+    wait(&mut bridge, |b| b.state.transcript.closed).await;
+    release.send(()).unwrap();
+    peer.await.unwrap();
+    std::fs::remove_file(&socket).unwrap();
+    let next = support::session(vec![support::sse("text")], true).await;
+    let session = next.gateway.session();
+    let server = UnixServer::bind(socket, next.gateway.clone())
+        .await
+        .unwrap();
+    wait(&mut bridge, |b| {
+        b.state.ready && b.state.transcript.session == Some(session)
+    })
+    .await;
+    assert!(
+        bridge.state.error.is_none(),
+        "stale response polluted the new face"
+    );
+    tokio::time::timeout(Duration::from_secs(1), bridge.detach().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    support::close(next).await;
+    server.retire().await.unwrap();
+    support::close(first).await;
+}

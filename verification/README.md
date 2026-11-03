@@ -4,7 +4,7 @@ The native backend is crates.io `bboxy450-tlc =0.1.1`, using its finite integer
 and Boolean Model/Variable/Action API. Yarn 0.1.1 projects the production
 `harness_turn_topology!` declaration. This repository contains no checker fork.
 
-The corpus has 107 model variants mapped to 36 contracts, including the shared
+The corpus has 108 model variants mapped to 36 contracts, including the shared
 Yarn scheduling projection.
 It explores two queued turns, two tools/rounds, three birth generations (A-B-A),
 a two-slot stand-in for the bounded work lane, and a three-entry replay log.
@@ -25,7 +25,11 @@ remain outside this B1/B2 change.
 delayed and duplicate completions. Four controls violate stale, duplicate,
 cancelled or detach safety. Connect is weakly fair while attached and live;
 real socket operations remain bounded witnesses (5 s Hello/ack, 2 s backoff,
-1 s server close drain), not a timing theorem. No PTY discovery frame is emitted.
+1 s server close drain), not a timing theorem. A fifth lifecycle control retains
+an unknown dispatch from the retired session and fails detached-worker progress
+under weak fairness of retirement; a socket disconnect/replacement API witness
+proves detach releases that intent without polluting the new face. No PTY
+discovery frame is emitted.
 
 Broken controls cover double endings, omitted synthetic results, stale
 completions, leader-only cancellation, a blocked interrupt, stale approvals,

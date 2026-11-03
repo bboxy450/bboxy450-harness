@@ -3336,7 +3336,7 @@ fn socket_delivery(mode: u8) -> Model {
 // Two epochs per birth, three births (A-B-A), one job and two completions.
 // All delays/reordering are arbitrary; Connect is weakly fair while live.
 fn socket_lifecycle(mode: u8) -> Model {
-    let mut m = base::<12>(
+    let mut m = base::<14>(
         "SocketLifecycle",
         false,
         &[
@@ -3352,6 +3352,8 @@ fn socket_lifecycle(mode: u8) -> Model {
             ("cancel_applied", 1, 0),
             ("detached", 1, 0),
             ("explicit_close", 1, 0),
+            ("pending", 1, 0),
+            ("retired", 1, 0),
         ],
     );
     m.name = match mode {
@@ -3359,7 +3361,8 @@ fn socket_lifecycle(mode: u8) -> Model {
         1 => "BrokenHarnessSocketLifecycleStale",
         2 => "BrokenHarnessSocketLifecycleDuplicate",
         3 => "BrokenHarnessSocketLifecycleCancelled",
-        _ => "BrokenHarnessSocketLifecycleDetach",
+        4 => "BrokenHarnessSocketLifecycleDetach",
+        _ => "BrokenHarnessSocketLifecycleStalePending",
     }
     .into();
     let connect = m.actions.len();
@@ -3373,9 +3376,9 @@ fn socket_lifecycle(mode: u8) -> Model {
         &mut m,
         "StartJob",
         all([eq(2, 1), eq(3, 1), eq(4, 0)]),
-        &[(4, Int(1)), (5, Var(0)), (6, Var(1))],
+        &[(4, Int(1)), (5, Var(0)), (6, Var(1)), (12, Int(1))],
     );
-    act(&mut m, "Cancel", eq(4, 1), &[(4, Int(2))]);
+    act(&mut m, "Cancel", eq(4, 1), &[(4, Int(2)), (12, Int(0))]);
     act(
         &mut m,
         "Detach",
@@ -3386,12 +3389,12 @@ fn socket_lifecycle(mode: u8) -> Model {
             (2, if mode == 4 { Int(0) } else { Var(2) }),
         ],
     );
-    act(&mut m, "Reattach", eq(10, 1), &[(10, Int(0))]);
+    act(&mut m, "Reattach", eq(10, 1), &[(10, Int(0)), (13, Int(0))]);
     act(
         &mut m,
         "Close",
         eq(2, 1),
-        &[(2, Int(0)), (3, Int(0)), (11, Int(1))],
+        &[(2, Int(0)), (3, Int(0)), (11, Int(1)), (12, Int(0))],
     );
     act(
         &mut m,
@@ -3409,6 +3412,7 @@ fn socket_lifecycle(mode: u8) -> Model {
             (2, Int(1)),
             (3, Int(0)),
             (11, Int(0)),
+            (12, if mode == 5 { Var(12) } else { Int(0) }),
         ],
     );
     let fresh = Var(0).eq(Var(5)).and(Var(1).eq(Var(6)));
@@ -3435,6 +3439,7 @@ fn socket_lifecycle(mode: u8) -> Model {
                 ]),
                 &[
                     (4, Int(3)),
+                    (12, Int(0)),
                     (7, Var(7).plus(Int(1))),
                     (8, Int(i64::from(stale))),
                     (9, Int(i64::from(job == 2))),
@@ -3442,6 +3447,29 @@ fn socket_lifecycle(mode: u8) -> Model {
             );
         }
     }
+    let retire = m.actions.len();
+    act(
+        &mut m,
+        "RetireDetached",
+        all([eq(10, 1), eq(12, 0), eq(13, 0)]),
+        &[(13, Int(1))],
+    );
+    act(&mut m, "Wait", Bool(true), &[(12, Var(12))]);
+    progress(
+        &mut m,
+        "DetachedOldIntentEventuallyRetired",
+        all([
+            eq(10, 1),
+            eq(13, 0),
+            eq(4, 0)
+                .or(eq(4, 2))
+                .or(eq(4, 3))
+                .or(fresh.negate())
+                .or(eq(2, 0)),
+        ]),
+        eq(13, 1).or(eq(10, 0)),
+        vec![retire],
+    );
     safe(&mut m, "NoStaleCompletion", eq(8, 0));
     safe(&mut m, "NoCancelledCompletion", eq(9, 0));
     safe(&mut m, "NoDuplicateCompletion", Var(7).le(Int(1)));
@@ -3467,6 +3495,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (socket_lifecycle(2), "safety"),
         (socket_lifecycle(3), "safety"),
         (socket_lifecycle(4), "safety"),
+        (socket_lifecycle(5), "liveness"),
         (socket_delivery(0), "pass"),
         (socket_delivery(1), "safety"),
         (socket_delivery(2), "safety"),
