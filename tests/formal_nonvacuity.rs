@@ -963,3 +963,33 @@ fn stale_socket_intent_control_keeps_a_real_pending_owner_and_breaks_retirement(
             .any(|v| v.property == "DetachedOldIntentEventuallyRetired")
     );
 }
+
+#[test]
+fn four_view_budget_defers_a_real_tail_and_the_missing_guard_exceeds_the_share() {
+    let good = model("HarnessFourViewBudget");
+    let checked = good.check(100_000).unwrap();
+    assert!(checked.violations.is_empty());
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[variable(&good, "drain_spent")] == 3 && s[variable(&good, "todo3")] == 1)
+    );
+    assert!(checked.states.iter().any(
+        |s| s[variable(&good, "projection_spent")] == 6 && s[variable(&good, "painted3")] == 0
+    ));
+    assert!(checked.states.iter().any(|s| {
+        (0..4).all(|i| {
+            s[variable(&good, &format!("painted{i}"))] == 1
+                && s[variable(&good, &format!("todo{i}"))] == 0
+        })
+    }));
+    let bad = model("BrokenHarnessFourViewBudgetTail")
+        .check(100_000)
+        .unwrap();
+    assert!(
+        bad.violations
+            .iter()
+            .any(|v| v.property == "AggregateProjectionBudget")
+    );
+}

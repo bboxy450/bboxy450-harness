@@ -3488,8 +3488,149 @@ fn socket_lifecycle(mode: u8) -> Model {
     m
 }
 
+// Four preloaded immutable views, each with one notification and one render.
+// One unit is 100us: drain share 3, render cost 2 and projection share 6.
+// Worker preparation and wall-clock execution are implementation witnesses.
+// bboxy450-harness; credit reuse: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+fn four_view_budget(broken: bool) -> Model {
+    let mut m = base::<18>(
+        "FourViewBudget",
+        false,
+        &[
+            ("drain_cursor", 3, 0),
+            ("projection_cursor", 3, 0),
+            ("phase", 2, 0),
+            ("visits", 4, 0),
+            ("drain_spent", 4, 0),
+            ("projection_spent", 8, 0),
+            ("todo0", 1, 1),
+            ("todo1", 1, 1),
+            ("todo2", 1, 1),
+            ("todo3", 1, 1),
+            ("drained0", 1, 0),
+            ("drained1", 1, 0),
+            ("drained2", 1, 0),
+            ("drained3", 1, 0),
+            ("painted0", 1, 0),
+            ("painted1", 1, 0),
+            ("painted2", 1, 0),
+            ("painted3", 1, 0),
+        ],
+    );
+    if broken {
+        m.name = "BrokenHarnessFourViewBudgetTail".into();
+    }
+    for i in 0..4 {
+        let next = Int(((i + 1) % 4) as i64);
+        act(
+            &mut m,
+            "DrainNotification",
+            all([
+                eq(2, 0),
+                eq(0, i as i64),
+                Var(3).lt(Int(4)),
+                Var(4).lt(Int(3)),
+                eq(6 + i, 1),
+            ]),
+            &[
+                (0, next.clone()),
+                (3, Var(3).plus(Int(1))),
+                (4, Var(4).plus(Int(1))),
+                (6 + i, Int(0)),
+                (10 + i, Int(1)),
+            ],
+        );
+        act(
+            &mut m,
+            "VisitEmptyDrain",
+            all([
+                eq(2, 0),
+                eq(0, i as i64),
+                Var(3).lt(Int(4)),
+                Var(4).lt(Int(3)),
+                eq(6 + i, 0),
+            ]),
+            &[(0, next.clone()), (3, Var(3).plus(Int(1)))],
+        );
+        let allowed = if broken {
+            Bool(true)
+        } else {
+            Var(5).lt(Int(6))
+        };
+        act(
+            &mut m,
+            "RenderPreparedView",
+            all([
+                eq(2, 1),
+                eq(1, i as i64),
+                Var(3).lt(Int(4)),
+                allowed.clone(),
+                eq(14 + i, 0),
+            ]),
+            &[
+                (1, next.clone()),
+                (3, Var(3).plus(Int(1))),
+                (5, Var(5).plus(Int(2))),
+                (14 + i, Int(1)),
+            ],
+        );
+        act(
+            &mut m,
+            "VisitUnchangedView",
+            all([
+                eq(2, 1),
+                eq(1, i as i64),
+                Var(3).lt(Int(4)),
+                allowed,
+                eq(14 + i, 1),
+            ]),
+            &[(1, next), (3, Var(3).plus(Int(1)))],
+        );
+        safe(
+            &mut m,
+            &format!("NotificationConserved{i}"),
+            Var(6 + i).plus(Var(10 + i)).eq(Int(1)),
+        );
+    }
+    act(
+        &mut m,
+        "BeginProjection",
+        all([eq(2, 0), eq(3, 4).or(eq(4, 3))]),
+        &[(2, Int(1)), (3, Int(0))],
+    );
+    act(
+        &mut m,
+        "EndFrame",
+        all([
+            eq(2, 1),
+            eq(3, 4).or(if broken { Bool(false) } else { eq(5, 6) }),
+        ]),
+        &[(2, Int(2))],
+    );
+    act(
+        &mut m,
+        "NextFrame",
+        eq(2, 2),
+        &[(2, Int(0)), (3, Int(0)), (4, Int(0)), (5, Int(0))],
+    );
+    let fair = (0..m.actions.len()).collect();
+    act(&mut m, "Wait", Bool(true), &[(2, Var(2))]);
+    safe(&mut m, "AggregateDrainBudget", Var(4).le(Int(3)));
+    safe(&mut m, "AggregateProjectionBudget", Var(5).le(Int(6)));
+    progress(
+        &mut m,
+        "AllAdmittedWorkRetires",
+        Bool(true),
+        all((0..4).flat_map(|i| [eq(6 + i, 0), eq(14 + i, 1)])),
+        fair,
+    );
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (four_view_budget(false), "pass"),
+        (four_view_budget(true), "safety"),
         (socket_lifecycle(0), "pass"),
         (socket_lifecycle(1), "safety"),
         (socket_lifecycle(2), "safety"),

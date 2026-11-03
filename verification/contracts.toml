@@ -382,3 +382,14 @@ implementation_tests = ["tests/support/seat_socket.rs", "tests/gui_bridge.rs", "
 assumptions = "Three distinct births A/B/A, two epochs per birth, one job, applied count 0..2, and Boolean pending/retired dispatch ownership. Close, switch, cancellation, detach, restart, delayed and duplicate completions may interleave arbitrarily. Only current live running work applies once. Connect is weakly fair while attached/live; detached-worker retirement is weakly fair when no current-session intent remains. The stale-pending control keeps a retired session intent and must fail retirement liveness; no arbitrary OS fairness or real-time bound is proved. Implementation witnesses bound Hello/ack to 5s, reconnect to at most once per 2s and server SessionClosed drain to 1s. Socket bytes/permissions/euid, filesystem ownership, wall time, CPU budgets, Rust memory behavior and Side A remain implementation-only. Not a Rust refinement proof."
 property = "NoStaleCompletion; NoCancelledCompletion; NoDuplicateCompletion; DetachPreservesSession; LiveAttachedEventuallyConnected under WF{ConnectHello}; DetachedOldIntentEventuallyRetired under WF{RetireDetached}."
 checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessFourViewBudget"
+title = "Four concurrent rich views share aggregate frame budgets and retain deferred work."
+models = ["HarnessFourViewBudget", "BrokenHarnessFourViewBudgetTail"]
+controls = [{name="BrokenHarnessFourViewBudgetTail", expected="safety"}]
+sources = ["src/frontends/gui/budget.rs", "src/frontends/gui/bridge.rs", "src/frontends/gui/view.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/gui_budget.rs", "tests/formal_nonvacuity.rs", "scripts/test-gui-budget-control.py"]
+assumptions = "Four preloaded immutable views with one admitted notification and render each. One logical clock unit is 100us: drains cost 1, renders cost 2, per-frame aggregate shares are 3 and 6. Separate retained round-robin cursors carry the first deferred view into the next frame. Weak fairness of the scheduling-action group guarantees retirement; Wait may otherwise stutter. The broken control omits the projection deadline guard and consumes the fourth 200us render after spending 600us. Actual callbacks, 128 deltas per view, prepared native layout, notification wake tails, serialization and CPU time are implementation witnesses; injected charges do not prove real-time performance or arbitrary Rust refinement. Term owns loaded-machine p99 and unmeasured margins."
+property = "NotificationConserved; AggregateDrainBudget; AggregateProjectionBudget; AllAdmittedWorkRetires under WF{schedule}."
+checks = ["make test-formal", "make test"]

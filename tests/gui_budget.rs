@@ -64,6 +64,9 @@ impl Clock for InjectedClock {
     }
 }
 fn fixture() -> (std::collections::VecDeque<Envelope>, ItemId) {
+    fixture_with_deltas(100_000)
+}
+fn fixture_with_deltas(count: usize) -> (std::collections::VecDeque<Envelope>, ItemId) {
     let base: Envelope = serde_json::from_str(
         include_str!("fixtures/protocol/all-items.jsonl")
             .lines()
@@ -103,7 +106,7 @@ fn fixture() -> (std::collections::VecDeque<Envelope>, ItemId) {
         item,
         delta: Delta::Text { append: "x".into() },
     };
-    for _ in 0..100_000 {
+    for _ in 0..count {
         queue.push_back(delta.clone());
     }
     let mut complete = base;
@@ -113,7 +116,7 @@ fn fixture() -> (std::collections::VecDeque<Envelope>, ItemId) {
         item,
         status: ItemStatus::Completed,
         body: Item::AgentMessage {
-            markdown: "x".repeat(100_000),
+            markdown: "x".repeat(count),
         },
     };
     queue.push_back(complete);
@@ -204,4 +207,166 @@ async fn completed_layouts_are_retained() {
     .await;
     assert_eq!(first, 2);
     assert_eq!(second, first, "unchanged completed items never rebuild");
+}
+
+/// One shared clock for all four production bridges and native projections.
+/// Drain replacements cost 100us; an atomic prepared render costs 200us.
+/// These deterministic charges test scheduling, not measured machine timings.
+#[derive(Default)]
+struct AggregateClock(std::cell::Cell<Duration>);
+impl Clock for AggregateClock {
+    fn now(&self) -> Duration {
+        self.0.get()
+    }
+    fn charge(&self, work: Work) {
+        let cost = match work {
+            Work::TryRecv => Duration::ZERO,
+            Work::Projection => Duration::from_micros(100),
+            Work::Render => Duration::from_micros(200),
+        };
+        self.0.set(self.0.get() + cost);
+    }
+}
+struct Pane {
+    bridge: Bridge,
+    view: bboxy450_harness::frontends::gui::view::HarnessView,
+    item: ItemId,
+    target: u64,
+    rendered: u64,
+    frames: usize,
+}
+#[tokio::test]
+async fn four_views_share_one_clock_drain_and_projection_without_losing_the_tail() {
+    use bboxy450_harness::frontends::gui::{
+        budget::round_robin,
+        view::{HarnessView, layout_text},
+    };
+    let own = tempfile::tempdir_in("/tmp").unwrap();
+    let mut panes = vec![];
+    async fn publication(bridge: &Bridge, after: u64) {
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while bridge.published_revision() <= after {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+    for n in 0..4 {
+        let (queue, item) = fixture_with_deltas(128);
+        let path = own.path().join(format!("view-{n}.jsonl"));
+        let mut data = Vec::new();
+        for event in queue {
+            serde_json::to_writer(&mut data, &event).unwrap();
+            data.push(b'\n');
+        }
+        std::fs::write(&path, data).unwrap();
+        let mut bridge = Bridge::new(Arc::new(Wake::default()));
+        bridge.replay(path);
+        publication(&bridge, 0).await;
+        for i in 0..15 {
+            let revision = bridge.published_revision();
+            bridge.set_width(if i % 2 == 0 { 1000. } else { 1120. });
+            publication(&bridge, revision).await;
+        }
+        let target = bridge.published_revision();
+        panes.push(Pane {
+            bridge,
+            view: HarnessView::default(),
+            item,
+            target,
+            rendered: 0,
+            frames: 0,
+        });
+    }
+    let clock = AggregateClock::default();
+    // Establish four admitted immutable states; retain their notification tails.
+    // Setup is outside frame accounting, like a frame following a worker burst.
+    for pane in &mut panes {
+        pane.bridge
+            .drain_with_clock(Duration::from_micros(100), &clock);
+        assert_eq!(pane.bridge.state.revision, pane.target);
+        assert!(pane.bridge.pending_notices());
+    }
+    let mut drain_cursor = 0;
+    let mut projection_cursor = 0;
+    let mut frames = 0;
+    loop {
+        frames += 1;
+        let drain = round_robin(
+            &mut panes,
+            &mut drain_cursor,
+            &clock,
+            Duration::from_micros(300),
+            |pane, remaining| {
+                pane.bridge.drain_with_clock(remaining, &clock);
+            },
+        );
+        assert!(
+            drain.spent <= Duration::from_micros(300),
+            "aggregate drain exceeded 300us"
+        );
+        let projection = round_robin(
+            &mut panes,
+            &mut projection_cursor,
+            &clock,
+            Duration::from_micros(600),
+            |pane, _remaining| {
+                if pane.rendered != pane.bridge.state.revision {
+                    let frame = pane
+                        .view
+                        .render(&pane.bridge.state, [1120., 7000.])
+                        .unwrap();
+                    assert!(
+                        layout_text(frame.layout.as_ref().unwrap()).contains("retained history")
+                    );
+                    pane.rendered = pane.bridge.state.revision;
+                    pane.frames += 1;
+                    clock.charge(Work::Render);
+                }
+            },
+        );
+        assert!(
+            projection.spent <= Duration::from_micros(600),
+            "aggregate projection exceeded 600us"
+        );
+        if frames == 1 {
+            assert_eq!(drain.spent, Duration::from_micros(300));
+            assert_eq!(projection.spent, Duration::from_micros(600));
+            assert_eq!(
+                projection.received, 3,
+                "host must rearm the retained fourth view"
+            );
+            assert_eq!(
+                panes.iter().filter(|p| p.rendered == p.target).count(),
+                3,
+                "fourth render must remain admitted for the next frame"
+            );
+            assert!(panes.iter().any(|p| p.bridge.pending_notices()));
+        }
+        if panes
+            .iter()
+            .all(|p| !p.bridge.pending_notices() && p.rendered == p.target)
+        {
+            break;
+        }
+        assert!(frames < 40, "round-robin work did not make progress");
+    }
+    for mut pane in panes {
+        assert_eq!(pane.bridge.state.revision, pane.target);
+        assert_eq!(pane.frames, 1);
+        assert_eq!(pane.bridge.state.transcript.cursor, Seq(5));
+        assert_eq!(pane.bridge.state.transcript.duplicate_durable, 0);
+        assert_eq!(pane.bridge.state.transcript.items.len(), 2);
+        assert_eq!(
+            pane.bridge.state.transcript.items[&pane.item].body,
+            Item::AgentMessage {
+                markdown: "x".repeat(128)
+            }
+        );
+        pane.bridge.detach().unwrap().await.unwrap();
+    }
+    println!(
+        "gui aggregate budget: four real bridges/native views; {frames} frames; shared injected clock, drain <=300us, projection <=600us; deferred fourth projection and notification tails retained; CPU margins UNMEASURED"
+    );
 }

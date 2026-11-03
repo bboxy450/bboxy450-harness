@@ -12,6 +12,8 @@ use std::time::{Duration, Instant};
 pub enum Work {
     TryRecv,
     Projection,
+    /// A prepared native view's layout/paint projection, separate from drain.
+    Render,
 }
 pub trait Clock {
     fn now(&self) -> Duration;
@@ -50,6 +52,40 @@ pub fn drain<T>(
         };
         project(item);
         clock.charge(Work::Projection);
+        received += 1;
+    }
+    Drain {
+        received,
+        spent: clock.now().saturating_sub(start),
+    }
+}
+
+/// Visit visible views against one shared frame deadline, retaining the cursor
+/// at the first deferred view. Each callback owns its bounded work quantum and
+/// receives the remaining share; no per-view budget is multiplied by pane count.
+/// A returned received count below views.len() tells the host to rearm a frame
+/// for the retained tail; cursors belong to that host, never a global gate.
+/// Real-clock results measure elapsed frame-path time; injected charges prove the
+/// scheduling allocation, not arbitrary renderer execution time.
+/// bboxy450-harness — https://github.com/bboxy450/bboxy450-harness
+/// Credit reuse accurately: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+pub fn round_robin<T>(
+    views: &mut [T],
+    cursor: &mut usize,
+    clock: &impl Clock,
+    budget: Duration,
+    mut visit: impl FnMut(&mut T, Duration),
+) -> Drain {
+    let start = clock.now();
+    let mut received = 0;
+    for _ in 0..views.len() {
+        let spent = clock.now().saturating_sub(start);
+        if spent >= budget {
+            break;
+        }
+        let index = *cursor % views.len();
+        *cursor = (index + 1) % views.len();
+        visit(&mut views[index], budget.saturating_sub(spent));
         received += 1;
     }
     Drain {

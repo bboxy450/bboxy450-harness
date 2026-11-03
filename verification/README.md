@@ -4,7 +4,7 @@ The native backend is crates.io `bboxy450-tlc =0.1.1`, using its finite integer
 and Boolean Model/Variable/Action API. Yarn 0.1.1 projects the production
 `harness_turn_topology!` declaration. This repository contains no checker fork.
 
-The corpus has 108 model variants mapped to 36 contracts, including the shared
+The corpus has 110 model variants mapped to 37 contracts, including the shared
 Yarn scheduling projection.
 It explores two queued turns, two tools/rounds, three birth generations (A-B-A),
 a two-slot stand-in for the bounded work lane, and a three-entry replay log.
@@ -19,8 +19,8 @@ session; both must fail safety. Unattended headless and GUI host workers
 check socket discovery, socket mode/lifetime, switch and crash/resume epochs.
 Unix/InProc bridge tests project every IR v1 fixture through the shared worker
 and compare the complete transcript and rendered `layout_text`. These are
-implementation witnesses; Side A delivery and aggregate multi-pane budgets
-remain outside this B1/B2 change.
+implementation witnesses; Side A delivery and loaded-machine pane measurements
+remain consumer-owned; aggregate scheduling is witnessed below.
 `HarnessSocketLifecycle` adds two epochs per birth, cancellation, detach,
 delayed and duplicate completions. Four controls violate stale, duplicate,
 cancelled or detach safety. Connect is weakly fair while attached and live;
@@ -156,3 +156,11 @@ expire without refreshing. Weak fairness on clock steps abstracts scheduling;
 fake Tokio time verifies the two-second interval, and a silent tool under a
 private PTY witnesses repeated live reports beyond five seconds. Phase text,
 ACP identity, redaction and terminal bytes remain implementation witnesses.
+
+`HarnessFourViewBudget` models four preloaded views and retained notification
+and projection tails: one unit is 100us, with total drain/projection shares 3/6
+and render cost 2. Scheduling weak fairness discharges every admitted tail;
+omitting the projection guard must fail safety. The four-real-view injected
+clock witness and actual production-guard mutation live in tests/gui_budget.rs
+and scripts/test-gui-budget-control.py. Injected time is an allocation proof;
+loaded-machine p99 and callback-time margins remain UNMEASURED here.

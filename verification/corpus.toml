@@ -533,3 +533,13 @@ frontend = "project"
 name = "BrokenHarnessSocketLifecycleStalePending"
 expected = "liveness"
 frontend = "project"
+
+[[model]]
+name = "HarnessFourViewBudget"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessFourViewBudgetTail"
+expected = "safety"
+frontend = "project"

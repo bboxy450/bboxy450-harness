@@ -155,7 +155,7 @@ async fn unix_and_inproc_views_equal_every_ir_v1_fixture() {
     fixtures.sort();
     assert_eq!(
         fixtures.len(),
-        11,
+        12,
         "every locked IR v1 fixture must be covered"
     );
     for path in fixtures {

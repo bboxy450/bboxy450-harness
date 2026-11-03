@@ -62,6 +62,8 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
 - Seat socket lifecycle, deterministic message operation IDs and the shared
   InProc/Unix rich-view bridge in `src/frontends/` and `src/gateway/` are
   project-owned implementations of `.bboxy/interfaces/rich-pane.md`.
+  The shared round-robin frame budget and executable production-guard control
+  follow the same project-owned policy.
 
 - Capture expansion in `src/frontends/gui/smoke.rs` uses the click-controlled
   face state; `scripts/parity-web.sh` invokes the bboxy450-term web reference's
