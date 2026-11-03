@@ -138,7 +138,7 @@ The render rule for every addition: a face that predates it shows the item kind'
 **What the gate does not prove.**
 - Semantics (E3), which is a review rule.
 - serde behaviour that the schema does not express, e.g. `#[serde(default)]` without `skip_serializing_if`. Byte-level round trip is `tests/protocol_golden.rs`.
-- E5, E6 and E9 until [[2026-11-02-log-ir-v1-compat]] lands. **Known violations** today: fork re-serializes (`src/store/fork.rs:173`); the GUI drops major ≠ 0 (`src/frontends/gui/model.rs:110`); the store refuses to open a log with an unknown event kind (`src/store.rs:144`, `:215`, `is_durable()` applied on read).
+- E5, E6 and E9 are witnessed, not proven: `tests/ir_v1_corpus.rs` (byte identity through open, replay and fork; an unknown durable event opens) and `laws::check_authored`, landed with [[2026-11-02-log-ir-v1-compat]] (Part A 5826403, Part B f73a034, `PROTOCOL` 1.1, lock 46 definitions, corpus 11 files). The read-side `is_durable()` survives only as the broken control.
 
 ## 6. Where the IR lives
 
