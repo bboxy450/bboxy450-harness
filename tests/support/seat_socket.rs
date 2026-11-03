@@ -13,9 +13,27 @@ use std::{
 };
 const SEAT: &str = "00000000000000000000000042";
 
+enum Child {
+    Pty(Box<dyn portable_pty::Child + Send + Sync>),
+    Gui(std::process::Child),
+}
+impl Child {
+    fn pid(&self) -> u32 {
+        match self {
+            Self::Pty(c) => c.process_id().unwrap(),
+            Self::Gui(c) => c.id(),
+        }
+    }
+    fn try_wait(&mut self) -> std::io::Result<Option<bool>> {
+        match self {
+            Self::Pty(c) => c.try_wait().map(|s| s.map(|s| s.success())),
+            Self::Gui(c) => c.try_wait().map(|s| s.map(|s| s.success())),
+        }
+    }
+}
 struct Seat {
-    master: Box<dyn portable_pty::MasterPty + Send>,
-    child: Box<dyn portable_pty::Child + Send + Sync>,
+    master: Option<Box<dyn portable_pty::MasterPty + Send>>,
+    child: Child,
     writer: Box<dyn Write + Send>,
     chunks: std::sync::mpsc::Receiver<Vec<u8>>,
     reader: std::thread::JoinHandle<()>,
@@ -23,49 +41,66 @@ struct Seat {
 }
 impl Seat {
     fn start(root: &Path, gui: bool, resume: Option<&str>) -> Self {
-        let pty = native_pty_system()
-            .openpty(PtySize {
-                rows: 24,
-                cols: 100,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .unwrap();
-        let mut command = if gui {
-            let mut c = CommandBuilder::new(std::env::current_exe().unwrap());
-            c.args([
-                "--exact",
-                "seat_socket::gui_socket_worker",
-                "--nocapture",
-                "--test-threads=1",
-            ]);
-            c.env("HARNESS_GUI_SOCKET_WORKER", "1");
-            if let Some(session) = resume {
-                c.env("HARNESS_GUI_SOCKET_RESUME", session);
-            }
-            c
-        } else {
-            let mut c = CommandBuilder::new(env!("CARGO_BIN_EXE_bboxy450-harness"));
-            c.args(["seat", "--profile", "scripted", "--socket"]);
-            c.arg(root.join("seat.sock"));
-            c.arg("--scripted");
-            c.arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sse/text.sse"));
-            if let Some(session) = resume {
-                c.args(["--resume", session]);
-            }
-            c
-        };
-        // A direct invocation is isolated too, without relying on make's wrapper.
-        for key in ["BBOXY_CAPABILITY", "BBOXY_CAPABILITY_FILE", "BBOXY_SOCK"] {
-            command.env_remove(key);
-        }
-        command.env("HOME", root);
-        command.env("TERM", "dumb");
-        command.env("BBOXY_SEAT_ID", SEAT);
-        let child = pty.slave.spawn_command(command).unwrap();
-        drop(pty.slave);
-        let writer = pty.master.take_writer().unwrap();
-        let mut read = pty.master.try_clone_reader().unwrap();
+        let (master, child, writer, mut read): (_, _, Box<dyn Write + Send>, Box<dyn Read + Send>) =
+            if gui {
+                // The GUI host needs a scripted control stream, not a terminal.
+                // Pipes avoid sharing terminal lifecycle or descriptor timing with
+                // the concurrently running PTY contract witnesses.
+                use std::process::{Command, Stdio};
+                let mut command = Command::new(std::env::current_exe().unwrap());
+                command
+                    .args([
+                        "--exact",
+                        "seat_socket::gui_socket_worker",
+                        "--nocapture",
+                        "--test-threads=1",
+                    ])
+                    .env("HARNESS_GUI_SOCKET_WORKER", "1")
+                    .env("HOME", root)
+                    .env("TERM", "dumb")
+                    .env("BBOXY_SEAT_ID", SEAT)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped());
+                for key in ["BBOXY_CAPABILITY", "BBOXY_CAPABILITY_FILE", "BBOXY_SOCK"] {
+                    command.env_remove(key);
+                }
+                if let Some(session) = resume {
+                    command.env("HARNESS_GUI_SOCKET_RESUME", session);
+                }
+                let mut child = super::spawn_without_sibling_fds(&mut command);
+                let writer = Box::new(child.stdin.take().unwrap());
+                let read = Box::new(child.stdout.take().unwrap());
+                (None, Child::Gui(child), writer, read)
+            } else {
+                let pty = native_pty_system()
+                    .openpty(PtySize {
+                        rows: 24,
+                        cols: 100,
+                        pixel_width: 0,
+                        pixel_height: 0,
+                    })
+                    .unwrap();
+                let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_bboxy450-harness"));
+                command.args(["seat", "--profile", "scripted", "--socket"]);
+                command.arg(root.join("seat.sock"));
+                command.arg("--scripted");
+                command
+                    .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sse/text.sse"));
+                if let Some(session) = resume {
+                    command.args(["--resume", session]);
+                }
+                for key in ["BBOXY_CAPABILITY", "BBOXY_CAPABILITY_FILE", "BBOXY_SOCK"] {
+                    command.env_remove(key);
+                }
+                command.env("HOME", root);
+                command.env("TERM", "dumb");
+                command.env("BBOXY_SEAT_ID", SEAT);
+                let child = pty.slave.spawn_command(command).unwrap();
+                drop(pty.slave);
+                let writer = pty.master.take_writer().unwrap();
+                let read = pty.master.try_clone_reader().unwrap();
+                (Some(pty.master), Child::Pty(child), writer, read)
+            };
         let (tx, chunks) = std::sync::mpsc::channel();
         let reader = std::thread::spawn(move || {
             let mut buffer = [0; 4096];
@@ -76,7 +111,7 @@ impl Seat {
             }
         });
         Self {
-            master: pty.master,
+            master,
             child,
             writer,
             chunks,
@@ -91,17 +126,21 @@ impl Seat {
     fn finish(mut self, crash: bool) {
         if crash {
             assert_eq!(
-                unsafe { libc::kill(self.child.process_id().unwrap() as i32, libc::SIGKILL) },
+                unsafe { libc::kill(self.child.pid() as i32, libc::SIGKILL) },
                 0
             );
         } else {
-            self.input(b"\x04");
+            if matches!(self.child, Child::Gui(_)) {
+                self.input(b"/quit\n");
+            } else {
+                self.input(b"\x04");
+            }
         }
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             if let Some(status) = self.child.try_wait().unwrap() {
                 if !crash {
-                    assert!(status.success(), "{}", String::from_utf8_lossy(&self.bytes));
+                    assert!(status, "{}", String::from_utf8_lossy(&self.bytes));
                 }
                 break;
             }
@@ -314,7 +353,6 @@ fn lifecycle(gui: bool) {
         assert!(Instant::now() < deadline);
     };
     assert_eq!(reopened.meta.session, third.meta.session);
-    resumed.input(b"\n"); // release canonical EOT on the worker's stdin
     resumed.finish(false);
     wait_removed(&third_path);
     let log = own.path().join(format!(
@@ -337,7 +375,7 @@ fn gui_socket_start_switch_aba_resume_and_cleanup() {
     lifecycle(true);
 }
 
-// A GUI host worker, driven through a disposable PTY without opening a window.
+// A GUI host worker, driven through private pipes without opening a window.
 // A private HOME and scripted stdin drive startup/switch/resume without OS input.
 #[test]
 fn gui_socket_worker() {
