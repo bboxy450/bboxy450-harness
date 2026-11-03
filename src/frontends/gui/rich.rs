@@ -119,6 +119,8 @@ struct Document {
     stream: StreamingMarkdown,
     blocks: Vec<Prepared>,
     width: f32,
+    /// The text zoom the blocks were laid out at; another zoom relays them out.
+    zoom: f32,
     received: usize,
     parsed: usize,
     reasoning: bool,
@@ -190,15 +192,17 @@ impl Body {
     }
 }
 impl Documents {
+    /// `zoom` scales every text size in the blocks (harness-spec.md Standalone window).
     pub fn prepare(
         &mut self,
         id: ItemId,
         text: &str,
         complete: bool,
         width: f32,
+        zoom: f32,
         metrics: &impl c::Measure,
     ) -> Result<Body, String> {
-        self.prepare_styled(id, text, complete, width, metrics, false)
+        self.prepare_styled(id, text, complete, width, zoom, metrics, false)
     }
     pub(super) fn reasoning(
         &mut self,
@@ -206,16 +210,19 @@ impl Documents {
         text: &str,
         complete: bool,
         width: f32,
+        zoom: f32,
         metrics: &impl c::Measure,
     ) -> Result<Body, String> {
-        self.prepare_styled(id, text, complete, width, metrics, true)
+        self.prepare_styled(id, text, complete, width, zoom, metrics, true)
     }
+    #[allow(clippy::too_many_arguments)] // The zoom rides beside the measure; one body serves both entry points.
     fn prepare_styled(
         &mut self,
         id: ItemId,
         text: &str,
         complete: bool,
         width: f32,
+        zoom: f32,
         metrics: &impl c::Measure,
         reasoning: bool,
     ) -> Result<Body, String> {
@@ -243,10 +250,11 @@ impl Documents {
             doc.parsed += range.len();
             changed = Some(range.start);
         }
-        if doc.width != width || doc.reasoning != reasoning {
+        if doc.width != width || doc.reasoning != reasoning || doc.zoom != zoom {
             doc.blocks.clear();
             doc.width = width;
             doc.reasoning = reasoning;
+            doc.zoom = zoom;
         }
         if let Some(start) = changed {
             doc.blocks.retain(|b| b.source.end <= start);
@@ -264,6 +272,7 @@ impl Documents {
                 fragment.transcript_body_element(&highlights, context(), metrics, width);
             super::view::flat(&mut element);
             transcript_type(&mut element, (width - MEASURE).max(0.), false, reasoning);
+            super::face::zoom_text(&mut element, zoom);
             let mut layout = element.layout(Rect::new(0., 0., width, 0.), context(), metrics)?;
             chips_and_bullets(&mut layout, metrics)?;
             let prose = matches!(
@@ -289,7 +298,9 @@ impl Documents {
             // unfinished block waits for enough parse credit. No bytes vanish.
             let mut text = c::Text::new(pending, ui::Text::default());
             text.preserve_whitespace = true;
-            blocks.push(Arc::new(c::Element::Text(text).layout(
+            let mut text = c::Element::Text(text);
+            super::face::zoom_text(&mut text, zoom);
+            blocks.push(Arc::new(text.layout(
                 Rect::new(0., 0., width, 0.),
                 context(),
                 metrics,

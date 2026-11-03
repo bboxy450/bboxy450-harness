@@ -208,7 +208,14 @@ async fn completion_surface_occludes_acp_error_notice_and_red_turn_receipt() {
         let mut renderer = bbt_render::chrome::ChromeRenderer::with_context(context,
             bboxy450_harness::frontends::gui::assets::icons()).unwrap();
         let frame = view.render(&populated, [900., 300.]).unwrap();
-        let popup = frame.list.primitives.iter().find_map(|p| match p {
+        // the menu is painted over the face (Frame::over); the window draws the face, then
+        // the rims, then the overlay onto one target, which one flat list reproduces here
+        let whole = |frame: &bboxy450_harness::frontends::gui::view::Frame| {
+            let mut list = frame.list.clone();
+            list.primitives.extend(frame.over.primitives.iter().cloned());
+            list
+        };
+        let popup = frame.over.primitives.iter().find_map(|p| match p {
             // The "/" menu card (harness-spec.md flat fallback): an opaque
             // surface_2 fill, inside its 1px seat ring at left 12.
             bbt_ui_model::draw::Prim::Rect { rect, fill, .. }
@@ -221,14 +228,14 @@ async fn completion_surface_occludes_acp_error_notice_and_red_turn_receipt() {
                 bbt_ui_model::draw::Prim::Rect { rect, .. } if Some(*rect) == popup));
             list
         };
-        let full = renderer.render_to_rgba(&frame.list, 900, 300, 1.).unwrap();
-        let broken_full = renderer.render_to_rgba(&without_surface(&frame.list), 900, 300, 1.).unwrap();
+        let full = renderer.render_to_rgba(&whole(frame), 900, 300, 1.).unwrap();
+        let broken_full = renderer.render_to_rgba(&without_surface(&whole(frame)), 900, 300, 1.).unwrap();
         let frame = view.render(&empty, [900., 300.]).unwrap();
-        let blank = renderer.render_to_rgba(&frame.list, 900, 300, 1.).unwrap();
-        let broken_blank = renderer.render_to_rgba(&without_surface(&frame.list), 900, 300, 1.).unwrap();
+        let blank = renderer.render_to_rgba(&whole(frame), 900, 300, 1.).unwrap();
+        let broken_blank = renderer.render_to_rgba(&without_surface(&whole(frame)), 900, 300, 1.).unwrap();
         assert!(view.cancel_prompt(&Bridge::new(Arc::new(Wake))));
         let frame = view.render(&populated, [900., 300.]).unwrap();
-        let transcript = renderer.render_to_rgba(&frame.list, 900, 300, 1.).unwrap();
+        let transcript = renderer.render_to_rgba(&whole(frame), 900, 300, 1.).unwrap();
         if let Some(out) = std::env::var_os("HARNESS_RENDER_EVIDENCE") {
             let out = std::path::PathBuf::from(out);
             std::fs::create_dir_all(&out).unwrap();
@@ -989,10 +996,22 @@ fn composer_box_follows_phase_and_keeps_hit_contract() {
         stops,
         "running with an empty draft, send is the stop square"
     );
-    assert!(
-        find(&live, "composer/sweep").is_some(),
-        "running sweep line"
+    fn rim(l: &bbt_ui::components::Layout) -> Option<bbt_ui::GlowActivity> {
+        fn style(n: &bbt_ui::components::Layout) -> Option<&bbt_ui::ResolvedStyle> {
+            match &n.kind {
+                bbt_ui::components::LayoutKind::Box { style, .. } => Some(style),
+                _ => n.children.iter().find_map(style),
+            }
+        }
+        style(find(l, "composer")?)?.rim.map(|r| r.activity)
+    }
+    assert_eq!(
+        rim(&live),
+        Some(bbt_ui::GlowActivity::Active),
+        "the alive rim runs with the turn (no sweep line)"
     );
+    assert!(find(&live, "composer/sweep").is_none());
+    assert_eq!(rim(&idle), Some(bbt_ui::GlowActivity::Idle));
     let hint = find(&live, "composer/hint").expect("a running turn shows esc interrupt");
     let send = find(&live, "composer/send").unwrap().rect;
     let panel = find(&live, "composer").unwrap().rect;
@@ -1013,9 +1032,10 @@ fn composer_box_follows_phase_and_keeps_hit_contract() {
         },
         false,
     );
-    assert!(
-        find(&ask, "composer/sweep").is_none(),
-        "ask is not the run look"
+    assert_eq!(
+        rim(&ask),
+        Some(bbt_ui::GlowActivity::Waiting),
+        "ask is the amber rim, not the run look"
     );
     assert!(
         find(&ask, "composer/hint").is_some(),

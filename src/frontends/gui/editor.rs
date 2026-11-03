@@ -37,6 +37,19 @@ impl Input {
     pub fn composing(&self) -> bool {
         self.editor.composing() || self.inner.composing()
     }
+    /// The selected draft text, for the Edit › Copy menu action; None when nothing is selected.
+    pub fn selected_text(&self) -> Option<String> {
+        let [a, b] = self.editor.selection();
+        if a == b {
+            return None;
+        }
+        let text = &self.inner.view.text;
+        let start = bbt_ui::components::utf16_byte_index(text, a)?;
+        let end = bbt_ui::components::utf16_byte_index(text, b)?;
+        text.get(start..end)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    }
     pub fn completion(&self) -> Option<Completion> {
         self.editor.completion(&self.inner.view.text)
     }

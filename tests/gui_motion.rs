@@ -547,30 +547,59 @@ async fn composer_focus_height_send_and_caret_tween() {
             .first()
             .map(|r| r.color[3])
     };
+    let fill = |l: &Layout| box_style(find(l, "composer").unwrap()).unwrap().fill[3];
+    let rim = |l: &Layout| {
+        box_style(find(l, "composer").unwrap())
+            .unwrap()
+            .rim
+            .expect("the composer wears the alive rim")
+    };
+    // the alive rim replaces the sweep and the focus ring (harness-spec.md Composer): the
+    // border is a constant seat-35, the fill goes card -> focus-fill over 200 ms std, and
+    // focus fires the swell, one half sine over glow.swell_ms (900 ms)
     let l0 = at(&mut view, &state, 0.);
-    assert!(near(border(&l0), 0.10, 0.001), "hair at rest");
-    assert_eq!(ring(&l0), None);
+    assert!(near(border(&l0), 0.35, 0.001), "seat-35 at rest");
+    assert_eq!(ring(&l0), None, "no ring: the rim carries the focus");
+    assert!(near(fill(&l0), 0.04, 0.001), "card fill at rest");
+    assert!(!rim(&l0).focused && rim(&l0).swell == 0.);
     view.focused = true;
     view.invalidate();
     let l1 = at(&mut view, &state, 1000.);
-    assert!(near(border(&l1), 0.10, 0.001), "focus starts from hair");
+    assert!(near(border(&l1), 0.35, 0.001), "the border never moves");
+    assert!(near(fill(&l1), 0.04, 0.001), "focus fill starts from card");
+    assert!(
+        rim(&l1).focused && near(rim(&l1).swell, 0., 0.001),
+        "the swell starts at 0"
+    );
     let l2 = at(&mut view, &state, 1100.);
     let half = Ease::Std.at(0.5);
     assert!(
-        near(border(&l2), 0.10 + (0.55 - 0.10) * half, 0.003),
-        "border at 100 ms: {} vs std(.5)",
-        border(&l2)
+        near(fill(&l2), 0.04 + 0.01 * half, 0.001),
+        "fill at 100 ms: {} vs std(.5)",
+        fill(&l2)
     );
+    assert_eq!(ring(&l2), None);
+    let l3 = at(&mut view, &state, 1225.);
+    assert!(near(border(&l3), 0.35, 0.001));
     assert!(
-        near(ring(&l2).unwrap(), 0.14 * half, 0.003),
-        "ring fades in with focus"
+        near(rim(&l3).swell, (std::f32::consts::PI * 0.25).sin(), 0.01),
+        "swell at a quarter: {}",
+        rim(&l3).swell
     );
-    let l3 = at(&mut view, &state, 1200.);
-    assert!(near(border(&l3), 0.55, 0.001) && near(ring(&l3).unwrap(), 0.14, 0.001));
+    let l3 = at(&mut view, &state, 1450.);
+    assert!(near(rim(&l3).swell, 1., 0.01), "the swell peaks halfway");
+    assert_eq!(view.anim.next_frame(), Some(0.), "the swell is motion");
+    let l3 = at(&mut view, &state, 1900.);
+    assert!(near(rim(&l3).swell, 0., 0.001), "the swell has run");
     assert!(
         matches!(view.anim.next_frame(), Some(ms) if ms > 0.),
-        "the focus tween settled; only the caret's timed blink remains, not motion: {:?}",
+        "the swell settled; only the caret's timed blink remains, not motion: {:?}",
         view.anim.next_frame()
+    );
+    let l3 = at(&mut view, &state, 1950.);
+    assert!(
+        near(rim(&l3).swell, 0., 0.001),
+        "a settled swell does not restart"
     );
 
     // the send button: card-hi -> seat as text arrives, the glow with it
@@ -697,9 +726,20 @@ fn send_button_crossfades_arrow_and_square() {
         near(o[0], 1. - half, 0.01) && near(o[1], half, 0.01),
         "{o:?}"
     );
+    // the alive rim reads the phase (harness-spec.md Composer): Active while running, Idle
+    // at rest; its motion is the shader's, not a layout loop
+    let rim = |l: &Layout| {
+        box_style(find(l, "composer").unwrap())
+            .unwrap()
+            .rim
+            .expect("the composer wears the alive rim")
+            .activity
+    };
+    assert_eq!(rim(&l0), bbt_ui::GlowActivity::Idle);
+    assert_eq!(rim(&l1), bbt_ui::GlowActivity::Active, "the rim runs");
     assert!(
-        find(&l1, "composer/sweep").is_some(),
-        "the running sweep is on"
+        find(&l1, "composer/sweep").is_none(),
+        "the sweep is gone: the rim replaces it"
     );
     let l3 = at(&mut view, &running, 300.);
     let send3 = find(&l3, "composer/send").unwrap();
@@ -707,23 +747,7 @@ fn send_button_crossfades_arrow_and_square() {
     let mut o = vec![];
     opacities(send3, &mut o);
     assert!(o.is_empty(), "no filter nodes at rest");
-    assert_eq!(
-        view.anim.next_frame(),
-        Some(0.),
-        "the sweep loops while running"
-    );
-    // the sweep moves: its slices sit elsewhere 800 ms later
-    let sweep = |l: &Layout| match &find(l, "composer/sweep").unwrap().children[0].kind {
-        LayoutKind::Rects { rects, .. } => rects.iter().map(|(r, _)| r.x).fold(f32::MAX, f32::min),
-        other => panic!("{other:?}"),
-    };
-    let l4 = at(&mut view, &running, 1100.);
-    assert!(
-        sweep(&l4) > sweep(&l3) + 50.,
-        "{} -> {}",
-        sweep(&l3),
-        sweep(&l4)
-    );
+    assert_eq!(rim(&l3), bbt_ui::GlowActivity::Active);
 }
 
 /// Idle: once every tween has settled and no loop is visible, further frames with the clock

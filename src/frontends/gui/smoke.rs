@@ -11,8 +11,35 @@ use super::{
     rich::{Faces, Toggle},
     view::{Action, Frame, HarnessView, Preparer, find, layout_text},
 };
-use bbt_render::{chrome::ChromeRenderer, device::DeviceContext};
+use bbt_render::{
+    chrome::{ChromeRenderer, materials},
+    device::DeviceContext,
+};
 use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
+
+/// The frame as the window composes it: the flat face, the alive rims through the material
+/// pass (frozen at time 0: the end state), then the menus and the zoom pill over both.
+fn compose(
+    renderer: &mut ChromeRenderer,
+    frame: &super::view::Frame,
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>, String> {
+    materials::render_composed_to_rgba(
+        renderer,
+        materials::Scene {
+            backdrop: materials::Backdrop::DrawList(&frame.list),
+            items: &frame.rims,
+            width,
+            height,
+            scale: 1.,
+            time_ms: 0.,
+            theme: bbt_ui_model::Theme::Dark,
+        },
+        &frame.over,
+    )
+    .map_err(|e| e.to_string())
+}
 
 /// Render-only frame of a replay at a fixed size, for web/native parity. No
 /// fixture assertions; the transcript shows from its top.
@@ -47,9 +74,7 @@ pub async fn capture(
         let frame = capture_frame(&mut view, &mut state, size, menu, expand_all)?;
         let mut renderer = ChromeRenderer::with_context(context, super::assets::icons())
             .map_err(|e| e.to_string())?;
-        let rgba = renderer
-            .render_to_rgba(&frame.list, width, height, 1.)
-            .map_err(|e| e.to_string())?;
+        let rgba = compose(&mut renderer, frame, width, height)?;
         write_png(&screenshot, width, height, &rgba)
     })
     .await
@@ -165,9 +190,7 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         println!("gui-smoke structural: {checked:?}");
         let mut renderer = ChromeRenderer::with_context(context, super::assets::icons())
             .map_err(|e| e.to_string())?;
-        let rgba = renderer
-            .render_to_rgba(&frame.list, width, height, 1.)
-            .map_err(|e| e.to_string())?;
+        let rgba = compose(&mut renderer, frame, width, height)?;
         use crate::protocol::ItemKind;
         // a usage item draws no row (harness-spec.md "Refinement pass 2"): its figures feed
         // the header meter, which a 0/0 total (this fixture) leaves out
@@ -388,7 +411,7 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
         let frame = view.render(&state, [1120., 860.])?;
         if frame.scroll <= 0. || frame.scroll >= max || frame.visible.is_empty() || frame.visible.len() >= item_count { return Err("scrolled viewport did not virtualize visible rows".into()); }
         if layout_text(frame.layout.as_ref().ok_or("scrolled layout missing")?).is_empty() { return Err("scrolled viewport has no readable text".into()); }
-        let scrolled = renderer.render_to_rgba(&frame.list, 1120, 860, 1.).map_err(|e| e.to_string())?;
+        let scrolled = compose(&mut renderer, frame, 1120, 860)?;
         let scrolled_path = screenshot.with_file_name("gui-smoke-scrolled.png");
         let file = std::fs::File::create(scrolled_path).map_err(|e| e.to_string())?;
         let mut encoder = png::Encoder::new(file, 1120, 860); encoder.set_color(png::ColorType::Rgba); encoder.set_depth(png::BitDepth::Eight);

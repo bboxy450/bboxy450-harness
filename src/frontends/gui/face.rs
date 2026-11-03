@@ -1857,12 +1857,46 @@ impl ComposerState {
 }
 
 /// What the session and the window tell the composer: a running turn, a waiting approval,
-/// keyboard focus.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// a session whose last turn failed, keyboard focus, and the focus swell's envelope.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ComposerPhase {
     pub live: bool,
     pub ask: bool,
+    /// The last turn ended in an error and nothing runs: the rim reads Errored.
+    pub errored: bool,
     pub focused: bool,
+    /// The focus swell this frame, 0..1 (rim-glow §7): `sin(π t / swell_ms)` from the moment
+    /// focus arrived, 0 at rest. The view computes it on the window clock.
+    pub swell: f32,
+}
+
+/// The composer rim's activity (harness-spec.md Composer, alive rim): `run` → Active,
+/// `ask` → Waiting (amber), error → Errored, everything else → Idle. The same mapping
+/// `bbt_ui::modules::pane` takes from a seat's `Activity`. scripts/test-chrome-control.py
+/// flattens it and requires tests/gui_chrome.rs to go red.
+pub fn rim_activity(live: bool, ask: bool, errored: bool) -> ui::GlowActivity {
+    if ask {
+        ui::GlowActivity::Waiting
+    } else if live {
+        ui::GlowActivity::Active
+    } else if errored {
+        ui::GlowActivity::Errored
+    } else {
+        ui::GlowActivity::Idle
+    }
+}
+/// The focus swell's whole life, design `glow.swell_ms` (900 ms).
+pub const SWELL_MS: f32 = bbt_ui_model::TOKENS.glow.swell_ms as f32;
+/// The composer rim's shader phase seed; one composer, one constant.
+pub const RIM_SEED: u32 = 7;
+/// The focus swell's envelope at progress `p` (0..1 of `SWELL_MS`): one half sine,
+/// `reach(t) = swell · sin(π t / swell_ms)` (design tokens, glow). 0 once it has run.
+pub fn swell_envelope(p: f32) -> f32 {
+    if (0. ..1.).contains(&p) {
+        (std::f32::consts::PI * p).sin().clamp(0., 1.)
+    } else {
+        0.
+    }
 }
 
 /// The composer: one rounded box with the draft, two quiet chips, a state hint and the round
@@ -1872,24 +1906,40 @@ pub struct ComposerPhase {
 /// `composer/body-viewport`, `composer/send`, `composer/attach`, `composer/priority`,
 /// `composer/address`), so `composer::Regions` still drives clicks, the caret and the IME.
 ///
-/// Motion (harness-spec.md Motion table) reads through `anim`: focus border and ring over
-/// 200 ms `std`, the box height over 160 ms `out`, the send fill and icon colour across
-/// idle → ready → stop over 200 ms `std` with an arrow ↔ square crossfade, and the running
-/// sweep looping on the top edge. A settled clock answers the end states, so the static
-/// look is unchanged.
+/// Motion (harness-spec.md Motion table) reads through `anim`: the focus fill over 200 ms
+/// `std`, the box height over 160 ms `out`, the send fill and icon colour across
+/// idle → ready → stop over 200 ms `std` with an arrow ↔ square crossfade. The box wears
+/// the term's alive pane rim (`Preset::PaneGlow` with `overrides.rim`, exactly as
+/// `bbt_ui::modules::pane` does): activity from the phase, the focus swell from `phase`,
+/// a constant seat-35 border; the rim replaces the top-edge sweep and the focus ring.
+/// A settled clock answers the end states, so the static look is unchanged.
+///
+/// `zoom` scales every text size and line height (harness-spec.md Standalone window).
 pub fn composer(
     view: &ui::modules::composer::Composer,
     phase: ComposerPhase,
     ctx: ui::Context,
     width: f32,
+    zoom: f32,
     m: &dyn c::Measure,
     anim: &mut Clock,
 ) -> Result<c::Element, String> {
     use ComposerState as S;
     use bbt_ui::widgets::text_area::TextArea;
     use bbt_ui_model::layout::Rect;
-    let ComposerPhase { live, ask, focused } = phase;
-    const LINE: f32 = 20.;
+    let ComposerPhase {
+        live,
+        ask,
+        errored,
+        focused,
+        swell,
+    } = phase;
+    let zoom = if zoom.is_finite() && zoom > 0. {
+        zoom
+    } else {
+        1.
+    };
+    let line_h = 20. * zoom;
     const MAX_LINES: f32 = 8.;
     let ink = ink(ctx);
     let has_text = !view.text.is_empty();
@@ -1902,12 +1952,6 @@ pub fn composer(
     let focus_t = anim.tween(
         "composer/focus",
         f32::from(u8::from(focused)),
-        200.,
-        Ease::Std,
-    );
-    let ask_t = anim.tween(
-        "composer/ask",
-        f32::from(u8::from(state == S::Ask)),
         200.,
         Ease::Std,
     );
@@ -1938,9 +1982,9 @@ pub fn composer(
         }
         .into(),
         style: ui::Text {
-            size: Some(13.),
+            size: Some(13. * zoom),
             paint: paint(if empty { ph_ink } else { ink.fg }),
-            line_height: LINE / 13.,
+            line_height: 20. / 13.,
             ..Default::default()
         },
         edit: (view.focus && focused).then(|| view.edit.clone().unwrap_or_default()),
@@ -1955,7 +1999,7 @@ pub fn composer(
     // Grow with the draft up to MAX_LINES, then scroll so the caret stays in view. The box
     // height tweens over 160 ms; the caret stays in view at every intermediate height.
     let measured = body.layout(Rect::new(0., 0., inner, 0.), ctx, m)?;
-    let target_h = measured.rect.h.clamp(LINE, LINE * MAX_LINES);
+    let target_h = measured.rect.h.clamp(line_h, line_h * MAX_LINES);
     let height = anim.tween("composer/height", target_h, 160., Ease::Out);
     fn caret(n: &c::Layout) -> Option<Rect> {
         if matches!(&n.kind, c::LayoutKind::Named(k) if k == "composer/text/caret") {
@@ -1989,7 +2033,7 @@ pub fn composer(
                     row: true,
                     ..Default::default()
                 },
-                vec![fixed(line(label, 10.5, 400, ink.dim, false))],
+                vec![fixed(line(label, 10.5 * zoom, 400, ink.dim, false))],
             ),
         )
     };
@@ -2013,7 +2057,7 @@ pub fn composer(
         };
         tools.push(fixed(named(
             "composer/hint",
-            line(hint, 10.5, 400, color, false),
+            line(hint, 10.5 * zoom, 400, color, false),
         )));
     }
     // .hx-send: a 26 px circle. Empty: card-hi with a dim arrow; with text: seat with an
@@ -2075,7 +2119,7 @@ pub fn composer(
     if let Some(n) = view.notice.as_ref().filter(|n| n.kind != "sent") {
         kids.push(fixed(named(
             "composer/notice",
-            line(n.text.clone(), 11.5, 400, ink.ask, false),
+            line(n.text.clone(), 11.5 * zoom, 400, ink.ask, false),
         )));
     }
     // Zero-height address slot: routing stays in the draft model, the row is not shown.
@@ -2094,79 +2138,46 @@ pub fn composer(
         },
         tools,
     )));
-    // border hair → seat-55 with focus, then → ask-45 when an approval waits; the ring's
-    // opacity follows focus (both 200 ms std)
-    let border = mix(
-        alpha(ink.ask, 0.45),
-        mix(alpha(ink.seat, 0.55), alpha(ink.fg, 0.10), focus_t),
-        ask_t,
-    );
-    let mut panel = frame(
-        Frame {
-            fill: alpha(ink.fg, 0.04 + 0.01 * focus_t),
-            border: Some(border),
-            radius: [13.; 4],
-            padding: [8., 10., 6., 10.],
-            ..Default::default()
-        },
-        kids,
-    );
-    if let c::Element::Box(b) = &mut panel {
-        b.gap = ui::Length::Px(0.);
-        if focus_t > 0. {
-            // Flat fallback: a solid seat-14 band 3 px outside the box, no blur.
-            b.style.overrides.rings = Some(vec![ui::Border {
-                width: ui::Length::Px(3.),
-                paint: paint(alpha(ink.seat, 0.14 * focus_t)),
-                outside: true,
-            }]);
-        }
-    }
-    if state == S::Run {
-        // Running sweep: a 40 %-wide seat highlight crossing the top edge every 1.6 s
-        // ease-in-out (lab.css hx-sweep: background-position −40 % → 140 % of a 40 % image).
-        // Flat fallback: a static 2 px seat-55 line along the top edge. Both are inset by
-        // the corner radius as the web's overflow clip does.
-        let h = panel.layout(Rect::new(0., 0., box_w, 0.), ctx, m)?.rect.h;
-        let w = (box_w - 26.).max(0.);
-        let rects: Vec<(Rect, ui::Paint)> = if anim.animates() {
-            let phase = Ease::InOut.at(anim.cycle(1600.));
-            let band = 0.4 * w;
-            let x0 = (-0.24 + 1.08 * phase) * w;
-            // the gradient transparent → seat → transparent as 12 slices, clipped to the box
-            const SLICES: usize = 12;
-            (0..SLICES)
-                .filter_map(|i| {
-                    let a = x0 + band * i as f32 / SLICES as f32;
-                    let b = x0 + band * (i + 1) as f32 / SLICES as f32;
-                    let (a, b) = (a.max(0.), b.min(w));
-                    if b <= a {
-                        return None;
-                    }
-                    let mid = (i as f32 + 0.5) / SLICES as f32;
-                    let tri = 1. - (mid - 0.5).abs() * 2.;
-                    Some((Rect::new(a, 0., b - a, 2.), paint(alpha(ink.seat, tri))))
-                })
-                .collect()
-        } else {
-            vec![(Rect::new(0., 0., w, 2.), paint(alpha(ink.seat, 0.55)))]
-        };
-        panel = c::Element::Layers {
-            base: Box::new(panel),
-            overlays: vec![c::Placed {
-                content: named(
-                    "composer/sweep",
-                    c::Element::Rects(c::Rects {
-                        size: [w, 2.],
-                        rects: Arc::from(rects),
-                        repeat: None,
-                    }),
-                ),
-                left: 13.,
-                bottom: h - 3.,
-            }],
-        };
-    }
+    // The alive rim (harness-spec.md Composer: "replaces the top-edge sweep and the focus
+    // ring"): the term's pane rim on the composer box. The border is a constant seat-35 and
+    // the fill is `card` → `focus-fill` with focus; everything else that moves lives in the
+    // rim shader. Copied from bbt_ui::modules::pane (bboxy450-term crates/bbt-ui/src/modules/pane.rs,
+    // the PaneGlow style and its Rim overrides; https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md).
+    const PADDING: [f32; 4] = [8., 10., 6., 10.];
+    let mut style = ui::Style::new(ui::Preset::PaneGlow);
+    style.overrides.fill = Some(paint(alpha(ink.fg, 0.04 + 0.01 * focus_t)));
+    style.overrides.border = Some(ui::Border {
+        width: ui::Length::Px(1.),
+        paint: paint(alpha(ink.seat, 0.35)),
+        outside: false,
+    });
+    style.overrides.radii = Some([ui::Length::Px(13.); 4]);
+    style.overrides.padding = Some(PADDING.map(ui::Length::Px));
+    style.overrides.shadow = Some(ui::Shadow::None);
+    let rim_size = bbt_ui_model::TOKENS.glow.rim as f32;
+    style.overrides.rim = Some(ui::Rim {
+        activity: rim_activity(live, ask, errored),
+        swell: swell.clamp(0., 1.),
+        focused,
+        seed: RIM_SEED,
+        inferred_multiplier: 1.,
+        tint: Some(ink.seat),
+        // The cell edge rule (rim-glow §3): the bloom stops at the box's smallest padding,
+        // so no glyph of the draft is ever lit.
+        depth: Some(
+            (bbt_ui_model::TOKENS.glow.depth as f32)
+                .min(PADDING.iter().copied().fold(f32::MAX, f32::min)),
+        ),
+        // A block draws its outer half only into the spacing it has (rim-glow §8): the
+        // composer sits 8 px under the feed.
+        outer: Some((rim_size / 2.).min(8.)),
+        ..ui::Rim::default()
+    });
+    let mut b = c::Box::new(style, kids);
+    b.direction = Axis::Column;
+    b.gap = ui::Length::Px(0.);
+    b.align = c::Alignment::Stretch;
+    let panel = c::Element::Box(b);
     Ok(frame(
         Frame {
             padding: [8., side, 12., side],
@@ -2174,6 +2185,88 @@ pub fn composer(
         },
         vec![fixed(named("composer", panel))],
     ))
+}
+/// Global text zoom (harness-spec.md "Standalone window"): every text size and line height
+/// in the face scales by `scale`; paddings, radii, icons and tiles do not, so the layout
+/// reflows around larger type. A run with no explicit size takes its type step's pixels
+/// first. Applied to an element before it is laid out.
+pub fn zoom_text(e: &mut c::Element, scale: f32) {
+    if !(scale.is_finite() && scale > 0.) || (scale - 1.).abs() < 1e-6 {
+        return;
+    }
+    fn style(s: &mut ui::Text, scale: f32) {
+        s.size = Some(s.size.unwrap_or_else(|| s.step.pixels()) * scale);
+    }
+    match e {
+        c::Element::Text(t) => {
+            for run in &mut t.runs {
+                style(&mut run.style, scale);
+            }
+        }
+        c::Element::EditingText(t) => style(&mut t.style, scale),
+        c::Element::InlineMiddle { content, parent } => {
+            style(parent, scale);
+            zoom_text(content, scale);
+        }
+        c::Element::Named { content, .. }
+        | c::Element::FixedHeight { content, .. }
+        | c::Element::Filter { content, .. }
+        | c::Element::Baseline { content, .. } => zoom_text(content, scale),
+        c::Element::Layers { base, overlays } => {
+            zoom_text(base, scale);
+            for p in overlays {
+                zoom_text(&mut p.content, scale);
+            }
+        }
+        c::Element::Box(b) => {
+            if let Some(t) = &mut b.style.overrides.text {
+                style(t, scale);
+            }
+            for item in &mut b.children {
+                zoom_text(&mut item.element, scale);
+            }
+        }
+        c::Element::Stack(s) => {
+            for item in &mut s.children {
+                zoom_text(&mut item.element, scale);
+            }
+        }
+        c::Element::Flow(f) => {
+            for item in &mut f.children {
+                zoom_text(&mut item.element, scale);
+            }
+        }
+        c::Element::ScrollView(s) => zoom_text(&mut s.content, scale),
+        c::Element::Overlay(o) => zoom_text(&mut o.content, scale),
+        c::Element::Glyph { .. }
+        | c::Element::Spacer
+        | c::Element::Icon { .. }
+        | c::Element::Image { .. }
+        | c::Element::ImageRect { .. }
+        | c::Element::Path(_)
+        | c::Element::Rects(_) => {}
+    }
+}
+/// The zoom pill (harness-spec.md Standalone window; lab.css .hx-zoom): `110%` in mono
+/// 600 12/1.4, padding 4 12, pill radius, `card-hi` fill, `hair` border, `fg` text. The
+/// view centres it 12 px under the feed's top and runs its drop and fade.
+pub fn zoom_pill(label: &str, ink: &Ink) -> c::Element {
+    let mut t = text(label, 12., 600, ink.fg, true);
+    t.wrap = false;
+    if let Some(run) = t.runs.first_mut() {
+        run.style.line_height = 1.4;
+    }
+    frame(
+        Frame {
+            fill: alpha(ink.fg, 0.07),
+            border: Some(alpha(ink.fg, 0.10)),
+            radius: [999.; 4],
+            padding: [4., 12., 4., 12.],
+            row: true,
+            ..Default::default()
+        },
+        vec![fixed(c::Element::Text(t))],
+    )
 }
 /// The empty session (harness-spec.md "Empty session"): the 52 px mark inside a breathing
 /// seat halo, "What are we building?", `profile · model in ~/<cwd leaf>`, and three chips

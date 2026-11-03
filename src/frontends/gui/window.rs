@@ -7,12 +7,17 @@
 
 // Adapted from bboxy450-term crates/bboxybook/src/window.rs: winit host and
 // ordered ChromeRenderer surface pass. GPU setup is moved to bbt-rt.
+// The undecorated window, the term's menu bar, the title-bar gestures and the
+// desktop actions follow bboxy450-term crates/bboxy450-term/src/main.rs,
+// desktop_menu.rs and desktop_window.rs (harness-spec.md Standalone window).
 // https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
 #![deny(clippy::disallowed_methods)]
 use super::{
     bridge::Bridge,
+    chrome::Intent,
     options::Options,
     view::{Action, HarnessView},
+    zoom::{self, Zoom},
 };
 use crate::{
     engine::Config,
@@ -21,8 +26,9 @@ use crate::{
     provider::{FailedProvider, ProviderError, profile::Unattended},
     redact::Set,
 };
+use bbt_desktop::{Action as Desktop, ClipboardContent};
 use bbt_render::{
-    chrome::{ChromeRenderer, ChromeTarget},
+    chrome::{ChromeRenderer, ChromeTarget, materials as m},
     device::DeviceContext,
 };
 use bbt_rt::{DirtySet, Latest, Waker};
@@ -43,12 +49,18 @@ use winit::{
     keyboard::{Key, ModifiersState, NamedKey},
     window::{Window, WindowId},
 };
+/// The event loop's own events: a frame wake from the bridge, a menu action from the
+/// term's menu bar (desktop_menu.rs), the saved zoom read at startup.
 #[derive(Debug)]
-struct Wake;
+enum Wake {
+    Frame,
+    Desktop(Desktop),
+    Zoom(Zoom),
+}
 struct WakePort(EventLoopProxy<Wake>);
 impl Waker for WakePort {
     fn wake(&self) {
-        let _ = self.0.send_event(Wake);
+        let _ = self.0.send_event(Wake::Frame);
     }
 }
 struct Gpu {
@@ -64,6 +76,10 @@ struct App {
     surface: Option<wgpu::Surface<'static>>,
     renderer: Option<ChromeRenderer>,
     config: Option<wgpu::SurfaceConfiguration>,
+    /// The material pass for the alive rims (bbt-render L2), on the surface's format.
+    materials: Option<m::Pass>,
+    /// The pass's sampled backdrop, sized with the surface. Rims never sample it.
+    backdrop: Option<wgpu::Texture>,
     gpu: Arc<Latest<Result<Gpu, String>>>,
     gpu_dirty: DirtySet,
     pointer: [f32; 2],
@@ -73,19 +89,48 @@ struct App {
     started: Instant,
     /// A timed wake the clock asked for (a caret blink edge), applied in `about_to_wait`.
     wake_at: Option<Instant>,
+    proxy: EventLoopProxy<Wake>,
+    /// The term's menu bar, retained while the window lives.
+    menu: Option<bbt_desktop::MenuBar>,
+    /// `$HOME/.bboxy450-harness`, where the zoom persists (zoom.rs). None without a HOME.
+    settings_root: Option<PathBuf>,
+}
+fn warn(what: &str, error: impl std::fmt::Display) {
+    eprintln!("bboxy450-harness gui: {what}: {error}");
+}
+fn backdrop(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("harness rim backdrop"),
+        size: wgpu::Extent3d {
+            width: config.width.max(1),
+            height: config.height.max(1),
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: config.format,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    })
 }
 impl App {
     fn init(&mut self, event_loop: &ActiveEventLoop) -> Result<(), String> {
+        // The standalone app is the term's window, not an OS window: no system chrome, the
+        // title bar is drawn (chrome.rs), as bboxy450-term main.rs creates its window.
         let window = Arc::new(
             event_loop
                 .create_window(
                     Window::default_attributes()
                         .with_title("bboxy450-harness")
-                        .with_inner_size(LogicalSize::new(1120., 860.)),
+                        .with_inner_size(LogicalSize::new(1120., 860.))
+                        .with_min_inner_size(LogicalSize::new(480., 360.))
+                        .with_decorations(false),
                 )
                 .map_err(|e| e.to_string())?,
         );
         window.set_ime_allowed(true);
+        self.install_menu();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::METAL,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -150,6 +195,22 @@ impl App {
         self.window = Some(window);
         Ok(())
     }
+    /// The term's app menu (bboxy450-term-desktop-core `app_menu`) through its AppKit menu
+    /// bar; every item dispatches a desktop action back onto this event loop, as
+    /// bboxy450-term desktop_menu.rs does. Unavailable (no main thread, another OS): the
+    /// keyboard shortcuts still work through `route_key`.
+    fn install_menu(&mut self) {
+        if self.menu.is_some() {
+            return;
+        }
+        let proxy = self.proxy.clone();
+        match bbt_desktop::MenuBar::install(Box::new(move |action| {
+            let _ = proxy.send_event(Wake::Desktop(action));
+        })) {
+            Ok(menu) => self.menu = Some(menu),
+            Err(error) => warn("desktop menu unavailable", error),
+        }
+    }
     fn paint(&mut self) -> Result<(), String> {
         let frame_start = Instant::now();
         self.view
@@ -164,6 +225,7 @@ impl App {
             config.width = size.width.max(1);
             config.height = size.height.max(1);
             gpu.surface.configure(&gpu.context.device, &config);
+            self.materials = Some(m::Pass::new(&gpu.context.device, config.format));
             self.renderer = Some(
                 ChromeRenderer::with_context(gpu.context, super::assets::icons())
                     .map_err(|e| e.to_string())?,
@@ -178,6 +240,10 @@ impl App {
         let window = self.window.as_ref().unwrap();
         let scale = window.scale_factor() as f32;
         self.bridge.set_width(config.width as f32 / scale);
+        // reduced motion, the flat fallback and occlusion freeze the rim shader's clock:
+        // the rim's end state
+        let animates = self.view.anim.animates();
+        let time_ms = if animates { self.view.anim.now() } else { 0. };
         let frame = self.view.render(
             &self.bridge.state,
             [config.width as f32 / scale, config.height as f32 / scale],
@@ -199,25 +265,60 @@ impl App {
                 return Err("surface validation failed".into());
             }
         };
-        let target = texture.texture.create_view(&Default::default());
+        if self
+            .backdrop
+            .as_ref()
+            .is_none_or(|t| t.width() != config.width || t.height() != config.height)
+        {
+            self.backdrop = Some(backdrop(&renderer.context.device, config));
+        }
+        let pass = self.materials.as_ref().ok_or("material pass missing")?;
+        let backdrop_view = self
+            .backdrop
+            .as_ref()
+            .unwrap()
+            .create_view(&Default::default());
+        let target_view = texture.texture.create_view(&Default::default());
+        let target = || ChromeTarget {
+            width: config.width,
+            height: config.height,
+            scale,
+            view: &target_view,
+            format: config.format,
+        };
         renderer.begin_frame();
+        pass.begin_frame();
         let mut encoder = renderer
             .context
             .device
             .create_command_encoder(&Default::default());
+        // the face, then the alive rims through the material pass, then the menus and the
+        // zoom pill over both (the order the term's host paints a block and its rim)
         renderer
-            .draw(
-                &frame.list,
-                ChromeTarget {
-                    width: config.width,
-                    height: config.height,
-                    scale,
-                    view: &target,
-                    format: config.format,
-                },
+            .draw(&frame.list, target(), &mut encoder)
+            .map_err(|e| e.to_string())?;
+        let alive = !frame.rims.is_empty();
+        if alive {
+            pass.draw(
+                &renderer.context,
                 &mut encoder,
+                m::Frame {
+                    target: target(),
+                    backdrop: &backdrop_view,
+                    items: &frame.rims,
+                    time_ms,
+                    theme: bbt_ui_model::Theme::Dark,
+                    backdrop_key: None,
+                },
             )
             .map_err(|e| e.to_string())?;
+        }
+        if !frame.over.primitives.is_empty() {
+            renderer
+                .draw_overlay(&frame.over, target(), &mut encoder)
+                .map_err(|e| e.to_string())?;
+        }
+        pass.flush(&renderer.context);
         renderer.flush();
         renderer.context.queue.submit([encoder.finish()]);
         renderer.context.queue.present(texture);
@@ -243,6 +344,13 @@ impl App {
             Some(ms) => Some(Instant::now() + Duration::from_secs_f32(ms / 1000.)),
             None => None,
         };
+        // The alive rim is a visible loop on the shader's clock (harness-spec.md Composer):
+        // it draws every frame while the clock animates, and freezes under reduced motion,
+        // the flat fallback and occlusion.
+        if alive && animates {
+            window.request_redraw();
+            self.wake_at = None;
+        }
         Ok(())
     }
     fn edit(&mut self, command: Edit) {
@@ -250,7 +358,106 @@ impl App {
         self.view.invalidate();
     }
     fn key(&mut self, key: Key, text: Option<&str>) {
+        let before = self.view.zoom();
         route_key(&mut self.view, &self.bridge, key, text, self.modifiers);
+        if self.view.zoom() != before {
+            self.save_zoom();
+        }
+    }
+    /// Persist the zoom (zoom.rs) off the UI thread; a failure is reported, never fatal.
+    fn save_zoom(&self) {
+        let Some(root) = self.settings_root.clone() else {
+            return;
+        };
+        let zoom = self.view.zoom();
+        bbt_rt::handle().spawn(async move {
+            if let Err(error) = zoom::save(&root, zoom).await {
+                warn("settings", error);
+            }
+        });
+    }
+    fn zoom_by(&mut self, delta: i8) {
+        let next = self.view.zoom().step(delta);
+        if self.view.set_zoom(next, &self.bridge) {
+            self.save_zoom();
+        }
+    }
+    /// A desktop action from the menu bar or a title-bar control, dispatched as the term's
+    /// desktop_menu.rs does. The harness has one session: seats, splits and the settings
+    /// surface have no counterpart here and are ignored.
+    fn desktop_action(&mut self, action: Desktop, event_loop: &ActiveEventLoop) {
+        match action {
+            Desktop::IncreaseTerminalFont => self.zoom_by(1),
+            Desktop::DecreaseTerminalFont => self.zoom_by(-1),
+            Desktop::CloseWindow | Desktop::HardQuit => {
+                self.bridge.request_detach();
+                event_loop.exit();
+            }
+            Desktop::ShowWindow
+            | Desktop::HideWindow
+            | Desktop::ToggleFullscreen
+            | Desktop::Minimize
+            | Desktop::Zoom => {
+                if let Some(window) = &self.window
+                    && let Err(error) = bbt_desktop::apply_window_action(window.as_ref(), action)
+                {
+                    warn("desktop window", error);
+                }
+            }
+            Desktop::Paste => match bbt_desktop::read_clipboard() {
+                Ok(Some(ClipboardContent::Text(text))) => {
+                    let text: String = text
+                        .chars()
+                        .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+                        .collect();
+                    if !text.is_empty() {
+                        self.edit(Edit::Insert(text));
+                    }
+                }
+                Ok(_) => {}
+                Err(error) => warn("clipboard", error),
+            },
+            Desktop::Copy => {
+                if let Some(text) = self.view.composer.selected_text()
+                    && let Err(error) = bbt_desktop::write_clipboard_text(&text)
+                {
+                    warn("clipboard", error);
+                }
+            }
+            Desktop::NewTab
+            | Desktop::SplitRight
+            | Desktop::SplitDown
+            | Desktop::Settings
+            | Desktop::CloseFocusedSeat
+            | Desktop::MuteFocusedSeat => {}
+        }
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+    /// A press on the drawn title bar (chrome.rs): a window control, the system's
+    /// double-click action, a drag through the OS, or the theme control.
+    fn titlebar_intent(&mut self, intent: Intent, event_loop: &ActiveEventLoop) {
+        match intent {
+            Intent::Window(action) => self.desktop_action(action, event_loop),
+            Intent::Titlebar(action) => {
+                if let Some(window) = &self.window
+                    && let Err(error) = bbt_desktop::apply_titlebar_action(window.as_ref(), action)
+                {
+                    warn("desktop titlebar", error);
+                }
+            }
+            Intent::Drag => {
+                if let Some(window) = &self.window
+                    && let Err(error) = window.drag_window()
+                {
+                    warn("desktop window drag", error);
+                }
+            }
+            // The face has one theme (view::context). The control is drawn as the term's
+            // bar has it; cycling the theme waits for a light face.
+            Intent::Theme => {}
+        }
     }
 }
 impl ApplicationHandler<Wake> for App {
@@ -262,7 +469,14 @@ impl ApplicationHandler<Wake> for App {
             event_loop.exit();
         }
     }
-    fn user_event(&mut self, _: &ActiveEventLoop, _: Wake) {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Wake) {
+        match event {
+            Wake::Frame => {}
+            Wake::Desktop(action) => self.desktop_action(action, event_loop),
+            Wake::Zoom(zoom) => {
+                self.view.restore_zoom(zoom, &self.bridge);
+            }
+        }
         if let Some(window) = &self.window {
             window.request_redraw();
         }
@@ -321,6 +535,8 @@ impl ApplicationHandler<Wake> for App {
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = self.window.as_ref().unwrap().scale_factor() as f32;
                 self.pointer = [position.x as f32 / scale, position.y as f32 / scale];
+                // a drag cannot complete a title-bar double-click
+                self.view.titlebar.moved(self.pointer);
                 // menu rows take a hover fill (harness-spec.md Motion: hover)
                 self.view.pointer(self.pointer);
             }
@@ -344,6 +560,15 @@ impl ApplicationHandler<Wake> for App {
                         && self.pointer[1] >= r.y
                         && self.pointer[1] < r.bottom()
                 };
+                // the drawn title bar first: its controls, double-click and drag
+                let intent = self.view.chrome.then(|| {
+                    self.view.titlebar.press(
+                        self.pointer,
+                        Instant::now(),
+                        bbt_desktop::double_click_interval(),
+                        bbt_desktop::titlebar_action(),
+                    )
+                });
                 let action = self
                     .view
                     .frame
@@ -351,7 +576,9 @@ impl ApplicationHandler<Wake> for App {
                     .iter()
                     .find(|(r, _)| contains(*r))
                     .map(|(_, a)| a.clone());
-                if let Some(action) = action {
+                if let Some(Some(intent)) = intent {
+                    self.titlebar_intent(intent, event_loop);
+                } else if let Some(action) = action {
                     self.view.activate(action, &self.bridge);
                 } else if let Some(layout) = &self.view.frame.layout
                     && let Ok(regions) = composer::Regions::new(layout)
@@ -429,13 +656,26 @@ pub fn run(options: Options) -> Result<Option<tokio::task::JoinHandle<()>>, Stri
         .build()
         .map_err(|e| e.to_string())?;
     bbt_rt::register_ui_thread();
-    let waker = Arc::new(WakePort(event_loop.create_proxy()));
+    let proxy = event_loop.create_proxy();
+    let waker = Arc::new(WakePort(proxy.clone()));
     let gpu_dirty = DirtySet::new(1, waker.clone());
     let gpu = Arc::new(Latest::new(gpu_dirty.paint_source(0)));
     let mut view = HarnessView::default();
     // the window animates; reduced motion (the OS setting or BBOXY_REDUCED_MOTION=1) draws
     // end states and keeps only the caret blink
     view.anim = super::anim::Clock::live(super::anim::Clock::reduced_motion_preferred());
+    // the standalone window wears the term's title bar (harness-spec.md Standalone window)
+    view.chrome = true;
+    let settings_root =
+        std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".bboxy450-harness"));
+    if let Some(root) = settings_root.clone() {
+        // the saved zoom, read off the UI thread and applied through the event loop
+        let proxy = proxy.clone();
+        bbt_rt::handle().spawn(async move {
+            let zoom = zoom::load(&root).await;
+            let _ = proxy.send_event(Wake::Zoom(zoom));
+        });
+    }
     let mut app = App {
         options,
         bridge: Bridge::new(waker),
@@ -444,6 +684,8 @@ pub fn run(options: Options) -> Result<Option<tokio::task::JoinHandle<()>>, Stri
         surface: None,
         renderer: None,
         config: None,
+        materials: None,
+        backdrop: None,
         gpu,
         gpu_dirty,
         pointer: [0.; 2],
@@ -451,8 +693,12 @@ pub fn run(options: Options) -> Result<Option<tokio::task::JoinHandle<()>>, Stri
         error: None,
         started: Instant::now(),
         wake_at: None,
+        proxy,
+        menu: None,
+        settings_root,
     };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
+    drop(app.menu.take());
     let job = app.bridge.detach();
     if let Some(error) = app.error {
         return Err(error);
@@ -465,6 +711,22 @@ pub fn is_interrupt(key: &Key, modifiers: ModifiersState) -> bool {
     *key == Key::Named(NamedKey::Escape)
         || (modifiers.control_key()
             && matches!(key, Key::Character(s) if s.eq_ignore_ascii_case("c")))
+}
+
+/// Cmd+= / Cmd++ zoom in, Cmd+- zooms out, Cmd+0 resets (harness-spec.md Standalone window).
+/// The term's menu items carry the same keys; whichever side AppKit hands the press to,
+/// one step happens. Follows the active layout as bboxy450-term main.rs does: plus can be
+/// a shifted `=` or its own character.
+pub fn zoom_key(key: &Key, modifiers: ModifiersState) -> Option<i8> {
+    if !(modifiers.super_key() || modifiers.control_key()) || modifiers.alt_key() {
+        return None;
+    }
+    match key {
+        Key::Character(s) if s == "=" || s == "+" => Some(1),
+        Key::Character(s) if s == "-" => Some(-1),
+        Key::Character(s) if s == "0" => Some(0),
+        _ => None,
+    }
 }
 
 /// The same key routing used by the native event handler, independently of window creation.
@@ -499,6 +761,15 @@ pub fn route_key(
             view.profile_menu_key(menu_key, bridge);
             return;
         }
+    }
+    if let Some(step) = zoom_key(&key, modifiers) {
+        let zoom = if step == 0 {
+            Zoom::default()
+        } else {
+            view.zoom().step(step)
+        };
+        view.set_zoom(zoom, bridge);
+        return;
     }
     if key == Key::Named(NamedKey::Escape) && view.cancel_prompt(bridge) {
         return;

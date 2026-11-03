@@ -1443,10 +1443,12 @@ fn named_space_key_preserves_the_profile_search() {
     view.toggle_profile_menu();
     dispatch_text_keys(&mut view, &bridge, "a b");
     let frame = view.render(&bridge.state, [900., 700.]).unwrap();
+    // the switcher is painted over the face (Frame::over)
     let painted: Vec<_> = frame
         .list
         .primitives
         .iter()
+        .chain(&frame.over.primitives)
         .filter_map(|p| match p {
             Prim::Text { text, .. } => Some(text.as_ref()),
             _ => None,
@@ -1535,7 +1537,7 @@ fn named_space_key_keeps_text_and_shortcut_and_composition_guards() {
         if menu {
             // An unchanged query still shows the search placeholder.
             let frame = view.render(&bridge.state, [900., 700.]).unwrap();
-            assert!(frame.list.primitives.iter().any(|p| matches!(
+            assert!(frame.over.primitives.iter().any(|p| matches!(
                 p, bbt_ui_model::draw::Prim::Text { text, .. } if text.as_ref() == "Switch profile…"
             )));
             view.toggle_profile_menu();

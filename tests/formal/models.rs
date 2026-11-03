@@ -2896,6 +2896,51 @@ fn native_spill(b: bool) -> Model {
     m
 }
 
+// Global text zoom (gui/zoom.rs, view.rs set_zoom, window.rs save_zoom; harness-spec.md
+// Standalone window): Cmd+= / Cmd+- / Cmd+0 move the zoom on a 10 % grid between 90 and
+// 160 (indices 0..=7 here, 100 % is 1), every change shows the pill and schedules a save,
+// and the persisted value equals the shown one once no save is in flight. The broken
+// control drops the clamp: ZoomIn walks past the top step.
+fn text_zoom(b: bool) -> Model {
+    let mut m = base::<4>(
+        "TextZoom",
+        b,
+        &[
+            ("zoom", 8, 1),
+            ("saved", 8, 1),
+            ("pending", 1, 0),
+            ("shown", 1, 0),
+        ],
+    );
+    act(
+        &mut m,
+        "ZoomIn",
+        Var(0).lt(Int(if b { 8 } else { 7 })),
+        &[(0, Var(0).plus(Int(1))), (2, Int(1)), (3, Int(1))],
+    );
+    act(
+        &mut m,
+        "ZoomOut",
+        Int(0).lt(Var(0)),
+        &[(0, Var(0).minus(Int(1))), (2, Int(1)), (3, Int(1))],
+    );
+    act(
+        &mut m,
+        "Reset",
+        Bool(true),
+        &[(0, Int(1)), (2, Int(1)), (3, Int(1))],
+    );
+    act(&mut m, "Save", eq(2, 1), &[(1, Var(0)), (2, Int(0))]);
+    act(&mut m, "HidePill", eq(3, 1), &[(3, Int(0))]);
+    safe(&mut m, "ZoomWithinRange", Var(0).le(Int(7)));
+    safe(
+        &mut m,
+        "PersistedFollowsZoom",
+        eq(2, 1).or(Var(1).eq(Var(0))),
+    );
+    progress(&mut m, "SaveCompletes", eq(2, 1), eq(2, 0), vec![3]);
+    m
+}
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
         (agent_path(0), "pass"),
@@ -2936,6 +2981,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
             embed_lifecycle(b),
             profile_load(b),
             fork_materialize(b),
+            text_zoom(b),
         ] {
             let expected = if !b {
                 "pass"

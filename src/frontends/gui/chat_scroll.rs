@@ -57,4 +57,16 @@ impl State {
     pub fn follow_latest(&mut self) {
         *self = Self::default();
     }
+    /// An exact position after a reflow (the zoom changed): the anchored row goes back
+    /// where it was. Landing on the tail keeps following it.
+    pub fn anchor(&mut self, offset: f32, max: f32) {
+        if !offset.is_finite() || !max.is_finite() {
+            return;
+        }
+        let max = max.max(0.);
+        let offset = offset.clamp(0., max);
+        self.requested = offset;
+        self.following = offset >= max;
+        self.pending = None;
+    }
 }

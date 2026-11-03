@@ -343,6 +343,7 @@ impl Preparer {
                         markdown,
                         true,
                         content_width - 36.,
+                        self.zoom.scale(),
                         &self.metrics,
                     )?;
                     kids.push(
@@ -367,6 +368,7 @@ impl Preparer {
                     markdown,
                     row.completed.is_some(),
                     content_width,
+                    self.zoom.scale(),
                     &self.metrics,
                 )?;
                 // `stream/{id}`: the text a chunk fade counts glyphs in (stream_motion)
@@ -475,6 +477,7 @@ impl Preparer {
                         summary,
                         true,
                         content_width - 20.,
+                        self.zoom.scale(),
                         &self.metrics,
                     )?;
                     if open {
@@ -990,6 +993,7 @@ impl Preparer {
                     &text,
                     row.completed.is_some(),
                     content_width - 48.,
+                    self.zoom.scale(),
                     &self.metrics,
                 )?;
                 inside.push(doc.inset(id, content_width - 48., &self.metrics)?.into());

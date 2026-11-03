@@ -247,6 +247,8 @@ dependencies = [
  "bboxy450-doc",
  "bboxy450-render",
  "bboxy450-rt",
+ "bboxy450-term-desktop",
+ "bboxy450-term-desktop-core",
  "bboxy450-tlc",
  "bboxy450-ui",
  "bboxy450-ui-core",
@@ -311,6 +313,37 @@ dependencies = [
  "libc",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "bboxy450-term-desktop"
+version = "0.1.1"
+source = "git+https://github.com/bboxy450/bboxy450-term?rev=775527db16ffe33ee5cafaa0ff8566e3ea7512da#775527db16ffe33ee5cafaa0ff8566e3ea7512da"
+dependencies = [
+ "bboxy450-term-desktop-core",
+ "bboxy450-term-desktop-macos",
+ "raw-window-handle",
+]
+
+[[package]]
+name = "bboxy450-term-desktop-core"
+version = "0.1.1"
+source = "git+https://github.com/bboxy450/bboxy450-term?rev=775527db16ffe33ee5cafaa0ff8566e3ea7512da#775527db16ffe33ee5cafaa0ff8566e3ea7512da"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "bboxy450-term-desktop-macos"
+version = "0.1.1"
+source = "git+https://github.com/bboxy450/bboxy450-term?rev=775527db16ffe33ee5cafaa0ff8566e3ea7512da#775527db16ffe33ee5cafaa0ff8566e3ea7512da"
+dependencies = [
+ "bboxy450-term-desktop-core",
+ "dispatch2",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "raw-window-handle",
 ]
 
 [[package]]
@@ -854,6 +887,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e0e367e4e7da84520dedcac1901e4da967309406d1e51017ae1abfb97adbd38"
 dependencies = [
  "bitflags 2.13.2",
+ "block2 0.6.2",
+ "libc",
  "objc2 0.6.5",
 ]
 
@@ -917,7 +952,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2065,6 +2100,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-app-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d49e936b501e5c5bf01fda3a9452ff86dc3ea98ad5f283e1455153142d97518c"
+dependencies = [
+ "bitflags 2.13.2",
+ "objc2 0.6.5",
+ "objc2-core-foundation",
+ "objc2-foundation 0.3.2",
+]
+
+[[package]]
 name = "objc2-cloud-kit"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2216,7 +2263,7 @@ checksum = "a1a1ae721c5e35be65f01a03b6d2ac13a54cb4fa70d8a5da293d7b0020261398"
 dependencies = [
  "block2 0.5.1",
  "objc2 0.5.3",
- "objc2-app-kit",
+ "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",
 ]
 
@@ -2676,7 +2723,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3034,7 +3081,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3576,7 +3623,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.6",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4461,7 +4508,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4686,7 +4733,7 @@ dependencies = [
  "memmap2",
  "ndk",
  "objc2 0.5.3",
- "objc2-app-kit",
+ "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",
  "objc2-ui-kit",
  "orbclient",

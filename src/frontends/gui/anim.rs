@@ -422,6 +422,16 @@ impl Clock {
         );
         on
     }
+    /// A timed frame in `ms` for a hold that ends without a tween (the zoom pill's 900 ms
+    /// before it fades). Like a blink edge it costs one frame, not a loop; settled and paused
+    /// clocks schedule nothing.
+    pub fn wake_in(&mut self, ms: f32) {
+        if self.mode == Mode::Settled || self.paused || !ms.is_finite() {
+            return;
+        }
+        let ms = ms.max(1.);
+        self.blink_edge = Some(self.blink_edge.map_or(ms, |e: f32| e.min(ms)));
+    }
     /// What `blink` would answer, without scheduling anything: for frame cache keys.
     pub fn blink_at(&self, period_ms: f32, since_ms: f32) -> bool {
         if self.mode == Mode::Settled || self.paused {

@@ -27,6 +27,8 @@ pub mod window;
 pub mod rich;
 
 #[cfg(feature = "embedded")]
+pub mod chrome;
+#[cfg(feature = "embedded")]
 pub mod editor;
 #[cfg(feature = "embedded")]
 pub mod face;
@@ -34,3 +36,4 @@ pub mod face;
 pub mod menu;
 #[cfg(feature = "embedded")]
 pub mod stream_motion;
+pub mod zoom;

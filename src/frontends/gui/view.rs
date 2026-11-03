@@ -10,11 +10,13 @@
 use super::{
     anim::{Clock, Ease},
     bridge::{Bridge, FrameState, ProfileInfo},
-    chat_scroll,
-    model::{Transcript, ViewItem},
+    chat_scroll, chrome,
+    model::{Transcript, TurnState, ViewItem},
     stream_motion,
+    zoom::Zoom,
 };
 use crate::protocol::*;
+use bbt_render::chrome::materials as m;
 use bbt_ui::{
     self as ui, components as c,
     modules::{
@@ -159,7 +161,13 @@ pub enum MenuKey {
 }
 #[derive(Default)]
 pub struct Frame {
+    /// The face: chrome, header, transcript and composer, flat primitives.
     pub list: DrawList,
+    /// The alive rims (the composer's), for the renderer's material pass between `list`
+    /// and `over`. Empty in a flat composition that drops them.
+    pub rims: Vec<m::Surface>,
+    /// Over the face and its rims: the floating menus and the zoom pill.
+    pub over: DrawList,
     pub layout: Option<c::Layout>,
     pub visible: Vec<(ItemId, ItemKind, Rect)>,
     pub actions: Vec<(Rect, Action)>,
@@ -169,8 +177,6 @@ pub struct Frame {
     pub scroll: f32,
     pub max_scroll: f32,
     pub timings: [std::time::Duration; 5],
-    /// Primitive count of the frame under the menus; the menus' primitives follow it.
-    pub base: usize,
 }
 impl Frame {
     pub fn item_text(&self, id: ItemId) -> Option<String> {
@@ -193,6 +199,8 @@ type CacheKey = (
 );
 pub struct CachedRow {
     width: f32,
+    /// The text zoom the row was laid out at, percent.
+    zoom: u8,
     completed: Option<Seq>,
     deps: u64,
     face: super::rich::Face,
@@ -241,6 +249,21 @@ pub struct HarnessView {
     menus: Menus,
     /// Stream and card motion: what is new (chunks, folds, ended turns) and the frame pass.
     pub motion: stream_motion::Motion,
+    /// The standalone window draws the term's title bar above the face (harness-spec.md
+    /// Standalone window); captures and tests do not.
+    pub chrome: bool,
+    /// The title bar's hit regions, retained from the solved tree each frame.
+    pub titlebar: chrome::Titlebar,
+    /// Global text zoom (harness-spec.md Standalone window; `zoom.rs`).
+    zoom: Zoom,
+    /// The zoom pill: the clock time the zoom last changed and a count keying its fade.
+    zoom_shown: Option<(f32, u32)>,
+    /// The row at the top of the viewport when the zoom changed and its offset from the
+    /// viewport's top; the first layout at the new zoom puts it back there.
+    anchor: Option<(ItemId, f32)>,
+    /// Focus swells fired so far (keys the swell tween); 0 while none is running.
+    swell: u32,
+    was_focused: bool,
 }
 /// Which floating menu is open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -328,9 +351,21 @@ impl Default for HarnessView {
             last_edit: 0.,
             menus: Menus::default(),
             motion: stream_motion::Motion::default(),
+            chrome: false,
+            titlebar: chrome::Titlebar::default(),
+            zoom: Zoom::default(),
+            zoom_shown: None,
+            anchor: None,
+            swell: 0,
+            was_focused: false,
         }
     }
 }
+/// The zoom pill's life on the window clock (lab.css .hx-zoom): drop in over 170 ms `out`,
+/// hold 900 ms, fade out over 150 ms.
+const PILL_IN_MS: f32 = 170.;
+const PILL_HOLD_MS: f32 = 900.;
+const PILL_OUT_MS: f32 = 150.;
 impl HarnessView {
     /// A wheel over an inset first scrolls that document, then the transcript at its edge.
     pub fn wheel(&mut self, at: [f32; 2], dy: f32) -> bool {
@@ -373,6 +408,38 @@ impl HarnessView {
         false
     }
 
+    pub fn zoom(&self) -> Zoom {
+        self.zoom
+    }
+    /// Cmd+= / Cmd+- / Cmd+0 (harness-spec.md Standalone window): take `zoom`, show the
+    /// pill, anchor the scroll to the top visible row, and ask the bridge for rows at the
+    /// new size. The pill shows even at the range's end; true when the zoom changed.
+    pub fn set_zoom(&mut self, zoom: Zoom, bridge: &Bridge) -> bool {
+        let n = self.zoom_shown.map_or(1, |(_, n)| n + 1);
+        self.zoom_shown = Some((self.anim.now(), n));
+        let changed = self.restore_zoom(zoom, bridge);
+        self.invalidate();
+        changed
+    }
+    /// The saved zoom at startup: applied with no pill and no anchor.
+    pub fn restore_zoom(&mut self, zoom: Zoom, bridge: &Bridge) -> bool {
+        if zoom == self.zoom {
+            return false;
+        }
+        self.anchor = self.top_visible();
+        self.zoom = zoom;
+        bridge.set_zoom(zoom.percent());
+        self.invalidate();
+        true
+    }
+    /// The first row the last frame showed, with its top's offset from the viewport's top.
+    fn top_visible(&self) -> Option<(ItemId, f32)> {
+        let layout = self.frame.layout.as_ref()?;
+        let viewport = find(layout, "transcript")?.children.first()?.rect;
+        let (id, ..) = self.frame.visible.first()?;
+        let row = find(layout, &format!("item/{id}"))?.rect;
+        Some((*id, row.y - viewport.y))
+    }
     /// Running with an empty draft, the send button is the stop square (.hx-send.stop).
     pub fn send_stops(&self, state: &FrameState) -> bool {
         !state.replay
@@ -403,10 +470,14 @@ impl HarnessView {
             let animating = self.anim.animates();
             let (view_top, view_bottom) =
                 (self.frame.scroll - 240., self.frame.scroll + rows_h + 240.);
+            let mut anchor_top = None;
             for id in &model.order {
                 let Some(row) = prepared.rows.get(id) else {
                     continue;
                 };
+                if self.anchor.is_some_and(|(a, _)| a == *id) {
+                    anchor_top = Some(total);
+                }
                 let h0 = row.layout.rect.h;
                 let near = total + h0 >= view_top && total <= view_bottom;
                 let h = if animating && near {
@@ -435,6 +506,17 @@ impl HarnessView {
                         .into(),
                 );
                 total += h;
+            }
+            // The zoom changed: once the rows are prepared at the new size, the row that was
+            // at the top of the viewport goes back to the same offset (harness-spec.md
+            // Standalone window: "the scroll position stays anchored to the top visible block").
+            if let Some((_, dy)) = self.anchor
+                && prepared.zoom == self.zoom.percent()
+            {
+                if let Some(top) = anchor_top {
+                    self.scroll.anchor(top - dy, (total - rows_h).max(0.));
+                }
+                self.anchor = None;
             }
         }
         if children.is_empty() {
@@ -469,16 +551,15 @@ impl HarnessView {
                     .and_then(|m| m.cwd.file_name())
                     .map(|n| n.to_string_lossy().into_owned())
                     .filter(|n| !n.is_empty());
-                children.push(
-                    super::face::empty_session(
-                        (!who.is_empty()).then_some(who),
-                        leaf,
-                        (0.12 * rows_h).max(0.),
-                        ink,
-                        &mut self.anim,
-                    )
-                    .into(),
+                let mut empty = super::face::empty_session(
+                    (!who.is_empty()).then_some(who),
+                    leaf,
+                    (0.12 * rows_h).max(0.),
+                    ink,
+                    &mut self.anim,
                 );
+                super::face::zoom_text(&mut empty, self.zoom.scale());
+                children.push(empty.into());
             } else {
                 children.push(
                     label(if !state.ready {
@@ -526,14 +607,27 @@ impl HarnessView {
         // the caret blink only shows while the composer is focused; otherwise it must not
         // keep busting the idle frame cache as the clock advances
         let blink = self.focused && self.anim.blink_at(1000., self.anim.now() - self.last_edit);
+        // the zoom pill's phase: in or holding, fading, gone (a timed wake ends the hold)
+        let pill = self.zoom_shown.map_or(0, |(t0, _)| {
+            let since = self.anim.now() - t0;
+            if since < PILL_HOLD_MS {
+                1
+            } else if since < PILL_HOLD_MS + PILL_OUT_MS {
+                2
+            } else {
+                0
+            }
+        });
         let draft = format!(
-            "{:?}{:?}{:?}{:?}{}{:?}{blink}",
+            "{:?}{:?}{:?}{:?}{}{:?}{blink}{}{}{pill}",
             self.composer.view,
             self.notice,
             state.error,
             state.notice,
             self.focused,
-            self.profile_menu
+            self.profile_menu,
+            self.zoom.percent(),
+            self.chrome,
         );
         // a hover change rebuilds too: the menu row's fill starts its fade
         if !self.anim.in_motion()
@@ -603,6 +697,16 @@ impl HarnessView {
 
         let live = !matches!(model.phase, Phase::Idle | Phase::Closed) && !state.replay;
         let ask = live && matches!(model.phase, Phase::Approval { .. });
+        // the rim reads Errored while nothing runs after a failed turn (or a bridge error)
+        let errored = !live
+            && (state.error.is_some()
+                || matches!(
+                    model.turns.values().next_back(),
+                    Some(TurnState::Ended {
+                        reason: StopReason::Error { .. },
+                        ..
+                    })
+                ));
         let focused = self.focused;
         // the header meter sums every usage item (harness-spec.md "Refinement pass 2")
         let usage = model
@@ -615,8 +719,16 @@ impl HarnessView {
                 ),
                 _ => acc,
             });
+        // focus fires the swell (rim-glow §7): one half sine over glow.swell_ms, keyed per
+        // swell so a settled swell is forgotten and the next focus starts a new one
+        if focused && !self.was_focused {
+            self.swell = self.swell.wrapping_add(1).max(1);
+        }
+        self.was_focused = focused;
+        let zoom = self.zoom.scale();
         let controls_key = format!(
-            "{draft}{status}{tone:?}{live}{focused}{}{:?}{:?}{:?}{usage:?}",
+            "{draft}{status}{tone:?}{live}{errored}{focused}{}{}{:?}{:?}{:?}{usage:?}",
+            self.swell,
             self.profile_menu.is_some(),
             state.ready,
             model.profile,
@@ -649,15 +761,33 @@ impl HarnessView {
             .layout(slot.rect, ctx, &self.metrics)?;
             (layout, rows_h, enters)
         } else {
+            let swell = if self.swell > 0 {
+                let p = self.anim.enter(
+                    &format!("composer/swell/{}", self.swell),
+                    0.,
+                    1.,
+                    super::face::SWELL_MS,
+                    Ease::Linear,
+                );
+                if p >= 1. {
+                    self.swell = 0;
+                }
+                super::face::swell_envelope(p)
+            } else {
+                0.
+            };
             let composer = super::face::composer(
                 &self.composer.view,
                 super::face::ComposerPhase {
                     live: live && !ask,
                     ask,
+                    errored,
                     focused,
+                    swell,
                 },
                 ctx,
                 width,
+                zoom,
                 &self.metrics,
                 &mut self.anim,
             )?;
@@ -665,8 +795,33 @@ impl HarnessView {
                 .layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?
                 .rect
                 .h;
-            let header_h = 40.;
-            let rows_h = (size[1] - composer_h - header_h).max(1.);
+            let leaf = model
+                .meta
+                .as_ref()
+                .and_then(|m| m.cwd.file_name())
+                .map(|n| n.to_string_lossy().into_owned());
+            let mut header = named(
+                "toolbar",
+                super::face::header(
+                    model.profile.clone(),
+                    leaf.clone(),
+                    &status,
+                    tone,
+                    self.profile_menu.is_some(),
+                    usage,
+                    &super::face::ink(ctx),
+                ),
+            );
+            super::face::zoom_text(&mut header, zoom);
+            // 40 px at 100 %; larger type reflows the chips and the bar grows with them
+            let header_h = header
+                .layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?
+                .rect
+                .h
+                .max(40.);
+            // the standalone window's own title bar (chrome.rs) above the face
+            let bar_h = if self.chrome { chrome::TITLE_BAR_H } else { 0. };
+            let rows_h = (size[1] - composer_h - header_h - bar_h).max(1.);
             let (transcript, content_h, enters) =
                 self.transcript(state, prepared, rows_h, first_frame, &ink);
             let offset = self.scroll_offset(content_h, rows_h, first_frame);
@@ -679,36 +834,34 @@ impl HarnessView {
                     content: Box::new(transcript),
                 }),
             );
-            let header = named(
-                "toolbar",
-                super::face::header(
-                    model.profile.clone(),
-                    model
-                        .meta
-                        .as_ref()
-                        .and_then(|m| m.cwd.file_name())
-                        .map(|n| n.to_string_lossy().into_owned()),
-                    &status,
-                    tone,
-                    self.profile_menu.is_some(),
-                    usage,
-                    &super::face::ink(ctx),
-                ),
-            );
-            let root = column(
-                vec![
-                    c::Item {
-                        element: header,
-                        extent: c::Extent::Fixed(header_h),
-                    },
-                    c::Item {
-                        element: rows,
-                        extent: c::Extent::Fixed(rows_h),
-                    },
-                    composer.into(),
-                ],
-                Some(size[1]),
-            );
+            let mut children = vec![];
+            if self.chrome {
+                let profile = model
+                    .profile
+                    .as_ref()
+                    .map(|(p, _)| p.clone())
+                    .or_else(|| model.meta.as_ref().and_then(|m| m.profile.clone()));
+                children.push(c::Item {
+                    element: chrome::title_bar(
+                        &chrome::crumb(profile.as_deref(), leaf.as_deref()),
+                        focused,
+                        ctx,
+                    ),
+                    extent: c::Extent::Fixed(bar_h),
+                });
+            }
+            children.extend([
+                c::Item {
+                    element: header,
+                    extent: c::Extent::Fixed(header_h),
+                },
+                c::Item {
+                    element: rows,
+                    extent: c::Extent::Fixed(rows_h),
+                },
+                composer.into(),
+            ]);
+            let root = column(children, Some(size[1]));
 
             let mut layout = root.layout(Rect::new(0., 0., width, size[1]), ctx, &self.metrics)?;
             paint_shapes(&mut layout);
@@ -854,6 +1007,7 @@ impl HarnessView {
             }
         }
         let restored = timer.elapsed();
+        self.titlebar.retain(&layout);
         let mut frame = Frame::default();
         frame.list.rect(
             Rect::new(0., 0., width, size[1]),
@@ -861,7 +1015,7 @@ impl HarnessView {
             Color::hex(ctx.theme.palette().bg),
         );
         for paint in c::paint(&layout, ctx) {
-            append_paint(&mut frame.list, paint)?;
+            append_paint(&mut frame.list, &mut frame.rims, paint)?;
         }
         if let Some((viewport, prims)) = overlays {
             frame.list.clip(viewport, [0.; 4]);
@@ -1026,7 +1180,7 @@ impl HarnessView {
         let ctx = context();
         let ink = super::face::ink(ctx);
         let width = size[0].max(240.);
-        self.frame.base = self.frame.list.primitives.len();
+        self.paint_zoom_pill(ctx, &ink, width)?;
         let mut hover = vec![];
         let mut front = vec![];
         let hovered = self.menus.hover.clone();
@@ -1156,7 +1310,7 @@ impl HarnessView {
                     sel: ghost.sel,
                 };
                 paint_overlay(
-                    &mut self.frame.list,
+                    &mut self.frame.over,
                     &ghost.layout,
                     ctx,
                     &ink,
@@ -1195,7 +1349,7 @@ impl HarnessView {
                 scale: 0.98 + 0.02 * p,
                 sel,
             };
-            paint_overlay(&mut self.frame.list, &popup, ctx, &ink, kind, &motion)?;
+            paint_overlay(&mut self.frame.over, &popup, ctx, &ink, kind, &motion)?;
             self.menus.last = Some(Card {
                 kind,
                 layout: popup,
@@ -1204,6 +1358,90 @@ impl HarnessView {
             });
         }
         self.menus.dirty = false;
+        Ok(())
+    }
+    /// The zoom pill (harness-spec.md Standalone window): `110%` centred 12 px under the
+    /// feed's top, dropping in 4 px over 170 ms `out`, held 900 ms, then fading over 150 ms
+    /// `std`. Settled and reduced clocks show it whole and drop it at the hold's end; a
+    /// timed wake ends the hold. A new press while it shows resets the hold without a
+    /// second drop.
+    fn paint_zoom_pill(
+        &mut self,
+        ctx: ui::Context,
+        ink: &super::face::Ink,
+        width: f32,
+    ) -> Result<(), String> {
+        let Some((t0, n)) = self.zoom_shown else {
+            return Ok(());
+        };
+        let since = self.anim.now() - t0;
+        if since >= PILL_HOLD_MS + PILL_OUT_MS {
+            self.zoom_shown = None;
+            return Ok(());
+        }
+        let p_in = self
+            .anim
+            .enter("zoom/pill/in", 0., 1., PILL_IN_MS, Ease::Out);
+        let p_out = if since >= PILL_HOLD_MS {
+            self.anim.enter(
+                &format!("zoom/pill/out/{n}"),
+                1.,
+                0.,
+                PILL_OUT_MS,
+                Ease::Std,
+            )
+        } else {
+            self.anim.wake_in(PILL_HOLD_MS - since);
+            1.
+        };
+        // faded out (or an end-state clock past the hold): gone
+        if p_out <= 0. {
+            return Ok(());
+        }
+        // painted at every opacity while it lives, so the frame that starts the drop carries
+        // the pill (transparent) and a reader sees the motion from its first frame
+        let opacity = (p_in * p_out).clamp(0., 1.);
+        let feed = self
+            .frame
+            .layout
+            .as_ref()
+            .and_then(|l| find(l, "transcript"))
+            .map_or(Rect::new(0., 0., width, 0.), |n| n.rect);
+        let mut pill = named("zoom/pill", super::face::zoom_pill(&self.zoom.label(), ink));
+        flat(&mut pill);
+        // shrink-wrap the pill to its label: measure the text, then fix the box's width
+        fn ink_width(n: &c::Layout) -> Option<f32> {
+            match &n.kind {
+                c::LayoutKind::Text { runs, .. } if !runs.is_empty() => Some(
+                    runs.iter().map(|r| r.rect.right()).fold(0., f32::max)
+                        - runs.iter().map(|r| r.rect.x).fold(f32::MAX, f32::min),
+                ),
+                _ => n.children.iter().find_map(ink_width),
+            }
+        }
+        // (a root layout is as wide as its bounds, so the second pass is given the label's
+        // width plus the pill's padding and border)
+        let probe = pill.layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?;
+        let pill_w = ink_width(&probe).map_or(width, |w| (w + 26.).ceil().min(width));
+        let mut laid = pill.layout(Rect::new(0., 0., pill_w, 0.), ctx, &self.metrics)?;
+        let x = (feed.x + (feed.w - laid.rect.w) / 2.).round();
+        let y = feed.y + 12. - 4. * (1. - p_in);
+        translate(&mut laid, x, y);
+        let mut prims = DrawList::default();
+        let mut rims = vec![];
+        for paint in c::paint(&laid, ctx) {
+            append_paint(&mut prims, &mut rims, paint)?;
+        }
+        if opacity < 1. {
+            self.frame.over.push(bbt_ui_model::draw::Prim::Group {
+                primitives: prims.primitives,
+                opacity,
+                saturation: 1.,
+                mask: None,
+            });
+        } else {
+            self.frame.over.primitives.extend(prims.primitives);
+        }
         Ok(())
     }
     /// The pointer moved to `at`: track the menu row under it. True when the
@@ -1611,8 +1849,9 @@ fn paint_overlay(
         rows.children.clear();
     }
     let mut prims = DrawList::default();
+    let mut rims = vec![];
     for paint in c::paint(&chrome, ctx) {
-        append_paint(&mut prims, paint)?;
+        append_paint(&mut prims, &mut rims, paint)?;
     }
     if let Some(r) = motion.sel {
         match kind {
@@ -1630,7 +1869,7 @@ fn paint_overlay(
     }
     if let Some(rows) = find(popup, super::menu::LIST) {
         for paint in c::paint(rows, ctx) {
-            append_paint(&mut prims, paint)?;
+            append_paint(&mut prims, &mut rims, paint)?;
         }
     }
     let r = popup.rect;
@@ -1718,7 +1957,13 @@ fn transform(prims: &mut [bbt_ui_model::draw::Prim], s: f32, origin: [f32; 2], d
         }
     }
 }
-fn append_paint(list: &mut DrawList, paint: c::Paint) -> Result<(), String> {
+/// Flatten paint ops into primitives; the alive rims (a material pass) are collected in
+/// `rims` for the renderer to draw after the flat list, as the term's host does.
+fn append_paint(
+    list: &mut DrawList,
+    rims: &mut Vec<m::Surface>,
+    paint: c::Paint,
+) -> Result<(), String> {
     match paint {
         c::Paint::Draw(draw) | c::Paint::Underlay(draw) => list.primitives.extend(draw.primitives),
         c::Paint::Group {
@@ -1729,7 +1974,7 @@ fn append_paint(list: &mut DrawList, paint: c::Paint) -> Result<(), String> {
         } => {
             let mut inner = DrawList::default();
             for op in ops {
-                append_paint(&mut inner, op)?;
+                append_paint(&mut inner, rims, op)?;
             }
             list.push(bbt_ui_model::draw::Prim::Group {
                 primitives: inner.primitives,
@@ -1738,18 +1983,62 @@ fn append_paint(list: &mut DrawList, paint: c::Paint) -> Result<(), String> {
                 mask,
             });
         }
-        // Adapted from bboxybook components::append_flat: a decorative rim
-        // is optional in a flat offscreen/standalone composition.
-        // https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
         c::Paint::Material {
             kind: ui::Material::Rim,
+            rect,
+            radii,
+            color,
+            rim,
+            clips,
             ..
-        } => {}
+        } => rims.push(m::Surface {
+            rect,
+            radii,
+            material: rim_material(color, rim),
+            clips: clips
+                .into_iter()
+                .map(|c| m::Clip {
+                    rect: c.rect,
+                    radii: c.radii,
+                })
+                .collect(),
+        }),
         c::Paint::Material { .. } => {
             return Err("Unsupported transcript material".into());
         }
     }
     Ok(())
+}
+/// The renderer's rim from a Style's `Rim` state.
+// Adapted from bboxy450-term crates/bboxy450-term/src/gpu.rs rim_material.
+// https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
+fn rim_material(color: Color, rim: Option<ui::Rim>) -> m::Material {
+    let tokens = bbt_ui_model::TOKENS;
+    let s = rim.unwrap_or_default();
+    let size = s.size.unwrap_or(tokens.glow.rim as f32);
+    m::Material::Rim(m::Rim {
+        color: s
+            .tint
+            .map(Color)
+            .unwrap_or(color)
+            .alpha(s.inferred_multiplier),
+        waiting: Color::hex(tokens.color.state.waiting),
+        errored: Color::hex(tokens.color.state.errored),
+        activity: match s.activity {
+            ui::GlowActivity::Idle => m::Activity::Idle,
+            ui::GlowActivity::Active => m::Activity::Active,
+            ui::GlowActivity::Waiting => m::Activity::Waiting,
+            ui::GlowActivity::Errored => m::Activity::Errored,
+        },
+        focus: if s.focused { 1. } else { 0. },
+        depth: s.depth.unwrap_or(tokens.glow.depth as f32),
+        size,
+        phase_ms: (s.seed % 10_000) as f32,
+        outer: s.outer.unwrap_or(f32::MAX).clamp(0., size / 2.),
+        alpha: s.rim_alpha.unwrap_or(1.),
+        swell: s.swell.clamp(0., 1.),
+        attention: s.attention,
+    })
 }
 fn approval(kind: ApprovalDecisionKind) -> (&'static str, ApprovalDecision) {
     match kind {
@@ -2255,6 +2544,8 @@ pub(super) fn translate(node: &mut c::Layout, dx: f32, dy: f32) {
 pub struct PreparedRows {
     pub source: Arc<Transcript>,
     pub width: f32,
+    /// The text zoom these rows were laid out at, percent (harness-spec.md Standalone window).
+    pub zoom: u8,
     rows: im::HashMap<ItemId, Arc<CachedRow>>,
     /// The rows' solved heights summed: the content height once every height tween rests.
     pub height: f32,
@@ -2281,8 +2572,13 @@ pub struct Preparer {
     layout_builds: usize,
     terminal_outputs: std::collections::HashMap<ItemId, String>,
     documents: super::rich::Documents,
+    /// Global text zoom for the rows it prepares; rows at another zoom are rebuilt.
+    zoom: Zoom,
 }
 impl Preparer {
+    pub fn set_zoom(&mut self, zoom: Zoom) {
+        self.zoom = zoom;
+    }
     /// Blob loading is completed before preparation, on the background path.
     pub fn has_terminal_output(&self, id: &ItemId) -> bool {
         self.terminal_outputs.contains_key(id)
@@ -2317,6 +2613,8 @@ impl Preparer {
         let ctx = context();
         let model = &source;
         let width = width.max(240.);
+        let zoom = self.zoom;
+        let scale = zoom.scale();
         let gutter = ctx.density.tokens().gap as f32;
         self.scope(model);
         let mut total_height = 0.;
@@ -2333,6 +2631,7 @@ impl Preparer {
             if row.completed.is_some()
                 && let Some(cached) = self.rows.get(id)
                 && cached.width == width
+                && cached.zoom == zoom.percent()
                 && cached.completed == row.completed
                 && cached.deps == folds.deps(model, id, self)
                 && cached.face == face
@@ -2367,6 +2666,7 @@ impl Preparer {
                 )?;
                 let mut element = named(format!("item/{id}"), element);
                 flat(&mut element);
+                super::face::zoom_text(&mut element, scale);
                 let mut layout =
                     element.layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?;
                 if let Some(rich) = &rich {
@@ -2377,6 +2677,7 @@ impl Preparer {
                     *id,
                     Arc::new(CachedRow {
                         width,
+                        zoom: zoom.percent(),
                         completed: row.completed,
                         deps,
                         face,
@@ -2439,6 +2740,7 @@ impl Preparer {
                         text,
                         row.completed.is_some(),
                         content_width,
+                        scale,
                         &self.metrics,
                     )
                 })
@@ -2597,6 +2899,7 @@ impl Preparer {
             }
             let mut element = named(format!("item/{id}"), row_content);
             flat(&mut element);
+            super::face::zoom_text(&mut element, scale);
             let mut layout = element.layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?;
             if let Some(rich) = &rich {
                 super::rich::restore(&mut layout, &rich.blocks);
@@ -2607,6 +2910,7 @@ impl Preparer {
                 *id,
                 Arc::new(CachedRow {
                     width,
+                    zoom: zoom.percent(),
                     completed: row.completed,
                     deps: 0,
                     face,
@@ -2619,6 +2923,7 @@ impl Preparer {
         Ok(PreparedRows {
             source,
             width,
+            zoom: zoom.percent(),
             rows: self.rows.clone(),
             height: total_height,
             layout_builds: self.layout_builds,

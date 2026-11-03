@@ -458,3 +458,13 @@ frontend = "project"
 name = "BrokenHarnessNativeUsageScopes"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessTextZoom"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessTextZoom"
+expected = "safety"
+frontend = "project"

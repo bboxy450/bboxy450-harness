@@ -45,6 +45,8 @@ struct Mailbox {
     notices: UiSender,
     pending_turns: arc_swap::ArcSwap<im::OrdSet<OpId>>,
     width: AtomicU32,
+    /// Global text zoom, percent (harness-spec.md Standalone window); rows re-prepare.
+    zoom: AtomicU32,
     resized: tokio::sync::Notify,
     published: AtomicU64,
     blobs: arc_swap::ArcSwapOption<crate::store::Blobs>,
@@ -99,6 +101,7 @@ impl Bridge {
                 notices,
                 pending_turns: arc_swap::ArcSwap::from_pointee(im::OrdSet::new()),
                 width: AtomicU32::new(1120f32.to_bits()),
+                zoom: AtomicU32::new(u32::from(super::zoom::DEFAULT)),
                 resized: tokio::sync::Notify::new(),
                 published: AtomicU64::new(0),
                 blobs: arc_swap::ArcSwapOption::empty(),
@@ -151,6 +154,13 @@ impl Bridge {
             if self.mailbox.width.swap(bits, Ordering::AcqRel) != bits {
                 self.mailbox.resized.notify_one();
             }
+        }
+    }
+    /// A zoom change schedules preparation at the new text size, like a resize.
+    pub fn set_zoom(&self, percent: u8) {
+        let percent = u32::from(percent);
+        if self.mailbox.zoom.swap(percent, Ordering::AcqRel) != percent {
+            self.mailbox.resized.notify_one();
         }
     }
     #[cfg(feature = "embedded")]
@@ -345,8 +355,12 @@ async fn publish_frame(mut state: FrameState, mailbox: &Arc<Mailbox>, preparer: 
         let mut owned = std::mem::take(preparer);
         let source = state.transcript.clone();
         let width = f32::from_bits(mailbox.width.load(Ordering::Acquire));
+        let zoom = mailbox.zoom.load(Ordering::Acquire);
         let publisher = mailbox.clone();
         *preparer = crate::runtime::blocking(move || {
+            owned.set_zoom(super::zoom::Zoom::from_percent(
+                i32::try_from(zoom).unwrap_or(i32::from(super::zoom::DEFAULT)),
+            ));
             match owned.prepare_with_faces(source, width, &faces) {
                 Ok(prepared) => state.prepared = Some(Arc::new(prepared)),
                 Err(error) => state.error = Some(error),

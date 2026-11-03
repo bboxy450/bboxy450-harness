@@ -87,10 +87,11 @@ fn at<'v>(view: &'v mut HarnessView, state: &FrameState, ms: f32) -> &'v Frame {
     view.anim.tick(ms);
     view.render(state, SIZE).unwrap()
 }
-/// The menu's primitives over the base frame: the fading group's opacity (None
-/// when painted plain, at full opacity) and the card's primitives.
+/// The menu's primitives over the base frame (`Frame::over`, painted after the face and
+/// its rims): the fading group's opacity (None when painted plain, at full opacity) and
+/// the card's primitives.
 fn overlay(frame: &Frame) -> (Option<f32>, Vec<Prim>) {
-    let over = &frame.list.primitives[frame.base..];
+    let over = &frame.over.primitives[..];
     match over {
         [
             Prim::Group {
@@ -530,17 +531,14 @@ fn a_menu_animation_frame_is_built_every_frame_while_it_moves() {
     at(&mut view, &state, 0.);
     view.edit(bbt_ui::text_edit::Command::Insert("/".into()));
     let frame = at(&mut view, &state, 1000.);
-    assert!(frame.base > 0 && frame.list.primitives.len() > frame.base);
+    assert!(!frame.list.primitives.is_empty() && !frame.over.primitives.is_empty());
     let mut cost = vec![];
     for i in 1..=10 {
         assert_eq!(view.anim.next_frame(), Some(0.), "opening: a frame follows");
         let t = std::time::Instant::now();
         let frame = at(&mut view, &state, 1000. + 16. * i as f32);
         cost.push(t.elapsed().as_secs_f64() * 1000.);
-        assert!(
-            frame.list.primitives.len() > frame.base,
-            "the card is painted"
-        );
+        assert!(!frame.over.primitives.is_empty(), "the card is painted");
     }
     // 1200: the card (170ms) and the composer's send fade (200ms) are both done
     at(&mut view, &state, 1200.);
