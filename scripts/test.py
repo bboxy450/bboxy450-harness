@@ -37,14 +37,10 @@ def main():
             ['cargo','fmt','--check'],
             ['cargo','clippy','--offline','--locked','--all-targets','--','-D','warnings'],
             ['cargo','clippy','--offline','--locked','--all-targets','--all-features','--','-D','warnings'],
-            # Keep the GUI host's fork/pipe/runtime startup in its own Cargo
-            # process. Every lifecycle assertion and deadline is unchanged.
-            ['cargo','test','--offline','--locked','--test','seat_process','seat_socket::gui_socket_start_switch_aba_resume_and_cleanup','--','--exact'],
-            ['cargo','test','--offline','--locked','--all-targets','--','--skip','non_pty_spawn_does_not_keep_a_sibling_master_alive','--skip','seat_socket::gui_socket_start_switch_aba_resume_and_cleanup'],
+            ['cargo','test','--offline','--locked','--all-targets','--','--skip','non_pty_spawn_does_not_keep_a_sibling_master_alive'],
             # Keep launcher process bursts separate from PTY lifecycle deadlines.
             # Every case still runs; neither the deadline nor product scheduling changes.
-            ['cargo','test','--offline','--locked','--features','acp,test-fixtures','--test','seat_process','seat_socket::gui_socket_start_switch_aba_resume_and_cleanup','--','--exact'],
-            ['cargo','test','--offline','--locked','--all-targets','--features','acp,test-fixtures','--','--skip','seat_launch::','--skip','non_pty_spawn_does_not_keep_a_sibling_master_alive','--skip','seat_socket::gui_socket_start_switch_aba_resume_and_cleanup'],
+            ['cargo','test','--offline','--locked','--all-targets','--features','acp,test-fixtures','--','--skip','seat_launch::','--skip','non_pty_spawn_does_not_keep_a_sibling_master_alive'],
             ['cargo','test','--offline','--locked','--features','acp,test-fixtures','--test','seat_process','seat_launch::'],
             # This case deliberately clears CLOEXEC. Its test process must have
             # no concurrent test that could fork while the master is exposed.

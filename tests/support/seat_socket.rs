@@ -190,33 +190,40 @@ fn wait_hello(
                         String::from_utf8_lossy(&seat.bytes)
                     );
                 }
-                let path = if gui {
+                let mut paths = if gui {
                     std::fs::read_dir(root.join(".bboxy450-harness/run"))
-                        .ok()
-                        .and_then(|entries| {
-                            entries.flatten().map(|e| e.path()).find(|p| {
-                                p.file_stem()
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                        .map(|e| e.path())
+                        .filter(|p| {
+                            p.extension().is_some_and(|ext| ext == "sock")
+                                && p.file_stem()
                                     .and_then(|s| s.to_str())
                                     .and_then(|s| s.parse().ok())
                                     .map(SessionId)
-                                    != previous
-                            })
+                                    .is_some_and(|id| Some(id) != previous)
                         })
+                        .collect::<Vec<_>>()
                 } else {
-                    Some(root.join("seat.sock"))
+                    vec![root.join("seat.sock")]
                 };
-                if let Some(path) = path
-                    && let Ok((client, sub)) = UnixClient::discover(&path, None, false, false).await
-                {
-                    let hello = sub.hello().clone();
-                    client.close();
-                    if Some(hello.meta.session) != previous {
-                        use std::os::unix::fs::PermissionsExt;
-                        assert_eq!(
-                            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-                            0o600
-                        );
-                        return (path, hello);
+                paths.sort();
+                // A crash can leave several retired addresses. Probe every
+                // candidate; an unavailable first entry cannot hide the live one.
+                for path in paths {
+                    if let Ok((client, sub)) = UnixClient::discover(&path, None, false, false).await
+                    {
+                        let hello = sub.hello().clone();
+                        client.close();
+                        if Some(hello.meta.session) != previous {
+                            use std::os::unix::fs::PermissionsExt;
+                            assert_eq!(
+                                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                                0o600
+                            );
+                            return (path, hello);
+                        }
                     }
                 }
                 tokio::time::sleep(Duration::from_millis(5)).await;
@@ -236,6 +243,15 @@ fn lifecycle(gui: bool) {
         .prefix("pane-")
         .tempdir_in("/tmp")
         .unwrap();
+    if gui {
+        let run = own.path().join(".bboxy450-harness/run");
+        std::fs::create_dir_all(&run).unwrap();
+        // Deterministic regression: the lowest candidate is a real stale socket,
+        // left by a retired/crashed generation before the current address binds.
+        let stale = run.join("00000000000000000000000000.sock");
+        drop(std::os::unix::net::UnixListener::bind(&stale).unwrap());
+        assert!(stale.exists());
+    }
     let mut seat = Seat::start(own.path(), gui, None);
     let (path, first) = wait_hello(own.path(), gui, None, &mut seat);
     let first_path = own
