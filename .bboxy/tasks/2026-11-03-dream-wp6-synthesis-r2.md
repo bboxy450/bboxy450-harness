@@ -11,6 +11,7 @@ allowed_paths:
 - tests/support/dream.rs
 - tests/fixtures/dream/synth/**
 - .bboxy/reports/
+- verification/coverage.toml
 verify: cargo test --test dream_pipeline synth
 depends_on:
 - '[[2026-11-03-dream-wp3-d0-r2]]'
@@ -23,7 +24,7 @@ id: 01M6J8TVSRQ0KRYMQ3ET73F67S
 status: open
 delegated_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
-updated: 2026-11-04T03:14:55.866Z
+updated: 2026-11-04T04:07:16.459Z
 created: 2026-11-04T03:14:55.866Z
 number: 20261103136212
 created_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
@@ -34,11 +35,11 @@ authorship:
   public_key: Oc7KBLmX2fSuTNz6+a4eyDWCf4djX4fk13BizgaL+gc=
   process_generation: '1'
 provenance:
-  digest: sha256:0dd322957fbecbbb9663a8bb52e16019cda37f56c9a693600e2d6cd62ee26a1c
-  frontmatter_digest: sha256:96aa438ccbe684c3a6b57ad295e20a2005a7f3b786aa762d1736757c59451998
+  digest: sha256:691ada5cdaa6c3523eed3ce9641456ab47f28253ef5e0bbafa445778a0cdd6c3
+  frontmatter_digest: sha256:99c5422f2f0acb7bd153b6f3e3f4aa32ea40aedf992eaf64eededb49a5d32f66
   signer: seat:01M6J5YFATHYCK148JT0C4XGZ1
-  sig: D1XTL8rv+TVdSWCmLndUL8ol/aVWdZS0f3gGMp52rl2nnNrWNtKOK4sb0fhXlNiJ87hyCdphCT6b2WHPuumwBQ==
-  log: .bboxy/log/2026-11-04.jsonl#42220
+  sig: DUmxeF7fA/FG2RmIiIuUUbbanbeLKmiuSE2A6ywuOccBHDpsP9nTYG9kVxqajNPbv5jrr+cEn2wzEP3uKl7+CQ==
+  log: .bboxy/log/2026-11-04.jsonl#43239
 ---
 ROLE: EXECUTOR
 Read repository instructions and [[dream-log]], [[memory-graph]], [[dream-sinks]] (all on origin/main). Parent [[2026-11-03-swarm-dreaming-succession]].
@@ -55,3 +56,5 @@ Prerequisites: WP3, WP4 integrated and independently verified. Oracle delegates 
 Outcome/acceptance: Strict D1 synthesis prompt/parse and Pending/Proposed events; consume WP4 shared validators. mod only dispatch; pipeline only synthesis cases. Scripted provider/private HOME, no tools/model filesystem effects, unknown fields refused, no-op, candidate limits/evidence allowlist, redaction and deny-scan.
 Verify: cargo test --test dream_pipeline synth
 Shared files are owned sequentially by the dependencies in dream-log §10. No blanket src/dream/** ownership. Report exact test outputs/exits and meaningful process witnesses; check_transcript means the actual protocol checker/invariants, not an invented shell target. Model evidence is supplied by WP5 and refreshed against final code by WP9.
+
+Oracle source-inventory amendment 2026-11-03: every new Rust module must be listed before this package can produce fresh current-source formal evidence; scripts/formal.py enforces exact source equality. verification/coverage.toml is authorized only for this WP's actually introduced source paths, their planned-to-current promotion where relevant, and a precise note of this WP's real API/process tests and still-unmodeled behavior. Do not list nonexistent files, widen another WP's implementation scope, claim model conformance from inventory membership, omit sources to make the gate pass, or weaken a model/control/check. If a new stateful contract is not covered by the existing refined models and real witnesses, report the exact modeling gap for a separate scoped amendment. WP9 retains final cross-package contract/source/test mapping and fresh evidence responsibility; this per-package inventory maintenance cannot be deferred until WP9. Verify command unchanged; required formal/parity and canonical gates remain in force.

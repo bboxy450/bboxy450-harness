@@ -14,6 +14,7 @@ allowed_paths:
 - tests/import_native.rs
 - tests/cli_headless.rs
 - .bboxy/reports/
+- verification/coverage.toml
 verify: cargo test --test dream_vcs --test import_native --test cli_headless --features acp-agent
 depends_on:
 - '[[2026-11-03-dream-wp1-ir-1-3]]'
@@ -25,7 +26,7 @@ id: 01M6J8TT7HY4B7YPAP8SEWBE40
 status: claimed
 delegated_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
-updated: 2026-11-04T03:59:42.908Z
+updated: 2026-11-04T04:06:39.839Z
 created: 2026-11-04T03:14:53.626Z
 number: 20261103136208
 created_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
@@ -37,11 +38,11 @@ authorship:
   process_generation: '1'
 assignee: seat:01M6J7N5V103SG1KS0THEXB9R1
 provenance:
-  digest: sha256:8c089b9db53eb766a73d3e80c8d41ba6f2071305c2fbf649a84dc54aacfa71d8
-  frontmatter_digest: sha256:5ee0c63eae520a6a5127da38cbde2c649fb47e38ce97e25954611a4a2c5e1292
+  digest: sha256:b54e8f8bea7809d586944b0f3728d94ecb58eba48d847cd896fce8bb10ae00e6
+  frontmatter_digest: sha256:0a114212657aaf98c47e16c88473615cbe0580a349fa5973f4be8926fbea7a0c
   signer: seat:01M6J5YFATHYCK148JT0C4XGZ1
-  sig: nPJ4ndrcRWGQOTAGzNpjqNQh7f3EqOb5TKt2+fNNdbftDFM1F+hHr6noyJmS/pLQzt4Hnmu3nBjijayAJQ2KBQ==
-  log: .bboxy/log/2026-11-04.jsonl#43195
+  sig: bIB6sfhdUg1NoKizp3oaSYCHtHzawuP49jAC/W+22TiAKYsLKrjYZRFuK5h+AEF1lNaIXWxI50uZQ82iilf8Aw==
+  log: .bboxy/log/2026-11-04.jsonl#43224
 ---
 ROLE: EXECUTOR
 Read repository instructions and [[dream-log]], [[memory-graph]], [[dream-sinks]] (all on origin/main). Parent [[2026-11-03-swarm-dreaming-succession]].
@@ -66,3 +67,5 @@ Your NEW assigned writing worktree is /Users/feral/mydev/bboxy450-harness-dream-
 This explicitly supersedes the earlier requirement that prerequisites first be accepted/integrated into main for starting this bounded candidate work. Acceptance/publication/merge still requires all written gates including canonical make test to be green; no number repair, filtering of that gate or baseline waiver is authorized. Do not publish or merge this branch. Reuse no old receipt for the combined base: create fresh current-source evidence for your completed source, and report the actual canonical gate result and outstanding baseline blocker honestly. A same-premise failing-gate loop is not useful; no operator prompt or speculative cleanup. Later packages may start only under their own signed Oracle task amendment against independently checked candidate prerequisites.
 
 VCS acceptance details: capture actual repository/branch/commit/dirty data without inventing missing native fields, without operator auth/network or exposing credential-bearing remote URLs. Keep subprocess/metadata capture bounded and off the live UI hot path; report a missing interface/budget rather than adding an unbounded wait. Cover no-repo/git failure/dirty and available native mappings with private git fixtures. Source/model/process limits remain explicit; WP9 refreshes final implementation mappings.
+
+Oracle formal-inventory amendment 2026-11-03: verification/coverage.toml is additionally authorized ONLY to add the required src/vcs.rs source inventory entry and a precise implementation-coverage note naming actual WP2 tests and limits. Existing owned-process models/controls may remain unchanged only where their existing process helper/contract is reused; this amendment does not claim they prove Git parsing, snapshot consistency, bytes or wall-clock behavior. Do not silently map a new lifecycle/ownership/retry contract to an unrelated existing model: report that distinct gap if introduced. No broad inventory rewrite, model/control weakening, planned-source deletion unrelated to this WP, or gate change is authorized. Refresh current-source formal/parity evidence after the required new file is inventoried. Primary verify remains unchanged; maintain all canonical gates and disclose the existing KB failure without a waiver.

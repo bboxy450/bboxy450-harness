@@ -12,6 +12,7 @@ allowed_paths:
 - tests/support/dream.rs
 - tests/fixtures/dream/trial/**
 - .bboxy/reports/
+- verification/coverage.toml
 verify: cargo test --test dream_pipeline trial && cargo test --test policy_gate
 depends_on:
 - '[[2026-11-03-dream-wp2-vcs-r2]]'
@@ -24,7 +25,7 @@ id: 01M6J8TX21SQAR0DGZ13DTRQ8A
 status: open
 delegated_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
-updated: 2026-11-04T03:14:56.915Z
+updated: 2026-11-04T04:07:16.945Z
 created: 2026-11-04T03:14:56.915Z
 number: 20261103136214
 created_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
@@ -35,11 +36,11 @@ authorship:
   public_key: Oc7KBLmX2fSuTNz6+a4eyDWCf4djX4fk13BizgaL+gc=
   process_generation: '1'
 provenance:
-  digest: sha256:5b69d1f51905518b74444fa1247767c0c6847ca8dd616ac2b3c88d773bc7d29e
-  frontmatter_digest: sha256:94923ece8e7df424793f60848049c4a60ad65a0a8350f54410cae9455725e46b
+  digest: sha256:5b32c4d9fd41381db827810eb3d0306e800960a462d83448d7cab60de7b3d5f7
+  frontmatter_digest: sha256:4153695fd5409cbe93e8009b87041482c56e3154b16b8792d38470367252eb20
   signer: seat:01M6J5YFATHYCK148JT0C4XGZ1
-  sig: qwge0SfTAj2YN35QF2zKK5V+TH8phSWnwFE6dzJ5TeI872x5ndaoGv3rL3XLVMcFLuF67Djp3tt/fbMVOkTAAQ==
-  log: .bboxy/log/2026-11-04.jsonl#42228
+  sig: t5bCxwWCpItDTDXvkeCSuFgTXBsKAdPbeiUFScofyseyCd7gbbGcL3KjC7iOK7F74mK0/BW2uqJH8pdxeqTCAQ==
+  log: .bboxy/log/2026-11-04.jsonl#43241
 ---
 ROLE: EXECUTOR
 Read repository instructions and [[dream-log]], [[memory-graph]], [[dream-sinks]] (all on origin/main). Parent [[2026-11-03-swarm-dreaming-succession]].
@@ -56,3 +57,5 @@ Prerequisites: WP2, WP6 integrated and independently verified. Oracle delegates 
 Outcome/acceptance: Worktree/fork/continue and per-pair trial verdicts; mod only dispatch, policy only trial profile, headless only continuation wiring, pipeline only trial cases. Use thresholds@2 including scheduling; disable automatic recall in both arms and pin unrelated context; insufficient sample/usage/isolation => Inconclusive. No machine-wide candidate queue; host heavy-test claim skipped nonblocking if unavailable. Deny writes/publication outside isolated scratch and operator identity.
 Verify: cargo test --test dream_pipeline trial && cargo test --test policy_gate
 Shared files are owned sequentially by the dependencies in dream-log §10. No blanket src/dream/** ownership. Report exact test outputs/exits and meaningful process witnesses; check_transcript means the actual protocol checker/invariants, not an invented shell target. Model evidence is supplied by WP5 and refreshed against final code by WP9.
+
+Oracle source-inventory amendment 2026-11-03: every new Rust module must be listed before this package can produce fresh current-source formal evidence; scripts/formal.py enforces exact source equality. verification/coverage.toml is authorized only for this WP's actually introduced source paths, their planned-to-current promotion where relevant, and a precise note of this WP's real API/process tests and still-unmodeled behavior. Do not list nonexistent files, widen another WP's implementation scope, claim model conformance from inventory membership, omit sources to make the gate pass, or weaken a model/control/check. If a new stateful contract is not covered by the existing refined models and real witnesses, report the exact modeling gap for a separate scoped amendment. WP9 retains final cross-package contract/source/test mapping and fresh evidence responsibility; this per-package inventory maintenance cannot be deferred until WP9. Verify command unchanged; required formal/parity and canonical gates remain in force.

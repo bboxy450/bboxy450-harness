@@ -19,6 +19,7 @@ allowed_paths:
 - tests/fixtures/dream/sinks/**
 - tests/fixtures/dream/recall/**
 - .bboxy/reports/
+- verification/coverage.toml
 verify: cargo test --features acp-agent --test dream_pipeline --test dream_sinks --test dream_recall && make test
 depends_on:
 - '[[2026-11-03-dream-wp4-audit-r2]]'
@@ -31,7 +32,7 @@ id: 01M6J8TXY5VH67ZTV7ACWTG695
 status: open
 delegated_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
-updated: 2026-11-04T03:14:58.665Z
+updated: 2026-11-04T04:07:18.074Z
 created: 2026-11-04T03:14:58.665Z
 number: 20261103136217
 created_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
@@ -42,11 +43,11 @@ authorship:
   public_key: Oc7KBLmX2fSuTNz6+a4eyDWCf4djX4fk13BizgaL+gc=
   process_generation: '1'
 provenance:
-  digest: sha256:97e7366904ca28352dd77847ae1f0e65d0cbdae8f31bfc47a9e01b597d323bc2
-  frontmatter_digest: sha256:46467fdb9d257ce962ae0641b6e190dd3a33feeb8dbd98fd28ecaee8f59cfab2
+  digest: sha256:c113eabb38408dd3293d4eff9e4ebd35d0ceb4d230bf566aa3c671b0dfc316e7
+  frontmatter_digest: sha256:57aed854496cd2351cb41ece5adf67ca882cda36657aca489b75ffafc64c5662
   signer: seat:01M6J5YFATHYCK148JT0C4XGZ1
-  sig: smuuz0f+LY38U5RMqIXfmJ4j8mfDw/wtaFOo8Rozdjswf04hqSzsS5LgoOOhPkWn9BvYEUZTZ1zqu+dBW7YRAg==
-  log: .bboxy/log/2026-11-04.jsonl#42237
+  sig: LCDWy8J4mNA/v/sVTd+yTnWmew1lnGEpqyb/Cmuu7vBl3lkAjDZLFdw2J3eXnFVRNtFdk2OpJU6bG3d81/PYAA==
+  log: .bboxy/log/2026-11-04.jsonl#43249
 ---
 ROLE: EXECUTOR
 Read repository instructions and [[dream-log]], [[memory-graph]], [[dream-sinks]] (all on origin/main). Parent [[2026-11-03-swarm-dreaming-succession]].
@@ -63,3 +64,5 @@ Prerequisites: WP4, WP7 integrated and independently verified. Oracle delegates 
 Outcome/acceptance: MCP flush write/commit outcome confirmation with pinned records; outside-seat no-op. Atomic immutable no-replace lowering under §12.2, ownership preservation/shared-index skip, no Adoption for unconsumed or uncommitted bytes. Separate quoted low-trust engine/ACP context, never system/developer authority. Exact Recall record/digest and only if logging succeeds. Native timeline/citation import; inferred uncertain exposure excludes training but does not increase strength. Source hooks constrained to request-context/start/first-prompt or cited/inferred import.
 Verify: cargo test --features acp-agent --test dream_pipeline --test dream_sinks --test dream_recall && make test
 Shared files are owned sequentially by the dependencies in dream-log §10. No blanket src/dream/** ownership. Report exact test outputs/exits and meaningful process witnesses; check_transcript means the actual protocol checker/invariants, not an invented shell target. Model evidence is supplied by WP5 and refreshed against final code by WP9.
+
+Oracle source-inventory amendment 2026-11-03: every new Rust module must be listed before this package can produce fresh current-source formal evidence; scripts/formal.py enforces exact source equality. verification/coverage.toml is authorized only for this WP's actually introduced source paths, their planned-to-current promotion where relevant, and a precise note of this WP's real API/process tests and still-unmodeled behavior. Do not list nonexistent files, widen another WP's implementation scope, claim model conformance from inventory membership, omit sources to make the gate pass, or weaken a model/control/check. If a new stateful contract is not covered by the existing refined models and real witnesses, report the exact modeling gap for a separate scoped amendment. WP9 retains final cross-package contract/source/test mapping and fresh evidence responsibility; this per-package inventory maintenance cannot be deferred until WP9. Verify command unchanged; required formal/parity and canonical gates remain in force.

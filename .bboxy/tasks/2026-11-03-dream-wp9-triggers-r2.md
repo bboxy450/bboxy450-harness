@@ -32,7 +32,7 @@ id: 01M6J8TZKET9F04TA74N7ZN76Y
 status: open
 delegated_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
-updated: 2026-11-04T03:14:59.517Z
+updated: 2026-11-04T04:07:18.570Z
 created: 2026-11-04T03:14:59.517Z
 number: 20261103136219
 created_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
@@ -43,11 +43,11 @@ authorship:
   public_key: Oc7KBLmX2fSuTNz6+a4eyDWCf4djX4fk13BizgaL+gc=
   process_generation: '1'
 provenance:
-  digest: sha256:50a7721fb286c58a06cc245165945e8e6995332c447b3cf33a0cb26fe7c44029
-  frontmatter_digest: sha256:a6bac4b1214fb5f4031d891110b12e3e24e28cd5d81bec9b496b3528415f48f9
+  digest: sha256:798996539a9b7cb4703d22265b7cc21aa58983a1679e82a4df1a978f81182f66
+  frontmatter_digest: sha256:aecc611f14a41e3e5c55651e7208efdeb6f2f228b60f3c15a6c7587ba332ad2a
   signer: seat:01M6J5YFATHYCK148JT0C4XGZ1
-  sig: WrfOiwyHSxJjuLhM3BHbRmMbGtrqz1BwJ4HrOiA4bRGvbrgRVAMZNx86kyvPKD4I6S1o9rmGzOIKAoENB346AQ==
-  log: .bboxy/log/2026-11-04.jsonl#42242
+  sig: fIPmAAR1KnFgLAZcsPp4zqXeOB6NRXBXwEWz6fBQ9WfZJNEROY6iWoKCkRaSV0dnVGdhZMYrtS2PHIMtNErMAw==
+  log: .bboxy/log/2026-11-04.jsonl#43251
 ---
 ROLE: EXECUTOR
 Read repository instructions and [[dream-log]], [[memory-graph]], [[dream-sinks]] (all on origin/main). Parent [[2026-11-03-swarm-dreaming-succession]].
@@ -64,3 +64,5 @@ Prerequisites: WP8, WP5 integrated and independently verified. Oracle delegates 
 Outcome/acceptance: Run/claims/quota, private night-run and canonical audit/smoke wiring. mod dispatch only; Makefile dream targets only; verification inventories current-source hashes/mapping only, no model redefinition. used integer percent normalize once; worst-first provider snapshot stale/null/invalid/future age disables automatic inference. Keep replay/audit/flush/lower available. Private HOME/scripted identity, no operator credentials/prompts/network, assert good/broken audit and smoke actually executed by make test. Refresh retained formal current-source evidence after rebase.
 Verify: cargo test --test dream_run --test dream_smoke && make test && make test-formal-parity
 Shared files are owned sequentially by the dependencies in dream-log §10. No blanket src/dream/** ownership. Report exact test outputs/exits and meaningful process witnesses; check_transcript means the actual protocol checker/invariants, not an invented shell target. Model evidence is supplied by WP5 and refreshed against final code by WP9.
+
+Oracle source-inventory amendment 2026-11-03: every new Rust module must be listed before this package can produce fresh current-source formal evidence; scripts/formal.py enforces exact source equality. verification/coverage.toml is authorized only for this WP's actually introduced source paths, their planned-to-current promotion where relevant, and a precise note of this WP's real API/process tests and still-unmodeled behavior. Do not list nonexistent files, widen another WP's implementation scope, claim model conformance from inventory membership, omit sources to make the gate pass, or weaken a model/control/check. If a new stateful contract is not covered by the existing refined models and real witnesses, report the exact modeling gap for a separate scoped amendment. WP9 retains final cross-package contract/source/test mapping and fresh evidence responsibility; this per-package inventory maintenance cannot be deferred until WP9. Verify command unchanged; required formal/parity and canonical gates remain in force.
