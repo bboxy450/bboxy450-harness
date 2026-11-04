@@ -58,6 +58,7 @@ impl std::fmt::Debug for ServerConfig {
             .finish()
     }
 }
+#[cfg(feature = "acp-agent")]
 pub(crate) mod relay;
 
 pub type Servers = BTreeMap<String, ServerConfig>;

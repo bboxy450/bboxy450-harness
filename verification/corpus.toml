@@ -581,3 +581,18 @@ expected = "safety"
 [[model]]
 name = "BrokenHarnessLaunchContextApproval"
 expected = "safety"
+
+[[model]]
+name = "HarnessGuiPendingPrompt"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessGuiPendingPromptAck"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessGuiPendingPromptStale"
+expected = "safety"
+frontend = "project"

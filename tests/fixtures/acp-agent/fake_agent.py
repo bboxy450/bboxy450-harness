@@ -82,6 +82,16 @@ def wake():
 
 
 def prompt(rid, text):
+    if SCENARIO == "gui-polish-mcp":
+        for index, result in enumerate([
+            {"content": [{"type": "text", "text": "# Real MCP result\n- first\n- second"}], "structuredContent": {"count": 2}},
+            {"structuredContent": {"phase": "ready", "nested": {"count": 3}}},
+            {"content": [{"type": "image", "mimeType": "image/png", "data": "private-binary"}, {"type": "resource_link", "uri": "https://example.test/result", "name": "result"}]},
+        ]):
+            call = "polish-%d" % index
+            update({"sessionUpdate": "tool_call", "toolCallId": call, "title": "mcp__fixture__result", "status": "pending"})
+            update({"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed", "rawOutput": result})
+        return "end_turn"
     if SCENARIO == "ir-edge":
         update({"sessionUpdate": "never_seen_update", "value": {"secret": "needle", "count": 7}})
         update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hello"}, "_meta": {"keep": "needle"}, "future_field": {"opaque": [1, 2]}})

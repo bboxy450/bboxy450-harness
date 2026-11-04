@@ -367,7 +367,7 @@ pub fn describe<'a>(
         .filter_map(|b| match b {
             OutputBlock::Text { text } | OutputBlock::Error { text } => Some(text.clone()),
             OutputBlock::Diff { unified, .. } => Some(unified.clone()),
-            OutputBlock::Json { value } => Some(value.to_string()),
+            OutputBlock::Json { value } => Some(raw_tool_output(value)),
             OutputBlock::Audio { .. }
             | OutputBlock::Resource { .. }
             | OutputBlock::Terminal { .. }
@@ -443,5 +443,118 @@ pub fn describe<'a>(
         name,
         quiet,
         place,
+    }
+}
+
+/// Old ACP producers inserted an empty placeholder beside genuine raw results.
+/// Keep replay compatibility while never treating those sentinels as content.
+pub fn placeholder_output(output: &[OutputBlock]) -> bool {
+    output.is_empty() || output.iter().all(|block| matches!(block,
+        OutputBlock::Text { text } if matches!(text.trim(), "" | "(no output)" | "(the agent did not report a result)")))
+}
+/// Render MCP's text/structured results without exposing binary payloads or
+/// transport configuration. The upstream redactor still owns secret values.
+pub fn raw_tool_output(value: &serde_json::Value) -> String {
+    use serde_json::Value;
+    fn safe(value: &Value) -> Value {
+        match value {
+            Value::Object(object) => Value::Object(
+                object
+                    .iter()
+                    .map(|(key, value)| {
+                        let compact = key.to_ascii_lowercase().replace(['_', '-'], "");
+                        let value = if matches!(
+                            compact.as_str(),
+                            "blob"
+                                | "mcpservers"
+                                | "env"
+                                | "headers"
+                                | "authorization"
+                                | "capability"
+                                | "apikey"
+                                | "token"
+                                | "password"
+                        ) || (compact == "data"
+                            && (object.contains_key("mimeType")
+                                || object
+                                    .get("type")
+                                    .and_then(Value::as_str)
+                                    .is_some_and(|t| matches!(t, "image" | "audio" | "blob"))))
+                        {
+                            Value::String("[payload omitted]".into())
+                        } else {
+                            safe(value)
+                        };
+                        (key.clone(), value)
+                    })
+                    .collect(),
+            ),
+            Value::Array(values) => Value::Array(values.iter().map(safe).collect()),
+            _ => value.clone(),
+        }
+    }
+    if value.is_null() {
+        return String::new();
+    }
+    if let Some(text) = value.as_str() {
+        return text.to_owned();
+    }
+    let mut parts = vec![];
+    if let Some(content) = value.get("content").and_then(Value::as_array) {
+        for block in content {
+            match block.get("type").and_then(Value::as_str) {
+                Some("text") => {
+                    if let Some(text) = block.get("text").and_then(Value::as_str) {
+                        parts.push(text.to_owned());
+                    }
+                }
+                Some("image" | "audio") => parts.push(format!(
+                    "{} · {} · binary preview unavailable",
+                    block["type"].as_str().unwrap_or("media"),
+                    block
+                        .get("mimeType")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unreported MIME")
+                )),
+                _ => parts.push(serde_json::to_string_pretty(&safe(block)).unwrap_or_default()),
+            }
+        }
+        if let Some(structured) = value.get("structuredContent") {
+            parts.push(serde_json::to_string_pretty(&safe(structured)).unwrap_or_default());
+        }
+        if !parts.is_empty() {
+            return parts.join("\n\n");
+        }
+    }
+    serde_json::to_string_pretty(&safe(value)).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod gui_polish_output_tests {
+    use super::*;
+    #[test]
+    fn gui_polish_result_formatter_keeps_structured_data_and_resource_links() {
+        let result = raw_tool_output(&serde_json::json!({"content": [
+            {"type":"text","text":"# Available result"},
+            {"type":"image","mimeType":"image/png","data":"private-image-bytes"},
+            {"type":"resource_link","uri":"https://example.test/artifact","name":"artifact"}
+        ], "structuredContent": {"data":{"answer":42},"env":{"KEY":"private-env"},"mcpServers":{"private":"relay"}}}));
+        for needle in [
+            "Available result",
+            "42",
+            "https://example.test/artifact",
+            "image/png",
+        ] {
+            assert!(result.contains(needle));
+        }
+        for secret in ["private-image-bytes", "private-env", "relay"] {
+            assert!(!result.contains(secret));
+        }
+        assert!(placeholder_output(&[OutputBlock::Text {
+            text: "(no output)".into()
+        }]));
+        assert!(!placeholder_output(&[OutputBlock::Error {
+            text: "real error".into()
+        }]));
     }
 }

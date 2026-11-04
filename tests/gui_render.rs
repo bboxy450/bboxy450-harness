@@ -1976,3 +1976,334 @@ fn tool_kind_icons_and_colours_match_the_web_table() {
     assert_eq!(glyphs[4][0], P::Move([3., 4.5]));
     assert!(glyphs[5].contains(&P::Line([13.5, 8.])));
 }
+
+#[test]
+fn gui_polish_loader_is_centered_and_pending_bubbles_are_scoped() {
+    use bboxy450_harness::frontends::gui::{
+        bridge::PendingPrompt,
+        view::{find, layout_text},
+    };
+    let mut view = HarnessView::default();
+    for chrome in [false, true] {
+        view.chrome = chrome;
+        for size in [[280., 430.], [1120., 800.], [470., 680.]] {
+            for preparing in [false, true] {
+                let mut state = FrameState::default();
+                state.ready = preparing;
+                if preparing {
+                    let item = ItemId::new();
+                    let mut t = Transcript::default();
+                    let mut e: Envelope = serde_json::from_str(
+                        include_str!("fixtures/protocol/all-items.jsonl")
+                            .lines()
+                            .next()
+                            .unwrap(),
+                    )
+                    .unwrap();
+                    e.event = Event::ItemStarted {
+                        turn: None,
+                        item,
+                        kind: ItemKind::AgentMessage,
+                        parent: None,
+                        head: None,
+                    };
+                    t.apply(&e);
+                    state.transcript = Arc::new(t);
+                }
+                let frame = view.render(&state, size).unwrap();
+                let layout = frame.layout.as_ref().unwrap();
+                let loader = find(layout, "session-loader").unwrap().rect;
+                let mark = find(layout, "session-loader/mark")
+                    .expect("welcome portrait above loading label");
+                let label = find(layout, "session-loader/label").unwrap();
+                assert!(mark.rect.bottom() < label.rect.y);
+                assert!(
+                    !layout_text(find(layout, "session-loader").unwrap())
+                        .contains("What are we building")
+                );
+                assert!(find(layout, "empty/chip/0").is_none());
+
+                let viewport = find(layout, "transcript").unwrap().children[0].rect;
+                assert!(
+                    ((loader.x + loader.w / 2.) - (viewport.x + viewport.w / 2.)).abs() < 1.,
+                    "horizontal: {loader:?} {viewport:?}"
+                );
+                assert!(
+                    ((loader.y + loader.h / 2.) - (viewport.y + viewport.h / 2.)).abs() < 1.,
+                    "vertical: {loader:?} {viewport:?}"
+                );
+            }
+        }
+    }
+    let session = SessionId::new();
+    let mut model = Transcript::default();
+    model.hello(session, Epoch(7));
+    let mut state = FrameState {
+        transcript: Arc::new(model),
+        ready: true,
+        ..Default::default()
+    };
+    let op = OpId::new();
+    state.pending_prompts = Arc::new(
+        [(
+            op,
+            PendingPrompt::new(op, session, Epoch(7), "identical text".into()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    let layout = view
+        .render(&state, [470., 680.])
+        .unwrap()
+        .layout
+        .as_ref()
+        .unwrap();
+    assert_eq!(layout_text(layout).matches("identical text").count(), 1);
+    assert!(find(layout, &format!("pending/{op}")).is_some());
+    let mut switched = (*state.transcript).clone();
+    switched.hello(SessionId::new(), Epoch(7));
+    state.transcript = Arc::new(switched);
+    assert!(
+        !layout_text(
+            view.render(&state, [470., 680.])
+                .unwrap()
+                .layout
+                .as_ref()
+                .unwrap()
+        )
+        .contains("identical text")
+    );
+}
+
+#[tokio::test]
+async fn profiles_pending_history_remains_visible_through_preparation_gaps() {
+    use bboxy450_harness::frontends::gui::{bridge::PendingPrompt, view::layout_text};
+    let mut event: Envelope = serde_json::from_str(
+        include_str!("fixtures/protocol/all-items.jsonl")
+            .lines()
+            .next()
+            .unwrap(),
+    )
+    .unwrap();
+    let mut model = Transcript::default();
+    model.apply(&event);
+    for body in [
+        Item::UserMessage {
+            blocks: vec![InputBlock::Text {
+                text: "PRIOR-USER-HISTORY".into(),
+            }],
+        },
+        Item::AgentMessage {
+            markdown: "PRIOR-ASSISTANT-HISTORY remains visible while I work.".into(),
+        },
+    ] {
+        let item = ItemId::new();
+        event.seq = Some(Seq(model.cursor.0 + 1));
+        event.at = event.seq.unwrap();
+        event.event = Event::ItemStarted {
+            turn: None,
+            item,
+            kind: body.kind(),
+            parent: None,
+            head: None,
+        };
+        model.apply(&event);
+        event.seq = Some(Seq(model.cursor.0 + 1));
+        event.at = event.seq.unwrap();
+        event.event = Event::ItemCompleted {
+            item,
+            status: ItemStatus::Completed,
+            body,
+        };
+        model.apply(&event);
+    }
+    model.phase = Phase::Streaming;
+    let source = Arc::new(model);
+    let mut preparer = Preparer::default();
+    let prepared = Arc::new(prepare(&mut preparer, source.clone(), 900.).await);
+    let device = bbt_render::device::DeviceContext::new().await.unwrap();
+    bboxy450_harness::runtime::blocking(move || {
+        let mut state = FrameState {
+            transcript: source,
+            prepared: Some(prepared),
+            ready: true,
+            ..Default::default()
+        };
+        let mut view = HarnessView::default();
+        let mut renderer = bbt_render::chrome::ChromeRenderer::with_context(
+            device,
+            bboxy450_harness::frontends::gui::assets::icons(),
+        )
+        .unwrap();
+        let raster = |renderer: &mut bbt_render::chrome::ChromeRenderer,
+                      frame: &bboxy450_harness::frontends::gui::view::Frame| {
+            bbt_render::chrome::materials::render_composed_to_rgba(
+                renderer,
+                bbt_render::chrome::materials::Scene {
+                    backdrop: bbt_render::chrome::materials::Backdrop::DrawList(&frame.list),
+                    items: &frame.rims,
+                    width: 900,
+                    height: 1100,
+                    scale: 1.,
+                    time_ms: 0.,
+                    theme: bbt_ui_model::Theme::Dark,
+                },
+                &frame.over,
+            )
+            .unwrap()
+        };
+
+        let check = |view: &mut HarnessView, state: &FrameState, pending: usize| {
+            let text = layout_text(
+                view.render(state, [900., 1100.])
+                    .unwrap()
+                    .layout
+                    .as_ref()
+                    .unwrap(),
+            );
+            assert!(
+                text.contains("PRIOR-USER-HISTORY") && text.contains("PRIOR-ASSISTANT-HISTORY"),
+                "prior history disappeared: {text}"
+            );
+            assert_eq!(text.matches("REPEATED-QUEUED-PROMPT").count(), pending);
+        };
+        check(&mut view, &state, 0);
+        let prior_regions = view.frame.visible.clone();
+        assert_eq!(prior_regions.len(), 2);
+        let baseline = raster(&mut renderer, &view.frame);
+
+        let prompts: im::OrdMap<_, _> = (0..2)
+            .map(|_| {
+                let op = OpId::new();
+                (
+                    op,
+                    PendingPrompt::new(
+                        op,
+                        state.transcript.session.unwrap(),
+                        state.transcript.epoch,
+                        "REPEATED-QUEUED-PROMPT".into(),
+                    ),
+                )
+            })
+            .collect();
+        state.pending_prompts = Arc::new(prompts);
+        view.edit(bbt_ui::text_edit::Command::Insert(
+            "draft typed while active".into(),
+        ));
+        check(&mut view, &state, 2);
+        // Metadata/phase publication wraps the same retained log in a new Arc.
+        state.transcript = Arc::new((*state.transcript).clone());
+        check(&mut view, &state, 2);
+        state.prepared = None; // the next worker preparation is deliberately delayed
+        check(&mut view, &state, 2);
+        let directory = std::env::var_os("PROFILES_PENDING_CAPTURE_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir().join("bboxy-profiles-pending-captures"));
+        std::fs::create_dir_all(&directory).unwrap();
+        let frame = view.render(&state, [900., 1100.]).unwrap();
+        let rgba = raster(&mut renderer, frame);
+        for (_, _, region) in &prior_regions {
+            let pixels = |image: &[u8]| {
+                let mut out = Vec::new();
+                for y in
+                    region.y.floor().max(0.) as usize..region.bottom().ceil().min(1100.) as usize
+                {
+                    for x in
+                        region.x.floor().max(0.) as usize..region.right().ceil().min(900.) as usize
+                    {
+                        let i = (y * 900 + x) * 4;
+                        out.push([image[i], image[i + 1], image[i + 2], image[i + 3]]);
+                    }
+                }
+                out
+            };
+            let before = pixels(&baseline);
+            let after = pixels(&rgba);
+            assert!(
+                before
+                    .iter()
+                    .copied()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len()
+                    > 8,
+                "baseline history has no rasterized glyph ink"
+            );
+            assert!(
+                before == after,
+                "prior history raster changed or disappeared in region {region:?}"
+            );
+        }
+        for (id, _, _) in &prior_regions {
+            assert!(
+                frame
+                    .visible
+                    .iter()
+                    .any(|(visible, _, r)| visible == id && r.h > 0.),
+                "prior history was clipped to zero height"
+            );
+        }
+        let file =
+            std::fs::File::create(directory.join("prior-history-and-gray-tail.png")).unwrap();
+        let mut png = png::Encoder::new(file, 900, 1100);
+        png.set_color(png::ColorType::Rgba);
+        png.set_depth(png::BitDepth::Eight);
+        png.write_header().unwrap().write_image_data(&rgba).unwrap();
+        // Refused/unknown status updates cannot discard the retained history.
+        let queued = state.pending_prompts.clone();
+        let mut refused = (*state.pending_prompts).clone();
+        for op in refused.keys().copied().collect::<Vec<_>>() {
+            refused.get_mut(&op).unwrap().status = "Rejected · message was not sent".into();
+        }
+        state.pending_prompts = Arc::new(refused);
+        check(&mut view, &state, 2);
+        state.pending_prompts = queued;
+        let mut model = (*state.transcript).clone();
+        for _ in 0..2 {
+            let item = ItemId::new();
+            event.seq = Some(Seq(model.cursor.0 + 1));
+            event.at = event.seq.unwrap();
+            event.event = Event::ItemStarted {
+                turn: None,
+                item,
+                kind: ItemKind::UserMessage,
+                parent: None,
+                head: None,
+            };
+            model.apply(&event);
+            event.seq = Some(Seq(model.cursor.0 + 1));
+            event.at = event.seq.unwrap();
+            event.event = Event::ItemCompleted {
+                item,
+                status: ItemStatus::Completed,
+                body: Item::UserMessage {
+                    blocks: vec![InputBlock::Text {
+                        text: "REPEATED-QUEUED-PROMPT".into(),
+                    }],
+                },
+            };
+            model.apply(&event);
+        }
+        state.transcript = Arc::new(model);
+        check(&mut view, &state, 2); // durable log arrived, preparation still delayed: gray only
+        state.prepared = Some(Arc::new(
+            preparer.prepare(state.transcript.clone(), 900.).unwrap(),
+        ));
+        state.pending_prompts = Arc::new(Default::default());
+        check(&mut view, &state, 2); // exactly two durable blue rows, with all history
+        let mut switched = Transcript::default();
+        switched.hello(SessionId::new(), Epoch(state.transcript.epoch.0 + 1));
+        state.transcript = Arc::new(switched);
+        state.prepared = None;
+        assert!(
+            !layout_text(
+                view.render(&state, [900., 1100.])
+                    .unwrap()
+                    .layout
+                    .as_ref()
+                    .unwrap()
+            )
+            .contains("PRIOR-USER-HISTORY")
+        );
+    })
+    .await;
+}

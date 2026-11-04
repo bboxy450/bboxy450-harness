@@ -27,9 +27,92 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
+/// Local presentation only: Ack is admission, never durable chat confirmation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingPrompt {
+    pub op: OpId,
+    pub session: SessionId,
+    pub epoch: Epoch,
+    pub text: String,
+    pub status: String,
+    item: Option<ItemId>,
+    turn: Option<TurnId>,
+}
+impl PendingPrompt {
+    pub fn new(op: OpId, session: SessionId, epoch: Epoch, text: String) -> Self {
+        Self {
+            op,
+            session,
+            epoch,
+            text,
+            status: "Sending…".into(),
+            item: None,
+            turn: None,
+        }
+    }
+    fn confirmed(&self, model: &Transcript) -> bool {
+        Some(self.session) == model.session
+            && self.epoch == model.epoch
+            && self.item.is_some_and(|item| {
+                model
+                    .items
+                    .get(&item)
+                    .is_some_and(|row| row.completed.is_some() && row.kind == ItemKind::UserMessage)
+            })
+    }
+    fn confirmed_in(&self, state: &FrameState) -> bool {
+        if !self.confirmed(&state.transcript) {
+            return false;
+        }
+        #[cfg(feature = "embedded")]
+        {
+            state
+                .prepared
+                .as_ref()
+                .is_some_and(|rows| self.confirmed(&rows.source))
+        }
+        #[cfg(not(feature = "embedded"))]
+        {
+            true
+        }
+    }
+    fn observe(&mut self, event: &Envelope) -> bool {
+        if event.session != self.session || event.epoch != self.epoch || event.seq.is_none() {
+            return false;
+        }
+        match &event.event {
+            Event::TurnQueued { turn } if event.cause == Some(self.op) => {
+                self.turn = Some(*turn);
+                if self.status == "Sending…" {
+                    self.status = "Queued…".into();
+                }
+            }
+            Event::ItemStarted {
+                item,
+                kind: ItemKind::UserMessage,
+                ..
+            } if event.cause == Some(self.op) => self.item = Some(*item),
+            Event::ItemCompleted {
+                item,
+                body: Item::UserMessage { .. },
+                ..
+            } if self.item == Some(*item) => return true,
+            Event::TurnEnded { turn, .. } if self.turn == Some(*turn) && self.item.is_none() => {
+                self.status = "Ended · no durable message was recorded".into();
+            }
+            Event::OpRejected { op, .. } if *op == self.op => {
+                self.status = "Rejected · message was not sent".into()
+            }
+            _ => {}
+        }
+        false
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct FrameState {
     pub revision: u64,
+    pub pending_prompts: Arc<im::OrdMap<OpId, PendingPrompt>>,
     pub transcript: Arc<Transcript>,
     pub gateway: Option<ViewGateway>,
     pub error: Option<String>,
@@ -164,6 +247,7 @@ struct Mailbox {
     latest: Latest<FrameState>,
     notices: UiSender,
     pending_turns: arc_swap::ArcSwap<im::OrdSet<OpId>>,
+    prompts: arc_swap::ArcSwap<im::OrdMap<OpId, PendingPrompt>>,
     width: AtomicU32,
     /// Global text zoom, percent (harness-spec.md Standalone window); rows re-prepare.
     zoom: AtomicU32,
@@ -186,7 +270,37 @@ impl Mailbox {
             Arc::new(next)
         });
     }
+    fn prompts(&self, edit: impl Fn(&mut im::OrdMap<OpId, PendingPrompt>)) {
+        let mut changed = false;
+        self.prompts.rcu(|current| {
+            let mut next = current.as_ref().clone();
+            edit(&mut next);
+            // RCU can retry. Only its successful attempt decides whether this
+            // publisher changed the projection and owes a notification.
+            changed = next != **current;
+            if changed {
+                Arc::new(next)
+            } else {
+                current.clone()
+            }
+        });
+        if changed {
+            let _ = self.notices.try_send(UiMsg::Changed { source: 0 });
+        }
+    }
+    fn prompt_status(&self, op: OpId, status: &str) {
+        self.prompts(|prompts| {
+            if let Some(prompt) = prompts.get_mut(&op)
+                && !prompt.status.starts_with("Rejected")
+                && !prompt.status.starts_with("Ended")
+                && (!status.starts_with("Queued") || prompt.status == "Sending…")
+            {
+                prompt.status = status.to_owned();
+            }
+        });
+    }
     fn publish(&self, mut state: FrameState) {
+        state.pending_prompts = self.prompts.load_full();
         state.revision = self.published.load(Ordering::Acquire) + 1;
         state.profiles = self.profiles.load_full();
         let revision = state.revision;
@@ -220,6 +334,7 @@ impl Bridge {
                 latest: Latest::new(dirty.paint_source(0)),
                 notices,
                 pending_turns: arc_swap::ArcSwap::from_pointee(im::OrdSet::new()),
+                prompts: arc_swap::ArcSwap::from_pointee(im::OrdMap::new()),
                 width: AtomicU32::new(1120f32.to_bits()),
                 zoom: AtomicU32::new(u32::from(super::zoom::DEFAULT)),
                 resized: tokio::sync::Notify::new(),
@@ -436,10 +551,28 @@ impl Bridge {
     /// Connect to a session or host-chosen seat socket. All socket IO, decoding, retries and row
     /// preparation run on bbt_rt; the caller only schedules and drains Latest.
     pub fn connect(&mut self, socket: PathBuf, after: Option<(Epoch, Seq)>) {
+        let profiles = std::env::var_os("HOME")
+            .map(|home| PathBuf::from(home).join(".bboxy450-harness/profiles"));
+        self.connect_with_profiles(socket, after, profiles);
+    }
+    /// A caller with a private harness home supplies its catalogue directory.
+    /// Both entry points use the same safe projection as standalone startup.
+    pub fn connect_with_profiles(
+        &mut self,
+        socket: PathBuf,
+        after: Option<(Epoch, Seq)>,
+        profiles: Option<PathBuf>,
+    ) {
         let mailbox = self.mailbox.clone();
         let detach = self.detach.clone();
-        self.worker =
-            Some(bbt_rt::handle().spawn(consume(Source::Unix { socket }, after, mailbox, detach)));
+        self.worker = Some(bbt_rt::handle().spawn(async move {
+            if let Some(profiles) = profiles {
+                mailbox
+                    .profiles
+                    .store(Arc::new(profile_names(&profiles).await));
+            }
+            consume(Source::Unix { socket }, after, mailbox, detach).await;
+        }));
     }
     /// A real frame drains under 0.3ms. complete_drain re-marks any remainder,
     /// including a publication racing the just-completed frame.
@@ -451,6 +584,10 @@ impl Bridge {
         budget: Duration,
         clock: &impl super::budget::Clock,
     ) -> bool {
+        #[allow(
+            clippy::large_enum_variant,
+            reason = "Moves one prepared frame at a time; boxing adds a heap allocation to every UI drain"
+        )]
         enum Update {
             State(FrameState),
             Notice,
@@ -479,6 +616,29 @@ impl Bridge {
         );
         self.messages.complete_drain();
         self.mailbox.latest.complete_drain();
+        // Retire on the UI owner's consumed projection, after worker preparation.
+        // Clearing at event arrival could briefly show neither gray nor blue.
+        if self
+            .mailbox
+            .prompts
+            .load()
+            .values()
+            .any(|p| p.confirmed_in(state))
+        {
+            self.mailbox.prompts(|prompts| {
+                let confirmed: Vec<_> = prompts
+                    .iter()
+                    .filter(|(_, p)| p.confirmed_in(state))
+                    .map(|(op, _)| *op)
+                    .collect();
+                for op in confirmed {
+                    prompts.remove(&op);
+                }
+            });
+        }
+        let prompts = self.mailbox.prompts.load_full();
+        changed |= !Arc::ptr_eq(&state.pending_prompts, &prompts);
+        state.pending_prompts = prompts;
         changed
     }
     pub fn send(&self, op: Op) -> Result<Submission, Refused> {
@@ -501,12 +661,25 @@ impl Bridge {
         let gateway = self.state.gateway.as_ref().ok_or(Refused::Closed)?;
         let turn = matches!(envelope.op, Op::UserTurn { .. });
         let op_id = envelope.op_id;
-        if turn {
+        if let Op::UserTurn { blocks, .. } = &envelope.op {
+            let text = blocks
+                .iter()
+                .map(InputBlock::display_text)
+                .collect::<Vec<_>>()
+                .join("\n");
+            let prompt =
+                PendingPrompt::new(op_id, envelope.session, self.state.transcript.epoch, text);
+            self.mailbox.prompts(|prompts| {
+                prompts.entry(op_id).or_insert(prompt.clone());
+            });
             self.mailbox.pending(op_id, true);
         }
         let result = gateway.send(envelope);
         if turn && result.is_err() {
             self.mailbox.pending(op_id, false);
+            self.mailbox.prompts(|prompts| {
+                prompts.remove(&op_id);
+            });
         }
         result
     }
@@ -588,6 +761,35 @@ fn apply_event(
             Event::OpRejected { op, .. } => mailbox.pending(*op, false),
             _ => {}
         }
+    }
+    // Accept only events admitted by this model's current session/epoch/cursor.
+    if event.session == model.session.unwrap_or(event.session)
+        && event.epoch == model.epoch
+        && event.seq.is_some_and(|seq| seq > model.cursor)
+        && !mailbox.prompts.load().is_empty()
+        && matches!(
+            &event.event,
+            Event::TurnQueued { .. }
+                | Event::TurnEnded { .. }
+                | Event::OpRejected { .. }
+                | Event::ItemStarted {
+                    kind: ItemKind::UserMessage,
+                    ..
+                }
+                | Event::ItemCompleted {
+                    body: Item::UserMessage { .. },
+                    ..
+                }
+        )
+    {
+        mailbox.prompts(|prompts| {
+            let ids: Vec<_> = prompts.keys().copied().collect();
+            for id in ids {
+                if let Some(prompt) = prompts.get_mut(&id) {
+                    prompt.observe(event);
+                }
+            }
+        });
     }
     model.apply(event)
 }
@@ -697,7 +899,13 @@ async fn consume(
                         mailbox.pending(op, false);
                         continue;
                     }
+                    if result.is_ok() {
+                        mailbox.prompt_status(op, "Queued · awaiting durable message…");
+                    }
                     if let Err(error) = result {
+                        mailbox.prompt_status(op, if matches!(error, ClientError::Refused(_)) {
+                            "Rejected · message was not sent"
+                        } else { "Outcome unknown · no automatic resend" });
                         mailbox.pending(op, false);
                         dispatch_error = Some(format!("Dispatch {op}: {}", client_error_text(&error)));
                         if !detached {
@@ -1016,4 +1224,589 @@ pub async fn profile_names(dir: &std::path::Path) -> Vec<ProfileInfo> {
         p.default = true;
     }
     out
+}
+
+#[cfg(test)]
+mod gui_polish_tests {
+    use super::*;
+    #[tokio::test]
+    async fn gui_polish_pending_requires_causal_durable_user_in_current_birth() {
+        let mut event: Envelope = serde_json::from_str(
+            include_str!("../../../tests/fixtures/protocol/all-items.jsonl")
+                .lines()
+                .next()
+                .unwrap(),
+        )
+        .unwrap();
+        let op = OpId::new();
+        let item = ItemId::new();
+        let mut prompt = PendingPrompt::new(op, event.session, event.epoch, "repeat".into());
+        let mut other =
+            PendingPrompt::new(OpId::new(), event.session, event.epoch, "repeat".into());
+        event.cause = Some(op);
+        event.seq = Some(Seq(100));
+        event.event = Event::TurnQueued {
+            turn: TurnId::new(),
+        };
+        assert!(!prompt.observe(&event));
+        assert_eq!(prompt.status, "Queued…");
+        event.event = Event::ItemStarted {
+            turn: None,
+            item,
+            kind: ItemKind::UserMessage,
+            parent: None,
+            head: None,
+        };
+        assert!(!other.observe(&event));
+        let mut stale = event.clone();
+        stale.epoch = Epoch(event.epoch.0 + 1);
+        assert!(!prompt.observe(&stale));
+        assert!(prompt.item.is_none());
+        stale = event.clone();
+        stale.session = SessionId::new();
+        assert!(!prompt.observe(&stale));
+        assert!(prompt.item.is_none());
+        assert!(!prompt.observe(&event));
+        event.event = Event::ItemCompleted {
+            item,
+            status: ItemStatus::Completed,
+            body: Item::UserMessage {
+                blocks: vec![InputBlock::Text {
+                    text: "repeat".into(),
+                }],
+            },
+        };
+        event.cause = None; // completions inherit the immutable item's recorded cause
+        assert!(prompt.observe(&event));
+        assert!(!other.observe(&event));
+        let mut bridge = Bridge::new(Arc::new(TestWake));
+        bridge.state.transcript = Arc::new({
+            let mut t = Transcript::default();
+            t.hello(event.session, event.epoch);
+            t
+        });
+        bridge.mailbox.prompts(|p| {
+            p.insert(op, prompt.clone());
+        });
+        let mut model = (*bridge.state.transcript).clone();
+        model.cursor = Seq(100);
+        // Duplicate/stale durable records cannot retire a newly owned prompt.
+        apply_event(&mut model, &event, &mut Default::default(), &bridge.mailbox);
+        assert_eq!(bridge.mailbox.prompts.load().len(), 1);
+        let completion = event.event.clone();
+        event.event = Event::ItemStarted {
+            turn: None,
+            item,
+            kind: ItemKind::UserMessage,
+            parent: None,
+            head: None,
+        };
+        event.seq = Some(Seq(101));
+        apply_event(&mut model, &event, &mut Default::default(), &bridge.mailbox);
+        event.seq = Some(Seq(102));
+        event.event = completion;
+        apply_event(&mut model, &event, &mut Default::default(), &bridge.mailbox);
+        assert!(
+            !bridge.mailbox.prompts.load().is_empty(),
+            "pending retires only when prepared model is consumed"
+        );
+        bridge.state.transcript = Arc::new(model.clone());
+        bridge.drain(Duration::from_millis(1));
+        #[cfg(feature = "embedded")]
+        {
+            assert!(
+                !bridge.mailbox.prompts.load().is_empty(),
+                "durable arrival must wait for blue row preparation"
+            );
+            let source = bridge.state.transcript.clone();
+            bridge.state.prepared = Some(Arc::new(
+                crate::runtime::blocking(move || {
+                    super::Preparer::default().prepare(source, 900.).unwrap()
+                })
+                .await,
+            ));
+            bridge.drain(Duration::from_millis(1));
+        }
+        assert!(bridge.mailbox.prompts.load().is_empty());
+        bridge.mailbox.prompts(|p| {
+            p.insert(other.op, other.clone());
+        });
+        bridge
+            .mailbox
+            .prompt_status(other.op, "Queued · awaiting durable message…");
+        assert_eq!(
+            bridge.mailbox.prompts.load().len(),
+            1,
+            "Ack alone is still a gray local intent"
+        );
+        bridge
+            .mailbox
+            .prompt_status(other.op, "Outcome unknown · no automatic resend");
+        assert!(
+            bridge.mailbox.prompts.load()[&other.op]
+                .status
+                .contains("unknown")
+        );
+        event.seq = Some(Seq(103));
+        event.event = Event::OpRejected {
+            op: other.op,
+            reason: Rejection::InvalidInput {
+                detail: "fixture".into(),
+            },
+        };
+        apply_event(&mut model, &event, &mut Default::default(), &bridge.mailbox);
+        assert!(
+            bridge.mailbox.prompts.load()[&other.op]
+                .status
+                .contains("Rejected")
+        );
+    }
+    #[tokio::test]
+    async fn gui_polish_pending_noop_events_preserve_identity_and_notifications() {
+        fn apply(model: &mut Transcript, bridge: &Bridge, event: &mut Envelope, body: Event) {
+            event.seq = Some(Seq(model.cursor.0 + 1));
+            event.at = event.seq.unwrap();
+            event.event = body;
+            apply_event(model, event, &mut Default::default(), &bridge.mailbox);
+        }
+        fn quiet_records(model: &mut Transcript, bridge: &Bridge, event: &mut Envelope) {
+            let before = bridge.mailbox.prompts.load_full();
+            event.cause = None;
+            for body in [
+                Item::Native {
+                    provider: "fixture".into(),
+                    record_type: "token".into(),
+                    raw: serde_json::json!({"tokens":1}),
+                    blob: None,
+                },
+                Item::Usage {
+                    usage: Usage::default(),
+                },
+            ] {
+                let item = ItemId::new();
+                apply(
+                    model,
+                    bridge,
+                    event,
+                    Event::ItemStarted {
+                        turn: None,
+                        item,
+                        kind: body.kind(),
+                        parent: None,
+                        head: None,
+                    },
+                );
+                apply(
+                    model,
+                    bridge,
+                    event,
+                    Event::ItemCompleted {
+                        item,
+                        status: ItemStatus::Completed,
+                        body,
+                    },
+                );
+                assert!(
+                    Arc::ptr_eq(&before, &bridge.mailbox.prompts.load_full()),
+                    "unrelated records replaced the pending projection"
+                );
+                assert!(
+                    !bridge.pending_notices(),
+                    "unrelated records sent an extra pending notification"
+                );
+            }
+        }
+        let mut event: Envelope = serde_json::from_str(
+            include_str!("../../../tests/fixtures/protocol/all-items.jsonl")
+                .lines()
+                .next()
+                .unwrap(),
+        )
+        .unwrap();
+        let mut model = Transcript::default();
+        model.hello(event.session, event.epoch);
+        let mut bridge = Bridge::new(Arc::new(TestWake));
+        quiet_records(&mut model, &bridge, &mut event);
+        let op = OpId::new();
+        let prompt = PendingPrompt::new(op, event.session, event.epoch, "pending".into());
+        let empty = bridge.mailbox.prompts.load_full();
+        bridge.mailbox.prompts(|prompts| {
+            prompts.insert(op, prompt.clone());
+        });
+        assert!(!Arc::ptr_eq(&empty, &bridge.mailbox.prompts.load_full()));
+        assert!(bridge.pending_notices(), "local submit must notify");
+        bridge.drain(Duration::from_millis(1));
+        quiet_records(&mut model, &bridge, &mut event);
+        // A relevant event for another immutable op is also a no-op.
+        event.cause = Some(OpId::new());
+        let before = bridge.mailbox.prompts.load_full();
+        apply(
+            &mut model,
+            &bridge,
+            &mut event,
+            Event::TurnQueued {
+                turn: TurnId::new(),
+            },
+        );
+        assert!(Arc::ptr_eq(&before, &bridge.mailbox.prompts.load_full()));
+        assert!(!bridge.pending_notices());
+        event.cause = Some(op);
+        apply(
+            &mut model,
+            &bridge,
+            &mut event,
+            Event::TurnQueued {
+                turn: TurnId::new(),
+            },
+        );
+        assert!(!Arc::ptr_eq(&before, &bridge.mailbox.prompts.load_full()));
+        assert!(bridge.pending_notices(), "queued status must notify");
+        bridge.drain(Duration::from_millis(1));
+        let before = bridge.mailbox.prompts.load_full();
+        bridge.mailbox.prompt_status(op, "Queued…");
+        assert!(Arc::ptr_eq(&before, &bridge.mailbox.prompts.load_full()));
+        assert!(
+            !bridge.pending_notices(),
+            "unchanged status must stay quiet"
+        );
+        let item = ItemId::new();
+        apply(
+            &mut model,
+            &bridge,
+            &mut event,
+            Event::ItemStarted {
+                turn: None,
+                item,
+                kind: ItemKind::UserMessage,
+                parent: None,
+                head: None,
+            },
+        );
+        assert!(
+            bridge.pending_notices(),
+            "causal ownership update must notify"
+        );
+        bridge.drain(Duration::from_millis(1));
+        event.cause = None;
+        apply(
+            &mut model,
+            &bridge,
+            &mut event,
+            Event::ItemCompleted {
+                item,
+                status: ItemStatus::Completed,
+                body: Item::UserMessage {
+                    blocks: vec![InputBlock::Text {
+                        text: "pending".into(),
+                    }],
+                },
+            },
+        );
+        bridge.state.transcript = Arc::new(model);
+        #[cfg(feature = "embedded")]
+        {
+            let source = bridge.state.transcript.clone();
+            bridge.state.prepared = Some(Arc::new(
+                crate::runtime::blocking(move || {
+                    super::Preparer::default().prepare(source, 900.).unwrap()
+                })
+                .await,
+            ));
+        }
+        bridge.drain(Duration::from_millis(1));
+        assert!(bridge.mailbox.prompts.load().is_empty());
+        assert!(
+            bridge.pending_notices(),
+            "retiring confirmed local prompt must notify"
+        );
+    }
+    #[cfg(feature = "acp-agent")]
+    #[tokio::test]
+    async fn gui_polish_pending_remote_profiles_switch_through_the_admitted_host() {
+        tokio::time::timeout(Duration::from_secs(40), async {
+
+        use crate::{
+            engine::LaunchOptions,
+            gateway::unix::UnixServer,
+            mcp::ServerConfig,
+            policy::Policy,
+            provider::{ScriptedProvider, profile::Unattended},
+            redact::Set,
+        };
+        use sha2::{Digest, Sha256};
+        use std::os::unix::fs::PermissionsExt;
+        async fn until(
+            root: &std::path::Path,
+            bridge: &mut Bridge,
+            predicate: impl Fn(&FrameState) -> bool,
+        ) {
+            tokio::time::timeout(Duration::from_secs(18), async {
+                loop {
+                    bridge.drain(Duration::from_millis(2));
+                    if predicate(&bridge.state) {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .unwrap_or_else(|_| {
+                let debug=std::path::Path::new("/tmp/profiles-pending-private-debug");let _=std::fs::create_dir_all(debug);
+                for name in ["alpha.jsonl","beta.jsonl","effects"] {let _=std::fs::copy(root.join(name),debug.join(name));}
+                if let Ok(files)=std::fs::read_dir(root.join("sessions")){for file in files.flatten(){if file.path().extension().is_some_and(|e|e=="jsonl"){let _=std::fs::copy(file.path(),debug.join(file.file_name()));}}}
+                panic!("private remote profile projection did not settle: ready={} profile={:?} cursor={:?} phase={:?} turns={:?} error={:?}", bridge.state.ready, bridge.state.transcript.meta.as_ref().and_then(|m|m.profile.as_ref()),bridge.state.transcript.cursor,bridge.state.transcript.phase,bridge.state.transcript.turns,bridge.state.error) });
+        }
+        let temp = tempfile::tempdir_in("/tmp").unwrap();
+        let profiles = temp.path().join("profiles");
+        tokio::fs::create_dir(&profiles).await.unwrap();
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/acp-agent/launch_parity.py");
+        for index in 0..11 {
+            let name = if index == 0 {
+                "alpha".to_string()
+            } else if index == 1 {
+                "beta".to_string()
+            } else {
+                format!("unused-{index}")
+            };
+            let data = serde_json::json!({"name":name,"provider":"acp-agent","model":if index==1 {"fixture/model-B"}else{"fixture/model-A"},"agent":{"command":["/usr/bin/python3","-I",fixture,"agent",temp.path().join(format!("{name}.jsonl")),name],"env":{"PRIVATE_PROFILE_SECRET":"never show this fixture value"}}});
+            tokio::fs::write(
+                profiles.join(format!("{name}.md")),
+                format!("---\n{data}\n---\n"),
+            )
+            .await
+            .unwrap();
+        }
+        tokio::fs::write(temp.path().join("default-profile"), "alpha\n")
+            .await
+            .unwrap();
+        let expected = profile_names(&profiles).await;
+        assert_eq!(expected.len(), 11);
+        assert!(expected.iter().any(|p| p.name == "alpha" && p.default));
+        assert!(!format!("{expected:?}").contains("never show this fixture value"));
+        let capability = temp.path().join("private-capability");
+        let bytes = format!("{}\n", "f".repeat(64));
+        tokio::fs::write(&capability, &bytes).await.unwrap();
+        tokio::fs::set_permissions(&capability, std::fs::Permissions::from_mode(0o600))
+            .await
+            .unwrap();
+        let effects = temp.path().join("effects");
+        let server = ServerConfig {
+            command: "/usr/bin/python3".into(),
+            args: vec![
+                "-I".into(),
+                fixture
+                    .with_file_name("profile_switch_server.py")
+                    .display()
+                    .to_string(),
+            ],
+            env: [
+                (
+                    "BBOXY_CAPABILITY_FILE".into(),
+                    capability.display().to_string(),
+                ),
+                ("PARITY_ORIGIN".into(), "fixture-origin:launcher".into()),
+                (
+                    "PARITY_CAP_HASH".into(),
+                    format!("{:x}", Sha256::digest(bytes.as_bytes())),
+                ),
+                ("PARITY_EFFECTS".into(), effects.display().to_string()),
+            ]
+            .into(),
+            timeout_s: 2,
+            trust_hints: false,
+        };
+        let first: Envelope = serde_json::from_str(
+            include_str!("../../../tests/fixtures/protocol/all-items.jsonl")
+                .lines()
+                .next()
+                .unwrap(),
+        )
+        .unwrap();
+        let Event::SessionStarted { mut meta } = first.event else {
+            panic!("session fixture")
+        };
+        meta.session = SessionId::new();
+        meta.protocol = PROTOCOL;
+        meta.cwd = temp.path().to_path_buf();
+        meta.profile = Some("alpha".into());
+        let context = "NAME: Private catalogue\nROLE: EXECUTOR\nWorkspace: private workspace\nAssignment: private profile switch\nWorkflow: scoped fixture";
+        let host = Host::new(Config {
+            meta: meta.clone(),
+            profiles: profiles.clone(),
+            sessions: temp.path().join("sessions"),
+            provider: Arc::new(ScriptedProvider::new(vec![])),
+            model: "unused".into(),
+            profile_error: None,
+            policy: Policy::new(Unattended::Deny),
+            redactor: Set::default(),
+            max_rounds: 2,
+        })
+        .with_launch(LaunchOptions {
+            yolo: true,
+            append_system_prompt: context.into(),
+            mcp_servers: [("seat".into(), server)].into(),
+            notices: vec![],
+        });
+        let (gateway, _) = host
+            .create(OpEnvelope {
+                v: PROTOCOL,
+                op_id: OpId::new(),
+                session: meta.session,
+                op: Op::StartSession {
+                    cwd: meta.cwd.clone(),
+                    profile: Some("alpha".into()),
+                    fork: None,
+                },
+            })
+            .await
+            .unwrap();
+        let (switches, mut requests) = tokio::sync::mpsc::channel(4);
+        let gateway = gateway.with_profile_switch(switches.clone());
+        let socket = temp.path().join("seat.sock");
+        let listener = UnixServer::bind(socket.clone(), gateway.clone())
+            .await
+            .unwrap();
+        let (stop, stopped) = tokio::sync::oneshot::channel();
+        let control = tokio::spawn(async move {
+            let request = requests.recv().await.unwrap();
+            assert_eq!(request.env.session, gateway.session());
+            let Op::SetProfile { profile } = request.env.op else {
+                panic!("admitted switch")
+            };
+            assert_eq!(profile, "beta");
+            let next = host
+                .switch(&gateway, profile)
+                .await
+                .unwrap()
+                .with_profile_switch(switches);
+            listener.retire().await.unwrap();
+            let listener = UnixServer::bind(socket, next).await.unwrap();
+            let _ = stopped.await;
+            host.close_all().await;
+            listener.retire().await.unwrap();
+        });
+        let mut bridge = Bridge::new(Arc::new(TestWake));
+        bridge.connect_with_profiles(temp.path().join("seat.sock"), None, Some(profiles));
+        until(temp.path(), &mut bridge, |s| {
+            s.ready
+                && s.transcript
+                    .meta
+                    .as_ref()
+                    .is_some_and(|m| m.profile.as_deref() == Some("alpha"))
+        })
+        .await;
+        assert_eq!(*bridge.state.profiles, expected);
+        let send = |bridge: &Bridge| {
+            bridge
+                .send(Op::UserTurn {
+                    blocks: vec![InputBlock::Text {
+                        text: "one private prompt".into(),
+                    }],
+                    mode: TurnMode::Queue,
+                })
+                .unwrap()
+        };
+        send(&bridge);
+        until(temp.path(), &mut bridge, |s| {
+            s.transcript.turns.len() == 1
+                && s.transcript
+                    .turns
+                    .values()
+                    .all(|t| matches!(t, super::super::model::TurnState::Ended { .. }))
+        })
+        .await;
+        bridge.switch_profile("beta".into()).unwrap();
+        until(temp.path(), &mut bridge, |s| {
+            s.ready
+                && s.transcript
+                    .meta
+                    .as_ref()
+                    .is_some_and(|m| m.profile.as_deref() == Some("beta"))
+        })
+        .await;
+        assert_ne!(bridge.state.transcript.session, Some(meta.session));
+        assert_eq!(*bridge.state.profiles, expected);
+        let prior = bridge.state.transcript.turns.len();
+        send(&bridge);
+        until(temp.path(), &mut bridge, |s| {
+            s.transcript.turns.len() > prior
+                && s.transcript
+                    .turns
+                    .values()
+                    .all(|t| matches!(t, super::super::model::TurnState::Ended { .. }))
+        })
+        .await;
+        for name in ["alpha", "beta"] {
+            let journal = tokio::fs::read_to_string(temp.path().join(format!("{name}.jsonl")))
+                .await
+                .unwrap();
+            assert!(
+                journal.contains("NAME: Private catalogue")
+                    && journal.contains("ROLE: EXECUTOR")
+                    && journal.contains("Assignment: private profile switch"),
+                "bootstrap lost on {name}"
+            );
+            assert!(
+                journal.contains(&temp.path().display().to_string()),
+                "cwd lost on {name}"
+            );
+            let wanted = if name == "beta" {
+                "fixture/model-B"
+            } else {
+                "fixture/model-A"
+            };
+            assert!(
+                journal
+                    .lines()
+                    .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                    .any(|wire| wire["method"] == "session/set_config_option"
+                        && wire["params"]["value"] == wanted),
+                "model intent lost on {name}"
+            );
+        }
+        let responses: Vec<_> = bridge
+            .state
+            .transcript
+            .items
+            .values()
+            .filter_map(|row| {
+                if let Item::AgentMessage { markdown } = &row.body {
+                    serde_json::from_str::<serde_json::Value>(markdown).ok()
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(responses.len() >= 2);
+        for response in responses {
+            assert_eq!(response["permission"], "yes");
+            assert_eq!(response["tools"]["seat"]["seat"], "private-profile-seat");
+            assert_eq!(response["tools"]["seat"]["custody"], true);
+            assert_eq!(response["tools"]["seat"]["launcher"], true);
+        }
+        assert_eq!(
+            tokio::fs::read_to_string(effects)
+                .await
+                .unwrap()
+                .lines()
+                .count(),
+            2
+        );
+        bridge.request_detach();
+        stop.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(8),control).await.expect("private host cleanup deadline").unwrap();
+        if let Some(worker) = bridge.detach() {
+            tokio::time::timeout(Duration::from_secs(4), worker)
+                .await
+                .unwrap()
+                .unwrap();
+        }
+
+        }).await.expect("private profile witness deadline");
+    }
+    struct TestWake;
+    impl Waker for TestWake {
+        fn wake(&self) {}
+    }
 }

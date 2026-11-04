@@ -1380,17 +1380,24 @@ pub fn group_member(card: c::Element, index: usize, n: usize, ink: &Ink) -> c::E
 
 // ---------- conversation blocks ----------
 pub fn user_bubble(text_value: &str, ink: &Ink) -> c::Element {
+    prompt_bubble(text_value, "YOU", false, ink)
+}
+pub fn pending_bubble(text_value: &str, status: &str, ink: &Ink) -> c::Element {
+    prompt_bubble(text_value, &format!("YOU · {status}"), true, ink)
+}
+fn prompt_bubble(text_value: &str, caption: &str, pending: bool, ink: &Ink) -> c::Element {
+    let accent = if pending { ink.dim } else { ink.seat };
     let bubble = frame(
         Frame {
-            fill: mix(ink.seat, ink.surface, 0.2),
-            border: Some(alpha(ink.seat, 0.35)),
+            fill: mix(accent, ink.surface, 0.2),
+            border: Some(alpha(accent, 0.35)),
             radius: [14., 14., 4., 14.],
             padding: [9., 13., 9., 13.],
             gap: 2.,
             ..Default::default()
         },
         vec![
-            line("YOU", 10.5, 600, mix(ink.seat, ink.fg, 0.7), false).into(),
+            line(caption, 10.5, 600, mix(accent, ink.fg, 0.7), false).into(),
             c::Element::Text(text(text_value, 13.5, 400, ink.fg, false)).into(),
         ],
     );
@@ -2262,6 +2269,67 @@ pub fn zoom_pill(label: &str, ink: &Ink) -> c::Element {
         vec![fixed(c::Element::Text(t))],
     )
 }
+fn identity_mark(ink: &Ink, halo_a: f32, halo_s: f32, key: &str) -> c::Element {
+    // the mark: 52 round; the halo ring 6 px outside it, so a 64 box at rest
+    const SIDE: f32 = 64.;
+    let r = SIDE / 2.;
+    let mut ring = circle(r, r, (r - 0.5) * halo_s);
+    ring.shrink_to_fit();
+    let halo = c::Element::Path(c::Path {
+        size: [SIDE, SIDE],
+        points: Arc::from(ring),
+        stroke: PathStroke {
+            width: 1.,
+            ..Default::default()
+        },
+        paint: paint(alpha(ink.seat, 0.45)),
+        fill: None,
+        opacity: halo_a,
+    });
+    c::Element::Layers {
+        base: Box::new(named(format!("{key}/halo"), halo)),
+        overlays: vec![c::Placed {
+            content: named(
+                format!("{key}/mark"),
+                c::Element::Image {
+                    asset: super::assets::MARK.into(),
+                    size: ui::Length::Px(52.),
+                    radius: ui::Length::Px(26.),
+                },
+            ),
+            left: 6.,
+            bottom: 6.,
+        }],
+    }
+}
+/// The welcome portrait and one status label, with no welcome actions or copy.
+pub fn loading_session(preparing: bool, ink: &Ink) -> c::Element {
+    let mut group = vstack(
+        vec![
+            fixed(identity_mark(ink, 0.5, 1., "session-loader")),
+            fixed(named(
+                "session-loader/label",
+                line(
+                    if preparing {
+                        "Preparing transcript…"
+                    } else {
+                        "Loading session…"
+                    },
+                    13.5,
+                    400,
+                    ink.dim,
+                    false,
+                ),
+            )),
+        ],
+        14.,
+    );
+    if let c::Element::Box(b) = &mut group {
+        b.align = c::Alignment::Center;
+    }
+    named("session-loader", group)
+}
+
 /// The empty session (harness-spec.md "Empty session"): the 52 px mark inside a breathing
 /// seat halo, "What are we building?", `profile · model in ~/<cwd leaf>`, and three chips
 /// named `empty/chip/0..2` (`/ commands`, `@ a file`, `Describe a change`). Translated
@@ -2285,37 +2353,7 @@ pub fn empty_session(
     } else {
         (0.5, 1.)
     };
-    // the mark: 52 round; the halo ring 6 px outside it, so a 64 box at rest
-    const SIDE: f32 = 64.;
-    let r = SIDE / 2.;
-    let mut ring = circle(r, r, (r - 0.5) * halo_s);
-    ring.shrink_to_fit();
-    let halo = c::Element::Path(c::Path {
-        size: [SIDE, SIDE],
-        points: Arc::from(ring),
-        stroke: PathStroke {
-            width: 1.,
-            ..Default::default()
-        },
-        paint: paint(alpha(ink.seat, 0.45)),
-        fill: None,
-        opacity: halo_a,
-    });
-    let mark = c::Element::Layers {
-        base: Box::new(named("empty/halo", halo)),
-        overlays: vec![c::Placed {
-            content: named(
-                "empty/mark",
-                c::Element::Image {
-                    asset: super::assets::MARK.into(),
-                    size: ui::Length::Px(52.),
-                    radius: ui::Length::Px(26.),
-                },
-            ),
-            left: 6.,
-            bottom: 6.,
-        }],
-    };
+    let mark = identity_mark(ink, halo_a, halo_s, "empty");
     let mut title = text("What are we building?", 17., 600, ink.fg, false);
     title.wrap = false;
     for run in &mut title.runs {

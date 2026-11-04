@@ -38,6 +38,7 @@ use face_rows::Folds;
 
 // Adapted from bboxy450-term scene::Metrics (CoreText, shared paint metrics).
 // https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
+type TranscriptColumn = (c::Element, Option<f32>, HashMap<ItemId, f32>);
 type FontKey = (u32, u16, bool, bool, u32);
 fn font_key(s: &MeasureStyle) -> FontKey {
     (
@@ -219,6 +220,7 @@ pub struct HarnessView {
     metrics: Metrics,
     cached: Option<CacheKey>,
     controls: Option<Controls>,
+    retained_prepared: Option<Arc<PreparedRows>>,
     pub frame: Frame,
     pub notice: Option<String>,
     /// The window holds keyboard focus: the composer draws its focus ring and caret.
@@ -334,6 +336,7 @@ impl Default for HarnessView {
             metrics: Metrics::default(),
             cached: None,
             controls: None,
+            retained_prepared: None,
             frame: Frame::default(),
             notice: None,
             focused: false,
@@ -463,9 +466,10 @@ impl HarnessView {
         state: &FrameState,
         prepared: Option<&Arc<PreparedRows>>,
         rows_h: f32,
+        width: f32,
         first_frame: bool,
         ink: &super::face::Ink,
-    ) -> (c::Element, Option<f32>, HashMap<ItemId, f32>) {
+    ) -> Result<TranscriptColumn, String> {
         let model = &state.transcript;
         let mut children = vec![];
         let mut total = 0.;
@@ -528,6 +532,37 @@ impl HarnessView {
                 self.anchor = None;
             }
         }
+        for prompt in state
+            .pending_prompts
+            .values()
+            .filter(|p| Some(p.session) == model.session && p.epoch == model.epoch)
+        {
+            let mut bubble = super::face::pending_bubble(&prompt.text, &prompt.status, ink);
+            super::face::zoom_text(&mut bubble, self.zoom.scale());
+            let element = named(
+                format!("pending/{}", prompt.op),
+                super::face::frame(
+                    super::face::Frame {
+                        padding: [4., 14., 18., 14.],
+                        ..Default::default()
+                    },
+                    vec![bubble.into()],
+                ),
+            );
+            let height = element
+                .layout(Rect::new(0., 0., width, 0.), context(), &self.metrics)?
+                .rect
+                .h;
+            total += height;
+            // Every sibling must declare its height. An Auto pending row makes
+            // the toolkit fall back to natural measurement, where the cached
+            // Spacer slots measure zero and clip all retained history paint.
+            children.push(c::Item {
+                element,
+                extent: c::Extent::Fixed(height),
+            });
+        }
+        let has_pending = !children.is_empty();
         if children.is_empty() {
             if state.ready && !has_rows {
                 // harness-spec.md "Empty session": the page's `who` is the ACP agent line, else
@@ -570,24 +605,38 @@ impl HarnessView {
                 super::face::zoom_text(&mut empty, self.zoom.scale());
                 children.push(empty.into());
             } else {
-                children.push(
-                    label(if !state.ready {
-                        "Loading session…"
-                    } else {
-                        "Preparing transcript…"
-                    })
-                    .into(),
+                let mut message = super::face::loading_session(state.ready, ink);
+                super::face::zoom_text(&mut message, self.zoom.scale());
+                let centered = super::face::frame(
+                    super::face::Frame {
+                        row: true,
+                        ..Default::default()
+                    },
+                    vec![
+                        super::face::fill(c::Element::Spacer),
+                        message.into(),
+                        super::face::fill(c::Element::Spacer),
+                    ],
                 );
+                let height = centered
+                    .layout(Rect::new(0., 0., width, 0.), context(), &self.metrics)?
+                    .rect
+                    .h;
+                children.push(c::Item {
+                    element: c::Element::Spacer,
+                    extent: c::Extent::Fixed(((rows_h - height) / 2.).max(0.)),
+                });
+                children.push(centered.into());
             }
         }
-        if prepared.is_some() && has_rows {
-            (
+        if (prepared.is_some() && has_rows) || has_pending {
+            Ok((
                 column(children, None).fixed_height(total, "transcript-content", 0.),
                 Some(total),
                 enters,
-            )
+            ))
         } else {
-            (column(children, None), None, enters)
+            Ok((column(children, None), None, enters))
         }
     }
     /// The scroll offset for this frame: the tail follow glides there with a critically
@@ -638,6 +687,7 @@ impl HarnessView {
             self.zoom.percent(),
             self.chrome,
         );
+        let draft = format!("{draft}{:p}", Arc::as_ptr(&state.pending_prompts));
         // a hover change rebuilds too: the menu row's fill starts its fade
         if !self.anim.in_motion()
             && !self.menus.dirty
@@ -665,10 +715,23 @@ impl HarnessView {
         let now = self.anim.now();
         self.motion.begin_frame(state, now);
         let width = size[0].max(240.);
+        // Local/metadata publication may wrap the same log in another Arc, or
+        // arrive while worker preparation is pending. Keep the last solved rows
+        // of this birth until their replacement is ready; never retain across
+        // a session/epoch reset or a cursor rewind.
+        let compatible = |p: &&Arc<PreparedRows>| {
+            p.source.session == model.session
+                && p.source.epoch == model.epoch
+                && p.source.cursor <= model.cursor
+        };
         let prepared = state
             .prepared
             .as_ref()
-            .filter(|p| Arc::ptr_eq(&p.source, &state.transcript));
+            .filter(compatible)
+            .or_else(|| self.retained_prepared.as_ref().filter(compatible))
+            .cloned();
+        self.retained_prepared = prepared.clone();
+        let prepared = prepared.as_ref();
         // A session's first frame takes its end state: nothing enters, the tail is shown.
         let scope = (model.session, model.epoch);
         let first_frame = self.known_scope != Some(scope);
@@ -756,7 +819,7 @@ impl HarnessView {
                 (controls.layout.clone(), controls.rows_h)
             };
             let (transcript, content_h, enters) =
-                self.transcript(state, prepared, rows_h, first_frame, &ink);
+                self.transcript(state, prepared, rows_h, width, first_frame, &ink)?;
             let offset = self.scroll_offset(content_h, rows_h, first_frame);
             let slot = find_mut(&mut layout, "transcript")
                 .and_then(|n| n.children.first_mut())
@@ -832,7 +895,7 @@ impl HarnessView {
             let bar_h = if self.chrome { chrome::TITLE_BAR_H } else { 0. };
             let rows_h = (size[1] - composer_h - header_h - bar_h).max(1.);
             let (transcript, content_h, enters) =
-                self.transcript(state, prepared, rows_h, first_frame, &ink);
+                self.transcript(state, prepared, rows_h, width, first_frame, &ink)?;
             let offset = self.scroll_offset(content_h, rows_h, first_frame);
             let rows = named(
                 "transcript",

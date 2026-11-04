@@ -1112,3 +1112,42 @@ async fn session_gauges_rearm_the_quiet_deadline_of_an_open_agent_turn() {
         matches!(end.event, Event::TurnEnded { reason: StopReason::Quiet { ms }, .. } if ms >= 200)
     );
 }
+
+#[tokio::test]
+async fn gui_polish_real_mcp_result_survives_acp_completion() {
+    let f = fake("gui-polish-mcp", Unattended::Deny).await;
+    let mut sub = subscribe(&f.gateway, false);
+    f.gateway
+        .send(support::op(
+            &f.gateway,
+            Op::UserTurn {
+                blocks: vec![InputBlock::Text {
+                    text: "fixture only".into(),
+                }],
+                mode: TurnMode::Queue,
+            },
+        ))
+        .unwrap();
+    until_end(&mut sub).await;
+    let log = close(f).await;
+    let tools: Vec<_> = completed(&log)
+        .into_iter()
+        .filter_map(|(_, item)| {
+            if let Item::ToolCall {
+                output, raw_output, ..
+            } = item
+            {
+                Some((output, raw_output))
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(tools.len(), 3);
+    for (output, raw) in tools {
+        assert!(
+            matches!(&output[..], [OutputBlock::Json { value }] if Some(value) == raw.as_ref()),
+            "raw result must be paired as real structured output: {output:?}"
+        );
+    }
+}
