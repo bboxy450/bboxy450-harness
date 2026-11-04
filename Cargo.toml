@@ -48,6 +48,7 @@ futures-core = "0.3"
 futures-util = "0.3"
 async-stream = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+hashbrown = { version = "=0.17.1", default-features = false }
 serde_yaml = "0.9"
 zeroize = "1"
 sha2 = "0.10"

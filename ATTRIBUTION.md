@@ -115,3 +115,9 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
   `packaging/macos/bboxy.icns` is adapted from that exact image using macOS
   `sips` and `iconutil`; no replacement artwork was generated. Keep this credit
   and the project's absolute attribution policy URL with reuse of the icon.
+
+- **Built on hashbrown 0.17.1** (https://github.com/rust-lang/hashbrown),
+  used through its safe `HashTable` API for the private provenance record cache
+  in `src/dream/resolve.rs`. Upstream is licensed **MIT OR Apache-2.0**;
+  this is dependency/API use, with no copied upstream implementation. Its own
+  origin and license notices retain their original terms.

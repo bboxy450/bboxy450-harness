@@ -257,6 +257,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "glob",
+ "hashbrown 0.17.1",
  "httpdate",
  "icu_normalizer",
  "im",
