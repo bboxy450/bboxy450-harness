@@ -1733,6 +1733,12 @@
               "const": "adoption",
               "type": "string"
             },
+            "receipt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "record": {
               "anyOf": [
                 {
@@ -1783,6 +1789,55 @@
                   "type": "null"
                 }
               ]
+            },
+            "sink": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SinkRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "blob": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/BlobRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "harness": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "receipt",
+              "type": "string"
+            },
+            "outcome": {
+              "$ref": "#/$defs/ReceiptOutcome",
+              "default": null
+            },
+            "receipt_kind": {
+              "$ref": "#/$defs/ReceiptKind",
+              "default": null
+            },
+            "schema": {
+              "type": "string"
             },
             "sink": {
               "anyOf": [
@@ -1882,7 +1937,8 @@
             "memory_state",
             "trial",
             "adoption",
-            "recall"
+            "recall",
+            "receipt"
           ],
           "type": "string"
         },
@@ -2651,6 +2707,33 @@
             "reported",
             "inferred",
             "cited"
+          ],
+          "type": "string"
+        },
+        true
+      ]
+    },
+    "ReceiptKind": {
+      "anyOf": [
+        {
+          "enum": [
+            "publication",
+            "run"
+          ],
+          "type": "string"
+        },
+        true
+      ]
+    },
+    "ReceiptOutcome": {
+      "anyOf": [
+        {
+          "enum": [
+            "published",
+            "idempotent",
+            "skipped",
+            "completed",
+            "failed"
           ],
           "type": "string"
         },

@@ -587,6 +587,15 @@ fn dream_enums_roundtrip_every_known_value_and_unknown_payload() {
         "proposal"
     );
     strings!(RecallBasis, "reported", "inferred", "cited");
+    strings!(ReceiptKind, "publication", "run");
+    strings!(
+        ReceiptOutcome,
+        "published",
+        "idempotent",
+        "skipped",
+        "completed",
+        "failed"
+    );
     let session = SessionId::new();
     roundtrip::<Trigger>(
         &[
@@ -678,4 +687,74 @@ fn dream_additions_default_every_field_without_minting_source_identity() {
     assert_eq!(run.session.0, ulid::Ulid::from(0u128));
     let pin: RecordPin = serde_json::from_value(serde_json::json!({})).unwrap();
     assert!(pin.commit.is_none() && pin.id.is_none());
+}
+
+#[test]
+fn receipt_carrier_has_one_discriminator_and_defaults_without_aliasing_kind() {
+    for kind in [ReceiptKind::Publication, ReceiptKind::Run] {
+        for outcome in [
+            ReceiptOutcome::Published,
+            ReceiptOutcome::Idempotent,
+            ReceiptOutcome::Skipped,
+            ReceiptOutcome::Completed,
+            ReceiptOutcome::Failed,
+        ] {
+            let body = Item::Receipt {
+                schema: "bboxy.dream.receipt/1".into(),
+                kind: kind.clone(),
+                outcome,
+                harness: None,
+                sink: None,
+                blob: Some(BlobRef::empty()),
+            };
+            let text = serde_json::to_string(&body).unwrap();
+            assert_eq!(
+                text.matches("\"kind\":").count(),
+                1,
+                "duplicate discriminator: {text}"
+            );
+            let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(json["kind"], "receipt");
+            assert_eq!(json["receipt_kind"], serde_json::to_value(&kind).unwrap());
+            assert!(json.get("harness").is_none() && json.get("sink").is_none());
+            assert_eq!(serde_json::from_str::<Item>(&text).unwrap(), body);
+            assert_eq!(body.kind(), ItemKind::Receipt);
+        }
+    }
+    let empty: Item = serde_json::from_value(serde_json::json!({"kind":"receipt"})).unwrap();
+    assert!(
+        matches!(&empty,Item::Receipt {schema,kind:ReceiptKind::Unknown(serde_json::Value::Null),
+        outcome:ReceiptOutcome::Unknown(serde_json::Value::Null),harness:None,sink:None,blob:None} if schema.is_empty())
+    );
+    let json = serde_json::to_value(&empty).unwrap();
+    assert!(json.get("schema").is_none() && json.get("blob").is_none());
+    assert_eq!(json["kind"], "receipt");
+    for value in [
+        serde_json::json!("future_kind"),
+        serde_json::json!({"future":[42]}),
+        serde_json::json!(null),
+    ] {
+        let kind: ReceiptKind = serde_json::from_value(value.clone()).unwrap();
+        let outcome: ReceiptOutcome = serde_json::from_value(value.clone()).unwrap();
+        assert!(kind.is_unknown() && outcome.is_unknown());
+        assert_eq!(serde_json::to_value(kind).unwrap(), value);
+        assert_eq!(serde_json::to_value(outcome).unwrap(), value);
+    }
+    let schema = schema_value();
+    let variant = schema["$defs"]["Item"]["anyOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| {
+            v["properties"]["kind"]["const"] == "receipt"
+                || v["properties"]["kind"]["enum"] == serde_json::json!(["receipt"])
+        })
+        .unwrap();
+    assert_eq!(variant["required"], serde_json::json!(["kind"]));
+    assert!(variant["properties"].get("receipt_kind").is_some());
+    assert_eq!(serde_json::to_value(ItemKind::Receipt).unwrap(), "receipt");
+    assert_eq!(
+        Item::interrupted(ItemKind::Receipt, ItemId::new()).kind(),
+        ItemKind::Receipt
+    );
 }

@@ -1478,6 +1478,7 @@ impl LineProjection {
                         | ItemKind::Trial
                         | ItemKind::Adoption
                         | ItemKind::Recall
+                        | ItemKind::Receipt
                 ) || kind.is_unknown()
                 {
                     self.queue.push_back(*item);
@@ -2012,7 +2013,8 @@ impl LineProjection {
                     | Item::MemoryState { .. }
                     | Item::Trial { .. }
                     | Item::Adoption { .. }
-                    | Item::Recall { .. }),
+                    | Item::Recall { .. }
+                    | Item::Receipt { .. }),
                 ),
             ) => {
                 self.record_line(out, &body.extension_text().unwrap_or_default());
