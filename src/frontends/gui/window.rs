@@ -711,6 +711,24 @@ impl ApplicationHandler<Wake> for App {
                 self.view.titlebar.moved(self.pointer);
                 // menu rows take a hover fill (harness-spec.md Motion: hover)
                 self.view.pointer(self.pointer);
+                let hand = self.view.link_at(self.pointer).is_some()
+                    || self
+                        .view
+                        .frame
+                        .actions
+                        .iter()
+                        .find(|(r, _)| {
+                            self.pointer[0] >= r.x
+                                && self.pointer[0] < r.right()
+                                && self.pointer[1] >= r.y
+                                && self.pointer[1] < r.bottom()
+                        })
+                        .is_some_and(|(_, action)| !matches!(action, Action::Menu(_)));
+                self.window.as_ref().unwrap().set_cursor(if hand {
+                    winit::window::CursorIcon::Pointer
+                } else {
+                    winit::window::CursorIcon::Default
+                });
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let mut delta = match delta {
@@ -756,6 +774,8 @@ impl ApplicationHandler<Wake> for App {
                     self.titlebar_intent(intent, event_loop);
                 } else if let Some(action) = action {
                     self.view.activate(action, &self.bridge);
+                } else if let Some(target) = self.view.link_at(self.pointer) {
+                    open_link(target);
                 } else if let Some(layout) = &self.view.frame.layout
                     && let Ok(regions) = composer::Regions::new(layout)
                 {
@@ -834,6 +854,37 @@ fn config_at_home(options: &Options, home: Option<std::ffi::OsString>) -> Result
 }
 /// Returns the detached background drain to main, after all UI callbacks have
 /// ended. Main keeps the process alive until already-admitted turns finish.
+// Adapted from bboxy450-term, terminal_clipboard.rs::open_external_link:
+// https://github.com/bboxy450/bboxy450-term — native links open off the UI thread.
+fn open_link(target: String) {
+    if !["https://", "http://", "mailto:"]
+        .iter()
+        .any(|scheme| target.starts_with(scheme))
+    {
+        return;
+    }
+    bbt_rt::handle().spawn(async move {
+        #[cfg(target_os = "macos")]
+        let mut command = tokio::process::Command::new("/usr/bin/open");
+        #[cfg(target_os = "linux")]
+        let mut command = tokio::process::Command::new("xdg-open");
+        #[cfg(target_os = "windows")]
+        let mut command = {
+            let mut c = tokio::process::Command::new("rundll32.exe");
+            c.arg("url.dll,FileProtocolHandler");
+            c
+        };
+        #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+        {
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                command.arg(target).kill_on_drop(true).status(),
+            )
+            .await;
+        }
+    });
+}
+
 pub fn run(options: Options) -> Result<Option<tokio::task::JoinHandle<()>>, String> {
     let smoke_window = std::env::var("BBOXY450_HARNESS_SMOKE_WINDOW").as_deref() == Ok("1");
     let mut builder = EventLoop::<Wake>::with_user_event();

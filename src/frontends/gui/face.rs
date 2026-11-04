@@ -1216,6 +1216,21 @@ pub fn head(h: Head, ink: &Ink) -> c::Element {
             true,
         )));
     }
+    // Prose and monospace text share a baseline; the icon and status stay centered.
+    let mut title = hstack(kids.drain(1..).collect(), 8.);
+    if let c::Element::Box(row) = &mut title {
+        row.align = c::Alignment::Baseline;
+    }
+    kids.push(c::Item {
+        element: title,
+        extent: c::Extent::Content {
+            grow: 0.,
+            shrink: 1.,
+            min: 0.,
+            max: None,
+            max_fraction: None,
+        },
+    });
     kids.push(spacer());
     if let Some((a, d)) = h.stat {
         kids.push(fixed(runs(
@@ -1672,10 +1687,11 @@ pub fn thought_row(
     named(key.to_owned(), hstack(kids, 6.))
 }
 pub fn thought_body(child: c::Element, ink: &Ink) -> c::Element {
-    let gap = 12.;
+    let gap = 14.;
     frame(
         Frame {
             gap,
+            padding: [0., 0., 0., 8.],
             row: true,
             stretch: true,
             ..Default::default()

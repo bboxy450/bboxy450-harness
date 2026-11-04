@@ -478,7 +478,7 @@ impl Preparer {
                     id,
                     summary,
                     !live,
-                    content_width - 20.,
+                    content_width - 24.,
                     self.zoom.scale(),
                     &self.metrics,
                 )?;

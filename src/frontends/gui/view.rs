@@ -172,6 +172,7 @@ pub enum MenuKey {
 }
 #[derive(Default)]
 pub struct Frame {
+    pub links: Arc<ui::modules::document_modal::controller::Regions>,
     pub theme: Theme,
     /// The face: chrome, header, transcript and composer, flat primitives.
     pub list: DrawList,
@@ -1573,6 +1574,9 @@ impl HarnessView {
                 }
             }
         }
+        frame.links = Arc::new(ui::modules::document_modal::controller::Regions::retained(
+            &layout,
+        ));
         frame.layout = Some(layout);
         self.scroll.layout_solved();
         self.frame = frame;
@@ -2017,6 +2021,16 @@ impl HarnessView {
     /// The row the pointer rests on, when it is over an open menu.
     pub fn hovered(&self) -> Option<&str> {
         self.menus.hover.as_deref()
+    }
+    /// Overlay actions win before any link below them.
+    pub fn link_at(&self, at: [f32; 2]) -> Option<String> {
+        if self.frame.actions.iter().any(|(r, _)| contains(*r, at)) {
+            return None;
+        }
+        match self.frame.links.hit(at) {
+            Some(ui::modules::document_modal::controller::Action::Open(target)) => Some(target),
+            _ => None,
+        }
     }
     fn profile_names(&self) -> Vec<String> {
         self.profiles.iter().map(|p| p.name.clone()).collect()
@@ -3641,6 +3655,60 @@ pub(super) fn flat(element: &mut c::Element) {
 #[cfg(test)]
 mod onboarding_markdown_tests {
     use super::*;
+    #[test]
+    fn tool_header_and_reasoning_text_share_alignment() {
+        let ctx = ui::Context::new(Theme::Light, Density::Cozy);
+        let ink = super::super::face::ink(ctx);
+        let metrics = Metrics::default();
+        let head = super::super::face::head(
+            super::super::face::Head {
+                key: "head".into(),
+                tool_kind: "execute",
+                verb: "Run command".into(),
+                target: "mcp.bboxy.message_list".into(),
+                mono: true,
+                place: None,
+                stat: None,
+                meta: None,
+                badge: None,
+                dur: None,
+                status: super::super::face::Status::Done,
+            },
+            &ink,
+        )
+        .layout(Rect::new(0., 0., 640., 40.), ctx, &metrics)
+        .unwrap();
+        fn baselines(node: &c::Layout, out: &mut Vec<f32>) {
+            if let c::LayoutKind::Text { runs, .. } = &node.kind {
+                out.extend(
+                    runs.iter()
+                        .filter(|r| r.text == "Run command" || r.text == "mcp.bboxy.message_list")
+                        .map(|r| r.baseline),
+                );
+            }
+            for child in &node.children {
+                baselines(child, out);
+            }
+        }
+        let mut lines = Vec::new();
+        baselines(&head, &mut lines);
+        assert_eq!(lines.len(), 2);
+        assert!(
+            (lines[0] - lines[1]).abs() < 0.01,
+            "text baselines: {lines:?}"
+        );
+        let row =
+            super::super::face::thought_row("reasoning/test/toggle", true, None, "", true, &ink);
+        let body =
+            super::super::face::thought_body(named("reasoning-copy", label("Details")), &ink);
+        let layout = column(vec![row.into(), body.into()], None)
+            .layout(Rect::new(0., 0., 440., 100.), ctx, &metrics)
+            .unwrap();
+        assert_eq!(
+            find(&layout, "reasoning/test/toggle/label").unwrap().rect.x,
+            find(&layout, "reasoning-copy").unwrap().rect.x
+        );
+    }
     #[test]
     fn header_dropdowns_fit_narrow_panes_and_keep_revision_fences() {
         let mut model = Transcript::default();
