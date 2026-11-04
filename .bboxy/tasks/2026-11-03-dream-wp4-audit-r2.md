@@ -27,10 +27,10 @@ links:
   rel: spec
   weight: 3
 id: 01M6J8TV4EVP7GZG875FC5J4P5
-status: open
+status: claimed
 delegated_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
-updated: 2026-11-04T07:39:07.089Z
+updated: 2026-11-04T07:40:48.558Z
 created: 2026-11-04T03:14:54.789Z
 number: 20261103136210
 created_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
@@ -41,12 +41,13 @@ authorship:
   public_key: Oc7KBLmX2fSuTNz6+a4eyDWCf4djX4fk13BizgaL+gc=
   process_generation: '1'
 verify_revision: 1
+assignee: seat:01M6J7N5V103SG1KS0THEXB9R1
 provenance:
   digest: sha256:f070967e6e8b99e25f0cd43e7176eb76c02a6bb99f9ecb3899f009c901e382d4
-  frontmatter_digest: sha256:49b70741c5e3d930d5c324d3cc65f7520c4605367d2392af8eed289e04ea6d88
+  frontmatter_digest: sha256:8abcde460b4bfaedd9ed0b457f85d5b38aef196b20d8b830aac35ac426d42cf3
   signer: seat:01M6J5YFATHYCK148JT0C4XGZ1
-  sig: VoMrCivE92h0JpBbbZqSmK3PcYlnSzEM8HcsIhJNnQZjw/ua0h/X/rpZBReczq70KrLqhgxN7zWAmtZYj+zjCw==
-  log: .bboxy/log/2026-11-04.jsonl#43673
+  sig: 5CfPy17FURb7XJUUMZzY+UADGyfzxM7MtO0qX3eyqpkWjuBKpVLYjFjoWE1EplEHQO9P9rG3hnOwnk7q5bHDCA==
+  log: .bboxy/log/2026-11-04.jsonl#43699
 ---
 ROLE: EXECUTOR
 Read repository instructions and [[dream-log]], [[memory-graph]], [[dream-sinks]] (all on origin/main). Parent [[2026-11-03-swarm-dreaming-succession]].
