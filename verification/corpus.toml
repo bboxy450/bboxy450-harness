@@ -721,3 +721,53 @@ frontend = "project"
 name = "BrokenHarnessProcessAdmissionResult"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamTrialClaims"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialClaimsGlobal"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialClaimsEarlyRelease"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamTrialOutcome"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialOutcomeIsolation"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialOutcomeHarness"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialOutcomeTerminal"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialOutcomeUsage"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialOutcomeEntry"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialOutcomeCleanup"
+expected = "safety"
+frontend = "project"

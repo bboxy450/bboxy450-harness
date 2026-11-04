@@ -1333,3 +1333,293 @@ async fn synth_d0_process_spawn_poll_bound_witness() {
         "synchronous owned spawn exceeded unchanged D0 1ms poll contract: {first}ns"
     );
 }
+
+fn trial_math_fixture(tokens_with: u64, tokens_without: u64) -> Item {
+    let mut n = 1u128;
+    let mut episodes = Vec::new();
+    let mut controls = Vec::new();
+    for episode in 0..6 {
+        let mut runs = Vec::new();
+        for repeat in 0..if episode < 4 { 2 } else { 1 } {
+            for arm in [Arm::With, Arm::Without] {
+                let tokens = if arm == Arm::With {
+                    tokens_with
+                } else {
+                    tokens_without
+                };
+                let usage=serde_json::from_value(json!({"input_tokens":tokens,"output_tokens":0,"cached_input_tokens":null,"reasoning_tokens":null,"cost_micros_usd":null,"scope":"turn","backend":{"kind":"engine","name":"private-trial"},"model":"toy","source":"reported"})).unwrap();
+                runs.push(TrialRun {
+                    arm: arm.clone(),
+                    session: SessionId(ulid::Ulid::from(n)),
+                    verify_exit: Some(if episode == 0 && arm == Arm::Without && repeat < 2 {
+                        1
+                    } else {
+                        0
+                    }),
+                    usage: Some(usage),
+                });
+                n += 1;
+            }
+        }
+        let group = TrialEpisode {
+            origin: EvidenceRef::Event {
+                session: SessionId(ulid::Ulid::from(100 + episode as u128)),
+                seq: Seq(2),
+                digest: format!("sha256:{}", "a".repeat(64)),
+            },
+            runs,
+        };
+        if episode < 4 {
+            episodes.push(group)
+        } else {
+            controls.push(group)
+        }
+    }
+    Item::Trial {
+        entry: format!("sha256:{}", "b".repeat(64)),
+        harness: "engine".into(),
+        thresholds: bboxy450_harness::dream::trial::THRESHOLDS.into(),
+        episodes,
+        controls,
+        verdict: Verdict::Inconclusive,
+        reason: "pure score vector; not resolving source evidence".into(),
+    }
+}
+#[test]
+fn trial_thresholds_exact_gain_controls_and_median() {
+    use bboxy450_harness::dream::trial;
+    let mut item = trial_math_fixture(125, 100);
+    assert_eq!(trial::score(&item).verdict, Verdict::Pass);
+    if let Item::Trial { episodes, .. } = &mut item {
+        episodes[0].runs[1].verify_exit = Some(0);
+    }
+    assert_eq!(trial::score(&item).verdict, Verdict::Fail);
+    assert_eq!(
+        trial::score(&trial_math_fixture(126, 100)).verdict,
+        Verdict::Fail
+    );
+    let mut item = trial_math_fixture(100, 100);
+    if let Item::Trial { controls, .. } = &mut item {
+        controls[0].runs[0].verify_exit = Some(1);
+    }
+    assert_eq!(trial::score(&item).verdict, Verdict::Fail);
+}
+#[test]
+fn trial_usage_spend_and_unknowns_never_become_free_work() {
+    use bboxy450_harness::dream::trial;
+    let item = trial_math_fixture(100_000, 100_000);
+    let score = trial::score(&item);
+    assert_eq!(score.verdict, Verdict::Pass);
+    assert_eq!(score.total_tokens, Some(2_000_000));
+    assert_eq!(score.cost_micros_usd, None);
+    let mut item = item.clone();
+    if let Item::Trial { controls, .. } = &mut item {
+        controls[1].runs[1].usage.as_mut().unwrap().input_tokens += 1;
+    }
+    assert_eq!(trial::score(&item).verdict, Verdict::Inconclusive);
+    for n in 0..8 {
+        let mut item = trial_math_fixture(100, 100);
+        if let Item::Trial {
+            episodes, controls, ..
+        } = &mut item
+        {
+            match n {
+                0 => controls[1].runs[1].usage = None,
+                1 => controls[1].runs[1].verify_exit = None,
+                2 => {
+                    controls[1].runs[1].usage.as_mut().unwrap().source = Some(NumberSource::Derived)
+                }
+                3 => controls[1].runs[1].usage.as_mut().unwrap().model = Some("different".into()),
+                4 => controls[1].runs[1]
+                    .usage
+                    .as_mut()
+                    .unwrap()
+                    .unreported
+                    .push("input_tokens".into()),
+                5 => controls[1].runs[1].usage.as_mut().unwrap().scope = Some(UsageScope::Session),
+                6 => {
+                    controls[0].runs[0].verify_exit = Some(1);
+                    controls[1].runs.pop();
+                }
+                _ => {
+                    episodes.pop();
+                }
+            }
+        }
+        assert_eq!(
+            trial::score(&item).verdict,
+            Verdict::Inconclusive,
+            "case {n}"
+        );
+    }
+    let mut item = trial_math_fixture(u64::MAX, u64::MAX);
+    if let Item::Trial { episodes, .. } = &mut item {
+        episodes[0].runs[0].usage.as_mut().unwrap().output_tokens = 1;
+    }
+    assert_eq!(trial::score(&item).verdict, Verdict::Inconclusive);
+}
+#[test]
+fn trial_original_eligibility_requires_observed_clean_revision_and_verify() {
+    use bboxy450_harness::dream::trial;
+    let meta:SessionMeta=serde_json::from_value(json!({"session":SessionId::new(),"cwd":"/private/fixture","profile":"toy","fork":null,"protocol":PROTOCOL,"harness":"engine","created_ms":0,"vcs":{"commit":"a".repeat(40),"dirty":false}})).unwrap();
+    assert!(trial::original_verify_eligible(
+        &meta,
+        Some("sh -c 'test -f fixed'"),
+        Some(0),
+        None
+    ));
+    assert!(!trial::original_verify_eligible(
+        &meta,
+        Some("make test"),
+        Some(0),
+        None
+    ));
+    assert!(trial::original_verify_eligible(
+        &meta,
+        Some("make test"),
+        Some(0),
+        Some(600_000)
+    ));
+    assert!(!trial::original_verify_eligible(
+        &meta,
+        Some("test -f fixed"),
+        Some(0),
+        Some(600_001)
+    ));
+    assert!(!trial::original_verify_eligible(
+        &meta,
+        Some("test -f fixed"),
+        None,
+        None
+    ));
+    for dirty in [None, Some(true)] {
+        let mut m = meta.clone();
+        m.vcs.as_mut().unwrap().dirty = dirty;
+        assert!(!trial::original_verify_eligible(
+            &m,
+            Some("test -f fixed"),
+            Some(1),
+            None
+        ));
+    }
+    let mut m = meta.clone();
+    m.vcs.as_mut().unwrap().commit = None;
+    assert!(!trial::original_verify_eligible(
+        &m,
+        Some("test -f fixed"),
+        Some(0),
+        None
+    ));
+}
+
+#[test]
+fn trial_closure_and_every_possible_exposure_exclude_forks() {
+    use bboxy450_harness::dream::{
+        graph::{Edge, Graph, Node},
+        trial,
+    };
+    use std::collections::BTreeMap;
+    let mut graph = Graph::default();
+    for id in ["a", "b", "c"] {
+        graph.nodes.insert(
+            id.into(),
+            Node {
+                id: id.into(),
+                kind: "memory".into(),
+                data: json!({}),
+                strength: None,
+            },
+        );
+    }
+    graph.edges.push(Edge {
+        from: "a".into(),
+        to: "b".into(),
+        relation: "derived_from".into(),
+        weight: 2.0,
+        external: false,
+        strength: None,
+    });
+    graph.edges.push(Edge {
+        from: "b".into(),
+        to: "c".into(),
+        relation: "supersedes".into(),
+        weight: 3.0,
+        external: false,
+        strength: None,
+    });
+    let closure = trial::closure(&graph, "a").unwrap();
+    assert_eq!(closure.len(), 3);
+    for basis in [
+        RecallBasis::Reported,
+        RecallBasis::Inferred,
+        RecallBasis::Cited,
+    ] {
+        let parent = SessionId::new();
+        let fork = SessionId::new();
+        let event:Envelope=serde_json::from_value(json!({"v":PROTOCOL,"session":parent,"epoch":1,"seq":2,"at":2,"ts_ms":0,"event":{"type":"item_completed","item":ItemId::new(),"status":"completed","body":{"kind":"recall","entry":"c","basis":basis}}})).unwrap();
+        let exposed = trial::exposed_sessions(&BTreeMap::from([(fork, vec![event])]), &closure);
+        assert!(exposed.contains(&parent) && exposed.contains(&fork));
+    }
+    graph.edges.push(Edge {
+        from: "c".into(),
+        to: "a".into(),
+        relation: "derived_from".into(),
+        weight: 2.0,
+        external: false,
+        strength: None,
+    });
+    assert!(trial::closure(&graph, "a").is_err());
+    graph.edges.pop();
+    graph.edges[1].external = true;
+    assert!(trial::closure(&graph, "a").is_err());
+}
+#[test]
+fn trial_selection_is_canonical_held_out_and_not_arrival_order() {
+    use bboxy450_harness::dream::{d0, trial};
+    use std::collections::{BTreeMap, BTreeSet};
+    let fp = "a".repeat(64);
+    let mut all = Vec::new();
+    for n in 1..=9u128 {
+        let session = SessionId(ulid::Ulid::from(n));
+        let turn = TurnId::new();
+        all.push(d0::Episode {
+            origin: EvidenceRef::Event {
+                session,
+                seq: Seq(3),
+                digest: format!("sha256:{}", "b".repeat(64)),
+            },
+            repo: "fixture".into(),
+            session,
+            turns: vec![turn],
+            members: BTreeMap::from([(session, BTreeSet::from([turn]))]),
+            task: None,
+            fingerprints: BTreeSet::from([if n <= 6 { fp.clone() } else { "c".repeat(64) }]),
+            first: 0,
+            last: 0,
+        });
+    }
+    let evidence = vec![all[0].origin.clone()];
+    let exposed = BTreeSet::from([all[1].session]);
+    let a = trial::select_observed(&all, &fp, &evidence, &exposed).unwrap();
+    assert!(a.complete());
+    assert!(
+        a.episodes
+            .iter()
+            .all(|e| !evidence.contains(&e.origin) && !exposed.contains(&e.session))
+    );
+    assert!(a.controls.iter().all(|e| !e.fingerprints.contains(&fp)));
+    let mut reordered = all.clone();
+    reordered.reverse();
+    reordered.extend(all.clone());
+    let b = trial::select_observed(&reordered, &fp, &evidence, &exposed).unwrap();
+    assert_eq!(
+        serde_json::to_value(&a).unwrap(),
+        serde_json::to_value(&b).unwrap()
+    );
+    let mut conflict = all[2].clone();
+    conflict.last = 999;
+    reordered.push(conflict);
+    assert!(trial::select_observed(&reordered, &fp, &evidence, &exposed).is_err());
+    let few = trial::select_observed(&all[..5], &fp, &evidence, &exposed).unwrap();
+    assert!(!few.complete());
+}

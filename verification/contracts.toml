@@ -542,3 +542,25 @@ implementation_tests = ["src/process.rs", "tests/cancel_process.rs", "tests/form
 assumptions = "Decision d20261103136567. Observed cancellation/elapsed deadline/caller timer readiness/worker deadline observation are boolean; received pending/closed/success/error and returned pending/Interrupted/TimedOut/success/error. Inputs freeze at return. Worker deadline can close a channel while caller timer is not ready. No fairness, global test clock, timer precision or Tokio/Rust/kernel refinement is assumed. Existing ProcessSpawnAdmission/ProcessLifecycle retain ownership/cleanup rules unchanged; actual late private child kill/fenced-wait/reap, closed receiver and exact ErrorKind/absolute Instant equality are implementation witnesses. Refusal/return is not cleanup join or producer sealing."
 property = "ObservedCancellationHasPriority; ObservedElapsedResultIsTimedOut regardless of caller timer readiness; BeforeCutoffPreservesOutcome. The old receive mapping reaches closed+elapsed+not-ready Interrupted, violating the same timeout property."
 checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessDreamTrialClaims"
+title = "Independent nonblocking candidate claims retain serial arm cleanup"
+models = ["HarnessDreamTrialClaims", "BrokenHarnessDreamTrialClaimsGlobal", "BrokenHarnessDreamTrialClaimsEarlyRelease"]
+controls = [{name="BrokenHarnessDreamTrialClaimsGlobal",expected="safety"},{name="BrokenHarnessDreamTrialClaimsEarlyRelease",expected="safety"}]
+sources = ["src/dream/trial.rs", "src/dream/d0.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/formal_nonvacuity.rs", "tests/dream_pipeline.rs"]
+assumptions = "WP7 model-before-stateful checkpoint, actual API/process implementation pending. Two candidate claims, one serial arm/owned cleanup each; caller live/cancelled/dropped and finite fresh/claimed/running/cleanup/settled phase. Busy is an immediate observation, never a waiter. Weak fairness only of eligible local cleanup join/release, not host allocation/permit availability or arbitrary OS cleanup. Source currently has only eligibility/math observations; concrete flock, detached-future custody and process/Store closure witnesses must be supplied before conformance is claimed. D0/Store/Process lifecycle models remain unchanged."
+property = "IndependentClaimAvailable0/1 uses actual claim guard enabledness; OwnedArmKeepsClaim0/1 and SerialArmHasClaim0/1; cleanup settles/releases under stated fairness. Controls impose a global claim or release before owned cleanup."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessDreamTrialOutcome"
+title = "Trial outcomes require the exact nonterminal pair and observed isolation, usage and cleanup"
+models = ["HarnessDreamTrialOutcome", "BrokenHarnessDreamTrialOutcomeIsolation", "BrokenHarnessDreamTrialOutcomeHarness", "BrokenHarnessDreamTrialOutcomeTerminal", "BrokenHarnessDreamTrialOutcomeUsage", "BrokenHarnessDreamTrialOutcomeEntry", "BrokenHarnessDreamTrialOutcomeCleanup"]
+controls = [{name="BrokenHarnessDreamTrialOutcomeIsolation",expected="safety"},{name="BrokenHarnessDreamTrialOutcomeHarness",expected="safety"},{name="BrokenHarnessDreamTrialOutcomeTerminal",expected="safety"},{name="BrokenHarnessDreamTrialOutcomeUsage",expected="safety"},{name="BrokenHarnessDreamTrialOutcomeEntry",expected="safety"},{name="BrokenHarnessDreamTrialOutcomeCleanup",expected="safety"}]
+sources = ["src/dream/trial.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/formal_nonvacuity.rs", "tests/dream_pipeline.rs"]
+assumptions = "WP7 partial checkpoint; actual enforced execution/output fencing pending. One result with lifecycle phase, unknown/enforced/failed isolation and usage, observed turn end/cleanup, exact/wrong entry and harness, pair/global terminal, cancellation/drop, over-cap flag, score result and active/historical pass. Mixed usage cannot become known again. Numeric4/2/2/2M/30min/10min thresholds have pure math/observation coverage, not real-time interpretation in this quotient. No fairness is added. Isolation here is an abstract observation, not an enforcement boolean/API or proof of sandboxing; real argument/path/private-identity and process witnesses remain mandatory. Existing per-harness monotone projection supplies terminal semantics; no receipt/seal authority follows from a pass."
+property = "ActivePassRequiresObservedGates; NoTerminalActivePass. Unsupported before execution and missing observations stay Inconclusive; exact pair/pin required and later terminal fences historical pass. Each omitted gate reaches the same safety violation."
+checks = ["make test-formal", "make test"]

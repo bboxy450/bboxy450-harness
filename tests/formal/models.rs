@@ -5567,8 +5567,328 @@ fn process_admission_result(broken: bool) -> Model {
     );
     m
 }
+// WP7: two independent candidate claims; a claim outlives all owned arm cleanup.
+// One child abstracts the serial with/without schedule; concrete counts are math tests.
+fn dream_trial_claims(mode: u8) -> Model {
+    let mut m = base::<10>(
+        "DreamTrialClaims",
+        false,
+        &[
+            ("phase_a", 4, 0),
+            ("phase_b", 4, 0),
+            ("claim_a", 1, 0),
+            ("claim_b", 1, 0),
+            ("owned_a", 1, 0),
+            ("owned_b", 1, 0),
+            ("caller_a", 2, 0),
+            ("caller_b", 2, 0),
+            ("busy_a", 1, 0),
+            ("busy_b", 1, 0),
+        ],
+    );
+    if mode != 0 {
+        m.name = format!(
+            "BrokenHarnessDreamTrialClaims{}",
+            if mode == 1 { "Global" } else { "EarlyRelease" }
+        );
+    }
+    for j in 0..2 {
+        let (p, c, o, caller, busy) = (j, 2 + j, 4 + j, 6 + j, 8 + j);
+        let claim_guard = all([
+            eq(p, 0),
+            eq(caller, 0),
+            if mode == 1 {
+                eq(2 + (1 - j), 0)
+            } else {
+                Bool(true)
+            },
+        ]);
+        act(
+            &mut m,
+            &format!("Claim{j}"),
+            claim_guard.clone(),
+            &[(p, Int(1)), (c, Int(1))],
+        );
+        safe(
+            &mut m,
+            &format!("IndependentClaimAvailable{j}"),
+            all([eq(p, 0), eq(caller, 0)]).negate().or(claim_guard),
+        );
+        act(
+            &mut m,
+            &format!("BusyReturnsWithoutWaiting{j}"),
+            eq(c, 1),
+            &[(busy, Int(1))],
+        );
+        act(
+            &mut m,
+            &format!("StartOneArm{j}"),
+            all([eq(p, 1), eq(caller, 0), eq(o, 0)]),
+            &[(p, Int(2)), (o, Int(1))],
+        );
+        act(
+            &mut m,
+            &format!("ArmReturnedStillOwnsCleanup{j}"),
+            eq(p, 2),
+            &[(p, Int(3))],
+        );
+        for (name, value) in [("Cancel", 1), ("Drop", 2), ("Deadline", 1)] {
+            act(
+                &mut m,
+                &format!("{name}{j}"),
+                eq(p, 1).or(eq(p, 2)),
+                &[(caller, Int(value)), (p, Int(3))],
+            );
+        }
+        let join = m.actions.len();
+        act(
+            &mut m,
+            &format!("JoinOwnedCleanup{j}"),
+            all([eq(p, 3), eq(o, 1)]),
+            &[(o, Int(0))],
+        );
+        let release = m.actions.len();
+        act(
+            &mut m,
+            &format!("ReleaseSettledClaim{j}"),
+            all([eq(p, 3), if mode == 2 { Bool(true) } else { eq(o, 0) }]),
+            &[(p, Int(4)), (c, Int(0))],
+        );
+        safe(
+            &mut m,
+            &format!("OwnedArmKeepsClaim{j}"),
+            eq(o, 0).or(eq(c, 1)),
+        );
+        safe(
+            &mut m,
+            &format!("SerialArmHasClaim{j}"),
+            eq(p, 2).negate().or(eq(c, 1)),
+        );
+        progress(
+            &mut m,
+            &format!("SettledCleanupReleasesClaim{j}"),
+            eq(p, 3),
+            eq(p, 4),
+            vec![join, release],
+        );
+    }
+    m
+}
+// WP7: new run bookkeeping is separate from existing lifecycle/owner models.
+// A pass is active only for its exact pin/pair with observed isolation/usage/end/join.
+fn dream_trial_outcome(mode: u8) -> Model {
+    let mut m = base::<12>(
+        "DreamTrialOutcome",
+        false,
+        &[
+            ("phase", 4, 0),
+            ("isolation", 2, 0),
+            ("usage", 2, 0),
+            ("ended", 1, 0),
+            ("cleanup", 1, 0),
+            ("entry_pin", 1, 0),
+            ("harness_pin", 1, 0),
+            ("terminal", 2, 0),
+            ("caller", 2, 0),
+            ("over_cap", 1, 0),
+            ("score_pass", 1, 1),
+            ("result", 4, 0),
+        ],
+    );
+    if mode != 0 {
+        m.name = format!(
+            "BrokenHarnessDreamTrialOutcome{}",
+            [
+                "",
+                "Isolation",
+                "Harness",
+                "Terminal",
+                "Usage",
+                "Entry",
+                "Cleanup"
+            ][usize::from(mode)]
+        );
+    }
+    act(&mut m, "Prepare", eq(0, 0), &[(0, Int(1))]);
+    act(
+        &mut m,
+        "EstablishIsolation",
+        all([eq(0, 1), eq(1, 0)]),
+        &[(1, Int(1))],
+    );
+    act(
+        &mut m,
+        "IsolationUnavailable",
+        all([eq(0, 1), eq(1, 0)]),
+        &[(1, Int(2))],
+    );
+    act(
+        &mut m,
+        "StartIsolatedArm",
+        all([eq(0, 1), eq(1, 1), eq(7, 0), eq(8, 0)]),
+        &[(0, Int(2))],
+    );
+    act(
+        &mut m,
+        "BrokenStartWithoutIsolation",
+        all([Bool(mode == 1), eq(0, 1), eq(1, 2), eq(7, 0), eq(8, 0)]),
+        &[(0, Int(2))],
+    );
+    act(
+        &mut m,
+        "UnavailableBeforeExecution",
+        all([
+            eq(0, 1),
+            eq(1, 2).or(eq(7, 0).negate()).or(eq(8, 0).negate()),
+        ]),
+        &[(0, Int(4)), (11, Int(3))],
+    );
+    for (name, index, max) in [
+        ("IsolationFailed", 1, 2),
+        ("UsageKnown", 2, 1),
+        ("UsageIncomparable", 2, 2),
+        ("TurnEnded", 3, 1),
+        ("ChangedEntryPin", 5, 1),
+        ("WrongHarnessPin", 6, 1),
+        ("SpendExceeded", 9, 1),
+        ("ScoreFails", 10, 0),
+    ] {
+        let observation = if index == 2 && max == 1 {
+            eq(2, 0)
+        } else {
+            eq(index, max).negate()
+        };
+        act(
+            &mut m,
+            name,
+            all([eq(0, 2), observation]),
+            &[(index, Int(max))],
+        );
+    }
+    act(
+        &mut m,
+        "CleanupActuallyJoined",
+        all([eq(0, 2), eq(3, 1).or(eq(8, 0).negate())]),
+        &[(4, Int(1))],
+    );
+    act(
+        &mut m,
+        "CaptureReturnedObservations",
+        eq(0, 2),
+        &[(0, Int(3))],
+    );
+    for (name, value) in [
+        ("CancelCaller", 1),
+        ("DropCaller", 2),
+        ("RunOrVerifyDeadline", 1),
+    ] {
+        act(
+            &mut m,
+            name,
+            eq(0, 1).or(eq(0, 2)).or(eq(0, 3)),
+            &[(8, Int(value))],
+        );
+    }
+    // Result 1 is an active pass; 4 is a historical pass fenced by later terminal.
+    for (name, value) in [("PairTerminal", 1), ("GlobalTerminal", 2)] {
+        let allowed = if value == 1 {
+            eq(7, 0)
+        } else {
+            eq(7, 2).negate()
+        };
+        act(
+            &mut m,
+            &format!("{name}BeforeOrAfterNonPass"),
+            all([allowed.clone(), eq(11, 1).negate()]),
+            &[(7, Int(value))],
+        );
+        act(
+            &mut m,
+            &format!("{name}FencesActivePass"),
+            all([allowed, eq(11, 1)]),
+            &[(7, Int(value)), (11, Int(if mode == 3 { 1 } else { 4 }))],
+        );
+    }
+    let gates = |omit: usize| {
+        all([
+            (1, 1),
+            (2, 1),
+            (3, 1),
+            (4, 1),
+            (5, 0),
+            (6, 0),
+            (7, 0),
+            (8, 0),
+            (9, 0),
+        ]
+        .into_iter()
+        .filter(|(i, _)| *i != omit)
+        .map(|(i, n)| eq(i, n)))
+    };
+    let full = gates(usize::MAX);
+    act(
+        &mut m,
+        "PassQualifiedSamePair",
+        all([eq(0, 3), full.clone(), eq(10, 1)]),
+        &[(0, Int(4)), (11, Int(1))],
+    );
+    act(
+        &mut m,
+        "FailQualifiedTrial",
+        all([eq(0, 3), full.clone(), eq(10, 0)]),
+        &[(0, Int(4)), (11, Int(2))],
+    );
+    act(
+        &mut m,
+        "InconclusiveMissingGate",
+        all([eq(0, 3), full.clone().negate()]),
+        &[(0, Int(4)), (11, Int(3))],
+    );
+    let omitted = match mode {
+        1 => 1,
+        2 => 6,
+        3 => 7,
+        4 => 2,
+        5 => 5,
+        6 => 4,
+        _ => usize::MAX,
+    };
+    act(
+        &mut m,
+        "BrokenAcceptIncompleteObservation",
+        all([
+            Bool(mode != 0),
+            eq(0, 3),
+            gates(omitted),
+            full.clone().negate(),
+            eq(10, 1),
+        ]),
+        &[(0, Int(4)), (11, Int(1))],
+    );
+    safe(
+        &mut m,
+        "ActivePassRequiresObservedGates",
+        eq(11, 1).negate().or(full),
+    );
+    safe(
+        &mut m,
+        "NoTerminalActivePass",
+        eq(11, 1).negate().or(eq(7, 0)),
+    );
+    m
+}
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (dream_trial_claims(0), "pass"),
+        (dream_trial_claims(1), "safety"),
+        (dream_trial_claims(2), "safety"),
+        (dream_trial_outcome(0), "pass"),
+        (dream_trial_outcome(1), "safety"),
+        (dream_trial_outcome(2), "safety"),
+        (dream_trial_outcome(3), "safety"),
+        (dream_trial_outcome(4), "safety"),
+        (dream_trial_outcome(5), "safety"),
+        (dream_trial_outcome(6), "safety"),
         (process_admission_result(false), "pass"),
         (process_admission_result(true), "safety"),
         (dream_seal(0), "pass"),
