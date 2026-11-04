@@ -88,6 +88,15 @@ fn executable(path: &Path, text: &str) {
     std::fs::write(path, text).unwrap();
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
 }
+// Let the first four metadata queries succeed before exercising status failure.
+const METADATA_BEFORE_STATUS: &str = r#"#!/bin/sh
+case "$*" in
+  *--show-toplevel*) printf '%s\n' "$PWD"; exit 0;;
+  *remote.origin.url*) exit 1;;
+  *--abbrev-ref*) printf '%s\n' 'vcs-fixture'; exit 0;;
+  *--verify*) printf '%s\n' '0123456789012345678901234567890123456789'; exit 0;;
+esac
+"#;
 fn run(home: &Path, cwd: &Path, acp: bool, configure: impl FnOnce(&mut Command)) -> Output {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut command = Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"));
@@ -193,6 +202,109 @@ async fn real_git_capture_records_origin_branch_commit_clean_and_dirty() {
 }
 
 #[tokio::test]
+async fn changed_submodule_worktree_and_gitlink_are_dirty_in_actual_headers() {
+    let parent = Repo::new();
+    let source = Repo::new();
+    git(
+        &parent.path,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            source.path.to_str().unwrap(),
+            "child",
+        ],
+    );
+    git(&parent.path, &["config", "submodule.child.ignore", "all"]);
+    git(
+        &parent.path,
+        &[
+            "config",
+            "-f",
+            ".gitmodules",
+            "submodule.child.ignore",
+            "all",
+        ],
+    );
+    git(&parent.path, &["add", ".gitmodules", "child"]);
+    git(
+        &parent.path,
+        &["commit", "-m", "private signed submodule fixture"],
+    );
+    let child = parent.path.join("child");
+    for (key, value) in [
+        ("user.name", "Boxy"),
+        ("user.email", "bboxy450@gmail.com"),
+        ("gpg.format", "ssh"),
+        ("commit.gpgsign", "true"),
+        ("core.hooksPath", "/dev/null"),
+    ] {
+        git(&child, &["config", key, value]);
+    }
+    git(
+        &child,
+        &[
+            "config",
+            "user.signingkey",
+            parent.home.path().join("signing").to_str().unwrap(),
+        ],
+    );
+    assert_eq!(vcs::capture(&parent.path).await.unwrap().dirty, Some(false));
+    std::fs::write(child.join("tracked.txt"), "modified submodule\n").unwrap();
+    for state in ["worktree", "gitlink"] {
+        if state == "gitlink" {
+            git(&child, &["commit", "-am", "private signed child revision"]);
+        }
+        assert_eq!(git(&parent.path, &["status", "--porcelain=v1"]), "");
+        assert_eq!(
+            git(
+                &parent.path,
+                &["status", "--porcelain=v1", "--ignore-submodules=all"]
+            ),
+            ""
+        );
+        assert!(
+            git(
+                &parent.path,
+                &["status", "--porcelain=v1", "--ignore-submodules=none"]
+            )
+            .contains("M child")
+        );
+        for acp in [false, true] {
+            let output = run(parent.home.path(), &parent.path, acp, |_| {});
+            let events = events(&output);
+            assert_eq!(
+                meta(&events).vcs.as_ref().unwrap().dirty,
+                Some(true),
+                "VcsSubmoduleDirty: changed {state} was reported clean (acp={acp})"
+            );
+            let log = std::fs::read(
+                parent
+                    .home
+                    .path()
+                    .join("sessions")
+                    .join(format!("{}.jsonl", meta(&events).session)),
+            )
+            .unwrap();
+            assert_eq!(
+                {
+                    let first: Envelope =
+                        serde_json::from_slice(log.split(|b| *b == b'\n').next().unwrap()).unwrap();
+                    let Event::SessionStarted { meta } = first.event else {
+                        panic!("missing persisted header")
+                    };
+                    meta.vcs.unwrap().dirty
+                },
+                Some(true),
+                "VcsSubmoduleDirty: persisted {state} was reported clean"
+            );
+        }
+        assert_eq!(vcs::capture(&parent.path).await.unwrap().dirty, Some(true));
+    }
+}
+
+#[tokio::test]
 async fn missing_origin_uses_real_toplevel_and_no_repository_stays_absent() {
     let repo = Repo::new();
     assert_eq!(
@@ -270,6 +382,23 @@ fn missing_git_and_git_errors_degrade_without_failing_a_turn() {
     }
 }
 
+#[test]
+fn incomplete_git_status_never_claims_a_clean_checkout() {
+    for tail in ["exit 72\n", "printf '%016384d' 0\n"] {
+        let home = tempfile::tempdir_in("/tmp").unwrap();
+        let bin = home.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        executable(&bin.join("git"), &format!("{METADATA_BEFORE_STATUS}{tail}"));
+        let output = run(home.path(), home.path(), false, |command| {
+            command.env("PATH", &bin);
+        });
+        let events = events(&output);
+        let vcs = meta(&events).vcs.as_ref().unwrap();
+        assert_eq!(vcs.branch.as_deref(), Some("vcs-fixture"));
+        assert_eq!(vcs.dirty, None, "an incomplete status was reported clean");
+    }
+}
+
 #[tokio::test]
 async fn stalled_git_is_bounded_and_its_owned_children_are_reaped() {
     let home = tempfile::tempdir_in("/tmp").unwrap();
@@ -277,7 +406,9 @@ async fn stalled_git_is_bounded_and_its_owned_children_are_reaped() {
     std::fs::create_dir(&bin).unwrap();
     executable(
         &bin.join("git"),
-        "#!/bin/sh\ntrap '' TERM\nprintf '%s' \"$$\" > \"$VCS_PROBE_PID\"\n/bin/sleep 600 &\nprintf '%s' \"$!\" > \"$VCS_MEMBER_PID\"\nwait\n",
+        &format!(
+            "{METADATA_BEFORE_STATUS}trap '' TERM\nprintf '%s' \"$$\" > \"$VCS_PROBE_PID\"\n/bin/sleep 600 &\nprintf '%s' \"$!\" > \"$VCS_MEMBER_PID\"\nwait\n"
+        ),
     );
     let pid = home.path().join("leader");
     let member = home.path().join("member");
@@ -333,7 +464,10 @@ async fn stalled_git_is_bounded_and_its_owned_children_are_reaped() {
         stderr: err,
     };
     assert!(output.status.success());
-    assert!(meta(&events(&output)).vcs.is_none());
+    let events = events(&output);
+    let vcs = meta(&events).vcs.as_ref().unwrap();
+    assert_eq!(vcs.branch.as_deref(), Some("vcs-fixture"));
+    assert_eq!(vcs.dirty, None, "timed-out status was reported clean");
     for file in [pid, member] {
         let pid: i32 = std::fs::read_to_string(file).unwrap().parse().unwrap();
         tokio::time::timeout(Duration::from_secs(3), async {
