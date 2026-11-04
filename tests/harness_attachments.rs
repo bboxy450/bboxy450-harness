@@ -50,10 +50,13 @@ fn png() -> Vec<u8> {
 }
 impl Fixture {
     async fn new(supported: bool, unix: bool) -> Self {
+        Self::history(supported, unix, false).await
+    }
+    async fn history(supported: bool, unix: bool, history: bool) -> Self {
         let temp = tempfile::tempdir().unwrap();
         let profiles = temp.path().join("profiles");
         std::fs::create_dir(&profiles).unwrap();
-        let command = serde_json::to_string(&[
+        let mut command = vec![
             "python3".to_owned(),
             "-I".into(),
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -62,8 +65,16 @@ impl Fixture {
                 .to_string(),
             temp.path().join("calls.jsonl").display().to_string(),
             if supported { "yes" } else { "no" }.into(),
-        ])
-        .unwrap();
+        ];
+        if history {
+            command.push(
+                temp.path()
+                    .join("release-history-turn")
+                    .display()
+                    .to_string(),
+            );
+        }
+        let command = serde_json::to_string(&command).unwrap();
         std::fs::write(
             profiles.join("private.md"),
             format!("---\nname: private\nprovider: acp-agent\nagent:\n  command: {command}\n---\n"),
@@ -635,4 +646,197 @@ async fn old_actor_ack_without_intake_capability_retains_image_and_sends_no_user
         .await
         .unwrap()
         .unwrap();
+}
+
+#[tokio::test]
+async fn explicit_project_dotfiles_complete_and_send_while_git_and_ignored_bulk_stay_out() {
+    let mut f = Fixture::new(true, true).await;
+    let status = std::process::Command::new("git")
+        .current_dir(f.temp.path())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .args(["init", "-q", "--template=", "--initial-branch=private"])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    std::fs::write(
+        f.temp.path().join(".gitignore"),
+        "target/\nnode_modules/\ngenerated-*.txt\n.env\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(f.temp.path().join(".bboxy/tasks")).unwrap();
+    std::fs::write(
+        f.temp.path().join(".bboxy/tasks/界 task.md"),
+        "PROJECT TASK CONTENT",
+    )
+    .unwrap();
+    std::fs::create_dir_all(f.temp.path().join("target")).unwrap();
+    std::fs::create_dir_all(f.temp.path().join("node_modules")).unwrap();
+    std::fs::write(f.temp.path().join("generated-bulk.txt"), "IGNORED").unwrap();
+    let root = attachments::candidates(f.temp.path(), "").unwrap();
+    assert!(!root.iter().any(|s| s.contains("target")
+        || s.contains("node_modules")
+        || s.contains("generated-bulk")));
+    let dots = attachments::candidates(f.temp.path(), ".").unwrap();
+    assert!(dots.contains(&"@.gitignore".into()) && dots.contains(&"@.bboxy/".into()));
+    assert!(!dots.iter().any(|s| s == "@.git/"));
+    assert!(attachments::candidates(f.temp.path(), ".git/").is_err());
+    assert!(attachments::read_file(f.temp.path(), &f.temp.path().join(".git/config")).is_err());
+    assert!(attachments::candidates(f.temp.path(), "target/").is_err());
+    f.view
+        .edit(bbt_ui::text_edit::Command::Insert("@.gitig".into()));
+    f.wait(|f| f.view.completion_open()).await;
+    assert!(f.view.run_completion(&f.bridge));
+    f.wait(|f| f.view.attachment_count() == 1).await;
+    f.view
+        .edit(bbt_ui::text_edit::Command::Insert(" @.bboxy/tasks/".into()));
+    f.wait(|f| f.view.completion_open()).await;
+    assert!(f.view.run_completion(&f.bridge));
+    f.wait(|f| f.view.attachment_count() == 2).await;
+    f.send();
+    f.wait(|f| f.calls().iter().any(|c| c["method"] == "session/prompt"))
+        .await;
+    let calls = f.calls();
+    let prompts: Vec<_> = calls
+        .iter()
+        .filter(|c| c["method"] == "session/prompt")
+        .collect();
+    assert_eq!(prompts.len(), 1);
+    let blocks = prompts[0]["params"]["prompt"].as_array().unwrap();
+    assert!(blocks.iter().any(|b| {
+        b["text"]
+            .as_str()
+            .is_some_and(|s| s.contains("Attached workspace file: .gitignore\ntarget/"))
+    }));
+    assert!(blocks.iter().any(|b| {
+        b["text"]
+            .as_str()
+            .is_some_and(|s| s.contains("PROJECT TASK CONTENT"))
+    }));
+    f.close().await;
+}
+
+#[tokio::test]
+async fn queued_image_file_keeps_real_prior_history_pixels_during_preparation_gap() {
+    use bboxy450_harness::frontends::gui::{
+        model::TurnState,
+        view::{Frame, find},
+    };
+    use bbt_render::{
+        chrome::{ChromeRenderer, materials},
+        device::DeviceContext,
+    };
+    let mut f = Fixture::history(true, true, true).await;
+    f.view.edit(bbt_ui::text_edit::Command::Insert(
+        "PRIOR-USER-HISTORY".into(),
+    ));
+    f.send();
+    f.wait(|f|f.bridge.state.transcript.turns.values().any(|t|matches!(t,TurnState::Ended {..}))&&f.bridge.state.transcript.items.values().any(|r|matches!(&r.body,Item::AgentMessage {markdown} if markdown.contains("PRIOR-ASSISTANT-HISTORY"))&&r.completed.is_some())).await;
+    let prior: Vec<_> = f
+        .bridge
+        .state
+        .transcript
+        .items
+        .values()
+        .filter(|r| {
+            matches!(r.kind, ItemKind::UserMessage | ItemKind::AgentMessage)
+                && r.completed.is_some()
+        })
+        .map(|r| r.id)
+        .collect();
+    assert_eq!(prior.len(), 2);
+    f.view.edit(bbt_ui::text_edit::Command::Insert(
+        "ACTIVE SECOND TURN".into(),
+    ));
+    f.send();
+    f.wait(|f|f.calls().iter().filter(|c|c["method"]=="session/prompt").count()==2&&f.bridge.state.transcript.items.values().any(|r|matches!(&r.body,Item::AgentMessage {markdown} if markdown.contains("ACTIVE TURN WORKING")))).await;
+    fn paints(frame: &Frame) -> Frame {
+        Frame {
+            list: frame.list.clone(),
+            rims: frame.rims.clone(),
+            over: frame.over.clone(),
+            visible: frame.visible.clone(),
+            ..Default::default()
+        }
+    }
+    let before = f.view.render(&f.bridge.state, [900., 1100.]).unwrap();
+    assert_eq!(before.max_scroll, 0.);
+    let regions: Vec<_> = before
+        .visible
+        .iter()
+        .filter(|(id, _, _)| prior.contains(id))
+        .cloned()
+        .collect();
+    assert_eq!(regions.len(), 2);
+    let before = paints(before);
+    f.view.edit(bbt_ui::text_edit::Command::Insert(
+        "QUEUED IMAGE FILE".into(),
+    ));
+    f.view.intake(Intake::Png(png()), &f.bridge);
+    f.wait(|f| f.view.attachment_count() == 1).await;
+    let file = f.temp.path().join("queued file.txt");
+    std::fs::write(&file, "FILE-CONTENT-FOR-PIXELS").unwrap();
+    f.view.intake(Intake::Files(vec![file]), &f.bridge);
+    f.wait(|f| f.view.attachment_count() == 2).await;
+    f.send();
+    f.wait(|f|f.bridge.state.pending_prompts.values().any(|p|p.blocks.iter().any(|b|matches!(b,InputBlock::Resource {..}))&&p.blocks.iter().any(|b|matches!(b,InputBlock::Text {text} if text.contains("FILE-CONTENT-FOR-PIXELS"))))).await;
+    assert_eq!(
+        f.calls()
+            .iter()
+            .filter(|c| c["method"] == "session/prompt")
+            .count(),
+        2,
+        "third turn must still be queued behind the held child"
+    );
+    let mut gap = f.bridge.state.clone();
+    gap.prepared = None;
+    gap.transcript = Arc::new((*gap.transcript).clone());
+    let after = f.view.render(&gap, [900., 1100.]).unwrap();
+    assert_eq!(after.max_scroll, 0.);
+    assert!(
+        gap.pending_prompts.keys().any(|op| find(
+            after.layout.as_ref().unwrap(),
+            &format!("pending/{op}")
+        )
+        .is_some())
+    );
+    for (id, _, _) in &regions {
+        assert!(
+            after
+                .visible
+                .iter()
+                .any(|(visible, _, r)| visible == id && r.h > 0.),
+            "retained history must remain visible"
+        );
+    }
+    let after = paints(after);
+    let device = DeviceContext::new().await.unwrap();
+    // Adapted from bboxy450-harness tests/gui_render.rs's native retained-history
+    // pixel witness; https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+    bboxy450_harness::runtime::blocking(move||{
+        let mut renderer=ChromeRenderer::with_context(device,bboxy450_harness::frontends::gui::assets::icons()).unwrap();
+        let raster=|renderer:&mut ChromeRenderer,frame:&Frame|materials::render_composed_to_rgba(renderer,materials::Scene {backdrop:materials::Backdrop::DrawList(&frame.list),items:&frame.rims,width:900,height:1100,scale:1.,time_ms:0.,theme:bbt_ui_model::Theme::Dark},&frame.over).unwrap();
+        let baseline=raster(&mut renderer,&before);let queued=raster(&mut renderer,&after);
+        let own=tempfile::tempdir().unwrap();let directory=std::env::var_os("ATTACHMENTS_CAPTURE_DIR").map(std::path::PathBuf::from).unwrap_or_else(||own.path().to_path_buf());std::fs::create_dir_all(&directory).unwrap();
+        for (name,pixels) in [("prior-history-baseline.png",&baseline),("queued-image-file-history.png",&queued)] {
+            let mut encoder=png::Encoder::new(std::fs::File::create(directory.join(name)).unwrap(),900,1100);encoder.set_color(png::ColorType::Rgba);encoder.set_depth(png::BitDepth::Eight);encoder.write_header().unwrap().write_image_data(pixels).unwrap();
+        }
+        for (_,kind,region) in regions {
+            let patch=|image:&[u8]|{let mut out=Vec::new();for y in region.y.floor().max(0.)as usize..region.bottom().ceil().min(1100.)as usize {for x in region.x.floor().max(0.)as usize..region.right().ceil().min(900.)as usize {let i=(y*900+x)*4;out.push([image[i],image[i+1],image[i+2],image[i+3]]);}}out};
+            let before=patch(&baseline);let after=patch(&queued);
+            assert!(before.iter().copied().collect::<std::collections::BTreeSet<_>>().len()>8,"baseline {kind:?} has no rasterized glyph ink");
+            assert_eq!(before,after,"prior {kind:?} pixels disappeared or changed while image/file was queued at {region:?}");
+        }
+    }).await;
+    std::fs::write(f.temp.path().join("release-history-turn"), "release").unwrap();
+    f.wait(|f| {
+        f.calls()
+            .iter()
+            .filter(|c| c["method"] == "session/prompt")
+            .count()
+            == 3
+            && f.view.pending_attachment_count() == 0
+    })
+    .await;
+    f.close().await;
 }

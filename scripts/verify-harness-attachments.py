@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TARGET = Path(os.environ.get('TARGET_DIR', ROOT / 'target')).resolve()
 OUT = TARGET / 'harness-attachments'
 OUT.mkdir(parents=True, exist_ok=True)
-env = dict(os.environ, RUSTC_WRAPPER='', CARGO_BUILD_JOBS='2', RUST_TEST_THREADS='2', ATTACHMENTS_FORMAL_OUT=str(OUT / 'formal'))
+env = dict(os.environ, RUSTC_WRAPPER='', CARGO_BUILD_JOBS='2', RUST_TEST_THREADS='2', ATTACHMENTS_FORMAL_OUT=str(OUT / 'formal'), ATTACHMENTS_CAPTURE_DIR=str(OUT / 'captures'))
 records = []
 
 
