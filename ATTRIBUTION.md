@@ -43,6 +43,11 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
 
 ## Lineage and credits
 
+- Centered setup, loader/welcome routing, independent view scrolls and Goose ACP
+  discovery are project-owned contributions; existing toolkit and portrait assets
+  retain their origin. Goose command facts come from the official ACP registry
+  and Goose documentation; no upstream implementation was copied.
+
 - Conservative Python command extraction, concise ACP heading projection and
   bounded native text producers in `src/frontends/gui/` are project-owned.
   Python colors and code blocks reuse bboxy450-term's existing `bbt-doc`

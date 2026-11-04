@@ -27,8 +27,9 @@ pub enum Agent {
     Gemini,
     OpenCode,
     Omp,
+    Goose,
 }
-pub const AGENTS: [Agent; 7] = [
+pub const AGENTS: [Agent; 8] = [
     Agent::Codex,
     Agent::Claude,
     Agent::Pi,
@@ -36,6 +37,7 @@ pub const AGENTS: [Agent; 7] = [
     Agent::Gemini,
     Agent::OpenCode,
     Agent::Omp,
+    Agent::Goose,
 ];
 impl Agent {
     pub fn name(self) -> &'static str {
@@ -47,6 +49,7 @@ impl Agent {
             Self::Gemini => "Gemini CLI",
             Self::OpenCode => "OpenCode",
             Self::Omp => "Oh My Pi",
+            Self::Goose => "Goose",
         }
     }
     pub fn cli(self) -> &'static str {
@@ -58,6 +61,7 @@ impl Agent {
             Self::Gemini => "gemini",
             Self::OpenCode => "opencode",
             Self::Omp => "omp",
+            Self::Goose => "goose",
         }
     }
     pub fn adapter(self) -> Option<(&'static str, &'static [&'static str])> {
@@ -69,6 +73,9 @@ impl Agent {
             Self::Grok => ("grok", &["agent", "stdio"]),
             Self::Gemini => ("gemini", &["--acp"]),
             Self::OpenCode => ("opencode", &["acp"]),
+            // Official ACP registry: https://github.com/agentclientprotocol/registry/blob/main/goose/agent.json
+            // Command documented at https://block.github.io/goose/docs/gdk/acp/
+            Self::Goose => ("goose", &["acp"]),
             Self::Omp => return None,
         })
     }
@@ -81,6 +88,7 @@ impl Agent {
             Self::Gemini => "https://github.com/google-gemini/gemini-cli",
             Self::OpenCode => "https://opencode.ai/docs/acp/",
             Self::Omp => "https://github.com/can1357/oh-my-pi",
+            Self::Goose => "https://block.github.io/goose/docs/gdk/acp/",
         }
     }
     fn package(self) -> Option<&'static str> {

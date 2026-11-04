@@ -58,6 +58,10 @@ pub fn actions(snapshot: &Snapshot) -> Vec<(String, Action)> {
     let mut out = vec![("setup/close".into(), Action::Setup(false))];
     for entry in &snapshot.entries {
         let slug = entry.agent.cli();
+        out.push((
+            format!("setup/{slug}/details"),
+            Action::SetupDetails(entry.agent),
+        ));
         let running = snapshot
             .installs
             .get(&entry.agent)
@@ -84,79 +88,100 @@ pub fn actions(snapshot: &Snapshot) -> Vec<(String, Action)> {
     }
     out
 }
-pub fn element(snapshot: &Snapshot, ctx: ui::Context) -> c::Element {
+fn centered(element: c::Element) -> c::Element {
+    f::hstack(
+        vec![
+            f::fill(c::Element::Spacer),
+            element.into(),
+            f::fill(c::Element::Spacer),
+        ],
+        0.,
+    )
+}
+pub fn element(
+    snapshot: &Snapshot,
+    ctx: ui::Context,
+    width: f32,
+    details: &std::collections::BTreeSet<Agent>,
+    notices: &[&str],
+) -> c::Element {
     let ink = f::ink(ctx);
+    let panel_width = (width - 32.).clamp(208., 600.);
+    let mut title = f::text("Choose your coding agent", 20., 600, ink.fg, false);
+    title.align = c::Alignment::Center;
     let mut children = vec![
-        f::identity_mark(&ink, 0.5, 1., "setup").into(),
-        paragraph("Choose your coding agent", 20., 600, ink.fg, false).into(),
-        paragraph(
-            "Installed agents are discovered automatically. Profiles stay editable on disk.",
+        centered(f::identity_mark(&ink, 0.5, 1., "setup/portrait")).into(),
+        named("setup/title", c::Element::Text(title)).into(),
+        centered(paragraph(
+            "Installed agents appear automatically.",
             13.5,
             400,
             ink.dim,
             false,
-        )
+        ))
         .into(),
-        paragraph(
-            "~/.bboxy450-harness/profiles · existing files are always preserved",
-            11.,
-            400,
-            ink.dim,
-            true,
-        )
-        .into(),
-        button("setup/close", "Back to conversation", ctx, false).into(),
     ];
     if let Some(error) = &snapshot.error {
         children.push(paragraph(error, 13.5, 400, ink.ask, false).into());
     }
+    for notice in notices {
+        children.push(paragraph(*notice, 12., 400, ink.ask, false).into());
+    }
     for entry in &snapshot.entries {
         let slug = entry.agent.cli();
+        let expanded = details.contains(&entry.agent);
         let install = snapshot.installs.get(&entry.agent);
         let running = install.is_some_and(|i| i.running);
-        let mut card = vec![
-            paragraph(entry.agent.name(), 15., 600, ink.fg, false).into(),
-            paragraph(
-                entry.status(),
-                13.5,
-                400,
-                if entry.adapter { ink.seat } else { ink.dim },
+        let available =
+            entry.adapter && entry.profile && !(entry.agent == Agent::Pi && !entry.native);
+        let action = if running {
+            button(&format!("setup/{slug}/cancel"), "Cancel", ctx, false)
+        } else if available {
+            button(&format!("setup/{slug}/use"), "Use", ctx, false)
+        } else if !entry.recipes.is_empty() {
+            button(
+                &format!("setup/{slug}/install/0"),
+                if install.is_some() {
+                    "Retry"
+                } else {
+                    "Install"
+                },
+                ctx,
                 false,
+            )
+        } else {
+            c::Element::Spacer
+        };
+        let mut card = vec![
+            f::hstack(
+                vec![
+                    f::fill(paragraph(entry.agent.name(), 15., 600, ink.fg, false)),
+                    action.into(),
+                ],
+                8.,
+            )
+            .into(),
+            f::hstack(
+                vec![
+                    f::fill(paragraph(
+                        entry.status(),
+                        12.,
+                        400,
+                        if entry.adapter { ink.seat } else { ink.dim },
+                        false,
+                    )),
+                    button(
+                        &format!("setup/{slug}/details"),
+                        if expanded { "Less" } else { "Details" },
+                        ctx,
+                        false,
+                    )
+                    .into(),
+                ],
+                8.,
             )
             .into(),
         ];
-        card.push(
-            paragraph(
-                if entry.native {
-                    "Native CLI installed on PATH"
-                } else {
-                    "Native CLI not found on PATH"
-                },
-                11.,
-                400,
-                ink.dim,
-                false,
-            )
-            .into(),
-        );
-        let detail = if entry.agent == Agent::Omp {
-            "OMP documents ACP client filesystem and terminal tools that this client does not provide. Use its official instructions to configure a compatible custom profile."
-        } else if entry.agent == Agent::Pi {
-            "Pi uses the community pi-acp bridge and requires the Pi CLI. This adapter does not forward MCP servers; configure Pi separately."
-        } else {
-            "Authentication and model selection remain with your agent and profile."
-        };
-        card.push(paragraph(detail, 11., 400, ink.dim, false).into());
-        card.push(
-            paragraph(
-                format!("Instructions: {}", entry.agent.instructions()),
-                11.,
-                400,
-                ink.dim,
-                true,
-            )
-            .into(),
-        );
         if let Some(install) = install {
             card.push(
                 paragraph(
@@ -187,64 +212,101 @@ pub fn element(snapshot: &Snapshot, ctx: ui::Context) -> c::Element {
                 card.push(paragraph(output, 11., 400, ink.dim, true).into());
             }
         }
-        if running {
+        if expanded {
             card.push(
-                button(
-                    &format!("setup/{slug}/cancel"),
-                    "Cancel installation",
-                    ctx,
+                paragraph(
+                    if entry.native {
+                        "Native CLI installed on PATH"
+                    } else {
+                        "Native CLI not found on PATH"
+                    },
+                    11.,
+                    400,
+                    ink.dim,
                     false,
                 )
                 .into(),
             );
-        } else {
-            for (i, recipe) in entry.recipes.iter().enumerate() {
-                card.push(paragraph(recipe.display(), 11., 400, ink.fg, true).into());
-                card.push(
-                    button(
-                        &format!("setup/{slug}/install/{i}"),
-                        if install.is_some() {
-                            "Retry installation"
-                        } else {
-                            "Install"
-                        },
-                        ctx,
-                        false,
-                    )
-                    .into(),
-                );
+            let detail = match entry.agent {
+                Agent::Omp => {
+                    "OMP requires ACP client filesystem and terminal tools unavailable here. Configure a compatible custom profile with the official instructions."
+                }
+                Agent::Pi => {
+                    "Community pi-acp bridge; requires Pi CLI. MCP servers are not forwarded; configure Pi separately."
+                }
+                _ => {
+                    "Authentication and model selection stay with your agent. Profiles remain editable; existing files are preserved."
+                }
+            };
+            card.push(paragraph(detail, 11., 400, ink.dim, false).into());
+            card.push(
+                paragraph(
+                    format!("Instructions: {}", entry.agent.instructions()),
+                    11.,
+                    400,
+                    ink.dim,
+                    true,
+                )
+                .into(),
+            );
+            if !running {
+                for (i, recipe) in entry.recipes.iter().enumerate() {
+                    card.push(paragraph(recipe.display(), 11., 400, ink.fg, true).into());
+                    if i > 0 {
+                        card.push(
+                            button(
+                                &format!("setup/{slug}/install/{i}"),
+                                format!("Install with {:?}", recipe.manager),
+                                ctx,
+                                false,
+                            )
+                            .into(),
+                        );
+                    }
+                }
+                if entry.recipes.is_empty() && !entry.adapter {
+                    card.push(paragraph("Use the official instructions. No supported package manager is available here.", 11., 400, ink.dim, false).into());
+                }
             }
-            if entry.recipes.is_empty() && !entry.adapter {
-                card.push(paragraph("Use the official instructions. No supported package manager recipe is available here; managers are never installed automatically.",11.,400,ink.dim,false).into());
-            }
-        }
-        if entry.adapter && entry.profile && !(entry.agent == Agent::Pi && !entry.native) {
-            card.push(button(&format!("setup/{slug}/use"), "Use this agent", ctx, false).into());
+            card.push(paragraph("~/.bboxy450-harness/profiles", 11., 400, ink.dim, true).into());
         }
         children.push(
-            f::frame(
-                f::Frame {
-                    fill: ink.surface,
-                    border: Some(f::alpha(ink.dim, 0.25)),
-                    radius: [12.; 4],
-                    padding: [16.; 4],
-                    gap: 8.,
-                    ..Default::default()
-                },
-                card,
+            named(
+                format!("setup/{slug}/row"),
+                f::frame(
+                    f::Frame {
+                        fill: ink.surface,
+                        border: Some(f::alpha(ink.dim, 0.25)),
+                        radius: [12.; 4],
+                        padding: [8., 12., 8., 12.],
+                        gap: 0.,
+                        ..Default::default()
+                    },
+                    card,
+                ),
             )
             .into(),
         );
+    }
+    children.push(centered(button("setup/close", "Back to conversation", ctx, false)).into());
+    let mut panel = f::frame(
+        f::Frame {
+            gap: 8.,
+            ..Default::default()
+        },
+        children,
+    );
+    if let c::Element::Box(b) = &mut panel {
+        b.style.overrides.width = Some(ui::Length::Px(panel_width));
     }
     named(
         "setup",
         f::frame(
             f::Frame {
-                padding: [24.; 4],
-                gap: 16.,
+                padding: [24., 0., 24., 0.],
                 ..Default::default()
             },
-            children,
+            vec![centered(named("setup/panel", panel)).into()],
         ),
     )
 }

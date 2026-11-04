@@ -154,6 +154,7 @@ pub enum Action {
     /// The switcher's `+ New profile`: the native form is not built yet.
     NewProfile,
     Setup(bool),
+    SetupDetails(crate::onboarding::Agent),
     InstallAdapter(crate::onboarding::Recipe),
     CancelInstall(crate::onboarding::Agent),
     /// An empty-session chip: 0 opens the "/" menu, 1 inserts `@`, 2 focuses the composer.
@@ -235,6 +236,8 @@ pub struct HarnessView {
     setup_open: bool,
     setup_dismissed: bool,
     setup_visible: bool,
+    setup_details: std::collections::BTreeSet<crate::onboarding::Agent>,
+    inactive_scroll: chat_scroll::State,
     config_scroll: f32,
     config_menu_rect: Option<Rect>,
     pub scroll: chat_scroll::State,
@@ -360,6 +363,12 @@ impl Default for HarnessView {
             setup_open: false,
             setup_dismissed: false,
             setup_visible: false,
+            setup_details: Default::default(),
+            inactive_scroll: {
+                let mut s = chat_scroll::State::default();
+                s.anchor(0., f32::MAX);
+                s
+            },
             config_scroll: 0.,
             config_menu_rect: None,
             scroll: Default::default(),
@@ -566,28 +575,58 @@ impl HarnessView {
         // Discovery is independent of session loading. Only a settled, explicitly
         // unconfigured new session may select setup automatically; absent catalogue
         // or metadata is not evidence that an existing session needs onboarding.
+        // A failed first profile resolution is a settled new-session welcome,
+        // not attached history. Keep its diagnostic visible in the setup panel.
+        let startup_error = state.created_here
+            && model.profile.is_none()
+            && has_rows
+            && model
+                .items
+                .values()
+                .all(|row| row.completed.is_some() && matches!(row.body, Item::Notice { .. }));
         let welcome = state.ready
             && !state.replay
             && model.meta.is_some()
-            && model.profile.as_ref().is_some_and(|(_, name)| name == "unconfigured")
-            && !has_rows
+            && (model
+                .profile
+                .as_ref()
+                .is_some_and(|(_, name)| name == "unconfigured")
+                || startup_error)
+            && (!has_rows || startup_error)
             && model.turns.is_empty()
             && state.pending_prompts.is_empty();
-        if self.setup_open
-            || (!self.setup_dismissed && welcome && !state.onboarding.entries.is_empty())
-        {
-            if !self.setup_visible {
-                self.scroll.anchor(0., f32::MAX);
-                self.setup_visible = true;
-            }
-            let element = super::setup::element(&state.onboarding, self.context());
+        let show_setup = self.setup_open
+            || (!self.setup_dismissed && welcome && !state.onboarding.entries.is_empty());
+        if show_setup != self.setup_visible {
+            std::mem::swap(&mut self.scroll, &mut self.inactive_scroll);
+            self.setup_visible = show_setup;
+        }
+        if show_setup {
+            let notices: Vec<_> = if startup_error {
+                model
+                    .items
+                    .values()
+                    .filter_map(|row| match &row.body {
+                        Item::Notice { text, .. } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect()
+            } else {
+                vec![]
+            };
+            let element = super::setup::element(
+                &state.onboarding,
+                self.context(),
+                width,
+                &self.setup_details,
+                &notices,
+            );
             let height = element
                 .layout(Rect::new(0., 0., width, 0.), self.context(), &self.metrics)?
                 .rect
                 .h;
             return Ok((element, Some(height), HashMap::new()));
         }
-        self.setup_visible = false;
         let mut children = vec![];
         let mut total = 0.;
         let mut enters = HashMap::new();
@@ -793,10 +832,12 @@ impl HarnessView {
             self.chrome,
         );
         let draft = format!(
-            "{draft}{:p}{:p}{}",
+            "{draft}{:p}{:p}{}{:?}{}",
             Arc::as_ptr(&state.pending_prompts),
             Arc::as_ptr(&state.onboarding),
-            self.setup_open
+            self.setup_open,
+            self.setup_details,
+            state.created_here
         );
         // a hover change rebuilds too: the menu row's fill starts its fade
         if !self.anim.in_motion()
@@ -2042,7 +2083,11 @@ impl HarnessView {
             Action::Setup(open) => {
                 self.setup_open = open;
                 self.setup_dismissed = !open;
-                self.scroll.follow_latest();
+            }
+            Action::SetupDetails(agent) => {
+                if !self.setup_details.remove(&agent) {
+                    self.setup_details.insert(agent);
+                }
             }
             Action::InstallAdapter(recipe) => {
                 self.notice = bridge.install_adapter(recipe).err().map(str::to_owned);
@@ -2051,7 +2096,6 @@ impl HarnessView {
             Action::NewProfile => {
                 self.profile_menu = None;
                 self.setup_open = true;
-                self.scroll = Default::default();
             }
             Action::Toggle(item, toggle) => bridge.toggle(item, toggle),
             Action::Chip(which) => {

@@ -33,6 +33,7 @@ fn private_discovery_later_addition_and_profile_bytes() {
             .all(|e| !e.native && !e.adapter && !e.profile)
     );
     assert!(!env.profiles.join("grok.md").exists());
+    assert!(!env.profiles.join("goose.md").exists());
     executable(&env, "codex", "exit 0");
     executable(&env, "npm", "exit 0");
     let snapshot = discover(&env);
@@ -49,6 +50,7 @@ fn private_discovery_later_addition_and_profile_bytes() {
     let custom = env.profiles.join("custom.md");
     std::fs::write(&custom, b"user custom bytes\n").unwrap();
     executable(&env, "grok", "exit 0");
+    executable(&env, "goose", "exit 0");
     executable(&env, "pi", "exit 0");
     executable(&env, "omp", "exit 0");
     let threads: Vec<_> = (0..8)
@@ -66,6 +68,15 @@ fn private_discovery_later_addition_and_profile_bytes() {
     let grok =
         Profile::parse(&std::fs::read_to_string(env.profiles.join("grok.md")).unwrap()).unwrap();
     assert_eq!(grok.agent.unwrap().command, ["grok", "agent", "stdio"]);
+    let goose = env.profiles.join("goose.md");
+    let bytes = std::fs::read_to_string(&goose).unwrap();
+    assert_eq!(
+        Profile::parse(&bytes).unwrap().agent.unwrap().command,
+        ["goose", "acp"]
+    );
+    std::fs::write(&goose, edited).unwrap();
+    discover(&env);
+    assert_eq!(std::fs::read(&goose).unwrap(), edited);
     assert!(!env.profiles.join("omp.md").exists());
     let snapshot = discover(&env);
     assert!(
@@ -286,10 +297,21 @@ async fn onboarding_native_setup_cards_and_markdown_raster() {
             for width in [320u32, 800] {
                 let mut view = bboxy450_harness::frontends::gui::view::HarnessView::default();
                 view.set_theme(theme);
+                view.scroll.anchor(123., 1000.);
+                let base: bboxy450_harness::protocol::Envelope = serde_json::from_str(
+                    include_str!("fixtures/protocol/all-items.jsonl")
+                        .lines()
+                        .next()
+                        .unwrap(),
+                )
+                .unwrap();
+                let mut model = bboxy450_harness::frontends::gui::model::Transcript::default();
+                model.apply(&base);
+                model.profile = Some(("missing".into(), "unconfigured".into()));
                 let state = bboxy450_harness::frontends::gui::bridge::FrameState {
                     onboarding: Arc::new(snapshot.clone()),
+                    transcript: Arc::new(model),
                     ready: true,
-                    replay: true,
                     ..Default::default()
                 };
                 let frame = view.render(&state, [width as f32, 1000.]).unwrap();
@@ -305,14 +327,37 @@ async fn onboarding_native_setup_cards_and_markdown_raster() {
                     .rect;
                 assert!(heading.y >= viewport.y - 1., "welcome must open at the top");
 
+                let panel = bboxy450_harness::frontends::gui::view::find(layout, "setup/panel")
+                    .unwrap()
+                    .rect;
+                assert!(
+                    (panel.x + panel.w / 2. - width as f32 / 2.).abs() < 1.,
+                    "panel {panel:?}"
+                );
+                assert!(panel.w <= 600. && panel.x >= 15.);
+                let portrait =
+                    bboxy450_harness::frontends::gui::view::find(layout, "setup/portrait/mark")
+                        .unwrap()
+                        .rect;
+                assert!((portrait.x + portrait.w / 2. - width as f32 / 2.).abs() < 1.);
+                for slug in ["codex", "claude", "pi"] {
+                    let row = bboxy450_harness::frontends::gui::view::find(
+                        layout,
+                        &format!("setup/{slug}/row"),
+                    )
+                    .unwrap()
+                    .rect;
+                    assert!(
+                        row.h < 125. && row.bottom() < viewport.bottom(),
+                        "compact visible row: {row:?}"
+                    );
+                }
                 let text = bboxy450_harness::frontends::gui::view::layout_text(layout);
                 assert!(
                     text.contains("Codex")
                         && text.contains("adapter missing")
-                        && text.contains("npm install --global")
-                        && text
-                            .replace(' ', "")
-                            .contains("@agentclientprotocol/codex-acp@2.5.0")
+                        && !text.contains("npm install --global")
+                        && !text.contains("Authentication and model selection")
                 );
                 assert!(frame.actions.iter().any(|(_, a)| matches!(
                     a,
@@ -339,6 +384,51 @@ async fn onboarding_native_setup_cards_and_markdown_raster() {
                         .write_image_data(&rgba)
                         .unwrap();
                 }
+                // Operate the actual retained disclosure action, then restore both scrolls.
+                use bboxy450_harness::frontends::gui::{
+                    bridge::Bridge,
+                    view::{Action, find, layout_text},
+                };
+                struct Quiet;
+                impl bbt_rt::Waker for Quiet {
+                    fn wake(&self) {}
+                }
+                let bridge = Bridge::new(Arc::new(Quiet));
+                let details = frame
+                    .actions
+                    .iter()
+                    .find_map(|(_, a)| match a {
+                        Action::SetupDetails(Agent::Codex) => Some(a.clone()),
+                        _ => None,
+                    })
+                    .unwrap();
+                view.activate(details.clone(), &bridge);
+                let expanded = view.render(&state, [width as f32, 1000.]).unwrap();
+                let text = layout_text(expanded.layout.as_ref().unwrap());
+                assert!(
+                    text.contains("npm install --global")
+                        && text
+                            .replace(' ', "")
+                            .contains("@agentclientprotocol/codex-acp@2.5.0")
+                );
+                view.scroll.anchor(57., 1000.);
+                view.activate(Action::Setup(false), &bridge);
+                view.render(&state, [width as f32, 1000.]).unwrap();
+                assert_eq!(
+                    view.scroll.layout_offset(),
+                    123.,
+                    "conversation scroll restored"
+                );
+                view.activate(Action::Setup(true), &bridge);
+                view.render(&state, [width as f32, 1000.]).unwrap();
+                assert_eq!(view.scroll.layout_offset(), 57., "setup scroll restored");
+                view.activate(details, &bridge);
+                let collapsed = view.render(&state, [width as f32, 1000.]).unwrap();
+                assert!(find(collapsed.layout.as_ref().unwrap(), "setup/panel").is_some());
+                assert!(
+                    !layout_text(collapsed.layout.as_ref().unwrap())
+                        .contains("npm install --global")
+                );
             }
         }
     })
@@ -349,26 +439,44 @@ async fn onboarding_native_setup_cards_and_markdown_raster() {
 #[tokio::test]
 async fn onboarding_loader_welcome_routing() {
     use bboxy450_harness::{
-        frontends::gui::{bridge::FrameState, model::Transcript, view::{HarnessView, Preparer, find, layout_text}},
-        protocol::*, runtime,
+        frontends::gui::{
+            bridge::FrameState,
+            model::Transcript,
+            view::{HarnessView, Preparer, find, layout_text},
+        },
+        protocol::*,
+        runtime,
     };
     runtime::blocking(|| {
         let root = tempfile::tempdir().unwrap();
         let env = env(root.path());
         executable(&env, "codex", "exit 0");
-        let mut state = FrameState { onboarding: Arc::new(discover(&env)), ..Default::default() };
+        let mut state = FrameState {
+            onboarding: Arc::new(discover(&env)),
+            ..Default::default()
+        };
         let render = |state: &FrameState, expected: &str| {
             let mut view = HarnessView::default();
             let frame = view.render(state, [800., 900.]).unwrap();
             let layout = frame.layout.as_ref().unwrap();
-            assert!(find(layout, expected).is_some(), "expected {expected}: {}", layout_text(layout));
+            assert!(
+                find(layout, expected).is_some(),
+                "expected {expected}: {}",
+                layout_text(layout)
+            );
             assert!(find(layout, "setup").is_none() || expected == "setup");
         };
         // Discovery can finish before connection, catalogue, metadata or replay.
         render(&state, "session-loader");
         state.ready = true;
         render(&state, "session-loader");
-        let base: Envelope = serde_json::from_str(include_str!("fixtures/protocol/all-items.jsonl").lines().next().unwrap()).unwrap();
+        let base: Envelope = serde_json::from_str(
+            include_str!("fixtures/protocol/all-items.jsonl")
+                .lines()
+                .next()
+                .unwrap(),
+        )
+        .unwrap();
         let mut model = Transcript::default();
         model.apply(&base);
         state.transcript = Arc::new(model.clone());
@@ -385,21 +493,66 @@ async fn onboarding_loader_welcome_routing() {
         // Out-of-turn history has no turns entry, but remains history while preparing.
         let id = ItemId::new();
         let mut event = base.clone();
-        event.seq = Some(Seq(2)); event.at = Seq(2);
-        event.event = Event::ItemStarted { turn: None, item: id, kind: ItemKind::Notice, parent: None, head: None };
+        event.seq = Some(Seq(2));
+        event.at = Seq(2);
+        event.event = Event::ItemStarted {
+            turn: None,
+            item: id,
+            kind: ItemKind::Notice,
+            parent: None,
+            head: None,
+        };
         model.apply(&event);
-        event.seq = Some(Seq(3)); event.at = Seq(3);
-        event.event = Event::ItemCompleted { item: id, status: ItemStatus::Completed, body: Item::Notice { level: Level::Info, text: "Preserved history".into() } };
+        event.seq = Some(Seq(3));
+        event.at = Seq(3);
+        event.event = Event::ItemCompleted {
+            item: id,
+            status: ItemStatus::Completed,
+            body: Item::Notice {
+                level: Level::Info,
+                text: "Preserved history".into(),
+            },
+        };
         model.apply(&event);
         assert!(model.turns.is_empty());
         state.transcript = Arc::new(model);
         render(&state, "session-loader");
-        state.prepared = Some(Arc::new(Preparer::default().prepare(state.transcript.clone(), 800.).unwrap()));
+        state.prepared = Some(Arc::new(
+            Preparer::default()
+                .prepare(state.transcript.clone(), 800.)
+                .unwrap(),
+        ));
         render(&state, &format!("item/{id}"));
+        let mut fresh = state.clone();
+        fresh.created_here = true;
+        Arc::make_mut(&mut fresh.transcript).profile = None;
+        render(&fresh, "setup");
+        let mut startup_view = HarnessView::default();
+        assert!(
+            layout_text(
+                startup_view
+                    .render(&fresh, [800., 900.])
+                    .unwrap()
+                    .layout
+                    .as_ref()
+                    .unwrap()
+            )
+            .contains("Preserved history")
+        );
         state.ready = false;
         let mut view = HarnessView::default();
-        assert!(layout_text(view.render(&state, [800.,900.]).unwrap().layout.as_ref().unwrap()).contains("Preserved history"));
-    }).await;
+        assert!(
+            layout_text(
+                view.render(&state, [800., 900.])
+                    .unwrap()
+                    .layout
+                    .as_ref()
+                    .unwrap()
+            )
+            .contains("Preserved history")
+        );
+    })
+    .await;
 }
 
 #[cfg(feature = "standalone")]

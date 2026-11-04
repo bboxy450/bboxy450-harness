@@ -137,6 +137,8 @@ pub struct FrameState {
     pub notice: Option<String>,
     pub replay: bool,
     pub ready: bool,
+    /// The UI created this exact session; attached/replayed history never has this intent.
+    pub created_here: bool,
     /// Profiles in the machine-global profiles directory, for the switcher.
     pub profiles: Arc<Vec<ProfileInfo>>,
     pub onboarding: Arc<crate::onboarding::Snapshot>,
@@ -359,6 +361,7 @@ pub struct Bridge {
     /// Profile switches for the live session's host worker.
     switch: Option<tokio::sync::mpsc::UnboundedSender<String>>,
     setup: Option<Arc<crate::onboarding::Controller>>,
+    created_session: Option<SessionId>,
     #[cfg(feature = "test-fixtures")]
     before_host: Option<BeforeHost>,
 }
@@ -394,6 +397,7 @@ impl Bridge {
             worker: None,
             switch: None,
             setup: None,
+            created_session: None,
             #[cfg(feature = "test-fixtures")]
             before_host: None,
         }
@@ -406,6 +410,7 @@ impl Bridge {
     }
     /// IO is scheduled, never awaited by the caller/frame owner.
     pub fn replay(&mut self, path: PathBuf) {
+        self.created_session = None;
         let mailbox = self.mailbox.clone();
         let detach = self.detach.clone();
         self.worker = Some(bbt_rt::handle().spawn(async move {
@@ -489,13 +494,16 @@ impl Bridge {
         tx.send(profile).map_err(|_| "the session host has stopped")
     }
     pub fn create(&mut self, config: Config) {
+        self.created_session = Some(config.meta.session);
         self.start(config, None, None)
     }
     pub fn resume(&mut self, config: Config, session: SessionId) {
+        self.created_session = None;
         self.start(config, None, Some(session))
     }
     /// Render another harness's native session live (read-only until `/profile` forks it).
     pub fn watch(&mut self, config: Config, native: Option<crate::import::Native>, path: PathBuf) {
+        self.created_session = None;
         self.start(config, Some((native, path)), None)
     }
     fn attach_setup(&mut self, profiles: Option<PathBuf>) {
@@ -639,6 +647,7 @@ impl Bridge {
         self.attach(gateway);
     }
     pub fn attach(&mut self, gateway: InProc) {
+        self.created_session = None;
         let mailbox = self.mailbox.clone();
         let detach = self.detach.clone();
         self.worker =
@@ -658,6 +667,7 @@ impl Bridge {
         after: Option<(Epoch, Seq)>,
         profiles: Option<PathBuf>,
     ) {
+        self.created_session = None;
         self.attach_setup(profiles.clone());
         let mailbox = self.mailbox.clone();
         let detach = self.detach.clone();
@@ -708,6 +718,8 @@ impl Bridge {
         );
         self.messages.complete_drain();
         self.mailbox.latest.complete_drain();
+        state.created_here =
+            self.created_session.is_some() && self.created_session == state.transcript.session;
         // Retire on the UI owner's consumed projection, after worker preparation.
         // Clearing at event arrival could briefly show neither gray nor blue.
         if self
