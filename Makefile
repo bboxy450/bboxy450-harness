@@ -15,6 +15,7 @@ test:
 
 help:
 	@printf '%s\n' \
+	  'make verify-harness-attachments  Focused private composer, clipboard, ACP and ownership checks' \
 	  'make test                       Full unattended unit, integration, formal, GUI and packaging checks' \
 	  'make test-formal                Native Yarn/formal checks and broken controls' \
 	  'make test-formal-parity         Native/Java TLC graph and verdict parity' \
@@ -221,3 +222,7 @@ verify-harness-card-bounds:
 .PHONY: verify-quiet-code-cards
 verify-quiet-code-cards:
 	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-quiet-code-cards.py
+
+.PHONY: verify-harness-attachments
+verify-harness-attachments:
+	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-harness-attachments.py

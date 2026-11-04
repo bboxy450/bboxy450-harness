@@ -144,6 +144,7 @@ impl Transcript {
             return Effect::None;
         }
         match &e.event {
+            Event::InputCapabilities { .. } => {}
             Event::SessionStarted { meta } => self.meta = Some(meta.clone()),
             Event::ProfileChanged { profile, model } => {
                 self.profile = Some((profile.clone(), model.clone()))

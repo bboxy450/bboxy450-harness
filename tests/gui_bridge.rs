@@ -503,9 +503,21 @@ async fn stale_unknown_dispatch_does_not_hold_detach_on_the_replacement_session(
         let mut bytes = serde_json::to_vec(&hello).unwrap();
         bytes.push(b'\n');
         write.write_all(&bytes).await.unwrap();
-        line.clear();
-        read.read_line(&mut line).await.unwrap();
-        let op: OpEnvelope = serde_json::from_str(&line).unwrap();
+        let op = loop {
+            line.clear();
+            read.read_line(&mut line).await.unwrap();
+            let op: OpEnvelope = serde_json::from_str(&line).unwrap();
+            if matches!(op.op, Op::QueryInputCapabilities { .. }) {
+                // Legacy actor: acknowledgement is not image-intake support.
+                let ack = serde_json::json!({"op_id":op.op_id,"ack":{"op_id":op.op_id,"duplicate":false}});
+                write
+                    .write_all(format!("{ack}\n").as_bytes())
+                    .await
+                    .unwrap();
+                continue;
+            }
+            break op;
+        };
         assert!(matches!(op.op, Op::UserTurn { .. }));
         // Close the session before the deliberately withheld admission reply.
         // The consumer leaves this connection's receive loop while the reply

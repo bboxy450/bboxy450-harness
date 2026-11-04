@@ -67,6 +67,10 @@ pub struct OpEnvelope {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Op {
+    /// Harmless actor-level negotiation, never a model prompt or a permission grant.
+    QueryInputCapabilities {
+        request: OpId,
+    },
     StartSession {
         cwd: PathBuf,
         profile: Option<String>,
@@ -176,6 +180,11 @@ pub struct Envelope {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
+    /// Ephemeral response bound to the live subscriber's fresh challenge.
+    InputCapabilities {
+        request: OpId,
+        image_custody_version: u32,
+    },
     SessionStarted {
         meta: SessionMeta,
     },
@@ -1236,6 +1245,11 @@ impl InputBlock {
             Self::Text { text } => text.clone(),
             Self::Image { blob } => format!("Image: {} · {} bytes", blob.mime, blob.len),
             Self::Audio { blob } => format!("Audio: {} · {} bytes", blob.mime, blob.len),
+            Self::Resource {
+                uri,
+                mime,
+                blob: Some(blob),
+            } if uri.starts_with("bboxy-intake:") => format!("Image: {mime} · {} bytes", blob.len),
             Self::Resource { uri, mime, .. } => format!("Resource: {uri} · {mime}"),
             Self::ResourceLink { uri, title } => {
                 format!("{}: {uri}", title.as_deref().unwrap_or("Resource"))
