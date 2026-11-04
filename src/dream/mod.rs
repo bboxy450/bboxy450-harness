@@ -13,9 +13,11 @@ pub mod fingerprint;
 pub mod graph;
 pub mod join;
 pub mod projection;
+pub mod prompt;
 pub mod receipt;
 pub mod resolve;
 pub mod seal;
+pub mod synth;
 pub mod trust;
 
 pub fn directory() -> std::io::Result<std::path::PathBuf> {
@@ -26,6 +28,9 @@ pub fn directory() -> std::io::Result<std::path::PathBuf> {
 pub async fn cli(args: impl Iterator<Item = String>) -> Result<i32, String> {
     let mut args = args;
     let subcommand = args.next();
+    if subcommand.as_deref() == Some("synthesize") {
+        return Box::pin(synth::cli(args)).await;
+    }
     if let Some(subcommand @ ("audit" | "graph" | "why")) = subcommand.as_deref() {
         return audit::cli(subcommand, args).await;
     }
