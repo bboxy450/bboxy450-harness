@@ -151,3 +151,5 @@ and shared user Markdown bubbles are project-authored contributions. Adapter
 commands and recipes are factual contracts reviewed from the ACP registry,
 https://github.com/agentclientprotocol/registry, and the linked adapter projects;
 no registry code or dynamically downloaded installer command is embedded.
+
+- Shared clean-start profile selection and private CLI/GUI witnesses are project-owned; retain the canonical origin and policy above with extracts.

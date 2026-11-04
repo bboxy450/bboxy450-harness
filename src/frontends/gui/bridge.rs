@@ -495,16 +495,21 @@ impl Bridge {
     }
     pub fn create(&mut self, config: Config) {
         self.created_session = Some(config.meta.session);
-        self.start(config, None, None)
+        self.start(config, None, None, false)
+    }
+    /// Standalone new-session startup shares headless discovery and precedence.
+    pub fn create_with_defaults(&mut self, config: Config) {
+        self.created_session = Some(config.meta.session);
+        self.start(config, None, None, true)
     }
     pub fn resume(&mut self, config: Config, session: SessionId) {
         self.created_session = None;
-        self.start(config, None, Some(session))
+        self.start(config, None, Some(session), false)
     }
     /// Render another harness's native session live (read-only until `/profile` forks it).
     pub fn watch(&mut self, config: Config, native: Option<crate::import::Native>, path: PathBuf) {
         self.created_session = None;
-        self.start(config, Some((native, path)), None)
+        self.start(config, Some((native, path)), None, false)
     }
     fn attach_setup(&mut self, profiles: Option<PathBuf>) {
         let dir = profiles.clone();
@@ -541,9 +546,10 @@ impl Bridge {
     }
     fn start(
         &mut self,
-        config: Config,
+        mut config: Config,
         watch: Option<(Option<crate::import::Native>, PathBuf)>,
         resume: Option<SessionId>,
+        bootstrap: bool,
     ) {
         self.attach_setup(Some(config.profiles.clone()));
         let mailbox = self.mailbox.clone();
@@ -553,6 +559,11 @@ impl Bridge {
         #[cfg(feature = "test-fixtures")]
         let before_host = self.before_host.take();
         self.worker = Some(bbt_rt::handle().spawn(async move {
+            if bootstrap {
+                config.meta.profile = Some(crate::onboarding::bootstrap(
+                    config.profiles.clone(), config.meta.profile.take(), true,
+                ).await);
+            }
             crate::capability::register(&config.redactor).await;
             let session = resume.unwrap_or(config.meta.session);
             mailbox.blobs.store(Some(Arc::new(crate::store::Blobs {

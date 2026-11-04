@@ -9,7 +9,8 @@ use std::path::PathBuf;
 #[derive(Debug)]
 pub struct Options {
     pub replay: Option<PathBuf>,
-    pub profile: String,
+    /// Explicit selection; defaults resolve on the Bridge worker after discovery.
+    pub profile: Option<String>,
     pub cwd: PathBuf,
     pub headless: bool,
     pub screenshot: PathBuf,
@@ -39,7 +40,7 @@ impl Options {
     pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
         let mut out = Self {
             replay: None,
-            profile: "nemotron".into(),
+            profile: None,
             cwd: std::env::current_dir().map_err(|e| e.to_string())?,
             headless: false,
             screenshot: ".bboxy/runs/gui-smoke.png".into(),
@@ -55,7 +56,7 @@ impl Options {
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--replay" => out.replay = Some(args.next().ok_or("missing replay path")?.into()),
-                "--profile" => out.profile = args.next().ok_or("missing profile")?,
+                "--profile" => out.profile = Some(args.next().ok_or("missing profile")?),
                 "--resume" => {
                     out.resume = Some(crate::protocol::SessionId(
                         args.next()
