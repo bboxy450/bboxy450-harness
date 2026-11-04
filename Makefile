@@ -19,6 +19,8 @@ help:
 	  'make verify-harness-onboarding  Private discovery, setup, installer and user Markdown checks' \
 	  'make verify-harness-attachments  Focused private composer, clipboard, ACP and ownership checks' \
 	  'make test                       Full unattended unit, integration, formal, GUI and packaging checks' \
+	  'make test-licenses              Offline suite policy, source credit and negative controls' \
+	  'make check-license-packages     Check actual Cargo package contents without compiling' \
 	  'make test-formal                Native Yarn/formal checks and broken controls' \
 	  'make test-formal-parity         Native/Java TLC graph and verdict parity' \
 	  'make verify-gui-polish          Focused MCP output, prompt projection, loader and changed model checks' \
@@ -65,6 +67,16 @@ bench-budgets:
 
 test-licenses:
 	python3 -I scripts/checks.py headers
+	python3 -I scripts/suite-licenses.py
+	python3 -I scripts/test-suite-licenses.py
+
+.PHONY: check-licenses check-license-packages
+check-licenses:
+	python3 -I scripts/checks.py headers
+	python3 -I scripts/suite-licenses.py
+
+check-license-packages: check-licenses
+	python3 -I scripts/suite-licenses.py --packages
 
 test-secrets:
 	python3 -I scripts/checks.py secrets
@@ -99,7 +111,7 @@ GPG_KEY := 9B07E849480C68328CA20684844ECC0587DE7AB0
 REQUIREMENT := identifier "com.bboxy450.harness" and anchor apple generic and certificate leaf[subject.OU] = "UQB3368A84"
 
 .PHONY: test-app-startup-control app-files app app-unsigned install install-unsigned install-cli smoke-app release-dry release test-app-packaging
-app-files:
+app-files: check-licenses
 	@test "$$(uname -s)" = Darwin || { echo 'macOS is required' >&2; exit 2; }
 	cargo build --locked --release --features standalone --target-dir '$(TARGET_DIR)'
 	@set -eu; rm -rf '$(BUNDLE)/Contents'; \
@@ -108,11 +120,11 @@ app-files:
 	cp '$(TARGET_DIR)/release/$(APP)' '$(BUNDLE)/Contents/MacOS/$(APP)'; \
 	cp packaging/macos/launcher.sh '$(BUNDLE)/Contents/MacOS/launcher'; \
 	chmod 755 '$(BUNDLE)/Contents/MacOS/launcher'; \
-	cp LICENSE ATTRIBUTION.md packaging/macos/bboxy.icns '$(BUNDLE)/Contents/Resources/'; \
+	cp LICENSE NOTICE ATTRIBUTION.md packaging/macos/bboxy.icns '$(BUNDLE)/Contents/Resources/'; \
 	plutil -replace CFBundleShortVersionString -string '$(APP_VERSION)' '$(BUNDLE)/Contents/Info.plist'; \
 	plutil -replace CFBundleVersion -string "$$(git rev-list --count HEAD)" '$(BUNDLE)/Contents/Info.plist'; \
 	revision=$$(git rev-parse HEAD); \
-	git diff --quiet HEAD -- src tests scripts packaging Cargo.toml Cargo.lock Makefile LICENSE ATTRIBUTION.md README.md || revision="$$revision-dirty"; \
+	git diff --quiet HEAD -- src tests scripts packaging Cargo.toml Cargo.lock Makefile LICENSE NOTICE ATTRIBUTION.md licensing.json README.md || revision="$$revision-dirty"; \
 	plutil -insert BBOXYSourceRevision -string "$$revision" '$(BUNDLE)/Contents/Info.plist'; \
 	plutil -lint '$(BUNDLE)/Contents/Info.plist'
 

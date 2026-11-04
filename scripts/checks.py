@@ -24,7 +24,10 @@ def headers():
         if not toml and path.suffix not in {'.rs','.py','.sh'}:continue
         lines=path.read_text().splitlines()
         if lines and lines[0].startswith('#!/') :lines=lines[1:]
-        expected=HEADER if path.suffix=='.rs' else [l.replace('//','#',1) for l in HEADER]
+        notice=HEADER
+        if path.relative_to(ROOT).as_posix() in {'scripts/suite-licenses.py','scripts/test-suite-licenses.py'}:
+            notice=[line.replace('bboxy450-harness','bboxy450-term') for line in HEADER]
+        expected=notice if path.suffix=='.rs' else [l.replace('//','#',1) for l in notice]
         if lines[:6]!=expected:raise ValueError('source header differs: '+str(path.relative_to(ROOT)))
     print('headers: PASS')
 # Published identifiers, not credentials: the machine's public GPG signing fingerprint (~/.agents/AGENTS.md IDENTITY).

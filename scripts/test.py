@@ -55,7 +55,7 @@ def main():
             ['make','test-formal-parity'],
             ['python3','-I','scripts/checks.py','secrets'],
             ['python3','-I','scripts/checks.py','secrets-control'],
-            ['python3','-I','scripts/checks.py','headers'],
+            ['make','test-licenses'],
             ['python3','-I','scripts/checks.py','kb-records'],
             ['python3','-I','scripts/checks.py','kb-records-control'],
             ['python3','-I','scripts/checks.py','inventory-shape'],

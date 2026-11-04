@@ -9,6 +9,7 @@ from pathlib import Path
 import plistlib
 import shutil
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,6 +67,29 @@ with tempfile.TemporaryDirectory(prefix='harness launcher ') as private:
     # identity and signing failure must both stop, with no ad-hoc fallback.
     tools = root / 'tools'
     tools.mkdir()
+    (tools / 'python3').symlink_to(sys.executable)
+    cargo = tools / 'cargo'
+    cargo.write_text('''#!/bin/sh
+set -eu
+output=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = --target-dir ]; then shift; output=$1; fi
+  shift
+done
+test -n "$output"
+mkdir -p "$output/release"
+cp /bin/echo "$output/release/bboxy450-harness"
+''')
+    cargo.chmod(0o755)
+    legal_bundle = root / 'license-build/bboxy450-harness.app'
+    result = subprocess.run(
+        ['make', '-s', 'app-files', f'TARGET_DIR={root / "license-target"}',
+         f'BUNDLE={legal_bundle}'], cwd=ROOT,
+        env={**env, 'PATH': str(tools) + ':/usr/bin:/bin'},
+        capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    for name in ['LICENSE', 'NOTICE', 'ATTRIBUTION.md']:
+        assert (legal_bundle / 'Contents/Resources' / name).read_bytes() == (ROOT / name).read_bytes(), name
     security = tools / 'security'
     codesign = tools / 'codesign'
     calls = root / 'codesign-calls'
@@ -149,4 +173,4 @@ with tempfile.TemporaryDirectory(prefix='harness launcher ') as private:
     link_cli()
     assert (cli_dir / 'bboxy450-harness').is_symlink(), 'CLI link was not created'
     assert (cli_dir / 'bboxy450-harness').resolve() == (installed / 'Contents/MacOS/bboxy450-harness').resolve()
-print('app-packaging: PASS; launcher defaults, CLI passthrough, signing refusals, repeated unsigned install, retained inode/Contents, valid codesign, optional CLI link')
+print('app-packaging: PASS; bundled license/notices, launcher defaults, CLI passthrough, signing refusals, repeated unsigned install, retained inode/Contents, valid codesign, optional CLI link')

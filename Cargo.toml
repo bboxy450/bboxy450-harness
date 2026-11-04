@@ -14,6 +14,7 @@ authors = ["Boxy <bboxy450@gmail.com>"]
 description = "A GUI-first coding-agent harness with one replayable protocol"
 repository = "https://github.com/bboxy450/bboxy450-harness"
 license-file = "LICENSE"
+exclude = [".bboxy/**", "target/**"]
 
 [features]
 default = ["acp-agent"]
