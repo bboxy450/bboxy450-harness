@@ -1633,11 +1633,10 @@ pub fn thought_row(
         took.filter(|ms| *ms >= 1000)
             .map(|ms| format!("Thought for {}", duration(ms)))
     };
-    // .hx-tk: the icon, the label, then (settled only) the gist and the chevron; live, the
-    // label trails three dots. Each part is named for the motion pass.
+    // Reasoning uses the same running/completed indicator as tool calls.
     let mut kids = vec![fixed(named(
         format!("{key}/icon"),
-        icon("think", if live { ink.seat } else { ink.dim }, 14., 1.5),
+        status_disc(&if live { Status::Running } else { Status::Done }, ink),
     ))];
     if let Some(label) = label {
         kids.push(fixed(named(
@@ -1645,9 +1644,7 @@ pub fn thought_row(
             line(label, 12., 650, ink.fg, false),
         )));
     }
-    if live {
-        kids.push(fixed(named(format!("{key}/dots"), dots(ink.seat))));
-    } else {
+    if !live {
         // .hx-gist: ellipsised, the chevron right after it (.hx-tk is inline flex); the
         // view hides the chevron until the row is hovered or open
         kids.push(c::Item {

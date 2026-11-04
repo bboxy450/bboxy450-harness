@@ -391,23 +391,6 @@ pub fn bounce_dot(node: &mut Layout, (dy, alpha): (f32, f32)) {
         }
     }
 }
-/// The three dots under a `dots` node, staggered by `lag` of the cycle each.
-fn bounce_dots(node: &mut Layout, phase: f32, lag: f32) {
-    fn paths<'a>(node: &'a mut Layout, out: &mut Vec<&'a mut Layout>) {
-        if matches!(node.kind, LayoutKind::Path { .. }) {
-            out.push(node);
-            return;
-        }
-        for child in &mut node.children {
-            paths(child, out);
-        }
-    }
-    let mut dots = vec![];
-    paths(node, &mut dots);
-    for (k, dot) in dots.into_iter().enumerate() {
-        bounce_dot(dot, bounce(phase - lag * k as f32));
-    }
-}
 /// Scales the alpha of a box's border (the running card dims its ring under the orbit).
 pub fn dim_border(node: &mut Layout, alpha: f32) {
     if let LayoutKind::Box { style, .. } = &mut node.kind
@@ -770,11 +753,14 @@ impl Motion {
                         ));
                     }
                 }
-                // a live thought: the icon spins, the label sheens, the dots bounce
+                // A live thought shares the tool status pulse; its label keeps the subtle sheen.
                 "reasoning" if rest.ends_with("/toggle/icon") => {
                     if id(rest).is_some_and(|id| live(&id)) {
-                        let base = icon_points("think", node.rect.w, 0.);
-                        turn_path(node, &base, 360. * anim.cycle(SPIN_MS));
+                        let phase = anim.cycle(BOUNCE_MS);
+                        return fade_node(
+                            node,
+                            0.75 + 0.25 * (phase * std::f32::consts::TAU).cos(),
+                        );
                     }
                 }
                 "reasoning" if rest.ends_with("/toggle/label") => {
@@ -785,9 +771,6 @@ impl Motion {
                         label_runs(node, &mut runs);
                         out.extend(sheen(&runs, phase, ink.fg, ink.seat));
                     }
-                }
-                "reasoning" if rest.ends_with("/toggle/dots") => {
-                    bounce_dots(node, anim.cycle(BOUNCE_MS), 0.16);
                 }
                 // folds: the chevron turns 0 → 90°, the body fades in
                 "reasoning" | "toolhead" if rest.ends_with("/chev") => {

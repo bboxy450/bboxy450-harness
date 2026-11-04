@@ -148,6 +148,7 @@ pub enum Action {
     /// A profile switcher row: the same path as `/profile NAME`.
     SwitchProfile(String),
     AgentConfig(OpEnvelope),
+    ConfigMenu(String),
     PanelScroll(String, [f32; 2]),
     /// Inside an open menu (true) keeps it; outside it (false) closes it.
     Menu(bool),
@@ -238,6 +239,8 @@ pub struct HarnessView {
     setup_visible: bool,
     setup_details: std::collections::BTreeSet<crate::onboarding::Agent>,
     inactive_scroll: chat_scroll::State,
+    config_open: Option<String>,
+    config_selected: usize,
     config_scroll: f32,
     config_menu_rect: Option<Rect>,
     pub scroll: chat_scroll::State,
@@ -294,12 +297,14 @@ pub struct HarnessView {
 enum MenuKind {
     Slash,
     Profiles,
+    Config,
 }
 impl MenuKind {
     fn id(self) -> &'static str {
         match self {
             MenuKind::Slash => "menu/slash",
             MenuKind::Profiles => "menu/profiles",
+            MenuKind::Config => "menu/config",
         }
     }
 }
@@ -369,6 +374,8 @@ impl Default for HarnessView {
                 s.anchor(0., f32::MAX);
                 s
             },
+            config_open: None,
+            config_selected: 0,
             config_scroll: 0.,
             config_menu_rect: None,
             scroll: Default::default(),
@@ -1005,7 +1012,7 @@ impl HarnessView {
             state.ready,
             model.profile,
             model.meta.as_ref().map(|m| &m.cwd)
-        );
+        ) + &format!("{:?}", self.config_open);
         // While the clock moves something the controls are rebuilt every frame (the composer
         // reads its tweens as it is built); at rest they are reused by key.
         let reuse = !self.anim.in_motion()
@@ -1073,18 +1080,58 @@ impl HarnessView {
                 .as_ref()
                 .and_then(|m| m.cwd.file_name())
                 .map(|n| n.to_string_lossy().into_owned());
-            let mut header = named(
-                "toolbar",
-                super::face::header(
-                    model.profile.clone(),
-                    leaf.clone(),
-                    &status,
-                    tone,
-                    self.profile_menu.is_some(),
-                    usage,
-                    &super::face::ink(ctx),
-                ),
+            let mut base_header = super::face::header(
+                model.profile.clone(),
+                leaf.clone(),
+                &status,
+                tone,
+                self.profile_menu.is_some(),
+                usage,
+                &ink,
             );
+            let mut selectors = Vec::new();
+            if let Some(config) = &model.agent_config {
+                for (category, title) in [("model", "Model"), ("thought_level", "Effort")] {
+                    if let Some(option) = config.options.iter().find(|o| o.category == category) {
+                        let value = option
+                            .choices
+                            .iter()
+                            .find(|c| c.value == option.current)
+                            .map(|c| c.name.as_str())
+                            .unwrap_or(&option.current);
+                        selectors.push(super::face::fixed(super::menu::select_chip(
+                            &format!("config/{category}"),
+                            title,
+                            value,
+                            self.config_open.as_deref() == Some(category),
+                            config.pending.is_none() && !state.replay,
+                            &ink,
+                        )));
+                    }
+                }
+            }
+            let mut header = if selectors.is_empty() {
+                base_header
+            } else if width >= 760. {
+                if let c::Element::Box(panel) = &mut base_header {
+                    let at = if model.profile.is_some() { 3 } else { 2 };
+                    panel.children.splice(at..at, selectors);
+                }
+                base_header
+            } else {
+                let controls = super::face::frame(
+                    super::face::Frame {
+                        fill: super::face::alpha(ink.seat, 0.06),
+                        padding: [0., 12., 8., 12.],
+                        gap: 8.,
+                        row: width >= 360.,
+                        ..Default::default()
+                    },
+                    selectors,
+                );
+                column(vec![base_header.into(), controls.into()], None)
+            };
+            header = named("toolbar", header);
             super::face::zoom_text(&mut header, zoom);
             // 40 px at 100 %; larger type reflows the chips and the bar grows with them
             let header_h = header
@@ -1302,6 +1349,10 @@ impl HarnessView {
                 let Some(raw) = key
                     .strip_prefix("tool/")
                     .and_then(|k| k.strip_suffix("/status"))
+                    .or_else(|| {
+                        key.strip_prefix("reasoning/")
+                            .and_then(|k| k.strip_suffix("/toggle/icon"))
+                    })
                 else {
                     return false;
                 };
@@ -1460,6 +1511,21 @@ impl HarnessView {
             }
         }
         arrows(&layout, &mut frame.actions);
+        if !state.replay
+            && state
+                .transcript
+                .agent_config
+                .as_ref()
+                .is_some_and(|c| c.pending.is_none())
+        {
+            for category in ["model", "thought_level"] {
+                if let Some(node) = find(&layout, &format!("config/{category}")) {
+                    frame
+                        .actions
+                        .push((node.rect, Action::ConfigMenu(category.into())));
+                }
+            }
+        }
         for turn in state.transcript.turns.keys() {
             for (key, action) in [
                 (format!("turn/{}/retry", turn.0), Action::Retry(*turn)),
@@ -1628,78 +1694,7 @@ impl HarnessView {
             {
                 children.push(label(error).into());
             }
-            let mut config_actions = vec![];
-            let config = state.transcript.agent_config.as_ref();
-            for (category, title) in [
-                ("model", "Agent model"),
-                ("thought_level", "Reasoning effort"),
-            ] {
-                if let Some(option) =
-                    config.and_then(|c| c.options.iter().find(|o| o.category == category))
-                {
-                    children.push(label(format!("{title}: {}", option.current)).into());
-                    for (index, choice) in option.choices.iter().enumerate() {
-                        let key = format!("acp/{category}/{index}");
-                        let enabled = config.is_some_and(|c| c.pending.is_none())
-                            && !state.replay
-                            && choice.value != option.current;
-                        let button = Button {
-                            key: None,
-                            icon: None,
-                            label: choice.name.clone(),
-                            kind: ButtonKind::Ghost,
-                            state: if enabled {
-                                ButtonState::Idle
-                            } else {
-                                ButtonState::Disabled
-                            },
-                        }
-                        .element(ctx)
-                        .map_err(|e| format!("{e:?}"))?;
-                        children.push(named(&key, button).into());
-                        if enabled {
-                            let c = config.unwrap();
-                            if let Some(session) = state.transcript.session {
-                                config_actions.push((
-                                    key,
-                                    Action::AgentConfig(OpEnvelope {
-                                        v: PROTOCOL,
-                                        session,
-                                        op_id: OpId::new(),
-                                        op: Op::SetAgentConfig {
-                                            epoch: state.transcript.epoch,
-                                            instance: c.instance,
-                                            revision: c.revision,
-                                            config_id: option.id.clone(),
-                                            value: Some(choice.value.clone()),
-                                        },
-                                    }),
-                                ));
-                            }
-                        }
-                    }
-                } else {
-                    children.push(
-                        label(format!(
-                            "{title}: unavailable · agent has not advertised this control"
-                        ))
-                        .into(),
-                    );
-                }
-            }
-            children.push(
-                label(
-                    config
-                        .map(|c| c.status.as_str())
-                        .unwrap_or("Agent configuration unavailable · session not negotiated"),
-                )
-                .into(),
-            );
-            let mut content = column(children, None);
-            if let c::Element::Box(panel) = &mut content {
-                panel.style.overrides.fill = Some(ui::Paint::solid(ui::Color::Surface2));
-                panel.style.overrides.padding = Some([ui::Length::Px(8.); 4]);
-            }
+            let content = column(children, None);
             let popup_width = super::menu::profile_menu_width(width);
             let content_h = content
                 .layout(Rect::new(0., 0., popup_width, 0.), ctx, &self.metrics)?
@@ -1715,20 +1710,21 @@ impl HarnessView {
             });
             flat(&mut popup);
             let popup = popup.layout(
-                Rect::new(10., 40., super::menu::profile_menu_width(width), 0.),
+                Rect::new(
+                    10.,
+                    self.frame
+                        .layout
+                        .as_ref()
+                        .and_then(|l| find(l, "profile"))
+                        .map_or(40., |n| n.rect.bottom() + 6.),
+                    super::menu::profile_menu_width(width),
+                    0.,
+                ),
                 ctx,
                 &self.metrics,
             )?;
             self.config_menu_rect = Some(popup.rect);
             front.push((popup.rect, Action::Menu(true)));
-            for (key, action) in config_actions {
-                if let Some(node) = find(&popup, &key) {
-                    let rect = intersection(node.rect, popup.rect);
-                    if rect.w > 0. && rect.h > 0. {
-                        front.push((rect, action));
-                    }
-                }
-            }
             if let Some(node) = find(&popup, "pmenu/new") {
                 let rect = intersection(node.rect, popup.rect);
                 if rect.w > 0. && rect.h > 0. {
@@ -1746,6 +1742,81 @@ impl HarnessView {
                 }
             }
             Some((MenuKind::Profiles, popup, selected, true))
+        } else if let Some(category) = &self.config_open
+            && let Some(option) = state
+                .transcript
+                .agent_config
+                .as_ref()
+                .and_then(|c| c.options.iter().find(|o| &o.category == category))
+        {
+            let prefix = format!("acp/{category}");
+            let keys: Vec<_> = (0..option.choices.len())
+                .map(|i| format!("{prefix}/{i}"))
+                .collect();
+            let selected = keys.get(self.config_selected).cloned();
+            let look = look(
+                &mut self.anim,
+                &keys,
+                selected.as_deref(),
+                hovered.as_deref(),
+            );
+            let current = option
+                .choices
+                .iter()
+                .position(|c| c.value == option.current)
+                .unwrap_or(usize::MAX);
+            let names = option
+                .choices
+                .iter()
+                .map(|c| c.name.clone())
+                .collect::<Vec<_>>();
+            let content = super::menu::select_menu(&prefix, &names, current, &look, &ink);
+            let anchor = self
+                .frame
+                .layout
+                .as_ref()
+                .and_then(|l| find(l, &format!("config/{category}")))
+                .map(|n| n.rect)
+                .unwrap_or(Rect::new(10., 0., 200., 40.));
+            let popup_width = (width - 20.).clamp(180., 280.);
+            let y = anchor.bottom() + 6.;
+            let content_h = content
+                .layout(Rect::new(0., 0., popup_width, 0.), ctx, &self.metrics)?
+                .rect
+                .h;
+            let viewport_h = content_h.min((size[1] - y - 8.).clamp(32., 280.));
+            self.config_scroll = self.config_scroll.min((content_h - viewport_h).max(0.));
+            let popup = c::Element::ScrollView(c::ScrollView {
+                viewport: [popup_width, viewport_h],
+                offset: [0., self.config_scroll],
+                content_width: Some(popup_width),
+                content: Box::new(content),
+            })
+            .layout(
+                Rect::new(
+                    anchor.x.min(width - popup_width - 10.).max(10.),
+                    y,
+                    popup_width,
+                    0.,
+                ),
+                ctx,
+                &self.metrics,
+            )?;
+            self.config_menu_rect = Some(popup.rect);
+            front.push((popup.rect, Action::Menu(true)));
+            for (index, key) in keys.iter().enumerate() {
+                if let Some(node) = find(&popup, key) {
+                    let rect = intersection(node.rect, popup.rect);
+                    if rect.w > 0. && rect.h > 0. {
+                        front.push((
+                            rect,
+                            config_action(state, category, index).unwrap_or(Action::Menu(false)),
+                        ));
+                        hover.push((rect, key.clone()));
+                    }
+                }
+            }
+            Some((MenuKind::Config, popup, selected, true))
         } else {
             None
         };
@@ -1763,11 +1834,9 @@ impl HarnessView {
         self.frame.hover = hover;
         let shown = open.as_ref().map(|(kind, ..)| *kind);
         if shown.is_none()
-            && self
-                .menus
-                .hover
-                .as_deref()
-                .is_some_and(|k| k.starts_with("completion/") || k.starts_with("pmenu/"))
+            && self.menus.hover.as_deref().is_some_and(|k| {
+                k.starts_with("completion/") || k.starts_with("pmenu/") || k.starts_with("acp/")
+            })
         {
             // no menu to hover: a reopened menu starts clean
             self.menus.hover = None;
@@ -1965,10 +2034,12 @@ impl HarnessView {
         self.completion.is_some()
     }
     pub fn profile_menu_open(&self) -> bool {
-        self.profile_menu.is_some()
+        self.profile_menu.is_some() || self.config_open.is_some()
     }
     /// Open (or close) the header profile switcher, as the chip click does.
     pub fn toggle_profile_menu(&mut self) {
+        self.config_open = None;
+        self.config_scroll = 0.;
         self.profile_menu = match self.profile_menu.take() {
             Some(_) => None,
             None => {
@@ -1990,6 +2061,42 @@ impl HarnessView {
     }
     /// Keys for the open profile switcher; false when it is closed.
     pub fn profile_menu_key(&mut self, key: MenuKey, bridge: &Bridge) -> bool {
+        if let Some(category) = self.config_open.clone() {
+            let option = bridge
+                .state
+                .transcript
+                .agent_config
+                .as_ref()
+                .and_then(|c| c.options.iter().find(|o| o.category == category));
+            let Some(option) = option.filter(|o| !o.choices.is_empty()) else {
+                return false;
+            };
+            let len = option.choices.len();
+            self.config_selected = self.config_selected.min(len - 1);
+            match key {
+                MenuKey::Up => self.config_selected = (self.config_selected + len - 1) % len,
+                MenuKey::Down => self.config_selected = (self.config_selected + 1) % len,
+                MenuKey::Enter => {
+                    let action = config_action(&bridge.state, &category, self.config_selected)
+                        .unwrap_or(Action::Menu(false));
+                    self.activate(action, bridge);
+                    return true;
+                }
+                MenuKey::Text(text) => {
+                    if let Some(index) = option
+                        .choices
+                        .iter()
+                        .position(|c| c.name.to_lowercase().starts_with(&text.to_lowercase()))
+                    {
+                        self.config_selected = index;
+                    }
+                }
+                MenuKey::Backspace => {}
+            }
+            self.config_scroll = self.config_selected.saturating_sub(4) as f32 * 30.;
+            self.invalidate();
+            return true;
+        }
         let profiles = self.profiles.clone();
         let Some(menu) = &mut self.profile_menu else {
             return false;
@@ -2116,7 +2223,10 @@ impl HarnessView {
             );
             return true;
         }
-        if self.completion.take().is_some() || self.profile_menu.take().is_some() {
+        if self.completion.take().is_some()
+            || self.profile_menu.take().is_some()
+            || self.config_open.take().is_some()
+        {
             self.invalidate();
             return true;
         }
@@ -2125,6 +2235,7 @@ impl HarnessView {
     /// `/profile NAME` and the switcher: continue this conversation on NAME.
     fn switch_to(&mut self, name: &str, bridge: &Bridge) {
         self.profile_menu = None;
+        self.config_open = None;
         self.notice = Some(
             if !matches!(
                 bridge.state.gateway,
@@ -2154,6 +2265,7 @@ impl HarnessView {
             }
             Action::Jump => self.scroll.follow_latest(),
             Action::AgentConfig(envelope) => {
+                self.config_open = None;
                 self.notice = match bridge.send_envelope(envelope) {
                     Ok(_) => None,
                     Err(_) => Some("Agent change not admitted · refresh the controls".into()),
@@ -2161,13 +2273,35 @@ impl HarnessView {
                 self.invalidate();
                 return;
             }
+            Action::ConfigMenu(category) => {
+                let closing = self.config_open.as_deref() == Some(&category);
+                self.config_open = if closing {
+                    None
+                } else {
+                    Some(category.clone())
+                };
+                self.profile_menu = None;
+                self.completion = None;
+                self.config_scroll = 0.;
+                self.config_selected = bridge
+                    .state
+                    .transcript
+                    .agent_config
+                    .as_ref()
+                    .and_then(|c| c.options.iter().find(|o| o.category == category))
+                    .and_then(|o| o.choices.iter().position(|c| c.value == o.current))
+                    .unwrap_or(0);
+            }
             Action::Profiles => return self.toggle_profile_menu(),
             Action::SwitchProfile(name) => {
                 self.setup_open = false;
                 return self.switch_to(&name, bridge);
             }
             Action::Menu(true) => return,
-            Action::Menu(false) => self.profile_menu = None,
+            Action::Menu(false) => {
+                self.profile_menu = None;
+                self.config_open = None;
+            }
             Action::Setup(open) => {
                 self.setup_open = open;
                 self.setup_dismissed = !open;
@@ -2381,6 +2515,30 @@ impl HarnessView {
         self.invalidate();
     }
 }
+fn config_action(state: &FrameState, category: &str, index: usize) -> Option<Action> {
+    let config = state.transcript.agent_config.as_ref()?;
+    if state.replay || config.pending.is_some() {
+        return None;
+    }
+    let option = config.options.iter().find(|o| o.category == category)?;
+    let choice = option.choices.get(index)?;
+    if choice.value == option.current {
+        return None;
+    }
+    Some(Action::AgentConfig(OpEnvelope {
+        v: PROTOCOL,
+        session: state.transcript.session?,
+        op_id: OpId::new(),
+        op: Op::SetAgentConfig {
+            epoch: state.transcript.epoch,
+            instance: config.instance,
+            revision: config.revision,
+            config_id: option.id.clone(),
+            value: Some(choice.value.clone()),
+        },
+    }))
+}
+
 pub fn intersection(a: Rect, b: Rect) -> Rect {
     let x = a.x.max(b.x);
     let y = a.y.max(b.y);
@@ -2446,6 +2604,7 @@ fn paint_overlay(
     for paint in c::paint(&chrome, ctx) {
         append_paint(&mut prims, &mut rims, paint)?;
     }
+    prims.clip(popup.rect, [7.; 4]);
     if let Some(r) = motion.sel {
         match kind {
             // seat-14, radius 8, and the 2px seat bar inset 8px top and bottom
@@ -2457,7 +2616,9 @@ fn paint_overlay(
                     Color(ink.seat),
                 );
             }
-            MenuKind::Profiles => prims.rect(r, 9., Color(alpha(ink.seat, 0.12))),
+            MenuKind::Profiles | MenuKind::Config => {
+                prims.rect(r, 7., Color(alpha(ink.seat, 0.12)))
+            }
         }
     }
     if let Some(rows) = find(popup, super::menu::LIST) {
@@ -2465,6 +2626,7 @@ fn paint_overlay(
             append_paint(&mut prims, &mut rims, paint)?;
         }
     }
+    prims.unclip();
     let r = popup.rect;
     prims.rect(
         Rect::new(r.x + 13., r.bottom(), (r.w - 26.).max(0.), 1.),
@@ -3479,6 +3641,76 @@ pub(super) fn flat(element: &mut c::Element) {
 #[cfg(test)]
 mod onboarding_markdown_tests {
     use super::*;
+    #[test]
+    fn header_dropdowns_fit_narrow_panes_and_keep_revision_fences() {
+        let mut model = Transcript::default();
+        model.session = Some(SessionId::new());
+        model.profile = Some(("codex".into(), "acp:codex-acp".into()));
+        model.agent_config = Some(AgentConfig {
+            instance: OpId::new(),
+            revision: 7,
+            pending: None,
+            status: "Confirmed by agent".into(),
+            options: ["model", "thought_level"]
+                .into_iter()
+                .map(|category| AgentOption {
+                    id: category.into(),
+                    name: category.into(),
+                    category: category.into(),
+                    current: "3".into(),
+                    legacy: false,
+                    choices: (0..8)
+                        .map(|i| AgentChoice {
+                            value: i.to_string(),
+                            name: format!("Choice {i}"),
+                        })
+                        .collect(),
+                })
+                .collect(),
+        });
+        let mut state = FrameState {
+            ready: true,
+            transcript: Arc::new(model),
+            ..Default::default()
+        };
+        for width in [240., 440., 960.] {
+            let mut view = HarnessView::default();
+            view.render(&state, [width, 520.]).unwrap();
+            for category in ["model", "thought_level"] {
+                let rect = find(
+                    view.frame.layout.as_ref().unwrap(),
+                    &format!("config/{category}"),
+                )
+                .unwrap()
+                .rect;
+                assert!(
+                    rect.x >= 0. && rect.right() <= width,
+                    "{category}: {rect:?} in {width}"
+                );
+            }
+            view.config_open = Some("model".into());
+            view.config_selected = 3;
+            view.invalidate();
+            view.render(&state, [width, 520.]).unwrap();
+            let popup = &view.menus.last.as_ref().unwrap().layout;
+            assert!(popup.rect.right() <= width && popup.rect.bottom() <= 520.);
+            assert!(popup.rect.h <= 280.);
+        }
+        let Some(Action::AgentConfig(op)) = config_action(&state, "model", 4) else {
+            panic!("choice missing")
+        };
+        assert!(matches!(op.op, Op::SetAgentConfig { revision: 7, .. }));
+        assert!(config_action(&state, "model", 3).is_none());
+        state.replay = true;
+        assert!(config_action(&state, "model", 4).is_none());
+        state.replay = false;
+        Arc::make_mut(&mut state.transcript)
+            .agent_config
+            .as_mut()
+            .unwrap()
+            .pending = Some(OpId::new());
+        assert!(config_action(&state, "model", 4).is_none());
+    }
     #[tokio::test]
     async fn onboarding_user_markdown_pending_and_history() {
         let device = bbt_render::device::DeviceContext::new().await.unwrap();

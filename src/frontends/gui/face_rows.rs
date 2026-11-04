@@ -473,39 +473,24 @@ impl Preparer {
                     )
                     .into(),
                 ];
-                if live {
-                    let mut text = f::text(format!("{summary} ▍"), 12.5, 400, ink.dim, false);
-                    text.preserve_whitespace = true;
+                // Live and completed reasoning share the streaming Markdown preparer.
+                let doc = self.documents.reasoning(
+                    id,
+                    summary,
+                    !live,
+                    content_width - 20.,
+                    self.zoom.scale(),
+                    &self.metrics,
+                )?;
+                if open {
                     kids.push(
                         named(
                             format!("reasoning/{id}/body"),
-                            f::thought_body(
-                                named(format!("stream/{id}"), c::Element::Text(text)),
-                                &ink,
-                            ),
+                            f::thought_body(doc.element.clone(), &ink),
                         )
                         .into(),
                     );
-                } else {
-                    // Completed thoughts are prepared once even while collapsed.
-                    let doc = self.documents.reasoning(
-                        id,
-                        summary,
-                        true,
-                        content_width - 20.,
-                        self.zoom.scale(),
-                        &self.metrics,
-                    )?;
-                    if open {
-                        kids.push(
-                            named(
-                                format!("reasoning/{id}/body"),
-                                f::thought_body(doc.element.clone(), &ink),
-                            )
-                            .into(),
-                        );
-                        rich = Some(doc);
-                    }
+                    rich = Some(doc);
                 }
                 f::vstack(kids, 4.)
             }

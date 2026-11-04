@@ -30,6 +30,114 @@ pub const SLASH_ROWS: usize = 8;
 /// sliding selection highlight between them (harness-spec.md Motion).
 pub const LIST: &str = "menu/list";
 
+/// Compact native select trigger, shared by the header's model and effort controls.
+pub fn select_chip(
+    key: &str,
+    title: &str,
+    value: &str,
+    open: bool,
+    enabled: bool,
+    ink: &Ink,
+) -> c::Element {
+    let control = named(
+        key,
+        frame(
+            Frame {
+                fill: alpha(ink.seat, if open { 0.14 } else { 0.06 }),
+                border: Some(alpha(ink.seat, if open { 0.5 } else { 0.12 })),
+                radius: [7.; 4],
+                padding: [5., 8., 5., 8.],
+                gap: 6.,
+                row: true,
+                ..Default::default()
+            },
+            vec![
+                fixed(tight(title, 11., 400, ink.dim, false)),
+                fixed(tight(
+                    super::face::compact_heading(value, 24),
+                    11.5,
+                    600,
+                    ink.fg,
+                    false,
+                )),
+                fixed(super::face::icon_turned(
+                    "chev",
+                    ink.dim,
+                    10.,
+                    1.6,
+                    if open { 270. } else { 90. },
+                )),
+            ],
+        ),
+    );
+    if enabled { control } else { dimmed(control) }
+}
+
+/// One bounded menu style for every advertised single-choice agent control.
+pub fn select_menu(
+    key: &str,
+    options: &[String],
+    current: usize,
+    look: &Look,
+    ink: &Ink,
+) -> c::Element {
+    let rows = options
+        .iter()
+        .enumerate()
+        .map(|(index, text)| {
+            let row_key = format!("{key}/{index}");
+            let hover = look.hover(&row_key);
+            fixed(named(
+                row_key,
+                frame(
+                    Frame {
+                        fill: alpha(ink.fg, 0.05 * hover),
+                        radius: [7.; 4],
+                        padding: [7., 10., 7., 10.],
+                        gap: 10.,
+                        row: true,
+                        ..Default::default()
+                    },
+                    vec![
+                        fill(tight(
+                            text,
+                            12.,
+                            if index == current { 600 } else { 400 },
+                            ink.fg,
+                            false,
+                        )),
+                        fixed(if index == current {
+                            icon("check", ink.seat, 14., 2.)
+                        } else {
+                            frame(
+                                Frame {
+                                    padding: [0., 14., 0., 0.],
+                                    ..Default::default()
+                                },
+                                vec![],
+                            )
+                        }),
+                    ],
+                ),
+            ))
+        })
+        .collect();
+    card(
+        vec![fixed(named(
+            LIST,
+            frame(
+                Frame {
+                    padding: [5.; 4],
+                    gap: 2.,
+                    ..Default::default()
+                },
+                rows,
+            ),
+        ))],
+        ink,
+    )
+}
+
 /// Per-row animated weights in 0..1, keyed by row name: `sel` is how far a
 /// row wears the selected look (the "/" tile tint), `hover` its pointer fill.
 /// The sliding selection fill itself is painted by the view under [`LIST`].
