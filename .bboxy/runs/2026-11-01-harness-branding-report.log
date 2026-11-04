@@ -1,113 +1,113 @@
-Task #4933 / E7: bboxy harness menu and seat branding
+Task #4933 / E7: bboxy450-harness menu and seat branding, final d5089 rework
+Task: tasks/2026-11-01-term-harness-menu-branding.md
+Task ID: 01M6CH5CMQJQV6NXPEV2K3VTCT
 Executor: E2 toolkit-widgets, seat 01M6ADTVVZS36VS43P2PG15HRQ
 Repository: https://github.com/bboxy450/bboxy450-term
 Worktree: /Users/feral/mydev/bboxy450-term-harness-branding
 Branch: harness-branding
-Base: origin/main at start, 1b59b69a
-Final source: 533b6641a946e9defe836c5a9db519a500c065d4
-PR: https://github.com/bboxy450/bboxy450-term/pull/90 (OPEN, CLEAN; head verified by gh)
-Outcome: full make test exits 0 at default concurrency, unattended. No author merge, land.sh landing, release or installation.
+Final signed source: 4e2cd9aca578a7b3acf4bd3ebdd98a473b47597c
+Base: 1b59b69a6060605910c1ee28c64a62aeffca1a2a
+PR: https://github.com/bboxy450/bboxy450-term/pull/90
+PR title: Show bboxy450-harness with its fox across seat menus and rows
+PR state verified by gh: OPEN / CLEAN; remote head equals final signed source.
+Supersedes report commit 426f2d5ed5f6845981ffa9970b1c85788b08565e for the FINAL naming ruling.
 
-Signed source commits
-533b6641a946e9defe836c5a9db519a500c065d4 Preserve the built-in seat subcommand in configured menu launches
-b0565b6527c2e978bbf489fc6c42d3f06a0ab6ee Resolve every built-in harness in remote spawn parameters
-ddbea9a2873af81fd8da027993e5c049c8cd32c0 Integrate bboxy harness branding throughout seat menus and rows
-All three signatures verified by make push-branch, 0 historical exceptions.
-Signer fingerprint 9B07E849480C68328CA20684844ECC0587DE7AB0; Boxy <bboxy450@gmail.com>.
-No Report trailer on any task commit. Source worktree clean after push.
+Outcome and binding decisions
+make test exited 0 on the exact signed source, at default concurrency without a RUST_TEST_THREADS override. Unit/integration, native harness, formal/native-TLC parity, UI lint, private headless smoke and normal invariants passed. Separate boundary, licensing, branding and omission-control targets passed. Geometry parity measured 416 required cases with 0 mismatches and 0 unproven cases.
+The visible name is exactly bboxy450-harness. There is no special display-name mapping for it. The existing fox artwork is reused. Picking the built-in item preserves the seat subcommand and existing startup-prompt/MCP route.
+Binding naming decision: decisions/d5089-harness-user-facing-name.md. The operator's final name supersedes both earlier aliases.
+Binding scope decision: decisions/d4945-e7-generated-mirror-scope.md. Release-input mirrors of authorized sources were regenerated only by make sync-release-inputs, with no hand edits.
+All six source commits are signed, with no Report trailers. make push-branch verified six signatures, the current-source formal receipt and exact-HEAD CI before the fast-forward branch push. Signer fingerprint 9B07E849480C68328CA20684844ECC0587DE7AB0; Boxy <bboxy450@gmail.com>.
+The source worktree is clean; origin/harness-branding equals 4e2cd9aca578a7b3acf4bd3ebdd98a473b47597c. No author merge, real-branch land.sh landing, release, AGENTS.md edit or KB-schema edit. Canonical Make runs its isolated landing-workflow fixtures.
 
-Files and mechanism
-crates/bbt-ui/src/modules/harness.rs:10 — one HARNESSES membership list; launchables():20 projects labels, sections and colours; icon():46 maps bboxy450-harness to bboxy; mark():60 emits an untinted Image of the existing asset, while SVG marks retain their paint.
-crates/bboxy450-term/src/settings/roles.rs:18 — re-exports the same HARNESSES, so role/settings membership and launcher membership cannot drift independently.
-crates/bboxy450-term/src/main.rs:1204,1916,2118,2913 — launcher, new-seat/split picker, machine/provider children and Settings launch labels all project the common catalogue. Routing still consumes the ID, never the display label.
-crates/bbt-ui/src/modules/settings/controller.rs:102 — all builtin launch settings, including bboxy450-harness, validate through HARNESSES.
-crates/bbt-ui/src/modules/settings.rs:310,1087,1509,2668,3091 — shared image mark, card/read-only labels, custom-harness icon palette and per-harness notification labels.
-crates/bboxy450-term/src/settings.rs:543 — shared tile and image keys; command preview preserves builtin command tails when no argument override exists.
-crates/bbt-ui/src/modules/seat_row.rs:47,131,412; strip.rs:68; closed_strip.rs:193; swarm_card.rs:757; graph_tab.rs:402,445 — shared fox mark and blue tile in sidebar seats, pane strips, retained/closed seats, launch placeholders and graph agents.
-crates/bboxy450-term/src/attention.rs:98 — desktop notification title uses the display label.
-crates/bboxy450-term/src/spawn_params.rs:173,213 — parameter fields preserve builtin subcommands (seat), and remote machine parameter selection accepts every HARNESSES member. This matters because configured picks replace the complete command.
-crates/bbt-mux/src/adapters/mod.rs:81 — builtin record keeps the ID, Pty/Cadence/hooks=false and command [bboxy450-harness,seat], with display name bboxy harness, image bboxy and tile #168BFF.
-crates/bbt-mux/src/adapters/launch.rs:135,268 — normal missing-executable process refusal exits 127 with actionable build/PATH guidance; tested in a private login-shell fixture.
-Makefile:1909 — make build-harness, focused branding, capture and omission-control entry points. Existing startup prompt/MCP flag wiring remains intact.
-lab/web/components.js; lab/web/harness-icon.html — reference menus/Settings and the mark showcase reuse bboxy.png. Both packaged components.js mirrors were generated only through make sync-release-inputs.
-verification/coverage.toml — records catalogue/PNG-pixel checks as implementation coverage for this presentation change; existing stateful models remain in the mandatory inventory.
-crates/bboxy450-term/tests/settings.rs — catalogue assertion follows HARNESSES instead of another literal list.
-crates/bboxy450-term/src/harness_branding_tests.rs — actual menu/controller, split, remote resolver, Settings, notification, sidebar/strip/closed/pending/graph layouts, role catalogue and native pixel witnesses.
-
-Scope/provenance
-Binding harness decision d4945, decisions/d4945-e7-generated-mirror-scope.md, amends task #4933 for generated release-input mirrors. Its permitted mirror was not edited by hand. scripts/release-inputs.py reports 10 identical copies.
-lab/web/bboxy.png was reused unchanged, SHA256 4fa748d487f0753b64ad3e4e9dcb86774453a9be9a6f04430aa9b0f8f66f25e8. It is the existing smaller copy of the canonical fox portrait. No logo was generated, redrawn or substituted.
+Files and mechanisms across the PR
+crates/bbt-ui/src/modules/harness.rs:10,20,34,48: one HARNESSES catalogue, menu projections, colours and shared image/icon rendering. The built-in label uses its id directly. The bboxy asset alias is used only for image lookup, not as a display name. Bitmap colours are retained; its tile is #168BFF.
+crates/bboxy450-term/src/settings/roles.rs:18 re-exports that catalogue. main.rs:1204 and its launcher/Settings projection sites derive local, split, configured-machine and provider children from it. modules/launcher.rs uses the same mark helper.
+crates/bboxy450-term/src/settings.rs and tests/settings.rs keep the record/catalogue projection complete. modules/settings/controller.rs:102 validates launch settings from the shared catalogue.
+crates/bbt-ui/src/modules/settings.rs:310,1087,1095,2668: shared fox marks, direct canonical card identity, wrapping card titles, and catalogue-derived icon choices. Read-only and notification settings use the kind directly. The wrapping title fixes the longer name being truncated in native Settings while the web reference wrapped it.
+crates/bbt-ui/src/modules/seat_row.rs, strip.rs, closed_strip.rs, swarm_card.rs and graph_tab.rs use the shared mark/tile in sidebar rows, pane strips, closed seats, launch placeholders and graph agents. modules/mod.rs exports the helper.
+crates/bbt-mux/src/adapters/mod.rs:82-98 uses the canonical kind as its record name, with fox/blue presentation. Its command remains [bboxy450-harness, seat], Pty/Cadence/hooks=false.
+crates/bboxy450-term/src/spawn_params.rs preserves builtin.command[1..] when arguments are unset, and matches machine parameter ids against HARNESSES. The retained R1 fix prevents configured menu picks from losing the seat subcommand.
+crates/bbt-mux/src/adapters/launch.rs:135 and :268: a real missing-executable process gets exit 127 and the canonical install guidance, tested against a private absent executable.
+crates/bboxy450-term/src/attention.rs:98,286: actual notification construction uses the kind directly; the table-driven witness checks every HARNESSES member and the exact canonical title.
+lab/web/components.js:52,108,1225,1955 and lab/web/harness-icon.html:9 use the same member, fox and canonical text in the reference UI and mark showcase. Both packaged components.js mirrors in bboxy450-term/release-inputs and bboxybook/release-inputs were refreshed by Make. Ten release-input copies were byte-identical.
+Makefile adds the focused branding, expected-failure control, native capture and build-harness workflows. verification/coverage.toml:184 records catalogue/layout/native-pixel checks as implementation coverage for presentation; existing stateful models remain mandatory.
+crates/bboxy450-term/src/harness_branding_tests.rs:38,55,64,190,310,381 checks actual controller outputs, launch keys/argv, layouts, images, canonical text, a narrow Settings title, native pixels and deliberately omitted membership.
+.bboxy/runs/2026-11-01-harness-branding-menu.png is the regenerated, committed native menu capture.
 
 Exact visible presentation by surface
-Launcher/new-seat root, split pickers, configured-machine/SSH/provider harness children: bboxy harness; Harness kind caption; executor by default; blue #168BFF tile containing the fox PNG.
-Placement children: New tab, Split right, Split down, carrying the same fox and kind ID. Parameter breadcrumbs use bboxy harness. The command preview legitimately shows the executable/subcommand bboxy450-harness seat.
-Settings Harnesses card: bboxy harness, built-in chip, command bboxy450-harness seat, default executor, pty, hooks false, output cadence, blue tile and fox. Read-only harness name is bboxy harness. The new-harness icon chooser includes the fox.
-Settings Notifications: per-harness row bboxy harness with the fox. Desktop notification title appends bboxy harness to the seat name.
-Sidebar seat and pane strip: existing first-name/assigned-role presentation (EXECUTOR by default) plus the fox; as for siblings, no additional harness-name label is introduced.
-Closed-seat strip: existing seat/grace presentation with the fox under the existing desaturation/opacity filter.
-Launch placeholder: existing generated seat name and launch status/caption with the fox.
-Graph agent row: existing seat name, role and activity text with the fox and builtin tile colour.
-Go-to seat entries: existing seat names/activity, using the same launcher harness mark.
-The performance HUD has no per-kind harness logo/name list. Native New Seat actions open the same launcher.
-The internal kind remains bboxy450-harness. It is not used as the builtin GUI display label.
+Launcher/new-seat, split and machine/provider choices: bboxy450-harness, fox PNG on #168BFF, executor by default, with the standard Harness caption. Placement choices retain New tab / Split right / Split down, with the fox and canonical breadcrumb.
+Settings Harnesses: bboxy450-harness, wrapping at the hyphen when the card is narrow; built-in chip; fox; executor / pty / hooks=false / output cadence. Read-only identity also says bboxy450-harness. The custom-harness icon chooser includes the fox.
+Settings Notifications: bboxy450-harness with fox. Desktop notification title: <seat name> · bboxy450-harness.
+Sidebar, pane, closed-seat, pending-spawn and graph rows: the normal seat name, role and activity, plus the fox in the same slot as sibling harnesses. These rows do not introduce an extra product-name label. Closed-seat opacity/desaturation is preserved.
+Web fox tooltips and the mark-showcase state: bboxy450-harness.
+The performance HUD has phase/counter labels, not a per-harness name/logo list; audited in modules/perf_hud.rs:26,86 and main.rs:9312.
+Missing binary: bboxy450-harness is not installed on PATH. In a bboxy450-term checkout run make build-harness, then add target/debug to PATH.
+Internal kind, executable and literal command previews are also bboxy450-harness; the builtin command preview retains seat. The image asset name remains bboxy.
 
 Acceptance evidence
-1. Table-driven completeness and real rendering
-harness_branding_tests.rs:47 iterates settings::roles::HARNESSES against the actual launcher, actual preset_launcher_items split lists, actual controller activation and configured-machine children. It checks labels, tile metadata, laid-out image marks, placement routing and resolved executable/argv against the builtin record. Remote IDs and all placement suffixes resolve for each kind; protocol role membership is checked too.
-:163 lays out actual Settings and notification controls and every seat/strip/closed/pending/graph surface for every kind; launch patches validate for all builtins.
-Final full CI lines 1720-1725: all four positive branding tests pass. :2575: the real missing-binary process test passes.
-2. Broken control is genuinely red
-:332 removes bboxy450-harness from an actual launcher result and feeds it to the same completeness assertion. Final make test-harness-branding-control exits 0 only after cargo exits 101 with broken picker omits bboxy450-harness. The normal suite also asserts rejection of that mutated membership state.
-3. Headless fox screenshot
-:262 uses the existing Scene and VerificationFrame native offscreen renderer, asserts the bboxy Image and label, and checks pixels in the actual mark bounds. The final capture contains 250 colours and 201 blue pixels in the 17px fox region. It was visually inspected.
-Committed artifact: bboxy450-term .bboxy/runs/2026-11-01-harness-branding-menu.png
-SHA256 6a82fadf3dce65377081172e54013976f6087731c240e566d818bc8c2d66361c
-The render/pixel assertion runs in the normal full unit suite as well as the explicit capture target.
-4. Working phase-1a seat remains proven
-Final CI line 4941: Ctrl-D exit code 0, 18.772125 ms; completed turn; every group ESRCH; unknown profile refused; composer-readiness-missing writes zero bytes.
-Line 4943: owner close observed ExitInfo { code: 1, signal: Some(Killed: 9) }, 268.613833 ms; every group ESRCH; HUP-ignoring tool retired; manual recovery preserved completed items; check-transcript=0. The existing case uses the scripted provider, no model key/network. Its first-line session ULID assertion remains in place.
-The menu command/argument equality witness now includes seat, so configured picks use the command covered by this native case, with the existing append-system-prompt/MCP wiring.
-5. Formal/integration/smoke gate
-Clean-source receipt ddd85e029c6a5583fd4a46f7613b3cfd28a7e5abbd155e075ef83ace6df6eb6c: source 533b6641, 205 models, 32 crates, 84 contracts; native/TLC graph and verdict parity, including expected broken-control violations. This is the receipt count; progress-line counts also included non-model summary lines.
-Final CI lines 5864-5866: 27 invariants, 0 failures, 11 standard slow skips; all gates passed; exact source normal 0.
+1. Catalogue completeness, names and logo
+The table-driven tests iterate HARNESSES against actual launcher, split, remote children, placement routes, Settings/notification layouts, rows, strips and graph marks; they check resolved executable/argv against the builtin adapter. They independently require the exact canonical label and reject the deprecated phrase and standalone interim capitalized label in laid-out text. Lowercase bboxy in the existing config path is not a product-name alias.
+The notification test calls the real notification API; the missing-binary test executes the real private login-shell path. Full CI lines 1466 and 1744-1749 show the name/layout/omission/render checks passing.
+2. Deliberately omitted surface
+make test-harness-branding-control exited 0 after the ignored actual-picker control removed bboxy450-harness, produced Rust exit 101 and the exact reason broken picker omits bboxy450-harness. The normal suite separately requires that mutation to be rejected. /tmp/branding-canonical-control-final.log.
+3. Native screenshot and existing face
+The Scene/VerificationFrame test requires both canonical text and image asset bboxy, then inspects the actual 17px fox region: 250 colours and 201 blue pixels. The committed native menu was visually inspected; it shows the complete canonical name next to the fox.
+Image SHA256 9ec93cc0ce27c06b31ecf169feaddb32a0ffb7a3f40ceb58f9ef6c7ca154d91f.
+Original lab/web/bboxy.png SHA256 4fa748d487f0753b64ad3e4e9dcb86774453a9be9a6f04430aa9b0f8f66f25e8; bytes unchanged. No new logo, redraw or substitute image.
+4. Working phase-1a harness seat
+CI line 4830: Ctrl-D exit ExitInfo { code: 0, signal: None }, close 17.888459ms; completed turn; every owned group ESRCH; unknown profile refused; composer-readiness-missing writes zero bytes.
+CI line 4832: owner close observed ExitInfo { code: 1, signal: Some(Killed: 9) }, close 259.709208ms; every group ESRCH; HUP-ignoring tool retired; manual recovery preserved completed items; check-transcript=0. The exit is recorded, not asserted. Both native cases pass; the existing first-line session ULID, turn and no-retry assertions remain in the scripted-provider witness. No provider key/network is needed.
+The separate CLOEXEC case excluded from the concurrent batch passes at CI line 4845 within test-harness-native; it is not omitted.
+5. Formal and full gate
+CI lines 5358-5359: 205 models, 32 crates and 84 contracts; clean source 4e2cd9aca578a7b3acf4bd3ebdd98a473b47597c; native/TLC graphs and safety/deadlock/liveness verdicts match. Deliberately broken controls produce their expected counterexamples. Finite bounds and implementation-only coverage remain as inventoried; no claim of arbitrary Rust or complete TLA+ semantics.
+Formal receipt SHA256 edbeea67f83899eef3dcbd1903cf487a6256d22fbce25ef3c0c8039cdc151afe, archived by the gate at /Users/feral/mydev/bboxy450-term/.git/bboxy-formal-evidence/edbeea67f83899eef3dcbd1903cf487a6256d22fbce25ef3c0c8039cdc151afe/evidence.json.
+CI line 5360 UI lint; line 5384 exact isolated headless smoke argv; line 5628: 27 invariant checks, 0 failures, 11 standard slow skips; line 5630 exact source normal 0. No unexpected failure marker appeared in the workspace section before the deliberate capability control.
+6. Red-to-green naming and Settings geometry
+On c16aa84c, the new canonical-name expectations made make test-harness-branding exit 2 (Rust 101): the launcher returned the interim name and the headless menu lacked bboxy450-harness. /tmp/branding-canonical-red.log. After removing the alias, the focused target exited 0.
+The longer name exposed 16 native/web Settings geometry mismatches on c9e9fe91; parity exited 2. The native title ellipsized on one line while the reference wrapped to two. The fix uses the existing wrap helper. Final parity on 4e2cd9ac exited 0: 472 captures/renders, 416 required and measured geometry cases, 0 mismatches, 0 unproven; the unchanged 48 legacy pixel reviews are advisory.
+An interim new assertion incorrectly demanded two lines at the outer 1246px width, where the name fit; that fixture exited 2 even after wrapping. It was corrected to the actual 1218px Settings viewport inside the 14px scene inset. The real narrow-layout assertion and the full focused target now pass. No parity policy or tolerance was relaxed.
 
-Commands and actual exits
-make init-submodules — 0
-make sync-release-inputs — 0 (10 identical packaged copies)
-make test-harness-branding — initial 2 and 2 while correcting test-only text-run and activation-outcome assumptions; then 0. Latest focused launch run /tmp/branding-launch-focused.log: four positive tests plus missing-binary process test pass. Final full suite repeats them at the committed head.
-make test-spawn-unit — 0; 7 launcher tests and 3 resolver tests pass, including all builtin default subcommands.
-make test-harness-branding-control — 0; final inner cargo test exits 101 as required, /tmp/branding-control-final.log.
-make capture-harness-branding — 0; /tmp/branding-capture-final.log.
-make test — two earlier runs intentionally interrupted with exit 130 during the remote-resolver and configured-subcommand audit corrections; no green claim for either. Final run exits 0 on 533b6641, default Make concurrency, no thread-count override.
-make test-boundaries — 0; /tmp/branding-boundaries.log. Actual seat wiring, CLI/signing, login shell, shell PATH, failed-process refresh and seven cockpit lifecycle cases pass.
-PARITY_OUT=target/parity-branding-final make parity-settings — 0; /tmp/branding-parity-final.log. 472 captures/renders; 416 required geometry cases measured; 0 mismatches/unproven. All launcher and Settings cases are within policy. The 48 advisory pixel reviews are legacy harness-icon cases.
-A provisional make parity-settings also exited 0 using the previous committed reference; it was repeated after committing the branding reference. Final parity reference is b0565b65; git diff b0565b65..533b6641 -- crates/bbt-ui crates/bboxybook lab is empty, so the presentation/reference inputs are unchanged by the final argument/test correction.
-make check-formal-evidence — 0; /tmp/branding-formal-evidence.log.
-make push-branch — 0; /tmp/branding-push.log; 3 signatures, source-bound formal receipt and exact-HEAD CI verified; origin/harness-branding matches 533b6641.
-gh pr create --repo bboxy450/bboxy450-term --base main --head harness-branding --title 'Show bboxy harness with its fox across seat menus and rows' --body-file target/harness-branding-pr-body.md — 0; PR #90.
-gh pr view 90 --repo bboxy450/bboxy450-term --json number,url,headRefOid,state,mergeStateStatus — 0; OPEN/CLEAN at 533b6641. An initial read-only view attempt using unsupported --head was corrected to the PR number.
+Commands and observed exits
+make sync-release-inputs — 0; ten identical copies, before c9e9fe91; no generated source edits afterward.
+make test-harness-branding — initial canonical expectation red 2; confirmed initial green 0; final corrected viewport/name/render/notification/process run 0, /tmp/branding-canonical-wrap-final.log. Interim fixture trials exited 2 as described above.
+make capture-harness-branding — 0; /tmp/branding-canonical-capture.log. The committed menu bytes remain in final head 4e2cd9ac; its Settings-only wrapping fix does not change that menu.
+make test-harness-branding-control — 0, inner Rust 101 expected; /tmp/branding-canonical-control-final.log.
+make test-licenses — 0; /tmp/branding-canonical-licenses.log; metadata/copies/source notices and negative fixtures held for 32 crates.
+make test-boundaries — 0; /tmp/branding-canonical-boundaries.log, including all seven cockpit lifecycle cases.
+PARITY_OUT=target/parity-branding-r3 make parity-settings — 2, 16 geometry mismatches on c9e9fe91.
+PARITY_OUT=target/parity-branding-r3-final make parity-settings — 0, frozen committed reference revision 4e2cd9ac. /tmp/branding-canonical-parity-final.log.
+make test on c9e9fe91 — 143: explicitly stopped the superseded run during compilation after independent parity found the wrapping defect; no final gate verdict for that attempt.
+make test on 4e2cd9ac — 0, no thread-count override; /tmp/branding-canonical-make-test-final.log and target/harness-branding-r3-ci-green.log.
+make push-branch — 0; /tmp/branding-canonical-push.log. Approved GitHub identity, six signatures, source-bound formal receipt and exact-HEAD CI verified, then fast-forward pushed.
+gh pr edit 90 --repo bboxy450/bboxy450-term --title 'Show bboxy450-harness with its fox across seat menus and rows' --body-file target/harness-branding-pr-body.md — 0.
+gh pr view 90 --repo bboxy450/bboxy450-term --json url,title,state,headRefOid,mergeStateStatus,baseRefOid — 0; OPEN/CLEAN at the exact final head.
 
-Exact internal layer commands and exits (parent Make, source-bound CI log)
-sh scripts/layering.sh — 0
-cargo build --workspace --locked --target-dir /Users/feral/mydev/bboxy450-term-harness-branding/target — 0
-cargo clippy --workspace --all-targets --locked --target-dir /Users/feral/mydev/bboxy450-term-harness-branding/target -- -D warnings — 0
-sh scripts/quarantine-test.sh --workspace --locked -- --skip non_pty_spawn_does_not_keep_a_sibling_master_alive — 0; that deliberate CLOEXEC case runs separately in the native target, not omitted.
-make test-capability-scan TARGET_DIR=/Users/feral/mydev/bboxy450-term-harness-branding/target — 0
-make test-capability-control TARGET_DIR=/Users/feral/mydev/bboxy450-term-harness-branding/target — 0; expected red scan followed by restored green, source restored.
-make test-harness-native TARGET_DIR=/Users/feral/mydev/bboxy450-term-harness-branding/target — 0
-make test-formal TARGET_DIR=/Users/feral/mydev/bboxy450-term-harness-branding/target — 0
-sh scripts/ui-lint.sh — 0
-cargo build -p bboxy450-term --locked --target-dir /Users/feral/mydev/bboxy450-term-harness-branding/target — 0
-Private env-isolated headless smoke — 0; exact argv/environment is retained at CI log line 5625, using --headless --smoke --ctl --unattended --test-account and private home/run/repository directories. No operator input or Keychain authorization.
-sh scripts/invariants.sh — 0
+Exact internal layer argv from the source-bound Make log; each exited 0
+sh scripts/layering.sh — exit 0
+python3 -I scripts/test-landing.py — exit 0
+python3 -I scripts/test-resource-ledger.py — exit 0
+cargo build --workspace --locked --target-dir /Users/feral/mydev/bboxy450-term-harness-branding/target — exit 0
+cargo clippy --workspace --all-targets --locked --target-dir /Users/feral/mydev/bboxy450-term-harness-branding/target -- -D warnings — exit 0
+sh scripts/quarantine-test.sh --workspace --locked -- --skip non_pty_spawn_does_not_keep_a_sibling_master_alive — exit 0
+make test-capability-scan TARGET_DIR=/Users/feral/mydev/bboxy450-term-harness-branding/target — exit 0
+make test-capability-control TARGET_DIR=/Users/feral/mydev/bboxy450-term-harness-branding/target — exit 0
+make test-harness-native TARGET_DIR=/Users/feral/mydev/bboxy450-term-harness-branding/target — exit 0
+make test-formal TARGET_DIR=/Users/feral/mydev/bboxy450-term-harness-branding/target — exit 0
+sh scripts/ui-lint.sh — exit 0
+cargo build -p bboxy450-term --locked --target-dir /Users/feral/mydev/bboxy450-term-harness-branding/target — exit 0
+env -i PATH=/Users/feral/.local/share/solana/install/active_release/bin:/Users/feral/.cargo/bin:/Users/feral/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/feral/.local/bin:/Users/feral/.bun/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Library/Apple/usr/bin:/Users/feral/.codex/packages/app-server-daemon/releases/0.166.0-aarch64-apple-darwin/codex-path:/Users/feral/.codex/tmp/arg0-macos/codex-arg0GnVtDS:/Users/feral/.codex/tmp/arg0-macos/codex-arg0Hz7xET:/Users/feral/.codex/packages/app-server-daemon/releases/0.165.0-aarch64-apple-darwin/codex-path:/Users/feral/.codex/tmp/arg0-macos/codex-arg0CNx37q:/Users/feral/.codex/packages/app-server-daemon/releases/0.164.0-aarch64-apple-darwin/codex-path:/Users/feral/.codex/tmp/arg0-macos/codex-arg02ursA5:/Users/feral/.codex/packages/app-server-daemon/releases/0.163.0-aarch64-apple-darwin/codex-path:/Users/feral/.codex/tmp/arg0-macos/codex-arg0svQ1yJ:/opt/homebrew/Caskroom/codex/0.163.0/codex-path:/Applications/iTerm.app/Contents/Resources/utilities TERM=dumb LANG=C.UTF-8 TMPDIR=/var/folders/zd/mv_mr2d92p5_1r8yghzbs5vw0000gn/T/ HOME=/var/folders/zd/mv_mr2d92p5_1r8yghzbs5vw0000gn/T//bboxy-smoke.1U4yQC/home CODEX_HOME=/var/folders/zd/mv_mr2d92p5_1r8yghzbs5vw0000gn/T//bboxy-smoke.1U4yQC/home/.codex CLAUDE_CONFIG_DIR=/var/folders/zd/mv_mr2d92p5_1r8yghzbs5vw0000gn/T//bboxy-smoke.1U4yQC/home/.claude ZDOTDIR=/var/folders/zd/mv_mr2d92p5_1r8yghzbs5vw0000gn/T//bboxy-smoke.1U4yQC/home /Users/feral/mydev/bboxy450-term-harness-branding/target/debug/bboxy450-term --headless --smoke --ctl --unattended --test-account /var/folders/zd/mv_mr2d92p5_1r8yghzbs5vw0000gn/T//bboxy-smoke.1U4yQC/account --run-dir /var/folders/zd/mv_mr2d92p5_1r8yghzbs5vw0000gn/T//bboxy-smoke.1U4yQC/run --repository /var/folders/zd/mv_mr2d92p5_1r8yghzbs5vw0000gn/T//bboxy-smoke.1U4yQC/repository — exit 0
+sh scripts/invariants.sh — exit 0
 
-Retained evidence (raw output stays outside Git)
-/Users/feral/mydev/bboxy450-term-harness-branding/target/harness-branding-ci-green.log
-SHA256 adb7ed877277fa1f11a92a7f398873a72b016724e82791e920728855ac027009
-/tmp/branding-parity-final.log SHA256 77606e7ebdb5d900683058756902b1c7c35cf1b0e6e2b7270377f0222e4642cb
-/tmp/branding-boundaries.log SHA256 aa544e0abe6d5928be58bb4d7acec4ab883636225d96368b43ecb7bc29bff16e
-Formal receipt: target/formal/evidence.json, SHA256 ddd85e029c6a5583fd4a46f7613b3cfd28a7e5abbd155e075ef83ace6df6eb6c (also archived by the standard formal workflow).
+The capability source control specifically recorded red_exit=101, green_exit=0, operator_input=false and restored_source_sha256=ab9cd871db32e0073b4d0a6de38f0559fd38854977b296becc261fa26339bc37 before further compilation. Push verified the current formal receipt again, without rerunning the corpus.
 
-Limits and disposition
-No required acceptance gap remains. The normal gate keeps its 11 existing slow/scale skips; the task's UI parity was run separately. Legacy icon pixel advisories were not promoted to pixel-equivalence claims. Real external providers and remote hosts were not exercised; the requested native witness is local/scripted. Phase-1b automatic readiness, session-id persistence and automatic resume are unchanged and are not claimed. The harness binary still needs PATH installation as the brief permits; make build-harness and the actionable refusal document that path.
-The full report is outside every Cargo crate. No AGENTS.md, KB schema, supervisor policy or protocol generation was changed.
+Retained evidence outside Git
+CI: target/harness-branding-r3-ci-green.log SHA256 37fd154dbb0c8e644c44bd54f1c05c4077c7c0a7b94ef367106c1881805abc0d.
+Parity: /tmp/branding-canonical-parity-final.log SHA256 a70c0a066c01b39ee5e19746d2b44010abb0ffc1e6064625c277990d455eb598.
+Boundaries: /tmp/branding-canonical-boundaries.log SHA256 0273377a60f8ea7a0695e1b8e752585583c2431b11d1821a3c7c18aecd492eab.
+Formal: target/formal/evidence.json SHA256 edbeea67f83899eef3dcbd1903cf487a6256d22fbce25ef3c0c8039cdc151afe; standard archive path above.
+Initial aborted CI: target/harness-branding-r3-initial-ci-aborted.log SHA256 da8cd372c02bc3c0766f5a3615cd1d2d22f4e348409f2e0f3d49f6c209eb1bbe.
+
+Findings and limits
+During the initial c9e9fe91 verification attempt, owned compiler/render jobs were observed stopped (OS state T). Only recorded verification-group PIDs and one rustc whose cwd was verified as this worktree were resumed. The stop origin is unknown; source/checks were not changed. The final full gate's results above are the actual script verdicts.
+No required acceptance gap remains. Normal Make defaults retain existing ignored scale/profile cases and the 11 slow invariant skips. The 48 legacy icon pixel reviews are advisory, not a blanket pixel-equivalence claim. Real external providers/remote hosts and phase-1b automatic readiness/session persistence/resume are not claimed. The binary still needs PATH installation, with canonical Make guidance in its refusal. The report lives outside Cargo crates; no real-branch landing, merge or release was performed by this Executor.
