@@ -18,7 +18,8 @@ allowed_paths:
 - tests/fixtures/dream/broken/**
 - .bboxy/reports/
 - verification/coverage.toml
-verify: cargo test --test dream_audit_broken --test dream_graph --test dream_identity
+- verification/contracts.toml
+verify: cargo test --test dream_audit_broken --test dream_graph --test dream_identity && make test-formal && make test-formal-parity && make check-formal-evidence
 depends_on:
 - '[[2026-11-03-dream-wp3-d0-r2]]'
 links:
@@ -29,7 +30,7 @@ id: 01M6J8TV4EVP7GZG875FC5J4P5
 status: open
 delegated_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
-updated: 2026-11-04T04:07:15.385Z
+updated: 2026-11-04T07:39:07.089Z
 created: 2026-11-04T03:14:54.789Z
 number: 20261103136210
 created_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
@@ -39,12 +40,13 @@ authorship:
   kind: seat
   public_key: Oc7KBLmX2fSuTNz6+a4eyDWCf4djX4fk13BizgaL+gc=
   process_generation: '1'
+verify_revision: 1
 provenance:
-  digest: sha256:56ebea47cf2209a7932e72a95a36df6bb623fe9748d4641505e2378d92bc56a3
-  frontmatter_digest: sha256:4a4d3a6c99132e60e661bca4d388003597dec904850b2f6ea9758197c3b4615b
+  digest: sha256:f070967e6e8b99e25f0cd43e7176eb76c02a6bb99f9ecb3899f009c901e382d4
+  frontmatter_digest: sha256:49b70741c5e3d930d5c324d3cc65f7520c4605367d2392af8eed289e04ea6d88
   signer: seat:01M6J5YFATHYCK148JT0C4XGZ1
-  sig: j4A0Odjjx+aI8rG7mROOeWGA6OhM1yYxV/Uxi44CB2jjh5cGalmMETUPPs6xDf9wwoydtznR6b+B09qBhfKJDA==
-  log: .bboxy/log/2026-11-04.jsonl#43231
+  sig: VoMrCivE92h0JpBbbZqSmK3PcYlnSzEM8HcsIhJNnQZjw/ua0h/X/rpZBReczq70KrLqhgxN7zWAmtZYj+zjCw==
+  log: .bboxy/log/2026-11-04.jsonl#43673
 ---
 ROLE: EXECUTOR
 Read repository instructions and [[dream-log]], [[memory-graph]], [[dream-sinks]] (all on origin/main). Parent [[2026-11-03-swarm-dreaming-succession]].
@@ -57,9 +59,20 @@ This is a NEW revision-2 brief against signed dream-log b4894fb6dd4e973125676068
 
 Worktree: /Users/feral/mydev/bboxy450-harness-dream-wp4
 Allowed paths: src/dream/audit.rs, src/dream/graph.rs, src/dream/entry.rs, src/dream/projection.rs, src/dream/resolve.rs, src/dream/deny.rs, src/dream/mod.rs, tests/dream_audit_broken.rs, tests/dream_graph.rs, tests/dream_identity.rs, tests/fixtures/dream/good/**, tests/fixtures/dream/broken/**, .bboxy/reports/.
-Prerequisites: WP3 integrated and independently verified. Oracle delegates when prerequisites exist; do not park a worker on an unavailable prerequisite.
+Prerequisite start amendment 2026-11-04: implementation may begin on the Oracle-prepared, independently checked WP1/WP2/WP3/WP5 candidate below under [[d20261103136319-dream-checked-candidate-dependencies]]. This replaces integrated prerequisite only for isolated development; no dependency acceptance, canonical gate waiver, implementation merge or publication is authorized. Final acceptance still requires green canonical KB/full gates on a coherent main base and fresh source-bound evidence.
 Outcome/acceptance: Audit P1-P9, why/graph and shared identity/pin/projection/deny validators. mod only exports/dispatch. Exact canonical identity vectors and committed pins; per-harness plus global-terminal projection; all broken fixtures reject with named P and good fixture accepts. No clock/arrival-order authority, no hand-edited body overwrite.
 Verify: cargo test --test dream_audit_broken --test dream_graph --test dream_identity
 Shared files are owned sequentially by the dependencies in dream-log §10. No blanket src/dream/** ownership. Report exact test outputs/exits and meaningful process witnesses; check_transcript means the actual protocol checker/invariants, not an invented shell target. Model evidence is supplied by WP5 and refreshed against final code by WP9.
 
 Oracle source-inventory amendment 2026-11-03: every new Rust module must be listed before this package can produce fresh current-source formal evidence; scripts/formal.py enforces exact source equality. verification/coverage.toml is authorized only for this WP's actually introduced source paths, their planned-to-current promotion where relevant, and a precise note of this WP's real API/process tests and still-unmodeled behavior. Do not list nonexistent files, widen another WP's implementation scope, claim model conformance from inventory membership, omit sources to make the gate pass, or weaken a model/control/check. If a new stateful contract is not covered by the existing refined models and real witnesses, report the exact modeling gap for a separate scoped amendment. WP9 retains final cross-package contract/source/test mapping and fresh evidence responsibility; this per-package inventory maintenance cannot be deferred until WP9. Verify command unchanged; required formal/parity and canonical gates remain in force.
+
+Oracle prepared-base amendment 2026-11-04: assigned worktree /Users/feral/mydev/bboxy450-harness-dream-wp4, branch dream/wp4, clean comparison HEAD 7d3e22cbc4442cee8ea8bdef6e23f5225708680c. It preserves exact checked WP3 source/report 90e9c0bbeda6c3b8ebdcbcbd4dfda2b32a356726 / 7c4f1108cfd56da0bd28cb0761ec965e2fe064df and their WP1/WP2/WP5 dependency chain, plus verified signed current normative document cherry-picks through origin/main 155044619e5c563df69665be3a12337af2745315. No src/tests/Cargo/verification differences were introduced by preparation. All commands and edits MUST use WP4 workdir even though the reused seat launched in WP1. Do not edit WP1/WP2/WP3/WP5 trees or retained evidence.
+
+Consume dream-log with [[d20261103136206-dream-contract-refinement]] and [[d20261103136344-dream-native-retained-ir-custody]]; these are in the prepared tree. Blocked original companion fetches remain number_conflict, with exact governing precedence in dream-log §12; do not manufacture repaired mirrors or a new identity. Pinned native Event evidence resolves against selected normal sessions custody, never transient Projector/cache data. D0's committed task records are locator/verdict observations; their presence/digest is not signature verification. This package must enforce §6.2 provenance.sig, origin/main membership, root/scope and record pins at the trust boundary. No matching trusted source means no trusted anchor or auto-adoption. Future trials/publications remain WP7/WP8's product code; audits need good/broken retained fixtures now, not claims that those implementations exist.
+
+Oracle WP3 review independently ran its complete amended command: 5 dream units, 13 replay tests plus invoked private child fixtures, full 135 native/Java reachable-state/labeled-edge/verdict parity and exact final-source receipt validation, all exit 0. Log /var/folders/zd/mv_mr2d92p5_1r8yghzbs5vw0000gn/T/nyx-wp3-review-408pvvrc/verify.log SHA256 18515788e6c7a28158e9a0e07015ab1111a9db386dbad9e5444ffa723e89653f. Receipt afc8bf0e1242ab7e73d29e54f45a4f96e31bd244061799233b0992581b4e5634 binds report HEAD7c4f110, dirty=false. Another 42 ordinary import/edge/golden/corpus regressions passed independently. Both WP3 signatures and diff-check exited 0. Existing canonical result2/KB5974 is verified from retained actual log, not waived or rerun under unchanged conditions.
+
+Minimal extra mapping path verification/contracts.toml is authorized only to replace planned/pre-implementation references with the actual WP4 validator/projection API/process-test mappings and accurate remaining assumptions for the existing DreamLifecycle/DreamMerge/DreamSink contracts. Do not weaken a property/control, modify unrelated models, claim byte/signature proof from a quotient, list nonexistent source/test paths, or defer this package's honest mapping to WP9. Any new stateful/modeling gap gets its exact source/contract boundary reported; existing finite models plus broken fixtures and real pure/API/process witnesses must substantiate the relevant behavior.
+
+The primary verify is now exactly: cargo test --test dream_audit_broken --test dream_graph --test dream_identity && make test-formal && make test-formal-parity && make check-formal-evidence
+This supersedes the earlier three-suite-only verify string, requires a fresh final report/evidence, and refreshes current-source native/Java parity after actual new modules. Canonical make test and unattended integration/smoke remain mandatory for final acceptance; preserve and report the unchanged KB collision without filtering it or repeating an unchanged red gate. Only this package's source/tests/mapping plus its own append-only full report may change. WP9 retains final combined validation; this is implementation work, not a shortcut to accepting the swarm.
