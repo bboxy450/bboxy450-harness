@@ -1651,3 +1651,168 @@ fn enter_on_the_slash_menu_runs_the_command() {
         Some("Could not switch: no live session to switch")
     );
 }
+
+#[tokio::test]
+async fn gui_polish_mcp_cards_show_real_raw_results_on_expansion() {
+    use bboxy450_harness::frontends::gui::{
+        bridge::FrameState,
+        rich::{Face, Faces},
+        view::{Preparer, layout_text},
+    };
+    let temp = tempfile::tempdir().unwrap();
+    let make = |raw: serde_json::Value, output: Vec<OutputBlock>| Item::ToolCall {
+        call_id: ItemId::new().to_string(),
+        name: "mcp__fixture__result".into(),
+        tool_kind: ToolKind::Other,
+        title: Some("MCP fixture".into()),
+        server: Some("fixture".into()),
+        input_raw: "{}".into(),
+        output: if output.is_empty() {
+            vec![OutputBlock::Json { value: raw.clone() }]
+        } else {
+            output
+        },
+        raw_output: Some(raw),
+        locations: vec![],
+        spill: None,
+    };
+    let (path, ids) = markdown_replay(
+        temp.path(),
+        vec![
+            (
+                make(
+                    serde_json::json!({"content":[{"type":"text","text":"# Real MCP result\n- first\n- second"}], "structuredContent":{"count":2}}),
+                    vec![OutputBlock::Text {
+                        text: "(no output)".into(),
+                    }],
+                ),
+                Some(ItemStatus::Completed),
+            ),
+            (
+                make(
+                    serde_json::json!({"structuredContent":{"phase":"ready","nested":{"count":3}}}),
+                    vec![],
+                ),
+                Some(ItemStatus::Completed),
+            ),
+            (
+                make(
+                    serde_json::json!({"content":[{"type":"image","mimeType":"image/png","data":"private-binary"},{"type":"resource_link","uri":"https://example.test/result","name":"result"}]}),
+                    vec![],
+                ),
+                Some(ItemStatus::Completed),
+            ),
+            (
+                make(
+                    serde_json::json!({"content":[{"type":"text","text":(0..120).map(|i|format!("row {i}: full available MCP output\n")).collect::<String>() + "END-OF-AVAILABLE-RESULT"}]}),
+                    vec![],
+                ),
+                Some(ItemStatus::Completed),
+            ),
+        ],
+    );
+    if let Some(directory) = std::env::var_os("GUI_POLISH_CAPTURE_DIR") {
+        use bboxy450_harness::frontends::gui::{options::Options, smoke::capture};
+        let screenshot = std::path::PathBuf::from(directory).join("mcp-output.png");
+        let options = Options::parse(
+            [
+                "--replay",
+                path.to_str().unwrap(),
+                "--capture",
+                "900x1200",
+                "--expand",
+                "all",
+                "--screenshot",
+                screenshot.to_str().unwrap(),
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .unwrap();
+        capture(options).await.unwrap();
+    }
+    let source = Arc::new(
+        bboxy450_harness::frontends::gui::bridge::read_replay(path)
+            .await
+            .unwrap(),
+    );
+    runtime::blocking(move || {
+        let mut preparer = Preparer::default();
+        let mut state = FrameState {
+            transcript: source,
+            ready: true,
+            replay: true,
+            ..Default::default()
+        };
+        state.prepared = Some(Arc::new(
+            preparer.prepare(state.transcript.clone(), 900.).unwrap(),
+        ));
+        let mut view = HarnessView::default();
+        let collapsed = layout_text(
+            view.render(&state, [900., 2400.])
+                .unwrap()
+                .layout
+                .as_ref()
+                .unwrap(),
+        );
+        assert!(!collapsed.contains("Real MCP result"));
+        assert!(collapsed.contains("lines"));
+        let long_id = *ids.last().unwrap();
+        let faces: Faces = ids
+            .into_iter()
+            .map(|id| {
+                (
+                    id,
+                    Face {
+                        output_closed: true,
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect();
+        state.prepared = Some(Arc::new(
+            preparer
+                .prepare_with_faces(state.transcript.clone(), 900., &faces)
+                .unwrap(),
+        ));
+        state.faces = Arc::new(faces);
+        let expanded = layout_text(
+            view.render(&state, [900., 2400.])
+                .unwrap()
+                .layout
+                .as_ref()
+                .unwrap(),
+        );
+        for needle in [
+            "Real MCP result",
+            "first",
+            "count",
+            "ready",
+            "https://example.test/result",
+            "image/png",
+        ] {
+            assert!(expanded.contains(needle), "missing {needle}: {expanded}");
+        }
+        assert!(!expanded.contains("(no output)"));
+        assert!(!expanded.contains("private-binary"));
+        let frame = view.render(&state, [900., 2400.]).unwrap();
+        let panel = bboxy450_harness::frontends::gui::view::find(
+            frame.layout.as_ref().unwrap(),
+            &format!("mdout/{long_id}"),
+        )
+        .unwrap();
+        let scroll = &panel.children[0];
+        assert!(scroll.rect.h <= 400.);
+        let at = [scroll.rect.x + 10., scroll.rect.y + 10.];
+        assert!(view.wheel(at, 100_000.));
+        assert!(
+            view.render(&state, [900., 2400.])
+                .unwrap()
+                .item_text(long_id)
+                .unwrap()
+                .contains("END-OF-AVAILABLE-RESULT"),
+            "expansion must retain the result beyond 1600 characters"
+        );
+    })
+    .await;
+}

@@ -3861,8 +3861,190 @@ fn launch_context(mode: usize) -> Model {
     m
 }
 
+/// Two identical-text local intents have different op identities. Births 0/1/2
+/// represent A/B/A; a reconnect does not change a birth. No server fairness is
+/// assumed: an absent durable reply remains visibly pending/unknown forever.
+pub fn gui_pending(control: u8) -> Model {
+    let mut m = base(
+        "GuiPendingPrompt",
+        control != 0,
+        &[
+            ("birth", 2, 0),
+            ("state0", 4, 0),
+            ("owner0", 2, 0),
+            ("ack0", 1, 0),
+            ("blue0", 1, 0),
+            ("state1", 4, 0),
+            ("owner1", 2, 0),
+            ("ack1", 1, 0),
+            ("blue1", 1, 0),
+        ],
+    );
+    if control != 0 {
+        m.name = format!(
+            "BrokenHarnessGuiPendingPrompt{}",
+            if control == 1 { "Ack" } else { "Stale" }
+        );
+    }
+    for state in [1, 5] {
+        let owner = state + 1;
+        let ack = state + 2;
+        let blue = state + 3;
+        // 0 unsent; 1 gray queued; 2 blue durable; 3 rejected; 4 unknown.
+        act(
+            &mut m,
+            "ScheduleLocal",
+            eq(state, 0),
+            &[(state, Int(1)), (owner, Var(0))],
+        );
+        act(
+            &mut m,
+            "AckAdmissionOnly",
+            all([eq(state, 1), eq(ack, 0)]),
+            &[
+                (ack, Int(1)),
+                (state, Int(if control == 1 { 0 } else { 1 })),
+            ],
+        );
+        act(
+            &mut m,
+            "DisconnectUnknownNoResend",
+            eq(state, 1),
+            &[(state, Int(4))],
+        );
+        act(&mut m, "RejectedVisible", eq(state, 1), &[(state, Int(3))]);
+        let generation = if control == 2 {
+            Bool(true)
+        } else {
+            Var(owner).eq(Var(0))
+        };
+        act(
+            &mut m,
+            "CorrelatedDurableUser",
+            all([eq(state, 1).or(eq(state, 4)), generation]),
+            &[(state, Int(2)), (blue, Int(1))],
+        );
+        // Replay does not increment a count, re-dispatch or create a new item.
+        act(&mut m, "DuplicateDurableReplay", eq(state, 2), &[]);
+        safe(
+            &mut m,
+            "BlueRequiresCurrentCausalBirth",
+            eq(blue, 0).or(all([eq(state, 2), Var(owner).eq(Var(0))])),
+        );
+        safe(
+            &mut m,
+            "AckCannotRemovePending",
+            eq(ack, 0).or(Int(0).lt(Var(state))),
+        );
+    }
+    act(
+        &mut m,
+        "SwitchBirthABA",
+        Var(0).lt(Int(2)),
+        &[(0, Var(0).plus(Int(1))), (4, Int(0)), (8, Int(0))],
+    );
+    m
+}
+
+/// Finite ACP selection contract: child births A/B/A, option revisions 0..2,
+/// one admitted request, notification/reply reordering and unknown outcomes.
+/// No vendor/IO fairness; only the local deadline is weakly fair.
+pub fn acp_controls(control: u8) -> Model {
+    let mut m = base(
+        "AcpControls",
+        false,
+        &[
+            ("birth", 2, 0),
+            ("revision", 2, 0),
+            ("request_birth", 2, 0),
+            ("request_revision", 2, 0),
+            ("phase", 3, 0),
+            ("applied", 1, 0),
+            ("requests", 2, 0),
+            ("prompt_effects", 0, 0),
+        ],
+    );
+    if control != 0 {
+        m.name = format!(
+            "BrokenHarnessAcpControls{}",
+            if control == 1 { "Stale" } else { "Replay" }
+        );
+    }
+    act(
+        &mut m,
+        "SelectAdvertised",
+        eq(4, 0),
+        &[(2, Var(0)), (3, Var(1)), (4, Int(1)), (6, Int(1))],
+    );
+    act(
+        &mut m,
+        "SwitchBirthABA",
+        Var(0).lt(Int(2)),
+        &[(0, Var(0).plus(Int(1))), (1, Int(0)), (5, Int(0))],
+    );
+    act(
+        &mut m,
+        "AgentOptionUpdate",
+        Var(1).lt(Int(2)),
+        &[(1, Var(1).plus(Int(1))), (5, Int(0))],
+    );
+    let same = all([Var(0).eq(Var(2)), Var(1).eq(Var(3))]);
+    let waiting = eq(4, 1).or(eq(4, 2));
+    act(
+        &mut m,
+        "ConfirmedResponse",
+        all([
+            waiting.clone(),
+            if control == 1 {
+                Bool(true)
+            } else {
+                same.clone()
+            },
+        ]),
+        &[(4, Int(3)), (5, Int(1))],
+    );
+    act(
+        &mut m,
+        "StaleResponseIgnored",
+        all([waiting.clone(), same.negate()]),
+        &[(4, Int(3))],
+    );
+    act(&mut m, "RefusedRetainsConfirmed", waiting, &[(4, Int(3))]);
+    let deadline = m.actions.len();
+    act(&mut m, "DeadlineUnknown", eq(4, 1), &[(4, Int(2))]);
+    if control == 2 {
+        act(
+            &mut m,
+            "BrokenReplayUnknown",
+            all([eq(4, 2), eq(6, 1)]),
+            &[(6, Int(2))],
+        );
+    }
+    safe(
+        &mut m,
+        "ConfirmedHasCurrentChildAndOptionIdentity",
+        eq(5, 0).or(all([Var(0).eq(Var(2)), Var(1).eq(Var(3))])),
+    );
+    safe(&mut m, "UnknownNeverRedispatches", Var(6).lt(Int(2)));
+    safe(&mut m, "ConfigHasNoPromptEffect", eq(7, 0));
+    progress(
+        &mut m,
+        "LocalDeadlineSettlesPending",
+        eq(4, 1),
+        eq(4, 1).negate(),
+        vec![deadline],
+    );
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (acp_controls(0), "pass"),
+        (acp_controls(1), "safety"),
+        (acp_controls(2), "safety"),
+        (gui_pending(0), "pass"),
+        (gui_pending(1), "safety"),
+        (gui_pending(2), "safety"),
         (socket_heartbeat(false), "pass"),
         (socket_heartbeat(true), "safety"),
         (four_view_budget(false), "pass"),

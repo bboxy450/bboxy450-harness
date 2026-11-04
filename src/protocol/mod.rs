@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use ulid::Ulid;
+mod agent_config;
+pub use agent_config::*;
 pub mod laws;
 mod usage;
 pub const PROTOCOL: Version = Version { major: 1, minor: 2 };
@@ -83,6 +85,14 @@ pub enum Op {
     },
     SetProfile {
         profile: String,
+    },
+    /// A selection from a specific negotiated child and complete option revision.
+    SetAgentConfig {
+        epoch: Epoch,
+        instance: OpId,
+        revision: u64,
+        config_id: String,
+        value: String,
     },
     Compact,
     Close,

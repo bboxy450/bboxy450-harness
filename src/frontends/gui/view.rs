@@ -38,6 +38,7 @@ use face_rows::Folds;
 
 // Adapted from bboxy450-term scene::Metrics (CoreText, shared paint metrics).
 // https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
+type TranscriptColumn = (c::Element, Option<f32>, HashMap<ItemId, f32>);
 type FontKey = (u32, u16, bool, bool, u32);
 fn font_key(s: &MeasureStyle) -> FontKey {
     (
@@ -139,6 +140,7 @@ pub enum Action {
     Profiles,
     /// A profile switcher row: the same path as `/profile NAME`.
     SwitchProfile(String),
+    AgentConfig(OpEnvelope),
     /// Inside an open menu (true) keeps it; outside it (false) closes it.
     Menu(bool),
     /// The switcher's `+ New profile`: the native form is not built yet.
@@ -213,12 +215,15 @@ pub struct HarnessView {
     approval: Option<(ItemId, ui::modules::approval::Approval)>,
     completion: Option<ui::text_edit::CompletionPopover>,
     profile_menu: Option<super::menu::ProfileMenu>,
+    config_scroll: f32,
+    config_menu_rect: Option<Rect>,
     pub scroll: chat_scroll::State,
     /// View-local offsets into worker-prepared Markdown tool panels.
     markdown_scroll: HashMap<ItemId, f32>,
     metrics: Metrics,
     cached: Option<CacheKey>,
     controls: Option<Controls>,
+    retained_prepared: Option<Arc<PreparedRows>>,
     pub frame: Frame,
     pub notice: Option<String>,
     /// The window holds keyboard focus: the composer draws its focus ring and caret.
@@ -329,11 +334,14 @@ impl Default for HarnessView {
             approval: None,
             completion: None,
             profile_menu: None,
+            config_scroll: 0.,
+            config_menu_rect: None,
             scroll: Default::default(),
             markdown_scroll: HashMap::new(),
             metrics: Metrics::default(),
             cached: None,
             controls: None,
+            retained_prepared: None,
             frame: Frame::default(),
             notice: None,
             focused: false,
@@ -374,6 +382,11 @@ impl HarnessView {
     }
     /// A wheel over an inset first scrolls that document, then the transcript at its edge.
     pub fn wheel(&mut self, at: [f32; 2], dy: f32) -> bool {
+        if self.config_menu_rect.is_some_and(|r| contains(r, at)) {
+            self.config_scroll = (self.config_scroll + dy).max(0.);
+            self.invalidate();
+            return true;
+        }
         fn contains(r: Rect, at: [f32; 2]) -> bool {
             at[0] >= r.x && at[0] < r.right() && at[1] >= r.y && at[1] < r.bottom()
         }
@@ -463,9 +476,10 @@ impl HarnessView {
         state: &FrameState,
         prepared: Option<&Arc<PreparedRows>>,
         rows_h: f32,
+        width: f32,
         first_frame: bool,
         ink: &super::face::Ink,
-    ) -> (c::Element, Option<f32>, HashMap<ItemId, f32>) {
+    ) -> Result<TranscriptColumn, String> {
         let model = &state.transcript;
         let mut children = vec![];
         let mut total = 0.;
@@ -528,6 +542,37 @@ impl HarnessView {
                 self.anchor = None;
             }
         }
+        for prompt in state
+            .pending_prompts
+            .values()
+            .filter(|p| Some(p.session) == model.session && p.epoch == model.epoch)
+        {
+            let mut bubble = super::face::pending_bubble(&prompt.text, &prompt.status, ink);
+            super::face::zoom_text(&mut bubble, self.zoom.scale());
+            let element = named(
+                format!("pending/{}", prompt.op),
+                super::face::frame(
+                    super::face::Frame {
+                        padding: [4., 14., 18., 14.],
+                        ..Default::default()
+                    },
+                    vec![bubble.into()],
+                ),
+            );
+            let height = element
+                .layout(Rect::new(0., 0., width, 0.), context(), &self.metrics)?
+                .rect
+                .h;
+            total += height;
+            // Every sibling must declare its height. An Auto pending row makes
+            // the toolkit fall back to natural measurement, where the cached
+            // Spacer slots measure zero and clip all retained history paint.
+            children.push(c::Item {
+                element,
+                extent: c::Extent::Fixed(height),
+            });
+        }
+        let has_pending = !children.is_empty();
         if children.is_empty() {
             if state.ready && !has_rows {
                 // harness-spec.md "Empty session": the page's `who` is the ACP agent line, else
@@ -570,24 +615,38 @@ impl HarnessView {
                 super::face::zoom_text(&mut empty, self.zoom.scale());
                 children.push(empty.into());
             } else {
-                children.push(
-                    label(if !state.ready {
-                        "Loading session…"
-                    } else {
-                        "Preparing transcript…"
-                    })
-                    .into(),
+                let mut message = super::face::loading_session(state.ready, ink);
+                super::face::zoom_text(&mut message, self.zoom.scale());
+                let centered = super::face::frame(
+                    super::face::Frame {
+                        row: true,
+                        ..Default::default()
+                    },
+                    vec![
+                        super::face::fill(c::Element::Spacer),
+                        message.into(),
+                        super::face::fill(c::Element::Spacer),
+                    ],
                 );
+                let height = centered
+                    .layout(Rect::new(0., 0., width, 0.), context(), &self.metrics)?
+                    .rect
+                    .h;
+                children.push(c::Item {
+                    element: c::Element::Spacer,
+                    extent: c::Extent::Fixed(((rows_h - height) / 2.).max(0.)),
+                });
+                children.push(centered.into());
             }
         }
-        if prepared.is_some() && has_rows {
-            (
+        if (prepared.is_some() && has_rows) || has_pending {
+            Ok((
                 column(children, None).fixed_height(total, "transcript-content", 0.),
                 Some(total),
                 enters,
-            )
+            ))
         } else {
-            (column(children, None), None, enters)
+            Ok((column(children, None), None, enters))
         }
     }
     /// The scroll offset for this frame: the tail follow glides there with a critically
@@ -609,6 +668,7 @@ impl HarnessView {
     }
     /// The same Element is used by a standalone surface and the offscreen driver.
     pub fn render(&mut self, state: &FrameState, size: [f32; 2]) -> Result<&Frame, String> {
+        self.config_menu_rect = None;
         self.profiles = state.profiles.clone();
         self.current_profile = state.transcript.profile.as_ref().map(|(p, _)| p.clone());
         self.birth = Some(state.transcript.epoch);
@@ -638,6 +698,7 @@ impl HarnessView {
             self.zoom.percent(),
             self.chrome,
         );
+        let draft = format!("{draft}{:p}", Arc::as_ptr(&state.pending_prompts));
         // a hover change rebuilds too: the menu row's fill starts its fade
         if !self.anim.in_motion()
             && !self.menus.dirty
@@ -665,10 +726,23 @@ impl HarnessView {
         let now = self.anim.now();
         self.motion.begin_frame(state, now);
         let width = size[0].max(240.);
+        // Local/metadata publication may wrap the same log in another Arc, or
+        // arrive while worker preparation is pending. Keep the last solved rows
+        // of this birth until their replacement is ready; never retain across
+        // a session/epoch reset or a cursor rewind.
+        let compatible = |p: &&Arc<PreparedRows>| {
+            p.source.session == model.session
+                && p.source.epoch == model.epoch
+                && p.source.cursor <= model.cursor
+        };
         let prepared = state
             .prepared
             .as_ref()
-            .filter(|p| Arc::ptr_eq(&p.source, &state.transcript));
+            .filter(compatible)
+            .or_else(|| self.retained_prepared.as_ref().filter(compatible))
+            .cloned();
+        self.retained_prepared = prepared.clone();
+        let prepared = prepared.as_ref();
         // A session's first frame takes its end state: nothing enters, the tail is shown.
         let scope = (model.session, model.epoch);
         let first_frame = self.known_scope != Some(scope);
@@ -736,6 +810,12 @@ impl HarnessView {
         self.was_focused = focused;
         let zoom = self.zoom.scale();
         let controls_key = format!(
+            "{:?}",
+            model
+                .agent_config
+                .as_ref()
+                .map(|c| (c.instance, c.revision, c.pending, &c.status))
+        ) + &format!(
             "{draft}{status}{tone:?}{live}{errored}{focused}{}{}{:?}{:?}{:?}{usage:?}",
             self.swell,
             self.profile_menu.is_some(),
@@ -756,7 +836,7 @@ impl HarnessView {
                 (controls.layout.clone(), controls.rows_h)
             };
             let (transcript, content_h, enters) =
-                self.transcript(state, prepared, rows_h, first_frame, &ink);
+                self.transcript(state, prepared, rows_h, width, first_frame, &ink)?;
             let offset = self.scroll_offset(content_h, rows_h, first_frame);
             let slot = find_mut(&mut layout, "transcript")
                 .and_then(|n| n.children.first_mut())
@@ -832,7 +912,7 @@ impl HarnessView {
             let bar_h = if self.chrome { chrome::TITLE_BAR_H } else { 0. };
             let rows_h = (size[1] - composer_h - header_h - bar_h).max(1.);
             let (transcript, content_h, enters) =
-                self.transcript(state, prepared, rows_h, first_frame, &ink);
+                self.transcript(state, prepared, rows_h, width, first_frame, &ink)?;
             let offset = self.scroll_offset(content_h, rows_h, first_frame);
             let rows = named(
                 "transcript",
@@ -1251,22 +1331,136 @@ impl HarnessView {
                 selected.as_deref(),
                 hovered.as_deref(),
             );
-            let mut popup = menu.element(&self.profiles, current, &ink, &look);
+            let profile_popup = if let Some(error) = state
+                .profile_error
+                .as_ref()
+                .filter(|_| self.profiles.is_empty())
+            {
+                label(error)
+            } else {
+                menu.element(&self.profiles, current, &ink, &look)
+            };
+            let mut children = vec![profile_popup.into()];
+            if !self.profiles.is_empty()
+                && let Some(error) = &state.profile_error
+            {
+                children.push(label(error).into());
+            }
+            let mut config_actions = vec![];
+            let config = state.transcript.agent_config.as_ref();
+            for (category, title) in [
+                ("model", "Agent model"),
+                ("thought_level", "Reasoning effort"),
+            ] {
+                if let Some(option) =
+                    config.and_then(|c| c.options.iter().find(|o| o.category == category))
+                {
+                    children.push(label(format!("{title}: {}", option.current)).into());
+                    for (index, choice) in option.choices.iter().enumerate() {
+                        let key = format!("acp/{category}/{index}");
+                        let enabled = config.is_some_and(|c| c.pending.is_none())
+                            && !state.replay
+                            && choice.value != option.current;
+                        let button = Button {
+                            key: None,
+                            icon: None,
+                            label: choice.name.clone(),
+                            kind: ButtonKind::Ghost,
+                            state: if enabled {
+                                ButtonState::Idle
+                            } else {
+                                ButtonState::Disabled
+                            },
+                        }
+                        .element(ctx)
+                        .map_err(|e| format!("{e:?}"))?;
+                        children.push(named(&key, button).into());
+                        if enabled {
+                            let c = config.unwrap();
+                            if let Some(session) = state.transcript.session {
+                                config_actions.push((
+                                    key,
+                                    Action::AgentConfig(OpEnvelope {
+                                        v: PROTOCOL,
+                                        session,
+                                        op_id: OpId::new(),
+                                        op: Op::SetAgentConfig {
+                                            epoch: state.transcript.epoch,
+                                            instance: c.instance,
+                                            revision: c.revision,
+                                            config_id: option.id.clone(),
+                                            value: choice.value.clone(),
+                                        },
+                                    }),
+                                ));
+                            }
+                        }
+                    }
+                } else {
+                    children.push(
+                        label(format!(
+                            "{title}: unavailable · agent has not advertised this control"
+                        ))
+                        .into(),
+                    );
+                }
+            }
+            children.push(
+                label(
+                    config
+                        .map(|c| c.status.as_str())
+                        .unwrap_or("Agent configuration unavailable · session not negotiated"),
+                )
+                .into(),
+            );
+            let mut content = column(children, None);
+            if let c::Element::Box(panel) = &mut content {
+                panel.style.overrides.fill = Some(ui::Paint::solid(ui::Color::Surface2));
+                panel.style.overrides.padding = Some([ui::Length::Px(8.); 4]);
+            }
+            let popup_width = super::menu::profile_menu_width(width);
+            let content_h = content
+                .layout(Rect::new(0., 0., popup_width, 0.), ctx, &self.metrics)?
+                .rect
+                .h;
+            let viewport_h = content_h.min((size[1] - 60.).max(80.));
+            self.config_scroll = self.config_scroll.min((content_h - viewport_h).max(0.));
+            let mut popup = c::Element::ScrollView(c::ScrollView {
+                viewport: [popup_width, viewport_h],
+                offset: [0., self.config_scroll],
+                content_width: Some(popup_width),
+                content: Box::new(content),
+            });
             flat(&mut popup);
             let popup = popup.layout(
                 Rect::new(10., 40., super::menu::profile_menu_width(width), 0.),
                 ctx,
                 &self.metrics,
             )?;
+            self.config_menu_rect = Some(popup.rect);
             front.push((popup.rect, Action::Menu(true)));
+            for (key, action) in config_actions {
+                if let Some(node) = find(&popup, &key) {
+                    let rect = intersection(node.rect, popup.rect);
+                    if rect.w > 0. && rect.h > 0. {
+                        front.push((rect, action));
+                    }
+                }
+            }
             if let Some(node) = find(&popup, "pmenu/new") {
-                front.push((node.rect, Action::NewProfile));
+                let rect = intersection(node.rect, popup.rect);
+                if rect.w > 0. && rect.h > 0. {
+                    front.push((rect, Action::NewProfile));
+                }
             }
             for p in menu.rows(&self.profiles) {
                 let key = format!("pmenu/row/{}", p.name);
                 if let Some(node) = find(&popup, &key) {
-                    front.push((node.rect, Action::SwitchProfile(p.name.clone())));
-                    hover.push((node.rect, key));
+                    let rect = intersection(node.rect, popup.rect);
+                    if rect.w > 0. && rect.h > 0. {
+                        front.push((rect, Action::SwitchProfile(p.name.clone())));
+                        hover.push((rect, key));
+                    }
                 }
             }
             Some((MenuKind::Profiles, popup, selected, true))
@@ -1653,6 +1847,14 @@ impl HarnessView {
     pub fn activate(&mut self, action: Action, bridge: &Bridge) {
         match action {
             Action::Jump => self.scroll.follow_latest(),
+            Action::AgentConfig(envelope) => {
+                self.notice = match bridge.send_envelope(envelope) {
+                    Ok(_) => None,
+                    Err(_) => Some("Agent change not admitted · refresh the controls".into()),
+                };
+                self.invalidate();
+                return;
+            }
             Action::Profiles => return self.toggle_profile_menu(),
             Action::SwitchProfile(name) => return self.switch_to(&name, bridge),
             Action::Menu(true) => return,

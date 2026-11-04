@@ -436,3 +436,128 @@ fn write_png(path: &std::path::Path, width: u32, height: u32, rgba: &[u8]) -> Re
         .and_then(|mut w| w.write_image_data(rgba))
         .map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+mod gui_polish_capture {
+    use super::*;
+    #[tokio::test]
+    async fn gui_polish_loader_and_pending_native_captures() {
+        use crate::{
+            frontends::gui::{bridge::PendingPrompt, model::Transcript},
+            protocol::*,
+        };
+        let directory = std::env::var_os("GUI_POLISH_CAPTURE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir().join("bboxy-gui-polish-captures"));
+        tokio::fs::create_dir_all(&directory).await.unwrap();
+        let device = DeviceContext::new().await.unwrap();
+        crate::runtime::blocking(move || {
+            let mut renderer =
+                ChromeRenderer::with_context(device, super::super::assets::icons()).unwrap();
+            let mut view = HarnessView::default();
+            let mut state = FrameState::default();
+            let (width, height) = (470, 680);
+            let frame = view.render(&state, [width as f32, height as f32]).unwrap();
+            write_png(
+                &directory.join("loading.png"),
+                width,
+                height,
+                &compose(&mut renderer, frame, width, height).unwrap(),
+            )
+            .unwrap();
+            let mut event: Envelope = serde_json::from_str(
+                include_str!("../../../tests/fixtures/protocol/all-items.jsonl")
+                    .lines()
+                    .next()
+                    .unwrap(),
+            )
+            .unwrap();
+            let mut model = Transcript::default();
+            model.hello(event.session, event.epoch);
+            state.ready = true;
+            state.transcript = Arc::new(model);
+            let op = OpId::new();
+            state.pending_prompts = Arc::new(
+                vec![(
+                    op,
+                    PendingPrompt::new(
+                        op,
+                        event.session,
+                        event.epoch,
+                        "Queued while the current turn runs".into(),
+                    ),
+                )]
+                .into(),
+            );
+            let frame = view.render(&state, [width as f32, height as f32]).unwrap();
+            write_png(
+                &directory.join("pending.png"),
+                width,
+                height,
+                &compose(&mut renderer, frame, width, height).unwrap(),
+            )
+            .unwrap();
+            let item = ItemId::new();
+            event.seq = Some(Seq(2));
+            event.at = Seq(2);
+            event.event = Event::ItemStarted {
+                turn: None,
+                item,
+                kind: ItemKind::UserMessage,
+                parent: None,
+                head: None,
+            };
+            let mut model = (*state.transcript).clone();
+            model.apply(&event);
+            // A durable start has a cause, but no durable user body yet. It must
+            // not paint a second, empty blue bubble beside the pending draft.
+            state.transcript = Arc::new(model.clone());
+            state.prepared = Some(Arc::new(
+                Preparer::default()
+                    .prepare(state.transcript.clone(), width as f32)
+                    .unwrap(),
+            ));
+            let frame = view.render(&state, [width as f32, height as f32]).unwrap();
+            assert!(
+                !frame
+                    .visible
+                    .iter()
+                    .any(|(_, kind, rect)| *kind == ItemKind::UserMessage && rect.h > 0.)
+            );
+            assert_eq!(
+                layout_text(frame.layout.as_ref().unwrap())
+                    .matches("YOU")
+                    .count(),
+                1
+            );
+            event.seq = Some(Seq(3));
+            event.at = Seq(3);
+            event.event = Event::ItemCompleted {
+                item,
+                status: ItemStatus::Completed,
+                body: Item::UserMessage {
+                    blocks: vec![InputBlock::Text {
+                        text: "Queued while the current turn runs".into(),
+                    }],
+                },
+            };
+            model.apply(&event);
+            state.transcript = Arc::new(model);
+            state.pending_prompts = Default::default();
+            state.prepared = Some(Arc::new(
+                Preparer::default()
+                    .prepare(state.transcript.clone(), width as f32)
+                    .unwrap(),
+            ));
+            let frame = view.render(&state, [width as f32, height as f32]).unwrap();
+            write_png(
+                &directory.join("durable.png"),
+                width,
+                height,
+                &compose(&mut renderer, frame, width, height).unwrap(),
+            )
+            .unwrap();
+        })
+        .await;
+    }
+}

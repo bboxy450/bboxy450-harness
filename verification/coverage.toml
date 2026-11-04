@@ -8,6 +8,8 @@
 name = "bboxy450-harness"
 status = "contract-model"
 models = [
+    "HarnessAcpControls",
+    "HarnessGuiPendingPrompt",
     "HarnessLaunchContext",
     "HarnessSocketHeartbeat",
     "HarnessFourViewBudget",
@@ -78,7 +80,7 @@ sources = [
     "src/process.rs",
     "src/protocol/laws.rs",
     "src/protocol/usage.rs",
-    "src/protocol/mod.rs",
+    "src/protocol/agent_config.rs", "src/protocol/mod.rs",
     "src/provider/mod.rs",
     "src/provider/http.rs",
     "src/provider/anthropic.rs",

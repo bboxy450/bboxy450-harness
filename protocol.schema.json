@@ -1794,6 +1794,43 @@
           "type": "object"
         },
         {
+          "description": "A selection from a specific negotiated child and complete option revision.",
+          "properties": {
+            "config_id": {
+              "type": "string"
+            },
+            "epoch": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "instance": {
+              "$ref": "#/$defs/OpId"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "set_agent_config",
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "epoch",
+            "instance",
+            "revision",
+            "config_id",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
           "properties": {
             "type": {
               "const": "compact",

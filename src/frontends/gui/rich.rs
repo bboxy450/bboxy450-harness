@@ -597,7 +597,12 @@ fn chips_and_bullets(node: &mut c::Layout, metrics: &impl c::Measure) -> Result<
                 .filter(|r| !r.text.trim().is_empty())
             {
                 let h = (CHIP_TEXT * 1.25 + 3.).round();
-                let w = run.rect.w + 10.;
+                // Native thin-space advances can be less than the web's 5px
+                // chip padding, especially at a wrapped line edge. Keep paint
+                // inside the measured line instead of clipping into its neighbor.
+                let x = (run.rect.x - 5.).max(child.rect.x);
+                let right = (run.rect.right() + 5.).min(child.rect.right());
+                let w = (right - x).max(0.);
                 let y = (run.baseline - CHIP_TEXT * 0.36 - h / 2.).round();
                 let path = c::Element::Path(c::Path {
                     size: [w, h],
@@ -610,7 +615,7 @@ fn chips_and_bullets(node: &mut c::Layout, metrics: &impl c::Measure) -> Result<
                     fill: Some(super::face::paint(super::face::alpha(ink.fg, 0.07))),
                     opacity: 1.,
                 });
-                out.push(path.layout(Rect::new(run.rect.x - 5., y, w, h), context(), metrics)?);
+                out.push(path.layout(Rect::new(x, y, w, h), context(), metrics)?);
             }
         }
         chips_and_bullets(&mut child, metrics)?;
@@ -676,5 +681,49 @@ mod tests {
         assert!(tool_markdown("other", "", true, markdown).is_none());
         assert!(tool_markdown("read", "README.md.txt", false, "plain").is_none());
         assert!(tool_markdown("other", "README.md", false, "plain").is_none());
+    }
+}
+
+#[cfg(test)]
+mod gui_polish_geometry {
+    use super::*;
+    #[tokio::test]
+    async fn gui_polish_inline_code_chips_stay_inside_their_text_line() {
+        fn check(node: &c::Layout, chips: &mut usize) {
+            for pair in node.children.windows(2) {
+                if matches!(pair[0].kind, c::LayoutKind::Path { .. })
+                    && let c::LayoutKind::Text { runs, .. } = &pair[1].kind
+                    && runs
+                        .iter()
+                        .any(|r| r.style.mono && (r.style.size - CHIP_TEXT).abs() < 0.001)
+                {
+                    *chips += 1;
+                    let chip = pair[0].rect;
+                    let line = pair[1].rect;
+                    assert!(
+                        chip.x >= line.x - 0.5 && chip.right() <= line.right() + 0.5,
+                        "inline code paint escaped its line: chip={chip:?} line={line:?}"
+                    );
+                }
+            }
+            for child in &node.children {
+                check(child, chips);
+            }
+        }
+        crate::runtime::blocking(|| {
+        let metrics = super::super::view::Metrics::default();
+        let mut chips = 0;
+        for width in [200., 290., 640.] {
+            let mut docs = Documents::default();
+            let text = "`bboxy450-harness` then a wrapped `bboxy450-harness-bboxy450-harness-bboxy450-harness` near the edge.";
+            let body = docs
+                .prepare(ItemId::new(), text, true, width, 1., &metrics)
+                .unwrap();
+            for block in body.blocks {
+                check(&block, &mut chips);
+            }
+        }
+        assert!(chips > 0, "chip witness absent");
+        }).await;
     }
 }

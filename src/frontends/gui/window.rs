@@ -685,8 +685,12 @@ impl ApplicationHandler<Wake> for App {
     }
 }
 fn config(options: &Options) -> Result<Config, String> {
-    let root = PathBuf::from(std::env::var_os("HOME").ok_or("HOME unavailable")?)
-        .join(".bboxy450-harness");
+    config_at_home(options, std::env::var_os("HOME"))
+}
+fn config_at_home(options: &Options, home: Option<std::ffi::OsString>) -> Result<Config, String> {
+    let profiles = super::bridge::machine_profiles(home)
+        .ok_or("Profile catalogue unavailable · HOME is absent")?;
+    let root = profiles.parent().expect("profiles root").to_path_buf();
     let session = SessionId::new();
     let redactor = Set::default();
     Ok(Config {
@@ -914,5 +918,22 @@ pub fn route_key(
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod acp_controls_path_tests {
+    use super::*;
+    #[test]
+    fn acp_controls_standalone_uses_same_machine_catalogue_as_embedded() {
+        let options = Options::parse(Vec::<String>::new()).unwrap();
+        let private = PathBuf::from("/private/tmp/bboxy-private-home");
+        let cfg = config_at_home(&options, Some(private.clone().into_os_string())).unwrap();
+        assert_eq!(
+            cfg.profiles,
+            super::super::bridge::machine_profiles(Some(private.into_os_string())).unwrap()
+        );
+        assert!(config_at_home(&options, None).is_err());
+        assert!(config_at_home(&options, Some("".into())).is_err());
     }
 }

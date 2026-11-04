@@ -4,7 +4,7 @@
 # License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 # Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
-.PHONY: help test test-ir lock-ir test-formal test-formal-native test-formal-parity check-formal-evidence smoke-live bench-budgets test-licenses test-secrets
+.PHONY: help test test-ir lock-ir test-formal test-formal-native test-formal-parity check-formal-evidence check-embedded-build smoke-live bench-budgets test-licenses test-secrets
 TARGET_DIR ?= target
 
 test:
@@ -18,6 +18,9 @@ help:
 	  'make test                       Full unattended unit, integration, formal, GUI and packaging checks' \
 	  'make test-formal                Native Yarn/formal checks and broken controls' \
 	  'make test-formal-parity         Native/Java TLC graph and verdict parity' \
+	  'make verify-gui-polish          Focused MCP output, prompt projection, loader and changed model checks' \
+	  'make check-embedded-lints       Strict embedded harness library lint compilation only' \
+	  'make check-embedded-build       Strict embedded lint and default/ACP/standalone compile checks' \
 	  'make app / app-unsigned         Release app, Apple identity / ad-hoc signed' \
 	  'make install                    Apple-signed app into ~/Applications' \
 	  'make install-unsigned           Ad-hoc app into target/install-unsigned' \
@@ -27,6 +30,15 @@ help:
 	  'make test-app-startup-control   Reject the missing title-bar image, then restore' \
 	  'make release-dry / release      Signed archive / publish verified main' \
 	  'Overrides: TARGET_DIR=... INSTALL_DIR=... UNSIGNED_INSTALL_DIR=...'
+
+.PHONY: check-embedded-lints
+check-embedded-lints:
+	cargo clippy --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --no-default-features --features embedded --lib --no-deps -- -D warnings
+
+check-embedded-build:
+	cargo clippy --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --no-default-features --features embedded --lib -- -D warnings
+	cargo check --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --lib
+	cargo check --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --features acp,standalone --lib --bin bboxy450-harness
 
 test-formal-native:
 	FORMAL_OUT='$(abspath $(TARGET_DIR))/formal/models' cargo test --offline --locked --test formal_models --test formal_nonvacuity --test reactor_projection
@@ -185,3 +197,18 @@ test-ir:
 # Refresh the IR lock after an addition; refused unless the schema is additive over the old lock.
 lock-ir:
 	python3 -I scripts/ir-compat.py lock
+
+.PHONY: verify-gui-polish
+verify-gui-polish:
+	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-gui-polish.py
+
+.PHONY: verify-profiles-pending
+verify-profiles-pending:
+	cargo test --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --features embedded --lib gui_polish_pending -- --nocapture
+	PROFILES_PENDING_CAPTURE_DIR='$(abspath $(TARGET_DIR))/profiles-pending/captures' cargo test --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --features embedded --test gui_render profiles_pending -- --nocapture
+	$(MAKE) check-embedded-lints
+	cargo check --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --lib
+
+.PHONY: verify-acp-controls
+verify-acp-controls:
+	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/test-acp-controls.py

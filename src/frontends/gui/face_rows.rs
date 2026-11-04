@@ -45,10 +45,10 @@ pub(super) struct Folds {
 /// Native records and usage never carry a receipt or feed padding (harness-spec.md
 /// "What never reaches the transcript"). They remain in the replay, not the face.
 pub(super) fn drawn(model: &Transcript, id: &ItemId) -> bool {
-    model
-        .items
-        .get(id)
-        .is_some_and(|r| !matches!(r.kind, ItemKind::Native | ItemKind::Usage))
+    model.items.get(id).is_some_and(|r| {
+        !matches!(r.kind, ItemKind::Native | ItemKind::Usage)
+            && (r.kind != ItemKind::UserMessage || r.completed.is_some())
+    })
 }
 /// harness-spec.md "Runaway loop card": first line, lowercased, letters only, 48 chars.
 fn line_key(markdown: &str) -> String {
@@ -294,7 +294,7 @@ impl Preparer {
         let mut rich = None;
         // Raw edge records never draw, including while incomplete. Like usage, they
         // keep their id at zero height, with no body, gutter, padding or receipt.
-        if matches!(row.kind, ItemKind::Native | ItemKind::Usage) {
+        if !drawn(model, &id) {
             return Ok((c::Element::Spacer, None));
         }
         // a parallel-call group member is inset 14px behind the rail (.hx-group padding-left)
@@ -879,10 +879,13 @@ impl Preparer {
         };
         // the terminal's own command is authoritative over the call's arguments
         let mut d = d;
-        if output.is_empty()
-            && let Some(value) = raw_output
+        if crate::frontends::face_core::placeholder_output(output)
+            && let Some(value) = raw_output.as_ref().filter(|v| !v.is_null())
         {
-            d.out = value.to_string();
+            d.out = crate::frontends::face_core::raw_tool_output(value);
+        }
+        if d.out.is_empty() && row.completed.is_some() && d.kind != "execute" {
+            d.out = "No output reported".into();
         }
         if let Some(Item::Terminal { command, .. }) = term.as_ref().map(|t| &t.body)
             && !command.is_empty()
@@ -915,6 +918,9 @@ impl Preparer {
                 format!("{lines} hit{}", if lines == 1 { "" } else { "s" }),
                 None,
             )),
+            _ if raw_output.is_some() && row.status.is_some() && lines > 0 => {
+                Some((format!("{lines} lines"), None))
+            }
             _ => None,
         };
         let failed = matches!(status, f::Status::Failed | f::Status::Denied);
@@ -1092,7 +1098,7 @@ impl Preparer {
                     if failed {
                         error_box(&d.out, ink)
                     } else {
-                        plain_box(&d.out, ink)
+                        plain_box(&d.out, id, content_width - 48., ink, &self.metrics)?
                     }
                     .into(),
                 );
@@ -1197,15 +1203,35 @@ fn error_box(text: &str, ink: &f::Ink) -> c::Element {
         ],
     )
 }
-fn plain_box(text: &str, ink: &f::Ink) -> c::Element {
-    let t: String = text.chars().take(1600).collect();
-    f::frame(
+fn plain_box(
+    text: &str,
+    id: ItemId,
+    width: f32,
+    ink: &f::Ink,
+    metrics: &impl c::Measure,
+) -> Result<c::Element, String> {
+    let content = f::runs(vec![(text.to_owned(), ink.fg, 400, false)], 12., true, true);
+    let ([_, height], _) = content
+        .natural(width, context(), metrics)
+        .map_err(|e| format!("{e:?}"))?;
+    Ok(f::frame(
         f::Frame {
             fill: f::alpha(ink.bg, 0.55),
             radius: [8.; 4],
             padding: [8., 10., 8., 10.],
             ..Default::default()
         },
-        vec![f::runs(vec![(t, ink.fg, 400, false)], 12., true, true).into()],
-    )
+        vec![
+            named(
+                format!("mdout/{id}"),
+                c::Element::ScrollView(c::ScrollView {
+                    viewport: [width, height.min(400.)],
+                    offset: [0., 0.],
+                    content_width: None,
+                    content: Box::new(content),
+                }),
+            )
+            .into(),
+        ],
+    ))
 }

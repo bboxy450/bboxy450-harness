@@ -43,6 +43,17 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
 
 ## Lineage and credits
 
+- Advertised ACP model/reasoning controls, child/revision fences, safe catalogue
+  diagnostics and their private process/native/formal witnesses are project-owned.
+  Wire shapes follow the ACP v1 session configuration specification:
+  https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/protocol/v1/session-config-options.mdx.
+
+
+- MCP result presentation, local causal pending-prompt bubbles, shared welcome-loader
+  portrait and their focused native/formal witnesses in `src/frontends/gui/`,
+  `src/frontends/face_core.rs`, `src/backend/acp_agent.rs`, `tests/` and
+  `scripts/verify-gui-polish.py` are project-owned under the policy above.
+
 - Launch bootstrap context, generation-private MCP stdio relays, process fixtures
   and formal controls in `src/backend/acp_agent.rs`, `src/mcp/relay.rs` and
   `tests/acp_launch_context.rs` are project-owned implementations under this policy.

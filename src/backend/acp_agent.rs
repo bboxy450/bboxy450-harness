@@ -136,8 +136,17 @@ enum Wire {
 enum Call {
     Initialize,
     NewSession,
-    SetModel,
+    SetModel {
+        revision: u64,
+    },
     Prompt,
+    Configure {
+        op: OpId,
+        revision: u64,
+        id: String,
+        value: String,
+        legacy: bool,
+    },
 }
 struct Agent {
     child: OwnedChild,
@@ -147,6 +156,8 @@ struct Agent {
     backend: Backend,
     model: Option<String>,
     pending_model: Option<String>,
+    controls: AgentConfig,
+    config_deadline: Option<Instant>,
     bootstrap_pending: bool,
     startup_deadline: Option<Instant>,
     next_id: u64,
@@ -164,7 +175,6 @@ struct Tool {
     output: Vec<OutputBlock>,
     locations: Vec<Location>,
     raw_output: Option<Value>,
-    content_seen: bool,
 }
 struct Permission {
     rpc: Value,
@@ -443,6 +453,12 @@ impl AcpAgentActor {
                     _ = sleep_until(quiet_at) => self.quiet_expired().await?,
                     _ = tick.tick() => {
                         self.gateway.hub.flush_deltas();
+                        if self.agent.as_ref().and_then(|a| a.config_deadline).is_some_and(|d| Instant::now() >= d) {
+                            let a = self.agent.as_mut().unwrap();
+                            a.config_deadline = None;
+                            a.controls.status = "Unknown outcome · request will not be replayed".into();
+                            self.publish_controls(None).await?;
+                        }
                         if self.agent.as_ref().and_then(|a| a.startup_deadline).is_some_and(|d| Instant::now() >= d) {
                             self.agent_gone("ACP agent startup deadline exceeded".into()).await?;
                         }
@@ -541,6 +557,16 @@ impl AcpAgentActor {
                 )
                 .await?;
             }
+            Op::SetAgentConfig {
+                epoch,
+                instance,
+                revision,
+                config_id,
+                value,
+            } => {
+                self.configure(id, epoch, instance, revision, config_id, value)
+                    .await?;
+            }
             Op::Compact => self.reject(id, Rejection::NothingToCompact).await?,
             Op::Close => {
                 self.close(id).await?;
@@ -559,6 +585,79 @@ impl AcpAgentActor {
         Ok(false)
     }
 
+    async fn publish_controls(&mut self, cause: Option<OpId>) -> std::io::Result<()> {
+        let state = self
+            .agent
+            .as_ref()
+            .map(|a| a.controls.clone())
+            .unwrap_or_default();
+        self.publish(
+            Event::ContextChanged {
+                mode: None,
+                permission_mode: None,
+                config: Some(BTreeMap::from([(
+                    "acp_controls".into(),
+                    serde_json::to_value(state).unwrap(),
+                )])),
+            },
+            cause,
+        )
+        .await
+    }
+    async fn configure(
+        &mut self,
+        op: OpId,
+        epoch: Epoch,
+        instance: OpId,
+        revision: u64,
+        id: String,
+        value: String,
+    ) -> std::io::Result<()> {
+        let valid = epoch == self.gateway.hello().epoch
+            && self.agent.as_ref().is_some_and(|a| {
+                a.session.is_some() && a.controls.admits(instance, revision, &id, &value)
+            });
+        if !valid {
+            return self.reject(op, Rejection::InvalidInput { detail: "Agent configuration unavailable, pending or stale; refresh the controls".into() }).await;
+        }
+        let agent = self.agent.as_mut().unwrap();
+        let legacy = agent
+            .controls
+            .options
+            .iter()
+            .find(|o| o.id == id)
+            .unwrap()
+            .legacy;
+        let params = if legacy {
+            json!({"sessionId": agent.session, "modelId": value})
+        } else {
+            json!({"sessionId": agent.session, "configId": id, "value": value})
+        };
+        agent.controls.pending = Some(op);
+        agent.controls.status = "Pending · awaiting agent confirmation".into();
+        agent.config_deadline = Some(Instant::now() + Duration::from_secs(5));
+        let sent = call(
+            agent,
+            Call::Configure {
+                op,
+                revision,
+                id,
+                value,
+                legacy,
+            },
+            if legacy {
+                "session/set_model"
+            } else {
+                "session/set_config_option"
+            },
+            params,
+        );
+        if sent.is_err() {
+            agent.controls.status = "Unknown outcome · request will not be replayed".into();
+            agent.config_deadline = None;
+        }
+        self.publish_controls(Some(op)).await
+    }
     async fn close(&mut self, id: OpId) -> std::io::Result<()> {
         self.gateway.seal();
         if self.running.is_some() {
@@ -975,6 +1074,8 @@ impl AcpAgentActor {
             },
             model: None,
             pending_model: None,
+            controls: AgentConfig::default(),
+            config_deadline: None,
             bootstrap_pending: true,
             startup_deadline: Some(
                 Instant::now()
@@ -1020,6 +1121,7 @@ impl AcpAgentActor {
             .map(|a| a.stderr.lock().map(|s| s.clone()).unwrap_or_default())
             .unwrap_or_default();
         self.kill();
+        self.publish_controls(None).await?;
         let tail = self.config.redactor.scrub(tail.trim());
         let message = if tail.is_empty() {
             why
@@ -1064,6 +1166,11 @@ impl AcpAgentActor {
                     }
                     (Some(method), None) => {
                         if method == "session/update" {
+                            if m.pointer("/params/sessionId").and_then(Value::as_str)
+                                != self.agent.as_ref().and_then(|a| a.session.as_deref())
+                            {
+                                return Ok(());
+                            }
                             let update =
                                 m.pointer("/params/update").cloned().unwrap_or(Value::Null);
                             self.update(update).await
@@ -1089,6 +1196,59 @@ impl AcpAgentActor {
         let Some(call_kind) = id.as_u64().and_then(|n| agent.calls.remove(&n)) else {
             return Ok(());
         };
+        if let Call::Configure {
+            op,
+            revision,
+            id,
+            value,
+            legacy,
+        } = call_kind
+        {
+            let a = self.agent.as_mut().unwrap();
+            if a.controls.pending != Some(op) {
+                return Ok(());
+            }
+            a.config_deadline = None;
+            a.controls.pending = None;
+            if m.get("error").is_some() {
+                a.controls.status = "Refused by agent · confirmed values retained".into();
+            } else if a.controls.revision != revision {
+                // A newer notification is authoritative; an older response cannot roll it back.
+                a.controls.status = "Agent updated configuration · older response ignored".into();
+            } else if legacy && m.get("result").is_some_and(Value::is_object) {
+                if let Some(o) = a
+                    .controls
+                    .options
+                    .iter_mut()
+                    .find(|o| o.id == id && o.legacy)
+                {
+                    o.current = value;
+                }
+                // Legacy model acknowledgements have no effort catalogue: retire the old choices.
+                a.controls.options.retain(|o| o.category == "model");
+                a.controls.revision += 1;
+                a.controls.status = "Confirmed by agent · legacy model capability".into();
+            } else if m
+                .pointer("/result/configOptions")
+                .is_some_and(Value::is_array)
+            {
+                a.controls.replace(&m["result"]);
+                a.controls.status = "Confirmed by agent".into();
+            } else {
+                a.controls.status =
+                    "Unknown outcome · agent omitted configuration; request will not be replayed"
+                        .into();
+                a.controls.options.clear();
+                a.controls.revision += 1;
+            }
+            a.model = a
+                .controls
+                .options
+                .iter()
+                .find(|o| o.category == "model")
+                .map(|o| o.current.clone());
+            return self.publish_controls(Some(op)).await;
+        }
         if let Some(error) = m.get("error") {
             let code = error.get("code").and_then(Value::as_i64).unwrap_or(0);
             let text = error
@@ -1103,8 +1263,12 @@ impl AcpAgentActor {
             };
             let message = format!("ACP agent refused {}: {text}{hint}", call_name(&call_kind));
             return match call_kind {
-                Call::SetModel if self.running.is_some() => {
-                    self.agent.as_mut().expect("agent").pending_model = None;
+                Call::SetModel { .. } if self.running.is_some() => {
+                    let a = self.agent.as_mut().expect("agent");
+                    a.pending_model = None;
+                    a.controls.pending = None;
+                    a.controls.status = "Refused by agent · confirmed values retained".into();
+                    self.publish_controls(None).await?;
                     // the turn still runs, on the agent's own model
                     self.notice(Level::Warn, message).await?;
                     self.send_prompt().await
@@ -1174,19 +1338,62 @@ impl AcpAgentActor {
                     .and_then(|option| option.get("currentValue"))
                     .and_then(Value::as_str)
                     .map(str::to_owned);
+                {
+                    let a = self.agent.as_mut().unwrap();
+                    a.controls.replace(&result);
+                    a.controls.status = "Confirmed by agent".into();
+                    a.model = a
+                        .controls
+                        .options
+                        .iter()
+                        .find(|o| o.category == "model")
+                        .map(|o| o.current.clone())
+                        .or_else(|| a.model.clone());
+                }
+                self.publish_controls(None).await?;
                 if let Some(wanted) = self.model.clone() {
                     match pick_model(&result, &wanted) {
                         ModelChoice::Current => {}
                         ModelChoice::Set(value) => {
                             let agent = self.agent.as_mut().expect("agent");
                             agent.pending_model = Some(value.clone());
-                            let params = json!({ "sessionId": session, "configId": "model", "value": value });
-                            return call(
+                            let option = agent
+                                .controls
+                                .options
+                                .iter()
+                                .find(|o| o.category == "model");
+                            let legacy = option.is_some_and(|o| o.legacy);
+                            // Preserve the existing profile bootstrap for older v1 advertisements
+                            // missing optional UI metadata. Such rows remain unavailable as UI selectors.
+                            let config_id = option
+                                .map(|o| o.id.as_str())
+                                .or_else(|| {
+                                    model_option(&result)
+                                        .and_then(|o| o.get("id"))
+                                        .and_then(Value::as_str)
+                                })
+                                .unwrap_or("model");
+                            let params = if legacy {
+                                json!({ "sessionId": session, "modelId": value })
+                            } else {
+                                json!({ "sessionId": session, "configId": config_id, "value": value })
+                            };
+                            let revision = agent.controls.revision;
+                            agent.controls.pending = Some(OpId::new());
+                            agent.controls.status =
+                                "Pending · applying profile model intent".into();
+                            let sent = call(
                                 agent,
-                                Call::SetModel,
-                                "session/set_config_option",
+                                Call::SetModel { revision },
+                                if legacy {
+                                    "session/set_model"
+                                } else {
+                                    "session/set_config_option"
+                                },
                                 params,
                             );
+                            self.publish_controls(None).await?;
+                            return sent;
                         }
                         ModelChoice::NotOffered(current) => {
                             self.notice(
@@ -1202,11 +1409,39 @@ impl AcpAgentActor {
                 }
                 self.send_prompt().await
             }
-            Call::SetModel => {
+            Call::SetModel { revision } => {
                 let agent = self.agent.as_mut().expect("agent");
-                agent.model = agent.pending_model.take();
+                let pending = agent.pending_model.take();
+                agent.controls.pending = None;
+                agent.controls.status = "Confirmed by agent".into();
+                if agent.controls.revision != revision {
+                    agent.controls.status =
+                        "Agent updated configuration · older response ignored".into();
+                } else if result.get("configOptions").is_some_and(Value::is_array) {
+                    agent.controls.replace(&result);
+                    agent.model = agent
+                        .controls
+                        .options
+                        .iter()
+                        .find(|o| o.category == "model")
+                        .map(|o| o.current.clone());
+                } else {
+                    // Old adapters acknowledged with {}; they confirmed only the selected model.
+                    agent.model = pending;
+                    agent.controls.options.retain(|o| o.category == "model");
+                    for o in &mut agent.controls.options {
+                        if o.category == "model"
+                            && let Some(m) = &agent.model
+                        {
+                            o.current = m.clone();
+                        }
+                    }
+                    agent.controls.revision += 1;
+                }
+                self.publish_controls(None).await?;
                 self.send_prompt().await
             }
+            Call::Configure { .. } => unreachable!(),
             Call::Prompt => {
                 if result
                     .as_object()
@@ -1463,6 +1698,18 @@ impl AcpAgentActor {
 
     // ---------- session/update ----------
     async fn update(&mut self, u: Value) -> std::io::Result<()> {
+        if u.get("sessionUpdate").and_then(Value::as_str) == Some("config_option_update") {
+            if let Some(a) = self.agent.as_mut() {
+                a.controls.replace(&u);
+                a.model = a
+                    .controls
+                    .options
+                    .iter()
+                    .find(|o| o.category == "model")
+                    .map(|o| o.current.clone());
+            }
+            return self.publish_controls(None).await;
+        }
         let extra = update_remainder(&u);
         if extra.as_object().is_some_and(|o| !o.is_empty()) {
             self.projected_ext.insert("acp".into(), extra);
@@ -1789,7 +2036,6 @@ impl AcpAgentActor {
                     output: vec![],
                     locations: vec![],
                     raw_output: None,
-                    content_seen: false,
                 },
             );
         }
@@ -1819,8 +2065,14 @@ impl AcpAgentActor {
                 .collect();
         }
         if let Some(content) = u.get("content").and_then(Value::as_array) {
-            t.content_seen = true;
-            t.output = content.iter().filter_map(output_block).collect();
+            t.output = content
+                .iter()
+                .map(|value| {
+                    output_block(value).unwrap_or_else(|| OutputBlock::Json {
+                        value: value.clone(),
+                    })
+                })
+                .collect();
         }
         let item = t.item;
         if fresh {
@@ -2003,8 +2255,17 @@ pub enum ModelChoice {
 /// Exact value, provider-prefixed suffix, then an offered alias matching a whole
 /// '-', '/' or '.' separated token of the wanted model (e.g. haiku).
 pub fn pick_model(new_session: &Value, wanted: &str) -> ModelChoice {
-    let Some(option) = model_option(new_session) else {
-        return ModelChoice::NotOffered(None);
+    let normalized;
+    let option = if let Some(option) = model_option(new_session) {
+        option
+    } else {
+        let mut controls = AgentConfig::default();
+        controls.replace(new_session);
+        let Some(o) = controls.options.iter().find(|o| o.category == "model") else {
+            return ModelChoice::NotOffered(None);
+        };
+        normalized = json!({"currentValue":o.current,"options":o.choices.iter().map(|c| json!({"value":c.value})).collect::<Vec<_>>()});
+        &normalized
     };
     let current = option
         .get("currentValue")
@@ -2015,7 +2276,13 @@ pub fn pick_model(new_session: &Value, wanted: &str) -> ModelChoice {
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(|o| o.get("value").and_then(Value::as_str))
+        .flat_map(|e| {
+            e.get("options")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or(std::slice::from_ref(e))
+        })
+        .filter_map(|e| e.get("value").and_then(Value::as_str))
         .collect();
     let suffix = format!("/{wanted}");
     let found = values
@@ -2110,8 +2377,9 @@ fn call_name(c: &Call) -> &'static str {
     match c {
         Call::Initialize => "initialize",
         Call::NewSession => "session/new",
-        Call::SetModel => "the model choice",
+        Call::SetModel { .. } => "the model choice",
         Call::Prompt => "the prompt",
+        Call::Configure { .. } => "session configuration",
     }
 }
 pub fn tool_kind(k: &str) -> ToolKind {
@@ -2128,23 +2396,30 @@ pub fn tool_kind(k: &str) -> ToolKind {
     }
 }
 fn tool_body(t: Tool, empty: &str) -> Item {
+    let output = if t.output.is_empty() {
+        match t.raw_output.as_ref().filter(|value| !value.is_null()) {
+            Some(value) => vec![OutputBlock::Json {
+                value: value.clone(),
+            }],
+            None => vec![OutputBlock::Text { text: empty.into() }],
+        }
+    } else {
+        t.output
+    };
     Item::ToolCall {
         title: None,
         server: None,
         raw_output: t.raw_output,
         call_id: t.call_id,
         name: t.name,
-        tool_kind: t.kind.clone(),
+        tool_kind: t.kind,
         input_raw: t.input,
-        output: if t.output.is_empty() && !t.content_seen {
-            vec![OutputBlock::Text { text: empty.into() }]
-        } else {
-            t.output
-        },
+        output,
         locations: t.locations,
         spill: None,
     }
 }
+
 fn decided(body: Item, decision: Option<ApprovalDecision>, by: Resolver) -> Item {
     match body {
         Item::Approval {

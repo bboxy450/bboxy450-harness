@@ -415,3 +415,25 @@ implementation_tests = ["tests/acp_launch_context.rs", "tests/acp_agent.rs", "te
 assumptions = "Three distinct launch/session births A-B-A, context and MCP present/absent, one held completion, startup age0..2, ready/failed states and one real prompt. Weak fairness only of the logical timer/deadline group; no server or provider fairness. Admission samples immutable context and selected grants for that birth; reopen/switch create fresh ownership. Controls omit instructions, omit MCP, apply a held stale completion, disable the deadline or create a synthetic prompt, or drop explicit launcher approval intent. Launcher/profile allow bits are admitted together and the effective allow is their semantic OR. Socket ACLs, uid, bytes, no secret in argv/wire/store, vendor model config and permission semantics, exact file capability custody, real wall-clock bounds, process cleanup and model priority are implementation-only witnesses; ACP v1 bootstrap text is not system-role priority or arbitrary Rust refinement."
 property = "AdmittedContextForwarded; AdmittedMcpForwarded; CurrentGenerationOnly; NoSyntheticPrompt; LauncherApprovalMapped; StartupSettlesWithoutServerFairness."
 checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessGuiPendingPrompt"
+title = "Local prompt stays gray until its correlated durable user item replaces it exactly once"
+models = ["HarnessGuiPendingPrompt", "BrokenHarnessGuiPendingPromptAck", "BrokenHarnessGuiPendingPromptStale"]
+controls = [{name="BrokenHarnessGuiPendingPromptAck",expected="safety"},{name="BrokenHarnessGuiPendingPromptStale",expected="safety"}]
+sources = ["src/frontends/gui/bridge.rs", "src/frontends/gui/view.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/gui_bridge.rs", "tests/gui_render.rs"]
+assumptions = "Two identical-text intents with distinct immutable op identities; three distinct A-B-A births; state0..4 is unsent/queued/durable/rejected/unknown. Schedule, Ack, disconnect, rejection, correlated durable completion, replay and birth switch are atomic UI projection actions. No delivery/provider fairness: unknown remains unknown without redispatch. Session and replay epoch fence birth; no new process generation field is introduced. The real process owner already fences generation before log append. Text bytes, frame cache/wake timing, socket failure, detach and native layout remain implementation witnesses; no arbitrary Rust refinement or vendor API equivalence claim."
+property = "BlueRequiresCurrentCausalBirth; AckCannotRemovePending; duplicate completions do not create another intent."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessAcpControls"
+title = "ACP advertised configuration belongs to a child incarnation and complete option revision"
+models = ["HarnessAcpControls", "BrokenHarnessAcpControlsStale", "BrokenHarnessAcpControlsReplay"]
+controls = [{name="BrokenHarnessAcpControlsStale",expected="safety"},{name="BrokenHarnessAcpControlsReplay",expected="safety"}]
+sources = ["src/protocol/agent_config.rs", "src/backend/acp_agent.rs", "src/frontends/gui/model.rs", "src/frontends/gui/view.rs"]
+tests = ["tests/acp_controls.rs"]
+assumptions = "Birth0..2 denotes child/session A-B-A, revision0..2 denotes full advertised option identity. One selection, reordered notification/reply, refusal, disconnect/deadline unknown; only the local deadline has weak fairness. No provider fairness, arbitrary Rust refinement, authentication, tool semantics, frame scheduling or vendor model correctness is claimed. Real private ACP child and Unix/native GUI witnesses cover API calls, no prompt/tool effect, reconnect and dynamic effort choices."
+property = "ConfirmedHasCurrentChildAndOptionIdentity; UnknownNeverRedispatches; ConfigHasNoPromptEffect; LocalDeadlineSettlesPending under WF{deadline}."
+checks = ["make verify-acp-controls"]

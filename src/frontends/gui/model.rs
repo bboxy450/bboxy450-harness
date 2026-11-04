@@ -53,6 +53,7 @@ pub struct Transcript {
     pub meta: Option<SessionMeta>,
     pub profile: Option<(String, String)>,
     pub context: Option<String>,
+    pub agent_config: Option<AgentConfig>,
     pub items: OrdMap<ItemId, ViewItem>,
     pub order: Vector<ItemId>,
     pub turns: OrdMap<TurnId, TurnState>,
@@ -72,6 +73,7 @@ impl Default for Transcript {
             meta: None,
             profile: None,
             context: None,
+            agent_config: None,
             items: OrdMap::new(),
             order: Vector::new(),
             turns: OrdMap::new(),
@@ -254,6 +256,10 @@ impl Transcript {
                 permission_mode,
                 config,
             } => {
+                if let Some(value) = config.as_ref().and_then(|c| c.get("acp_controls")) {
+                    self.agent_config = serde_json::from_value(value.clone()).ok();
+                    return Effect::None;
+                }
                 self.context = Some(format!(
                     "Context: {} · {}{}",
                     mode.as_deref().unwrap_or("unreported"),
@@ -264,7 +270,18 @@ impl Transcript {
                         .unwrap_or_default()
                 ))
             }
-            Event::SessionRecovered { .. } | Event::OpRejected { .. } | Event::Reset { .. } => {}
+            Event::SessionRecovered { .. } => {
+                self.agent_config = None;
+            }
+            Event::OpRejected {
+                reason: Rejection::InvalidInput { detail },
+                ..
+            } if detail.starts_with("Agent configuration") => {
+                if let Some(c) = &mut self.agent_config {
+                    c.status = detail.clone();
+                }
+            }
+            Event::OpRejected { .. } | Event::Reset { .. } => {}
         }
         Effect::None
     }
