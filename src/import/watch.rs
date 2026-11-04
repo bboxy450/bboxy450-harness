@@ -79,6 +79,7 @@ pub(crate) async fn load(
                         }
                         if handle(op, &mut store, &g.hub).await? {
                             if let Some(closed) = store.events.last() {
+                                crate::dream::d0::session_closed(&config.sessions, closed, config.redactor.clone());
                                 crate::frontends::ir_scan::session_closed(&config.sessions, closed,
                                     config.redactor.clone(), g.hub.clone());
                             }

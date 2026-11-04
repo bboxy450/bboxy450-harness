@@ -93,6 +93,7 @@ async fn run_cli(
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "ir-scan" => return super::ir_scan::cli(args).await,
+            "dream" => return crate::dream::cli(args).await,
             "reproject" => {
                 let source = args.next().ok_or("missing session")?;
                 let mut out = None;

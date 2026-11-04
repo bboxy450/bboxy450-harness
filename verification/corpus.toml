@@ -636,3 +636,28 @@ expected = "safety"
 [[model]]
 name = "BrokenHarnessLaunchContextApproval"
 expected = "safety"
+
+[[model]]
+name = "HarnessDreamD0"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamD0"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamD0Blocking"
+expected = "liveness"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamNativeCustody"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamNativeCustody"
+expected = "safety"
+frontend = "project"

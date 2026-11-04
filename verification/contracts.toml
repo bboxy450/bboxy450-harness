@@ -463,3 +463,35 @@ implementation_tests = ["tests/acp_launch_context.rs", "tests/acp_agent.rs", "te
 assumptions = "Three distinct launch/session births A-B-A, context and MCP present/absent, one held completion, startup age0..2, ready/failed states and one real prompt. Weak fairness only of the logical timer/deadline group; no server or provider fairness. Admission samples immutable context and selected grants for that birth; reopen/switch create fresh ownership. Controls omit instructions, omit MCP, apply a held stale completion, disable the deadline or create a synthetic prompt, or drop explicit launcher approval intent. Launcher/profile allow bits are admitted together and the effective allow is their semantic OR. Socket ACLs, uid, bytes, no secret in argv/wire/store, vendor model config and permission semantics, exact file capability custody, real wall-clock bounds, process cleanup and model priority are implementation-only witnesses; ACP v1 bootstrap text is not system-role priority or arbitrary Rust refinement."
 property = "AdmittedContextForwarded; AdmittedMcpForwarded; CurrentGenerationOnly; NoSyntheticPrompt; LauncherApprovalMapped; StartupSettlesWithoutServerFairness."
 checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessDreamD0"
+spec_record = "01M6J8TTP3DJMYK0V9F336THNC"
+spec_digest = "4d6fa1c8823222cb19031a12dadc21e667aa4644f26e631b63f02be866e2a4dc"
+spec_sections = "Oracle formal-boundary ruling 2026-11-04; dream-log 4.1/4.5"
+title = "D0 fingerprint claim ownership, atomic pin-set union and detached caller"
+models = ["HarnessDreamD0", "BrokenHarnessDreamD0", "BrokenHarnessDreamD0Blocking"]
+controls = [{name="BrokenHarnessDreamD0", expected="safety"}, {name="BrokenHarnessDreamD0Blocking", expected="liveness"}]
+sources = ["tests/formal/models.rs", ".bboxy/specs/dream-log.md", "src/dream/d0.rs", "src/dream/join.rs", "src/dream/mod.rs", "src/engine/mod.rs", "src/backend/acp_agent.rs", "src/import/watch.rs"]
+implementation_tests = ["tests/formal_nonvacuity.rs", "tests/formal/models.rs", "tests/dream_replay.rs"]
+planned_sources = []
+pending_implementation_tests = []
+assumptions = "Two workers, two fingerprint shards, two opaque pins; worker A targets shard0 and B chooses shard0/1 by symmetry. At most one crash and one explicit duplicate replay. Read, union, atomic publish and release are distinct phases under one nonblocking claim. Busy acquisition skips; duplicate/reordered observations are ordinary interleavings. IO may stall forever. Weak fairness only of detached caller return and release after a completed publish; no fairness of IO, claim acquisition or explicit replay, and no promise that skipped pins eventually reach cache. Crash atomically releases its owned flock and preserves the whole previously committed set; atomic rename/fsync, real file bytes/digests, OS flock semantics and scheduling require API/process witnesses and are not kernel/refinement proofs. Conflicting durable log identities remain WP4 audit ownership, not proven by this opaque pin-set model. Planned implementation mapping is promoted only as actual code/tests arrive."
+property = "SameShardExclusive; ClaimOwnsWorker per shard; CommittedPinsPreserved; CountIsUniquePins; DetachedCaller under WF(return). Nonvacuity covers independent shard acquisition, busy skip/returned caller while another worker owns, union/duplicate and crashes before/after publish. Lost-union control replaces the union with its own pin; blocking-claim control enters a reachable owned-shard wait and prevents caller return while IO stalls."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessDreamNativeCustody"
+spec_record = "01M6JJXVSMZQ5ABQG71V9G91YG"
+spec_digest = "51e052c1f90d3322351848263d9ce1097a9f31e30860bf00d6bd95577c5f5a36"
+spec_sections = "Native retained IR custody decision 1-6, fetched 2026-11-04; current task native-custody amendment"
+title = "Complete native import custody precedes evidence, with nonblocking competing materializers"
+models = ["HarnessDreamNativeCustody", "BrokenHarnessDreamNativeCustody"]
+controls = [{name="BrokenHarnessDreamNativeCustody", expected="safety"}]
+sources = ["tests/formal/models.rs", "src/import/mod.rs", "src/import/spill.rs", "src/store.rs", "src/store/fork.rs", "src/dream/d0.rs"]
+implementation_tests = ["tests/formal_nonvacuity.rs", "tests/formal/models.rs", "tests/dream_replay.rs"]
+planned_sources = []
+pending_implementation_tests = []
+assumptions = "Two materializers for one opaque versioned namespace, one crash and one explicit replay. Private staging, transcript/blob validation, no-replace blob publication, no-replace whole-log publication and pin return are separate phases; competing noncooperating foreign log/blob births can occur after validation. Same-namespace busy claims skip. A complete winner is reused only after opaque exact validation. Weak fairness only of return for already-confirmed workers; no IO/staging/acquisition/replay fairness. Crash releases its claim and preserves completed publication. Hash/domain/ULID allocation, redaction, stable snapshot checks, real bytes/clocks/blob completeness, fsync/rename/flock and scheduling are implementation assumptions requiring real API/process witnesses; this finite model is not a Rust/kernel proof. Snapshot closure is not historical native completion or trusted evidence."
+property = "NoPrematureNativePin; CompleteLogHasCompleteBlobs; NativeClaimOwnsWorker; ForeignNativeLogPreserved; ForeignNativeBlobPreserved; OneNativePublication. Reachable two-worker reuse, crash before/after publication and foreign birth after check; broken return exposes transient staged bytes as pins before any public log/blob."
+checks = ["make test-formal", "make test"]

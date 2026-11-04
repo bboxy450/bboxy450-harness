@@ -1,0 +1,6 @@
+{"type":"permission-mode","permissionMode":"default","sessionId":"native-claude","_attribution":{"project":"bboxy450-harness","origin":"https://github.com/bboxy450/bboxy450-harness","license":"LicenseRef-Respectful-Slop-1.0-Draft","policy":"https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md","credit":"Credit copied/adapted/translated reuse accurately; independent inspiration credit requested."}}
+{"type":"user","sessionId":"native-claude","uuid":"u1","cwd":"/fixture","gitBranch":"main","message":{"role":"user","content":"Read the missing file."}}
+{"type":"assistant","sessionId":"native-claude","uuid":"a1","timestamp":"2026-11-03T00:00:01.000Z","message":{"role":"assistant","model":"fixture-model","content":[{"type":"tool_use","name":"Read","input":{"path":"/tmp/missing"}}]}}
+{"type":"user","sessionId":"native-claude","uuid":"u2","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"","is_error":true,"content":"Missing /tmp/native-path 42"}]}}
+{"type":"future-record","sessionId":"native-claude","uuid":"future1","future":{"keep":[1,"unknown"]}}
+{"type":"assistant","sessionId":"native-claude","uuid":"a2","timestamp":"2026-11-03T00:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Done."}],"stop_reason":"end_turn"}}
