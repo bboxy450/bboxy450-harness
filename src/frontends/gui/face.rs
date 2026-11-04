@@ -1186,7 +1186,7 @@ pub fn head(h: Head, ink: &Ink) -> c::Element {
                 shrink: 1.,
                 min: 0.,
                 max: Some(320.),
-                max_fraction: Some(0.5),
+                max_fraction: None,
             },
         },
         // .hx-tgt is content-sized and ellipsised (min-width 0); .hx-sp takes the slack
@@ -1444,7 +1444,7 @@ pub fn group_member(card: c::Element, index: usize, n: usize, ink: &Ink) -> c::E
                 if first { 8. } else { 0. },
                 8.,
                 if last { 8. } else { 0. },
-                4.,
+                TIMELINE_CENTER - 1.,
             ],
             ..Default::default()
         },
@@ -1633,6 +1633,7 @@ pub fn loop_body(child: c::Element, ink: &Ink) -> c::Element {
         0.,
     )
 }
+const TIMELINE_CENTER: f32 = 5.;
 pub fn thought_row(
     key: &str,
     live: bool,
@@ -1649,10 +1650,17 @@ pub fn thought_row(
             .map(|ms| format!("Thought for {}", duration(ms)))
     };
     // Reasoning uses the same running/completed indicator as tool calls.
-    let mut kids = vec![fixed(named(
-        format!("{key}/icon"),
-        status_disc(&if live { Status::Running } else { Status::Done }, ink),
-    ))];
+    let mut kids = vec![fixed(c::Element::Layers {
+        base: Box::new(meter_bar(14., 18., [0.; 4])),
+        overlays: vec![c::Placed {
+            content: named(
+                format!("{key}/icon"),
+                status_disc(&if live { Status::Running } else { Status::Done }, ink),
+            ),
+            left: TIMELINE_CENTER - 9.,
+            bottom: 0.,
+        }],
+    })];
     if let Some(label) = label {
         kids.push(fixed(named(
             format!("{key}/label"),
@@ -1691,13 +1699,13 @@ pub fn thought_body(child: c::Element, ink: &Ink) -> c::Element {
     frame(
         Frame {
             gap,
-            padding: [0., 0., 0., 8.],
+            padding: [0., 0., 0., TIMELINE_CENTER - 1.],
             row: true,
             stretch: true,
             ..Default::default()
         },
         vec![
-            fixed(bar(2., alpha(ink.seat, 0.45))).with_width(2.),
+            fixed(named("reasoning/rail", bar(2., alpha(ink.seat, 0.45)))).with_width(2.),
             fill(child),
         ],
     )

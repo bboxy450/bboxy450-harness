@@ -1081,7 +1081,7 @@ impl HarnessView {
                 .as_ref()
                 .and_then(|m| m.cwd.file_name())
                 .map(|n| n.to_string_lossy().into_owned());
-            let mut base_header = super::face::header(
+            let base_header = super::face::header(
                 model.profile.clone(),
                 leaf.clone(),
                 &status,
@@ -1102,7 +1102,7 @@ impl HarnessView {
                             .unwrap_or(&option.current);
                         selectors.push(super::face::fixed(super::menu::select_chip(
                             &format!("config/{category}"),
-                            title,
+                            if width < 760. { "" } else { title },
                             value,
                             self.config_open.as_deref() == Some(category),
                             config.pending.is_none() && !state.replay,
@@ -1111,14 +1111,17 @@ impl HarnessView {
                     }
                 }
             }
-            let mut header = if selectors.is_empty() {
-                base_header
-            } else if width >= 760. {
-                if let c::Element::Box(panel) = &mut base_header {
-                    let at = if model.profile.is_some() { 3 } else { 2 };
-                    panel.children.splice(at..at, selectors);
-                }
-                base_header
+            let mut inline = base_header.clone();
+            if let c::Element::Box(panel) = &mut inline {
+                let at = if model.profile.is_some() { 3 } else { 2 };
+                panel.children.splice(at..at, selectors.clone());
+                panel.gap = ui::Length::Px(6.);
+            }
+            let mut measured = inline.clone();
+            super::face::zoom_text(&mut measured, zoom);
+            let required = measured.natural(f32::INFINITY, ctx, &self.metrics)?.0[0];
+            let mut header = if selectors.is_empty() || required <= width {
+                inline
             } else {
                 let controls = super::face::frame(
                     super::face::Frame {
@@ -3660,29 +3663,35 @@ mod onboarding_markdown_tests {
         let ctx = ui::Context::new(Theme::Light, Density::Cozy);
         let ink = super::super::face::ink(ctx);
         let metrics = Metrics::default();
-        let head = super::super::face::head(
-            super::super::face::Head {
-                key: "head".into(),
-                tool_kind: "execute",
-                verb: "Run command".into(),
-                target: "mcp.bboxy.message_list".into(),
-                mono: true,
-                place: None,
-                stat: None,
-                meta: None,
-                badge: None,
-                dur: None,
-                status: super::super::face::Status::Done,
-            },
-            &ink,
-        )
-        .layout(Rect::new(0., 0., 640., 40.), ctx, &metrics)
-        .unwrap();
+        let head = |target: &str| {
+            super::super::face::head(
+                super::super::face::Head {
+                    key: "head".into(),
+                    tool_kind: "execute",
+                    verb: "Run command".into(),
+                    target: target.into(),
+                    mono: true,
+                    place: None,
+                    stat: None,
+                    meta: None,
+                    badge: None,
+                    dur: None,
+                    status: super::super::face::Status::Done,
+                },
+                &ink,
+            )
+            .layout(Rect::new(0., 0., 640., 40.), ctx, &metrics)
+            .unwrap()
+        };
         fn baselines(node: &c::Layout, out: &mut Vec<f32>) {
             if let c::LayoutKind::Text { runs, .. } = &node.kind {
                 out.extend(
                     runs.iter()
-                        .filter(|r| r.text == "Run command" || r.text == "mcp.bboxy.message_list")
+                        .filter(|r| {
+                            r.text == "Run command"
+                                || r.text == "mcp.bboxy.message_list"
+                                || r.text == "date -u"
+                        })
                         .map(|r| r.baseline),
                 );
             }
@@ -3690,13 +3699,20 @@ mod onboarding_markdown_tests {
                 baselines(child, out);
             }
         }
-        let mut lines = Vec::new();
-        baselines(&head, &mut lines);
-        assert_eq!(lines.len(), 2);
-        assert!(
-            (lines[0] - lines[1]).abs() < 0.01,
-            "text baselines: {lines:?}"
-        );
+        for target in ["mcp.bboxy.message_list", "date -u"] {
+            let layout = head(target);
+            let mut lines = Vec::new();
+            baselines(&layout, &mut lines);
+            assert_eq!(
+                lines.len(),
+                2,
+                "tool label must remain visible for {target}"
+            );
+            assert!(
+                (lines[0] - lines[1]).abs() < 0.01,
+                "text baselines: {lines:?}"
+            );
+        }
         let row =
             super::super::face::thought_row("reasoning/test/toggle", true, None, "", true, &ink);
         let body =
@@ -3704,6 +3720,13 @@ mod onboarding_markdown_tests {
         let layout = column(vec![row.into(), body.into()], None)
             .layout(Rect::new(0., 0., 440., 100.), ctx, &metrics)
             .unwrap();
+        let disc = find(&layout, "reasoning/test/toggle/icon").unwrap().rect;
+        let rail = find(&layout, "reasoning/rail").unwrap().rect;
+        assert!((disc.x + disc.w / 2. - rail.x - rail.w / 2.).abs() < 0.01);
+        assert!(
+            (rail.x + rail.w / 2. - 5.).abs() < 0.01,
+            "same axis as tool-group rail"
+        );
         assert_eq!(
             find(&layout, "reasoning/test/toggle/label").unwrap().rect.x,
             find(&layout, "reasoning-copy").unwrap().rect.x
@@ -3741,7 +3764,7 @@ mod onboarding_markdown_tests {
             transcript: Arc::new(model),
             ..Default::default()
         };
-        for width in [240., 440., 960.] {
+        for width in [240., 440., 640., 960.] {
             let mut view = HarnessView::default();
             view.render(&state, [width, 520.]).unwrap();
             for category in ["model", "thought_level"] {
@@ -3754,6 +3777,15 @@ mod onboarding_markdown_tests {
                 assert!(
                     rect.x >= 0. && rect.right() <= width,
                     "{category}: {rect:?} in {width}"
+                );
+            }
+            if width >= 640. {
+                let layout = view.frame.layout.as_ref().unwrap();
+                let profile = find(layout, "profile").unwrap().rect;
+                let model = find(layout, "config/model").unwrap().rect;
+                assert!(
+                    (profile.y + profile.h / 2. - model.y - model.h / 2.).abs() < 0.1,
+                    "header must fit one row at {width}"
                 );
             }
             view.config_open = Some("model".into());

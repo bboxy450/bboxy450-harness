@@ -39,6 +39,26 @@ pub fn select_chip(
     enabled: bool,
     ink: &Ink,
 ) -> c::Element {
+    let mut parts = Vec::new();
+    if !title.is_empty() {
+        parts.push(fixed(tight(title, 11., 400, ink.dim, false)));
+    }
+    parts.extend([
+        fixed(tight(
+            super::face::compact_heading(value, 24),
+            11.5,
+            600,
+            ink.fg,
+            false,
+        )),
+        fixed(super::face::icon_turned(
+            "chev",
+            ink.dim,
+            10.,
+            1.6,
+            if open { 270. } else { 90. },
+        )),
+    ]);
     let control = named(
         key,
         frame(
@@ -46,28 +66,12 @@ pub fn select_chip(
                 fill: alpha(ink.seat, if open { 0.14 } else { 0.06 }),
                 border: Some(alpha(ink.seat, if open { 0.5 } else { 0.12 })),
                 radius: [7.; 4],
-                padding: [5., 8., 5., 8.],
+                padding: [2., 8., 2., 8.],
                 gap: 6.,
                 row: true,
                 ..Default::default()
             },
-            vec![
-                fixed(tight(title, 11., 400, ink.dim, false)),
-                fixed(tight(
-                    super::face::compact_heading(value, 24),
-                    11.5,
-                    600,
-                    ink.fg,
-                    false,
-                )),
-                fixed(super::face::icon_turned(
-                    "chev",
-                    ink.dim,
-                    10.,
-                    1.6,
-                    if open { 270. } else { 90. },
-                )),
-            ],
+            parts,
         ),
     );
     if enabled { control } else { dimmed(control) }
