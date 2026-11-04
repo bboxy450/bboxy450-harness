@@ -265,7 +265,32 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
 /// Stricter validation for our own writers. Reader tolerance is not authorship.
 pub fn check_authored(events: &[Envelope]) -> Result<(), LawViolation> {
     check_transcript(events)?;
+    let dream_writer = events.first().is_some_and(|e| {
+        matches!(&e.event, Event::SessionStarted { meta }
+            if meta.harness == "dream" && meta.dream.is_some())
+    });
     for (i, e) in events.iter().enumerate() {
+        if !dream_writer
+            && matches!(
+                &e.event,
+                Event::ItemStarted {
+                    kind: ItemKind::Receipt,
+                    ..
+                } | Event::ItemCompleted {
+                    body: Item::Receipt { .. },
+                    ..
+                } | Event::ItemSnapshot {
+                    partial: Item::Receipt { .. },
+                    ..
+                }
+            )
+        {
+            return Err(LawViolation {
+                line: i + 1,
+                law: "dream-structure",
+                detail: "receipts require a dream writer session".into(),
+            });
+        }
         if e.v.major == 1 && e.v.minor >= 1 {
             let usage = match &e.event {
                 Event::TurnEnded {
@@ -404,6 +429,16 @@ fn item_unknown(item: &Item) -> bool {
                 })
         }
         Item::Adoption { sink, .. } => sink.kind.is_unknown(),
+        Item::Receipt {
+            kind,
+            outcome,
+            sink,
+            ..
+        } => {
+            kind.is_unknown()
+                || outcome.is_unknown()
+                || sink.as_ref().is_some_and(|s| s.kind.is_unknown())
+        }
         Item::Recall { sink, basis, .. } => {
             basis.is_unknown() || sink.as_ref().is_some_and(|s| s.kind.is_unknown())
         }
@@ -500,6 +535,14 @@ fn check_usage(usage: &Usage) -> Result<(), &'static str> {
 // Presence/default checks only. Resolving hashes, commits, publication timelines,
 // qualifying trials and per-harness projections belongs to the dream auditor.
 fn check_dream_structure(event: &Event) -> Result<(), &'static str> {
+    fn receipt_digest(digest: &str) -> bool {
+        digest.strip_prefix("sha256:").is_some_and(|hex| {
+            hex.len() == 64
+                && hex
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        })
+    }
     fn pin(pin: &RecordPin, committed: bool) -> bool {
         !pin.root.is_empty()
             && !pin.path.is_empty()
@@ -618,12 +661,14 @@ fn check_dream_structure(event: &Event) -> Result<(), &'static str> {
             sink,
             block_digest,
             record,
+            receipt,
         } => {
             !entry.is_empty()
                 && !harness.is_empty()
                 && !sink.path.is_empty()
                 && !block_digest.is_empty()
                 && record.as_ref().is_some_and(|p| pin(p, true))
+                && receipt.as_ref().is_none_or(|d| receipt_digest(d))
         }
         Item::Recall {
             entry,
@@ -638,6 +683,22 @@ fn check_dream_structure(event: &Event) -> Result<(), &'static str> {
                 && record.as_ref().is_none_or(|p| pin(p, pinned))
                 && block_digest.as_ref().is_none_or(|d| !d.is_empty())
                 && (!pinned || (record.is_some() && block_digest.is_some()))
+        }
+        Item::Receipt {
+            schema,
+            harness,
+            sink,
+            blob,
+            ..
+        } => {
+            schema == "bboxy.dream.receipt/1"
+                && harness.as_ref().is_none_or(|h| !h.is_empty())
+                && sink.as_ref().is_none_or(|s| !s.path.is_empty())
+                && blob.as_ref().is_some_and(|b| {
+                    b.mime == "application/vnd.bboxy.dream-receipt+json"
+                        && b.len > 0
+                        && receipt_digest(&format!("sha256:{}", b.sha256))
+                })
         }
         _ => true,
     };

@@ -209,6 +209,14 @@ dream_enum!(RecallBasis {
     Inferred,
     Cited
 });
+dream_enum!(ReceiptKind { Publication, Run });
+dream_enum!(ReceiptOutcome {
+    Published,
+    Idempotent,
+    Skipped,
+    Completed,
+    Failed
+});
 
 // Missing source identities are a fixed sentinel, never a freshly minted ID.
 fn empty_session() -> SessionId {
@@ -684,6 +692,8 @@ pub enum Item {
         block_digest: Digest,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         record: Option<RecordPin>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        receipt: Option<Digest>,
     },
     Recall {
         #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -696,6 +706,22 @@ pub enum Item {
         record: Option<RecordPin>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         block_digest: Option<Digest>,
+    },
+    Receipt {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        schema: String,
+        // Item owns the `kind` discriminator; the receipt body's kind remains
+        // in its blob. d20261103136378 fixes this additive carrier wire key.
+        #[serde(default, rename = "receipt_kind")]
+        kind: ReceiptKind,
+        #[serde(default)]
+        outcome: ReceiptOutcome,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        harness: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sink: Option<SinkRef>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        blob: Option<BlobRef>,
     },
     #[serde(untagged)]
     Unknown(Value),
@@ -785,6 +811,7 @@ pub enum ItemKind {
     Trial,
     Adoption,
     Recall,
+    Receipt,
     #[serde(untagged)]
     Unknown(Value),
 }
@@ -1122,6 +1149,7 @@ impl Item {
             Self::Trial { .. } => ItemKind::Trial,
             Self::Adoption { .. } => ItemKind::Adoption,
             Self::Recall { .. } => ItemKind::Recall,
+            Self::Receipt { .. } => ItemKind::Receipt,
             Self::Unknown(raw) => ItemKind::Unknown(raw.clone()),
         }
     }
@@ -1357,6 +1385,7 @@ impl Item {
                 },
                 block_digest: String::new(),
                 record: None,
+                receipt: None,
             },
             ItemKind::Recall => Self::Recall {
                 entry: String::new(),
@@ -1364,6 +1393,14 @@ impl Item {
                 basis: RecallBasis::Inferred,
                 record: None,
                 block_digest: None,
+            },
+            ItemKind::Receipt => Self::Receipt {
+                schema: "bboxy.dream.receipt/1".into(),
+                kind: ReceiptKind::Run,
+                outcome: ReceiptOutcome::Failed,
+                harness: None,
+                sink: None,
+                blob: None,
             },
             ItemKind::Unknown(raw) => Self::Notice {
                 level: Level::Warn,
@@ -1476,7 +1513,9 @@ unknown_predicate!(
     Arm,
     Verdict,
     SinkKind,
-    RecallBasis
+    RecallBasis,
+    ReceiptKind,
+    ReceiptOutcome
 );
 /// A neutral reader label keeps the source's own tag, never its opaque payload.
 pub fn unknown_tag(value: &Value) -> &str {
@@ -1618,6 +1657,7 @@ impl Item {
             | Self::Trial { .. }
             | Self::Adoption { .. }
             | Self::Recall { .. } => serde_json::to_string(self).ok()?,
+            Self::Receipt { .. } => serde_json::to_string(self).ok()?,
             Self::Command { name, args } => format!("Command: /{name} {args}"),
             Self::Hook {
                 event,

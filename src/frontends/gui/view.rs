@@ -2088,6 +2088,7 @@ pub fn kind_label(kind: ItemKind) -> &'static str {
         ItemKind::Trial => "Trial",
         ItemKind::Adoption => "Adoption",
         ItemKind::Recall => "Recall",
+        ItemKind::Receipt => "Receipt",
         ItemKind::Unknown(_) => "Unknown item",
     }
 }
