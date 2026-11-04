@@ -8,8 +8,10 @@
 import json
 import sys
 import time
+from pathlib import Path
 prompt_count = 0
 record, supported = sys.argv[1], sys.argv[2] == 'yes'
+history_gate = Path(sys.argv[3]) if len(sys.argv) > 3 else None
 for line in sys.stdin:
     message = json.loads(line)
     with open(record, 'a', encoding='utf8') as out:
@@ -21,7 +23,14 @@ for line in sys.stdin:
         result = {'sessionId': 'private-attachment-child'}
     elif method == 'session/prompt':
         prompt_count += 1
-        time.sleep(2 if prompt_count == 1 else 0.05)
+        if history_gate:
+            text = 'PRIOR-ASSISTANT-HISTORY remains visible.' if prompt_count == 1 else 'ACTIVE TURN WORKING'
+            print(json.dumps({'jsonrpc': '2.0', 'method': 'session/update', 'params': {'sessionId': 'private-attachment-child', 'update': {'sessionUpdate': 'agent_message_chunk', 'content': {'type': 'text', 'text': text}}}}), flush=True)
+            if prompt_count == 2:
+                while not history_gate.exists():
+                    time.sleep(0.005)
+        else:
+            time.sleep(2 if prompt_count == 1 else 0.05)
         result = {'stopReason': 'end_turn'}
     else:
         result = {}
