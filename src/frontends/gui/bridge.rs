@@ -117,8 +117,18 @@ impl PendingPrompt {
     }
 }
 
+/// A live-connection proof. Replayed records, a bare Ack and old challenges
+/// cannot authorize the local custody Resource protocol.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ActorIntake {
+    session: SessionId,
+    epoch: Epoch,
+    request: OpId,
+    version: u32,
+}
 #[derive(Clone, Default)]
 pub struct FrameState {
+    pub actor_intake: Option<ActorIntake>,
     pub revision: u64,
     pub pending_prompts: Arc<im::OrdMap<OpId, PendingPrompt>>,
     pub transcript: Arc<Transcript>,
@@ -253,6 +263,7 @@ impl Source {
     }
 }
 struct Mailbox {
+    actor_intake: arc_swap::ArcSwapOption<ActorIntake>,
     latest: Latest<FrameState>,
     notices: UiSender,
     pending_turns: arc_swap::ArcSwap<im::OrdSet<OpId>>,
@@ -310,6 +321,13 @@ impl Mailbox {
         });
     }
     fn publish(&self, mut state: FrameState) {
+        state.actor_intake = self
+            .actor_intake
+            .load_full()
+            .filter(|c| {
+                Some(c.session) == state.transcript.session && c.epoch == state.transcript.epoch
+            })
+            .map(|c| (*c).clone());
         state.pending_prompts = self.prompts.load_full();
         state.revision = self.published.load(Ordering::Acquire) + 1;
         state.profiles = self.profiles.load_full();
@@ -344,6 +362,7 @@ impl Bridge {
         Self {
             input_waker: waker,
             mailbox: Arc::new(Mailbox {
+                actor_intake: arc_swap::ArcSwapOption::empty(),
                 latest: Latest::new(dirty.paint_source(0)),
                 notices,
                 pending_turns: arc_swap::ArcSwap::from_pointee(im::OrdSet::new()),
@@ -672,6 +691,20 @@ impl Bridge {
     pub fn send_envelope(&self, envelope: OpEnvelope) -> Result<Submission, Refused> {
         self.send_with_custody(envelope, vec![])
     }
+    pub fn image_intake_available(&self) -> bool {
+        let Some(current) = self.mailbox.actor_intake.load_full() else {
+            return false;
+        };
+        current.version == 1
+            && self.state.actor_intake.as_ref() == Some(current.as_ref())
+            && self.state.transcript.session == Some(current.session)
+            && self.state.transcript.epoch == current.epoch
+            && self
+                .state
+                .gateway
+                .as_ref()
+                .is_some_and(|g| g.session() == current.session)
+    }
     /// The transport worker retains staged images even if its disposable view detaches.
     pub fn send_with_custody(
         &self,
@@ -679,6 +712,13 @@ impl Bridge {
         custody: Vec<Arc<crate::store::intake::ImageCustody>>,
     ) -> Result<Submission, Refused> {
         let gateway = self.state.gateway.as_ref().ok_or(Refused::Closed)?;
+        if matches!(&envelope.op,Op::UserTurn {blocks,..} if blocks.iter().any(is_local_image))
+            && !self.image_intake_available()
+        {
+            // Local non-admission. The view names the missing capability; no
+            // pending intent or custody transfer has happened yet.
+            return Err(Refused::Busy);
+        }
         let turn = matches!(envelope.op, Op::UserTurn { .. });
         let op_id = envelope.op_id;
         if let Op::UserTurn { blocks, .. } = &envelope.op {
@@ -765,6 +805,27 @@ fn apply_event(
     owned: &mut std::collections::BTreeMap<TurnId, OpId>,
     mailbox: &Mailbox,
 ) -> Effect {
+    if let Event::InputCapabilities {
+        request,
+        image_custody_version,
+    } = event.event
+        && event.seq.is_none()
+        && model.session == Some(event.session)
+        && model.epoch == event.epoch
+    {
+        mailbox.actor_intake.rcu(|current| {
+            current.as_ref().map(|c| {
+                if c.session == event.session && c.epoch == event.epoch && c.request == request {
+                    Arc::new(ActorIntake {
+                        version: image_custody_version,
+                        ..(**c).clone()
+                    })
+                } else {
+                    c.clone()
+                }
+            })
+        });
+    }
     // Causal op IDs keep historical/replayed endings from retiring a new turn.
     if event.seq.is_some_and(|s| s > model.cursor) {
         match &event.event {
@@ -842,6 +903,7 @@ async fn consume(
             }
             last_connect = Some(tokio::time::Instant::now());
         }
+        mailbox.actor_intake.store(None);
         let (gateway, mut sub) = match tokio::select! {
             _ = detach.cancelled(), if !detached => { detached = true; continue; }
             result = source.subscribe(after, !detached, outcomes.clone()) => result,
@@ -892,6 +954,21 @@ async fn consume(
         }
         sub.set_approver(!detached);
         model.hello(gateway.session(), sub.hello().epoch);
+        let request = OpId::new();
+        mailbox.actor_intake.store(Some(Arc::new(ActorIntake {
+            session: gateway.session(),
+            epoch: sub.hello().epoch,
+            request,
+            version: 0,
+        })));
+        // Old actors may acknowledge/reject this unknown control operation. Only
+        // their matching live capability response can enable image UserTurns.
+        let _ = gateway.send(OpEnvelope {
+            v: PROTOCOL,
+            op_id: request,
+            session: gateway.session(),
+            op: Op::QueryInputCapabilities { request },
+        });
         publish_frame(
             FrameState {
                 transcript: Arc::new(model.clone()),
@@ -1014,6 +1091,7 @@ async fn consume(
                 .await;
             }
             drop(gateway);
+            mailbox.actor_intake.store(None);
             drop(connection_guard);
             tokio::select! {
                 _ = detach.cancelled(), if !detached => return,
@@ -1924,5 +2002,114 @@ mod attachment_tests {
         };
         let admitted = blobs.admit_images(pending.blocks.clone()).await.unwrap();
         assert!(matches!(admitted.as_slice(), [InputBlock::Image { .. }]));
+    }
+}
+
+fn is_local_image(block: &InputBlock) -> bool {
+    matches!(block,InputBlock::Resource {uri,..} if uri.starts_with("bboxy-intake:"))
+}
+
+#[cfg(test)]
+mod actor_intake_tests {
+    use super::*;
+    #[test]
+    fn image_intake_proof_rejects_durable_replay_old_epoch_and_reconnect_challenge() {
+        struct Wake;
+        impl Waker for Wake {
+            fn wake(&self) {}
+        }
+        let mut e: Envelope = serde_json::from_str(
+            include_str!("../../../tests/fixtures/protocol/all-items.jsonl")
+                .lines()
+                .next()
+                .unwrap(),
+        )
+        .unwrap();
+        let Event::SessionStarted { meta } = e.event.clone() else {
+            panic!("session");
+        };
+        let hub = Arc::new(crate::gateway::Hub::new(
+            meta,
+            e.epoch,
+            &[],
+            crate::redact::Set::default(),
+        ));
+        let (work, _work) = tokio::sync::mpsc::channel(1);
+        let (control, _control) = tokio::sync::mpsc::channel(1);
+        let gateway = InProc::new(hub, work, control, OpId::new());
+        let mut bridge = Bridge::new(Arc::new(Wake));
+        let mut model = Transcript::default();
+        model.hello(e.session, e.epoch);
+        let request = OpId::new();
+        bridge
+            .mailbox
+            .actor_intake
+            .store(Some(Arc::new(ActorIntake {
+                session: e.session,
+                epoch: e.epoch,
+                request,
+                version: 0,
+            })));
+        e.event = Event::InputCapabilities {
+            request,
+            image_custody_version: 1,
+        };
+        e.seq = Some(Seq(1));
+        apply_event(&mut model, &e, &mut Default::default(), &bridge.mailbox);
+        assert_eq!(
+            bridge.mailbox.actor_intake.load().as_ref().unwrap().version,
+            0,
+            "durable replay is not an actor grant"
+        );
+        e.seq = None;
+        e.epoch = Epoch(e.epoch.0 + 1);
+        apply_event(&mut model, &e, &mut Default::default(), &bridge.mailbox);
+        assert_eq!(
+            bridge.mailbox.actor_intake.load().as_ref().unwrap().version,
+            0
+        );
+        e.epoch = model.epoch;
+        e.event = Event::InputCapabilities {
+            request: OpId::new(),
+            image_custody_version: 1,
+        };
+        apply_event(&mut model, &e, &mut Default::default(), &bridge.mailbox);
+        assert_eq!(
+            bridge.mailbox.actor_intake.load().as_ref().unwrap().version,
+            0
+        );
+        e.event = Event::InputCapabilities {
+            request,
+            image_custody_version: 1,
+        };
+        apply_event(&mut model, &e, &mut Default::default(), &bridge.mailbox);
+        bridge.mailbox.publish(FrameState {
+            transcript: Arc::new(model.clone()),
+            gateway: Some(ViewGateway::InProc(gateway)),
+            ready: true,
+            ..Default::default()
+        });
+        bridge.drain(Duration::from_millis(10));
+        assert!(bridge.image_intake_available());
+        let next = OpId::new();
+        bridge
+            .mailbox
+            .actor_intake
+            .store(Some(Arc::new(ActorIntake {
+                session: e.session,
+                epoch: e.epoch,
+                request: next,
+                version: 0,
+            })));
+        assert!(
+            !bridge.image_intake_available(),
+            "old rendered proof cannot survive reconnect"
+        );
+        apply_event(&mut model, &e, &mut Default::default(), &bridge.mailbox);
+        assert_eq!(
+            bridge.mailbox.actor_intake.load().as_ref().unwrap().version,
+            0,
+            "old same-session response is stale"
+        );
     }
 }

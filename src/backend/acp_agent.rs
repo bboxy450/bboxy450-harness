@@ -495,6 +495,16 @@ impl AcpAgentActor {
         let Admitted { env, face } = admitted;
         let id = env.op_id;
         match env.op {
+            Op::QueryInputCapabilities { request } => {
+                self.publish(
+                    Event::InputCapabilities {
+                        request,
+                        image_custody_version: 1,
+                    },
+                    None,
+                )
+                .await?;
+            }
             Op::UserTurn { blocks, .. } => {
                 let blocks = match self.store.blobs.admit_images(blocks).await {
                     Ok(blocks) => blocks,

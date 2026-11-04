@@ -129,7 +129,8 @@ impl Fixture {
             bridge,
             view: HarnessView::default(),
         };
-        f.wait(|f| f.bridge.state.ready).await;
+        f.wait(|f| f.bridge.state.ready && f.bridge.image_intake_available())
+            .await;
         f
     }
     fn tick(&mut self) {
@@ -483,4 +484,155 @@ async fn attached_content_does_not_become_a_profile_or_launcher_command() {
             .is_some_and(|s| s.contains("ROLE: file content"))
     }));
     f.close().await;
+}
+
+#[tokio::test]
+async fn old_actor_ack_without_intake_capability_retains_image_and_sends_no_user_turn() {
+    use std::sync::{
+        Mutex,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use tokio::{
+        io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+        net::UnixListener,
+    };
+    let temp = tempfile::tempdir().unwrap();
+    let socket = temp.path().join("old-actor.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let meta = support::meta(temp.path().into());
+    let session = meta.session;
+    let hello = bboxy450_harness::gateway::Hello {
+        v: PROTOCOL,
+        epoch: Epoch(1),
+        head: Seq(1),
+        meta: meta.clone(),
+    };
+    let event = Envelope {
+        raw: None,
+        ext: Default::default(),
+        native: None,
+        v: PROTOCOL,
+        session,
+        epoch: Epoch(1),
+        seq: Some(Seq(1)),
+        at: Seq(1),
+        ts_ms: 0,
+        cause: None,
+        event: Event::SessionStarted { meta },
+    };
+    let turns = Arc::new(AtomicUsize::new(0));
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let seen = turns.clone();
+    let recorded = requests.clone();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (r, mut w) = stream.into_split();
+        let mut r = BufReader::new(r).lines();
+        r.next_line().await.unwrap().unwrap();
+        for wire in [
+            serde_json::to_string(&hello).unwrap(),
+            serde_json::to_string(&event).unwrap(),
+        ] {
+            w.write_all(format!("{wire}\n").as_bytes()).await.unwrap();
+        }
+        while let Some(line) = r.next_line().await.unwrap() {
+            let op: OpEnvelope = serde_json::from_str(&line).unwrap();
+            if matches!(op.op, Op::UserTurn { .. }) {
+                seen.fetch_add(1, Ordering::SeqCst);
+            }
+            recorded.lock().unwrap().push(op.op.clone());
+            // An older actor can acknowledge unknown control operations, but
+            // cannot emit the new live capability response.
+            let ack =
+                serde_json::json!({"op_id":op.op_id,"ack":{"op_id":op.op_id,"duplicate":false}});
+            if w.write_all(format!("{ack}\n").as_bytes()).await.is_err() {
+                break;
+            }
+        }
+    });
+    let mut bridge = Bridge::new(Arc::new(Wake));
+    bridge.connect_with_profiles(socket, None, Some(temp.path().join("profiles")));
+    let mut view = HarnessView::default();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            bridge.drain(Duration::from_millis(10));
+            view.update_inputs(&bridge);
+            view.render(&bridge.state, [900., 800.]).unwrap();
+            if bridge.state.ready && !requests.lock().unwrap().is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(3)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(matches!(
+        requests.lock().unwrap().as_slice(),
+        [Op::QueryInputCapabilities { .. }]
+    ));
+    assert!(!bridge.image_intake_available());
+    view.intake(Intake::Png(png()), &bridge);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            bridge.drain(Duration::from_millis(10));
+            view.update_inputs(&bridge);
+            view.render(&bridge.state, [900., 800.]).unwrap();
+            if view.attachment_count() == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(3)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let draft = view.composer.view.clone();
+    view.activate(Action::Send, &bridge);
+    assert_eq!(view.composer.view, draft);
+    assert_eq!(view.attachment_count(), 1);
+    assert_eq!(view.pending_attachment_count(), 0);
+    assert!(
+        view.notice
+            .as_deref()
+            .is_some_and(|s| s.contains("not advertised image intake"))
+    );
+    let custody =
+        bboxy450_harness::store::intake::ImageCustody::create(&png(), "image/png").unwrap();
+    assert!(matches!(
+        bridge.send(Op::UserTurn {
+            blocks: vec![custody.block.clone()],
+            mode: TurnMode::Queue
+        }),
+        Err(bboxy450_harness::gateway::Refused::Busy)
+    ));
+    let blobs = Blobs {
+        dir: temp.path().join("retained-blobs"),
+        redactor: Set::default(),
+    };
+    let normalized = blobs
+        .admit_images(vec![custody.block.clone()])
+        .await
+        .unwrap();
+    let InputBlock::Image { blob } = &normalized[0] else {
+        panic!("retained image");
+    };
+    assert_eq!(blobs.get(blob).await.unwrap(), png());
+    bridge.drain(Duration::from_millis(10));
+    assert!(bridge.state.pending_prompts.is_empty());
+    assert_eq!(
+        turns.load(Ordering::SeqCst),
+        0,
+        "old actor must receive no unsupported UserTurn"
+    );
+    bridge.request_detach();
+    if let Some(task) = bridge.detach() {
+        tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    drop(bridge);
+    tokio::time::timeout(Duration::from_secs(5), server)
+        .await
+        .unwrap()
+        .unwrap();
 }

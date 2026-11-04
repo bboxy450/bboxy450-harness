@@ -35,9 +35,10 @@ def run(name, args):
 
 cargo = ['--offline', '--locked', '--jobs', '2', '--target-dir', str(TARGET), '-p', 'bboxy450-harness']
 run('composer-acp', ['cargo', 'nextest', 'run', *cargo, '--features', 'standalone', '--test', 'harness_attachments'])
-run('existing-pending-contract', ['cargo', 'nextest', 'run', *cargo, '--features', 'embedded', '--lib', '-E', 'test(gui_polish_pending_requires_causal_durable_user_in_current_birth) | test(attachment_unknown_delivery_keeps_real_blocks_and_custody)'])
+run('existing-pending-contract', ['cargo', 'nextest', 'run', *cargo, '--features', 'embedded', '--lib', '-E', 'test(gui_polish_pending_requires_causal_durable_user_in_current_birth) | test(attachment_unknown_delivery_keeps_real_blocks_and_custody) | test(image_intake_proof_rejects_durable_replay_old_epoch_and_reconnect_challenge)'])
+run('existing-reconnect', ['cargo', 'nextest', 'run', *cargo, '--features', 'embedded', '--test', 'gui_bridge', '-E', 'test(stale_unknown_dispatch_does_not_hold_detach_on_the_replacement_session)'])
 run('ownership-model', ['cargo', 'test', *cargo, '--test', 'formal_models', 'attachments_intake_native_model_and_control', '--', '--exact'])
-run('strict-producer', ['cargo', 'clippy', *cargo, '--features', 'standalone', '--lib', '--test', 'harness_attachments', '--test', 'formal_models', '--no-deps', '--', '-D', 'warnings'])
+run('strict-producer', ['cargo', 'clippy', *cargo, '--features', 'standalone', '--lib', '--test', 'harness_attachments', '--test', 'formal_models', '--test', 'gui_bridge', '--no-deps', '--', '-D', 'warnings'])
 run('embedded', ['check', '-p', 'bboxy450-harness', '--no-default-features', '--features', 'embedded', '--lib'])
 
 sys.dont_write_bytecode = True
@@ -48,7 +49,7 @@ java, jar, pins = formal.tools(TARGET / 'formal')
 models = []
 for line in (OUT / 'formal/manifest.tsv').read_text().splitlines():
     name, expected, count, width = line.split('\t')
-    assert name in {'HarnessAttachmentIntake', 'BrokenHarnessAttachmentIntake'}
+    assert name in {'HarnessAttachmentIntake', 'BrokenHarnessAttachmentIntake', 'HarnessAttachmentCapability', 'BrokenHarnessAttachmentCapability'}
     graph = formal.tlc(java, jar, OUT / 'formal', name, True)
     assert formal.verdict(graph) == 'pass'
     actual = formal.dot_graph(OUT / 'formal' / (name + '.dot'), int(width))
@@ -57,5 +58,5 @@ for line in (OUT / 'formal/manifest.tsv').read_text().splitlines():
     assert formal.verdict(checked) == expected
     models.append(dict(name=name, expected=expected, states=len(actual[0]), transitions=len(actual[1]), graph_equal=True, tlc_exit=checked.returncode))
     print(f'harness-attachments: {name}: {expected}; {len(actual[0])} states / {len(actual[1])} transitions match', flush=True)
-assert len(models) == 2
+assert len(models) == 4
 (OUT / 'producer.json').write_text(json.dumps(dict(commands=records, models=models, pins=pins, operator_input=False, arbitrary_rust_refinement=False), indent=2) + '\n')

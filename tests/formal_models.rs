@@ -98,5 +98,17 @@ fn attachments_intake_native_model_and_control() {
         );
         export::export(model, expected, root, &mut manifest).unwrap();
     }
+    for (broken, expected) in [(false, "pass"), (true, "safety")] {
+        let model = models::attachment_capability(broken);
+        let checked = model.check(100_000).unwrap();
+        assert!(
+            checked
+                .states
+                .iter()
+                .any(|s| s[0] == 2 && s[1] == 0 && s[2] == 1),
+            "delayed response across same-session reconnects must be reachable"
+        );
+        export::export(model, expected, root, &mut manifest).unwrap();
+    }
     std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
 }

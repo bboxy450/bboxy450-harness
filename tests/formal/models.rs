@@ -4042,6 +4042,8 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (acp_controls(0), "pass"),
         (acp_controls(1), "safety"),
         (acp_controls(2), "safety"),
+        (attachment_capability(false), "pass"),
+        (attachment_capability(true), "safety"),
         (attachment_intake(false), "pass"),
         (attachment_intake(true), "safety"),
         (gui_pending(0), "pass"),
@@ -4301,5 +4303,45 @@ pub fn attachment_intake(b: bool) -> Model {
     act(&mut m, "Complete", eq(4, 1), &[(4, Int(0)), (5, crossed)]);
     safe(&mut m, "NoCrossDraftOrBirth", eq(5, 0));
     progress(&mut m, "IntakeSettles", eq(4, 1), eq(4, 0), vec![3]);
+    m
+}
+
+/// Fresh connection challenges are represented by three monotonically distinct
+/// births, including A/B/A. Old/absent actors may never advertise; no response
+/// fairness is assumed. Sending text remains enabled without an image grant.
+pub fn attachment_capability(b: bool) -> Model {
+    let mut m = base::<5>(
+        "AttachmentCapability",
+        b,
+        &[
+            ("birth", 2, 0),
+            ("captured_birth", 2, 0),
+            ("pending", 1, 0),
+            ("grant_birth", 3, 3),
+            ("unsupported_sent", 1, 0),
+        ],
+    );
+    act(&mut m, "Query", eq(2, 0), &[(1, Var(0)), (2, Int(1))]);
+    act(
+        &mut m,
+        "Reconnect",
+        Var(0).lt(Int(2)),
+        &[(0, Var(0).plus(Int(1))), (3, Int(3))],
+    );
+    act(
+        &mut m,
+        "LiveResponse",
+        eq(2, 1),
+        &[(2, Int(0)), (3, Var(1).eq(Var(0)).ite(Var(0), Var(3)))],
+    );
+    let valid = Var(3).eq(Var(0));
+    act(
+        &mut m,
+        "SendImage",
+        if b { Bool(true) } else { valid.clone() },
+        &[(4, valid.ite(Var(4), Int(1)))],
+    );
+    act(&mut m, "SendText", Bool(true), &[]);
+    safe(&mut m, "NoImageWithoutCurrentActorProof", eq(4, 0));
     m
 }

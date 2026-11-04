@@ -2048,6 +2048,14 @@ impl HarnessView {
                             mode: TurnMode::Queue,
                         },
                     };
+                    if self.inputs.attachments.iter().any(|a| a.custody.is_some())
+                        && bridge.state.gateway.is_some()
+                        && !bridge.image_intake_available()
+                    {
+                        self.notice=Some("This actor has not advertised image intake support. Your image draft and custody are retained; no message was sent.".into());
+                        self.invalidate();
+                        return;
+                    }
                     let op_id = OpId::new();
                     let Some(session) = bridge.state.transcript.session else {
                         self.notice = Some("Session unavailable; draft retained".into());
