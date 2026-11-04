@@ -611,3 +611,13 @@ frontend = "project"
 name = "BrokenHarnessAcpControlsReplay"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessAttachmentIntake"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessAttachmentIntake"
+expected = "safety"
+frontend = "project"

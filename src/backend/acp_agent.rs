@@ -159,6 +159,7 @@ struct Agent {
     controls: AgentConfig,
     config_deadline: Option<Instant>,
     bootstrap_pending: bool,
+    images_supported: bool,
     startup_deadline: Option<Instant>,
     next_id: u64,
     calls: HashMap<u64, Call>,
@@ -395,6 +396,14 @@ impl AcpAgentActor {
         body: &Item,
         parent: Option<ItemId>,
     ) -> std::io::Result<()> {
+        let cause = if matches!(body, Item::UserMessage { .. }) {
+            self.running
+                .as_ref()
+                .filter(|r| Some(r.turn) == turn)
+                .and_then(|r| r.cause)
+        } else {
+            None
+        };
         self.publish(
             Event::ItemStarted {
                 turn,
@@ -403,7 +412,7 @@ impl AcpAgentActor {
                 parent,
                 head: body.head(),
             },
-            None,
+            cause,
         )
         .await
     }
@@ -487,6 +496,19 @@ impl AcpAgentActor {
         let id = env.op_id;
         match env.op {
             Op::UserTurn { blocks, .. } => {
+                let blocks = match self.store.blobs.admit_images(blocks).await {
+                    Ok(blocks) => blocks,
+                    Err(error) => {
+                        self.reject(
+                            id,
+                            Rejection::InvalidInput {
+                                detail: error.to_string(),
+                            },
+                        )
+                        .await?;
+                        return Ok(false);
+                    }
+                };
                 // ACP has no steering: a turn sent while another runs waits its turn
                 if blocks.is_empty() || blocks.iter().any(|b| matches!(b, InputBlock::Unknown(_))) {
                     self.reject(
@@ -729,8 +751,10 @@ impl AcpAgentActor {
             self.projected_ext
                 .insert("acp".into(), json!({"input_blocks":non_text}));
         }
-        self.record(Some(turn), Item::UserMessage { blocks })
-            .await?;
+        if !blocks.iter().any(|b| matches!(b, InputBlock::Image { .. })) {
+            self.record(Some(turn), Item::UserMessage { blocks })
+                .await?;
+        }
         self.publish(
             Event::Status {
                 phase: Phase::Thinking,
@@ -842,6 +866,53 @@ impl AcpAgentActor {
         }
     }
     async fn send_prompt(&mut self) -> std::io::Result<()> {
+        if self
+            .agent
+            .as_ref()
+            .is_some_and(|a| a.session.is_some() && !a.images_supported)
+            && self.running.as_ref().is_some_and(|r| {
+                !r.prompt_sent
+                    && r.blocks
+                        .iter()
+                        .any(|b| matches!(b, InputBlock::Image { .. }))
+            })
+        {
+            let message = "This ACP agent does not advertise image input; the draft is retained and no prompt was sent".to_owned();
+            if let Some(cause) = self.running.as_ref().and_then(|r| r.cause) {
+                self.reject(
+                    cause,
+                    Rejection::InvalidInput {
+                        detail: message.clone(),
+                    },
+                )
+                .await?;
+            }
+            self.notice(Level::Error, message.clone()).await?;
+            return self
+                .end_turn(
+                    StopReason::Error {
+                        class: ErrorClass::Config,
+                        message,
+                    },
+                    ItemStatus::Failed {
+                        code: None,
+                        reason: "image input unsupported".into(),
+                    },
+                )
+                .await;
+        }
+        if self.agent.as_ref().is_some_and(|a| a.session.is_some())
+            && let Some(r) = self.running.as_ref().filter(|r| {
+                !r.prompt_sent
+                    && r.blocks
+                        .iter()
+                        .any(|b| matches!(b, InputBlock::Image { .. }))
+            })
+        {
+            let (turn, blocks) = (r.turn, r.blocks.clone());
+            self.record(Some(turn), Item::UserMessage { blocks })
+                .await?;
+        }
         let Some(r) = self.running.as_mut() else {
             return Ok(());
         };
@@ -1077,6 +1148,7 @@ impl AcpAgentActor {
             controls: AgentConfig::default(),
             config_deadline: None,
             bootstrap_pending: true,
+            images_supported: false,
             startup_deadline: Some(
                 Instant::now()
                     + std::env::var("BBOXY450_ACP_STARTUP_MS")
@@ -1308,6 +1380,10 @@ impl AcpAgentActor {
                 }
                 let cwd = self.config.meta.cwd.display().to_string();
                 let agent = self.agent.as_mut().expect("agent");
+                agent.images_supported = result
+                    .pointer("/agentCapabilities/promptCapabilities/image")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 if let Some(name) = result
                     .pointer("/agentInfo/name")
                     .and_then(Value::as_str)

@@ -37,3 +37,6 @@ pub mod menu;
 #[cfg(feature = "embedded")]
 pub mod stream_motion;
 pub mod zoom;
+
+#[cfg(feature = "embedded")]
+pub mod attachments;

@@ -224,6 +224,7 @@ impl App {
             .anim
             .tick((frame_start - self.started).as_secs_f32() * 1000.);
         self.bridge.drain(Duration::from_micros(300));
+        self.view.update_inputs(&self.bridge);
         self.gpu_dirty.drain();
         if let Some(gpu) = self.gpu.take() {
             let gpu = gpu?;
@@ -251,6 +252,12 @@ impl App {
         // the rim's end state
         let animates = self.view.anim.animates();
         let time_ms = if animates { self.view.anim.now() } else { 0. };
+        let images = self.view.attachment_images();
+        if let Some(renderer) = self.renderer.as_mut() {
+            for image in images {
+                renderer.add_image(&image).map_err(|e| e.to_string())?;
+            }
+        }
         let frame = self.view.render(
             &self.bridge.state,
             [config.width as f32 / scale, config.height as f32 / scale],
@@ -454,6 +461,26 @@ impl App {
                     if !text.is_empty() {
                         self.edit(Edit::Insert(text));
                     }
+                }
+                Ok(Some(bbt_desktop::ClipboardContent::Image { bytes, format })) => {
+                    let source = match format {
+                        bbt_desktop::ClipboardImageFormat::Png => {
+                            super::attachments::Intake::Png(bytes)
+                        }
+                        bbt_desktop::ClipboardImageFormat::Tiff => {
+                            super::attachments::Intake::EncodedImage {
+                                bytes,
+                                png: |bytes| {
+                                    bbt_desktop::clipboard_image_png(
+                                        bytes,
+                                        bbt_desktop::ClipboardImageFormat::Tiff,
+                                    )
+                                    .map_err(|e| e.to_string())
+                                },
+                            }
+                        }
+                    };
+                    self.view.intake(source, &self.bridge);
                 }
                 Ok(_) => {}
                 Err(error) => warn("clipboard", error),
@@ -673,6 +700,9 @@ impl ApplicationHandler<Wake> for App {
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 self.key(event.logical_key, event.text.as_deref())
             }
+            WindowEvent::DroppedFile(path) => self
+                .view
+                .intake(super::attachments::Intake::Files(vec![path]), &self.bridge),
             WindowEvent::Ime(Ime::Commit(text)) => self.edit(Edit::Commit(text)),
             WindowEvent::Ime(Ime::Preedit(text, cursor)) => {
                 let caret = cursor
@@ -881,7 +911,9 @@ pub fn route_key(
     }
     match key {
         Key::Named(NamedKey::Tab) => {
-            view.complete(bbt_ui::modules::approval::Key::Enter);
+            if !view.run_completion(bridge) {
+                view.complete(bbt_ui::modules::approval::Key::Enter);
+            }
         }
         Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown) => {
             view.composer.vertical(key == Key::Named(NamedKey::ArrowUp));

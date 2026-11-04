@@ -1236,6 +1236,11 @@ impl InputBlock {
             Self::Text { text } => text.clone(),
             Self::Image { blob } => format!("Image: {} · {} bytes", blob.mime, blob.len),
             Self::Audio { blob } => format!("Audio: {} · {} bytes", blob.mime, blob.len),
+            Self::Resource {
+                uri,
+                mime,
+                blob: Some(blob),
+            } if uri.starts_with("bboxy-intake:") => format!("Image: {mime} · {} bytes", blob.len),
             Self::Resource { uri, mime, .. } => format!("Resource: {uri} · {mime}"),
             Self::ResourceLink { uri, title } => {
                 format!("{}: {uri}", title.as_deref().unwrap_or("Resource"))

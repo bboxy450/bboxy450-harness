@@ -437,3 +437,14 @@ tests = ["tests/acp_controls.rs"]
 assumptions = "Birth0..2 denotes child/session A-B-A, revision0..2 denotes full advertised option identity. One selection, reordered notification/reply, refusal, disconnect/deadline unknown; only the local deadline has weak fairness. No provider fairness, arbitrary Rust refinement, authentication, tool semantics, frame scheduling or vendor model correctness is claimed. Real private ACP child and Unix/native GUI witnesses cover API calls, no prompt/tool effect, reconnect and dynamic effort choices."
 property = "ConfirmedHasCurrentChildAndOptionIdentity; UnknownNeverRedispatches; ConfigHasNoPromptEffect; LocalDeadlineSettlesPending under WF{deadline}."
 checks = ["make verify-acp-controls"]
+
+[[contract]]
+name = "HarnessAttachmentIntake"
+title = "Async composer intake cannot cross draft revisions or A-B-A view births."
+models = ["HarnessAttachmentIntake", "BrokenHarnessAttachmentIntake"]
+controls = [{name="BrokenHarnessAttachmentIntake", expected="safety"}]
+sources = ["src/frontends/gui/input.rs", "src/frontends/gui/attachments.rs", "src/store/intake.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/harness_attachments.rs"]
+assumptions = "One captured lookup/intake, two draft revisions and three monotonic view births A/B/A. Capture, edit, switch and completion are atomic owner actions. Arbitrary completion delay; weak fairness of completion settles stale work by discarding it. OS file races, PNG decoding limits, socket delivery, blob hash/custody, contents, queueing, failure notices and real ACP capability checks are implementation-only witnesses. Existing HarnessGuiPendingPrompt and HarnessSocketDelivery evidence is reused unchanged; no Rust refinement proof."
+property = "NoCrossDraftOrBirth; IntakeSettles under WF(Complete). The broken control applies a stale completion."
+checks = ["make verify-harness-attachments", "make test-formal"]

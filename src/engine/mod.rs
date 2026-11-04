@@ -94,11 +94,12 @@ struct Pending {
     reply: oneshot::Sender<Result<Permit, String>>,
 }
 enum Queued {
-    Turn(TurnId, Vec<InputBlock>),
+    Turn(TurnId, Vec<InputBlock>, OpId),
     Compact(OpId),
 }
 struct Running {
     turn: TurnId,
+    initial_cause: OpId,
     generation: u64,
     cancel: CancellationToken,
     steer: mpsc::Sender<(OpId, Vec<InputBlock>)>,
@@ -393,10 +394,10 @@ impl SessionActor {
        let _=self.services.cancel_and_join().await;
        while let Some(env)=self.control.recv().await {self.op(env).await?;}
        while let Some(env)=self.work.recv().await {self.reject(env.env.op_id,Rejection::InvalidInput{detail:"session is closing".into()}).await?;}
-       while let Some(work)=self.queue.pop_front(){match work {Queued::Turn(turn,_)=>self.publish(Event::TurnEnded{turn,reason:StopReason::Cancelled,usage:None},Some(op)).await?,Queued::Compact(id)=>self.reject(id,Rejection::NothingToCompact).await?}}
+       while let Some(work)=self.queue.pop_front(){match work {Queued::Turn(turn,_,_)=>self.publish(Event::TurnEnded{turn,reason:StopReason::Cancelled,usage:None},Some(op)).await?,Queued::Compact(id)=>self.reject(id,Rejection::NothingToCompact).await?}}
        self.publish(Event::SessionClosed,Some(op)).await?;break;
      }
-     if let Some(work)=self.queue.pop_front(){match work{Queued::Turn(turn,blocks)=>self.start(turn,blocks).await?,Queued::Compact(id)=>{self.compact(id).await?;continue;}}}
+     if let Some(work)=self.queue.pop_front(){match work{Queued::Turn(turn,blocks,cause)=>self.start(turn,blocks,cause).await?,Queued::Compact(id)=>{self.compact(id).await?;continue;}}}
     }
     tokio::select! {biased;
      Some(op)=self.control.recv()=>self.op(op).await?,
@@ -428,7 +429,12 @@ impl SessionActor {
         self.gateway.mark_closed();
         result
     }
-    async fn start(&mut self, turn: TurnId, blocks: Vec<InputBlock>) -> std::io::Result<()> {
+    async fn start(
+        &mut self,
+        turn: TurnId,
+        blocks: Vec<InputBlock>,
+        initial_cause: OpId,
+    ) -> std::io::Result<()> {
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
         let cancel = CancellationToken::new();
         let (steer, rx) = mpsc::channel(64);
@@ -471,6 +477,7 @@ impl SessionActor {
         };
         self.running = Some(Running {
             turn,
+            initial_cause,
             generation,
             cancel,
             steer,
@@ -490,7 +497,7 @@ impl SessionActor {
         let turn = TurnId::new();
         self.publish(Event::TurnQueued { turn }, Some(cause))
             .await?;
-        self.queue.push_back(Queued::Turn(turn, blocks));
+        self.queue.push_back(Queued::Turn(turn, blocks, cause));
         Ok(())
     }
     async fn op(&mut self, admitted: crate::gateway::Admitted) -> std::io::Result<()> {
@@ -498,6 +505,19 @@ impl SessionActor {
         let id = env.op_id;
         match env.op {
             Op::UserTurn { blocks, mode } => {
+                let blocks = match self.store.blobs.admit_images(blocks).await {
+                    Ok(blocks) => blocks,
+                    Err(error) => {
+                        return self
+                            .reject(
+                                id,
+                                Rejection::InvalidInput {
+                                    detail: error.to_string(),
+                                },
+                            )
+                            .await;
+                    }
+                };
                 if blocks.is_empty() || blocks.iter().any(|b| matches!(b, InputBlock::Unknown(_))) {
                     return self
                         .reject(
@@ -549,7 +569,7 @@ impl SessionActor {
                 } else if let Some(p) = self
                     .queue
                     .iter()
-                    .position(|w| matches!(w,Queued::Turn(t,_) if *t==target))
+                    .position(|w| matches!(w,Queued::Turn(t,_,_) if *t==target))
                 {
                     self.queue.remove(p);
                     self.interrupted.insert(target, id);
@@ -711,6 +731,19 @@ impl SessionActor {
                     .is_none_or(|r| r.generation != generation)
                 {
                     return Ok(());
+                }
+                // Initial input keeps its immutable admitted cause even when an
+                // interrupt races its first item. Steer events carry their own cause.
+                if cause.is_none()
+                    && matches!(
+                        event,
+                        Event::ItemStarted {
+                            kind: ItemKind::UserMessage,
+                            ..
+                        }
+                    )
+                {
+                    cause = self.running.as_ref().map(|r| r.initial_cause);
                 }
                 if let Event::ItemStarted {
                     kind: ItemKind::UserMessage,
@@ -1363,6 +1396,7 @@ mod hardening_tests {
         let (steer, _) = mpsc::channel(1);
         actor.running = Some(Running {
             turn,
+            initial_cause: OpId::new(),
             generation: 1,
             cancel: CancellationToken::new(),
             steer,

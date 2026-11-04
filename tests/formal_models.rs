@@ -78,3 +78,25 @@ fn acp_controls_native_model_and_broken_controls() {
     }
     std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
 }
+
+#[test]
+fn attachments_intake_native_model_and_control() {
+    let path = std::env::var("ATTACHMENTS_FORMAL_OUT")
+        .unwrap_or_else(|_| "target/harness-attachments/formal".into());
+    let root = std::path::Path::new(&path);
+    std::fs::create_dir_all(root).unwrap();
+    let mut manifest = String::new();
+    for (broken, expected) in [(false, "pass"), (true, "safety")] {
+        let model = models::attachment_intake(broken);
+        let check = model.check(100_000).unwrap();
+        assert!(
+            check
+                .states
+                .iter()
+                .any(|s| s[0] == 2 && s[2] == 0 && s[4] == 1),
+            "delayed A-B-A completion is reachable"
+        );
+        export::export(model, expected, root, &mut manifest).unwrap();
+    }
+    std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
+}

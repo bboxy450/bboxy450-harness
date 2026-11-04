@@ -133,6 +133,7 @@ fn scroll_panel(name: &str) -> bool {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     Send,
+    RemoveAttachment(usize),
     Interrupt,
     Stop,
     StopAt(Epoch),
@@ -217,7 +218,10 @@ struct Controls {
     layout: c::Layout,
     rows_h: f32,
 }
+#[path = "input.rs"]
+mod input;
 pub struct HarnessView {
+    inputs: input::Inputs,
     pub composer: super::editor::Input,
     approval: Option<(ItemId, ui::modules::approval::Approval)>,
     completion: Option<ui::text_edit::CompletionPopover>,
@@ -337,6 +341,7 @@ impl Default for HarnessView {
             ..Default::default()
         });
         Self {
+            inputs: Default::default(),
             composer,
             approval: None,
             completion: None,
@@ -504,6 +509,7 @@ impl HarnessView {
         !state.replay
             && !matches!(state.transcript.phase, Phase::Idle | Phase::Closed)
             && self.composer.view.text.is_empty()
+            && self.composer.view.attach.is_empty()
     }
     pub fn invalidate(&mut self) {
         self.cached = None;
@@ -709,6 +715,7 @@ impl HarnessView {
     }
     /// The same Element is used by a standalone surface and the offscreen driver.
     pub fn render(&mut self, state: &FrameState, size: [f32; 2]) -> Result<&Frame, String> {
+        self.poll_inputs(state);
         self.config_menu_rect = None;
         self.profiles = state.profiles.clone();
         self.current_profile = state.transcript.profile.as_ref().map(|(p, _)| p.clone());
@@ -921,6 +928,7 @@ impl HarnessView {
                 &self.metrics,
                 &mut self.anim,
             )?;
+            let composer = self.attachment_panel(composer, width);
             let composer_h = composer
                 .layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?
                 .rect
@@ -1326,6 +1334,16 @@ impl HarnessView {
         self.paint_zoom_pill(ctx, &ink, width)?;
         let mut hover = vec![];
         let mut front = vec![];
+        if let Some(layout) = &self.frame.layout {
+            for i in 0..self.inputs.attachments.len() {
+                if let Some(node) = find(layout, &format!("attachment/remove/{i}")) {
+                    front.push((node.rect, Action::RemoveAttachment(i)));
+                }
+            }
+            if let Some(node) = find(layout, "composer/attach") {
+                front.push((node.rect, Action::Chip(1)));
+            }
+        }
         let hovered = self.menus.hover.clone();
         let open = if let Some(popover) = &self.completion {
             // Spec: left 12, bottom 4px into the composer's top padding.
@@ -1345,7 +1363,11 @@ impl HarnessView {
             // The card's surface_2 fill is opaque: transcript ink never shows through.
             let mut popup = named(
                 "completion-overlay",
-                super::menu::slash_menu(popover, &self.profiles, max_rows, &ink, &look),
+                if popover.request.trigger == '@' {
+                    self.file_menu(popover, &ink)
+                } else {
+                    super::menu::slash_menu(popover, &self.profiles, max_rows, &ink, &look)
+                },
             );
             flat(&mut popup);
             let mut popup = popup.layout(
@@ -1725,8 +1747,11 @@ impl HarnessView {
         self.profiles.iter().map(|p| p.name.clone()).collect()
     }
     pub fn edit(&mut self, command: ui::text_edit::Command) {
+        self.inputs.changed();
         self.composer.handle(composer::Command::Edit(command));
+        self.inputs.observed_text = self.composer.view.text.clone();
         self.completion = self.composer.popover(&self.profile_names());
+        self.refresh_files();
         self.last_edit = self.anim.now();
         self.invalidate();
     }
@@ -1788,6 +1813,20 @@ impl HarnessView {
     }
     /// Enter on the open "/" menu: complete the chosen command, then run it.
     pub fn run_completion(&mut self, bridge: &Bridge) -> bool {
+        if let Some(p) = &self.completion
+            && p.request.trigger == '@'
+        {
+            let request = p.request.clone();
+            if let Some(label) = p
+                .choices
+                .selected()
+                .and_then(|i| p.choices.options.get(i))
+                .map(|c| c.label.clone())
+            {
+                self.choose_file(request, label, bridge);
+            }
+            return true;
+        }
         let Some(popover) = &mut self.completion else {
             return false;
         };
@@ -1807,6 +1846,9 @@ impl HarnessView {
         let Some(popover) = &mut self.completion else {
             return false;
         };
+        if popover.request.trigger == '@' && matches!(key, ui::modules::approval::Key::Enter) {
+            return false;
+        }
         if let Some(edit) = popover.handle(key) {
             self.composer.handle(composer::Command::Edit(edit));
             self.completion = None;
@@ -1935,7 +1977,15 @@ impl HarnessView {
                     _ => {}
                 }
             }
+            Action::RemoveAttachment(index) => {
+                self.remove_attachment(index);
+                return;
+            }
             Action::Complete(request, text) => {
+                if request.trigger == '@' {
+                    self.choose_file(request, text, bridge);
+                    return;
+                }
                 let outcome = self.composer.handle(composer::Command::Edit(
                     ui::text_edit::Command::Complete { request, text },
                 ));
@@ -1951,7 +2001,13 @@ impl HarnessView {
                 if let composer::Outcome::Submit(sent) =
                     self.composer.handle(composer::Command::Send)
                 {
-                    let text = sent.text.trim();
+                    // Attachments are user content; a draft containing them never
+                    // becomes a launcher/profile/approval command.
+                    let text = if sent.attach.is_empty() {
+                        sent.text.trim()
+                    } else {
+                        ""
+                    };
                     // `/profiles` opens the switcher; `/profile NAME` continues this session on NAME
                     if text == "/profiles" || text == "/profile" {
                         self.composer.stored(&sent);
@@ -1977,18 +2033,53 @@ impl HarnessView {
                         self.scroll.follow_latest();
                         return;
                     }
+                    let blocks = match self.attachment_blocks(&sent) {
+                        Ok(blocks) => blocks,
+                        Err(error) => {
+                            self.notice = Some(error);
+                            self.invalidate();
+                            return;
+                        }
+                    };
                     let op = match text {
                         "/interrupt" => Op::Interrupt { turn: None },
                         _ => Op::UserTurn {
-                            blocks: vec![InputBlock::Text {
-                                text: sent.text.clone(),
-                            }],
+                            blocks,
                             mode: TurnMode::Queue,
                         },
                     };
-                    match bridge.send(op) {
+                    let op_id = OpId::new();
+                    let Some(session) = bridge.state.transcript.session else {
+                        self.notice = Some("Session unavailable; draft retained".into());
+                        return;
+                    };
+                    let custody = self
+                        .inputs
+                        .attachments
+                        .iter()
+                        .filter_map(|a| a.custody.clone())
+                        .collect();
+                    match bridge.send_with_custody(
+                        OpEnvelope {
+                            v: PROTOCOL,
+                            op_id,
+                            session,
+                            op,
+                        },
+                        custody,
+                    ) {
                         Ok(_) => {
                             self.composer.stored(&sent);
+                            if !sent.attach.is_empty() {
+                                self.inputs.sent.push(input::Sent {
+                                    owner: self.inputs.owner.clone(),
+                                    op: op_id,
+                                    pending_at_send: bridge.state.pending_prompts.clone(),
+                                    attachments: std::mem::take(&mut self.inputs.attachments),
+                                    draft: sent,
+                                });
+                            }
+                            self.inputs.changed();
                             self.notice = None;
                             self.scroll.follow_latest();
                         }

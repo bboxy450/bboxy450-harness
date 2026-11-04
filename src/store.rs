@@ -7,6 +7,7 @@
 use crate::{protocol::*, redact::Set, runtime::blocking};
 use sha2::{Digest, Sha256};
 mod fork;
+pub mod intake;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{File, OpenOptions},

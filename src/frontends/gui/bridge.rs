@@ -28,12 +28,14 @@ use std::{
 use tokio_util::sync::CancellationToken;
 
 /// Local presentation only: Ack is admission, never durable chat confirmation.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PendingPrompt {
     pub op: OpId,
     pub session: SessionId,
     pub epoch: Epoch,
     pub text: String,
+    pub blocks: Vec<InputBlock>,
+    pub custody: Vec<Arc<crate::store::intake::ImageCustody>>,
     pub status: String,
     item: Option<ItemId>,
     turn: Option<TurnId>,
@@ -45,6 +47,8 @@ impl PendingPrompt {
             session,
             epoch,
             text,
+            blocks: vec![],
+            custody: vec![],
             status: "Sending…".into(),
             item: None,
             turn: None,
@@ -97,7 +101,11 @@ impl PendingPrompt {
                 body: Item::UserMessage { .. },
                 ..
             } if self.item == Some(*item) => return true,
-            Event::TurnEnded { turn, .. } if self.turn == Some(*turn) && self.item.is_none() => {
+            Event::TurnEnded { turn, .. }
+                if self.turn == Some(*turn)
+                    && self.item.is_none()
+                    && !self.status.starts_with("Rejected") =>
+            {
                 self.status = "Ended · no durable message was recorded".into();
             }
             Event::OpRejected { op, .. } if *op == self.op => {
@@ -317,6 +325,7 @@ impl Mailbox {
 #[cfg(feature = "test-fixtures")]
 type BeforeHost = Box<dyn FnOnce(&crate::redact::Set) + Send>;
 pub struct Bridge {
+    input_waker: Arc<dyn Waker>,
     mailbox: Arc<Mailbox>,
     messages: UiReceiver,
     pub dirty: DirtySet,
@@ -330,9 +339,10 @@ pub struct Bridge {
 }
 impl Bridge {
     pub fn new(waker: Arc<dyn Waker>) -> Self {
-        let dirty = DirtySet::new(2, waker);
+        let dirty = DirtySet::new(2, waker.clone());
         let (notices, messages) = bbt_rt::ui_channel(16, dirty.paint_source(1));
         Self {
+            input_waker: waker,
             mailbox: Arc::new(Mailbox {
                 latest: Latest::new(dirty.paint_source(0)),
                 notices,
@@ -542,6 +552,9 @@ impl Bridge {
             }
         }));
     }
+    pub fn input_waker(&self) -> Arc<dyn Waker> {
+        self.input_waker.clone()
+    }
     pub fn attach_with_blobs(&mut self, gateway: InProc, blobs: crate::store::Blobs) {
         self.mailbox.blobs.store(Some(Arc::new(blobs)));
         self.attach(gateway);
@@ -657,6 +670,14 @@ impl Bridge {
     /// Resends must carry the original session and op_id, including after a
     /// timeout or a switch. Scheduling a remote request is not admission.
     pub fn send_envelope(&self, envelope: OpEnvelope) -> Result<Submission, Refused> {
+        self.send_with_custody(envelope, vec![])
+    }
+    /// The transport worker retains staged images even if its disposable view detaches.
+    pub fn send_with_custody(
+        &self,
+        envelope: OpEnvelope,
+        custody: Vec<Arc<crate::store::intake::ImageCustody>>,
+    ) -> Result<Submission, Refused> {
         let gateway = self.state.gateway.as_ref().ok_or(Refused::Closed)?;
         let turn = matches!(envelope.op, Op::UserTurn { .. });
         let op_id = envelope.op_id;
@@ -666,8 +687,10 @@ impl Bridge {
                 .map(InputBlock::display_text)
                 .collect::<Vec<_>>()
                 .join("\n");
-            let prompt =
+            let mut prompt =
                 PendingPrompt::new(op_id, envelope.session, self.state.transcript.epoch, text);
+            prompt.blocks = blocks.clone();
+            prompt.custody = custody;
             self.mailbox.prompts(|prompts| {
                 prompts.entry(op_id).or_insert(prompt.clone());
             });
@@ -1848,5 +1871,58 @@ mod gui_polish_tests {
     struct TestWake;
     impl Waker for TestWake {
         fn wake(&self) {}
+    }
+}
+
+#[cfg(all(test, feature = "embedded"))]
+mod attachment_tests {
+    use super::*;
+    struct Wake;
+    impl Waker for Wake {
+        fn wake(&self) {}
+    }
+    #[tokio::test]
+    async fn attachment_unknown_delivery_keeps_real_blocks_and_custody() {
+        let temp = tempfile::tempdir().unwrap();
+        let custody = crate::runtime::blocking(|| {
+            let mut bytes = vec![];
+            {
+                let mut e = png::Encoder::new(&mut bytes, 1, 1);
+                e.set_color(png::ColorType::Rgba);
+                e.set_depth(png::BitDepth::Eight);
+                e.write_header()
+                    .unwrap()
+                    .write_image_data(&[4, 5, 6, 255])
+                    .unwrap();
+            }
+            Arc::new(crate::store::intake::ImageCustody::create(&bytes, "image/png").unwrap())
+        })
+        .await;
+        let block = custody.block.clone();
+        let op = OpId::new();
+        let session = SessionId::new();
+        let mut prompt = PendingPrompt::new(op, session, Epoch(1), "image".into());
+        prompt.blocks = vec![block.clone()];
+        prompt.custody = vec![custody.clone()];
+        let mut bridge = Bridge::new(Arc::new(Wake));
+        bridge.mailbox.prompts(|p| {
+            p.insert(op, prompt.clone());
+        });
+        drop(prompt);
+        drop(custody);
+        bridge
+            .mailbox
+            .prompt_status(op, "Outcome unknown · no automatic resend");
+        bridge.drain(Duration::from_millis(1));
+        let pending = &bridge.state.pending_prompts[&op];
+        assert_eq!(pending.blocks, vec![block]);
+        assert_eq!(pending.custody.len(), 1);
+        assert!(pending.status.contains("unknown"));
+        let blobs = crate::store::Blobs {
+            dir: temp.path().join("blobs"),
+            redactor: Default::default(),
+        };
+        let admitted = blobs.admit_images(pending.blocks.clone()).await.unwrap();
+        assert!(matches!(admitted.as_slice(), [InputBlock::Image { .. }]));
     }
 }

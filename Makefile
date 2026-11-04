@@ -15,6 +15,7 @@ test:
 
 help:
 	@printf '%s\n' \
+	  'make verify-harness-attachments  Focused private composer, clipboard, ACP and ownership checks' \
 	  'make test                       Full unattended unit, integration, formal, GUI and packaging checks' \
 	  'make test-formal                Native Yarn/formal checks and broken controls' \
 	  'make test-formal-parity         Native/Java TLC graph and verdict parity' \
@@ -212,3 +213,7 @@ verify-profiles-pending:
 .PHONY: verify-acp-controls
 verify-acp-controls:
 	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/test-acp-controls.py
+
+.PHONY: verify-harness-attachments
+verify-harness-attachments:
+	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-harness-attachments.py
