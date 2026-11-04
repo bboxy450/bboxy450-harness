@@ -201,3 +201,10 @@ lock-ir:
 .PHONY: verify-gui-polish
 verify-gui-polish:
 	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-gui-polish.py
+
+.PHONY: verify-profiles-pending
+verify-profiles-pending:
+	cargo test --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --features embedded --lib gui_polish_pending -- --nocapture
+	PROFILES_PENDING_CAPTURE_DIR='$(abspath $(TARGET_DIR))/profiles-pending/captures' cargo test --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --features embedded --test gui_render profiles_pending -- --nocapture
+	$(MAKE) check-embedded-lints
+	cargo check --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --lib

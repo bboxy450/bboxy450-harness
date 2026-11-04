@@ -1,0 +1,155 @@
+{
+  "task_brief": "/tmp/bboxy-oracle-takeover-01M6H97SAX3GN1BYB4YG76P3P0/EXECUTOR-PROFILES-PENDING.md",
+  "base": "47c6616244de4a1218629841ffbd0db8f5a13da6",
+  "worktree": "/Users/feral/mydev/bboxy450-harness-land",
+  "branch": "codex/gui-polish-20261104",
+  "created": "2026-11-04T05:45:49.806178+00:00",
+  "executor": {
+    "local_subagent": "/root/gui_polish",
+    "delegating_parent": "/root",
+    "harness": "Codex",
+    "delivery": "explicit operator-authorized local /tmp brief; no independently registered bboxy task claimed"
+  },
+  "verification": {
+    "mode": "scoped current-source composition",
+    "exit_code": 0,
+    "canonical_target": "make verify-profiles-pending",
+    "commands": [
+      {
+        "command": "make verify-profiles-pending",
+        "exit_code": 0,
+        "log": "/Users/feral/mydev/bboxy450-harness-land/target/profiles-pending/verify-final.log",
+        "sha256": "402c1dff6cfce091c07dabfcf6de50bdbb591c40c8b152bbb19070f0827e49ed",
+        "source_scope": "Initial focused gate; source-identical Bridge/profile/default-compile proofs retained. Its former layout-only check is superseded by the raster check below; not claimed as a final-source raster verdict."
+      },
+      {
+        "command": "cargo test --offline --locked --jobs 2 --target-dir target --features embedded --test gui_render profiles_pending -- --nocapture",
+        "exit_code": 0,
+        "log": "/Users/feral/mydev/bboxy450-harness-land/target/profiles-pending/raster-fixed.log",
+        "sha256": "8c5d96225d0677b85e6c23ed75e5fa17ba4100cce3adf59b62e59d5af5ed389e",
+        "source_scope": "Final-source native Metal raster/geometry/history/pending transition witness; capture environment points to target/profiles-pending/captures."
+      },
+      {
+        "command": "make check-embedded-lints",
+        "exit_code": 0,
+        "log": "/Users/feral/mydev/bboxy450-harness-land/target/profiles-pending/embedded-final.log",
+        "sha256": "9f16cfbe98d40866edbf8b4ef041c0df614f9ac8a12977ef5830b9ef557eb0bd",
+        "source_scope": "Final-source strict embedded library compilation, --no-deps -D warnings."
+      },
+      {
+        "command": "cargo test --offline --locked --jobs 2 --target-dir target --features embedded --lib gui_polish_pending_remote_profiles -- --nocapture",
+        "exit_code": 0,
+        "log": "/Users/feral/mydev/bboxy450-harness-land/target/profiles-pending/remote-profile.log",
+        "sha256": "a513a65c0c9185417e6fc9d22bc5e84820e1a5513fb86797399d6143df0286e0",
+        "source_scope": "Bounded admitted remote catalogue/switch/ACP/MCP witness. Bridge, producer, fixture and worker Preparer code remain byte-identical; the later transcript extent-only rendering change is outside this process witness."
+      }
+    ],
+    "source_hashes": {
+      "Makefile": "0997796a07f181e0bc06c7223cdcd11edd35d1639270601a160d2a117fab9d61",
+      "Cargo.toml": "7fa6161c1c12856a1c17efef922d74302a73319d70e2ee5678bcbc012328c546",
+      "Cargo.lock": "11ea32b187e3be9ee9e239d54e38f83cc9cc0dbbf1cf2616a6d9f7b98dcfe40a",
+      "src/frontends/gui/bridge.rs": "246f2355d3a9025fb37e579123c91a57a16e916b14911d4b6ab592b0419356e7",
+      "src/frontends/gui/view.rs": "4f2342913cac62198dc2190fd61347bb1317e702edf30f187729eb0a7f2e3f59",
+      "src/frontends/gui/face.rs": "8a9068b0452d3e260be7b68e27cb6cf84351c4f0c174347386d10306d620a50b",
+      "src/frontends/gui/model.rs": "694469b5ef31fb87839259fc1d53910561eb9a159d9654c9832ece7bb92633fa",
+      "src/frontends/gui/mod.rs": "cd66b8660456dc2ebfe980f5ba090f81ee7f4a3ddc96219a1839389839fdbff8",
+      "tests/gui_render.rs": "ea0f6f47ad511ce059a798af3730abc4a089056afcc22040dd17cd6a805379cc",
+      "tests/fixtures/acp-agent/profile_switch_server.py": "181171b23e8cc329214f200755609f4145b9fb62b196da7f49a1d6f183896cda",
+      "tests/fixtures/acp-agent/launch_parity.py": "09f1b2906f2dccc915cfaa98e5d7eafbca0cec18ceeb4b15312a400215fc3164",
+      "src/backend/acp_agent.rs": "f23a66f82d8304c2fb03256eb7e6b374d136a41b8099a64d7c05225bcec4d1d4",
+      "src/gateway/host.rs": "d3efbcaea91bfbc664ba69c79d503dd247033b6a57c8e5b01b9a32b6c40f0368",
+      "src/gateway/unix.rs": "636d2aa7843125fdfebf49da299456792791872dd399fed3cb551b6bcad1ca0e",
+      "src/gateway/mod.rs": "17759f8be6f59a9934cb78eebfdb09c7db03b1abe4dc04c89d4057368d0b7800",
+      "src/frontends/headless.rs": "2cab5a9726b7329a55835762881a082956ffcced4e2da5db1ede2109204a5d9e",
+      "src/mcp.rs": "92fbfc8c4733d019b537d0dcf51c0cbec0bbb88221458f5991345e72589680a3",
+      "src/mcp/relay.rs": "7ac5159066045c0ade1ec1235e7fea9822c5fb784413ae66ecc698b83f38ab8f",
+      "verification/contracts.toml": "46cb7f71dfe1f5a3407f062d3d8515db6238d6ce85ccef720bfd8343ecca13b6",
+      "verification/corpus.toml": "ea1ffed9223ada97b565855ebd725c94eebd695b5e112783b1524ee3cf24e8a1",
+      "verification/coverage.toml": "6da7703b7eeb713293b64f8443257af37b1124e66c7f38398b6f507c4f68fa20",
+      "verification/tools.lock.json": "45d8a35d0b533e53689efc46542315cf91713ee5821a2f002289cc0b8bc7a8dd",
+      "tests/formal/models.rs": "6201d3ae6d1366b5e595d9e56e678fde379b86d774159b30212d909c0f011842",
+      "tests/formal_models.rs": "5ab3b62c89b0eea2ad3088ad8e40a52ceebd0cc9195e8871ed23fc95facab8fa"
+    },
+    "negative_controls": [
+      {
+        "command": "native history Arc-clone witness",
+        "exit_code": 101,
+        "log": "/private/tmp/profiles-pending-history-before.log",
+        "sha256": "451d193dff3cf512eb1b0d04423bedc1f6ad755b16691f01c50bfabe5651de3b",
+        "source_scope": "Fails with prior history disappeared."
+      },
+      {
+        "command": "native Metal history raster witness",
+        "exit_code": 101,
+        "log": "/private/tmp/profiles-pending-raster-before.log",
+        "sha256": "57e5c3055bd2f03465bab4db891883cb0a313db64710166f64c74bb2364226d4",
+        "source_scope": "Fails with prior history raster changed or disappeared, even though layout labels remained."
+      }
+    ]
+  },
+  "capture": {
+    "path": "/Users/feral/mydev/bboxy450-harness-land/target/profiles-pending/captures/prior-history-and-gray-tail.png",
+    "sha256": "9a132443f875821c986a790d21087c92cd6e18ba3d1b74c7eb49821f25d378fe",
+    "assertions": "Each prior user/assistant region has native raster ink and is pixel-for-pixel identical before/after pending submission; both retained rows have positive visible bounds. Layout text also checks older markers and exactly two queued/durable rows."
+  },
+  "profile_witness": {
+    "private_catalogue_entries": 11,
+    "default": "alpha",
+    "switch": "alpha -> beta through admitted Op::SetProfile and Host::switch",
+    "real_private_acp_children": 2,
+    "model_choices": [
+      "fixture/model-A",
+      "fixture/model-B"
+    ],
+    "approval": "allow_once from unchanged explicit launcher intent",
+    "launcher_mcp_custody_and_origin": true,
+    "actual_private_mcp_effects": 2,
+    "whole_deadline_seconds": 40,
+    "cleanup_deadline_seconds": 8
+  },
+  "retained_proofs": {
+    "reference": ".bboxy/runs/codex-gui-polish.json",
+    "formal_model_and_tool_source_hashes_equal": [
+      "verification/contracts.toml",
+      "verification/corpus.toml",
+      "verification/coverage.toml",
+      "verification/tools.lock.json",
+      "tests/formal/models.rs",
+      "tests/formal_models.rs"
+    ],
+    "context_producer_sources_equal_to_base": [
+      "src/backend/acp_agent.rs",
+      "src/gateway/host.rs",
+      "src/gateway/unix.rs",
+      "src/gateway/mod.rs",
+      "src/frontends/headless.rs",
+      "src/mcp.rs",
+      "src/mcp/relay.rs",
+      "tests/fixtures/acp-agent/launch_parity.py"
+    ],
+    "approval_activation_guard_sha256": "b123bb5702200f2dc7dedeee3728a26b92a5e693fd382e9f2b41f5800e4ee44a",
+    "reason": "No protocol, host/profile-switch producer, ownership generation, model or renderer semantics change; fixes retain safe catalogue data and the previous solved render snapshot, use declared layout heights, and delay local projection retirement until its prepared durable body exists."
+  },
+  "development_failures": {
+    "short_explicit_generation_secret": "Removed short fixture identity values from configured secret env; helper sets private identity only in its own process. Production policy unchanged.",
+    "fixture_cleanup_order": "Corrected Host::close_all before UnixServer::retire; initial unbounded witness was terminated and not counted as pass.",
+    "owned_cleanup_record": "/tmp/profiles-pending-owned-cleanup.json",
+    "terminated_exact_owned_pids": [
+      64516,
+      64933
+    ],
+    "failed_gate_log": "/tmp/profiles-pending-unbounded-cleanup.log"
+  },
+  "omitted": [
+    "whole test/parity/formal/runtime suites",
+    "repeated unchanged context/MCP corpus",
+    "real production profile contents or credential values",
+    "vendor calls",
+    "production backend control",
+    "install",
+    "push",
+    "merge"
+  ],
+  "production_backend_restarted": false,
+  "prepared_report": "/tmp/bboxy-oracle-takeover-01M6H97SAX3GN1BYB4YG76P3P0/REPORT-PROFILES-PENDING.md"
+}

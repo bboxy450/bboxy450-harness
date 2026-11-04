@@ -220,6 +220,7 @@ pub struct HarnessView {
     metrics: Metrics,
     cached: Option<CacheKey>,
     controls: Option<Controls>,
+    retained_prepared: Option<Arc<PreparedRows>>,
     pub frame: Frame,
     pub notice: Option<String>,
     /// The window holds keyboard focus: the composer draws its focus ring and caret.
@@ -335,6 +336,7 @@ impl Default for HarnessView {
             metrics: Metrics::default(),
             cached: None,
             controls: None,
+            retained_prepared: None,
             frame: Frame::default(),
             notice: None,
             focused: false,
@@ -547,11 +549,18 @@ impl HarnessView {
                     vec![bubble.into()],
                 ),
             );
-            total += element
+            let height = element
                 .layout(Rect::new(0., 0., width, 0.), context(), &self.metrics)?
                 .rect
                 .h;
-            children.push(element.into());
+            total += height;
+            // Every sibling must declare its height. An Auto pending row makes
+            // the toolkit fall back to natural measurement, where the cached
+            // Spacer slots measure zero and clip all retained history paint.
+            children.push(c::Item {
+                element,
+                extent: c::Extent::Fixed(height),
+            });
         }
         let has_pending = !children.is_empty();
         if children.is_empty() {
@@ -706,10 +715,23 @@ impl HarnessView {
         let now = self.anim.now();
         self.motion.begin_frame(state, now);
         let width = size[0].max(240.);
+        // Local/metadata publication may wrap the same log in another Arc, or
+        // arrive while worker preparation is pending. Keep the last solved rows
+        // of this birth until their replacement is ready; never retain across
+        // a session/epoch reset or a cursor rewind.
+        let compatible = |p: &&Arc<PreparedRows>| {
+            p.source.session == model.session
+                && p.source.epoch == model.epoch
+                && p.source.cursor <= model.cursor
+        };
         let prepared = state
             .prepared
             .as_ref()
-            .filter(|p| Arc::ptr_eq(&p.source, &state.transcript));
+            .filter(compatible)
+            .or_else(|| self.retained_prepared.as_ref().filter(compatible))
+            .cloned();
+        self.retained_prepared = prepared.clone();
+        let prepared = prepared.as_ref();
         // A session's first frame takes its end state: nothing enters, the tail is shown.
         let scope = (model.session, model.epoch);
         let first_frame = self.known_scope != Some(scope);
