@@ -284,11 +284,11 @@ pub async fn prepare(
     }
     // Only resolved, content-valid, currently projected adopted revisions enter the
     // bounded dedup index. It remains quoted text, never an authority assertion.
-    let retained=resolver.logs.clone();
+    let retained = resolver.logs.clone();
     let logs = retained.values().flatten().cloned().collect::<Vec<_>>();
     let (projection, facts) = crate::runtime::blocking(move || {
         let events = projection::union(logs)?;
-        let facts = projection::facts_with_logs(&events,&retained)?;
+        let facts = projection::facts_with_logs(&events, &retained)?;
         Ok::<_, Invalid>((projection::Projection::build(&facts)?, facts))
     })
     .await?;

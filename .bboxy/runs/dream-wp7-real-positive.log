@@ -1,0 +1,24 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+error[E0063]: missing field `server` in initializer of `bboxy450_harness::protocol::Item`
+   --> tests/support/dream.rs:397:22
+    |
+397 | ...   let body=Item::ToolCall {call_id:ItemId::new().to_string(),name:name.into(),tool_kind:ToolKind::Read,input_raw:input.to_strin...
+    |                ^^^^^^^^^^^^^^ missing `server`
+
+warning: unused import: `bboxy450_harness::provider::Provider`
+    --> tests/dream_pipeline.rs:1633:59
+     |
+1633 |     fn caps(&self)->bboxy450_harness::provider::Caps {use bboxy450_harness::provider::Provider; bboxy450_harness::provider::Script...
+     |                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Provider`
+    --> tests/dream_pipeline.rs:1635:42
+     |
+1635 |         use bboxy450_harness::provider::{Provider,ScriptedProvider};
+     |                                          ^^^^^^^^
+
+For more information about this error, try `rustc --explain E0063`.
+warning: `bboxy450-harness` (test "dream_pipeline") generated 2 warnings
+error: could not compile `bboxy450-harness` (test "dream_pipeline") due to 1 previous error; 2 warnings emitted

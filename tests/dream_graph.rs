@@ -33,7 +33,7 @@ fn pin(n: u64) -> EvidenceRef {
     }
 }
 fn fact(n: u64, body: Item) -> Fact {
-    Fact::unproved(pin(n),session(1),Seq(n),1000-n,body)
+    Fact::unproved(pin(n), session(1), Seq(n), 1000 - n, body)
 }
 fn usage() -> Usage {
     Usage {
@@ -423,52 +423,308 @@ fn net_gain_keeps_failed_held_out_observations() {
     assert!(projection::trial_gain(&failed).is_err());
 }
 
-async fn retained_derived_fixture()->(tempfile::TempDir,BTreeMap<SessionId,Vec<Envelope>>,Item) {
-    use bboxy450_harness::{store::Store,redact::Set};
-    let temp=tempfile::tempdir().unwrap();let root=temp.path().join("sessions");
-    let meta=SessionMeta {session:SessionId::new(),cwd:temp.path().into(),profile:None,fork:None,protocol:PROTOCOL,harness:env!("CARGO_PKG_VERSION").into(),created_ms:0,vcs:None,dream:None,source:None};
-    let mut parent=Store::open(root.clone(),meta.clone(),None,Set::default()).await.unwrap();parent.append(Event::ProfileChanged{profile:"scripted".into(),model:"scripted".into()},None).await.unwrap();parent.append(Event::SessionClosed,None).await.unwrap();let mut logs=BTreeMap::from([(meta.session,parent.events.clone())]);drop(parent);
-    let mut trial=trial(&format!("sha256:{}","a".repeat(64)),"scripted");let Item::Trial{episodes,controls,..}=&mut trial else{unreachable!()};
-    for run in episodes.iter_mut().chain(controls).flat_map(|e|&mut e.runs) {
-        let mut meta=meta.clone();meta.session=SessionId::new();meta.fork=Some((logs.keys().next().copied().unwrap(),Seq(2)));
-        let mut child=Store::open(root.clone(),meta.clone(),None,Set::default()).await.unwrap();let turn=TurnId::new();child.append(Event::TurnQueued{turn},None).await.unwrap();child.append(Event::TurnStarted{turn,model:Some("scripted".into()),origin:Some(TurnOrigin::User)},None).await.unwrap();let mut calls=vec![];
-        for _ in 0..2 {let mut usage=usage();usage.scope=Some(UsageScope::Call);calls.push(usage.clone());let item=ItemId::new();child.append(Event::ItemStarted{turn:Some(turn),item,kind:ItemKind::Usage,parent:None,head:None},None).await.unwrap();child.append(Event::ItemCompleted{item,status:ItemStatus::Completed,body:Item::Usage{usage}},None).await.unwrap();}
-        let usage=Usage::sum_calls(&calls).unwrap();child.append(Event::TurnEnded{turn,reason:StopReason::EndTurn,usage:usage.clone()},None).await.unwrap();child.append(Event::SessionClosed,None).await.unwrap();run.session=meta.session;run.usage=usage;logs.insert(meta.session,std::fs::read_to_string(root.join(format!("{}.jsonl",meta.session))).unwrap().split_inclusive('\n').map(Envelope::from_line).collect::<Result<Vec<_>,_>>().unwrap());
+async fn retained_derived_fixture() -> (tempfile::TempDir, BTreeMap<SessionId, Vec<Envelope>>, Item)
+{
+    use bboxy450_harness::{redact::Set, store::Store};
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("sessions");
+    let meta = SessionMeta {
+        session: SessionId::new(),
+        cwd: temp.path().into(),
+        profile: None,
+        fork: None,
+        protocol: PROTOCOL,
+        harness: env!("CARGO_PKG_VERSION").into(),
+        created_ms: 0,
+        vcs: None,
+        dream: None,
+        source: None,
+    };
+    let mut parent = Store::open(root.clone(), meta.clone(), None, Set::default())
+        .await
+        .unwrap();
+    parent
+        .append(
+            Event::ProfileChanged {
+                profile: "scripted".into(),
+                model: "scripted".into(),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    parent.append(Event::SessionClosed, None).await.unwrap();
+    let mut logs = BTreeMap::from([(meta.session, parent.events.clone())]);
+    drop(parent);
+    let mut trial = trial(&format!("sha256:{}", "a".repeat(64)), "scripted");
+    let Item::Trial {
+        episodes, controls, ..
+    } = &mut trial
+    else {
+        unreachable!()
+    };
+    for run in episodes
+        .iter_mut()
+        .chain(controls)
+        .flat_map(|e| &mut e.runs)
+    {
+        let mut meta = meta.clone();
+        meta.session = SessionId::new();
+        meta.fork = Some((logs.keys().next().copied().unwrap(), Seq(2)));
+        let mut child = Store::open(root.clone(), meta.clone(), None, Set::default())
+            .await
+            .unwrap();
+        let turn = TurnId::new();
+        child
+            .append(Event::TurnQueued { turn }, None)
+            .await
+            .unwrap();
+        child
+            .append(
+                Event::TurnStarted {
+                    turn,
+                    model: Some("scripted".into()),
+                    origin: Some(TurnOrigin::User),
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        let mut calls = vec![];
+        for _ in 0..2 {
+            let mut usage = usage();
+            usage.scope = Some(UsageScope::Call);
+            calls.push(usage.clone());
+            let item = ItemId::new();
+            child
+                .append(
+                    Event::ItemStarted {
+                        turn: Some(turn),
+                        item,
+                        kind: ItemKind::Usage,
+                        parent: None,
+                        head: None,
+                    },
+                    None,
+                )
+                .await
+                .unwrap();
+            child
+                .append(
+                    Event::ItemCompleted {
+                        item,
+                        status: ItemStatus::Completed,
+                        body: Item::Usage { usage },
+                    },
+                    None,
+                )
+                .await
+                .unwrap();
+        }
+        let usage = Usage::sum_calls(&calls).unwrap();
+        child
+            .append(
+                Event::TurnEnded {
+                    turn,
+                    reason: StopReason::EndTurn,
+                    usage: usage.clone(),
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        child.append(Event::SessionClosed, None).await.unwrap();
+        run.session = meta.session;
+        run.usage = usage;
+        logs.insert(
+            meta.session,
+            std::fs::read_to_string(root.join(format!("{}.jsonl", meta.session)))
+                .unwrap()
+                .split_inclusive('\n')
+                .map(Envelope::from_line)
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap(),
+        );
     }
-    (temp,logs,trial)
+    (temp, logs, trial)
 }
-fn retained_trial_fact(item:Item,logs:&BTreeMap<SessionId,Vec<Envelope>>)->Fact {
-    let envelope=Envelope {raw:None,ext:Default::default(),native:None,v:PROTOCOL,session:session(90),epoch:Epoch(1),seq:Some(Seq(2)),at:Seq(2),ts_ms:0,cause:None,event:Event::ItemCompleted{item:ItemId::new(),status:ItemStatus::Completed,body:item}};
-    projection::facts_with_logs(&[envelope],logs).unwrap().remove(0)
+fn retained_trial_fact(item: Item, logs: &BTreeMap<SessionId, Vec<Envelope>>) -> Fact {
+    let envelope = Envelope {
+        raw: None,
+        ext: Default::default(),
+        native: None,
+        v: PROTOCOL,
+        session: session(90),
+        epoch: Epoch(1),
+        seq: Some(Seq(2)),
+        at: Seq(2),
+        ts_ms: 0,
+        cause: None,
+        event: Event::ItemCompleted {
+            item: ItemId::new(),
+            status: ItemStatus::Completed,
+            body: item,
+        },
+    };
+    projection::facts_with_logs(&[envelope], logs)
+        .unwrap()
+        .remove(0)
 }
 #[tokio::test]
 async fn derived_qualification_binds_closed_fork_call_leaves_and_current_fact() {
-    let (_temp,logs,trial)=retained_derived_fixture().await;let checked=retained_trial_fact(trial.clone(),&logs);
-    assert!(checked.usage_error().is_none(),"{:?}",checked.usage_error());assert_eq!(checked.qualifying_trial().unwrap(),4);assert_eq!(checked.trial_gain().unwrap(),4);
-    assert!(projection::qualifying_trial(&trial).is_err());assert!(projection::trial_gain(&trial).is_err());assert!(!serde_json::to_string(&checked).unwrap().contains("checked_usage"));
-    let mut changed=checked.clone();if let Item::Trial{episodes,..}=&mut changed.body {episodes[0].runs[0].session=session(999);}
-    assert!(matches!(changed.usage_error(),Some(projection::UsageProofError::Mismatch(_))));assert!(changed.qualifying_trial().is_err());
-    let Item::Trial{episodes,..}=&trial else{unreachable!()};let target=episodes[0].runs[0].session;
-    for mode in 0..13 {
-        let mut context=logs.clone();let mut item=trial.clone();
-        if mode==0 {context.remove(&target);}else {
-            let log=context.get_mut(&target).unwrap();
-            for e in log.iter_mut() {e.raw=None;}
-            match mode {
-                1=>{log.pop();}
-                2=>{if let Event::SessionStarted{meta}=&mut log[0].event {meta.fork=Some((session(999),Seq(2)));}}
-                3..=8=>{
-                    let usages=log.iter_mut().filter_map(|e|if let Event::ItemCompleted{body:Item::Usage{usage},..}=&mut e.event {Some(usage)}else{None}).collect::<Vec<_>>();
-                    let first=usages.into_iter().next().unwrap();match mode {3=>first.unreported.push("input_tokens".into()),4=>first.source=Some(NumberSource::Estimated),5=>first.model=Some("different".into()),6=>first.backend.as_mut().unwrap().name="different".into(),7=>first.source=Some(NumberSource::Derived),8=>first.input_tokens=u64::MAX,_=>unreachable!()}
-                }
-                9=>{if let Item::Trial{episodes,..}=&mut item {episodes[0].runs[0].usage.as_mut().unwrap().reasoning_tokens=Some(99);}}
-                10=>{let event=log.iter_mut().find(|e|matches!(e.event,Event::ItemCompleted{body:Item::Usage{..},..})).unwrap();event.session=session(999);}
-                11=>{let original=log.iter().find(|e|matches!(e.event,Event::ItemCompleted{body:Item::Usage{..},..})).unwrap().clone();let end=log.iter().position(|e|matches!(e.event,Event::TurnEnded{..})).unwrap();log.insert(end,original);}
-                12=>{if let Item::Trial{episodes,..}=&mut item {episodes[0].runs[0].usage.as_mut().unwrap().source=Some(NumberSource::Reported);}}
-                _=>unreachable!(),
+    let (_temp, logs, trial) = retained_derived_fixture().await;
+    let checked = retained_trial_fact(trial.clone(), &logs);
+    assert!(
+        checked.usage_error().is_none(),
+        "{:?}",
+        checked.usage_error()
+    );
+    assert_eq!(checked.qualifying_trial().unwrap(), 4);
+    assert_eq!(checked.trial_gain().unwrap(), 4);
+    assert!(projection::qualifying_trial(&trial).is_err());
+    assert!(projection::trial_gain(&trial).is_err());
+    assert!(
+        !serde_json::to_string(&checked)
+            .unwrap()
+            .contains("checked_usage")
+    );
+    let mut changed = checked.clone();
+    if let Item::Trial { episodes, .. } = &mut changed.body {
+        episodes[0].runs[0].session = session(999);
+    }
+    assert!(matches!(
+        changed.usage_error(),
+        Some(projection::UsageProofError::Mismatch(_))
+    ));
+    assert!(changed.qualifying_trial().is_err());
+    for harness_change in [false, true] {
+        let mut foreign = checked.clone();
+        if let Item::Trial { entry, harness, .. } = &mut foreign.body {
+            if harness_change {
+                *harness = "foreign-harness".into();
+            } else {
+                *entry = entry::digest(b"different-entry");
             }
         }
-        let fact=retained_trial_fact(item,&context);let error=fact.usage_error();assert!(error.is_some(),"mode {mode}");assert!(fact.qualifying_trial().is_err(),"mode {mode}");assert!(fact.trial_gain().is_err(),"mode {mode}");
-        if matches!(mode,0|1|2|3|7|8) {assert!(matches!(error,Some(projection::UsageProofError::Unavailable(_))),"mode {mode}: {error:?}");}else{assert!(matches!(error,Some(projection::UsageProofError::Mismatch(_))),"mode {mode}: {error:?}");}
+        assert!(matches!(
+            foreign.usage_error(),
+            Some(projection::UsageProofError::Mismatch(_))
+        ));
+        assert!(foreign.qualifying_trial().is_err());
+    }
+    let Item::Trial { episodes, .. } = &trial else {
+        unreachable!()
+    };
+    let target = episodes[0].runs[0].session;
+    for mode in 0..13 {
+        let mut context = logs.clone();
+        let mut item = trial.clone();
+        if mode == 0 {
+            context.remove(&target);
+        } else {
+            let log = context.get_mut(&target).unwrap();
+            for e in log.iter_mut() {
+                e.raw = None;
+            }
+            match mode {
+                1 => {
+                    log.pop();
+                }
+                2 => {
+                    if let Event::SessionStarted { meta } = &mut log[0].event {
+                        meta.fork = Some((session(999), Seq(2)));
+                    }
+                }
+                3..=8 => {
+                    let usages = log
+                        .iter_mut()
+                        .filter_map(|e| {
+                            if let Event::ItemCompleted {
+                                body: Item::Usage { usage },
+                                ..
+                            } = &mut e.event
+                            {
+                                Some(usage)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    let first = usages.into_iter().next().unwrap();
+                    match mode {
+                        3 => first.unreported.push("input_tokens".into()),
+                        4 => first.source = Some(NumberSource::Estimated),
+                        5 => first.model = Some("different".into()),
+                        6 => first.backend.as_mut().unwrap().name = "different".into(),
+                        7 => first.source = Some(NumberSource::Derived),
+                        8 => first.input_tokens = u64::MAX,
+                        _ => unreachable!(),
+                    }
+                }
+                9 => {
+                    if let Item::Trial { episodes, .. } = &mut item {
+                        episodes[0].runs[0].usage.as_mut().unwrap().reasoning_tokens = Some(99);
+                    }
+                }
+                10 => {
+                    let event = log
+                        .iter_mut()
+                        .find(|e| {
+                            matches!(
+                                e.event,
+                                Event::ItemCompleted {
+                                    body: Item::Usage { .. },
+                                    ..
+                                }
+                            )
+                        })
+                        .unwrap();
+                    event.session = session(999);
+                }
+                11 => {
+                    let original = log
+                        .iter()
+                        .find(|e| {
+                            matches!(
+                                e.event,
+                                Event::ItemCompleted {
+                                    body: Item::Usage { .. },
+                                    ..
+                                }
+                            )
+                        })
+                        .unwrap()
+                        .clone();
+                    let end = log
+                        .iter()
+                        .position(|e| matches!(e.event, Event::TurnEnded { .. }))
+                        .unwrap();
+                    log.insert(end, original);
+                }
+                12 => {
+                    if let Item::Trial { episodes, .. } = &mut item {
+                        episodes[0].runs[0].usage.as_mut().unwrap().source =
+                            Some(NumberSource::Reported);
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+        let fact = retained_trial_fact(item, &context);
+        let error = fact.usage_error();
+        assert!(error.is_some(), "mode {mode}");
+        assert!(fact.qualifying_trial().is_err(), "mode {mode}");
+        assert!(fact.trial_gain().is_err(), "mode {mode}");
+        if matches!(mode, 0 | 1 | 2 | 3 | 7 | 8) {
+            assert!(
+                matches!(error, Some(projection::UsageProofError::Unavailable(_))),
+                "mode {mode}: {error:?}"
+            );
+        } else {
+            assert!(
+                matches!(error, Some(projection::UsageProofError::Mismatch(_))),
+                "mode {mode}: {error:?}"
+            );
+        }
     }
 }

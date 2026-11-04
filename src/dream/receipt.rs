@@ -1178,7 +1178,7 @@ pub fn cut_facts(
     }
     let mut prior = None;
     let mut events = vec![];
-    let mut retained_cut=BTreeMap::new();
+    let mut retained_cut = BTreeMap::new();
     let mut actual = vec![];
     for cut in cuts {
         if prior.is_some_and(|p| p >= cut.session) {
@@ -1202,9 +1202,13 @@ pub fn cut_facts(
         {
             return Err(ProofError::Fail("cut_after_freeze"));
         }
-        let prefix=log.iter().take(cut.through_seq as usize).cloned().collect::<Vec<_>>();
+        let prefix = log
+            .iter()
+            .take(cut.through_seq as usize)
+            .cloned()
+            .collect::<Vec<_>>();
         events.extend(prefix.clone());
-        retained_cut.insert(cut.session,prefix);
+        retained_cut.insert(cut.session, prefix);
         actual.push(InventorySession {
             session: cut.session,
             through_seq: cut.through_seq,
@@ -1213,11 +1217,16 @@ pub fn cut_facts(
     if actual != inventory.sessions {
         return Err(ProofError::Fail("ignored_log"));
     }
-    let facts = super::projection::facts_with_logs(&events,&retained_cut).map_err(|e| ProofError::Fail(e.0))?;
-    for fact in &facts {if let Some(e)=fact.usage_error() {return Err(match e {
-        super::projection::UsageProofError::Unavailable(s)=>ProofError::Unproven(s),
-        super::projection::UsageProofError::Mismatch(s)=>ProofError::Fail(s),
-    });}}
+    let facts = super::projection::facts_with_logs(&events, &retained_cut)
+        .map_err(|e| ProofError::Fail(e.0))?;
+    for fact in &facts {
+        if let Some(e) = fact.usage_error() {
+            return Err(match e {
+                super::projection::UsageProofError::Unavailable(s) => ProofError::Unproven(s),
+                super::projection::UsageProofError::Mismatch(s) => ProofError::Fail(s),
+            });
+        }
+    }
     let projection =
         super::projection::Projection::build(&facts).map_err(|e| ProofError::Fail(e.0))?;
     let digest = super::entry::digest(

@@ -1,0 +1,31 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized] target(s) in 10.70s
+     Running tests/dream_pipeline.rs (target/debug/deps/dream_pipeline-474d8e9d45472881)
+
+running 10 tests
+test trial_original_eligibility_requires_observed_clean_revision_and_verify ... ok
+test trial_closure_and_every_possible_exposure_exclude_forks ... ok
+test trial_thresholds_exact_gain_controls_and_median ... ok
+test trial_selection_is_canonical_held_out_and_not_arrival_order ... ok
+test trial_usage_spend_and_unknowns_never_become_free_work ... ok
+test trial_prepare_declared_timing_failure_never_falls_back_to_eligible_absence ... ok
+
+thread 'trial_real_missing_usage_and_over_budget_are_not_zero_or_qualified' (193882536) panicked at tests/dream_pipeline.rs:1726:38:
+assertion `left == right` failed
+  left: Some(1)
+ right: None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+synthetic D1 failure custody: /var/folders/zd/mv_mr2d92p5_1r8yghzbs5vw0000gn/T/.tmp7bHd4A
+test trial_real_missing_usage_and_over_budget_are_not_zero_or_qualified ... FAILED
+test trial_real_turn_deadline_closes_owned_continuation_and_preserves_upstream ... ok
+test trial_real_enforced_twenty_arms_fork_usage_verifier_and_pair_projection ... ok
+test trial_real_busy_nonblocking_independent_entry_and_abandoned_result_closes ... ok
+
+failures:
+
+failures:
+    trial_real_missing_usage_and_over_budget_are_not_zero_or_qualified
+
+test result: FAILED. 9 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 30.52s
+
+error: test failed, to rerun pass `--test dream_pipeline`

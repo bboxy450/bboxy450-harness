@@ -221,15 +221,40 @@ async fn old_turn_approval_cannot_resolve_the_current_turn() {
 
 #[test]
 fn trial_policy_allows_only_supported_builtins_without_altering_yolo() {
-    use bboxy450_harness::policy::{Policy,Action,EffectClass,Decision};
+    use bboxy450_harness::policy::{Action, Decision, EffectClass, Policy};
     use bboxy450_harness::provider::profile::Unattended;
-    let trial=Policy::dream_trial();
-    for (tool,effect) in [("read",EffectClass::ReadOnly),("write",EffectClass::Write)] {
-        assert!(matches!(trial.decide(&Action{tool:tool.into(),effect,generation:1}),Decision::Allow{..}));
+    let trial = Policy::dream_trial();
+    for (tool, effect) in [
+        ("read", EffectClass::ReadOnly),
+        ("write", EffectClass::Write),
+    ] {
+        assert!(matches!(
+            trial.decide(&Action {
+                tool: tool.into(),
+                effect,
+                generation: 1
+            }),
+            Decision::Allow { .. }
+        ));
     }
-    for tool in ["exec","bash","mcp_fake","git push","gh","cargo publish","install"] {
-        let action=Action{tool:tool.into(),effect:EffectClass::Exec,generation:1};
-        assert!(matches!(trial.decide(&action),Decision::Deny{..}));
-        assert!(matches!(Policy::allow_all(Unattended::Deny).decide(&action),Decision::Allow{..}));
+    for tool in [
+        "exec",
+        "bash",
+        "mcp_fake",
+        "git push",
+        "gh",
+        "cargo publish",
+        "install",
+    ] {
+        let action = Action {
+            tool: tool.into(),
+            effect: EffectClass::Exec,
+            generation: 1,
+        };
+        assert!(matches!(trial.decide(&action), Decision::Deny { .. }));
+        assert!(matches!(
+            Policy::allow_all(Unattended::Deny).decide(&action),
+            Decision::Allow { .. }
+        ));
     }
 }

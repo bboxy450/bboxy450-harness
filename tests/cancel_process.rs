@@ -444,16 +444,46 @@ async fn expired_public_admission_preserves_cancel_priority_and_never_runs() {
 
 #[tokio::test]
 async fn observed_capture_drop_preserves_upstream_and_joins_exact_child_before_cleanup() {
-    use bboxy450_harness::process::{observe_capture,Request,SettlementStatus};
+    use bboxy450_harness::process::{Request, SettlementStatus, observe_capture};
     use tokio_util::sync::CancellationToken;
-    let temp=tempfile::tempdir().unwrap();let upstream=CancellationToken::new();
-    let req=Request {program:"/usr/bin/env".into(),args:vec!["-i".into(),"PATH=/usr/bin:/bin".into(),"/bin/sh".into(),"-c".into(),"echo $$ > leader; sleep 600".into()],stdin:None,cwd:temp.path().into(),timeout:Duration::from_secs(20),spill_dir:temp.path().join("spill"),cap:4096,redactor:Default::default()};
-    let mut operation=observe_capture(req,upstream.clone());let settlement=operation.settlement();
-    let mut result=Box::pin(operation.result());assert!(futures_util::poll!(result.as_mut()).is_pending());
-    let pid=fixture_pid(&temp.path().join("leader")).await;
-    drop(result);drop(operation);
+    let temp = tempfile::tempdir().unwrap();
+    let upstream = CancellationToken::new();
+    let req = Request {
+        program: "/usr/bin/env".into(),
+        args: vec![
+            "-i".into(),
+            "PATH=/usr/bin:/bin".into(),
+            "/bin/sh".into(),
+            "-c".into(),
+            "echo $$ > leader; sleep 600".into(),
+        ],
+        stdin: None,
+        cwd: temp.path().into(),
+        timeout: Duration::from_secs(20),
+        spill_dir: temp.path().join("spill"),
+        cap: 4096,
+        redactor: Default::default(),
+    };
+    let mut operation = observe_capture(req, upstream.clone());
+    let settlement = operation.settlement();
+    let mut result = Box::pin(operation.result());
+    assert!(futures_util::poll!(result.as_mut()).is_pending());
+    let pid = fixture_pid(&temp.path().join("leader")).await;
+    drop(result);
+    drop(operation);
     assert!(!upstream.is_cancelled());
-    assert_eq!(tokio::time::timeout(Duration::from_secs(5),settlement.wait()).await.unwrap(),SettlementStatus::Confirmed);
-    assert!(group_dead(pid).await);let error=unsafe {libc::waitpid(pid,std::ptr::null_mut(),libc::WNOHANG)};assert_eq!(error,-1);assert_eq!(std::io::Error::last_os_error().raw_os_error(),Some(libc::ECHILD));
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(5), settlement.wait())
+            .await
+            .unwrap(),
+        SettlementStatus::Confirmed
+    );
+    assert!(group_dead(pid).await);
+    let error = unsafe { libc::waitpid(pid, std::ptr::null_mut(), libc::WNOHANG) };
+    assert_eq!(error, -1);
+    assert_eq!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::ECHILD)
+    );
     assert!(!temp.path().join("spill").exists());
 }

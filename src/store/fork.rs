@@ -108,30 +108,68 @@ fn copy_prefix(writer: &mut impl Write, lines: &[&[u8]]) -> io::Result<()> {
     Ok(())
 }
 // Opaque trial launch is the only caller of this internal frontier mode.
-#[derive(Clone,Copy)]
-pub(super) enum Frontier {Quiescent,TrialQueued}
-fn validate_frontier(prefix:&[Envelope],mode:Frontier)->io::Result<bool> {
-    if matches!(mode,Frontier::Quiescent) {
-        crate::protocol::laws::check_transcript(prefix).map_err(|_|invalid())?;return Ok(false);
+#[derive(Clone)]
+pub(super) enum Frontier {
+    Quiescent,
+    TrialQueued,
+    #[cfg(test)]
+    TrialQueuedTest(std::sync::Arc<super::TrialOpenBoundary>),
+}
+fn validate_frontier(prefix: &[Envelope], mode: Frontier) -> io::Result<bool> {
+    if matches!(mode, Frontier::Quiescent) {
+        crate::protocol::laws::check_transcript(prefix).map_err(|_| invalid())?;
+        return Ok(false);
     }
     use std::collections::BTreeSet;
-    let mut pending=BTreeSet::new();let mut started=BTreeSet::new();
-    for e in prefix {match &e.event {
-        Event::TurnQueued{turn}=>{pending.insert(*turn);},
-        Event::TurnStarted{turn,..}=>{started.insert(*turn);},
-        Event::TurnEnded{turn,..}=>{pending.remove(turn);},
-        _=>{}
-    }}
-    if pending.iter().any(|t|started.contains(t)) {return Err(invalid());}
-    let mut view=prefix.to_vec();
+    let mut pending = BTreeSet::new();
+    let mut started = BTreeSet::new();
+    for e in prefix {
+        match &e.event {
+            Event::TurnQueued { turn } => {
+                pending.insert(*turn);
+            }
+            Event::TurnStarted { turn, .. } => {
+                started.insert(*turn);
+            }
+            Event::TurnEnded { turn, .. } => {
+                pending.remove(turn);
+            }
+            _ => {}
+        }
+    }
+    if pending.iter().any(|t| started.contains(t)) {
+        return Err(invalid());
+    }
+    let mut view = prefix.to_vec();
     for turn in &pending {
-        let last=view.last().ok_or_else(invalid)?;
-        let seq=Seq(last.seq.ok_or_else(invalid)?.0.checked_add(1).ok_or_else(invalid)?);
-        view.push(Envelope {raw:None,ext:Default::default(),native:None,v:PROTOCOL,session:last.session,epoch:last.epoch,seq:Some(seq),at:seq,ts_ms:0,cause:None,event:Event::TurnEnded{turn:*turn,reason:StopReason::Interrupted,usage:None}});
+        let last = view.last().ok_or_else(invalid)?;
+        let seq = Seq(last
+            .seq
+            .ok_or_else(invalid)?
+            .0
+            .checked_add(1)
+            .ok_or_else(invalid)?);
+        view.push(Envelope {
+            raw: None,
+            ext: Default::default(),
+            native: None,
+            v: PROTOCOL,
+            session: last.session,
+            epoch: last.epoch,
+            seq: Some(seq),
+            at: seq,
+            ts_ms: 0,
+            cause: None,
+            event: Event::TurnEnded {
+                turn: *turn,
+                reason: StopReason::Interrupted,
+                usage: None,
+            },
+        });
     }
     // This completed view is ONLY validation. No synthetic ending/view bytes
     // enter copy_prefix, source history, event evidence or publication.
-    crate::protocol::laws::check_transcript(&view).map_err(|_|invalid())?;
+    crate::protocol::laws::check_transcript(&view).map_err(|_| invalid())?;
     Ok(!pending.is_empty())
 }
 pub(super) fn materialize(
@@ -140,9 +178,15 @@ pub(super) fn materialize(
     meta: &SessionMeta,
     cause: Option<OpId>,
 ) -> io::Result<()> {
-    materialize_frontier(root,path,meta,cause,Frontier::Quiescent).map(|_|())
+    materialize_frontier(root, path, meta, cause, Frontier::Quiescent).map(|_| ())
 }
-pub(super) fn materialize_frontier(root:&Path,path:&Path,meta:&SessionMeta,cause:Option<OpId>,mode:Frontier)->io::Result<bool> {
+pub(super) fn materialize_frontier(
+    root: &Path,
+    path: &Path,
+    meta: &SessionMeta,
+    cause: Option<OpId>,
+    mode: Frontier,
+) -> io::Result<bool> {
     let (parent, at) = meta.fork.ok_or_else(invalid)?;
     if at.0 < 2 {
         return Err(invalid());
@@ -169,7 +213,7 @@ pub(super) fn materialize_frontier(root:&Path,path:&Path,meta:&SessionMeta,cause
     {
         return Err(invalid());
     }
-    let queued=validate_frontier(&prefix,mode)?;
+    let queued = validate_frontier(&prefix, mode)?;
     let mut blobs = BTreeMap::new();
     for e in &prefix {
         if let Event::ItemCompleted { body, .. } = &e.event {
@@ -233,7 +277,7 @@ pub(super) fn materialize_frontier(root:&Path,path:&Path,meta:&SessionMeta,cause
     if result.is_err() {
         let _ = std::fs::remove_file(temp);
     }
-    result.map(|_|queued)
+    result.map(|_| queued)
 }
 
 #[cfg(test)]

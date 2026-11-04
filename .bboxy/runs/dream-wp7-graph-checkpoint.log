@@ -1,0 +1,17 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized] target(s) in 14.05s
+     Running tests/dream_graph.rs (target/debug/deps/dream_graph-cbac22182543624d)
+
+running 9 tests
+test adoption_cannot_borrow_a_harness_revision_or_unknown_threshold ... ok
+test projection_ignores_clocks_order_duplicates_and_cross_harness_rejection ... ok
+test net_gain_keeps_failed_held_out_observations ... ok
+test numeric_pass_cannot_fill_missing_cost_duplicate_held_out_or_harm_controls ... ok
+test pair_terminal_reasons_survive_and_inconclusive_remains_tested ... ok
+test durable_union_rejects_conflicting_raw_identity_and_keeps_unknown_bytes ... ok
+test cross_root_links_match_whole_authorized_names_and_keep_external_edges ... ok
+test graph_refuses_invalid_weights_and_strength_is_only_a_read_projection ... ok
+test derived_qualification_binds_closed_fork_call_leaves_and_current_fact ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s
+
