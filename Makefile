@@ -4,7 +4,7 @@
 # License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 # Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
-.PHONY: help test test-ir lock-ir test-formal test-formal-native test-formal-parity check-formal-evidence smoke-live bench-budgets test-licenses test-secrets
+.PHONY: help test test-ir lock-ir test-formal test-formal-native test-formal-parity check-formal-evidence check-embedded-build smoke-live bench-budgets test-licenses test-secrets
 TARGET_DIR ?= target
 
 test:
@@ -18,6 +18,7 @@ help:
 	  'make test                       Full unattended unit, integration, formal, GUI and packaging checks' \
 	  'make test-formal                Native Yarn/formal checks and broken controls' \
 	  'make test-formal-parity         Native/Java TLC graph and verdict parity' \
+	  'make check-embedded-build       Strict embedded lint and default/ACP/standalone compile checks' \
 	  'make app / app-unsigned         Release app, Apple identity / ad-hoc signed' \
 	  'make install                    Apple-signed app into ~/Applications' \
 	  'make install-unsigned           Ad-hoc app into target/install-unsigned' \
@@ -27,6 +28,11 @@ help:
 	  'make test-app-startup-control   Reject the missing title-bar image, then restore' \
 	  'make release-dry / release      Signed archive / publish verified main' \
 	  'Overrides: TARGET_DIR=... INSTALL_DIR=... UNSIGNED_INSTALL_DIR=...'
+
+check-embedded-build:
+	cargo clippy --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --no-default-features --features embedded --lib -- -D warnings
+	cargo check --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --lib
+	cargo check --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --features acp,standalone --lib --bin bboxy450-harness
 
 test-formal-native:
 	FORMAL_OUT='$(abspath $(TARGET_DIR))/formal/models' cargo test --offline --locked --test formal_models --test formal_nonvacuity --test reactor_projection
