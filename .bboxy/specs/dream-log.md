@@ -27,21 +27,21 @@ links:
 - to: '[[budgets]]'
   rel: constrained-by
 id: 01M6J5WGRKN1SDGC6R0F79N5N7
-updated: 2026-11-04T03:09:12.729Z
+updated: 2026-11-04T06:11:46.289Z
 number: 5967
 created_by: seat:01M6J58299FFZEQTMJJMY880A1
-updated_by: seat:01M6J5ZDFRK47SHWQW7FM4PSR4
+updated_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
 authorship:
-  signer: seat:01M6J5ZDFRK47SHWQW7FM4PSR4
+  signer: seat:01M6J5YFATHYCK148JT0C4XGZ1
   kind: seat
-  public_key: 6HRMC38XoZOA5TUGuPnerzKIZabBnbbBZSCqIQt225c=
+  public_key: Oc7KBLmX2fSuTNz6+a4eyDWCf4djX4fk13BizgaL+gc=
   process_generation: '1'
 provenance:
-  digest: sha256:cb756e4e38aa9306645da0d081e3ea290e2578506a382acdcc2a64138ad63218
-  frontmatter_digest: sha256:18d60537b67f957df3380c322e4df483d77d489c764598b87615927674db4fae
-  signer: seat:01M6J5ZDFRK47SHWQW7FM4PSR4
-  sig: nC/X2ba8F1N/7w7kLIwmEuonQ4URrut9IRwDepCkiUAvfWj4G+dQu8m9TIt5cPiW2kMb1hQPevBd8aFPvo/aCA==
-  log: .bboxy/log/2026-11-04.jsonl#42007
+  digest: sha256:79dfaf08fddeb7311503906b97a8360b95a250df0a3dcd82870feb44e67b23ee
+  frontmatter_digest: sha256:8346e16748a73247291ed2761cb22c14e73a1d483b2d4a4d72c163fc2f3acc62
+  signer: seat:01M6J5YFATHYCK148JT0C4XGZ1
+  sig: Jw+LoyzdTXoSfeBW2YEJEm3rjq0m2f1ysC7YkzmPFjux9mRYguFOIgrhLUfKemW5bP45lvGqfynjqmC/TY9pDQ==
+  log: .bboxy/log/2026-11-04.jsonl#43583
 ---
 # The dream log
 
@@ -146,7 +146,7 @@ Item::Recall { entry: String, sink: Option<SinkRef>, basis: RecallBasis, record:
 
 | Sub | Does |
 |---|---|
-| `replay [--rebuild] PATH…` | D0 over closed sessions or native files. It updates the cache and writes no session |
+| `replay [--rebuild] PATH…` | D0 over closed IR sessions (read-only) or native files. Native input first creates/reuses deterministic retained ordinary imported IR in the selected sessions root; see [[d20261103136344-dream-native-retained-ir-custody]]. It updates the derived cache and creates no dream/model session |
 | `synthesize [--cluster FP] [--profile P] [--trigger …]` | D1. It writes a dream session with `MemoryWrite{Pending}` items |
 | `trial ENTRY [--harness H]` | Trial runs (§4.3). It writes `Trial` and `MemoryState` |
 | `flush` | Inside a bboxy seat only (`BBOXY_SOCK` and `BBOXY_CAPABILITY_FILE` present): writes pending drafts through MCP `knowledge_write`, then `knowledge_commit`; only after confirmed outcomes records `MemoryWrite{Created|Revised}` with the returned id, exact digest and committed RecordPin. Unknown write/commit outcomes are queried by their original operation ID, never blindly repeated; uncommitted drafts stay Pending. Outside a seat it is a no-op that exits 0 with a notice |
@@ -160,7 +160,7 @@ Item::Recall { entry: String, sink: Option<SinkRef>, basis: RecallBasis, record:
 
 ### 4.1 D0 replay (deterministic, no model)
 
-- **Trigger:** `ir_scan::session_closed` gains a sibling `dream::d0::session_closed` with the same detached pattern (`src/ir_scan.rs:594-666`). Also `dream replay` over native files (Claude, Codex) via `import`.
+- **Trigger:** `ir_scan::session_closed` gains a sibling `dream::d0::session_closed` with the same detached pattern (`src/ir_scan.rs:594-666`). Also `dream replay` over native files (Claude, Codex) via the shared import machinery's opt-in deterministic custody mode, baselined in [[d20261103136344-dream-native-retained-ir-custody]]. Event pins resolve only after complete publication to `<sessions>/<session>.jsonl` and its normal referenced blobs. Repeated replay/rebuild reuses custody; existing IR is never rewritten.
 - **Episode:** one task, or one turn when no task joins.
   - **Task join, from the IR alone:** a session belongs to task T if it contains a `ToolCall` whose name ends in `task_report`, `task_accept` or `task_reject`, and whose input JSON contains T's `id`, `#number` or path.
   - Verdict:
@@ -437,3 +437,7 @@ Change-log line: 2026-11-03, Lumen Foxglove <ARCHITECT>, task #5984: §4c refere
 
 - 2026-11-03, Vesper Greywind <ARCHITECT>: rewritten to implementation-ready from code evidence (§1). Memory content moved to KB records (d5974, [[memory-graph]]). Added thresholds@1, the deny scan, audit P1-P9, three models, the tests, and WP1-9.
 - 2026-11-03, Vesper Greywind <ARCHITECT>: first draft.
+
+### Native replay custody correction, 2026-11-04
+
+[[d20261103136344-dream-native-retained-ir-custody]] governs the native input → retained IR boundary. It explicitly narrows the former no-session-write statement to existing-IR replay, requires deterministic ordinary native import custody in the selected existing sessions root, and specifies identity, redaction, publication, crash/race behavior and resolving Event pins. Original specs were incomplete at this boundary; no transient Projector value is resolving evidence. No score, spend, timeout or scheduling threshold changes. WP3's signed task amendment supplies the exact additional importer/store seam and verification paths. This does not repair the blocked log-ir-v1 mirror or waive canonical acceptance.
