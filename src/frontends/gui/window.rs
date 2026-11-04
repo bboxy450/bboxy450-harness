@@ -1109,7 +1109,12 @@ mod onboarding_startup_tests {
             tokio::time::timeout(Duration::from_secs(10),async {
                 loop {
                     bridge.drain(Duration::from_millis(2));
-                    if bridge.state.ready && bridge.state.gateway.is_some() && !bridge.state.onboarding.entries.is_empty() && bridge.state.prepared.is_some() {break}
+                    if bridge.state.ready && bridge.state.gateway.is_some() && !bridge.state.onboarding.entries.is_empty() && bridge.state.prepared.is_some() {
+                        // Connection readiness precedes metadata/profile replay. Wait
+                        // for the settled welcome, allowing the loader in between.
+                        let frame = view.render(&bridge.state, [800.,1000.]).unwrap();
+                        if super::super::view::find(frame.layout.as_ref().unwrap(), "setup").is_some() { break }
+                    }
                     tokio::time::sleep(Duration::from_millis(5)).await;
                 }
             }).await.unwrap();

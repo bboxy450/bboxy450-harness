@@ -75,6 +75,18 @@ run('license-headers', ['make', 'test-licenses'])
 if reused:
     models, pins = prior['models'], prior['pins']
     assert len(models) == 2 and all(m['graph_equal'] for m in models)
+    sys.dont_write_bytecode = True
+    spec = importlib.util.spec_from_file_location('formal', ROOT / 'scripts/formal.py')
+    formal = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(formal)
+    retained_graphs = []
+    for line in (OUT / 'formal/manifest.tsv').read_text().splitlines():
+        name, expected, count, width = line.split('\t')
+        actual = formal.dot_graph(OUT / 'formal' / (name + '.dot'), int(width))
+        assert actual == formal.native_graph(OUT / 'formal', name) and len(actual[0]) == int(count)
+        assert any(m['name'] == name and m['expected'] == expected and m['states'] == len(actual[0]) and m['transitions'] == len(actual[1]) for m in models)
+        retained_graphs.extend(OUT.joinpath('formal').glob(name + '.*'))
+    reused['graph_artifacts'] = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(retained_graphs) if p.is_file()}
 else:
     sys.dont_write_bytecode = True
     spec = importlib.util.spec_from_file_location('formal', ROOT / 'scripts/formal.py')
