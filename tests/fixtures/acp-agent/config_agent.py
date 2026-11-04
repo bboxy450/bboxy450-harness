@@ -17,6 +17,7 @@ def send(message):
 
 def options():
     efforts = ['low', 'high'] if model == 'alpha' else ['balanced', 'deep']
+    if scenario == 'empty-choice': efforts.append('')
     return [dict(id='vendor-model', name='Model', category='model', type='select', currentValue=model,
                  options=[dict(group='discovered', name='Discovered', options=[dict(value=m, name=m.title()) for m in ['alpha','beta','gamma']])]),
             dict(id='compute', name='Reasoning effort', category='thought_level', type='select', currentValue=effort,

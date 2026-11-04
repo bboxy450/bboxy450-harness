@@ -1,6 +1,6 @@
 ---
 id: 01M6F4R15RY136PXM68TSXV7Y9
-number: 5974
+number: 93377961361017
 type: decision
 title: The bboxy log IR is locked at v1 and only grows by addition; 0.4 logs are v1 logs
 status: accepted

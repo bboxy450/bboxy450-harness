@@ -693,8 +693,49 @@ impl HarnessView {
             .filter(|p| Some(p.session) == model.session && p.epoch == model.epoch)
         {
             let solved = prepared.and_then(|p| p.pending.get(&prompt.op));
-            let height = solved.map_or(36., |l| l.rect.h);
-            let element = named(format!("pending/{}", prompt.op), c::Element::Spacer);
+            let (element, height) = if let Some(solved) = solved {
+                (
+                    named(format!("pending/{}", prompt.op), c::Element::Spacer),
+                    solved.rect.h,
+                )
+            } else {
+                // Adapted from this project's pre-Markdown pending-row path:
+                // https://github.com/bboxy450/bboxy450-harness/blob/a1ad9fbd/src/frontends/gui/view.rs
+                // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+                // A bounded plain preview remains visible before worker formatting.
+                // Keep the complete prompt unchanged; never parse Markdown here.
+                let mut chars = prompt.text.chars();
+                let mut preview = chars.by_ref().take(160).collect::<String>();
+                if chars.next().is_some() {
+                    preview.push('…');
+                }
+                let content =
+                    c::Element::Text(super::face::text(preview, 13.5, 400, ink.fg, false));
+                let bubble = super::face::prompt_bubble(
+                    content,
+                    &format!("YOU · {}", prompt.status),
+                    true,
+                    ink,
+                );
+                let gutter = (((width - 860.) / 2.).max(0.) + 14. - 4.)
+                    .max(self.context().density.tokens().gap as f32);
+                let mut element = named(
+                    format!("pending/{}", prompt.op),
+                    super::face::frame(
+                        super::face::Frame {
+                            padding: [4., gutter + 4., 18., gutter + 4.],
+                            ..Default::default()
+                        },
+                        vec![bubble.into()],
+                    ),
+                );
+                super::face::zoom_text(&mut element, self.zoom.scale());
+                let height = element
+                    .layout(Rect::new(0., 0., width, 0.), self.context(), &self.metrics)?
+                    .rect
+                    .h;
+                (element, height)
+            };
             total += height;
             // Every sibling must declare its height. An Auto pending row makes
             // the toolkit fall back to natural measurement, where the cached
@@ -1583,7 +1624,7 @@ impl HarnessView {
                                             instance: c.instance,
                                             revision: c.revision,
                                             config_id: option.id.clone(),
-                                            value: choice.value.clone(),
+                                            value: Some(choice.value.clone()),
                                         },
                                     }),
                                 ));

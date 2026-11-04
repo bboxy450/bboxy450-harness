@@ -17,7 +17,7 @@ use bboxy450_harness::{
         bridge::{Bridge, FrameState, ProfileInfo},
         face,
         model::{Transcript, ViewItem},
-        view::{Action, Frame, HarnessView, MenuKey, context},
+        view::{Action, Frame, HarnessView, MenuKey, Preparer, context},
     },
     protocol::*,
 };
@@ -29,9 +29,9 @@ impl bbt_rt::Waker for Wake {
     fn wake(&self) {}
 }
 const SIZE: [f32; 2] = [900., 700.];
-/// One finished reply, unprepared: the session is not empty (no empty-session
-/// halo loop keeps the clock awake), and nothing but the menus moves.
-fn state() -> FrameState {
+/// A prepared, non-interactive row keeps loading/empty-state motion and message
+/// source hover zones out of these menu-only clock and hit-map witnesses.
+async fn state() -> FrameState {
     let profile = |name: &str, text: &str| ProfileInfo::parse(name, text);
     let id = ItemId::new();
     let mut transcript = Transcript {
@@ -47,9 +47,10 @@ fn state() -> FrameState {
             parent: None,
             started: Seq(1),
             completed: Some(Seq(2)),
-            kind: ItemKind::AgentMessage,
-            body: Item::AgentMessage {
-                markdown: "A reply.".into(),
+            kind: ItemKind::Notice,
+            body: Item::Notice {
+                level: Level::Info,
+                text: "A settled row.".into(),
             },
             status: Some(ItemStatus::Completed),
             terminal_tail: String::new(),
@@ -57,8 +58,15 @@ fn state() -> FrameState {
             completed_ms: Some(1),
         },
     );
+    let transcript = Arc::new(transcript);
+    let source = transcript.clone();
+    let prepared = bboxy450_harness::runtime::blocking(move || {
+        Preparer::default().prepare(source, SIZE[0]).unwrap()
+    })
+    .await;
     FrameState {
-        transcript: Arc::new(transcript),
+        transcript,
+        prepared: Some(Arc::new(prepared)),
         ready: true,
         profiles: Arc::new(vec![
             profile(
@@ -165,9 +173,9 @@ fn transformed(end: Rect, centre: [f32; 2], s: f32, dy: f32) -> Rect {
     )
 }
 
-#[test]
-fn slash_menu_opens_with_a_drop_scale_and_fade_then_sits_idle() {
-    let state = state();
+#[tokio::test]
+async fn slash_menu_opens_with_a_drop_scale_and_fade_then_sits_idle() {
+    let state = state().await;
     let mut view = live();
     at(&mut view, &state, 0.);
     assert_eq!(view.anim.next_frame(), None, "no menu: nothing to animate");
@@ -222,9 +230,9 @@ fn slash_menu_opens_with_a_drop_scale_and_fade_then_sits_idle() {
     );
 }
 
-#[test]
-fn slash_selection_slides_between_rows_and_the_tile_tint_crossfades() {
-    let state = state();
+#[tokio::test]
+async fn slash_selection_slides_between_rows_and_the_tile_tint_crossfades() {
+    let state = state().await;
     let ink = face::ink(context());
     let sel_fill = face::alpha(ink.seat, 0.14);
     let tile_on = face::alpha(ink.seat, 0.16);
@@ -307,9 +315,9 @@ fn slash_selection_slides_between_rows_and_the_tile_tint_crossfades() {
     assert!(same_rect(filled(&prims, sel_fill).expect("highlight"), r1));
 }
 
-#[test]
-fn hover_fills_fade_in_and_out_over_150ms_from_the_pointer() {
-    let state = state();
+#[tokio::test]
+async fn hover_fills_fade_in_and_out_over_150ms_from_the_pointer() {
+    let state = state().await;
     let ink = face::ink(context());
     let mut view = live();
     at(&mut view, &state, 0.);
@@ -357,9 +365,9 @@ fn hover_fills_fade_in_and_out_over_150ms_from_the_pointer() {
     assert_eq!(view.anim.next_frame(), None);
 }
 
-#[test]
-fn a_closed_menu_fades_out_over_120ms_then_the_clock_is_idle() {
-    let state = state();
+#[tokio::test]
+async fn a_closed_menu_fades_out_over_120ms_then_the_clock_is_idle() {
+    let state = state().await;
     let bridge = Bridge::new(Arc::new(Wake));
     let mut view = live();
     at(&mut view, &state, 0.);
@@ -401,9 +409,9 @@ fn a_closed_menu_fades_out_over_120ms_then_the_clock_is_idle() {
     assert_eq!(view.anim.frames_requested, requested);
 }
 
-#[test]
-fn profile_switcher_drops_in_slides_its_selection_and_fades_out() {
-    let state = state();
+#[tokio::test]
+async fn profile_switcher_drops_in_slides_its_selection_and_fades_out() {
+    let state = state().await;
     let bridge = Bridge::new(Arc::new(Wake));
     let ink = face::ink(context());
     let sel_fill = face::alpha(ink.seat, 0.12);
@@ -487,9 +495,9 @@ fn profile_switcher_drops_in_slides_its_selection_and_fades_out() {
     assert_eq!(view.anim.next_frame(), None);
 }
 
-#[test]
-fn settled_and_reduced_motion_clocks_paint_end_states_without_frames() {
-    let state = state();
+#[tokio::test]
+async fn settled_and_reduced_motion_clocks_paint_end_states_without_frames() {
+    let state = state().await;
     for mut view in [HarnessView::default(), {
         let mut v = HarnessView::default();
         v.anim = Clock::live(true);
@@ -524,9 +532,9 @@ fn settled_and_reduced_motion_clocks_paint_end_states_without_frames() {
 
 /// While a menu tweens the clock is in motion, so every frame rebuilds (the
 /// view's rule for any motion); this prints what a menu frame costs.
-#[test]
-fn a_menu_animation_frame_is_built_every_frame_while_it_moves() {
-    let state = state();
+#[tokio::test]
+async fn a_menu_animation_frame_is_built_every_frame_while_it_moves() {
+    let state = state().await;
     let mut view = live();
     at(&mut view, &state, 0.);
     view.edit(bbt_ui::text_edit::Command::Insert("/".into()));

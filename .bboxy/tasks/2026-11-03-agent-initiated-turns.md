@@ -1,6 +1,6 @@
 ---
 id: 01M6GT6P7B8WQP6AKSD3X90QJZ
-number: 5981
+number: 93377961361021
 type: task
 title: 'ACP backend: an update or permission request with no turn running opens an agent-initiated turn (origin agent), resolved by policy, ended by quiet; IR 1.2 origin + Quiet'
 status: open

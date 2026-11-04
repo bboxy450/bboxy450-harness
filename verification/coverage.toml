@@ -8,6 +8,8 @@
 name = "bboxy450-harness"
 status = "contract-model"
 models = [
+    "HarnessAttachmentCapability",
+    "HarnessAttachmentIntake",
     "HarnessOnboardingInstall",
     "HarnessAcpControls",
     "HarnessGuiPendingPrompt",
@@ -54,6 +56,9 @@ models = [
 ]
 scope = "Finite two-turn/two-tool lifecycle; birth fencing A-B-A, unattended approval, FIFO control, bounded replay/lag/reset and Yarn arbitration. HTTP/TCP bytes, filesystem/process effects, wall-clock deadlines, secrecy and terminal bytes are witnessed by implementation tests; no arbitrary Rust refinement claim."
 sources = [
+    "src/frontends/gui/input.rs",
+    "src/frontends/gui/attachments.rs",
+    "src/store/intake.rs",
     "src/onboarding.rs",
     "src/frontends/gui/setup.rs",
     "src/capability.rs",

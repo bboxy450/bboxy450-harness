@@ -1988,8 +1988,10 @@ fn gui_polish_loader_is_centered_and_pending_bubbles_are_scoped() {
         view.chrome = chrome;
         for size in [[280., 430.], [1120., 800.], [470., 680.]] {
             for preparing in [false, true] {
-                let mut state = FrameState::default();
-                state.ready = preparing;
+                let mut state = FrameState {
+                    ready: preparing,
+                    ..FrameState::default()
+                };
                 if preparing {
                     let item = ItemId::new();
                     let mut t = Transcript::default();
@@ -2076,6 +2078,34 @@ fn gui_polish_loader_is_centered_and_pending_bubbles_are_scoped() {
                 .unwrap()
         )
         .contains("identical text")
+    );
+    let long = format!("{}UNRENDERED-TAIL", "λ".repeat(10_000));
+    let op = OpId::new();
+    state.pending_prompts = Arc::new(
+        [(
+            op,
+            PendingPrompt::new(
+                op,
+                state.transcript.session.unwrap(),
+                Epoch(7),
+                long.clone(),
+            ),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    let layout = view
+        .render(&state, [470., 680.])
+        .unwrap()
+        .layout
+        .as_ref()
+        .unwrap();
+    let preview = layout_text(find(layout, &format!("pending/{op}")).unwrap());
+    assert_eq!(preview.matches('λ').count(), 160, "frame work is bounded");
+    assert!(!preview.contains("UNRENDERED-TAIL"));
+    assert_eq!(
+        state.pending_prompts[&op].text, long,
+        "worker source stays complete"
     );
 }
 

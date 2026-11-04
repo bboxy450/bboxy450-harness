@@ -51,8 +51,19 @@ fn message(id: ItemId, markdown: &str, completed: bool) -> ViewItem {
     }
 }
 fn transcript(rows: &[ViewItem]) -> Transcript {
+    let session = SessionId::new();
     let mut t = Transcript {
-        session: Some(SessionId::new()),
+        session: Some(session),
+        meta: Some(SessionMeta {
+            session,
+            cwd: "/fixture/project".into(),
+            profile: Some("nemotron".into()),
+            fork: None,
+            protocol: PROTOCOL,
+            harness: env!("CARGO_PKG_VERSION").into(),
+            created_ms: 0,
+            source: None,
+        }),
         profile: Some(("nemotron".into(), "nemotron-3-nano".into())),
         ..Default::default()
     };
@@ -242,14 +253,18 @@ fn empty_session_rises_in_and_the_halo_breathes() {
     assert!(near(a, 0.45 * 0.5, 0.005) && near(r, 31.5, 0.05));
     assert_eq!(settled.anim.next_frame(), None);
     assert_eq!(settled.anim.frames_requested, 0);
-    // the chips act
-    let chips = settled
-        .frame
-        .actions
-        .iter()
-        .filter(|(_, a)| matches!(a, bboxy450_harness::frontends::gui::view::Action::Chip(_)))
-        .count();
-    assert_eq!(chips, 3);
+    // Each welcome chip acts exactly once. The composer's file picker also uses
+    // Chip(1), so a whole-frame action count does not identify these hit targets.
+    for which in 0..3 {
+        let rect = find(&ls, &format!("empty/chip/{which}")).unwrap().rect;
+        let hits = settled.frame.actions.iter().filter(|(hit, action)| {
+            *hit == rect && matches!(action, bboxy450_harness::frontends::gui::view::Action::Chip(i) if *i == which)
+        }).count();
+        assert_eq!(
+            hits, 1,
+            "welcome chip {which} has exactly one matching action"
+        );
+    }
 }
 
 /// Block enters: a row new to the session sits 6 px low and transparent, then rises and

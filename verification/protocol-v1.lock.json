@@ -294,6 +294,16 @@
       "type": "string|null"
      }
     },
+    "input_capabilities": {
+     "image_custody_version": {
+      "required": false,
+      "type": "uint32"
+     },
+     "request": {
+      "required": false,
+      "type": "OpId"
+     }
+    },
     "item_completed": {
      "body": {
       "required": true,
@@ -906,6 +916,12 @@
       "type": "TurnId|null"
      }
     },
+    "query_input_capabilities": {
+     "request": {
+      "required": false,
+      "type": "OpId"
+     }
+    },
     "resolve_approval": {
      "approval": {
       "required": true,
@@ -914,6 +930,28 @@
      "decision": {
       "required": true,
       "type": "ApprovalDecision"
+     }
+    },
+    "set_agent_config": {
+     "config_id": {
+      "required": false,
+      "type": "string"
+     },
+     "epoch": {
+      "required": false,
+      "type": "uint32"
+     },
+     "instance": {
+      "required": false,
+      "type": "OpId"
+     },
+     "revision": {
+      "required": false,
+      "type": "uint64"
+     },
+     "value": {
+      "required": false,
+      "type": "string|null"
      }
     },
     "set_profile": {

@@ -643,15 +643,17 @@ impl AcpAgentActor {
         instance: OpId,
         revision: u64,
         id: String,
-        value: String,
+        value: Option<String>,
     ) -> std::io::Result<()> {
-        let valid = epoch == self.gateway.hello().epoch
-            && self.agent.as_ref().is_some_and(|a| {
-                a.session.is_some() && a.controls.admits(instance, revision, &id, &value)
-            });
-        if !valid {
+        let value = value.filter(|value| {
+            epoch == self.gateway.hello().epoch
+                && self.agent.as_ref().is_some_and(|a| {
+                    a.session.is_some() && a.controls.admits(instance, revision, &id, value)
+                })
+        });
+        let Some(value) = value else {
             return self.reject(op, Rejection::InvalidInput { detail: "Agent configuration unavailable, pending or stale; refresh the controls".into() }).await;
-        }
+        };
         let agent = self.agent.as_mut().unwrap();
         let legacy = agent
             .controls

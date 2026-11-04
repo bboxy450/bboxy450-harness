@@ -69,6 +69,10 @@ pub struct OpEnvelope {
 pub enum Op {
     /// Harmless actor-level negotiation, never a model prompt or a permission grant.
     QueryInputCapabilities {
+        #[serde(
+            default = "missing_identity",
+            skip_serializing_if = "is_missing_identity"
+        )]
         request: OpId,
     },
     StartSession {
@@ -92,16 +96,34 @@ pub enum Op {
     },
     /// A selection from a specific negotiated child and complete option revision.
     SetAgentConfig {
+        #[serde(default, skip_serializing_if = "is_missing_value")]
         epoch: Epoch,
+        #[serde(
+            default = "missing_identity",
+            skip_serializing_if = "is_missing_identity"
+        )]
         instance: OpId,
+        #[serde(default, skip_serializing_if = "is_missing_value")]
         revision: u64,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
         config_id: String,
-        value: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
     },
     Compact,
     Close,
     #[serde(untagged)]
     Unknown(Value),
+}
+// Missing identity is a stable invalid sentinel, never a fresh child identity.
+fn missing_identity() -> OpId {
+    OpId(Ulid::nil())
+}
+fn is_missing_identity(value: &OpId) -> bool {
+    value.0 == Ulid::nil()
+}
+fn is_missing_value<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -182,7 +204,12 @@ pub struct Envelope {
 pub enum Event {
     /// Ephemeral response bound to the live subscriber's fresh challenge.
     InputCapabilities {
+        #[serde(
+            default = "missing_identity",
+            skip_serializing_if = "is_missing_identity"
+        )]
         request: OpId,
+        #[serde(default, skip_serializing_if = "is_missing_value")]
         image_custody_version: u32,
     },
     SessionStarted {

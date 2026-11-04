@@ -1,6 +1,6 @@
 ---
 id: 01M6F45VPBP7AGX33087HZ3FKX
-number: 5972
+number: 93377961361018
 type: decision
 title: Our log format is the center — every backend writes it, every face renders it, native logs import into it, ACP is the wire between processes
 status: accepted

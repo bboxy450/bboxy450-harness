@@ -134,7 +134,7 @@ impl Fixture {
                 instance: c.instance,
                 revision: c.revision,
                 config_id: id.into(),
-                value: value.into(),
+                value: Some(value.into()),
             },
         )
     }
@@ -383,6 +383,7 @@ fn acp_controls_default_home_path_is_selected_in_private_child() {
         let mut command = std::process::Command::new(std::env::current_exe().unwrap());
         command
             .args(["--exact", "acp_controls_home_child_entry", "--nocapture"])
+            .env("PATH", "") // Discovery must not seed operator-installed adapters.
             .env("ACP_CONTROLS_HOME_CHILD", mode);
         match mode {
             "absent" => {
@@ -479,8 +480,8 @@ async fn acp_controls_native_popover_routes_real_selection_and_unavailable_label
     let mut view = HarnessView::default();
     view.toggle_profile_menu();
     view.render(&state, [700., 900.]).unwrap();
-    let action=view.frame.actions.iter().find_map(|(_,a)| match a { Action::AgentConfig(e) if matches!(&e.op,Op::SetAgentConfig { value,.. } if value=="beta") => Some(a.clone()), _=>None }).expect("advertised model button has a real op");
-    let stale_action = view.frame.actions.iter().find_map(|(_,a)| match a { Action::AgentConfig(e) if matches!(&e.op,Op::SetAgentConfig { value,.. } if value=="gamma") => Some(a.clone()), _=>None }).unwrap();
+    let action=view.frame.actions.iter().find_map(|(_,a)| match a { Action::AgentConfig(e) if matches!(&e.op,Op::SetAgentConfig { value,.. } if value.as_deref()==Some("beta")) => Some(a.clone()), _=>None }).expect("advertised model button has a real op");
+    let stale_action = view.frame.actions.iter().find_map(|(_,a)| match a { Action::AgentConfig(e) if matches!(&e.op,Op::SetAgentConfig { value,.. } if value.as_deref()==Some("gamma")) => Some(a.clone()), _=>None }).unwrap();
     let Action::AgentConfig(op) = action.clone() else {
         unreachable!()
     };
@@ -592,6 +593,77 @@ async fn acp_controls_epoch_child_and_session_identity_reject_before_wire() {
     f.close().await;
 }
 
+#[tokio::test]
+async fn acp_controls_missing_fields_reject_before_wire() {
+    let mut f = Fixture::new("standard").await;
+    let c = f.state();
+    assert!(f.gateway.hello().epoch.0 > 0 && c.revision > 0);
+    assert_ne!(c.instance.0, ulid::Ulid::nil());
+    let count = f.calls().len();
+    for missing in [
+        vec!["epoch"],
+        vec!["instance"],
+        vec!["revision"],
+        vec!["config_id"],
+        vec!["value"],
+        vec!["epoch", "instance", "revision", "config_id", "value"],
+    ] {
+        let mut wire = serde_json::to_value(f.select(&c, "compute", "high")).unwrap();
+        for field in &missing {
+            wire["op"].as_object_mut().unwrap().remove(*field).unwrap();
+        }
+        let op: OpEnvelope = serde_json::from_value(wire).unwrap();
+        assert!(matches!(op.op, Op::SetAgentConfig { .. }));
+        let id = op.op_id;
+        f.gateway.send(op).unwrap();
+        loop {
+            if matches!(f.next().await.event, Event::OpRejected { op, .. } if op == id) {
+                break;
+            }
+        }
+        assert_eq!(f.calls().len(), count, "missing {missing:?} reached child");
+        let now = f.state();
+        assert_eq!(
+            (&now.instance, now.revision, &now.options, now.pending),
+            (&c.instance, c.revision, &c.options, c.pending),
+            "missing {missing:?} changed control identity or selections"
+        );
+        assert_eq!(
+            now.status,
+            "Agent configuration unavailable, pending or stale; refresh the controls"
+        );
+    }
+    f.close().await;
+
+    // A provider may advertise an empty string. Absence/null must not select it,
+    // while an explicit empty value must retain its valid wire semantics.
+    let mut f = Fixture::new("empty-choice").await;
+    let c = f.state();
+    let count = f.calls().len();
+    for null in [false, true] {
+        let mut wire = serde_json::to_value(f.select(&c, "compute", "")).unwrap();
+        if null {
+            wire["op"]["value"] = serde_json::Value::Null;
+        } else {
+            wire["op"].as_object_mut().unwrap().remove("value").unwrap();
+        }
+        let op: OpEnvelope = serde_json::from_value(wire).unwrap();
+        let id = op.op_id;
+        f.gateway.send(op).unwrap();
+        loop {
+            if matches!(f.next().await.event, Event::OpRejected { op, .. } if op == id) {
+                break;
+            }
+        }
+        assert_eq!(f.calls().len(), count, "absent/null value selected empty");
+        assert_eq!(current(&f.state(), "thought_level"), "low");
+    }
+    let op = f.select(&c, "compute", "");
+    let confirmed = f.settle(op).await;
+    assert_eq!(current(&confirmed, "thought_level"), "");
+    f.close().await;
+}
+
 #[cfg(feature = "embedded")]
 #[tokio::test]
 async fn acp_controls_native_raster_displays_confirmed_and_unavailable_states() {
@@ -603,8 +675,10 @@ async fn acp_controls_native_raster_displays_confirmed_and_unavailable_states() 
     bboxy450_harness::runtime::blocking(move || {
         let mut view = HarnessView::default();
         view.toggle_profile_menu();
-        let mut transcript = Transcript::default();
-        transcript.agent_config = Some(config);
+        let transcript = Transcript {
+            agent_config: Some(config),
+            ..Transcript::default()
+        };
         let state = FrameState {
             transcript: Arc::new(transcript),
             ready: true,
@@ -649,7 +723,9 @@ async fn acp_controls_native_raster_displays_confirmed_and_unavailable_states() 
                 .extend(frame.over.primitives.iter().cloned());
             let rgba = renderer.render_to_rgba(&list, 700, 900, 1.).unwrap();
             assert!(
-                rgba.chunks_exact(4)
+                rgba.as_chunks::<4>()
+                    .0
+                    .iter()
                     .map(|p| [p[0], p[1], p[2]])
                     .collect::<std::collections::BTreeSet<_>>()
                     .len()

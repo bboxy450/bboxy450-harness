@@ -211,9 +211,14 @@ impl ViewGateway {
                 let op_id = op.op_id;
                 let session = g.session;
                 let epoch = g.epoch;
+                let report = !matches!(op.op, Op::QueryInputCapabilities { .. });
                 bbt_rt::handle().spawn(async move {
                     let result = client.send(op).await;
-                    let _ = outcomes.send((session, epoch, op_id, result));
+                    // Discovery refusal/timeout leaves custody unavailable; it
+                    // is not a failed user intent, including after reconnect.
+                    if report {
+                        let _ = outcomes.send((session, epoch, op_id, result));
+                    }
                     drop(permit);
                 });
                 Ok(Submission::Pending { op_id })
@@ -1820,6 +1825,15 @@ mod gui_polish_tests {
         assert_eq!(expected.len(), 11);
         assert!(expected.iter().any(|p| p.name == "alpha" && p.default));
         assert!(!format!("{expected:?}").contains("never show this fixture value"));
+        // Share this fixture's discovery controller with connect_with_profiles:
+        // operator-installed adapters must not seed extra private test profiles.
+        let _setup = crate::onboarding::Controller::shared(crate::onboarding::Environment {
+            profiles: profiles.clone(),
+            home: temp.path().to_path_buf(),
+            path: Default::default(),
+            os: std::env::consts::OS.into(),
+        });
+        _setup.refresh_now().await;
         let capability = temp.path().join("private-capability");
         let bytes = format!("{}\n", "f".repeat(64));
         tokio::fs::write(&capability, &bytes).await.unwrap();
@@ -2157,6 +2171,24 @@ mod actor_intake_tests {
             "durable replay is not an actor grant"
         );
         e.seq = None;
+        for missing in ["request", "image_custody_version"] {
+            let mut wire = serde_json::to_value(&e.event).unwrap();
+            wire.as_object_mut().unwrap().remove(missing).unwrap();
+            let mut incomplete = e.clone();
+            incomplete.event = serde_json::from_value(wire).unwrap();
+            assert!(matches!(incomplete.event, Event::InputCapabilities { .. }));
+            apply_event(
+                &mut model,
+                &incomplete,
+                &mut Default::default(),
+                &bridge.mailbox,
+            );
+            assert_eq!(
+                bridge.mailbox.actor_intake.load().as_ref().unwrap().version,
+                0,
+                "missing {missing} is not an actor grant"
+            );
+        }
         e.epoch = Epoch(e.epoch.0 + 1);
         apply_event(&mut model, &e, &mut Default::default(), &bridge.mailbox);
         assert_eq!(

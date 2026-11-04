@@ -16,10 +16,13 @@ plist = plistlib.loads((ROOT / 'packaging/macos/Info.plist').read_bytes())
 assert plist['CFBundleName'] == plist['CFBundleDisplayName'] == 'bboxy450-harness'
 assert plist['CFBundleIdentifier'] == 'com.bboxy450.harness'
 assert '.with_title("bboxy450-harness")' in (ROOT / 'src/frontends/gui/window.rs').read_text()
-bundle = subprocess.run(['make', '-s', '-f', 'Makefile', '-f', '-', 'print-bundle'],
-                        input='print-bundle:\n\t@echo "$(BUNDLE)"\n', cwd=ROOT,
-                        capture_output=True, text=True, check=True, timeout=10).stdout.strip()
+def bundle_at(target):
+    return subprocess.run(['make', '-s', '-f', 'Makefile', '-f', '-', 'print-bundle', f'TARGET_DIR={target}'],
+                          input='print-bundle:\n\t@echo "$(BUNDLE)"\n', cwd=ROOT,
+                          capture_output=True, text=True, check=True, timeout=10).stdout.strip()
+bundle = bundle_at('target')
 assert bundle == 'target/bboxy450-harness.app', bundle
+assert bundle_at('custom build') == 'custom build/bboxy450-harness.app'
 with tempfile.TemporaryDirectory(prefix='harness launcher ') as private:
     root = Path(private)
     macos = root / 'bboxy450-harness.app/Contents/MacOS'

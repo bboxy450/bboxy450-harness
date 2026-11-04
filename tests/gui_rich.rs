@@ -2267,7 +2267,9 @@ async fn quiet_code_large_mcp_expansion_raster_preserves_unicode_first_and_last_
                 .expect("real MCP native raster must not allocate an oversized text line");
             assert!(
                 pixels
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .any(|p| p[0] > 160 && p[1] > 160 && p[2] > 160),
                 "native glyph ink absent"
             );

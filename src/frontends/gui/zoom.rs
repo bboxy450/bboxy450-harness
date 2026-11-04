@@ -94,6 +94,19 @@ pub async fn save(root: &Path, zoom: Zoom) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Honor the existing shared settings.json appearance override. Reading remains
+/// off the UI thread alongside zoom; absent/auto preferences follow the window.
+#[cfg(feature = "embedded")]
+pub async fn load_theme(root: &Path) -> Option<bbt_ui::Theme> {
+    let text = tokio::fs::read_to_string(settings_path(root)).await.ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    match value.get("theme").and_then(|v| v.as_str()) {
+        Some("light") => Some(bbt_ui::Theme::Light),
+        Some("dark") => Some(bbt_ui::Theme::Dark),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,18 +154,5 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(load(&root).await.percent(), 160, "a saved value is clamped");
-    }
-}
-
-/// Honor the existing shared settings.json appearance override. Reading remains
-/// off the UI thread alongside zoom; absent/auto preferences follow the window.
-#[cfg(feature = "embedded")]
-pub async fn load_theme(root: &Path) -> Option<bbt_ui::Theme> {
-    let text = tokio::fs::read_to_string(settings_path(root)).await.ok()?;
-    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
-    match value.get("theme").and_then(|v| v.as_str()) {
-        Some("light") => Some(bbt_ui::Theme::Light),
-        Some("dark") => Some(bbt_ui::Theme::Dark),
-        _ => None,
     }
 }

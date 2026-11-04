@@ -423,7 +423,7 @@ models = ["HarnessGuiPendingPrompt", "BrokenHarnessGuiPendingPromptAck", "Broken
 controls = [{name="BrokenHarnessGuiPendingPromptAck",expected="safety"},{name="BrokenHarnessGuiPendingPromptStale",expected="safety"}]
 sources = ["src/frontends/gui/bridge.rs", "src/frontends/gui/view.rs", "tests/formal/models.rs"]
 implementation_tests = ["tests/gui_bridge.rs", "tests/gui_render.rs"]
-assumptions = "Two identical-text intents with distinct immutable op identities; three distinct A-B-A births; state0..4 is unsent/queued/durable/rejected/unknown. Schedule, Ack, disconnect, rejection, correlated durable completion, replay and birth switch are atomic UI projection actions. No delivery/provider fairness: unknown remains unknown without redispatch. Session and replay epoch fence birth; no new process generation field is introduced. The real process owner already fences generation before log append. Text bytes, frame cache/wake timing, socket failure, detach and native layout remain implementation witnesses; no arbitrary Rust refinement or vendor API equivalence claim."
+assumptions = "Two identical-text intents with distinct immutable op identities; three distinct A-B-A births; state0..4 is unsent/queued/durable/rejected/unknown. Schedule, Ack, disconnect, rejection, correlated durable completion, replay and birth switch are atomic UI projection actions. No delivery/provider fairness: unknown remains unknown without redispatch. Session and replay epoch fence birth; no new process generation field is introduced. The real process owner already fences generation before log append. Text bytes, a 160-Unicode-scalar plain pending preview before worker Markdown, full source retention and unchanged history raster through preparation gaps, frame cache/wake timing, socket failure, detach and native layout remain implementation witnesses; no arbitrary Rust refinement or vendor API equivalence claim."
 property = "BlueRequiresCurrentCausalBirth; AckCannotRemovePending; duplicate completions do not create another intent."
 checks = ["make test-formal", "make test"]
 
@@ -432,11 +432,11 @@ name = "HarnessAcpControls"
 title = "ACP advertised configuration belongs to a child incarnation and complete option revision"
 models = ["HarnessAcpControls", "BrokenHarnessAcpControlsStale", "BrokenHarnessAcpControlsReplay"]
 controls = [{name="BrokenHarnessAcpControlsStale",expected="safety"},{name="BrokenHarnessAcpControlsReplay",expected="safety"}]
-sources = ["src/protocol/agent_config.rs", "src/backend/acp_agent.rs", "src/frontends/gui/model.rs", "src/frontends/gui/view.rs"]
-tests = ["tests/acp_controls.rs"]
-assumptions = "Birth0..2 denotes child/session A-B-A, revision0..2 denotes full advertised option identity. One selection, reordered notification/reply, refusal, disconnect/deadline unknown; only the local deadline has weak fairness. No provider fairness, arbitrary Rust refinement, authentication, tool semantics, frame scheduling or vendor model correctness is claimed. Real private ACP child and Unix/native GUI witnesses cover API calls, no prompt/tool effect, reconnect and dynamic effort choices."
+sources = ["src/protocol/mod.rs", "src/protocol/agent_config.rs", "src/backend/acp_agent.rs", "src/frontends/gui/model.rs", "src/frontends/gui/view.rs"]
+implementation_tests = ["tests/acp_controls.rs"]
+assumptions = "Birth0..2 denotes child/session A-B-A, revision0..2 denotes full advertised option identity. One selection, reordered notification/reply, refusal, disconnect/deadline unknown; only the local deadline has weak fairness. Missing wire fields default to zero epoch/revision, nil instance, empty selector and an absent optional value (distinct from an explicitly advertised empty string); decoding is implementation-only, mapped to the existing invalid-identity/option action and witnessed by acp_controls_missing_fields_reject_before_wire with no child call or control-identity/selection change (the projected status reports rejection). No provider fairness, arbitrary Rust refinement, authentication, tool semantics, frame scheduling or vendor model correctness is claimed. Real private ACP child and Unix/native GUI witnesses cover API calls, no prompt/tool effect, reconnect and dynamic effort choices."
 property = "ConfirmedHasCurrentChildAndOptionIdentity; UnknownNeverRedispatches; ConfigHasNoPromptEffect; LocalDeadlineSettlesPending under WF{deadline}."
-checks = ["make verify-acp-controls"]
+checks = ["make test-formal", "make test"]
 
 [[contract]]
 name = "HarnessAttachmentIntake"
@@ -447,18 +447,18 @@ sources = ["src/frontends/gui/input.rs", "src/frontends/gui/attachments.rs", "sr
 implementation_tests = ["tests/harness_attachments.rs"]
 assumptions = "One captured lookup/intake, two draft revisions and three monotonic view births A/B/A. Capture, edit, switch and completion are atomic owner actions. Arbitrary completion delay; weak fairness of completion settles stale work by discarding it. OS file races, PNG decoding limits, socket delivery, blob hash/custody, contents, queueing, failure notices and real ACP capability checks are implementation-only witnesses. Existing HarnessGuiPendingPrompt and HarnessSocketDelivery evidence is reused unchanged; no Rust refinement proof."
 property = "NoCrossDraftOrBirth; IntakeSettles under WF(Complete). The broken control applies a stale completion."
-checks = ["make verify-harness-attachments", "make test-formal"]
+checks = ["make test-formal", "make test"]
 
 [[contract]]
 name = "HarnessAttachmentCapability"
 title = "Local image custody requires a fresh explicit actor intake response before any UserTurn."
-models = ["HarnessAttachmentCapability", "BrokenHarnessAttachmentCapability"]
-controls = [{name="BrokenHarnessAttachmentCapability", expected="safety"}]
+models = ["HarnessAttachmentCapability", "BrokenHarnessAttachmentCapability", "BrokenHarnessAttachmentDiscovery"]
+controls = [{name="BrokenHarnessAttachmentCapability", expected="safety"}, {name="BrokenHarnessAttachmentDiscovery", expected="safety"}]
 sources = ["src/protocol/mod.rs", "src/frontends/gui/bridge.rs", "src/frontends/gui/view.rs", "src/engine/mod.rs", "src/backend/acp_agent.rs", "tests/formal/models.rs"]
-implementation_tests = ["tests/harness_attachments.rs", "src/frontends/gui/bridge.rs"]
-assumptions = "Three fresh connection births abstract random challenge nonces, including A/B/A and reconnects of the same session/epoch. Absent/old actors can acknowledge queries without ever advertising; no response fairness is assumed. Only a matching live response grants image intake; reconnect revokes the grant. Text sends do not require the image capability. Framing, ephemeral-only response admission, actual sessions/epochs, retained PNG bytes and old-wire acknowledgement are implementation witnesses, not an arbitrary Rust refinement proof."
-property = "NoImageWithoutCurrentActorProof. The broken control sends without the capability guard."
-checks = ["make verify-harness-attachments", "make test-formal"]
+implementation_tests = ["tests/harness_attachments.rs", "src/frontends/gui/bridge.rs", "tests/gui_bridge.rs"]
+assumptions = "Three fresh connection births abstract random challenge nonces, including A/B/A and reconnects of the same session/epoch. Absent/old actors can acknowledge, refuse or time out queries without ever advertising; discovery RPC completions are stutters, including after reconnect, and no response fairness is assumed. Only a matching live response grants image intake; reconnect revokes the grant. Nil challenges or zero custody versions from absent wire fields cannot grant custody. Text sends do not require the image capability. Framing, ephemeral-only response admission, actual sessions/epochs, retained PNG bytes, refusal rendering and old-wire acknowledgement are implementation witnesses, not an arbitrary Rust refinement proof."
+property = "NoImageWithoutCurrentActorProof; DiscoveryCannotRejectUserIntent. Independent broken controls send without the capability guard or turn discovery completion into a user error."
+checks = ["make test-formal", "make test"]
 
 [[contract]]
 name = "HarnessOnboardingInstall"
@@ -469,4 +469,4 @@ sources = ["src/onboarding.rs", "src/frontends/gui/setup.rs", "src/frontends/gui
 implementation_tests = ["tests/harness_onboarding.rs", "src/onboarding.rs"]
 assumptions = "One agent, three monotonic attempts including A/B/A, one delayed duplicate completion. Click, cancel, reap and finish are atomic short-lock actions. Reap retains the existing OwnedChild ownership fence; WF(Reap) abstracts the fixed 180s deadline. Different agents proceed independently. Source uses Yarn model frontend and native/TLC complete graphs and verdicts. Filesystem hard-link atomicity, installed CLI identity/version, manager internals, environment filtering, wall time, pipe/output bounds, UI rendering and actual process groups remain implementation witnesses. No arbitrary Rust refinement or vendor inference claim."
 property = "AtMostOneOwnedInstaller; OnlyCurrentCompletionSettles; DeadlineEventuallyReaps under WF(Reap). Removing the admission/generation guards must fail."
-checks = ["make verify-harness-onboarding"]
+checks = ["make test-formal", "make test"]

@@ -17,8 +17,8 @@ pub mod redact;
 pub mod runtime;
 pub mod store;
 
-pub mod provider;
 pub mod onboarding;
+pub mod provider;
 
 pub mod policy;
 

@@ -36,8 +36,8 @@ def main():
         for command in [
             ['cargo','fmt','--check'],
             ['make','check-embedded-build'],
-            ['cargo','clippy','--offline','--locked','--all-targets','--','-D','warnings'],
-            ['cargo','clippy','--offline','--locked','--all-targets','--all-features','--','-D','warnings'],
+            ['cargo','clippy','--offline','--locked','--all-targets','--keep-going','--','-D','warnings'],
+            ['cargo','clippy','--offline','--locked','--all-targets','--all-features','--keep-going','--','-D','warnings'],
             ['cargo','test','--offline','--locked','--all-targets','--','--skip','non_pty_spawn_does_not_keep_a_sibling_master_alive'],
             # Keep launcher process bursts separate from PTY lifecycle deadlines.
             # Every case still runs; neither the deadline nor product scheduling changes.

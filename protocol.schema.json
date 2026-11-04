@@ -450,6 +450,27 @@
     "Event": {
       "anyOf": [
         {
+          "description": "Ephemeral response bound to the live subscriber's fresh challenge.",
+          "properties": {
+            "image_custody_version": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "request": {
+              "$ref": "#/$defs/OpId"
+            },
+            "type": {
+              "const": "input_capabilities",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
           "properties": {
             "meta": {
               "$ref": "#/$defs/SessionMeta"
@@ -1673,6 +1694,22 @@
     "Op": {
       "anyOf": [
         {
+          "description": "Harmless actor-level negotiation, never a model prompt or a permission grant.",
+          "properties": {
+            "request": {
+              "$ref": "#/$defs/OpId"
+            },
+            "type": {
+              "const": "query_input_capabilities",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
           "properties": {
             "cwd": {
               "type": "string"
@@ -1817,16 +1854,14 @@
               "type": "string"
             },
             "value": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [
-            "type",
-            "epoch",
-            "instance",
-            "revision",
-            "config_id",
-            "value"
+            "type"
           ],
           "type": "object"
         },

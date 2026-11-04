@@ -199,7 +199,15 @@ test-ir:
 
 # Refresh the IR lock after an addition; refused unless the schema is additive over the old lock.
 lock-ir:
+	UPDATE_GOLDENS=1 cargo test --offline --locked --test protocol_golden schema_and_golden_transcripts -- --exact
 	python3 -I scripts/ir-compat.py lock
+
+.PHONY: verify-ir-defaults
+verify-ir-defaults:
+	cargo test --offline --locked --test acp_controls acp_controls_missing_fields_reject_before_wire -- --exact
+	cargo test --offline --locked --lib image_intake_proof_rejects_durable_replay_old_epoch_and_reconnect_challenge
+	cargo test --offline --locked --test ir_scan
+	$(MAKE) test-ir
 
 .PHONY: verify-gui-polish
 verify-gui-polish:

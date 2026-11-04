@@ -4044,6 +4044,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (acp_controls(2), "safety"),
         (attachment_capability(false), "pass"),
         (attachment_capability(true), "safety"),
+        (attachment_discovery_broken(), "safety"),
         (onboarding_install(false), "pass"),
         (onboarding_install(true), "safety"),
         (attachment_intake(false), "pass"),
@@ -4312,7 +4313,7 @@ pub fn attachment_intake(b: bool) -> Model {
 /// births, including A/B/A. Old/absent actors may never advertise; no response
 /// fairness is assumed. Sending text remains enabled without an image grant.
 pub fn attachment_capability(b: bool) -> Model {
-    let mut m = base::<5>(
+    let mut m = base::<6>(
         "AttachmentCapability",
         b,
         &[
@@ -4321,6 +4322,7 @@ pub fn attachment_capability(b: bool) -> Model {
             ("pending", 1, 0),
             ("grant_birth", 3, 3),
             ("unsupported_sent", 1, 0),
+            ("discovery_error", 1, 0),
         ],
     );
     act(&mut m, "Query", eq(2, 0), &[(1, Var(0)), (2, Int(1))]);
@@ -4344,7 +4346,17 @@ pub fn attachment_capability(b: bool) -> Model {
         &[(4, valid.ite(Var(4), Int(1)))],
     );
     act(&mut m, "SendText", Bool(true), &[]);
+    // RPC outcomes are not user intents or custody grants, even after reconnect.
+    act(&mut m, "DiscoveryCompletionIgnored", Bool(true), &[]);
     safe(&mut m, "NoImageWithoutCurrentActorProof", eq(4, 0));
+    safe(&mut m, "DiscoveryCannotRejectUserIntent", eq(5, 0));
+    m
+}
+
+fn attachment_discovery_broken() -> Model {
+    let mut m = attachment_capability(false);
+    m.name = "BrokenHarnessAttachmentDiscovery".into();
+    act(&mut m, "BrokenDiscoveryUserError", eq(2, 1), &[(5, Int(1))]);
     m
 }
 
