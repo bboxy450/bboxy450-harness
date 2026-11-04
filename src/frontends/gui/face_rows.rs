@@ -824,8 +824,8 @@ impl Preparer {
                 vec![body.into()],
             ),
         );
-        // .hx-feed gap 8 (harness-spec.md "Tight transcript"): 4 + 4 between rows
-        let gap = 4.;
+        // Compact transcript: 3 + 3 px between rows.
+        let gap = 3.;
         // .hx-feed's 14 px top padding sits on the first drawn row
         let top = if folds.first == Some(id) { 14. } else { gap };
         let bottom = if folds.tail == Some(id) { 18. } else { gap };
@@ -912,8 +912,8 @@ impl Preparer {
         {
             d.out = crate::frontends::face_core::raw_tool_output(value);
         }
-        if d.out.is_empty() && row.completed.is_some() && d.kind != "execute" {
-            d.out = "No output reported".into();
+        if !row.terminal_tail.is_empty() {
+            d.out = row.terminal_tail.clone();
         }
         if let Some(Item::Terminal { command, .. }) = term.as_ref().map(|t| &t.body)
             && !command.is_empty()
@@ -974,7 +974,7 @@ impl Preparer {
                 .filter(|e| *e != 0)
                 .map(|e| (format!("exit {e}"), Some(false))),
             "read" if row.status.is_some() && lines > 0 => Some((format!("{lines} lines"), None)),
-            "search" if row.status.is_some() => Some((
+            "search" if row.status.is_some() && lines > 0 => Some((
                 format!("{lines} hit{}", if lines == 1 { "" } else { "s" }),
                 None,
             )),
@@ -992,13 +992,13 @@ impl Preparer {
         let out_lines = out_text
             .as_deref()
             .map_or(0, |o| o.lines().filter(|l| !l.is_empty()).count());
-        // harness-spec.md "Tight transcript": a finished, successful command opens only when
-        // its output is 6 lines or fewer; running, asking, failed and edit cards stay open
+        // Running calls keep the compact header; finished edits and small results open.
         let auto = failed
-            || matches!(status, f::Status::Asking | f::Status::Running)
-            || (d.kind == "execute" && out_lines <= 6)
-            || d.kind == "edit"
-            || (d.verb == "Search" && lines <= 6);
+            || matches!(status, f::Status::Asking)
+            || (row.completed.is_some()
+                && ((d.kind == "execute" && out_lines <= 6)
+                    || d.kind == "edit"
+                    || (d.verb == "Search" && lines <= 6)));
         let open = auto != face.output_closed;
         let badge = f::badge(decision.as_ref(), by.as_ref(), ink).map(|b| match &approval {
             Some(a) => named(format!("item/{}", a.id), b),
@@ -1045,7 +1045,7 @@ impl Preparer {
         .map(|s| f::compact_heading(s, 64))
         .collect::<Vec<_>>()
         .join(" · ");
-        if !caption.is_empty() {
+        if open && !caption.is_empty() {
             inside
                 .push(f::line(f::compact_heading(&caption, 80), 11.5, 400, ink.dim, false).into());
         }
@@ -1105,7 +1105,12 @@ impl Preparer {
                     named(
                         format!("term/{id}"),
                         code_panel(
-                            f::term_output_full(text, ink),
+                            if super::super::rich::json_output(text) {
+                                self.documents
+                                    .code_element_language(text, "json", &self.metrics)
+                            } else {
+                                f::term_output_full(text, ink)
+                            },
                             &format!("codeout/{id}/output"),
                             (content_width - 48.).max(1.),
                             320.,
@@ -1118,17 +1123,39 @@ impl Preparer {
                 };
                 inside.push(wrap(&term, output).into());
             } else if let Some(u) = &unified {
-                inside.push(
-                    wrap(
-                        &change,
+                let mut panels = Vec::new();
+                if let Some(path) = u
+                    .lines()
+                    .find_map(|line| line.strip_prefix("+++ "))
+                    .filter(|path| *path != "/dev/null")
+                {
+                    panels.push(
+                        f::line(
+                            path.strip_prefix("b/").unwrap_or(path),
+                            11.,
+                            500,
+                            ink.dim,
+                            true,
+                        )
+                        .into(),
+                    );
+                }
+                panels.push(
+                    code_panel(
                         f::diff_view(
                             &format!("diff/{}", change.as_ref().map_or(id, |c| c.id)),
                             u,
                             ink,
                         ),
-                    )
+                        &format!("codeout/{id}/diff"),
+                        (content_width - 48.).max(1.),
+                        360.,
+                        &self.metrics,
+                        ctx,
+                    )?
                     .into(),
                 );
+                inside.push(wrap(&change, super::column(panels, None)).into());
             } else if let Some(text) = {
                 // describe() unwraps ACP's console envelope. Preserve actual Markdown
                 // fences (especially a tool result consisting of one Mermaid figure).
@@ -1137,7 +1164,10 @@ impl Preparer {
                     .map(OutputBlock::display_text)
                     .collect::<Vec<_>>()
                     .join("\n");
-                let text = if raw.is_empty() || raw.trim_start().starts_with("```console\n") {
+                let text = if !row.terminal_tail.is_empty()
+                    || raw.is_empty()
+                    || raw.trim_start().starts_with("```console\n")
+                {
                     d.out.as_str()
                 } else {
                     raw.as_str()
@@ -1165,17 +1195,11 @@ impl Preparer {
                 };
                 let (src, total) = f::source_view(&d.out, limit, ink);
                 inside.push(src.into());
-                if total > limit {
+                if total > 14 {
                     inside.push(
                         named(
                             format!("more/{id}"),
-                            f::line(
-                                format!("Show all {total} lines"),
-                                11.5,
-                                500,
-                                ink.seat,
-                                false,
-                            ),
+                            f::disclosure(face.arguments_closed, ink),
                         )
                         .into(),
                     );
@@ -1365,17 +1389,7 @@ fn command_panels(
         .into(),
         named(
             format!("more/{id}"),
-            f::line(
-                if face.arguments_closed {
-                    "Compact command"
-                } else {
-                    "Expand command"
-                },
-                11.5,
-                500,
-                ink.seat,
-                false,
-            ),
+            f::disclosure(face.arguments_closed, ink),
         )
         .into(),
     ];

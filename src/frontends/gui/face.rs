@@ -1077,12 +1077,34 @@ pub fn dots(seat: Rgba) -> c::Element {
 }
 pub fn status_disc(st: &Status, ink: &Ink) -> c::Element {
     match st {
-        Status::Running => dots(ink.seat),
+        Status::Running => tile(c::Element::Spacer, 18., 9., ink.seat),
         Status::Asking => icon("shield", ink.ask, 14., 1.6),
         Status::Done => tile(icon("check", ink.surface, 11., 2.4), 18., 9., ink.ok),
         Status::Failed | Status::Denied => tile(icon("x", ink.surface, 11., 2.4), 18., 9., ink.bad),
         Status::Stopped => tile(stop_glyph(ink.surface), 18., 9., ink.dim),
     }
+}
+
+/// The same centered control reveals command and output details.
+pub fn disclosure(open: bool, ink: &Ink) -> c::Element {
+    frame(
+        Frame {
+            row: true,
+            padding: [3., 0., 3., 0.],
+            ..Default::default()
+        },
+        vec![
+            spacer(),
+            fixed(icon_turned(
+                "chev",
+                ink.seat,
+                12.,
+                1.8,
+                if open { 270. } else { 90. },
+            )),
+            spacer(),
+        ],
+    )
 }
 pub fn badge(
     decision: Option<&ApprovalDecision>,
@@ -1241,8 +1263,8 @@ pub fn head(h: Head, ink: &Ink) -> c::Element {
         h.key,
         frame(
             Frame {
-                // .hx-th 6/10 (harness-spec.md "Tight transcript")
-                padding: [6., 10., 6., 10.],
+                // Compact tool header; status changes keep the same height.
+                padding: [5., 10., 5., 10.],
                 gap: 8.,
                 row: true,
                 ..Default::default()
@@ -1279,7 +1301,7 @@ pub fn body(children: Vec<c::Item>) -> c::Item {
 pub fn body_el(children: Vec<c::Item>) -> c::Element {
     frame(
         Frame {
-            padding: [0., 10., 10., 10.],
+            padding: [0., 10., 8., 10.],
             gap: 6.,
             ..Default::default()
         },

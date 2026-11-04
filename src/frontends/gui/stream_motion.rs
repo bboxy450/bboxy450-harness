@@ -740,13 +740,17 @@ impl Motion {
             };
             let id = |s: &str| s.split('/').next().and_then(|s| s.parse().ok()).map(ItemId);
             match head {
-                // the running card: a dim ring under the orbit; its dots bounce
+                // The running disc occupies the checkmark's exact slot; only its ink pulses.
                 "tool" if rest.ends_with("/status") => {
                     if let Some(id) = id(rest)
                         && live(&id)
                         && !asking.contains(&id)
                     {
-                        bounce_dots(node, anim.cycle(BOUNCE_MS), 0.15);
+                        let phase = anim.cycle(BOUNCE_MS);
+                        return fade_node(
+                            node,
+                            0.75 + 0.25 * (phase * std::f32::consts::TAU).cos(),
+                        );
                     }
                 }
                 "tool" if !rest.contains('/') => {

@@ -208,7 +208,9 @@ impl Transcript {
                     row.status = Some(status.clone());
                     row.completed = e.seq;
                     row.completed_ms = Some(e.ts_ms);
-                    row.terminal_tail.clear();
+                    if !matches!(row.body, Item::ToolCall { .. }) {
+                        row.terminal_tail.clear();
+                    }
                 }
             }
             Event::ItemDelta { item, delta } => {
@@ -228,7 +230,9 @@ impl Transcript {
                     && partial.kind() == row.kind
                 {
                     row.body = partial.clone();
-                    row.terminal_tail.clear();
+                    if !matches!(partial, Item::ToolCall { .. }) {
+                        row.terminal_tail.clear();
+                    }
                     if matches!(partial, Item::Terminal { .. })
                         && let Some(live) = wire
                             .and_then(|v| v.pointer("/partial/live"))
@@ -283,6 +287,20 @@ impl Transcript {
                 }
             }
             Event::OpRejected { .. } | Event::Reset { .. } => {}
+        }
+        if let Some(delta) = e
+            .ext
+            .get("acp")
+            .and_then(|v| v.pointer("/_meta/terminal_output_delta"))
+            && let (Some(terminal), Some(data)) = (
+                delta.get("terminal_id").and_then(serde_json::Value::as_str),
+                delta.get("data").and_then(serde_json::Value::as_str),
+            )
+        {
+            let item = self.order.iter().rev().find(|id| self.items.get(id).is_some_and(|row| matches!(&row.body, Item::ToolCall { call_id, .. } if call_id == terminal))).copied();
+            if let Some(row) = item.and_then(|id| self.items.get_mut(&id)) {
+                append_tail(&mut row.terminal_tail, data);
+            }
         }
         Effect::None
     }
@@ -373,5 +391,47 @@ fn append_tail(tail: &mut String, append: &str) {
             start += 1;
         }
         *tail = format!("…{}", &tail[start..]);
+    }
+}
+
+#[cfg(test)]
+mod terminal_metadata_tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn acp_terminal_metadata_survives_completion_and_duplicate_replay() {
+        let body = json!({"kind":"tool_call","call_id":"exec-list","name":"List files","tool_kind":"read","input_raw":"","output":[{"type":"json","value":{"exit_code":0}}],"locations":[],"spill":null,"raw_output":{"exit_code":0}});
+        let envelope = |seq: u64, event: Value, data: Option<&str>| {
+            json!({"v":{"major":1,"minor":2},"session":"00000000000000000000000001","epoch":1,"seq":seq,"at":seq,"ts_ms":seq,"cause":null,
+                "ext":data.map(|text|json!({"acp":{"_meta":{"terminal_output_delta":{"terminal_id":"exec-list","data":text}}}})).unwrap_or_else(||json!({})),"event":event})
+        };
+        let item = "00000000000000000000000002";
+        let start = envelope(
+            1,
+            json!({"type":"item_started","turn":null,"item":item,"kind":"tool_call","parent":null,"head":{"kind":"tool_call","call_id":"exec-list","name":"List files","tool_kind":"read"}}),
+            None,
+        );
+        let first: Envelope = serde_json::from_value(start.clone()).unwrap();
+        let mut model = Transcript::default();
+        model.hello(first.session, first.epoch);
+        model.apply_wire(&start).unwrap();
+        model
+            .apply_wire(&envelope(
+                2,
+                json!({"type":"item_snapshot","item":item,"partial":body.clone()}),
+                Some("one.rs\n"),
+            ))
+            .unwrap();
+        let complete = envelope(
+            3,
+            json!({"type":"item_completed","item":item,"status":{"status":"completed"},"body":body}),
+            Some("two.rs\n"),
+        );
+        model.apply_wire(&complete).unwrap();
+        model.apply_wire(&complete).unwrap();
+        let id: ItemId = serde_json::from_value(json!(item)).unwrap();
+        assert_eq!(model.items[&id].terminal_tail, "one.rs\ntwo.rs\n");
+        assert_eq!(model.duplicate_durable, 1);
     }
 }

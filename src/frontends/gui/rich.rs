@@ -171,8 +171,11 @@ pub fn bound_native_runs(element: &mut c::Element) {
     }
 }
 
-/// Only prose bodies enter the document worker; terminal and failed output stay literal.
+/// Structured prose and valid JSON use the shared document worker.
 pub(super) fn tool_markdown(kind: &str, path: &str, failed: bool, text: &str) -> Option<String> {
+    if json_output(text) {
+        return Some(format!("```json\n{text}\n```"));
+    }
     if kind == "execute" || failed || text.is_empty() {
         return None;
     }
@@ -203,6 +206,11 @@ pub(super) fn tool_markdown(kind: &str, path: &str, failed: bool, text: &str) ->
         text.to_owned()
     };
     (markdown_read || looks_markdown(&text)).then_some(text)
+}
+
+pub(super) fn json_output(text: &str) -> bool {
+    matches!(text.trim_start().chars().next(), Some('{' | '['))
+        && serde_json::from_str::<serde_json::Value>(text).is_ok()
 }
 
 fn looks_markdown(text: &str) -> bool {
@@ -363,6 +371,14 @@ impl Documents {
     /// Reuse the shared Markdown Code block and syntect-backed highlighter.
     /// Only the literal code subtree is returned; the harness owns its outer viewport.
     pub fn code_element(&mut self, source: &str, metrics: &impl c::Measure) -> c::Element {
+        self.code_element_language(source, "python", metrics)
+    }
+    pub fn code_element_language(
+        &mut self,
+        source: &str,
+        language: &str,
+        metrics: &impl c::Measure,
+    ) -> c::Element {
         bbt_rt::assert_not_ui_thread();
         let ctx = self.context();
         let document = Markdown {
@@ -370,7 +386,7 @@ impl Documents {
             blocks: vec![bbt_doc::Block {
                 source: 0..source.len(),
                 kind: bbt_doc::BlockKind::Code {
-                    info: "python".into(),
+                    info: language.into(),
                     text: source.into(),
                 },
             }],
@@ -903,6 +919,16 @@ mod tests {
                 Some("# Title\n\n- one\n- two".into())
             );
         }
+    }
+
+    #[test]
+    fn json_tool_results_keep_literal_source_and_error_fields() {
+        let source = r#"{"status":"rejected","error":{"message":"Keep **literal** text"}}"#;
+        assert_eq!(
+            tool_markdown("execute", "", true, source),
+            Some(format!("```json\n{source}\n```"))
+        );
+        assert!(tool_markdown("other", "", false, "{invalid json}").is_none());
     }
 
     #[test]

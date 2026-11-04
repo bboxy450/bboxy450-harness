@@ -1294,6 +1294,53 @@ impl HarnessView {
         for paint in c::paint(&layout, ctx) {
             append_paint(&mut frame.list, &mut frame.rims, paint)?;
         }
+        if self.anim.animates() && !ask {
+            let viewport = find(&layout, "transcript")
+                .map(|n| n.rect)
+                .unwrap_or(Rect::new(0., 0., width, size[1]));
+            each_named(&mut layout, &mut |key, node| {
+                let Some(raw) = key
+                    .strip_prefix("tool/")
+                    .and_then(|k| k.strip_suffix("/status"))
+                else {
+                    return false;
+                };
+                let Some(id) = raw.parse().ok().map(ItemId) else {
+                    return false;
+                };
+                if !state
+                    .transcript
+                    .items
+                    .get(&id)
+                    .is_some_and(|row| row.status.is_none())
+                {
+                    return false;
+                }
+                frame.rims.push(m::Surface {
+                    rect: node.rect,
+                    radii: [9.; 4],
+                    clips: vec![m::Clip {
+                        rect: viewport,
+                        radii: [0.; 4],
+                    }],
+                    material: m::Material::Rim(m::Rim {
+                        color: Color(ink.seat),
+                        waiting: Color(ink.ask),
+                        errored: Color(ink.bad),
+                        activity: m::Activity::Active,
+                        focus: 1.,
+                        size: 1.5,
+                        depth: 3.,
+                        phase_ms: 0.,
+                        outer: 0.75,
+                        alpha: 1.,
+                        swell: 0.,
+                        attention: false,
+                    }),
+                });
+                false
+            });
+        }
         if let Some((viewport, prims)) = overlays {
             frame.list.clip(viewport, [0.; 4]);
             frame.list.primitives.extend(prims);
@@ -2946,7 +2993,7 @@ fn restore_pending(
         restore_pending(child, rows, viewport, scroll);
     }
 }
-pub(super) fn translate(node: &mut c::Layout, dx: f32, dy: f32) {
+pub fn translate(node: &mut c::Layout, dx: f32, dy: f32) {
     node.rect.x += dx;
     node.rect.y += dy;
     if let c::LayoutKind::Text { runs, .. } = &mut node.kind {
