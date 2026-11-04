@@ -59,8 +59,6 @@ impl Look {
     }
 }
 
-/// Spec flat fallback: solid surface_2 instead of the blurred surface glass.
-const SURFACE_2: &str = "#1B1F3F";
 const LAB_SEAT: &str = "#2EE6A8";
 
 fn hair(ink: &Ink) -> Rgba {
@@ -160,21 +158,24 @@ fn dimmed(e: c::Element) -> c::Element {
 /// Card material (flat fallback): surface_2, a hair border and an outer
 /// 1px seat-16 ring. The drop shadow becomes a 1px bg line (see the view).
 fn card(children: Vec<c::Item>, ink: &Ink) -> c::Element {
+    let mut surface = frame(
+        Frame {
+            border: Some(hair(ink)),
+            radius: [13.; 4],
+            ..Default::default()
+        },
+        children,
+    );
+    if let c::Element::Box(b) = &mut surface {
+        b.style.overrides.fill = Some(ui::Paint::solid(ui::Color::Surface2));
+    }
     frame(
         Frame {
             border: Some(alpha(ink.seat, 0.16)),
             radius: [14.; 4],
             ..Default::default()
         },
-        vec![fixed(frame(
-            Frame {
-                fill: hex(SURFACE_2),
-                border: Some(hair(ink)),
-                radius: [13.; 4],
-                ..Default::default()
-            },
-            children,
-        ))],
+        vec![fixed(surface)],
     )
 }
 
@@ -504,7 +505,7 @@ impl ProfileMenu {
         // focused search field: seat border and a 3px seat-14 ring
         let field = frame(
             Frame {
-                fill: mix(ink.fg, hex(SURFACE_2), 0.04),
+                fill: alpha(ink.fg, 0.04),
                 border: Some(alpha(ink.seat, 0.6)),
                 radius: [9.; 4],
                 padding: [7., 10., 7., 10.],

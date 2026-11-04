@@ -33,7 +33,11 @@ pub fn title_bar(crumb: &str, focused: bool, ctx: ui::Context) -> c::Element {
         crumb: crumb.into(),
         sidebar_open: false,
         blurred: !focused,
-        theme: "dark".into(),
+        theme: match ctx.theme {
+            ui::Theme::Dark => "dark",
+            ui::Theme::Light => "light",
+        }
+        .into(),
     }
     .element(ctx);
     if let c::Element::Named { content, .. } = &mut bar

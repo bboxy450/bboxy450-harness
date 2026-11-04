@@ -6,7 +6,7 @@
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 
 //! Worker-owned streaming documents and prepared block layouts.
-use super::view::{column, context, translate};
+use super::view::{column, translate};
 use crate::{
     protocol::ItemId,
     runtime::{BlockingWork, blocking_hook},
@@ -290,6 +290,7 @@ struct Prepared {
 }
 #[derive(Default)]
 pub struct Documents {
+    theme: ui::Theme,
     docs: HashMap<ItemId, Document>,
     highlighter: Option<RustHighlighter>,
     pub parsed_bytes: usize,
@@ -311,11 +312,12 @@ impl Body {
         id: ItemId,
         width: f32,
         metrics: &impl c::Measure,
+        ctx: ui::Context,
     ) -> Result<c::Element, String> {
-        let ink = super::face::ink(context());
+        let ink = super::face::ink(ctx);
         let ([_, height], _) = self
             .element
-            .natural(width, context(), metrics)
+            .natural(width, ctx, metrics)
             .map_err(|e| format!("{e:?}"))?;
         Ok(named(
             format!("mdpanel/{id}"),
@@ -344,10 +346,25 @@ impl Body {
     }
 }
 impl Documents {
+    pub fn set_theme(&mut self, theme: ui::Theme) -> bool {
+        if self.theme == theme {
+            return false;
+        }
+        self.theme = theme;
+        self.highlighter = None;
+        for doc in self.docs.values_mut() {
+            doc.blocks.clear();
+        }
+        true
+    }
+    pub(super) fn context(&self) -> ui::Context {
+        ui::Context::new(self.theme, ui::Density::Cozy)
+    }
     /// Reuse the shared Markdown Code block and syntect-backed highlighter.
     /// Only the literal code subtree is returned; the harness owns its outer viewport.
     pub fn code_element(&mut self, source: &str, metrics: &impl c::Measure) -> c::Element {
         bbt_rt::assert_not_ui_thread();
+        let ctx = self.context();
         let document = Markdown {
             source: source.into(),
             blocks: vec![bbt_doc::Block {
@@ -361,9 +378,9 @@ impl Documents {
         };
         let highlighter = self
             .highlighter
-            .get_or_insert_with(|| RustHighlighter::new(false));
+            .get_or_insert_with(|| RustHighlighter::new(self.theme == ui::Theme::Light));
         let highlights = Highlights::prepare(&document, highlighter);
-        let element = document.transcript_body_element(&highlights, context(), metrics, 576.);
+        let element = document.transcript_body_element(&highlights, ctx, metrics, 576.);
         fn take(e: c::Element) -> Option<c::Element> {
             match e {
                 c::Element::Named { name, content } if name == "block0" => Some(*content),
@@ -428,6 +445,7 @@ impl Documents {
         metrics: &impl c::Measure,
         reasoning: bool,
     ) -> Result<Body, String> {
+        let ctx = self.context();
         let doc = self.docs.entry(id).or_default();
         if !text.starts_with(&doc.stream.document().source) {
             *doc = Document::default();
@@ -463,21 +481,26 @@ impl Documents {
         }
         let highlighter = self
             .highlighter
-            .get_or_insert_with(|| RustHighlighter::new(false));
+            .get_or_insert_with(|| RustHighlighter::new(self.theme == ui::Theme::Light));
         for block in &doc.stream.document().blocks[doc.blocks.len()..] {
             let fragment = Markdown {
                 blocks: vec![block.clone()],
                 ..Default::default()
             };
             let highlights = Highlights::prepare(&fragment, highlighter);
-            let mut element =
-                fragment.transcript_body_element(&highlights, context(), metrics, width);
+            let mut element = fragment.transcript_body_element(&highlights, ctx, metrics, width);
             super::view::flat(&mut element);
-            transcript_type(&mut element, (width - MEASURE).max(0.), false, reasoning);
+            transcript_type(
+                &mut element,
+                (width - MEASURE).max(0.),
+                false,
+                reasoning,
+                ctx,
+            );
             super::face::zoom_text(&mut element, zoom);
             bound_native_runs(&mut element);
-            let mut layout = element.layout(Rect::new(0., 0., width, 0.), context(), metrics)?;
-            chips_and_bullets(&mut layout, metrics)?;
+            let mut layout = element.layout(Rect::new(0., 0., width, 0.), ctx, metrics)?;
+            chips_and_bullets(&mut layout, metrics, ctx)?;
             let prose = matches!(
                 block.kind,
                 bbt_doc::BlockKind::Paragraph(_)
@@ -506,7 +529,7 @@ impl Documents {
             bound_native_runs(&mut text);
             blocks.push(Arc::new(text.layout(
                 Rect::new(0., 0., width, 0.),
-                context(),
+                ctx,
                 metrics,
             )?));
             spacing.push([0., 0.]);
@@ -622,7 +645,13 @@ fn widen(v: &mut f32, delta: f32) {
     }
 }
 
-fn transcript_type(e: &mut c::Element, delta: f32, in_flow: bool, reasoning: bool) {
+fn transcript_type(
+    e: &mut c::Element,
+    delta: f32,
+    in_flow: bool,
+    reasoning: bool,
+    ctx: ui::Context,
+) {
     match e {
         c::Element::Box(b) => {
             if let Some(ui::Length::Px(w)) = &mut b.style.overrides.width {
@@ -641,35 +670,35 @@ fn transcript_type(e: &mut c::Element, delta: f32, in_flow: bool, reasoning: boo
                 if let c::Extent::Fixed(w) = &mut item.extent {
                     widen(w, delta);
                 }
-                transcript_type(&mut item.element, delta, false, reasoning);
+                transcript_type(&mut item.element, delta, false, reasoning, ctx);
             }
         }
         c::Element::Stack(s) => {
             for item in &mut s.children {
-                transcript_type(&mut item.element, delta, false, reasoning);
+                transcript_type(&mut item.element, delta, false, reasoning, ctx);
             }
         }
         c::Element::Flow(f) => {
             for item in &mut f.children {
-                transcript_type(&mut item.element, delta, true, reasoning);
+                transcript_type(&mut item.element, delta, true, reasoning, ctx);
             }
         }
         c::Element::ScrollView(s) => {
             widen(&mut s.viewport[0], delta);
-            transcript_type(&mut s.content, delta, false, reasoning);
+            transcript_type(&mut s.content, delta, false, reasoning, ctx);
         }
         c::Element::Named { content, .. }
         | c::Element::FixedHeight { content, .. }
         | c::Element::Filter { content, .. }
         | c::Element::InlineMiddle { content, .. }
         | c::Element::Baseline { content, .. } => {
-            transcript_type(content, delta, in_flow, reasoning)
+            transcript_type(content, delta, in_flow, reasoning, ctx)
         }
-        c::Element::Overlay(o) => transcript_type(&mut o.content, delta, false, reasoning),
+        c::Element::Overlay(o) => transcript_type(&mut o.content, delta, false, reasoning, ctx),
         c::Element::Layers { base, overlays } => {
-            transcript_type(base, delta, false, reasoning);
+            transcript_type(base, delta, false, reasoning, ctx);
             for p in overlays {
-                transcript_type(&mut p.content, delta, false, reasoning);
+                transcript_type(&mut p.content, delta, false, reasoning, ctx);
                 // li::marker takes the seat colour
                 if let c::Element::Named { name, content } = &mut p.content
                     && name.contains("/bullet")
@@ -695,7 +724,7 @@ fn transcript_type(e: &mut c::Element, delta: f32, in_flow: bool, reasoning: boo
                         _ if reasoning => {
                             s.size = Some(12.5);
                             s.line_height = BODY_LINE;
-                            s.paint = super::face::paint(super::face::ink(context()).dim);
+                            s.paint = super::face::paint(super::face::ink(ctx).dim);
                         }
                         None => {
                             s.size = Some(BODY);
@@ -783,7 +812,11 @@ fn rounded(w: f32, h: f32, r: f32) -> Vec<bbt_ui_model::draw::PathCommand> {
 
 /// After layout: paint a chip behind each inline-code run, and set each list marker on
 /// its item's first line (the toolkit places it from the reading-measure height).
-fn chips_and_bullets(node: &mut c::Layout, metrics: &impl c::Measure) -> Result<(), String> {
+fn chips_and_bullets(
+    node: &mut c::Layout,
+    metrics: &impl c::Measure,
+    ctx: ui::Context,
+) -> Result<(), String> {
     if matches!(node.kind, c::LayoutKind::Stack)
         && node.children.len() == 2
         && matches!(&node.children[1].kind, c::LayoutKind::Named(n) if n.contains("/bullet"))
@@ -794,7 +827,7 @@ fn chips_and_bullets(node: &mut c::Layout, metrics: &impl c::Measure) -> Result<
     let mut out = Vec::with_capacity(node.children.len());
     for mut child in std::mem::take(&mut node.children) {
         if let c::LayoutKind::Text { runs, .. } = &child.kind {
-            let ink = super::face::ink(context());
+            let ink = super::face::ink(ctx);
             for run in runs
                 .iter()
                 .filter(|r| r.style.mono && (r.style.size - CHIP_TEXT).abs() < 0.001)
@@ -819,10 +852,10 @@ fn chips_and_bullets(node: &mut c::Layout, metrics: &impl c::Measure) -> Result<
                     fill: Some(super::face::paint(super::face::alpha(ink.fg, 0.07))),
                     opacity: 1.,
                 });
-                out.push(path.layout(Rect::new(x, y, w, h), context(), metrics)?);
+                out.push(path.layout(Rect::new(x, y, w, h), ctx, metrics)?);
             }
         }
-        chips_and_bullets(&mut child, metrics)?;
+        chips_and_bullets(&mut child, metrics, ctx)?;
         out.push(child);
     }
     node.children = out;

@@ -35,7 +35,7 @@ fn compose(
             height,
             scale: 1.,
             time_ms: 0.,
-            theme: bbt_ui_model::Theme::Dark,
+            theme: frame.theme,
         },
         &frame.over,
     )
@@ -86,11 +86,14 @@ pub fn capture_frame<'a>(
 ) -> Result<&'a Frame, String> {
     use crate::protocol::ItemKind;
     let size = options.capture.ok_or("capture requires --capture WxH")?;
+    let theme = view.theme();
     *view = HarnessView::standalone(options.zoom.unwrap_or_default());
+    view.set_theme(theme);
     view.chrome = !options.no_chrome;
     let [width, height] = size.map(|v| v as f32);
     let mut preparer = Preparer::default();
     preparer.set_zoom(view.zoom());
+    preparer.set_theme(view.theme());
     let mut faces = Faces::default();
     loop {
         let prepared = preparer.prepare_with_faces(state.transcript.clone(), width, &faces)?;

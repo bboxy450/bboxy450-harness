@@ -252,6 +252,9 @@ struct Mailbox {
     width: AtomicU32,
     /// Global text zoom, percent (harness-spec.md Standalone window); rows re-prepare.
     zoom: AtomicU32,
+    /// Low bit is light; upper bits identify every local palette transition.
+    #[cfg(feature = "embedded")]
+    appearance: AtomicU64,
     resized: tokio::sync::Notify,
     published: AtomicU64,
     blobs: arc_swap::ArcSwapOption<crate::store::Blobs>,
@@ -340,6 +343,8 @@ impl Bridge {
                 prompts: arc_swap::ArcSwap::from_pointee(im::OrdMap::new()),
                 width: AtomicU32::new(1120f32.to_bits()),
                 zoom: AtomicU32::new(u32::from(super::zoom::DEFAULT)),
+                #[cfg(feature = "embedded")]
+                appearance: AtomicU64::new(0),
                 resized: tokio::sync::Notify::new(),
                 published: AtomicU64::new(0),
                 blobs: arc_swap::ArcSwapOption::empty(),
@@ -394,6 +399,21 @@ impl Bridge {
                 self.mailbox.resized.notify_one();
             }
         }
+    }
+    #[cfg(feature = "embedded")]
+    pub fn set_theme(&self, theme: bbt_ui::Theme) -> bool {
+        let light = u64::from(theme == bbt_ui::Theme::Light);
+        let changed = self
+            .mailbox
+            .appearance
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |old| {
+                ((old & 1) != light).then(|| ((old >> 1).wrapping_add(1) << 1) | light)
+            })
+            .is_ok();
+        if changed {
+            self.mailbox.resized.notify_one();
+        }
+        changed
     }
     /// A zoom change schedules preparation at the new text size, like a resize.
     pub fn set_zoom(&self, percent: u8) {
@@ -713,11 +733,20 @@ async fn publish_frame(mut state: FrameState, mailbox: &Arc<Mailbox>, preparer: 
         let source = state.transcript.clone();
         let width = f32::from_bits(mailbox.width.load(Ordering::Acquire));
         let zoom = mailbox.zoom.load(Ordering::Acquire);
+        let appearance = mailbox.appearance.load(Ordering::Acquire);
         let publisher = mailbox.clone();
         *preparer = crate::runtime::blocking(move || {
             owned.set_zoom(super::zoom::Zoom::from_percent(
                 i32::try_from(zoom).unwrap_or(i32::from(super::zoom::DEFAULT)),
             ));
+            owned.set_theme_revision(
+                if appearance & 1 == 1 {
+                    bbt_ui::Theme::Light
+                } else {
+                    bbt_ui::Theme::Dark
+                },
+                appearance >> 1,
+            );
             match owned.prepare_with_faces(source, width, &faces) {
                 Ok(prepared) => state.prepared = Some(Arc::new(prepared)),
                 Err(error) => state.error = Some(error),

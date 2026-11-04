@@ -166,6 +166,7 @@ pub enum MenuKey {
 }
 #[derive(Default)]
 pub struct Frame {
+    pub theme: Theme,
     /// The face: chrome, header, transcript and composer, flat primitives.
     pub list: DrawList,
     /// The alive rims (the composer's), for the renderer's material pass between `list`
@@ -218,6 +219,8 @@ struct Controls {
     rows_h: f32,
 }
 pub struct HarnessView {
+    theme: Theme,
+    theme_revision: u64,
     pub composer: super::editor::Input,
     approval: Option<(ItemId, ui::modules::approval::Approval)>,
     completion: Option<ui::text_edit::CompletionPopover>,
@@ -337,6 +340,8 @@ impl Default for HarnessView {
             ..Default::default()
         });
         Self {
+            theme: Theme::Dark,
+            theme_revision: 0,
             composer,
             approval: None,
             completion: None,
@@ -378,6 +383,26 @@ const PILL_IN_MS: f32 = 170.;
 const PILL_HOLD_MS: f32 = 900.;
 const PILL_OUT_MS: f32 = 150.;
 impl HarnessView {
+    pub fn theme(&self) -> Theme {
+        self.theme
+    }
+    pub fn context(&self) -> ui::Context {
+        ui::Context::new(self.theme, Density::Cozy)
+    }
+    /// Presentation identity is per view; a returning palette is a fresh preparation.
+    pub fn set_theme(&mut self, theme: Theme) -> bool {
+        if self.theme == theme {
+            return false;
+        }
+        self.theme = theme;
+        self.theme_revision = self.theme_revision.wrapping_add(1);
+        self.cached = None;
+        self.controls = None;
+        self.retained_prepared = None;
+        self.menus.last = None;
+        self.menus.ghost = None;
+        true
+    }
     /// The live standalone window and offscreen captures share this chrome and text scale.
     /// Startup zoom creates no transient pill and performs no settings IO.
     pub fn standalone(zoom: Zoom) -> Self {
@@ -601,7 +626,7 @@ impl HarnessView {
                 ),
             );
             let height = element
-                .layout(Rect::new(0., 0., width, 0.), context(), &self.metrics)?
+                .layout(Rect::new(0., 0., width, 0.), self.context(), &self.metrics)?
                 .rect
                 .h;
             total += height;
@@ -670,7 +695,7 @@ impl HarnessView {
                     ],
                 );
                 let height = centered
-                    .layout(Rect::new(0., 0., width, 0.), context(), &self.metrics)?
+                    .layout(Rect::new(0., 0., width, 0.), self.context(), &self.metrics)?
                     .rect
                     .h;
                 children.push(c::Item {
@@ -762,7 +787,7 @@ impl HarnessView {
             return Ok(&self.frame);
         }
         let timer = std::time::Instant::now();
-        let ctx = context();
+        let ctx = self.context();
         let model = &state.transcript;
         let now = self.anim.now();
         self.motion.begin_frame(state, now);
@@ -772,7 +797,9 @@ impl HarnessView {
         // of this birth until their replacement is ready; never retain across
         // a session/epoch reset or a cursor rewind.
         let compatible = |p: &&Arc<PreparedRows>| {
-            p.source.session == model.session
+            p.theme == self.theme
+                && p.theme_revision == self.theme_revision
+                && p.source.session == model.session
                 && p.source.epoch == model.epoch
                 && p.source.cursor <= model.cursor
         };
@@ -1138,7 +1165,10 @@ impl HarnessView {
         }
         let restored = timer.elapsed();
         self.titlebar.retain(&layout);
-        let mut frame = Frame::default();
+        let mut frame = Frame {
+            theme: self.theme,
+            ..Default::default()
+        };
         frame.list.rect(
             Rect::new(0., 0., width, size[1]),
             0.,
@@ -1320,7 +1350,7 @@ impl HarnessView {
         size: [f32; 2],
         rows_h: f32,
     ) -> Result<(), String> {
-        let ctx = context();
+        let ctx = self.context();
         let ink = super::face::ink(ctx);
         let width = size[0].max(240.);
         self.paint_zoom_pill(ctx, &ink, width)?;
@@ -2663,6 +2693,8 @@ pub(super) fn translate(node: &mut c::Layout, dx: f32, dy: f32) {
 
 /// Immutable worker-prepared transcript. The frame only positions visible rows.
 pub struct PreparedRows {
+    pub theme: Theme,
+    pub theme_revision: u64,
     pub source: Arc<Transcript>,
     pub width: f32,
     /// The text zoom these rows were laid out at, percent (harness-spec.md Standalone window).
@@ -2687,6 +2719,8 @@ impl PreparedRows {
 }
 #[derive(Default)]
 pub struct Preparer {
+    theme: Theme,
+    theme_revision: u64,
     metrics: Metrics,
     rows: im::HashMap<ItemId, Arc<CachedRow>>,
     scope: Option<(Option<SessionId>, Epoch)>,
@@ -2697,6 +2731,25 @@ pub struct Preparer {
     zoom: Zoom,
 }
 impl Preparer {
+    pub fn context(&self) -> ui::Context {
+        ui::Context::new(self.theme, Density::Cozy)
+    }
+    pub fn set_theme(&mut self, theme: Theme) -> bool {
+        if self.theme == theme {
+            return false;
+        }
+        self.set_theme_revision(theme, self.theme_revision.wrapping_add(1))
+    }
+    pub(crate) fn set_theme_revision(&mut self, theme: Theme, revision: u64) -> bool {
+        if self.theme == theme && self.theme_revision == revision {
+            return false;
+        }
+        self.theme = theme;
+        self.theme_revision = revision;
+        self.rows.clear();
+        self.documents.set_theme(theme);
+        true
+    }
     pub fn set_zoom(&mut self, zoom: Zoom) {
         self.zoom = zoom;
     }
@@ -2718,6 +2771,7 @@ impl Preparer {
             self.rows.clear();
             self.terminal_outputs.clear();
             self.documents = Default::default();
+            self.documents.set_theme(self.theme);
             self.scope = Some(scope);
         }
     }
@@ -2731,7 +2785,7 @@ impl Preparer {
         width: f32,
         faces: &super::rich::Faces,
     ) -> Result<PreparedRows, String> {
-        let ctx = context();
+        let ctx = self.context();
         let model = &source;
         let width = width.max(240.);
         let zoom = self.zoom;
@@ -2799,6 +2853,8 @@ impl Preparer {
             total_height += height;
         }
         Ok(PreparedRows {
+            theme: self.theme,
+            theme_revision: self.theme_revision,
             source,
             width,
             zoom: zoom.percent(),

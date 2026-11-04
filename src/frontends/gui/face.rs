@@ -38,15 +38,23 @@ pub fn hex(s: &str) -> Rgba {
 }
 pub fn ink(ctx: ui::Context) -> Ink {
     let p = ctx.theme.palette();
+    let state = |value| {
+        let color = hex(value);
+        if ctx.theme == ui::Theme::Light {
+            mix(color, hex(p.fg), 0.55)
+        } else {
+            color
+        }
+    };
     Ink {
         fg: hex(p.fg),
         dim: hex(p.fg_dim),
         surface: hex(p.surface),
         bg: hex(p.bg),
         seat: hex(p.accent),
-        ok: hex("#2EE6A8"),
-        bad: hex("#FF5D5D"),
-        ask: hex("#FFC53D"),
+        ok: state("#2EE6A8"),
+        bad: state("#FF5D5D"),
+        ask: state("#FFC53D"),
     }
 }
 /// color-mix(in srgb, a t, b)
@@ -59,7 +67,6 @@ pub fn alpha(c: Rgba, a: f32) -> Rgba {
 pub fn paint(c: Rgba) -> ui::Paint {
     ui::Paint::solid(ui::Color::Rgba(c.map(|v| v.clamp(0., 1.))))
 }
-const TERM_BG: &str = "#07080c";
 pub fn kind_color(kind: &str) -> Rgba {
     hex(kind_hex(kind))
 }
@@ -786,8 +793,8 @@ pub fn source_view(numbered: &str, limit: usize, ink: &Ink) -> (c::Element, usiz
 }
 /// Test/compiler output coloured by verdict, as a person scans it.
 pub fn term_output(out: &str, ink: &Ink) -> Vec<c::Item> {
-    let ok = hex("#5BE08C");
-    let bad = hex("#FF7A7A");
+    let ok = ink.ok;
+    let bad = ink.bad;
     const SHOWN: usize = 14;
     let lines: Vec<&str> = out.trim_matches('\n').lines().collect();
     let more = lines.len().saturating_sub(SHOWN + 2);
@@ -797,9 +804,9 @@ pub fn term_output(out: &str, ink: &Ink) -> Vec<c::Item> {
             let color = match verdict(l) {
                 Verdict::Ok => ok,
                 Verdict::Bad => bad,
-                Verdict::Warn => hex("#FFC53D"),
-                Verdict::Dim => hex("#7d8597"),
-                Verdict::Plain => hex("#c9cfdc"),
+                Verdict::Warn => ink.ask,
+                Verdict::Dim => ink.dim,
+                Verdict::Plain => ink.fg,
             };
             term_line(vec![((*l).to_owned(), color, 400, false)], 12., true).into()
         })
@@ -828,11 +835,11 @@ pub fn term_output_full(out: &str, ink: &Ink) -> c::Element {
             .lines()
             .map(|line| {
                 let color = match verdict(line) {
-                    Verdict::Ok => hex("#5BE08C"),
-                    Verdict::Bad => hex("#FF7A7A"),
-                    Verdict::Warn => hex("#FFC53D"),
+                    Verdict::Ok => ink.ok,
+                    Verdict::Bad => ink.bad,
+                    Verdict::Warn => ink.ask,
                     Verdict::Dim => ink.dim,
-                    Verdict::Plain => hex("#c9cfdc"),
+                    Verdict::Plain => ink.fg,
                 };
                 term_line(vec![(line.to_owned(), color, 400, false)], 12., false).into()
             })
@@ -1016,7 +1023,7 @@ pub fn stop_glyph(color: Rgba) -> c::Element {
 /// The terminal block (.hx-term): the output alone, on 7 px top and 10 px bottom padding.
 /// The head names the command and carries a non-zero exit; the body repeats neither
 /// (harness-spec.md "Tight transcript"). No output at all draws nothing but the node.
-pub fn terminal(key: &str, output: Option<Vec<c::Item>>, _ink: &Ink) -> c::Element {
+pub fn terminal(key: &str, output: Option<Vec<c::Item>>, ink: &Ink) -> c::Element {
     let Some(out) = output else {
         return named(key.to_owned(), c::Element::Spacer);
     };
@@ -1024,8 +1031,8 @@ pub fn terminal(key: &str, output: Option<Vec<c::Item>>, _ink: &Ink) -> c::Eleme
         key.to_owned(),
         frame(
             Frame {
-                fill: hex(TERM_BG),
-                border: Some(alpha(hex("#ffffff"), 0.07)),
+                fill: mix(ink.bg, ink.surface, 0.55),
+                border: Some(alpha(ink.fg, 0.07)),
                 radius: [8.; 4],
                 ..Default::default()
             },
@@ -1698,7 +1705,7 @@ pub fn agent_mark(command: &str) -> (String, Rgba) {
 pub fn acp_tag(ink: &Ink) -> c::Element {
     frame(
         Frame {
-            fill: hex("#16313C"),
+            fill: mix(ink.seat, ink.surface, 0.14),
             radius: [4.; 4],
             padding: [0., 5., 0., 5.],
             row: true,
@@ -1708,7 +1715,7 @@ pub fn acp_tag(ink: &Ink) -> c::Element {
             "ACP",
             9.5,
             700,
-            mix(hex("#2EE6A8"), ink.fg, 0.85),
+            mix(ink.ok, ink.fg, 0.85),
             false,
         ))],
     )

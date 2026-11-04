@@ -56,6 +56,7 @@ enum Wake {
     Frame,
     Desktop(Desktop),
     Zoom(Zoom),
+    Appearance(Option<bbt_ui::Theme>),
 }
 struct WakePort(EventLoopProxy<Wake>);
 impl Waker for WakePort {
@@ -97,6 +98,52 @@ struct App {
     menu: Option<bbt_desktop::MenuBar>,
     /// `$HOME/.bboxy450-harness`, where the zoom persists (zoom.rs). None without a HOME.
     settings_root: Option<PathBuf>,
+    appearance: Appearance,
+    theme_touched: bool,
+}
+
+/// Window-local preference and native appearance. Embedded views receive their
+/// theme from the parent and never consult this standalone adapter.
+#[derive(Default)]
+pub struct Appearance {
+    system: bbt_ui::Theme,
+    explicit: Option<bbt_ui::Theme>,
+}
+impl Appearance {
+    pub fn new(system: Option<winit::window::Theme>, explicit: Option<bbt_ui::Theme>) -> Self {
+        Self {
+            system: native_theme(system),
+            explicit,
+        }
+    }
+    pub fn theme(&self) -> bbt_ui::Theme {
+        self.explicit.unwrap_or(self.system)
+    }
+    pub fn system_event(&mut self, event: &WindowEvent) -> bool {
+        let WindowEvent::ThemeChanged(theme) = event else {
+            return false;
+        };
+        let before = self.theme();
+        self.system = native_theme(Some(*theme));
+        before != self.theme()
+    }
+    pub fn set_override(&mut self, theme: Option<bbt_ui::Theme>) {
+        self.explicit = theme;
+    }
+    pub fn cycle(&mut self) {
+        self.explicit = match self.explicit {
+            None => Some(bbt_ui::Theme::Light),
+            Some(bbt_ui::Theme::Light) => Some(bbt_ui::Theme::Dark),
+            Some(bbt_ui::Theme::Dark) => None,
+        };
+    }
+}
+fn native_theme(theme: Option<winit::window::Theme>) -> bbt_ui::Theme {
+    if theme == Some(winit::window::Theme::Light) {
+        bbt_ui::Theme::Light
+    } else {
+        bbt_ui::Theme::Dark
+    }
 }
 fn warn(what: &str, error: impl std::fmt::Display) {
     eprintln!("bboxy450-harness gui: {what}: {error}");
@@ -133,6 +180,8 @@ impl App {
                 )
                 .map_err(|e| e.to_string())?,
         );
+        self.appearance.system = native_theme(window.theme());
+        self.apply_theme();
         window.set_ime_allowed(true);
         self.install_menu();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -345,7 +394,7 @@ impl App {
                     backdrop: &backdrop_view,
                     items: &frame.rims,
                     time_ms,
-                    theme: bbt_ui_model::Theme::Dark,
+                    theme: frame.theme,
                     backdrop_key: None,
                 },
             )
@@ -476,6 +525,14 @@ impl App {
             window.request_redraw();
         }
     }
+    fn apply_theme(&mut self) {
+        let theme = self.appearance.theme();
+        self.view.set_theme(theme);
+        self.bridge.set_theme(theme);
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
     /// A press on the drawn title bar (chrome.rs): a window control, the system's
     /// double-click action, a drag through the OS, or the theme control.
     fn titlebar_intent(&mut self, intent: Intent, event_loop: &ActiveEventLoop) {
@@ -495,9 +552,11 @@ impl App {
                     warn("desktop window drag", error);
                 }
             }
-            // The face has one theme (view::context). The control is drawn as the term's
-            // bar has it; cycling the theme waits for a light face.
-            Intent::Theme => {}
+            Intent::Theme => {
+                self.theme_touched = true;
+                self.appearance.cycle();
+                self.apply_theme();
+            }
         }
     }
 }
@@ -514,6 +573,12 @@ impl ApplicationHandler<Wake> for App {
         match event {
             Wake::Frame => {}
             Wake::Desktop(action) => self.desktop_action(action, event_loop),
+            Wake::Appearance(theme) => {
+                if !self.theme_touched {
+                    self.appearance.set_override(theme);
+                    self.apply_theme();
+                }
+            }
             Wake::Zoom(zoom) => {
                 self.view.restore_zoom(zoom, &self.bridge);
             }
@@ -561,6 +626,9 @@ impl ApplicationHandler<Wake> for App {
         });
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
+        if self.appearance.system_event(&event) {
+            self.apply_theme();
+        }
         match event {
             WindowEvent::CloseRequested => {
                 self.bridge.request_detach();
@@ -752,6 +820,8 @@ pub fn run(options: Options) -> Result<Option<tokio::task::JoinHandle<()>>, Stri
         bbt_rt::handle().spawn(async move {
             let zoom = zoom::load(&root).await;
             let _ = proxy.send_event(Wake::Zoom(zoom));
+            let theme = super::zoom::load_theme(&root).await;
+            let _ = proxy.send_event(Wake::Appearance(theme));
         });
     }
     let mut app = App {
@@ -776,6 +846,8 @@ pub fn run(options: Options) -> Result<Option<tokio::task::JoinHandle<()>>, Stri
         proxy,
         menu: None,
         settings_root,
+        appearance: Appearance::default(),
+        theme_touched: false,
     };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     drop(app.menu.take());

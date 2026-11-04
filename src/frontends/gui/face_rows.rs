@@ -14,7 +14,7 @@ use super::super::{
     model::{Transcript, TurnState, ViewItem},
     rich::Face,
 };
-use super::{Preparer, approval_atom, approval_element, context};
+use super::{Preparer, approval_atom, approval_element};
 use crate::protocol::*;
 use bbt_ui::{self as ui, components as c, modules::seat_row::named};
 use std::collections::HashMap;
@@ -283,7 +283,7 @@ impl Preparer {
         gutter: f32,
         content_width: f32,
     ) -> Result<(c::Element, Option<super::super::rich::Body>), String> {
-        let ctx = context();
+        let ctx = self.context();
         let ink = f::ink(ctx);
         let id = row.id;
         let cwd = model
@@ -602,6 +602,7 @@ impl Preparer {
                             panel_width,
                             320.,
                             &self.metrics,
+                            ctx,
                         )?,
                     )
                     .into(),
@@ -853,6 +854,7 @@ impl Preparer {
         content_width: f32,
         ink: &f::Ink,
     ) -> Result<(c::Element, Option<super::super::rich::Body>), String> {
+        let ctx = self.context();
         let cwd = model
             .meta
             .as_ref()
@@ -1095,6 +1097,7 @@ impl Preparer {
                             (content_width - 48.).max(1.),
                             320.,
                             &self.metrics,
+                            ctx,
                         )?,
                     )
                 } else {
@@ -1136,7 +1139,10 @@ impl Preparer {
                     self.zoom.scale(),
                     &self.metrics,
                 )?;
-                inside.push(doc.inset(id, content_width - 48., &self.metrics)?.into());
+                inside.push(
+                    doc.inset(id, content_width - 48., &self.metrics, ctx)?
+                        .into(),
+                );
                 rich = Some(doc);
             } else if d.verb == "Read" && !d.out.is_empty() {
                 let limit = if face.arguments_closed {
@@ -1182,7 +1188,7 @@ impl Preparer {
                     if failed {
                         error_box(&d.out, ink)
                     } else {
-                        plain_box(&d.out, id, content_width - 48., ink, &self.metrics)?
+                        plain_box(&d.out, id, content_width - 48., ink, &self.metrics, ctx)?
                     }
                     .into(),
                 );
@@ -1293,6 +1299,7 @@ fn plain_box(
     width: f32,
     ink: &f::Ink,
     metrics: &impl c::Measure,
+    ctx: ui::Context,
 ) -> Result<c::Element, String> {
     code_panel(
         f::runs(
@@ -1305,6 +1312,7 @@ fn plain_box(
         width.max(1.),
         400.,
         metrics,
+        ctx,
     )
 }
 
@@ -1317,11 +1325,12 @@ fn command_panels(
     ink: &f::Ink,
     metrics: &impl c::Measure,
 ) -> Result<Vec<c::Item>, String> {
+    let ctx = documents.context();
     let python = super::super::rich::python_snippet(command);
     let long = command.contains('\n')
         || command.chars().count() > 80
         || f::line(command, 12., 400, ink.fg, true)
-            .natural(f32::INFINITY, context(), metrics)?
+            .natural(f32::INFINITY, ctx, metrics)?
             .0[0]
             > (width - 122.).max(1.);
     if !long && python.is_none() {
@@ -1338,6 +1347,7 @@ fn command_panels(
             width,
             if face.arguments_closed { 320. } else { 76. },
             metrics,
+            ctx,
         )?
         .into(),
         named(
@@ -1382,6 +1392,7 @@ fn command_panels(
                     width,
                     320.,
                     metrics,
+                    ctx,
                 )?
                 .into(),
             );
@@ -1399,10 +1410,11 @@ fn code_panel(
     width: f32,
     cap: f32,
     metrics: &impl c::Measure,
+    ctx: ui::Context,
 ) -> Result<c::Element, String> {
-    let ink = f::ink(context());
+    let ink = f::ink(ctx);
     super::super::rich::bound_native_runs(&mut content);
-    let ([natural_width, height], _) = content.natural(f32::INFINITY, context(), metrics)?;
+    let ([natural_width, height], _) = content.natural(f32::INFINITY, ctx, metrics)?;
     let mut children = vec![
         named(
             key.to_owned(),
