@@ -228,3 +228,124 @@ fn clean_start_seat_normal_entrypoint_uses_discovered_codex() {
         "idle startup must not launch an agent"
     );
 }
+
+#[test]
+fn clean_start_custom_adapter_in_login_path_and_parse_diagnostics() {
+    let home = fixture::home();
+    fixture::install(home.path(), true);
+    let root = home.path().join(".bboxy450-harness");
+    std::fs::create_dir_all(root.join("profiles")).unwrap();
+    std::fs::create_dir(home.path().join("login-bin")).unwrap();
+    std::fs::rename(
+        home.path().join("bin/codex-acp"),
+        home.path().join("login-bin/private-acp"),
+    )
+    .unwrap();
+    std::fs::write(
+        home.path().join("bin/private-shell"),
+        "#!/bin/sh\nprintf '%s' \"$HOME/login-bin:$HOME/bin\"\n",
+    )
+    .unwrap();
+    let custom=b"---\nname: Custom\nprovider: acp-agent\nagent:\n  command: [private-acp]\n---\nCustom notes.\n";
+    std::fs::write(root.join("profiles/custom.md"), custom).unwrap();
+    selected(&cli(home.path(), &["--profile", "custom"], None), "custom");
+    assert_eq!(fixture::profile(home.path(), "custom"), custom);
+    let argv = std::fs::read_to_string(home.path().join("adapter-argv")).unwrap();
+    let argv: Vec<String> = serde_json::from_str(argv.trim()).unwrap();
+    assert_eq!(
+        std::path::Path::new(&argv[0]).file_name().unwrap(),
+        "private-acp"
+    );
+    for (body, expected) in [
+        ("no frontmatter", "missing profile frontmatter"),
+        (
+            "---\nname: Bad\nprovider: acp-agent\n---\n",
+            "acp-agent profile needs agent.command",
+        ),
+    ] {
+        std::fs::write(root.join("profiles/bad.md"), body).unwrap();
+        let output = cli(home.path(), &["--profile", "bad"], None);
+        assert_eq!(output.status.code(), Some(1));
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            error.contains(expected) && error.contains("gui for setup"),
+            "{error}"
+        );
+    }
+}
+#[test]
+fn clean_start_resume_restores_profile_without_discovery_or_preference_writes() {
+    let home = fixture::home();
+    fixture::install(home.path(), true);
+    use std::{
+        process::Stdio,
+        time::{Duration, Instant},
+    };
+    let socket = home.path().join("interrupted.sock");
+    let mut command = fixture::command(Path::new(EXE), home.path());
+    let mut child = command
+        .args(["seat", "--json", "--socket"])
+        .arg(&socket)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !socket.exists() {
+        if child.try_wait().unwrap().is_some() || Instant::now() >= deadline {
+            let _ = child.kill();
+            let output = child.wait_with_output().unwrap();
+            panic!(
+                "private interrupted seat {pid} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // A crash leaves a resumable log. An ordinary CLI exit deliberately closes
+    // the log and Host must continue to refuse reopening that closed session.
+    assert!(!home.path().join("adapter-argv").exists());
+    child.kill().unwrap();
+    child.wait_with_output().unwrap();
+    let root = home.path().join(".bboxy450-harness");
+    let session = std::fs::read_dir(root.join("sessions"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .find(|p| p.extension().is_some_and(|s| s == "jsonl"))
+        .unwrap();
+    let id = session.file_stem().unwrap().to_str().unwrap();
+    // The original profile remains available to Host; unrelated saved/env
+    // choices must neither replace its identity nor trigger discovery on resume.
+    std::fs::write(root.join("default-profile"), "missing-saved\n").unwrap();
+    std::fs::copy(
+        home.path().join("bin/private-shell"),
+        home.path().join("bin/grok"),
+    )
+    .unwrap();
+    std::fs::remove_file(home.path().join("bin/codex")).unwrap();
+    std::fs::rename(
+        home.path().join("bin/codex-acp"),
+        home.path().join("bin/resume-acp"),
+    )
+    .unwrap();
+    let edited = String::from_utf8(fixture::profile(home.path(), "codex"))
+        .unwrap()
+        .replace("codex-acp", "resume-acp");
+    std::fs::write(root.join("profiles/codex.md"), &edited).unwrap();
+    selected(
+        &cli(home.path(), &["--resume", id], Some("missing-environment")),
+        "codex",
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("default-profile")).unwrap(),
+        "missing-saved\n"
+    );
+    assert_eq!(fixture::profile(home.path(), "codex"), edited.as_bytes());
+    assert_eq!(std::fs::read_dir(root.join("profiles")).unwrap().count(), 1);
+    let argv = std::fs::read_to_string(home.path().join("adapter-argv")).unwrap();
+    assert_eq!(argv.lines().count(), 1);
+    assert!(argv.lines().last().unwrap().contains("resume-acp"));
+}

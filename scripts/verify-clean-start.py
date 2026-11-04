@@ -15,10 +15,21 @@ OUT=Path(tempfile.mkdtemp(prefix='bb-clean-start-gate-',dir='/tmp'))
 env=dict(os.environ,RUSTC_WRAPPER='',CARGO_BUILD_JOBS='2',CARGO_PROFILE_DEV_DEBUG='0',RUST_TEST_THREADS='2',CLEAN_START_PYTHON=sys.executable,CLIPPY_CONF_DIR=str(ROOT/'src/frontends/gui/lint'))
 cargo=['--offline','--locked','--jobs','2','--target-dir',str(TARGET),'-p','bboxy450-harness']
 def hashes():
- paths=['Makefile','ATTRIBUTION.md','scripts/verify-clean-start.py','src/onboarding.rs','src/frontends/headless.rs','src/frontends/gui/options.rs','src/frontends/gui/window.rs','src/frontends/gui/bridge.rs','tests/clean_start.rs','tests/support/clean_start.rs','tests/support/onboarding_startup.rs']
+ paths=['Makefile','ATTRIBUTION.md','scripts/verify-clean-start.py','src/onboarding.rs','src/backend/acp_agent.rs','src/frontends/headless.rs','src/frontends/gui/options.rs','src/frontends/gui/window.rs','src/frontends/gui/bridge.rs','tests/clean_start.rs','tests/support/clean_start.rs','tests/support/onboarding_startup.rs']
  return {name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in paths}
 initial=hashes()
 commands=[]
+reused=[]
+if prior:=os.environ.get('CLEAN_START_REUSE_RECEIPT'):
+ baseline=json.loads(Path(prior).read_text())
+ changed={'scripts/verify-clean-start.py','src/frontends/headless.rs','tests/clean_start.rs','tests/support/clean_start.rs'}
+ for name,digest in baseline['source_hashes'].items():
+  if name not in changed: assert initial[name]==digest, 'Unchanged check source moved: '+name
+ for command in baseline['commands']:
+  if command['name'] in {'gui-option-parsing','actual-bridge-precedence-and-existing-setup'}:
+   assert command['exit_code']==0 and hashlib.sha256(Path(command['log']).read_bytes()).hexdigest()==command['sha256']
+   reused.append(command)
+ assert len(reused)==2
 for name,command in [
  ('private-process-and-native-gui',['cargo','nextest','run',*cargo,'--features','standalone','--test','clean_start']),
  ('gui-option-parsing',['cargo','nextest','run',*cargo,'--features','standalone','--test','gui_cli']),
@@ -27,6 +38,7 @@ for name,command in [
  ('embedded-without-acp',['cargo','check',*cargo,'--no-default-features','--features','embedded','--lib']),
  ('license-headers',['make','test-licenses']),
 ]:
+ if any(c['name']==name for c in reused): continue
  log=OUT/(name+'.log')
  with log.open('w') as stream:
   result=subprocess.run(command,cwd=ROOT,env=env,stdout=stream,stderr=subprocess.STDOUT)
@@ -36,7 +48,7 @@ for name,command in [
   print(log.read_text()[-7000:],file=sys.stderr)
   raise SystemExit(result.returncode)
 assert initial==hashes(), "Source changed during verification"
-receipt=dict(source_hashes=initial,commands=commands,operator_input=False,raw_logs=str(OUT),unchanged_contracts=['protocol','runtime','installer ownership','create-new profile publication'],default_file_written=False)
+receipt=dict(source_hashes=initial,commands=commands,reused_commands=reused,operator_input=False,raw_logs=str(OUT),unchanged_contracts=['protocol','runtime','installer ownership','create-new profile publication'],default_file_written=False)
 (OUT/'receipt.json').write_text(json.dumps(receipt,indent=2)+'\n')
 print('clean-start receipt: '+str(OUT/'receipt.json'),flush=True)
 if value:=os.environ.get('CLEAN_START_RECEIPT'):

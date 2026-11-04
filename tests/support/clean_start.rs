@@ -16,6 +16,9 @@ pub fn home() -> tempfile::TempDir {
         .tempdir_in("/tmp")
         .unwrap();
     std::fs::create_dir(home.path().join("bin")).unwrap();
+    let shell = home.path().join("bin/private-shell");
+    std::fs::write(&shell, "#!/bin/sh\nprintf '%s' \"$HOME/bin\"\n").unwrap();
+    std::fs::set_permissions(shell, std::fs::Permissions::from_mode(0o700)).unwrap();
     home
 }
 pub fn install(home: &Path, adapter: bool) {
@@ -61,6 +64,7 @@ pub fn command(program: &Path, home: &Path) -> Command {
         .env_clear()
         .env("HOME", home)
         .env("PATH", home.join("bin"))
+        .env("SHELL", home.join("bin/private-shell"))
         .env("BBOXY_REDUCED_MOTION", "1")
         .env("RUST_TEST_THREADS", "1")
         .current_dir(home);

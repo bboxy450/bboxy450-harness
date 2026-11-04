@@ -297,18 +297,19 @@ async fn run_cli(
             tokio::select! {biased;_=stop.cancelled()=>return Ok(0),p=Profile::load(&p)=>p};
         // Fail before creating a session when local setup cannot launch it.
         // Resolve only the executable, never any credential command.
+        #[cfg(feature = "acp-agent")]
         if let Ok(p) = &loaded && resume.is_none() && p.is_acp_agent() {
-            let command = p.agent.as_ref().unwrap().command[0].clone();
-            let env = crate::onboarding::Environment::host(root.join("profiles"));
-            let cwd = cwd.clone();
-            let available = crate::runtime::blocking(move || env.is_some_and(|e| {
-                let name = if command.contains('/') {cwd.join(&command).to_string_lossy().into_owned()} else {command};
-                e.executable(&name).is_some()
-            })).await;
-            if !available { return Err(crate::onboarding::setup_guidance(&profile)); }
+            let command = &p.agent.as_ref().unwrap().command[0];
+            // Match the real ACP spawn path, including login-shell PATH. Direct
+            // paths retain Command's existing cwd-relative launch semantics.
+            if !command.contains('/') {
+                let path = crate::backend::acp_agent::login_path().await;
+                crate::backend::acp_agent::find_agent(command, path, &cwd).await
+                    .map_err(|e| format!("{e}; {}", crate::onboarding::setup_guidance(&profile)))?;
+            }
         }
         match loaded {
-            Err(_) if resume.is_none() => return Err(crate::onboarding::setup_guidance(&profile)),
+            Err(e) if resume.is_none() => return Err(format!("{}; {}", e.message, crate::onboarding::setup_guidance(&profile))),
             Ok(p) if defer_acp_profile => {
                 // Advertise capabilities without executing a credential command.
                 // Host resolves the real provider inside its cancellable factory.
