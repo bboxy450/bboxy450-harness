@@ -95,6 +95,12 @@ impl AuditFixture {
         self.logs.insert(session, log);
     }
     pub fn new(stale: bool) -> Self {
+        Self::build(stale, false)
+    }
+    pub fn skipped() -> Self {
+        Self::build(false, true)
+    }
+    fn build(stale: bool, skipped: bool) -> Self {
         let mut fixture = Fixture::new();
         let producer = fixture.approve_fixture();
         let sessions = fixture.repo.home.path().join("sessions");
@@ -350,7 +356,9 @@ impl AuditFixture {
                 (block.len() - receipt::render_index(&[], &sink.kind).unwrap().len()) as u64;
             let hash = bboxy450_harness::dream::fingerprint::digest(&block);
             let temp = target.with_file_name(format!(".dream-tmp-{}", ulid::Ulid::new()));
-            let ops = if which == 0 {
+            let ops = if skipped {
+                vec![]
+            } else if which == 0 {
                 vec![
                     json!({"i":0,"op":"read","path":target,"result":"absent"}),
                     json!({"i":1,"op":"create_temp","path":temp,"result":"ok"}),
@@ -375,7 +383,7 @@ impl AuditFixture {
                 run_owner.admit().unwrap().finish(effect.operation).unwrap();
             }
             // Fixture materialization uses actual no-replace/link and fsync, with an independent byte observation.
-            if which == 0 {
+            if !skipped && which == 0 {
                 use std::io::Write;
                 let mut fd = std::fs::OpenOptions::new()
                     .create_new(true)
@@ -390,12 +398,19 @@ impl AuditFixture {
                     .sync_all()
                     .unwrap();
                 std::fs::remove_file(&temp).unwrap();
-            } else {
+            } else if !skipped {
                 assert_eq!(std::fs::read(&target).unwrap(), block);
             }
             let mut body = run_body(publication, f.producer.clone());
             body.kind = ReceiptKind::Publication;
-            body.outcome = outcome;
+            body.outcome = if skipped {
+                ReceiptOutcome::Skipped
+            } else {
+                outcome
+            };
+            if skipped {
+                body.skip_reason = Some("private publication refusal".into());
+            }
             body.harness = Some("engine".into());
             body.sink = Some(sink.clone());
             body.sources = None;
@@ -441,21 +456,23 @@ impl AuditFixture {
             write_blob(&f.sessions, publication, &carrier, &bytes);
             let index = log.len();
             completed(&mut log, publication, id, carrier);
-            let adoption = item(60 + which);
-            begin(&mut log, publication, adoption, ItemKind::Adoption);
-            completed(
-                &mut log,
-                publication,
-                adoption,
-                Item::Adoption {
-                    entry: entry.clone(),
-                    harness: "engine".into(),
-                    sink,
-                    record: Some(pin.clone()),
-                    block_digest: entry::digest(&block),
-                    receipt: Some(format!("sha256:{sha}")),
-                },
-            );
+            if !skipped {
+                let adoption = item(60 + which);
+                begin(&mut log, publication, adoption, ItemKind::Adoption);
+                completed(
+                    &mut log,
+                    publication,
+                    adoption,
+                    Item::Adoption {
+                        entry: entry.clone(),
+                        harness: "engine".into(),
+                        sink,
+                        record: Some(pin.clone()),
+                        block_digest: entry::digest(&block),
+                        receipt: Some(format!("sha256:{sha}")),
+                    },
+                );
+            }
             run_owner
                 .admit()
                 .unwrap()
@@ -514,6 +531,27 @@ impl AuditFixture {
             f.finish(terminal, log, Owner::default(), vec![]);
         }
         f
+    }
+    pub fn add_reported_recall(&mut self) {
+        let session = sid(6);
+        let mut log = start(session, &self.fixture.repo.path, false);
+        let body = &self.publications[0].2;
+        begin(&mut log, session, item(80), ItemKind::Recall);
+        completed(
+            &mut log,
+            session,
+            item(80),
+            Item::Recall {
+                entry: self.entry.clone(),
+                basis: RecallBasis::Reported,
+                record: Some(self.record.clone()),
+                sink: body.sink.clone(),
+                block_digest: Some(body.selection.as_ref().unwrap().block_digest.clone()),
+            },
+        );
+        push(&mut log, session, Event::SessionClosed);
+        write_log(&self.sessions, session, &log);
+        self.logs.insert(session, log);
     }
     pub async fn resolver(&self) -> bboxy450_harness::dream::resolve::Resolver {
         let root = bboxy450_harness::dream::resolve::Root::open(

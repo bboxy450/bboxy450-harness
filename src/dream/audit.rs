@@ -826,6 +826,10 @@ async fn audit_receipts(
                     })
                     .await,
                 );
+                if publication.body.outcome == ReceiptOutcome::Skipped {
+                    audit.labels.push(json!({"kind":"skipped","receipt":publication.blob.sha256,"reason":publication.body.skip_reason}));
+                    continue;
+                }
                 let harness = publication.body.harness.as_deref().unwrap_or("");
                 for entry in entries {
                     if audit

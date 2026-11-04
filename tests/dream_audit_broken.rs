@@ -381,3 +381,47 @@ async fn sufficient_retained_publication_run_idempotence_and_stale_exposure_acce
         );
     }
 }
+
+#[tokio::test]
+async fn reported_recall_requires_successful_publication_not_a_valid_skip() {
+    for skipped in [false, true] {
+        let mut fixture = if skipped {
+            sufficient::AuditFixture::skipped()
+        } else {
+            sufficient::AuditFixture::new(false)
+        };
+        let mut resolver = fixture.resolver().await;
+        let before = audit::run(&mut resolver, Set::default(), false, 0)
+            .await
+            .unwrap();
+        assert_eq!(
+            before.exit_code(),
+            0,
+            "{}",
+            serde_json::to_string(&before).unwrap()
+        );
+        assert_eq!(
+            before.graph.nodes.values().any(|n| n.kind == "sink_line"),
+            !skipped
+        );
+        fixture.add_reported_recall();
+        let mut resolver = fixture.resolver().await;
+        let report = audit::run(&mut resolver, Set::default(), false, 0)
+            .await
+            .unwrap();
+        assert_eq!(
+            report.exit_code(),
+            i32::from(skipped),
+            "skipped={skipped}: {}",
+            serde_json::to_string(&report.findings).unwrap()
+        );
+        if skipped {
+            assert!(
+                report
+                    .findings
+                    .iter()
+                    .any(|f| f.check == "P2" && f.detail == "recall_publication_binding")
+            );
+        }
+    }
+}
