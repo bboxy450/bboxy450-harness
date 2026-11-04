@@ -325,8 +325,11 @@ impl Preparer {
                     self.zoom.scale(),
                     &self.metrics,
                 )?;
-                let bubble = f::prompt_bubble(doc.element.clone(), "YOU", false, &ink);
-                rich = Some(doc);
+                let content = f::prompt_content(doc.element.clone(), id, face.source, &text, &ink);
+                let bubble = f::prompt_bubble(content, "YOU", false, &ink);
+                if !face.source {
+                    rich = Some(doc);
+                }
                 bubble
             }
             Item::AgentMessage { markdown } if folds.loops.contains_key(&id) => {

@@ -5,6 +5,7 @@
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 
+#![allow(clippy::disallowed_methods)] // Private fixture/model IO runs outside the UI thread.
 #[path = "formal/export.rs"]
 mod export;
 #[path = "formal/models.rs"]
@@ -109,6 +110,26 @@ fn attachments_intake_native_model_and_control() {
             "delayed response across same-session reconnects must be reachable"
         );
         export::export(model, expected, root, &mut manifest).unwrap();
+    }
+    std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
+}
+
+#[test]
+fn onboarding_install_native_model_and_control() {
+    let root = std::path::PathBuf::from(
+        std::env::var("ONBOARDING_FORMAL_OUT")
+            .unwrap_or_else(|_| "target/harness-onboarding/formal".into()),
+    );
+    std::fs::create_dir_all(&root).unwrap();
+    let mut manifest = String::new();
+    for broken in [false, true] {
+        export::export(
+            models::onboarding_install(broken),
+            if broken { "safety" } else { "pass" },
+            &root,
+            &mut manifest,
+        )
+        .unwrap();
     }
     std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
 }

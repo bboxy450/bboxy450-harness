@@ -18,6 +18,7 @@ pub mod runtime;
 pub mod store;
 
 pub mod provider;
+pub mod onboarding;
 
 pub mod policy;
 

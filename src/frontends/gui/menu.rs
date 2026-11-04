@@ -543,7 +543,7 @@ impl ProfileMenu {
             vec![
                 fixed(named(
                     "pmenu/new",
-                    tight("+ New profile", 11., 650, ink.seat, false),
+                    tight("Set up agents / profiles", 11., 650, ink.seat, false),
                 )),
                 fill(c::Element::Spacer),
                 fixed(tight(

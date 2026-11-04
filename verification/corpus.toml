@@ -631,3 +631,13 @@ frontend = "project"
 name = "BrokenHarnessAttachmentCapability"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessOnboardingInstall"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessOnboardingInstall"
+expected = "safety"
+frontend = "project"

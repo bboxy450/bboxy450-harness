@@ -140,3 +140,9 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
   and the project's absolute attribution policy URL with reuse of the icon.
 
 - Shared composer attachment custody, workspace completion, async ownership fences and private native/ACP/formal witnesses are project-owned; retain this policy with extracted implementations.
+
+Local harness discovery, create-new editable profiles, fixed-argv setup installation
+and shared user Markdown bubbles are project-authored contributions. Adapter
+commands and recipes are factual contracts reviewed from the ACP registry,
+https://github.com/agentclientprotocol/registry, and the linked adapter projects;
+no registry code or dynamically downloaded installer command is embedded.

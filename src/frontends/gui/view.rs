@@ -153,6 +153,9 @@ pub enum Action {
     Menu(bool),
     /// The switcher's `+ New profile`: the native form is not built yet.
     NewProfile,
+    Setup(bool),
+    InstallAdapter(crate::onboarding::Recipe),
+    CancelInstall(crate::onboarding::Agent),
     /// An empty-session chip: 0 opens the "/" menu, 1 inserts `@`, 2 focuses the composer.
     Chip(u8),
 }
@@ -229,6 +232,9 @@ pub struct HarnessView {
     approval: Option<(ItemId, ui::modules::approval::Approval)>,
     completion: Option<ui::text_edit::CompletionPopover>,
     profile_menu: Option<super::menu::ProfileMenu>,
+    setup_open: bool,
+    setup_dismissed: bool,
+    setup_visible: bool,
     config_scroll: f32,
     config_menu_rect: Option<Rect>,
     pub scroll: chat_scroll::State,
@@ -351,6 +357,9 @@ impl Default for HarnessView {
             approval: None,
             completion: None,
             profile_menu: None,
+            setup_open: false,
+            setup_dismissed: false,
+            setup_visible: false,
             config_scroll: 0.,
             config_menu_rect: None,
             scroll: Default::default(),
@@ -552,6 +561,41 @@ impl HarnessView {
         first_frame: bool,
         ink: &super::face::Ink,
     ) -> Result<TranscriptColumn, String> {
+        if self.setup_open
+            || (!self.setup_dismissed
+                && !state.onboarding.entries.is_empty()
+                && state.transcript.turns.is_empty()
+                && state.pending_prompts.is_empty()
+                && (state.profiles.is_empty()
+                    || (state.transcript.turns.is_empty()
+                        && !state.profiles.iter().any(|p| {
+                            state
+                                .transcript
+                                .profile
+                                .as_ref()
+                                .map(|(name, _)| name.as_str())
+                                .or_else(|| {
+                                    state
+                                        .transcript
+                                        .meta
+                                        .as_ref()
+                                        .and_then(|m| m.profile.as_deref())
+                                })
+                                == Some(p.name.as_str())
+                        }))))
+        {
+            if !self.setup_visible {
+                self.scroll.anchor(0., f32::MAX);
+                self.setup_visible = true;
+            }
+            let element = super::setup::element(&state.onboarding, self.context());
+            let height = element
+                .layout(Rect::new(0., 0., width, 0.), self.context(), &self.metrics)?
+                .rect
+                .h;
+            return Ok((element, Some(height), HashMap::new()));
+        }
+        self.setup_visible = false;
         let model = &state.transcript;
         let mut children = vec![];
         let mut total = 0.;
@@ -758,7 +802,12 @@ impl HarnessView {
             self.zoom.percent(),
             self.chrome,
         );
-        let draft = format!("{draft}{:p}", Arc::as_ptr(&state.pending_prompts));
+        let draft = format!(
+            "{draft}{:p}{:p}{}",
+            Arc::as_ptr(&state.pending_prompts),
+            Arc::as_ptr(&state.onboarding),
+            self.setup_open
+        );
         // a hover change rebuilds too: the menu row's fill starts its fade
         if !self.anim.in_motion()
             && !self.menus.dirty
@@ -1317,6 +1366,26 @@ impl HarnessView {
         ] {
             if let Some(node) = find(&layout, key) {
                 frame.actions.push((node.rect, action));
+            }
+        }
+        for prompt in state.pending_prompts.values() {
+            let id = ItemId(prompt.op.0);
+            if let Some(node) = find(&layout, &format!("source/{id}/toggle")) {
+                let r = intersection(node.rect, scroll_node.rect);
+                if r.w > 0. && r.h > 0. {
+                    frame
+                        .actions
+                        .push((r, Action::Toggle(id, super::rich::Toggle::Source)));
+                    frame.hover.push((r, format!("source/{id}/toggle")));
+                }
+            }
+        }
+        for (key, action) in super::setup::actions(&state.onboarding) {
+            if let Some(node) = find(&layout, &key) {
+                let r = intersection(node.rect, scroll_node.rect);
+                if r.w > 0. && r.h > 0. {
+                    frame.actions.push((r, action));
+                }
             }
         }
         frame.layout = Some(layout);
@@ -1974,15 +2043,25 @@ impl HarnessView {
                 return;
             }
             Action::Profiles => return self.toggle_profile_menu(),
-            Action::SwitchProfile(name) => return self.switch_to(&name, bridge),
+            Action::SwitchProfile(name) => {
+                self.setup_open = false;
+                return self.switch_to(&name, bridge);
+            }
             Action::Menu(true) => return,
             Action::Menu(false) => self.profile_menu = None,
+            Action::Setup(open) => {
+                self.setup_open = open;
+                self.setup_dismissed = !open;
+                self.scroll.follow_latest();
+            }
+            Action::InstallAdapter(recipe) => {
+                self.notice = bridge.install_adapter(recipe).err().map(str::to_owned);
+            }
+            Action::CancelInstall(agent) => bridge.cancel_install(agent),
             Action::NewProfile => {
                 self.profile_menu = None;
-                self.notice = Some(
-                    "New profile: add NAME.md to ~/.bboxy450-harness/profiles (no native form yet)"
-                        .into(),
-                );
+                self.setup_open = true;
+                self.scroll = Default::default();
             }
             Action::Toggle(item, toggle) => bridge.toggle(item, toggle),
             Action::Chip(which) => {
@@ -2852,6 +2931,7 @@ impl Preparer {
         &mut self,
         prepared: &mut PreparedRows,
         prompts: &im::OrdMap<OpId, super::bridge::PendingPrompt>,
+        faces: &super::rich::Faces,
     ) -> Result<(), String> {
         let ctx = self.context();
         let ink = super::face::ink(ctx);
@@ -2869,8 +2949,12 @@ impl Preparer {
                 self.zoom.scale(),
                 &self.metrics,
             )?;
+            let id = ItemId(prompt.op.0);
+            let source = faces.get(&id).is_some_and(|f| f.source);
+            let content =
+                super::face::prompt_content(doc.element.clone(), id, source, &prompt.text, &ink);
             let bubble = super::face::prompt_bubble(
-                doc.element.clone(),
+                content,
                 &format!("YOU · {}", prompt.status),
                 true,
                 &ink,
@@ -2886,7 +2970,9 @@ impl Preparer {
             super::face::zoom_text(&mut element, self.zoom.scale());
             let mut layout =
                 element.layout(Rect::new(0., 0., prepared.width, 0.), ctx, &self.metrics)?;
-            super::rich::restore(&mut layout, &doc.blocks);
+            if !source {
+                super::rich::restore(&mut layout, &doc.blocks);
+            }
             prepared.pending.insert(prompt.op, Arc::new(layout));
         }
         Ok(())
@@ -3273,7 +3359,9 @@ mod onboarding_markdown_tests {
     use super::*;
     #[tokio::test]
     async fn onboarding_user_markdown_pending_and_history() {
-        crate::runtime::blocking(|| {
+        let device = bbt_render::device::DeviceContext::new().await.unwrap();
+        crate::runtime::blocking(move || {
+            let mut renderer=bbt_render::chrome::ChromeRenderer::with_context(device,super::super::assets::icons()).unwrap();
             let source_text = "# Heading\n\n- **bold** [link](https://example.com) `inline`\n\n```python\nprint('never executed')\n```";
             let base: Envelope = serde_json::from_str(include_str!("../../../tests/fixtures/protocol/all-items.jsonl").lines().next().unwrap()).unwrap();
             let mut model = Transcript::default();
@@ -3293,7 +3381,7 @@ mod onboarding_markdown_tests {
                 for width in [280., 440.] {
                     let mut p = Preparer::default(); p.set_theme(theme);
                     let mut prepared = p.prepare(Arc::new(model.clone()), width).unwrap();
-                    p.prepare_pending(&mut prepared, &prompts).unwrap();
+                    p.prepare_pending(&mut prepared, &prompts, &Default::default()).unwrap();
                     let row = &prepared.rows[&id].layout;
                     let pending = &prepared.pending[&prompt.op];
                     fn text(n: &c::Layout) -> String {
@@ -3305,6 +3393,7 @@ mod onboarding_markdown_tests {
                         let t = text(node);
                         for want in ["Heading", "bold", "link", "inline", "never executed"] { assert!(t.contains(want), "missing {want}: {t}"); }
                         assert!(!t.contains("**bold**"));
+                        assert!(t.contains("bold link"),"Markdown span separators must survive: {t}");
                         assert!(node.rect.h > 90.);
                         fn bounds(n: &c::Layout, width: f32) { if let c::LayoutKind::Text { runs, .. } = &n.kind { for r in runs { assert!(r.rect.right() <= width + 2., "{:?} > {width}", r.rect); } } for child in &n.children { bounds(child, width); } }
                         bounds(node, width);
@@ -3312,7 +3401,24 @@ mod onboarding_markdown_tests {
                     assert!(text(row).contains("caption.txt"));
                     assert!(text(pending).contains("Queued"));
                     assert!(prepared.source.items[&id].body == model.items[&id].body);
-                    let empty = im::OrdMap::new(); p.prepare_pending(&mut prepared, &empty).unwrap();
+                    let state=super::super::bridge::FrameState { transcript:Arc::new(model.clone()),prepared:Some(Arc::new(prepared)),pending_prompts:Arc::new(prompts.clone()),ready:true,replay:true,..Default::default() };
+                    let mut view=HarnessView::default(); view.set_theme(theme);
+                    let frame=view.render(&state,[width,1000.]).unwrap();
+                    let visible=layout_text(frame.layout.as_ref().unwrap());
+                    assert!(visible.contains("Queued") && visible.contains("Heading"));
+                    assert!(frame.item_text(id).unwrap().contains("caption.txt"),"queued row must retain prior history paint");
+                    let rgba=renderer.render_to_rgba(&frame.list,width as u32,1000,1.).unwrap();
+                    if let Some(out)=std::env::var_os("ONBOARDING_CAPTURE_DIR") {
+                        let out=std::path::PathBuf::from(out); std::fs::create_dir_all(&out).unwrap();
+                        let mut encoder=png::Encoder::new(std::fs::File::create(out.join(format!("user-{theme:?}-{width}.png"))).unwrap(),width as u32,1000);
+                        encoder.set_color(png::ColorType::Rgba); encoder.set_depth(png::BitDepth::Eight);
+                        encoder.write_header().unwrap().write_image_data(&rgba).unwrap();
+                    }
+                    let faces=im::ordmap! {id => super::super::rich::Face {source:true,..Default::default()}};
+                    let source=p.prepare_with_faces(Arc::new(model.clone()),width,&faces).unwrap();
+                    assert!(layout_text(&source.rows[&id].layout).contains("**bold**"),"selectable original source stays available");
+                    let mut prepared=p.prepare(Arc::new(model.clone()),width).unwrap();
+                    let empty = im::OrdMap::new(); p.prepare_pending(&mut prepared, &empty, &Default::default()).unwrap();
                     assert!(prepared.rows.contains_key(&id));
                 }
             }

@@ -1439,6 +1439,39 @@ pub fn group_member(card: c::Element, index: usize, n: usize, ink: &Ink) -> c::E
 }
 
 // ---------- conversation blocks ----------
+/// The source toggle preserves selectable exact input Markdown beside its rich form.
+pub fn prompt_content(
+    body: c::Element,
+    id: ItemId,
+    source: bool,
+    raw: &str,
+    ink: &Ink,
+) -> c::Element {
+    let content = if source {
+        let mut t = text(raw, 13.5, 400, ink.fg, true);
+        t.preserve_whitespace = true;
+        c::Element::Text(t)
+    } else {
+        body
+    };
+    vstack(
+        vec![
+            content.into(),
+            named(
+                format!("source/{id}/toggle"),
+                line(
+                    if source { "formatted" } else { "source" },
+                    10.5,
+                    500,
+                    ink.dim,
+                    true,
+                ),
+            )
+            .into(),
+        ],
+        2.,
+    )
+}
 /// Shared bubble chrome; Markdown is prepared off the UI thread by Preparer.
 pub fn prompt_bubble(body: c::Element, caption: &str, pending: bool, ink: &Ink) -> c::Element {
     let accent = if pending { ink.dim } else { ink.seat };
@@ -2334,7 +2367,7 @@ pub fn zoom_pill(label: &str, ink: &Ink) -> c::Element {
         vec![fixed(c::Element::Text(t))],
     )
 }
-fn identity_mark(ink: &Ink, halo_a: f32, halo_s: f32, key: &str) -> c::Element {
+pub(crate) fn identity_mark(ink: &Ink, halo_a: f32, halo_s: f32, key: &str) -> c::Element {
     // the mark: 52 round; the halo ring 6 px outside it, so a 64 box at rest
     const SIDE: f32 = 64.;
     let r = SIDE / 2.;

@@ -40,3 +40,6 @@ pub mod zoom;
 
 #[cfg(feature = "embedded")]
 pub mod attachments;
+
+#[cfg(feature = "embedded")]
+pub mod setup;

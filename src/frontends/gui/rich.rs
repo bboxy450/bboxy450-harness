@@ -715,6 +715,11 @@ fn transcript_type(
             }
         }
         c::Element::Text(t) => {
+            // Inline fragments share one line: retain the original separators
+            // between emphasis, links and code rather than trimming each fragment.
+            if in_flow {
+                t.preserve_whitespace = true;
+            }
             let mono = t.runs.iter().any(|r| r.style.mono);
             let prose = t.runs.iter().any(|r| !r.style.mono);
             // a code block is all mono; inline code shares its text with prose, or is a

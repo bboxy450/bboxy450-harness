@@ -459,3 +459,14 @@ implementation_tests = ["tests/harness_attachments.rs", "src/frontends/gui/bridg
 assumptions = "Three fresh connection births abstract random challenge nonces, including A/B/A and reconnects of the same session/epoch. Absent/old actors can acknowledge queries without ever advertising; no response fairness is assumed. Only a matching live response grants image intake; reconnect revokes the grant. Text sends do not require the image capability. Framing, ephemeral-only response admission, actual sessions/epochs, retained PNG bytes and old-wire acknowledgement are implementation witnesses, not an arbitrary Rust refinement proof."
 property = "NoImageWithoutCurrentActorProof. The broken control sends without the capability guard."
 checks = ["make verify-harness-attachments", "make test-formal"]
+
+[[contract]]
+name = "HarnessOnboardingInstall"
+title = "Explicit installation retains sole ownership through cancellation and reap; stale completions cannot settle replacement work."
+models = ["HarnessOnboardingInstall", "BrokenHarnessOnboardingInstall"]
+controls = [{name="BrokenHarnessOnboardingInstall", expected="safety"}]
+sources = ["src/onboarding.rs", "src/frontends/gui/setup.rs", "src/frontends/gui/bridge.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/harness_onboarding.rs", "src/onboarding.rs"]
+assumptions = "One agent, three monotonic attempts including A/B/A, one delayed duplicate completion. Click, cancel, reap and finish are atomic short-lock actions. Reap retains the existing OwnedChild ownership fence; WF(Reap) abstracts the fixed 180s deadline. Different agents proceed independently. Source uses Yarn model frontend and native/TLC complete graphs and verdicts. Filesystem hard-link atomicity, installed CLI identity/version, manager internals, environment filtering, wall time, pipe/output bounds, UI rendering and actual process groups remain implementation witnesses. No arbitrary Rust refinement or vendor inference claim."
+property = "AtMostOneOwnedInstaller; OnlyCurrentCompletionSettles; DeadlineEventuallyReaps under WF(Reap). Removing the admission/generation guards must fail."
+checks = ["make verify-harness-onboarding"]

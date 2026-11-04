@@ -4044,6 +4044,8 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (acp_controls(2), "safety"),
         (attachment_capability(false), "pass"),
         (attachment_capability(true), "safety"),
+        (onboarding_install(false), "pass"),
+        (onboarding_install(true), "safety"),
         (attachment_intake(false), "pass"),
         (attachment_intake(true), "safety"),
         (gui_pending(0), "pass"),
@@ -4343,5 +4345,81 @@ pub fn attachment_capability(b: bool) -> Model {
     );
     act(&mut m, "SendText", Bool(true), &[]);
     safe(&mut m, "NoImageWithoutCurrentActorProof", eq(4, 0));
+    m
+}
+
+/// One agent, three monotonic install attempts (A/B/A), one delayed duplicate
+/// completion. Click/cancel/reap/completion are atomic short-lock operations.
+/// Reap includes the existing OwnedChild wait fence; weak fairness abstracts the
+/// 180s deadline, which is witnessed by the real process implementation.
+pub fn onboarding_install(b: bool) -> Model {
+    use Expr::{Int, Var};
+    use bbt_yarn::model::{Action, Expr, Invariant, Model, Response, Variable};
+    let mut m = Model::new(
+        if b {
+            "BrokenHarnessOnboardingInstall"
+        } else {
+            "HarnessOnboardingInstall"
+        },
+        vec![
+            Variable::new("generation", 0, 3, 0),
+            Variable::new("owner", 0, 3, 0),
+            Variable::new("active", 0, 2, 0),
+            Variable::new("old", 0, 3, 0),
+            Variable::new("cancelled", 0, 1, 0),
+            Variable::new("crossed", 0, 1, 0),
+        ],
+    );
+    m.check_deadlock = false;
+    m.actions.push(Action::new(
+        "Click",
+        Var(0).lt(Int(3)).and(if b {
+            Var(2).lt(Int(2))
+        } else {
+            Var(2).eq(Int(0))
+        }),
+        vec![
+            (0, Var(0).plus(Int(1))),
+            (1, Var(0).plus(Int(1))),
+            (2, Var(2).plus(Int(1))),
+            (
+                3,
+                Expr::Ite(
+                    Box::new(Var(3).eq(Int(0))),
+                    Box::new(Var(0).plus(Int(1))),
+                    Box::new(Var(3)),
+                ),
+            ),
+        ],
+    ));
+    m.actions
+        .push(Action::new("Cancel", Var(2).eq(Int(1)), vec![(4, Int(1))]));
+    m.actions.push(Action::new(
+        "Reap",
+        Var(2).eq(Int(1)),
+        vec![(2, Int(0)), (4, Int(0))],
+    ));
+    m.actions.push(Action::new(
+        "DelayedComplete",
+        Int(0)
+            .lt(Var(3))
+            .and(Var(2).eq(Int(1)))
+            .and(Var(1).eq(Var(3)).negate()),
+        vec![(5, if b { Int(1) } else { Var(5) })],
+    ));
+    m.invariants.push(Invariant {
+        name: "AtMostOneOwnedInstaller".into(),
+        condition: Var(2).lt(Int(2)),
+    });
+    m.invariants.push(Invariant {
+        name: "OnlyCurrentCompletionSettles".into(),
+        condition: Var(5).eq(Int(0)),
+    });
+    m.responses.push(Response {
+        name: "DeadlineEventuallyReaps".into(),
+        request: Var(2).eq(Int(1)),
+        response: Var(2).eq(Int(0)),
+    });
+    m.weak_fair.push(vec![2]);
     m
 }

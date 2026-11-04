@@ -139,6 +139,7 @@ pub struct FrameState {
     pub ready: bool,
     /// Profiles in the machine-global profiles directory, for the switcher.
     pub profiles: Arc<Vec<ProfileInfo>>,
+    pub onboarding: Arc<crate::onboarding::Snapshot>,
     pub profile_error: Option<String>,
     #[cfg(feature = "embedded")]
     pub prepared: Option<Arc<super::view::PreparedRows>>,
@@ -278,6 +279,7 @@ struct Mailbox {
     published: AtomicU64,
     blobs: arc_swap::ArcSwapOption<crate::store::Blobs>,
     profiles: arc_swap::ArcSwap<Vec<ProfileInfo>>,
+    onboarding: arc_swap::ArcSwap<crate::onboarding::Snapshot>,
     profile_error: arc_swap::ArcSwapOption<String>,
     #[cfg(feature = "embedded")]
     faces: arc_swap::ArcSwap<super::rich::Faces>,
@@ -356,6 +358,7 @@ pub struct Bridge {
     worker: Option<tokio::task::JoinHandle<()>>,
     /// Profile switches for the live session's host worker.
     switch: Option<tokio::sync::mpsc::UnboundedSender<String>>,
+    setup: Option<Arc<crate::onboarding::Controller>>,
     #[cfg(feature = "test-fixtures")]
     before_host: Option<BeforeHost>,
 }
@@ -379,6 +382,7 @@ impl Bridge {
                 published: AtomicU64::new(0),
                 blobs: arc_swap::ArcSwapOption::empty(),
                 profiles: arc_swap::ArcSwap::from_pointee(vec![]),
+                onboarding: arc_swap::ArcSwap::from_pointee(Default::default()),
                 profile_error: arc_swap::ArcSwapOption::empty(),
                 #[cfg(feature = "embedded")]
                 faces: arc_swap::ArcSwap::from_pointee(Default::default()),
@@ -389,6 +393,7 @@ impl Bridge {
             detach: CancellationToken::new(),
             worker: None,
             switch: None,
+            setup: None,
             #[cfg(feature = "test-fixtures")]
             before_host: None,
         }
@@ -493,12 +498,46 @@ impl Bridge {
     pub fn watch(&mut self, config: Config, native: Option<crate::import::Native>, path: PathBuf) {
         self.start(config, Some((native, path)), None)
     }
+    fn attach_setup(&mut self, profiles: Option<PathBuf>) {
+        let dir = profiles.clone();
+        let Some(env) = profiles.and_then(crate::onboarding::Environment::host) else {
+            return;
+        };
+        let controller = crate::onboarding::Controller::shared(env);
+        let mut updates = controller.subscribe();
+        self.setup = Some(controller);
+        let mailbox = self.mailbox.clone();
+        let detach = self.detach.clone();
+        bbt_rt::handle().spawn(async move {
+            loop {
+                let snapshot = updates.borrow_and_update().clone();
+                let old=mailbox.onboarding.load_full();
+                let changed = old.entries != snapshot.entries || old.catalogue_revision != snapshot.catalogue_revision;
+                mailbox.onboarding.store(snapshot);
+                if changed { load_catalogue(&mailbox, dir.clone()).await; }
+                let _ = mailbox.notices.try_send(UiMsg::Changed { source: 0 });
+                tokio::select! { _=detach.cancelled()=>break, result=updates.changed()=>if result.is_err() { break } }
+            }
+        });
+    }
+    pub fn install_adapter(&self, recipe: crate::onboarding::Recipe) -> Result<(), &'static str> {
+        self.setup
+            .as_ref()
+            .ok_or("Setup unavailable in replay")?
+            .install(recipe)
+    }
+    pub fn cancel_install(&self, agent: crate::onboarding::Agent) {
+        if let Some(setup) = &self.setup {
+            setup.cancel(agent);
+        }
+    }
     fn start(
         &mut self,
         config: Config,
         watch: Option<(Option<crate::import::Native>, PathBuf)>,
         resume: Option<SessionId>,
     ) {
+        self.attach_setup(Some(config.profiles.clone()));
         let mailbox = self.mailbox.clone();
         let detach = self.detach.clone();
         let (switch_tx, mut switches) = tokio::sync::mpsc::unbounded_channel::<String>();
@@ -619,6 +658,7 @@ impl Bridge {
         after: Option<(Epoch, Seq)>,
         profiles: Option<PathBuf>,
     ) {
+        self.attach_setup(profiles.clone());
         let mailbox = self.mailbox.clone();
         let detach = self.detach.clone();
         self.worker = Some(bbt_rt::handle().spawn(async move {
@@ -691,6 +731,13 @@ impl Bridge {
         let prompts = self.mailbox.prompts.load_full();
         changed |= !Arc::ptr_eq(&state.pending_prompts, &prompts);
         state.pending_prompts = prompts;
+        let setup = self.mailbox.onboarding.load_full();
+        changed |= !Arc::ptr_eq(&state.onboarding, &setup);
+        state.onboarding = setup;
+        let profiles = self.mailbox.profiles.load_full();
+        changed |= !Arc::ptr_eq(&state.profiles, &profiles);
+        state.profiles = profiles;
+        state.profile_error = self.mailbox.profile_error.load_full().map(|s| (*s).clone());
         changed
     }
     pub fn send(&self, op: Op) -> Result<Submission, Refused> {
@@ -814,7 +861,7 @@ async fn publish_frame(mut state: FrameState, mailbox: &Arc<Mailbox>, preparer: 
             );
             match owned.prepare_with_faces(source, width, &faces) {
                 Ok(mut prepared) => {
-                    if let Err(error) = owned.prepare_pending(&mut prepared, &prompts) {
+                    if let Err(error) = owned.prepare_pending(&mut prepared, &prompts, &faces) {
                         state.error = Some(error);
                     }
                     state.prepared = Some(Arc::new(prepared));
