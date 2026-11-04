@@ -2839,6 +2839,11 @@ pub fn kind_label(kind: ItemKind) -> &'static str {
         ItemKind::Hook => "Hook",
         ItemKind::SystemMessage => "System message",
         ItemKind::Native => "Native record",
+        ItemKind::MemoryWrite => "Memory write",
+        ItemKind::MemoryState => "Memory state",
+        ItemKind::Trial => "Trial",
+        ItemKind::Adoption => "Adoption",
+        ItemKind::Recall => "Recall",
         ItemKind::Unknown(_) => "Unknown item",
     }
 }

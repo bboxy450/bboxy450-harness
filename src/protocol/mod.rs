@@ -13,7 +13,220 @@ mod agent_config;
 pub use agent_config::*;
 pub mod laws;
 mod usage;
-pub const PROTOCOL: Version = Version { major: 1, minor: 2 };
+// Additive dream-log §2 wire contracts; no IO or hashing.
+/// `sha256:` plus lowercase hex SHA-256 of canonical memory JSON:
+/// {kind,title,why,how_to_apply,evidence,derived_from,revival}. Object keys sort,
+/// whitespace is absent, strings are NFC, evidence/derived_from sort by canonical
+/// JSON, and revival distinguishes each re-proposal after a terminal state.
+/// A wire string alias preserves the spec's String API; the dreamer verifies it.
+pub type EntryId = String;
+/// `sha256:` plus lowercase hex SHA-256. An event hashes exact stored envelope
+/// bytes excluding only the trailing LF (not CR or whitespace); a record hashes
+/// file bytes at its pinned commit; a sink hashes only its dream-owned bytes.
+pub type Digest = String;
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Vcs {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dirty: Option<bool>,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct DreamRun {
+    #[serde(default)]
+    pub phase: DreamPhase,
+    #[serde(default)]
+    pub trigger: Trigger,
+    #[serde(default)]
+    pub scope: Scope,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<SessionId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thresholds: Option<String>,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Trigger {
+    SessionClosed {
+        #[serde(default = "empty_session")]
+        session: SessionId,
+    },
+    Quota {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        provider: String,
+        #[serde(default)]
+        resets_at: u64,
+    },
+    Operator {
+        #[serde(default)]
+        message: Option<String>,
+    },
+    Dream {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        entry: EntryId,
+    },
+    Schedule {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        name: String,
+    },
+    #[serde(untagged)]
+    Unknown(Value),
+}
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Scope {
+    #[serde(default)]
+    pub level: ScopeLevel,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repos: Vec<String>,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EvidenceRef {
+    /// Untrusted even when the line digest matches.
+    Event {
+        #[serde(default = "empty_session")]
+        session: SessionId,
+        #[serde(default)]
+        seq: Seq,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        digest: Digest,
+    },
+    /// Trust additionally requires the dream-log §6.2 anchor checks.
+    Record {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        root: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        id: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        path: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        commit: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        digest: Digest,
+    },
+    #[serde(untagged)]
+    Unknown(Value),
+}
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct RecordPin {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub root: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub path: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub digest: Digest,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TrialEpisode {
+    #[serde(default)]
+    pub origin: EvidenceRef,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runs: Vec<TrialRun>,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TrialRun {
+    #[serde(default)]
+    pub arm: Arm,
+    #[serde(default = "empty_session")]
+    pub session: SessionId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verify_exit: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Usage>,
+}
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct SinkRef {
+    #[serde(default)]
+    pub kind: SinkKind,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub path: String,
+}
+
+// Defaults represent absent reader data, never a claim by a writer. Authored
+// validation recursively rejects Unknown, including these missing-field values.
+macro_rules! dream_enum {
+    ($name:ident { $($variant:ident),+ $(,)? }) => {
+        #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+        #[serde(rename_all = "snake_case")]
+        pub enum $name {
+            $($variant,)+
+            #[serde(untagged)]
+            Unknown(Value),
+        }
+        impl Default for $name {
+            fn default() -> Self { Self::Unknown(Value::Null) }
+        }
+    };
+}
+dream_enum!(DreamPhase {
+    Replay,
+    Synthesis,
+    Trial,
+    Lower,
+    Flush,
+    Audit
+});
+dream_enum!(ScopeLevel { Repo, System });
+dream_enum!(MemoryOp {
+    Pending,
+    Created,
+    Revised
+});
+dream_enum!(EntryState {
+    Proposed,
+    Tested,
+    Adopted,
+    Rejected,
+    Superseded,
+    Expired,
+    Retired
+});
+dream_enum!(Arm { With, Without });
+dream_enum!(Verdict {
+    Pass,
+    Fail,
+    Inconclusive
+});
+dream_enum!(SinkKind {
+    ClaudeMemory,
+    CodexExtension,
+    GrokInbox,
+    EngineContext,
+    AcpContext,
+    Proposal
+});
+dream_enum!(RecallBasis {
+    Reported,
+    Inferred,
+    Cited
+});
+
+// Missing source identities are a fixed sentinel, never a freshly minted ID.
+fn empty_session() -> SessionId {
+    SessionId(Ulid::from(0u128))
+}
+impl Default for Trigger {
+    fn default() -> Self {
+        Self::Unknown(Value::Null)
+    }
+}
+impl Default for EvidenceRef {
+    fn default() -> Self {
+        Self::Unknown(Value::Null)
+    }
+}
+pub const PROTOCOL: Version = Version { major: 1, minor: 3 };
 pub const MAX_ENVELOPE_BYTES: usize = 256 * 1024;
 macro_rules! identity {($($name:ident),*)=>{$(
 #[derive(Clone,Copy,Debug,PartialEq,Eq,PartialOrd,Ord,Hash,Serialize,Deserialize,JsonSchema)]
@@ -466,6 +679,70 @@ pub enum Item {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         blob: Option<BlobRef>,
     },
+    MemoryWrite {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        entry: EntryId,
+        #[serde(default)]
+        op: MemoryOp,
+        #[serde(default)]
+        record: RecordPin,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        evidence: Vec<EvidenceRef>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        draft: Option<Value>,
+    },
+    MemoryState {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        entry: EntryId,
+        #[serde(default)]
+        state: EntryState,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        harness: Option<String>,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        reason: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        refs: Vec<EvidenceRef>,
+    },
+    Trial {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        entry: EntryId,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        harness: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        thresholds: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        episodes: Vec<TrialEpisode>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        controls: Vec<TrialEpisode>,
+        #[serde(default)]
+        verdict: Verdict,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        reason: String,
+    },
+    Adoption {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        entry: EntryId,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        harness: String,
+        #[serde(default)]
+        sink: SinkRef,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        block_digest: Digest,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        record: Option<RecordPin>,
+    },
+    Recall {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        entry: EntryId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sink: Option<SinkRef>,
+        #[serde(default)]
+        basis: RecallBasis,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        record: Option<RecordPin>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        block_digest: Option<Digest>,
+    },
     #[serde(untagged)]
     Unknown(Value),
 }
@@ -522,6 +799,10 @@ pub struct SessionMeta {
     pub created_ms: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<Source>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vcs: Option<Vcs>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dream: Option<DreamRun>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -545,6 +826,11 @@ pub enum ItemKind {
     Hook,
     SystemMessage,
     Native,
+    MemoryWrite,
+    MemoryState,
+    Trial,
+    Adoption,
+    Recall,
     #[serde(untagged)]
     Unknown(Value),
 }
@@ -877,6 +1163,11 @@ impl Item {
             Self::Hook { .. } => ItemKind::Hook,
             Self::SystemMessage { .. } => ItemKind::SystemMessage,
             Self::Native { .. } => ItemKind::Native,
+            Self::MemoryWrite { .. } => ItemKind::MemoryWrite,
+            Self::MemoryState { .. } => ItemKind::MemoryState,
+            Self::Trial { .. } => ItemKind::Trial,
+            Self::Adoption { .. } => ItemKind::Adoption,
+            Self::Recall { .. } => ItemKind::Recall,
             Self::Unknown(raw) => ItemKind::Unknown(raw.clone()),
         }
     }
@@ -1078,6 +1369,48 @@ impl Item {
                 raw: Value::Null,
                 blob: None,
             },
+            // Recovery keeps the kind and marks the completion Interrupted.
+            // Empty identities cannot be mistaken for a committed memory entry.
+            ItemKind::MemoryWrite => Self::MemoryWrite {
+                entry: String::new(),
+                op: MemoryOp::Pending,
+                record: RecordPin::default(),
+                evidence: vec![],
+                draft: None,
+            },
+            ItemKind::MemoryState => Self::MemoryState {
+                entry: String::new(),
+                state: EntryState::Proposed,
+                harness: None,
+                reason: "interrupted".into(),
+                refs: vec![],
+            },
+            ItemKind::Trial => Self::Trial {
+                entry: String::new(),
+                harness: String::new(),
+                thresholds: String::new(),
+                episodes: vec![],
+                controls: vec![],
+                verdict: Verdict::Inconclusive,
+                reason: "interrupted".into(),
+            },
+            ItemKind::Adoption => Self::Adoption {
+                entry: String::new(),
+                harness: String::new(),
+                sink: SinkRef {
+                    kind: SinkKind::Proposal,
+                    path: String::new(),
+                },
+                block_digest: String::new(),
+                record: None,
+            },
+            ItemKind::Recall => Self::Recall {
+                entry: String::new(),
+                sink: None,
+                basis: RecallBasis::Inferred,
+                record: None,
+                block_digest: None,
+            },
             ItemKind::Unknown(raw) => Self::Notice {
                 level: Level::Warn,
                 text: format!("Unsupported item {} was interrupted", unknown_tag(&raw)),
@@ -1179,7 +1512,17 @@ unknown_predicate!(
     NumberSource,
     ApprovalDecision,
     Rejection,
-    SystemRole
+    SystemRole,
+    DreamPhase,
+    Trigger,
+    ScopeLevel,
+    EvidenceRef,
+    MemoryOp,
+    EntryState,
+    Arm,
+    Verdict,
+    SinkKind,
+    RecallBasis
 );
 /// A neutral reader label keeps the source's own tag, never its opaque payload.
 pub fn unknown_tag(value: &Value) -> &str {
@@ -1321,6 +1664,11 @@ impl OutputBlock {
 impl Item {
     pub fn extension_text(&self) -> Option<String> {
         Some(match self {
+            Self::MemoryWrite { .. }
+            | Self::MemoryState { .. }
+            | Self::Trial { .. }
+            | Self::Adoption { .. }
+            | Self::Recall { .. } => serde_json::to_string(self).ok()?,
             Self::Command { name, args } => format!("Command: /{name} {args}"),
             Self::Hook {
                 event,

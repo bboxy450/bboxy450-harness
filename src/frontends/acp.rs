@@ -791,7 +791,7 @@ impl Face {
                 self.emit(json!({"jsonrpc":"2.0","id":id,"method":"session/request_permission","params":{"sessionId":sid.to_string(),"toolCall":{"toolCallId":subject.tool_call.to_string(),"title":subject.summary,"status":"pending"},"options":options.iter().filter_map(|option|match option {ApprovalDecisionKind::Allow=>Some(json!({"optionId":"allow","name":"Allow","kind":"allow_once"})),ApprovalDecisionKind::AllowAlways=>Some(json!({"optionId":"allow_always","name":"Always allow","kind":"allow_always"})),ApprovalDecisionKind::Deny=>Some(json!({"optionId":"deny","name":"Deny","kind":"reject_once"})),_=>None}).collect::<Vec<_>>()}})).await;
             }
             Item::Approval {..} if completed=>self.permissions.lock().unwrap().retain(|_,p|p.session!=sid||p.item!=item),
-            Item::Command { .. } | Item::Hook { .. } | Item::SystemMessage { .. } | Item::Native { .. } if completed => self.update(sid,chunk("agent_message_chunk",body.extension_text().unwrap_or_default())).await,
+            Item::MemoryWrite { .. } | Item::MemoryState { .. } | Item::Trial { .. } | Item::Adoption { .. } | Item::Recall { .. } | Item::Command { .. } | Item::Hook { .. } | Item::SystemMessage { .. } | Item::Native { .. } if completed => self.update(sid,chunk("agent_message_chunk",body.extension_text().unwrap_or_default())).await,
             Item::Usage {usage} if completed && usage.context_used.is_some() && usage.context_window.is_some() => self.update(sid,json!({"sessionUpdate":"usage_update","used":usage.context_used,"size":usage.context_window,"_meta":{"bboxy450-harness":usage}})).await,
             Item::Usage {usage} if completed && usage.scope.is_some() => self.update(sid,chunk("agent_message_chunk",format!("Usage: {}", usage.numbers().into_iter().map(|(k,v)|format!("{k}={v}")).collect::<Vec<_>>().join(" · ")))).await,
             Item::Subagent {session,name,..} if completed && name.is_some() => self.update(sid,chunk("agent_message_chunk",format!("Subagent {} · {session}",name.as_deref().unwrap_or("")))).await,
@@ -1015,6 +1015,8 @@ mod tests {
     #[tokio::test]
     async fn admission_lag_replays_the_durable_prompt_before_next_input() {
         let meta = SessionMeta {
+            vcs: None,
+            dream: None,
             source: None,
             session: SessionId::new(),
             cwd: std::env::temp_dir(),
@@ -1280,6 +1282,8 @@ mod tests {
         };
         let config = Config {
             meta: SessionMeta {
+                vcs: None,
+                dream: None,
                 source: None,
                 session: sid,
                 cwd: temp.path().into(),

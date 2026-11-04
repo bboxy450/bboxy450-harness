@@ -108,6 +108,8 @@ async fn smoke(acp_mode: bool) -> Result<(Value, i32), Box<dyn std::error::Error
     let session = SessionId::new();
     let sessions = temp.join("sessions");
     let meta = SessionMeta {
+        vcs: None,
+        dream: None,
         source: None,
         session,
         cwd: temp.clone(),

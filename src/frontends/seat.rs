@@ -1473,6 +1473,11 @@ impl LineProjection {
                         | ItemKind::SystemMessage
                         | ItemKind::Subagent
                         | ItemKind::Compaction
+                        | ItemKind::MemoryWrite
+                        | ItemKind::MemoryState
+                        | ItemKind::Trial
+                        | ItemKind::Adoption
+                        | ItemKind::Recall
                 ) || kind.is_unknown()
                 {
                     self.queue.push_back(*item);
@@ -1999,6 +2004,18 @@ impl LineProjection {
                     &format!("Subagent {} · {session}", name.as_deref().unwrap_or("")),
                     &Level::Info,
                 );
+            }
+            (
+                _,
+                Some(
+                    body @ (Item::MemoryWrite { .. }
+                    | Item::MemoryState { .. }
+                    | Item::Trial { .. }
+                    | Item::Adoption { .. }
+                    | Item::Recall { .. }),
+                ),
+            ) => {
+                self.record_line(out, &body.extension_text().unwrap_or_default());
             }
             (_, Some(Item::Unknown(raw))) => {
                 self.record_line(out, &format!("Unsupported item: {}", unknown_tag(&raw)))

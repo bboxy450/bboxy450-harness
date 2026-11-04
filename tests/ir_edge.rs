@@ -294,6 +294,8 @@ async fn acp_projector_preserves_never_seen_update_meta_and_untyped_content_thro
     let set = Set::default();
     set.register("needle");
     let meta = SessionMeta {
+        vcs: None,
+        dream: None,
         session,
         cwd: tmp.path().into(),
         profile: Some("edge".into()),

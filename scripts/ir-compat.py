@@ -16,7 +16,7 @@ definition, a new optional field, a new variant. Refused: a removed definition, 
 a changed type, tag key or definition shape; a required field that was not required; a retired
 name in use again; a union or enum without a catch-all (a named `unknown` value or an untagged\n`true` entry: the two are the same variant to the gate); a frozen corpus file changed.
 """
-import argparse, copy, hashlib, json, sys
+import argparse, copy, hashlib, json, re, sys
 from pathlib import Path
 
 SCHEMA = Path('protocol.schema.json')
@@ -195,6 +195,8 @@ def check(schema_path=SCHEMA, fragment=None, require_current=False):
         # Apply to a copy, never the canonical schema or the frozen lock.
         schema['$defs'].update(json.loads(Path(fragment).read_text())['$defs'])
     bad = compare(lock, flatten(schema))
+    if require_current and lock.get('version') != protocol_version():
+        bad.append('lock version does not match PROTOCOL; run make lock-ir')
     if require_current and not bad and lock['surface'] != flatten(schema):
         bad.append('schema has unlocked additions; run make lock-ir')
     for p, h in lock.get('corpus', {}).items():
@@ -311,6 +313,15 @@ def control():
     return 1 if failed else 0
 
 
+def protocol_version():
+    """Lock the writer's actual version, never a second hardcoded baseline."""
+    source = Path('src/protocol/mod.rs').read_text()
+    match = re.search(r'pub const PROTOCOL:\s*Version\s*=\s*Version\s*\{\s*major:\s*(\d+),\s*minor:\s*(\d+)\s*,?\s*\}', source)
+    if not match:
+        raise ValueError('cannot read PROTOCOL version from src/protocol/mod.rs')
+    return dict(zip(('major', 'minor'), map(int, match.groups())))
+
+
 def lock():
     """Refresh the lock. Refused unless the current schema is an addition over the existing lock
     (so a re-lock can never enshrine a removal or rename) and every frozen corpus file is intact."""
@@ -328,7 +339,7 @@ def lock():
     corpus = sorted(set(old.get('corpus', {})) | {str(p) for p in Path('tests/fixtures/ir-v1').glob('*.jsonl')})
     out = {
         'ir': 'bboxy log IR',
-        'version': {'major': 1, 'minor': 0},
+        'version': protocol_version(),
         'spec': '.bboxy/specs/log-ir-v1.md',
         'retired': old.get('retired', []),
         'corpus': corpus_hashes(corpus),
