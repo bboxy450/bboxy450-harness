@@ -322,7 +322,7 @@ impl Graph {
                         graph.node(node.clone(), "evidence", json!({"pin":episode.origin}));
                         graph.edge(&pin, node, "held_out", 2.0, false)?;
                     }
-                    if let Ok(gain) = super::projection::trial_gain(&fact.body) {
+                    if let Ok(gain) = fact.trial_gain() {
                         *gains.entry(entry.clone()).or_default() += gain as f64;
                     }
                 }

@@ -1623,3 +1623,65 @@ fn trial_selection_is_canonical_held_out_and_not_arrival_order() {
     let few = trial::select_observed(&all[..5], &fp, &evidence, &exposed).unwrap();
     assert!(!few.complete());
 }
+
+struct TrialToy {
+    round:std::sync::atomic::AtomicUsize,
+    requests:std::sync::Arc<std::sync::Mutex<Vec<bboxy450_harness::provider::ModelRequest>>>,
+}
+impl bboxy450_harness::provider::Provider for TrialToy {
+    fn id(&self)->&str {"scripted"}
+    fn caps(&self)->bboxy450_harness::provider::Caps {bboxy450_harness::provider::ScriptedProvider::new(vec![]).caps()}
+    fn stream(&self,req:bboxy450_harness::provider::ModelRequest,cancel:tokio_util::sync::CancellationToken)->std::pin::Pin<Box<dyn futures_core::Stream<Item=bboxy450_harness::provider::ModelEvent>+Send>> {
+        use bboxy450_harness::provider::ScriptedProvider;
+        let round=self.round.fetch_add(1,std::sync::atomic::Ordering::SeqCst);let text=serde_json::to_string(&req.messages).unwrap();self.requests.lock().unwrap().push(req.clone());
+        let mut bytes=Vec::new();
+        if round==0 {
+            let write=text.contains("<trial-memory") || text.contains("CONTROL:");let name=if write {"write"}else{"read"};let args=if write {json!({"path":"fixed","content":"private fixture\n"})}else{json!({"path":"fixed"})};
+            bytes.extend(format!("data: {}\n\n",json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"private-trial-tool","type":"function","function":{"name":name,"arguments":args.to_string()}}]},"finish_reason":null}]})).as_bytes());
+        }else{bytes.extend(format!("data: {}\n\n",json!({"choices":[{"delta":{"content":"Private trial done."},"finish_reason":null}]})).as_bytes());}
+        bytes.extend(format!("data: {}\n\n",json!({"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":10}})).as_bytes());
+        bytes.extend(format!("data: {}\n\ndata: [DONE]\n\n",json!({"choices":[{"delta":{},"finish_reason":if round==0 {"tool_calls"}else{"stop"}}]})).as_bytes());
+        ScriptedProvider::new(vec![bytes]).stream(req,cancel)
+    }
+}
+#[tokio::test]
+async fn trial_real_enforced_twenty_arms_fork_usage_verifier_and_pair_projection() {
+    use bboxy450_harness::dream::{trial,projection};use std::sync::{Arc,Mutex};
+    let (f,memory)=Box::pin(support::trial_fixture()).await;let before=f.source_bytes();let index=std::fs::read(f.repo.path.join(".git/index")).unwrap();let head=f.repo.git(&["rev-parse","HEAD"]);
+    let mut resolver=f.resolver(true).await;let plan=Box::pin(trial::prepare(&mut resolver,&f.episodes,&memory,env!("CARGO_PKG_VERSION"),&Set::default())).await.unwrap();
+    let requests=Arc::new(Mutex::new(vec![]));let captures=requests.clone();
+    let options=trial::Options {scratch_parent:f.repo.home.path().into(),retained_parent:f.repo.home.path().into(),claim_root:f.repo.home.path().join("trial-claims"),providers:Arc::new(move |_|Ok(Arc::new(TrialToy {round:Default::default(),requests:captures.clone()}))),redactor:Set::default(),turn_timeout:std::time::Duration::from_secs(10),verify_timeout:std::time::Duration::from_secs(3),token_cap:trial::TOKEN_CAP};
+    let mut operation=trial::start(plan,options,tokio_util::sync::CancellationToken::new());let result=tokio::time::timeout(std::time::Duration::from_secs(90),operation.result()).await.unwrap().unwrap();
+    assert!(matches!(result.trial(),Item::Trial {verdict:Verdict::Pass,episodes,controls,..} if episodes.len()==4 && controls.len()==2),"{}",serde_json::to_string(&result).unwrap());
+    assert_eq!(result.known_tokens(),4400);assert!(!result.quarantined());assert_eq!(before,f.source_bytes());assert_eq!(head,f.repo.git(&["rev-parse","HEAD"]));assert_eq!(index,std::fs::read(f.repo.path.join(".git/index")).unwrap());
+    let Item::Trial{entry,harness,episodes,controls,..}=result.trial() else{unreachable!()};
+    for run in episodes.iter().chain(controls).flat_map(|e|&e.runs) {
+        let log=&result.retained_logs()[&run.session];assert!(matches!(log.last().unwrap().event,Event::SessionClosed));
+        assert_eq!(run.usage.as_ref().unwrap().source,Some(NumberSource::Derived));assert_eq!(run.usage.as_ref().unwrap().input_tokens,200);
+        let Event::SessionStarted{meta}=&log[0].event else{panic!()};let (parent,cut)=meta.fork.unwrap();let source=&result.retained_logs()[&parent];
+        let recovered=log.iter().find(|e|matches!(e.event,Event::SessionRecovered{..})).unwrap();
+        assert_eq!(recovered.epoch,Epoch(2));assert!(matches!(recovered.event,Event::SessionRecovered{prior_epoch:Epoch(1),closed_items:0,closed_turns:1}));
+        let fresh=log.iter().find(|e|e.seq.is_some_and(|s|s>cut) && matches!(e.event,Event::TurnStarted{..})).unwrap();assert!(fresh.seq>recovered.seq);
+        assert!(log.iter().any(|e|e.seq.is_some_and(|s|s>cut && Some(s)<recovered.seq) && matches!(e.event,Event::TurnEnded{reason:StopReason::Interrupted,usage:None,..})));
+
+        for e in log.iter().filter(|e|e.seq.is_some_and(|s|s.0>1 && s<=cut)) {assert_eq!(e.wire_bytes().unwrap(),source.iter().find(|p|p.seq==e.seq).unwrap().wire_bytes().unwrap());}
+    }
+    assert!(projection::qualifying_trial(result.trial()).is_err(),"Derived requires retained proof");assert_eq!(trial::score_retained(result.trial(),result.retained_logs()).verdict,Verdict::Pass);
+    let mut meta=resolver.logs.values().flat_map(|l|l.first()).find_map(|e|if let Event::SessionStarted{meta}=&e.event {meta.dream.as_ref().map(|_|meta.clone())}else{None}).unwrap();meta.session=SessionId::new();meta.dream.as_mut().unwrap().phase=DreamPhase::Trial;
+    let mut store=Store::open(result.sessions(),meta,None,Set::default()).await.unwrap();trial::append(&mut store,&mut resolver,&result).await.unwrap();store.append(Event::SessionClosed,None).await.unwrap();
+    let mut logs=result.retained_logs().clone();logs.insert(store.session,store.events.clone());let union=projection::union(logs.values().flatten().cloned()).unwrap();let facts=projection::facts_with_logs(&union,&logs).unwrap();assert!(projection::Projection::build(&facts).unwrap().entries[entry].active(harness));
+    let requests=requests.lock().unwrap();assert_eq!(requests.len(),40);
+    let normalize=|request:&bboxy450_harness::provider::ModelRequest| {
+        let mut messages=request.messages.clone();
+        for message in &mut messages {
+            if let Some(content)=message.get_mut("content") {
+                if let Some(blocks)=content.as_array_mut() {blocks.retain(|b|!b["text"].as_str().is_some_and(|text|text.starts_with("<trial-memory")));}
+                else if let Some(text)=content.as_str() && let Some((original,quote))=text.rsplit_once("\n<trial-memory ") && quote.ends_with("</trial-memory>") {*content=Value::String(original.to_owned());}
+            }
+        }
+        messages
+    };
+    for base in [0,8,16,24] {assert!(normalize(&requests[base])==normalize(&requests[base+2]),"repeat context differs");assert!(normalize(&requests[base])==normalize(&requests[base+4]),"arm context differs beyond the quoted block");assert!(normalize(&requests[base])==normalize(&requests[base+6]),"repeat context differs");}
+    for base in [32,36] {assert!(normalize(&requests[base])==normalize(&requests[base+2]),"control context differs beyond the quoted block");}
+    for req in requests.iter() {assert!(req.tools.iter().all(|t|matches!(t.name.as_str(),"read"|"write")));for message in &req.messages {if message["role"]=="system" || message["role"]=="developer" {assert!(!message.to_string().contains("trial-memory"));}}}
+}

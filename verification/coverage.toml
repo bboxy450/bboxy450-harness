@@ -8,7 +8,7 @@
 name = "bboxy450-harness"
 status = "contract-model"
 models = [
-    "HarnessDreamTrialClaims",
+    "HarnessDreamTrialFrontier", "HarnessDreamTrialCapability", "HarnessDreamTrialUsage", "HarnessDreamTrialSettlement", "HarnessDreamTrialClaims",
     "HarnessDreamTrialOutcome",
     "HarnessProcessAdmissionResult",
     "HarnessDreamSeal",

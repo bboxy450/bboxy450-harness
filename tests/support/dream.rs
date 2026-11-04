@@ -371,3 +371,49 @@ pub fn private_command(f: &Fixture) -> Command {
 pub fn sse_usage(value: &Value) -> Vec<u8> {
     format!(": Synthetic bboxy450-harness fixture; policy https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md\ndata: {}\n\ndata: [DONE]\n\n",json!({"choices":[{"delta":{"content":value.to_string()},"finish_reason":"stop"}],"usage":{"prompt_tokens":17,"completion_tokens":9}})).into_bytes()
 }
+
+/// Synthetic retained source episodes and real signed task observations. Trial
+/// continuations themselves use the ordinary engine and confined actual tools.
+pub async fn trial_fixture()->(Fixture,EvidenceRef) {
+    use bboxy450_harness::{dream::{fingerprint,prompt,synth},provider::ScriptedProvider};
+    let mut f=Box::pin(Fixture::new()).await;
+    let began=std::time::Instant::now();
+    let exit=Command::new("/bin/sh").args(["-c","test -f fixed"]).current_dir(&f.repo.path).env_clear().status().unwrap().code().unwrap();let elapsed:u64=began.elapsed().as_millis().try_into().unwrap();assert_eq!(exit,1);
+    for n in 0..9 {
+        let front=json!({"type":"task","id":format!("01M0000000000000000000020{n}"),"number":100+n,"title":"Private original verifier failure","verify":"sh -c 'test -f fixed'","status":"reported","verify_result":{"exit_code":exit,"elapsed_ms":elapsed}});
+        let record=good::sign_record(front,"Synthetic original observation. No live job or operator identity.\n",&f.repo.key);
+        std::fs::write(f.repo.path.join(format!(".bboxy/tasks/trial-{n}.md")),record.bytes).unwrap();
+    }
+    f.repo.git(&["add",".bboxy/tasks"]);f.repo.git(&["commit","-qm","Private trial task observations"]);let commit=f.repo.git(&["rev-parse","HEAD"]);f.repo.git(&["update-ref","refs/remotes/origin/main",&commit]);assert!(f.repo.git(&["--no-optional-locks","status","--porcelain"]).is_empty());
+    for n in 0..9 {
+        let meta=SessionMeta {session:SessionId::new(),cwd:f.repo.path.clone(),profile:Some("scripted".into()),fork:None,protocol:PROTOCOL,harness:env!("CARGO_PKG_VERSION").into(),created_ms:0,vcs:Some(Vcs {repo:Some(REPO.into()),commit:Some(commit.clone()),dirty:Some(false),..Default::default()}),dream:None,source:None};
+        let mut store=Store::open(f.sessions.clone(),meta,None,Set::default()).await.unwrap();
+        store.append(Event::ProfileChanged{profile:"scripted".into(),model:"scripted".into()},None).await.unwrap();let turn=TurnId::new();store.append(Event::TurnQueued{turn},None).await.unwrap();store.append(Event::TurnStarted{turn,model:Some("scripted".into()),origin:Some(TurnOrigin::User)},None).await.unwrap();
+        let body=Item::UserMessage {blocks:vec![InputBlock::Text{text:if n<7 {"Restore the missing private fixture."}else{"CONTROL: keep the private fixture available."}.into()}]};
+        trial_item(&mut store,Some(turn),body,ItemStatus::Completed).await;
+        for (name,input,text,status) in [
+            ("read",json!({"path":"fixed"}),if n<7 {"missing private fixture"}else{"distinct control clue"}.to_owned(),ItemStatus::Failed{reason:"missing".into(),code:None}),
+            ("bboxy_task_report",json!({"task_path":format!(".bboxy/tasks/trial-{n}.md")}),"synthetic retained task observation".into(),ItemStatus::Completed),
+        ] {
+            let body=Item::ToolCall {call_id:ItemId::new().to_string(),name:name.into(),tool_kind:ToolKind::Read,input_raw:input.to_string(),output:vec![OutputBlock::Text{text}],locations:vec![],spill:None,title:None,raw_output:None,server:None};
+            trial_item(&mut store,Some(turn),body,status).await;
+        }
+        let usage=Usage {input_tokens:100,output_tokens:10,source:Some(NumberSource::Reported),..Default::default()}.authored(UsageScope::Call,Backend{kind:BackendKind::Engine,name:"scripted".into(),version:Some(env!("CARGO_PKG_VERSION").into())},Some("scripted".into()));
+        trial_item(&mut store,Some(turn),Item::Usage{usage:usage.clone()},ItemStatus::Completed).await;
+        store.append(Event::TurnEnded{turn,reason:StopReason::EndTurn,usage:Usage::sum_calls(&[usage]).unwrap()},None).await.unwrap();store.append(Event::SessionClosed,None).await.unwrap();
+    }
+    let replay=Box::pin(bboxy450_harness::dream::d0::replay_with_sessions(vec![f.sessions.clone()],f.repo.home.path().join("trial-replay"),f.sessions.clone(),true,Set::default())).await.unwrap();
+    f.episodes=replay.episodes;f.fingerprint=fingerprint::tool_fail("read","missing private fixture");assert_eq!(f.episodes.iter().filter(|e|e.fingerprints.contains(&f.fingerprint)).count(),7);
+    let mut resolver=f.resolver(true).await;let input=prompt::prepare(&mut resolver,&f.episodes,&f.fingerprint,f.scope(),&Set::default()).await.unwrap().unwrap();
+    let mut candidate=f.candidate(&input);
+    let refs=input.references().iter().filter(|(_,p)|matches!(p,EvidenceRef::Event{..})).take(1).chain(input.references().iter().filter(|(_,p)|matches!(p,EvidenceRef::Record{..})).take(1)).map(|(name,_)|name.clone()).collect::<Vec<_>>();candidate["candidates"][0]["evidence"]=json!(refs);
+    let mut store=proposal_store(&f,f.scope()).await;
+    synth::run(&mut store,std::sync::Arc::new(ScriptedProvider::new(vec![sse(&candidate)])),"scripted".into(),input,&mut resolver,Set::default(),tokio_util::sync::CancellationToken::new()).await.unwrap();
+    let event=store.events.iter().find(|e|matches!(e.event,Event::ItemCompleted{body:Item::MemoryWrite{..},..})).unwrap();let bytes=event.wire_bytes().unwrap();let pin=EvidenceRef::Event {session:event.session,seq:event.seq.unwrap(),digest:bboxy450_harness::dream::entry::digest(bytes.strip_suffix(b"\n").unwrap())};
+    store.append(Event::SessionClosed,None).await.unwrap();drop(store);
+    (f,pin)
+}
+pub async fn trial_item(store:&mut Store,turn:Option<TurnId>,body:Item,status:ItemStatus) {
+    let item=ItemId::new();let head=if let Item::ToolCall{call_id,name,tool_kind,..}=&body {Some(ItemHead::ToolCall{call_id:call_id.clone(),name:name.clone(),tool_kind:tool_kind.clone()})}else{None};
+    store.append(Event::ItemStarted{turn,item,kind:body.kind(),parent:None,head},None).await.unwrap();store.append(Event::ItemCompleted{item,status,body},None).await.unwrap();
+}

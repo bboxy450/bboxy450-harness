@@ -148,6 +148,7 @@ impl Fixture {
             append_system_prompt: context.into(),
             mcp_servers: servers,
             notices: vec![],
+            trial: None,
         })
     }
     async fn create(&self, host: &Host, name: &str, overrides: Servers) -> InProc {
@@ -434,6 +435,7 @@ async fn reopen_switch_and_generation_context() {
         append_system_prompt: "generation two".into(),
         mcp_servers: Servers::new(),
         notices: vec![],
+        trial: None,
     });
     let reopened = next.open(session).await.unwrap();
     let result = reply(&turn(&reopened, "fourth").await);

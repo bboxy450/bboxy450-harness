@@ -56,6 +56,15 @@ pub struct Policy {
     pub on_unattended: Unattended,
 }
 impl Policy {
+    /// Labels complement the independent descriptor capability. This profile
+    /// alone is never an isolation proof and does not alter ordinary/Yolo policy.
+    pub fn dream_trial() -> Self {
+        Self { on_unattended:Unattended::Deny, rules:vec![
+            Rule {id:"dream-trial-deny".into(),tool:"*".into(),effect:None,decision:RuleDecision::Deny},
+            Rule {id:"dream-trial-read".into(),tool:"read".into(),effect:Some(EffectClass::ReadOnly),decision:RuleDecision::Allow},
+            Rule {id:"dream-trial-write".into(),tool:"write".into(),effect:Some(EffectClass::Write),decision:RuleDecision::Allow},
+        ] }
+    }
     pub fn new(on_unattended: Unattended) -> Self {
         Self {
             rules: vec![],
