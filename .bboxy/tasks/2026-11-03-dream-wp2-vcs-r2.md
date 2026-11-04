@@ -25,10 +25,10 @@ links:
   rel: spec
   weight: 3
 id: 01M6J8TT7HY4B7YPAP8SEWBE40
-status: claimed
+status: rejected
 delegated_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
-updated: 2026-11-04T04:20:21.363Z
+updated: 2026-11-04T05:05:06.694Z
 created: 2026-11-04T03:14:53.626Z
 number: 20261103136208
 created_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
@@ -39,12 +39,41 @@ authorship:
   public_key: Oc7KBLmX2fSuTNz6+a4eyDWCf4djX4fk13BizgaL+gc=
   process_generation: '1'
 assignee: seat:01M6J7N5V103SG1KS0THEXB9R1
+artifacts:
+- '[[01M6JERN7GEB1JQP3RTE2JXSQ2]]'
+- '[[01M6JERNMYDQHENR09D0PHH58W]]'
+verify_result:
+  command: cargo test --test dream_vcs --test import_native --test cli_headless --features acp-agent
+  exit_code: 0
+  evidence:
+  - criterion: Actual VCS capture, normalized repo key, no-repo/failure/dirty/native availability; no UI hot-path wait
+    reference: src/vcs.rs:45,92,150,176,210; src/engine/mod.rs:179; src/backend/acp_agent.rs:235; src/import/edge.rs:15; tests/dream_vcs.rs:140,176,196,211,254,274; tests/import_native.rs:872; /tmp/dream-wp2-verify-final.log — primary command exit 0, 23 tests
+  - criterion: Native parser provenance and retained source/replay bytes, unknown data and actual transcript invariants
+    reference: src/import/mod.rs:16,950,961; src/import/reproject.rs:70; tests/ir_edge.rs:183,227,245 — cargo test --test ir_edge exit 0 (8 tests); make test-ir && cargo test --test protocol_golden --test ir_v1_corpus exit 0 (19 tests); tests/cli_headless.rs:66
+  - criterion: Credential-free metadata/raw/ext and Git tracing negative control
+    reference: tests/import_native.rs:966; tests/dream_vcs.rs:211; /tmp/dream-wp2-trace-red.log — named VcsMetadataTraceDisabled assertion exit 101 with old helper; final primary exit 0 for engine and ACP; src/vcs.rs:99 clears inherited GIT_*
+  - criterion: Fresh final-HEAD formal inventory, native/TLC parity and retained evidence
+    reference: make test-formal test-formal-parity check-formal-evidence — exit 0; /tmp/dream-wp2-formal-final.log; verification/evidence/950b206fa5b191feb0f382d0a4e65c0887c9da0956f145d3dcf80e5b07ef7cd2/evidence.json — source a1c22c287a8d612c43e2bbc3606590fa72234f1b, dirty=false, 130 models/42 contracts. Git parsing/snapshot/bytes/timing remain implementation-only; WP9 owns combined implementation mapping.
+  - criterion: Unattended unit/integration/GUI/application smoke and honest canonical baseline
+    reference: make test-gui test-app-packaging smoke-app — exit 0 (/tmp/dream-wp2-remaining-gates.log). make test — exit 2 after 17 successful commands; unchanged duplicate KB number 5974 (KB checker exit 1) in /tmp/dream-wp2-make-test-final.log and .bboxy/runs/test-current.json. No waiver or number repair; acceptance remains pending.
+  - criterion: Signed scoped commits, complete report, prepared base and worktree state
+    reference: Prepared base a279e0fdc5866068db567561e24ffa2bc0897d6b; signed source da78cbda91b5de454c38152de8c44b5d587f2086 and report a1c22c287a8d612c43e2bbc3606590fa72234f1b; git verify-commit both exit 0; reports/2026-11-03-dream-wp2-vcs-r2. Only five retained generated .bboxy/runs files dirty; source/index clean; no WP1 edits, merge or publication.
+report:
+  summary: 'Implemented bounded session-start VCS capture, shared credential-free repo normalization, actual native field mapping and consistent native parser provenance in signed source da78cbda91b5de454c38152de8c44b5d587f2086 against prepared base a279e0fd; full report signed at a1c22c287a8d612c43e2bbc3606590fa72234f1b. Exact primary verify passes 23 tests, ir_edge 8, inherited IR/golden corpus 19; GUI/packaging/app smoke pass unattended. A demonstrated Git Trace2 environment-secret leak has a failing old-helper control (101) and passing engine+ACP regression. Fresh final-HEAD make test-formal test-formal-parity check-formal-evidence exits 0: 130 models/42 contracts, dirty=false, retained receipt SHA256 950b206fa5b191feb0f382d0a4e65c0887c9da0956f145d3dcf80e5b07ef7cd2. Canonical make test exits 2 only at unchanged duplicate KB number 5974 after 17 passing commands; no waiver/repair/merge/publication. Source/index are clean, five generated evidence files remain dirty; no WP1 worktree changes. Acceptance still requires the canonical KB gate to become green.'
+  commit: a1c22c287a8d612c43e2bbc3606590fa72234f1b
+  reported_by: seat:01M6J7N5V103SG1KS0THEXB9R1
+  op_id: 01M6JEY6P01CGA7DYJ3VQPJ4G3
+  verify_revision: 0
+  report: '[[reports/2026-11-03-dream-wp2-vcs-r2]]'
+rejection:
+  reason: 'Oracle primary rerun exits 0 (23 tests), but an actual harness/API witness disproves dirty-state correctness. In a private signed parent repo with a tracked child gitlink, modifying child/tracked.txt yields git status --ignore-submodules=none => '' M child''; capture''s --ignore-submodules=all yields empty. Running the actual WP2 harness --json --scripted against that parent exits 0 and stores vcs.dirty=false. Evidence /var/folders/zd/mv_mr2d92p5_1r8yghzbs5vw0000gn/T/nyx-vcs-submodule-nvc9pgy_/oracle-witness.json. This could wrongly admit a changed checkout to clean-source trials. Fix within existing src/vcs.rs/tests/dream_vcs.rs scope: include tracked submodule changes in dirty determination (override local ignore policy as needed); if the complete check fails/times out under the existing bounded query budget, leave dirty absent rather than false. Add a real Git/harness regression for changed submodule worktree/gitlink, retain the Trace2/redaction/deadline protections, and demonstrate the old ignore-all behavior fails the assertion. No new budget, broad refactor, schema or source scope required. Rerun primary and relevant gates with fresh signed report/current-source evidence. Canonical KB baseline failure is separate and remains unwaived. Do not start WP3 from this candidate until corrected.'
+  by: seat:01M6J5YFATHYCK148JT0C4XGZ1
 provenance:
-  digest: sha256:77b6cc863758459d1da3fc67e6cd3c65c845c3c3c9cc6d43de06a53212a4e459
-  frontmatter_digest: sha256:0e24faf96a7bdbf8142719e4917e1557339d8615c1eae8b2e8d7f586f7c3e853
+  digest: sha256:545e9617dec0ac246c42363ebe7fc870887c881c512426fd2282052960faf283
+  frontmatter_digest: sha256:c51ef1c929c533c1c2ec98a8088cd743f36293f2843ce2cfdd97c9e0db44c773
   signer: seat:01M6J5YFATHYCK148JT0C4XGZ1
-  sig: 1oxY72UXaaW/ecG/Ji7owy9S6cgQmtKsei8QKPgE5KGup/N/awAU60LHBkJ2TytnZW4OILOjiL+WkKkwXZpWAQ==
-  log: .bboxy/log/2026-11-04.jsonl#43274
+  sig: WD4C/csZadLOFPQec2CT8APe5Yifxm/mPTgmscD+QDE7sUzzq5yUXErrMCM+aOmf5VIt3tJteEbFpdv8PCjUAQ==
+  log: .bboxy/log/2026-11-04.jsonl#43355
 ---
 ROLE: EXECUTOR
 Read repository instructions and [[dream-log]], [[memory-graph]], [[dream-sinks]] (all on origin/main). Parent [[2026-11-03-swarm-dreaming-succession]].
@@ -75,3 +104,46 @@ Oracle formal-inventory amendment 2026-11-03: verification/coverage.toml is addi
 Oracle parser-provenance amendment 2026-11-03: authorize src/import/reproject.rs only to use the shared native Projector PARSER_REVISION constant defined in src/import/mod.rs instead of a divergent native-parser header calculation; one-shot import must use that same constant. The prepared base at a279e0f actually uses previous_revision.saturating_add(1), not hardcoded Some(2), so native reprojection must not invent a higher parser version merely because the same mapping ran again. Scope this consistency to native Projector provenance; do not silently relabel a distinct ACP mapper with the native constant. Preserve unrelated non-native behavior and report any distinct parser-version boundary rather than widening it.
 
 Also authorize tests/ir_edge.rs only for the corresponding native parser-revision regression, alongside existing allowed import_native tests. Assert actual one-shot/reproject headers identify the current native mapping and repeated reprojection does not manufacture a new mapping revision; retain every existing immutable-source/prefix assertion. No VCS header promotion, replay-prefix rewrite, projection redesign or other reprojection behavior change is authorized. Run the unchanged primary verify plus cargo test --test ir_edge; refresh current-source evidence normally. All canonical acceptance gates remain required.
+
+
+## Report from seat:01M6J7N5V103SG1KS0THEXB9R1
+
+Implemented bounded session-start VCS capture, shared credential-free repo normalization, actual native field mapping and consistent native parser provenance in signed source da78cbda91b5de454c38152de8c44b5d587f2086 against prepared base a279e0fd; full report signed at a1c22c287a8d612c43e2bbc3606590fa72234f1b. Exact primary verify passes 23 tests, ir_edge 8, inherited IR/golden corpus 19; GUI/packaging/app smoke pass unattended. A demonstrated Git Trace2 environment-secret leak has a failing old-helper control (101) and passing engine+ACP regression. Fresh final-HEAD make test-formal test-formal-parity check-formal-evidence exits 0: 130 models/42 contracts, dirty=false, retained receipt SHA256 950b206fa5b191feb0f382d0a4e65c0887c9da0956f145d3dcf80e5b07ef7cd2. Canonical make test exits 2 only at unchanged duplicate KB number 5974 after 17 passing commands; no waiver/repair/merge/publication. Source/index are clean, five generated evidence files remain dirty; no WP1 worktree changes. Acceptance still requires the canonical KB gate to become green.
+
+```json
+{
+  "op_id": "01M6JEY6P01CGA7DYJ3VQPJ4G3",
+  "commit": "a1c22c287a8d612c43e2bbc3606590fa72234f1b",
+  "report": "[[reports/2026-11-03-dream-wp2-vcs-r2]]",
+  "verify_result": {
+    "command": "cargo test --test dream_vcs --test import_native --test cli_headless --features acp-agent",
+    "exit_code": 0,
+    "evidence": [
+      {
+        "criterion": "Actual VCS capture, normalized repo key, no-repo/failure/dirty/native availability; no UI hot-path wait",
+        "reference": "src/vcs.rs:45,92,150,176,210; src/engine/mod.rs:179; src/backend/acp_agent.rs:235; src/import/edge.rs:15; tests/dream_vcs.rs:140,176,196,211,254,274; tests/import_native.rs:872; /tmp/dream-wp2-verify-final.log — primary command exit 0, 23 tests"
+      },
+      {
+        "criterion": "Native parser provenance and retained source/replay bytes, unknown data and actual transcript invariants",
+        "reference": "src/import/mod.rs:16,950,961; src/import/reproject.rs:70; tests/ir_edge.rs:183,227,245 — cargo test --test ir_edge exit 0 (8 tests); make test-ir && cargo test --test protocol_golden --test ir_v1_corpus exit 0 (19 tests); tests/cli_headless.rs:66"
+      },
+      {
+        "criterion": "Credential-free metadata/raw/ext and Git tracing negative control",
+        "reference": "tests/import_native.rs:966; tests/dream_vcs.rs:211; /tmp/dream-wp2-trace-red.log — named VcsMetadataTraceDisabled assertion exit 101 with old helper; final primary exit 0 for engine and ACP; src/vcs.rs:99 clears inherited GIT_*"
+      },
+      {
+        "criterion": "Fresh final-HEAD formal inventory, native/TLC parity and retained evidence",
+        "reference": "make test-formal test-formal-parity check-formal-evidence — exit 0; /tmp/dream-wp2-formal-final.log; verification/evidence/950b206fa5b191feb0f382d0a4e65c0887c9da0956f145d3dcf80e5b07ef7cd2/evidence.json — source a1c22c287a8d612c43e2bbc3606590fa72234f1b, dirty=false, 130 models/42 contracts. Git parsing/snapshot/bytes/timing remain implementation-only; WP9 owns combined implementation mapping."
+      },
+      {
+        "criterion": "Unattended unit/integration/GUI/application smoke and honest canonical baseline",
+        "reference": "make test-gui test-app-packaging smoke-app — exit 0 (/tmp/dream-wp2-remaining-gates.log). make test — exit 2 after 17 successful commands; unchanged duplicate KB number 5974 (KB checker exit 1) in /tmp/dream-wp2-make-test-final.log and .bboxy/runs/test-current.json. No waiver or number repair; acceptance remains pending."
+      },
+      {
+        "criterion": "Signed scoped commits, complete report, prepared base and worktree state",
+        "reference": "Prepared base a279e0fdc5866068db567561e24ffa2bc0897d6b; signed source da78cbda91b5de454c38152de8c44b5d587f2086 and report a1c22c287a8d612c43e2bbc3606590fa72234f1b; git verify-commit both exit 0; reports/2026-11-03-dream-wp2-vcs-r2. Only five retained generated .bboxy/runs files dirty; source/index clean; no WP1 edits, merge or publication."
+      }
+    ]
+  }
+}
+```
