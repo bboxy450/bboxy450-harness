@@ -44,7 +44,7 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
 ## Lineage and credits
 
 - Bounded command/heredoc/output panes, view-local two-axis scrolling and native
-  geometry witnesses in the shared GUI are project-owned implementations. Keep
+  geometry and raster broken-control witnesses in the shared GUI are project-owned implementations. Keep
   this policy with reuse: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
 
 

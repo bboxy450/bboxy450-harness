@@ -212,3 +212,7 @@ verify-profiles-pending:
 .PHONY: verify-acp-controls
 verify-acp-controls:
 	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/test-acp-controls.py
+
+.PHONY: verify-harness-card-bounds
+verify-harness-card-bounds:
+	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-harness-card-bounds.py
