@@ -1,0 +1,50 @@
+{
+  "records": 4096,
+  "debug_assertions": false,
+  "lookups_per_sample_per_path": 262144,
+  "samples": 7,
+  "warmup_lookups_per_path": 16384,
+  "sample_order": "alternating old/new",
+  "old_serde_btree_ns": [
+    124504042,
+    167070125,
+    219099916,
+    261323833,
+    189814375,
+    210722000,
+    177265291
+  ],
+  "new_hash_table_ns": [
+    39685208,
+    208888750,
+    56685417,
+    89695459,
+    111623916,
+    101033833,
+    75862792
+  ],
+  "old_median_ns_per_lookup": 724.0843772888184,
+  "new_median_ns_per_lookup": 342.1610221862793,
+  "old_over_new_median_ratio": 2.1162094170229957,
+  "old_duplicate_serialized_key_payload_bytes": 978260,
+  "new_duplicate_key_payload_bytes": 0,
+  "old_serialized_key_bytes_per_sample": 62608640,
+  "limits": "cache kernel; payload lengths exclude node/bucket/capacity/allocator overhead; not end-to-end or process memory",
+  "source": "fd64540610168af18f0fb1a09c55b6337679b106",
+  "command": [
+    "cargo",
+    "test",
+    "--release",
+    "--lib",
+    "hashbrown_record_cache_bench",
+    "--",
+    "--ignored",
+    "--nocapture"
+  ],
+  "exit_code": 0,
+  "cargo_build_jobs": 2,
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "cpu": "Apple M4"
+}

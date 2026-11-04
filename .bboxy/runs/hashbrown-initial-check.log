@@ -1,0 +1,20 @@
+   Compiling num-traits v0.2.19
+   Compiling getrandom v0.4.3
+    Checking bitflags v2.13.2
+    Checking fastrand v2.5.0
+    Checking bboxy450-yarn v0.1.1
+    Checking futures-lite v2.6.1
+    Checking piper v0.2.5
+    Checking nix v0.31.3
+    Checking tower-http v0.6.11
+    Checking blocking v1.7.0
+    Checking futures-concurrency v7.7.1
+    Checking uuid v1.29.0
+    Checking reqwest v0.12.28
+    Checking chrono v0.4.45
+    Checking process-wrap v10.0.1
+    Checking schemars v1.2.3
+    Checking rmcp v3.5.1
+    Checking agent-client-protocol v3.4.0
+    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 23.78s

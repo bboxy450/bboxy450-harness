@@ -1,0 +1,142 @@
+hashbrown v0.17.1
+├── indexmap v2.14.2
+│   └── serde_json v1.0.154
+│       └── serde_with v3.24.0
+│           ├── serde_with feature "alloc"
+│           │   ├── serde_with feature "json"
+│           │   │   └── agent-client-protocol-schema v1.12.0
+│           │   │       └── agent-client-protocol-schema feature "tracing"
+│           │   │           └── agent-client-protocol v3.4.0
+│           │   │               └── agent-client-protocol feature "stdio"
+│           │   │                   └── bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+│           │   │                       ├── bboxy450-harness feature "acp-agent"
+│           │   │                       │   └── bboxy450-harness feature "default" (command-line)
+│           │   │                       └── bboxy450-harness feature "default" (command-line)
+│           │   └── serde_with feature "std"
+│           │       └── serde_with feature "default"
+│           │           └── agent-client-protocol-schema v1.12.0 (*)
+│           ├── serde_with feature "default" (*)
+│           ├── serde_with feature "json" (*)
+│           ├── serde_with feature "macros"
+│           │   └── serde_with feature "default" (*)
+│           └── serde_with feature "std" (*)
+│       ├── serde_json feature "alloc"
+│       │   └── schemars v1.2.3
+│       │       ├── schemars feature "chrono04"
+│       │       │   └── rmcp v3.5.1
+│       │       │       ├── rmcp feature "client"
+│       │       │       │   └── bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4) (*)
+│       │       │       ├── rmcp feature "schemars"
+│       │       │       │   └── rmcp feature "server"
+│       │       │       │       └── bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4) (*)
+│       │       │       ├── rmcp feature "server" (*)
+│       │       │       ├── rmcp feature "transport-async-rw"
+│       │       │       │   ├── rmcp feature "server" (*)
+│       │       │       │   ├── rmcp feature "transport-child-process"
+│       │       │       │   │   └── bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4) (*)
+│       │       │       │   └── rmcp feature "transport-io"
+│       │       │       │       └── bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4) (*)
+│       │       │       ├── rmcp feature "transport-child-process" (*)
+│       │       │       ├── rmcp feature "transport-io" (*)
+│       │       │       └── rmcp feature "uuid"
+│       │       │           └── rmcp feature "server" (*)
+│       │       ├── schemars feature "default"
+│       │       │   ├── bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4) (*)
+│       │       │   └── rmcp v3.5.1 (*)
+│       │       ├── schemars feature "derive"
+│       │       │   └── schemars feature "default" (*)
+│       │       ├── schemars feature "schemars_derive"
+│       │       │   └── schemars feature "derive" (*)
+│       │       └── schemars feature "std"
+│       │           └── schemars feature "default" (*)
+│       │   ├── serde_json feature "preserve_order"
+│       │   │   ├── agent-client-protocol v3.4.0 (*)
+│       │   │   └── agent-client-protocol-schema v1.12.0 (*)
+│       │   └── serde_with feature "alloc" (*)
+│       ├── serde_json feature "default"
+│       │   ├── agent-client-protocol v3.4.0 (*)
+│       │   ├── agent-client-protocol-schema v1.12.0 (*)
+│       │   ├── bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4) (*)
+│       │   ├── bboxy450-rt v0.1.1
+│       │   │   ├── bboxy450-rt feature "default"
+│       │   │   │   └── bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4) (*)
+│       │   │   └── bboxy450-rt feature "runtime"
+│       │   │       └── bboxy450-rt feature "default" (*)
+│       │   ├── reqwest v0.12.28
+│       │   │   ├── reqwest feature "__rustls"
+│       │   │   │   └── reqwest feature "rustls-tls-webpki-roots-no-provider"
+│       │   │   │       └── reqwest feature "rustls-tls-webpki-roots"
+│       │   │   │           └── reqwest feature "rustls-tls"
+│       │   │   │               └── bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4) (*)
+│       │   │   ├── reqwest feature "__rustls-ring"
+│       │   │   │   └── reqwest feature "rustls-tls-webpki-roots" (*)
+│       │   │   ├── reqwest feature "__tls"
+│       │   │   │   └── reqwest feature "__rustls" (*)
+│       │   │   ├── reqwest feature "json"
+│       │   │   │   └── bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4) (*)
+│       │   │   ├── reqwest feature "rustls-tls" (*)
+│       │   │   ├── reqwest feature "rustls-tls-webpki-roots" (*)
+│       │   │   ├── reqwest feature "rustls-tls-webpki-roots-no-provider" (*)
+│       │   │   └── reqwest feature "stream"
+│       │   │       └── bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4) (*)
+│       │   └── rmcp v3.5.1 (*)
+│       ├── serde_json feature "indexmap"
+│       │   └── serde_json feature "preserve_order" (*)
+│       ├── serde_json feature "preserve_order" (*)
+│       ├── serde_json feature "raw_value"
+│       │   ├── agent-client-protocol v3.4.0 (*)
+│       │   └── agent-client-protocol-schema v1.12.0 (*)
+│       └── serde_json feature "std"
+│           └── serde_json feature "default" (*)
+│   ├── indexmap feature "default"
+│   │   ├── process-wrap v10.0.1
+│   │   │   ├── process-wrap feature "creation-flags"
+│   │   │   │   └── process-wrap feature "default"
+│   │   │   │       ├── bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4) (*)
+│   │   │   │       └── rmcp v3.5.1 (*)
+│   │   │   ├── process-wrap feature "default" (*)
+│   │   │   ├── process-wrap feature "job-object"
+│   │   │   │   └── process-wrap feature "default" (*)
+│   │   │   ├── process-wrap feature "kill-on-drop"
+│   │   │   │   └── process-wrap feature "default" (*)
+│   │   │   ├── process-wrap feature "process-group"
+│   │   │   │   ├── process-wrap feature "default" (*)
+│   │   │   │   └── process-wrap feature "process-session"
+│   │   │   │       └── process-wrap feature "default" (*)
+│   │   │   ├── process-wrap feature "process-session" (*)
+│   │   │   ├── process-wrap feature "tokio1"
+│   │   │   │   ├── bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4) (*)
+│   │   │   │   └── rmcp v3.5.1 (*)
+│   │   │   └── process-wrap feature "tracing"
+│   │   │       └── process-wrap feature "default" (*)
+│   │   ├── rmcp v3.5.1 (*)
+│   │   └── serde_yaml v0.9.34+deprecated
+│   │       └── serde_yaml feature "default"
+│   │           └── bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4) (*)
+│   ├── indexmap feature "serde"
+│   │   └── rmcp v3.5.1 (*)
+│   └── indexmap feature "std"
+│       └── indexmap feature "default" (*)
+└── indexmap v2.14.2
+    ├── indexmap feature "default"
+    │   └── toml_edit v0.25.17+spec-1.1.0
+    │       └── toml_edit feature "parse"
+    │           └── proc-macro-crate v3.5.0
+    │               └── proc-macro-crate feature "default"
+    │                   └── bboxy450-yarn-macros v0.1.1 (proc-macro)
+    │                       └── bboxy450-yarn-macros feature "default"
+    │                           └── bboxy450-yarn v0.1.1
+    │                               ├── bboxy450-yarn feature "default"
+    │                               │   └── bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4) (*)
+    │                               │   [dev-dependencies]
+    │                               │   └── bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4) (*)
+    │                               ├── bboxy450-yarn feature "macros"
+    │                               │   └── bboxy450-yarn feature "default" (*)
+    │                               ├── bboxy450-yarn feature "model"
+    │                               │   [dev-dependencies]
+    │                               │   └── bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4) (*)
+    │                               └── bboxy450-yarn feature "tokio"
+    │                                   └── bboxy450-yarn feature "default" (*)
+    └── indexmap feature "std"
+        └── toml_edit v0.25.17+spec-1.1.0 (*)
+        └── indexmap feature "default" (*)

@@ -1,0 +1,29 @@
+[
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--lib",
+      "dream::resolve::"
+    ],
+    "exit_code": 0,
+    "log": ".bboxy/runs/hashbrown-precommit-units.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--offline",
+      "--locked",
+      "--all-targets",
+      "--all-features",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit_code": 101,
+    "log": ".bboxy/runs/hashbrown-precommit-clippy.log"
+  }
+]

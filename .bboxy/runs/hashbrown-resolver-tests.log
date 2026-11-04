@@ -1,0 +1,10 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.73s
+     Running tests/dream_identity.rs (target/debug/deps/dream_identity-1679d1ff4c423602)
+
+running 2 tests
+test resolver_cache_reuses_exact_arcs_preserves_options_and_retries_failures ... ok
+test resolver_trust_transition_discards_cached_classification ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 4.26s
+

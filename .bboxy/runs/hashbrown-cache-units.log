@@ -1,0 +1,45 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+error[E0283]: type annotations needed for `resolve::RecordCache<_>`
+   --> src/dream/resolve.rs:873:13
+    |
+873 |         let mut cache = RecordCache::default();
+    |             ^^^^^^^^^   ----------- type must be known at this point
+    |
+    = note: the type must implement `std::default::Default`
+note: required for `resolve::RecordCache<_>` to implement `std::default::Default`
+   --> src/dream/resolve.rs:281:8
+    |
+280 | #[derive(Default)]
+    |          ------- in this derive macro expansion
+281 | struct RecordCache<S = RandomState> {
+    |        ^^^^^^^^^^^ - type parameter would need to implement `std::default::Default`
+    = help: consider manually implementing `std::default::Default` to avoid undesired bounds caused by "imperfect derives"
+    = note: to learn more, visit <https://github.com/rust-lang/rust/issues/26925>
+help: consider giving `cache` an explicit type, where the type for type parameter `S` is specified
+    |
+873 |         let mut cache: resolve::RecordCache<S> = RecordCache::default();
+    |                      +++++++++++++++++++++++++
+
+error[E0283]: type annotations needed for `resolve::RecordCache<_>`
+   --> src/dream/resolve.rs:982:13
+    |
+982 |         let mut new = RecordCache::default();
+    |             ^^^^^^^   ----------- type must be known at this point
+    |
+    = note: the type must implement `std::default::Default`
+note: required for `resolve::RecordCache<_>` to implement `std::default::Default`
+   --> src/dream/resolve.rs:281:8
+    |
+280 | #[derive(Default)]
+    |          ------- in this derive macro expansion
+281 | struct RecordCache<S = RandomState> {
+    |        ^^^^^^^^^^^ - type parameter would need to implement `std::default::Default`
+    = help: consider manually implementing `std::default::Default` to avoid undesired bounds caused by "imperfect derives"
+    = note: to learn more, visit <https://github.com/rust-lang/rust/issues/26925>
+help: consider giving `new` an explicit type, where the type for type parameter `S` is specified
+    |
+982 |         let mut new: resolve::RecordCache<S> = RecordCache::default();
+    |                    +++++++++++++++++++++++++
+
+For more information about this error, try `rustc --explain E0283`.
+error: could not compile `bboxy450-harness` (lib test) due to 2 previous errors

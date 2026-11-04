@@ -1,0 +1,31 @@
+[
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--offline",
+      "--locked",
+      "--all-targets",
+      "--all-features",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit_code": 0,
+    "log": ".bboxy/runs/hashbrown-clippy-fixed.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "tree",
+      "--offline",
+      "--locked",
+      "-e",
+      "features",
+      "-i",
+      "hashbrown@0.17.1"
+    ],
+    "exit_code": 0,
+    "log": ".bboxy/runs/hashbrown-features-after.log"
+  }
+]

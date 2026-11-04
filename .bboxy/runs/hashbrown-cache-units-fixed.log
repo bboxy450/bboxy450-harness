@@ -1,0 +1,12 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.22s
+     Running unittests src/lib.rs (target/debug/deps/bboxy450_harness-2c0c13369a9613ae)
+
+running 4 tests
+test dream::resolve::tests::hashbrown_record_cache_bench ... ignored, explicit release-mode measurement, never a CI timing threshold
+test dream::resolve::tests::record_cache_matches_all_fields_and_exact_option_identity ... ok
+test dream::resolve::tests::record_cache_random_seeds_preserve_canonical_observable_records ... ok
+test dream::resolve::tests::record_cache_collisions_resize_duplicates_and_clear ... ok
+
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 33 filtered out; finished in 0.03s
+

@@ -1,0 +1,4 @@
+python3 -I scripts/ir-compat.py check --require-current
+ir-compat: PASS (66 locked definitions)
+python3 -I scripts/ir-compat.py control
+ir-compat control: PASS (10 refused, 4 accepted, both schema forms)

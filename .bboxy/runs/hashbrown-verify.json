@@ -1,0 +1,93 @@
+[
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--release",
+      "--lib",
+      "hashbrown_record_cache_bench",
+      "--",
+      "--ignored",
+      "--nocapture"
+    ],
+    "exit_code": 0,
+    "log": ".bboxy/runs/hashbrown-benchmark.log",
+    "source": "fd64540610168af18f0fb1a09c55b6337679b106",
+    "cargo_build_jobs": 2
+  },
+  {
+    "command": "cargo test --lib dream::resolve:: && cargo test --test dream_identity --test dream_graph --test dream_audit_broken --test dream_trust --test dream_seal && make test-formal && make test-formal-parity && make check-formal-evidence",
+    "exit_code": 0,
+    "log": ".bboxy/runs/hashbrown-primary.log",
+    "source": "fd64540610168af18f0fb1a09c55b6337679b106",
+    "cargo_build_jobs": 2
+  },
+  {
+    "command": [
+      "make",
+      "test-ir"
+    ],
+    "exit_code": 0,
+    "log": ".bboxy/runs/hashbrown-ir.log",
+    "source": "fd64540610168af18f0fb1a09c55b6337679b106",
+    "cargo_build_jobs": 2
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "protocol_golden",
+      "--test",
+      "ir_v1_corpus",
+      "--test",
+      "store_fork",
+      "--test",
+      "ir_edge",
+      "--test",
+      "dream_replay",
+      "--features",
+      "acp-agent"
+    ],
+    "exit_code": 0,
+    "log": ".bboxy/runs/hashbrown-substrate.log",
+    "source": "fd64540610168af18f0fb1a09c55b6337679b106",
+    "cargo_build_jobs": 2
+  },
+  {
+    "command": [
+      "make",
+      "smoke-app"
+    ],
+    "exit_code": 0,
+    "log": ".bboxy/runs/hashbrown-smoke.log",
+    "source": "fd64540610168af18f0fb1a09c55b6337679b106",
+    "cargo_build_jobs": 2
+  },
+  {
+    "command": [
+      "python3",
+      "-I",
+      "scripts/checks.py",
+      "headers"
+    ],
+    "exit_code": 0,
+    "log": ".bboxy/runs/hashbrown-headers.log",
+    "source": "fd64540610168af18f0fb1a09c55b6337679b106",
+    "cargo_build_jobs": 2
+  },
+  {
+    "command": [
+      "python3",
+      "-I",
+      "scripts/checks.py",
+      "secrets"
+    ],
+    "exit_code": 0,
+    "log": ".bboxy/runs/hashbrown-secrets.log",
+    "source": "fd64540610168af18f0fb1a09c55b6337679b106",
+    "cargo_build_jobs": 2
+  }
+]
