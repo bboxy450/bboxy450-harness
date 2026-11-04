@@ -602,6 +602,8 @@ mod gui {
             bbt_rt::handle().block_on(async {
                 let config = Config {
                     meta: SessionMeta {
+                        vcs: None,
+                        dream: None,
                         source: None,
                         session: SessionId::new(),
                         cwd: root.clone(),

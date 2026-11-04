@@ -26,6 +26,8 @@ impl Fixture {
         f.emit(Event::SessionStarted {
             meta: SessionMeta {
                 source: None,
+                vcs: None,
+                dream: None,
                 session,
                 cwd: PathBuf::from("/fixture/project"),
                 profile: Some("scripted".into()),
@@ -527,4 +529,153 @@ fn old_turn_starts_keep_an_absent_origin_and_new_origins_roundtrip() {
         serde_json::to_value(&reason).unwrap(),
         serde_json::json!({"reason":"quiet","ms":30000})
     );
+}
+
+#[test]
+fn dream_enums_roundtrip_every_known_value_and_unknown_payload() {
+    fn roundtrip<T>(values: &[serde_json::Value], is_unknown: fn(&T) -> bool)
+    where
+        T: serde::de::DeserializeOwned + serde::Serialize,
+    {
+        for raw in values {
+            let parsed: T = serde_json::from_value(raw.clone()).unwrap();
+            assert!(!is_unknown(&parsed), "known value parsed as Unknown: {raw}");
+        }
+        for raw in values.iter().cloned().chain([
+            serde_json::json!("future_value"),
+            serde_json::json!({"kind":"future_value","payload":{"nested":[42]}}),
+        ]) {
+            let parsed: T = serde_json::from_value(raw.clone()).unwrap();
+            assert_eq!(serde_json::to_value(parsed).unwrap(), raw);
+        }
+    }
+    macro_rules! strings {
+        ($ty:ty, $($value:literal),+ $(,)?) => {
+            roundtrip::<$ty>(&[$(serde_json::json!($value)),+], <$ty>::is_unknown);
+        };
+    }
+    strings!(
+        DreamPhase,
+        "replay",
+        "synthesis",
+        "trial",
+        "lower",
+        "flush",
+        "audit"
+    );
+    strings!(ScopeLevel, "repo", "system");
+    strings!(MemoryOp, "pending", "created", "revised");
+    strings!(
+        EntryState,
+        "proposed",
+        "tested",
+        "adopted",
+        "rejected",
+        "superseded",
+        "expired",
+        "retired"
+    );
+    strings!(Arm, "with", "without");
+    strings!(Verdict, "pass", "fail", "inconclusive");
+    strings!(
+        SinkKind,
+        "claude_memory",
+        "codex_extension",
+        "grok_inbox",
+        "engine_context",
+        "acp_context",
+        "proposal"
+    );
+    strings!(RecallBasis, "reported", "inferred", "cited");
+    let session = SessionId::new();
+    roundtrip::<Trigger>(
+        &[
+            serde_json::json!({"kind":"session_closed","session":session}),
+            serde_json::json!({"kind":"quota","provider":"fixture","resets_at":42}),
+            serde_json::json!({"kind":"operator","message":null}),
+            serde_json::json!({"kind":"dream","entry":"sha256:fixture"}),
+            serde_json::json!({"kind":"schedule","name":"night"}),
+        ],
+        Trigger::is_unknown,
+    );
+    roundtrip::<EvidenceRef>(
+        &[
+            serde_json::json!({"kind":"event","session":session,"seq":42,"digest":"sha256:fixture"}),
+            serde_json::json!({"kind":"record","root":"repo","id":"record","path":"tasks/fixture.md","commit":"abc123","digest":"sha256:fixture"}),
+        ],
+        EvidenceRef::is_unknown,
+    );
+}
+
+#[test]
+fn dream_recovery_keeps_known_kinds_and_never_authors_unknown() {
+    for kind in [
+        ItemKind::MemoryWrite,
+        ItemKind::MemoryState,
+        ItemKind::Trial,
+        ItemKind::Adoption,
+        ItemKind::Recall,
+    ] {
+        let id = ItemId::new();
+        let body = Item::interrupted(kind.clone(), id);
+        assert_eq!(body.kind(), kind);
+        let mut f = Fixture::new();
+        f.emit(Event::ItemStarted {
+            turn: None,
+            item: id,
+            kind,
+            parent: None,
+            head: None,
+        });
+        f.emit(Event::ItemCompleted {
+            item: id,
+            body,
+            status: ItemStatus::Interrupted,
+        });
+        laws::check_authored(&f.events).unwrap();
+    }
+}
+
+#[test]
+fn dream_additions_default_every_field_without_minting_source_identity() {
+    let schema = schema_value();
+    for name in [
+        "Vcs",
+        "DreamRun",
+        "Scope",
+        "RecordPin",
+        "TrialEpisode",
+        "TrialRun",
+        "SinkRef",
+    ] {
+        assert!(
+            schema["$defs"][name]
+                .get("required")
+                .is_none_or(|v| v.as_array().unwrap().is_empty()),
+            "{name} requires a new field"
+        );
+    }
+    for name in ["Trigger", "EvidenceRef"] {
+        for variant in schema["$defs"][name]["anyOf"].as_array().unwrap() {
+            if let Some(required) = variant.get("required") {
+                assert_eq!(required, &serde_json::json!(["kind"]), "{name}");
+            }
+        }
+    }
+    let dream: DreamRun = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert!(
+        dream.phase.is_unknown() && dream.trigger.is_unknown() && dream.scope.level.is_unknown()
+    );
+    let missing = serde_json::json!({"kind":"event"});
+    let a: EvidenceRef = serde_json::from_value(missing.clone()).unwrap();
+    let b: EvidenceRef = serde_json::from_value(missing).unwrap();
+    assert_eq!(a, b);
+    assert!(
+        matches!(a, EvidenceRef::Event { session, seq: Seq(0), .. } if session.0 == ulid::Ulid::from(0u128))
+    );
+    let run: TrialRun = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert!(run.arm.is_unknown());
+    assert_eq!(run.session.0, ulid::Ulid::from(0u128));
+    let pin: RecordPin = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert!(pin.commit.is_none() && pin.id.is_none());
 }

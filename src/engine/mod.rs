@@ -54,6 +54,9 @@ pub struct LaunchOptions {
     pub mcp_servers: crate::mcp::Servers,
     pub notices: Vec<String>,
 }
+// Additive SessionMeta/IR metadata enlarged Event. Keep this private by-value
+// channel payload to avoid a new per-event heap allocation in WP1.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum Internal {
     ServiceNotice {
         level: Level,
@@ -1224,6 +1227,8 @@ mod hardening_tests {
         };
         let config = Config {
             meta: SessionMeta {
+                vcs: None,
+                dream: None,
                 source: None,
                 session,
                 cwd: temp.path().into(),
@@ -1298,6 +1303,8 @@ mod hardening_tests {
         let session = SessionId::new();
         let config = Config {
             meta: SessionMeta {
+                vcs: None,
+                dream: None,
                 source: None,
                 session,
                 cwd: temp.path().into(),
@@ -1409,6 +1416,8 @@ mod hardening_tests {
         provider.delay = Duration::from_millis(1);
         let config = Config {
             meta: SessionMeta {
+                vcs: None,
+                dream: None,
                 source: None,
                 session,
                 cwd: temp.path().into(),

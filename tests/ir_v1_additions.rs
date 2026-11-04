@@ -52,6 +52,8 @@ fn fixture() -> Vec<Envelope> {
     };
     emit(Event::SessionStarted {
         meta: SessionMeta {
+            vcs: None,
+            dream: None,
             source: Some(Source {
                 harness: "fixture".into(),
                 native_id: Some("native-fixture".into()),

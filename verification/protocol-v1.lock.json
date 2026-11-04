@@ -11,7 +11,10 @@
   "tests/fixtures/ir-v1/v0.4-recovery.jsonl": "9618bc8b716d688afc8eb4a23108937badb3b001ad5fa5ca54ca4fc9fdb95b5d",
   "tests/fixtures/ir-v1/v0.4-reset.jsonl": "2cd2f036c6bdc4ab22fead6ca85f4981c2af0871a0410a3b366a8550b0082ccf",
   "tests/fixtures/ir-v1/v1.1-all-items.jsonl": "cf36a73a193c15e2ebe60a422924766a09a1f8600f8f3e9d4df573b1a8cea747",
-  "tests/fixtures/ir-v1/v1.2-agent-turn.jsonl": "3b97b9d90c16638f3e04d56dc267d19947bbf72611475b9af4f4c008ee94acd6"
+  "tests/fixtures/ir-v1/v1.2-agent-turn.jsonl": "3b97b9d90c16638f3e04d56dc267d19947bbf72611475b9af4f4c008ee94acd6",
+  "tests/fixtures/ir-v1/v1.3-dream-session.jsonl": "970d88fd7e9a4e20ae063cb391c618be172e6023ff691b196812e397fd91eb07",
+  "tests/fixtures/ir-v1/v1.3-recall.jsonl": "3ea85e96a7228a5cd04c24e5851cb068365e437b89be0f12ab6142b4188dc348",
+  "tests/fixtures/ir-v1/v1.3-vcs.jsonl": "a2b5f30648b913c015efea7d2b691b9dd3e65441f30b4a51eb3ed31ba6f62365"
  },
  "ir": "bboxy log IR",
  "retired": [],
@@ -65,6 +68,14 @@
     }
    },
    "shape": "struct"
+  },
+  "Arm": {
+   "shape": "enum",
+   "variants": {
+    "unknown": {},
+    "with": {},
+    "without": {}
+   }
   },
   "Backend": {
    "fields": {
@@ -204,6 +215,47 @@
     "unknown": {}
    }
   },
+  "DreamPhase": {
+   "shape": "enum",
+   "variants": {
+    "audit": {},
+    "flush": {},
+    "lower": {},
+    "replay": {},
+    "synthesis": {},
+    "trial": {},
+    "unknown": {}
+   }
+  },
+  "DreamRun": {
+   "fields": {
+    "parent": {
+     "required": false,
+     "type": "SessionId|null"
+    },
+    "phase": {
+     "required": false,
+     "type": "DreamPhase"
+    },
+    "prompt_version": {
+     "required": false,
+     "type": "string|null"
+    },
+    "scope": {
+     "required": false,
+     "type": "Scope"
+    },
+    "thresholds": {
+     "required": false,
+     "type": "string|null"
+    },
+    "trigger": {
+     "required": false,
+     "type": "Trigger"
+    }
+   },
+   "shape": "struct"
+  },
   "Effect": {
    "shape": "enum",
    "variants": {
@@ -212,6 +264,19 @@
     "read": {},
     "unknown": {},
     "write": {}
+   }
+  },
+  "EntryState": {
+   "shape": "enum",
+   "variants": {
+    "adopted": {},
+    "expired": {},
+    "proposed": {},
+    "rejected": {},
+    "retired": {},
+    "superseded": {},
+    "tested": {},
+    "unknown": {}
    }
   },
   "Envelope": {
@@ -450,6 +515,49 @@
     "unknown": {}
    }
   },
+  "EvidenceRef": {
+   "shape": "union",
+   "tag": "kind",
+   "variants": {
+    "event": {
+     "digest": {
+      "required": false,
+      "type": "string"
+     },
+     "seq": {
+      "required": false,
+      "type": "uint64"
+     },
+     "session": {
+      "required": false,
+      "type": "SessionId"
+     }
+    },
+    "record": {
+     "commit": {
+      "required": false,
+      "type": "string"
+     },
+     "digest": {
+      "required": false,
+      "type": "string"
+     },
+     "id": {
+      "required": false,
+      "type": "string"
+     },
+     "path": {
+      "required": false,
+      "type": "string"
+     },
+     "root": {
+      "required": false,
+      "type": "string"
+     }
+    },
+    "unknown": {}
+   }
+  },
   "InputBlock": {
    "shape": "union",
    "tag": "type",
@@ -509,6 +617,28 @@
    "shape": "union",
    "tag": "kind",
    "variants": {
+    "adoption": {
+     "block_digest": {
+      "required": false,
+      "type": "string"
+     },
+     "entry": {
+      "required": false,
+      "type": "string"
+     },
+     "harness": {
+      "required": false,
+      "type": "string"
+     },
+     "record": {
+      "required": false,
+      "type": "RecordPin|null"
+     },
+     "sink": {
+      "required": false,
+      "type": "SinkRef"
+     }
+    },
     "agent_message": {
      "markdown": {
       "required": true,
@@ -601,6 +731,50 @@
       "type": "string"
      }
     },
+    "memory_state": {
+     "entry": {
+      "required": false,
+      "type": "string"
+     },
+     "harness": {
+      "required": false,
+      "type": "string|null"
+     },
+     "reason": {
+      "required": false,
+      "type": "string"
+     },
+     "refs": {
+      "required": false,
+      "type": "[EvidenceRef]"
+     },
+     "state": {
+      "required": false,
+      "type": "EntryState"
+     }
+    },
+    "memory_write": {
+     "draft": {
+      "required": false,
+      "type": "any"
+     },
+     "entry": {
+      "required": false,
+      "type": "string"
+     },
+     "evidence": {
+      "required": false,
+      "type": "[EvidenceRef]"
+     },
+     "op": {
+      "required": false,
+      "type": "MemoryOp"
+     },
+     "record": {
+      "required": false,
+      "type": "RecordPin"
+     }
+    },
     "native": {
      "blob": {
       "required": false,
@@ -647,6 +821,28 @@
      "summary": {
       "required": true,
       "type": "string"
+     }
+    },
+    "recall": {
+     "basis": {
+      "required": false,
+      "type": "RecallBasis"
+     },
+     "block_digest": {
+      "required": false,
+      "type": "string|null"
+     },
+     "entry": {
+      "required": false,
+      "type": "string"
+     },
+     "record": {
+      "required": false,
+      "type": "RecordPin|null"
+     },
+     "sink": {
+      "required": false,
+      "type": "SinkRef|null"
      }
     },
     "subagent": {
@@ -741,6 +937,36 @@
       "type": "ToolKind"
      }
     },
+    "trial": {
+     "controls": {
+      "required": false,
+      "type": "[TrialEpisode]"
+     },
+     "entry": {
+      "required": false,
+      "type": "string"
+     },
+     "episodes": {
+      "required": false,
+      "type": "[TrialEpisode]"
+     },
+     "harness": {
+      "required": false,
+      "type": "string"
+     },
+     "reason": {
+      "required": false,
+      "type": "string"
+     },
+     "thresholds": {
+      "required": false,
+      "type": "string"
+     },
+     "verdict": {
+      "required": false,
+      "type": "Verdict"
+     }
+    },
     "turn_diff": {
      "unified": {
       "required": true,
@@ -800,6 +1026,7 @@
   "ItemKind": {
    "shape": "enum",
    "variants": {
+    "adoption": {},
     "agent_message": {},
     "approval": {},
     "command": {},
@@ -808,14 +1035,18 @@
     "file_change": {},
     "hook": {},
     "image": {},
+    "memory_state": {},
+    "memory_write": {},
     "native": {},
     "notice": {},
     "plan": {},
     "reasoning": {},
+    "recall": {},
     "subagent": {},
     "system_message": {},
     "terminal": {},
     "tool_call": {},
+    "trial": {},
     "turn_diff": {},
     "unknown": {},
     "usage": {},
@@ -867,6 +1098,15 @@
     }
    },
    "shape": "struct"
+  },
+  "MemoryOp": {
+   "shape": "enum",
+   "variants": {
+    "created": {},
+    "pending": {},
+    "revised": {},
+    "unknown": {}
+   }
   },
   "Native": {
    "fields": {
@@ -1142,6 +1382,40 @@
     "unknown": {}
    }
   },
+  "RecallBasis": {
+   "shape": "enum",
+   "variants": {
+    "cited": {},
+    "inferred": {},
+    "reported": {},
+    "unknown": {}
+   }
+  },
+  "RecordPin": {
+   "fields": {
+    "commit": {
+     "required": false,
+     "type": "string|null"
+    },
+    "digest": {
+     "required": false,
+     "type": "string"
+    },
+    "id": {
+     "required": false,
+     "type": "string|null"
+    },
+    "path": {
+     "required": false,
+     "type": "string"
+    },
+    "root": {
+     "required": false,
+     "type": "string"
+    }
+   },
+   "shape": "struct"
+  },
   "Rejection": {
    "shape": "union",
    "tag": "reason",
@@ -1199,6 +1473,27 @@
     "unknown": {}
    }
   },
+  "Scope": {
+   "fields": {
+    "level": {
+     "required": false,
+     "type": "ScopeLevel"
+    },
+    "repos": {
+     "required": false,
+     "type": "[string]"
+    }
+   },
+   "shape": "struct"
+  },
+  "ScopeLevel": {
+   "shape": "enum",
+   "variants": {
+    "repo": {},
+    "system": {},
+    "unknown": {}
+   }
+  },
   "SessionId": {
    "shape": "alias",
    "type": "string"
@@ -1212,6 +1507,10 @@
     "cwd": {
      "required": true,
      "type": "string"
+    },
+    "dream": {
+     "required": false,
+     "type": "DreamRun|null"
     },
     "fork": {
      "required": false,
@@ -1236,6 +1535,35 @@
     "source": {
      "required": false,
      "type": "Source|null"
+    },
+    "vcs": {
+     "required": false,
+     "type": "Vcs|null"
+    }
+   },
+   "shape": "struct"
+  },
+  "SinkKind": {
+   "shape": "enum",
+   "variants": {
+    "acp_context": {},
+    "claude_memory": {},
+    "codex_extension": {},
+    "engine_context": {},
+    "grok_inbox": {},
+    "proposal": {},
+    "unknown": {}
+   }
+  },
+  "SinkRef": {
+   "fields": {
+    "kind": {
+     "required": false,
+     "type": "SinkKind"
+    },
+    "path": {
+     "required": false,
+     "type": "string"
     }
    },
    "shape": "struct"
@@ -1317,6 +1645,81 @@
     "read": {},
     "search": {},
     "think": {},
+    "unknown": {}
+   }
+  },
+  "TrialEpisode": {
+   "fields": {
+    "origin": {
+     "required": false,
+     "type": "EvidenceRef"
+    },
+    "runs": {
+     "required": false,
+     "type": "[TrialRun]"
+    }
+   },
+   "shape": "struct"
+  },
+  "TrialRun": {
+   "fields": {
+    "arm": {
+     "required": false,
+     "type": "Arm"
+    },
+    "session": {
+     "required": false,
+     "type": "SessionId"
+    },
+    "usage": {
+     "required": false,
+     "type": "Usage|null"
+    },
+    "verify_exit": {
+     "required": false,
+     "type": "int32|null"
+    }
+   },
+   "shape": "struct"
+  },
+  "Trigger": {
+   "shape": "union",
+   "tag": "kind",
+   "variants": {
+    "dream": {
+     "entry": {
+      "required": false,
+      "type": "string"
+     }
+    },
+    "operator": {
+     "message": {
+      "required": false,
+      "type": "string|null"
+     }
+    },
+    "quota": {
+     "provider": {
+      "required": false,
+      "type": "string"
+     },
+     "resets_at": {
+      "required": false,
+      "type": "uint64"
+     }
+    },
+    "schedule": {
+     "name": {
+      "required": false,
+      "type": "string"
+     }
+    },
+    "session_closed": {
+     "session": {
+      "required": false,
+      "type": "SessionId"
+     }
+    },
     "unknown": {}
    }
   },
@@ -1415,6 +1818,36 @@
     "unknown": {}
    }
   },
+  "Vcs": {
+   "fields": {
+    "branch": {
+     "required": false,
+     "type": "string|null"
+    },
+    "commit": {
+     "required": false,
+     "type": "string|null"
+    },
+    "dirty": {
+     "required": false,
+     "type": "boolean|null"
+    },
+    "repo": {
+     "required": false,
+     "type": "string|null"
+    }
+   },
+   "shape": "struct"
+  },
+  "Verdict": {
+   "shape": "enum",
+   "variants": {
+    "fail": {},
+    "inconclusive": {},
+    "pass": {},
+    "unknown": {}
+   }
+  },
   "Version": {
    "fields": {
     "major": {
@@ -1431,6 +1864,6 @@
  },
  "version": {
   "major": 1,
-  "minor": 0
+  "minor": 3
  }
 }

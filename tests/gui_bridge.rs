@@ -153,9 +153,17 @@ async fn unix_and_inproc_views_equal_every_ir_v1_fixture() {
         .filter(|p| p.extension().is_some_and(|s| s == "jsonl"))
         .collect::<Vec<_>>();
     fixtures.sort();
+    let lock: serde_json::Value =
+        serde_json::from_str(include_str!("../verification/protocol-v1.lock.json")).unwrap();
+    let mut locked = lock["corpus"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(std::path::PathBuf::from)
+        .collect::<Vec<_>>();
+    locked.sort();
     assert_eq!(
-        fixtures.len(),
-        12,
+        fixtures, locked,
         "every locked IR v1 fixture must be covered"
     );
     for path in fixtures {

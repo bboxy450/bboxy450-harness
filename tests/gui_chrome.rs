@@ -64,6 +64,8 @@ fn transcript(rows: &[ViewItem]) -> Transcript {
         session: Some(SessionId::new()),
         profile: Some(("claude-acp".into(), "acp:claude-agent-acp · opus".into())),
         meta: Some(SessionMeta {
+            vcs: None,
+            dream: None,
             source: None,
             session: SessionId::new(),
             cwd: "/tmp/acpdemo".into(),

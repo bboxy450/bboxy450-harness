@@ -362,6 +362,8 @@ async fn run_cli(
     };
     let config = Config {
         meta: SessionMeta {
+            vcs: None,
+            dream: None,
             source: None,
             session,
             cwd,

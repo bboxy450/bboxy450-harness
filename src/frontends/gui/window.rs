@@ -691,6 +691,8 @@ fn config(options: &Options) -> Result<Config, String> {
     let redactor = Set::default();
     Ok(Config {
         meta: SessionMeta {
+            vcs: None,
+            dream: None,
             source: None,
             session,
             cwd: options.cwd.clone(),

@@ -467,6 +467,8 @@ mod durability_controls {
     async fn writer_durability_on_read_refuses_a_forward_compatible_log() {
         let temp = tempfile::tempdir().unwrap();
         let meta = SessionMeta {
+            vcs: None,
+            dream: None,
             source: None,
             session: SessionId::new(),
             cwd: temp.path().into(),

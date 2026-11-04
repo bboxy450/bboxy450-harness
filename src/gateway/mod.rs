@@ -703,6 +703,8 @@ mod admission_tests {
     fn held_capacity_returns_busy_without_an_actor_or_runtime() {
         let session = SessionId::new();
         let meta = SessionMeta {
+            vcs: None,
+            dream: None,
             source: None,
             session,
             cwd: std::path::PathBuf::new(),

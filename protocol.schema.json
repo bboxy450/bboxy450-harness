@@ -92,6 +92,18 @@
       ],
       "type": "object"
     },
+    "Arm": {
+      "anyOf": [
+        {
+          "enum": [
+            "with",
+            "without"
+          ],
+          "type": "string"
+        },
+        true
+      ]
+    },
     "Backend": {
       "properties": {
         "kind": {
@@ -343,6 +355,63 @@
         true
       ]
     },
+    "DreamPhase": {
+      "anyOf": [
+        {
+          "enum": [
+            "replay",
+            "synthesis",
+            "trial",
+            "lower",
+            "flush",
+            "audit"
+          ],
+          "type": "string"
+        },
+        true
+      ]
+    },
+    "DreamRun": {
+      "properties": {
+        "parent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "phase": {
+          "$ref": "#/$defs/DreamPhase",
+          "default": null
+        },
+        "prompt_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope",
+          "default": {
+            "level": null
+          }
+        },
+        "thresholds": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trigger": {
+          "$ref": "#/$defs/Trigger",
+          "default": null
+        }
+      },
+      "type": "object"
+    },
     "Effect": {
       "anyOf": [
         {
@@ -351,6 +420,23 @@
             "write",
             "exec",
             "network"
+          ],
+          "type": "string"
+        },
+        true
+      ]
+    },
+    "EntryState": {
+      "anyOf": [
+        {
+          "enum": [
+            "proposed",
+            "tested",
+            "adopted",
+            "rejected",
+            "superseded",
+            "expired",
+            "retired"
           ],
           "type": "string"
         },
@@ -827,6 +913,65 @@
             "type",
             "epoch",
             "head"
+          ],
+          "type": "object"
+        },
+        true
+      ]
+    },
+    "EvidenceRef": {
+      "anyOf": [
+        {
+          "description": "Untrusted even when the line digest matches.",
+          "properties": {
+            "digest": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "event",
+              "type": "string"
+            },
+            "seq": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "session": {
+              "$ref": "#/$defs/SessionId",
+              "default": "00000000000000000000000000"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Trust additionally requires the dream-log §6.2 anchor checks.",
+          "properties": {
+            "commit": {
+              "type": "string"
+            },
+            "digest": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "record",
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "root": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
           ],
           "type": "object"
         },
@@ -1448,6 +1593,192 @@
           ],
           "type": "object"
         },
+        {
+          "properties": {
+            "draft": true,
+            "entry": {
+              "type": "string"
+            },
+            "evidence": {
+              "items": {
+                "$ref": "#/$defs/EvidenceRef"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "memory_write",
+              "type": "string"
+            },
+            "op": {
+              "$ref": "#/$defs/MemoryOp",
+              "default": null
+            },
+            "record": {
+              "$ref": "#/$defs/RecordPin",
+              "default": {}
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "entry": {
+              "type": "string"
+            },
+            "harness": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "memory_state",
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "refs": {
+              "items": {
+                "$ref": "#/$defs/EvidenceRef"
+              },
+              "type": "array"
+            },
+            "state": {
+              "$ref": "#/$defs/EntryState",
+              "default": null
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "controls": {
+              "items": {
+                "$ref": "#/$defs/TrialEpisode"
+              },
+              "type": "array"
+            },
+            "entry": {
+              "type": "string"
+            },
+            "episodes": {
+              "items": {
+                "$ref": "#/$defs/TrialEpisode"
+              },
+              "type": "array"
+            },
+            "harness": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "trial",
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "thresholds": {
+              "type": "string"
+            },
+            "verdict": {
+              "$ref": "#/$defs/Verdict",
+              "default": null
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "block_digest": {
+              "type": "string"
+            },
+            "entry": {
+              "type": "string"
+            },
+            "harness": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "adoption",
+              "type": "string"
+            },
+            "record": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RecordPin"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sink": {
+              "$ref": "#/$defs/SinkRef",
+              "default": {
+                "kind": null
+              }
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "basis": {
+              "$ref": "#/$defs/RecallBasis",
+              "default": null
+            },
+            "block_digest": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "entry": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "recall",
+              "type": "string"
+            },
+            "record": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RecordPin"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sink": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SinkRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
         true
       ]
     },
@@ -1525,7 +1856,12 @@
             "command",
             "hook",
             "system_message",
-            "native"
+            "native",
+            "memory_write",
+            "memory_state",
+            "trial",
+            "adoption",
+            "recall"
           ],
           "type": "string"
         },
@@ -1634,6 +1970,19 @@
         "path"
       ],
       "type": "object"
+    },
+    "MemoryOp": {
+      "anyOf": [
+        {
+          "enum": [
+            "pending",
+            "created",
+            "revised"
+          ],
+          "type": "string"
+        },
+        true
+      ]
     },
     "Native": {
       "properties": {
@@ -2223,6 +2572,45 @@
         true
       ]
     },
+    "RecallBasis": {
+      "anyOf": [
+        {
+          "enum": [
+            "reported",
+            "inferred",
+            "cited"
+          ],
+          "type": "string"
+        },
+        true
+      ]
+    },
+    "RecordPin": {
+      "properties": {
+        "commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "digest": {
+          "type": "string"
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "Rejection": {
       "anyOf": [
         {
@@ -2413,6 +2801,33 @@
         true
       ]
     },
+    "Scope": {
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/ScopeLevel",
+          "default": null
+        },
+        "repos": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ScopeLevel": {
+      "anyOf": [
+        {
+          "enum": [
+            "repo",
+            "system"
+          ],
+          "type": "string"
+        },
+        true
+      ]
+    },
     "SessionId": {
       "type": "string"
     },
@@ -2425,6 +2840,16 @@
         },
         "cwd": {
           "type": "string"
+        },
+        "dream": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DreamRun"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "fork": {
           "maxItems": 2,
@@ -2468,6 +2893,16 @@
               "type": "null"
             }
           ]
+        },
+        "vcs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Vcs"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -2477,6 +2912,34 @@
         "harness",
         "created_ms"
       ],
+      "type": "object"
+    },
+    "SinkKind": {
+      "anyOf": [
+        {
+          "enum": [
+            "claude_memory",
+            "codex_extension",
+            "grok_inbox",
+            "engine_context",
+            "acp_context",
+            "proposal"
+          ],
+          "type": "string"
+        },
+        true
+      ]
+    },
+    "SinkRef": {
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/SinkKind",
+          "default": null
+        },
+        "path": {
+          "type": "string"
+        }
+      },
       "type": "object"
     },
     "Source": {
@@ -2649,6 +3112,142 @@
             "other"
           ],
           "type": "string"
+        },
+        true
+      ]
+    },
+    "TrialEpisode": {
+      "properties": {
+        "origin": {
+          "$ref": "#/$defs/EvidenceRef",
+          "default": null
+        },
+        "runs": {
+          "items": {
+            "$ref": "#/$defs/TrialRun"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "TrialRun": {
+      "properties": {
+        "arm": {
+          "$ref": "#/$defs/Arm",
+          "default": null
+        },
+        "session": {
+          "$ref": "#/$defs/SessionId",
+          "default": "00000000000000000000000000"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Usage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "verify_exit": {
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Trigger": {
+      "anyOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "session_closed",
+              "type": "string"
+            },
+            "session": {
+              "$ref": "#/$defs/SessionId",
+              "default": "00000000000000000000000000"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "quota",
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "resets_at": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "operator",
+              "type": "string"
+            },
+            "message": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "entry": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "dream",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "schedule",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
         },
         true
       ]
@@ -2835,6 +3434,48 @@
         true
       ],
       "description": "Log IR v1 §4a: counters from calls, turn totals and cumulative sessions must\nnever be summed together. Missing required counters are named in unreported."
+    },
+    "Vcs": {
+      "properties": {
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dirty": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "repo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Verdict": {
+      "anyOf": [
+        {
+          "enum": [
+            "pass",
+            "fail",
+            "inconclusive"
+          ],
+          "type": "string"
+        },
+        true
+      ]
     },
     "Version": {
       "properties": {

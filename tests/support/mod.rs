@@ -21,6 +21,8 @@ pub struct Session {
 }
 pub fn meta(cwd: PathBuf) -> SessionMeta {
     SessionMeta {
+        vcs: None,
+        dream: None,
         source: None,
         session: SessionId::new(),
         cwd,
