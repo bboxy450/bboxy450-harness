@@ -347,77 +347,59 @@ async fn onboarding_native_setup_cards_and_markdown_raster() {
 
 #[cfg(feature = "embedded")]
 #[tokio::test]
-async fn private_setup_survives_unconfigured_startup_notice() {
+async fn onboarding_loader_welcome_routing() {
     use bboxy450_harness::{
-        frontends::gui::{
-            bridge::{FrameState, ProfileInfo},
-            model::Transcript,
-            view::{HarnessView, layout_text},
-        },
-        protocol::*,
-        runtime,
+        frontends::gui::{bridge::FrameState, model::Transcript, view::{HarnessView, Preparer, find, layout_text}},
+        protocol::*, runtime,
     };
     runtime::blocking(|| {
         let root = tempfile::tempdir().unwrap();
         let env = env(root.path());
         executable(&env, "codex", "exit 0");
-        let snapshot = discover(&env);
-        let base: Envelope = serde_json::from_str(
-            include_str!("fixtures/protocol/all-items.jsonl")
-                .lines()
-                .next()
-                .unwrap(),
-        )
-        .unwrap();
+        let mut state = FrameState { onboarding: Arc::new(discover(&env)), ..Default::default() };
+        let render = |state: &FrameState, expected: &str| {
+            let mut view = HarnessView::default();
+            let frame = view.render(state, [800., 900.]).unwrap();
+            let layout = frame.layout.as_ref().unwrap();
+            assert!(find(layout, expected).is_some(), "expected {expected}: {}", layout_text(layout));
+            assert!(find(layout, "setup").is_none() || expected == "setup");
+        };
+        // Discovery can finish before connection, catalogue, metadata or replay.
+        render(&state, "session-loader");
+        state.ready = true;
+        render(&state, "session-loader");
+        let base: Envelope = serde_json::from_str(include_str!("fixtures/protocol/all-items.jsonl").lines().next().unwrap()).unwrap();
         let mut model = Transcript::default();
         model.apply(&base);
+        state.transcript = Arc::new(model.clone());
+        render(&state, "session-loader");
+        model.profile = Some(("missing".into(), "unconfigured".into()));
+        state.transcript = Arc::new(model.clone());
+        state.ready = false;
+        render(&state, "session-loader");
+        state.ready = true;
+        render(&state, "setup");
+        state.replay = true;
+        render(&state, "empty");
+        state.replay = false;
+        // Out-of-turn history has no turns entry, but remains history while preparing.
         let id = ItemId::new();
         let mut event = base.clone();
-        event.seq = Some(Seq(2));
-        event.at = Seq(2);
-        event.event = Event::ItemStarted {
-            turn: None,
-            item: id,
-            kind: ItemKind::Notice,
-            parent: None,
-            head: None,
-        };
+        event.seq = Some(Seq(2)); event.at = Seq(2);
+        event.event = Event::ItemStarted { turn: None, item: id, kind: ItemKind::Notice, parent: None, head: None };
         model.apply(&event);
-        event.seq = Some(Seq(3));
-        event.at = Seq(3);
-        event.event = Event::ItemCompleted {
-            item: id,
-            status: ItemStatus::Completed,
-            body: Item::Notice {
-                level: Level::Error,
-                text: "profile could not be resolved".into(),
-            },
-        };
+        event.seq = Some(Seq(3)); event.at = Seq(3);
+        event.event = Event::ItemCompleted { item: id, status: ItemStatus::Completed, body: Item::Notice { level: Level::Info, text: "Preserved history".into() } };
         model.apply(&event);
-        let text = std::fs::read_to_string(env.profiles.join("codex.md")).unwrap();
-        let mut state = FrameState {
-            transcript: Arc::new(model),
-            profiles: Arc::new(vec![ProfileInfo::parse("codex", &text)]),
-            onboarding: Arc::new(snapshot),
-            ready: true,
-            ..Default::default()
-        };
+        assert!(model.turns.is_empty());
+        state.transcript = Arc::new(model);
+        render(&state, "session-loader");
+        state.prepared = Some(Arc::new(Preparer::default().prepare(state.transcript.clone(), 800.).unwrap()));
+        render(&state, &format!("item/{id}"));
+        state.ready = false;
         let mut view = HarnessView::default();
-        let frame = view.render(&state, [800., 900.]).unwrap();
-        assert!(layout_text(frame.layout.as_ref().unwrap()).contains("Choose your coding agent"));
-        Arc::make_mut(&mut state.transcript).turns.insert(
-            TurnId::new(),
-            bboxy450_harness::frontends::gui::model::TurnState::Running,
-        );
-        state.profiles = Arc::new(vec![]);
-        let mut active = HarnessView::default();
-        let frame = active.render(&state, [800., 900.]).unwrap();
-        assert!(
-            !layout_text(frame.layout.as_ref().unwrap()).contains("Choose your coding agent"),
-            "catalogue discovery must not replace active chat"
-        );
-    })
-    .await;
+        assert!(layout_text(view.render(&state, [800.,900.]).unwrap().layout.as_ref().unwrap()).contains("Preserved history"));
+    }).await;
 }
 
 #[cfg(feature = "standalone")]

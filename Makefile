@@ -231,3 +231,7 @@ verify-harness-attachments:
 .PHONY: verify-harness-onboarding
 verify-harness-onboarding:
 	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-harness-onboarding.py
+
+.PHONY: verify-onboarding-routing
+verify-onboarding-routing:
+	cargo nextest run --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' -p bboxy450-harness --features standalone --test harness_onboarding -E 'test(onboarding_loader_welcome_routing)'

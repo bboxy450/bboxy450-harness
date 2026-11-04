@@ -561,28 +561,20 @@ impl HarnessView {
         first_frame: bool,
         ink: &super::face::Ink,
     ) -> Result<TranscriptColumn, String> {
+        let model = &state.transcript;
+        let has_rows = model.order.iter().any(|id| face_rows::drawn(model, id));
+        // Discovery is independent of session loading. Only a settled, explicitly
+        // unconfigured new session may select setup automatically; absent catalogue
+        // or metadata is not evidence that an existing session needs onboarding.
+        let welcome = state.ready
+            && !state.replay
+            && model.meta.is_some()
+            && model.profile.as_ref().is_some_and(|(_, name)| name == "unconfigured")
+            && !has_rows
+            && model.turns.is_empty()
+            && state.pending_prompts.is_empty();
         if self.setup_open
-            || (!self.setup_dismissed
-                && !state.onboarding.entries.is_empty()
-                && state.transcript.turns.is_empty()
-                && state.pending_prompts.is_empty()
-                && (state.profiles.is_empty()
-                    || (state.transcript.turns.is_empty()
-                        && !state.profiles.iter().any(|p| {
-                            state
-                                .transcript
-                                .profile
-                                .as_ref()
-                                .map(|(name, _)| name.as_str())
-                                .or_else(|| {
-                                    state
-                                        .transcript
-                                        .meta
-                                        .as_ref()
-                                        .and_then(|m| m.profile.as_deref())
-                                })
-                                == Some(p.name.as_str())
-                        }))))
+            || (!self.setup_dismissed && welcome && !state.onboarding.entries.is_empty())
         {
             if !self.setup_visible {
                 self.scroll.anchor(0., f32::MAX);
@@ -596,11 +588,9 @@ impl HarnessView {
             return Ok((element, Some(height), HashMap::new()));
         }
         self.setup_visible = false;
-        let model = &state.transcript;
         let mut children = vec![];
         let mut total = 0.;
         let mut enters = HashMap::new();
-        let has_rows = model.order.iter().any(|id| face_rows::drawn(model, id));
         if let Some(prepared) = prepared {
             // animate only what is visible (plus a margin): offscreen rows take end states
             let animating = self.anim.animates();
@@ -677,7 +667,7 @@ impl HarnessView {
         }
         let has_pending = !children.is_empty();
         if children.is_empty() {
-            if state.ready && !has_rows {
+            if state.ready && !has_rows && model.meta.is_some() && model.profile.is_some() {
                 // harness-spec.md "Empty session": the page's `who` is the ACP agent line, else
                 // the model, else the profile; `in ~/<cwd leaf>` when the session has a cwd
                 let (profile, model_name) = model.profile.clone().unwrap_or_else(|| {
