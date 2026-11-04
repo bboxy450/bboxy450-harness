@@ -1425,3 +1425,201 @@ fn dream_seal_freeze_and_both_broken_controls_are_nonvacuous() {
         assert!(b.weak_fair.is_empty() && b.responses.is_empty());
     }
 }
+
+#[test]
+fn process_spawn_admission_reaches_queue_races_handoff_and_owned_cleanup() {
+    let m = model("HarnessProcessSpawnAdmission");
+    let checked = m.check(100_000).unwrap();
+    assert!(checked.violations.is_empty(), "{:?}", checked.violations);
+    let c = variable(&m, "caller");
+    let p = variable(&m, "admission");
+    let child = variable(&m, "child");
+    let owner = variable(&m, "owner");
+    let returned = variable(&m, "returned");
+    let deadline = variable(&m, "deadline");
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[p] == 7 && s[c] == 1 && s[child] == 0),
+        "queued cancellation requires no permit service"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[p] == 7 && s[deadline] == 1 && s[child] == 0),
+        "queued deadline requires no permit service"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[p] == 1 && s[c] == 2 && s[owner] == 1),
+        "drop while spawning retains worker"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[p] == 2 && s[c] == 2 && s[owner] == 2),
+        "abandoned result retains owner"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[p] == 4 && s[returned] == 1 && s[child] == 1),
+        "API return is not cleanup join"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[p] == 3 && s[c] == 0 && s[owner] == 3),
+        "successful live handoff is reachable"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[p] == 6 && s[c] == 2 && s[child] == 3 && s[owner] == 0),
+        "abandoned child actually reaches reap"
+    );
+    println!(
+        "spawn admission: {} states, {} labeled edges",
+        checked.states.len(),
+        checked.edges.iter().map(Vec::len).sum::<usize>()
+    );
+    for (control, property) in [
+        (
+            "BrokenHarnessProcessSpawnAdmissionLate",
+            "NoLateQueuedAdmission",
+        ),
+        (
+            "BrokenHarnessProcessSpawnAdmissionOwner",
+            "NoLostOwnedChild",
+        ),
+    ] {
+        let broken = model(control).check(100_000).unwrap();
+        if control.ends_with("Late") {
+            assert!(
+                broken
+                    .states
+                    .iter()
+                    .any(|s| s[child] == 1 && s[variable(&m, "late_admission")] == 1),
+                "late-admission control must actually create the child"
+            );
+        } else {
+            assert!(
+                broken.states.iter().any(|s| s[child] == 1 && s[owner] == 0),
+                "lost-owner control must actually leave an owned child running"
+            );
+        }
+
+        assert!(
+            broken.violations.iter().any(|v| v.property == property),
+            "missing reachable same-property control {control}"
+        );
+    }
+}
+
+#[test]
+fn store_writer_lease_has_real_error_abandonment_clone_and_replacement_witnesses() {
+    let m = model("HarnessStoreWriterLease");
+    let checked = m.check(100_000).unwrap();
+    assert!(checked.violations.is_empty(), "{:?}", checked.violations);
+    let p = variable(&m, "old_phase");
+    let c = variable(&m, "caller_cancelled");
+    let d = variable(&m, "duplicate");
+    let k = variable(&m, "kernel_owner");
+    let n = variable(&m, "replacement");
+    let r = variable(&m, "released");
+    let e = variable(&m, "unlock_failed");
+    let o = variable(&m, "outcome");
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[p] == 1 && s[c] == 1 && s[k] == 1),
+        "cancelled caller cannot release opening job guard"
+    );
+    assert!(
+        checked.states.iter().any(|s| s[o] == 2 && s[p] == 5),
+        "constructor error must destroy acquired guard"
+    );
+    assert!(
+        checked.states.iter().any(|s| s[o] == 3 && s[p] == 5),
+        "abandoned result must destroy acquired guard"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[variable(&m, "live_refused")] == 1 && s[p] == 2),
+        "live Store must refuse competitor"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[d] == 1 && s[r] == 1 && s[n] == 1 && s[k] == 2),
+        "replacement must acquire before old descriptor closes/execs"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[d] == 2 && s[n] == 1 && s[k] == 2),
+        "old descriptor close preserves new writer"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[d] == 1 && s[e] == 1 && s[n] == 3 && s[r] == 0),
+        "failed unlock is genuinely unavailable"
+    );
+    for (name, property) in [
+        (
+            "BrokenHarnessStoreWriterLeaseMissing",
+            "NoFalseBusyAfterSuccessfulRelease",
+        ),
+        (
+            "BrokenHarnessStoreWriterLeasePremature",
+            "NoConcurrentLiveWriters",
+        ),
+        (
+            "BrokenHarnessStoreWriterLeaseStale",
+            "OldReleaseCannotClearReplacementLease",
+        ),
+    ] {
+        let bad = model(name).check(100_000).unwrap();
+        assert!(
+            bad.violations.iter().any(|v| v.property == property),
+            "missing reachable {name}/{property}"
+        );
+        if name.ends_with("Missing") {
+            assert!(
+                bad.states
+                    .iter()
+                    .any(|s| s[variable(&m, "false_busy")] == 1 && s[r] == 1 && s[d] == 1)
+            );
+        }
+        if name.ends_with("Premature") {
+            assert!(
+                bad.states
+                    .iter()
+                    .any(|s| (s[p] == 1 || s[p] == 2) && s[n] == 1)
+            );
+        }
+        if name.ends_with("Stale") {
+            assert!(bad.states.iter().any(|s| s[n] == 1 && s[k] != 2));
+        }
+    }
+    println!(
+        "Store writer lease: {} states / {} labeled edges",
+        checked.states.len(),
+        checked.edges.iter().map(Vec::len).sum::<usize>()
+    );
+}

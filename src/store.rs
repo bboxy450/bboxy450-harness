@@ -91,8 +91,68 @@ pub(super) fn write_epoch(dir: &Path, epoch: u32) -> io::Result<()> {
     }
     result
 }
-pub struct Store {
+// bboxy450-harness; policy https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+// d20261103136541: a single non-Clone guard owns the still-valid descriptor
+// across the opening job/result and Store. Bare fsync/inherited clones do not.
+struct WriterLease {
     file: File,
+    released: bool,
+    #[cfg(test)]
+    unlock_override: Option<fn(&File) -> io::Result<()>>,
+}
+impl WriterLease {
+    fn acquire(file: File) -> io::Result<Self> {
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self {
+            file,
+            released: false,
+            #[cfg(test)]
+            unlock_override: None,
+        })
+    }
+    fn release_with(&mut self, unlock: impl FnOnce(&File) -> io::Result<()>) -> io::Result<()> {
+        if !self.released {
+            unlock(&self.file)?;
+            self.released = true;
+        }
+        Ok(())
+    }
+    fn release(&mut self) -> io::Result<()> {
+        #[cfg(test)]
+        if let Some(unlock) = self.unlock_override {
+            return self.release_with(unlock);
+        }
+        self.release_with(|file| {
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) } == 0 {
+                Ok(())
+            } else {
+                Err(io::Error::last_os_error())
+            }
+        })
+    }
+}
+impl std::ops::Deref for WriterLease {
+    type Target = File;
+    fn deref(&self) -> &File {
+        &self.file
+    }
+}
+impl std::ops::DerefMut for WriterLease {
+    fn deref_mut(&mut self) -> &mut File {
+        &mut self.file
+    }
+}
+impl Drop for WriterLease {
+    fn drop(&mut self) {
+        // Drop cannot certify an exceptional failure. The File stays valid
+        // through this one best-effort attempt, then closes normally.
+        let _ = self.release();
+    }
+}
+pub struct Store {
+    file: WriterLease,
     pub session: SessionId,
     pub epoch: Epoch,
     pub events: Vec<Envelope>,
@@ -139,16 +199,15 @@ impl Store {
             if created_fork {
                 fork::materialize(&fork_root, &path, &fork_meta, cause)?;
             }
-            let mut f = OpenOptions::new()
+            let f = OpenOptions::new()
                 .read(true)
                 .append(true)
                 .create(true)
                 .mode(0o600)
                 .open(&path)?;
-            // The log itself is the writer lease; no second durable store.
-            if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-                return Err(io::Error::other("session already has a writer"));
-            }
+            // The log itself remains the lease; guard it before any read/error.
+            let mut f = WriterLease::acquire(f)
+                .map_err(|_| io::Error::other("session already has a writer"))?;
             use std::io::Read;
             let mut bytes = vec![];
             f.read_to_end(&mut bytes)?;
@@ -536,5 +595,223 @@ mod durability_controls {
         println!(
             "broken writer-side durability reader: open rejected; seq reader opened and replayed"
         );
+    }
+}
+
+#[cfg(test)]
+mod lease_tests {
+    use super::*;
+    use std::sync::{Arc, Condvar, Mutex};
+    fn open(path: &Path) -> File {
+        OpenOptions::new()
+            .read(true)
+            .append(true)
+            .create(true)
+            .mode(0o600)
+            .open(path)
+            .unwrap()
+    }
+    fn lease(path: &Path) -> WriterLease {
+        WriterLease::acquire(open(path)).unwrap()
+    }
+    fn busy(path: &Path) {
+        let error = WriterLease::acquire(open(path))
+            .err()
+            .expect("another writer entered a live lease");
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+    }
+    #[test]
+    fn checked_unlock_failure_and_stale_released_guard_preserve_exact_generation() {
+        let own = tempfile::tempdir().unwrap();
+        let path = own.path().join("lease");
+        let mut old = lease(&path);
+        let duplicate = old.try_clone().unwrap();
+        let fd = old.file.as_raw_fd();
+        let error = old
+            .release_with(|file| {
+                assert_eq!(file.as_raw_fd(), fd);
+                Err(io::Error::from_raw_os_error(libc::EIO))
+            })
+            .unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::EIO));
+        assert!(!old.released);
+        busy(&path);
+        old.release().unwrap();
+        assert!(old.released);
+        let replacement = lease(&path); // old bare duplicate is deliberately STILL open
+        old.release_with(|_| panic!("already-released guard made a stale syscall"))
+            .unwrap();
+        drop(old);
+        busy(&path);
+        drop(duplicate);
+        busy(&path);
+        drop(replacement);
+        drop(lease(&path));
+    }
+    #[test]
+    fn exceptional_drop_unlock_failure_is_nonpanicking_and_unavailable() {
+        fn fail(_: &File) -> io::Result<()> {
+            Err(io::Error::from_raw_os_error(libc::EIO))
+        }
+        let own = tempfile::tempdir().unwrap();
+        let path = own.path().join("lease");
+        let mut guard = lease(&path);
+        let duplicate = guard.try_clone().unwrap();
+        guard.unlock_override = Some(fail);
+        assert_eq!(guard.release().unwrap_err().raw_os_error(), Some(libc::EIO));
+        assert!(!guard.released);
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(guard))).unwrap();
+        busy(&path); // failure is not a successful release claim
+        drop(duplicate);
+        drop(lease(&path));
+    }
+    #[tokio::test]
+    async fn bare_fsync_clone_and_session_closed_keep_the_live_store_exclusive() {
+        let own = tempfile::tempdir().unwrap();
+        let root = own.path().join("sessions");
+        let meta = SessionMeta {
+            session: SessionId::new(),
+            cwd: own.path().into(),
+            profile: None,
+            fork: None,
+            protocol: PROTOCOL,
+            harness: "engine".into(),
+            created_ms: 0,
+            vcs: None,
+            dream: None,
+            source: None,
+        };
+        let mut store = Store::open(root.clone(), meta.clone(), None, Set::default())
+            .await
+            .unwrap();
+        let duplicate = store.file.try_clone().unwrap();
+        duplicate.sync_all().unwrap();
+        drop(duplicate);
+        store.sync().await.unwrap();
+        assert!(
+            Store::open(root.clone(), meta.clone(), None, Set::default())
+                .await
+                .is_err()
+        );
+        store.append(Event::SessionClosed, None).await.unwrap();
+        assert!(
+            Store::open(root.clone(), meta.clone(), None, Set::default())
+                .await
+                .is_err()
+        );
+        let duplicate = store.file.try_clone().unwrap();
+        let session = meta.session;
+        let before = std::fs::read(log_path(&root, session)).unwrap();
+        drop(store);
+        let replacement = Store::open(root.clone(), meta.clone(), None, Set::default())
+            .await
+            .unwrap();
+        drop(duplicate);
+        assert!(
+            Store::open(root.clone(), meta.clone(), None, Set::default())
+                .await
+                .is_err()
+        );
+        drop(replacement);
+        let again = Store::open(root.clone(), meta, None, Set::default())
+            .await
+            .unwrap();
+        drop(again);
+        assert_eq!(std::fs::read(log_path(&root, session)).unwrap(), before);
+    }
+    #[tokio::test]
+    async fn post_acquisition_error_and_abandoned_job_output_destroy_the_guard() {
+        let own = tempfile::tempdir().unwrap();
+        let path = own.path().join("constructor-error");
+        let cloned_path = path.clone();
+        let (send, receive) = tokio::sync::oneshot::channel();
+        let result: io::Result<()> = blocking(move || {
+            let owner = lease(&cloned_path);
+            let _ = send.send(owner.try_clone().unwrap());
+            Err(io::Error::from_raw_os_error(libc::EINVAL))
+        })
+        .await;
+        assert_eq!(result.unwrap_err().raw_os_error(), Some(libc::EINVAL));
+        let duplicate = receive.await.unwrap();
+        drop(lease(&path));
+        drop(duplicate);
+        type Gate = Arc<(Mutex<bool>, Condvar)>;
+        struct Release(Gate);
+        impl Drop for Release {
+            fn drop(&mut self) {
+                *self.0.0.lock().unwrap() = true;
+                self.0.1.notify_all();
+            }
+        }
+        struct AfterGuard(Option<tokio::sync::oneshot::Sender<()>>);
+        impl Drop for AfterGuard {
+            fn drop(&mut self) {
+                if let Some(send) = self.0.take() {
+                    let _ = send.send(());
+                }
+            }
+        }
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let release = Release(gate.clone());
+        let path = own.path().join("abandoned-job");
+        let cloned_path = path.clone();
+        let (send, receive) = tokio::sync::oneshot::channel();
+        let (done, dropped) = tokio::sync::oneshot::channel();
+        let mut opening = Box::pin(blocking(move || {
+            let mut owner = lease(&cloned_path);
+            let _ = send.send(owner.try_clone().unwrap());
+            let mut open = gate.0.lock().unwrap();
+            while !*open {
+                open = gate.1.wait(open).unwrap();
+            }
+            drop(open);
+            owner
+                .write_all(b"job retained its lease through recovery mutation")
+                .unwrap();
+            (owner, AfterGuard(Some(done))) // fields drop in order, owner BEFORE observation
+        }));
+        assert!(futures_util::poll!(opening.as_mut()).is_pending());
+        let duplicate = tokio::time::timeout(std::time::Duration::from_secs(3), receive)
+            .await
+            .unwrap()
+            .unwrap();
+        drop(opening);
+        busy(&path); // caller abandonment does not end a mutating job's ownership
+        drop(release);
+        tokio::time::timeout(std::time::Duration::from_secs(3), dropped)
+            .await
+            .unwrap()
+            .unwrap();
+        let replacement = lease(&path);
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            b"job retained its lease through recovery mutation"
+        );
+        drop(duplicate);
+        busy(&path);
+        drop(replacement);
+    }
+    #[tokio::test]
+    async fn actual_store_parse_error_releases_its_acquired_lease() {
+        let own = tempfile::tempdir().unwrap();
+        let root = own.path().join("sessions");
+        std::fs::create_dir(&root).unwrap();
+        let meta = SessionMeta {
+            session: SessionId::new(),
+            cwd: own.path().into(),
+            profile: None,
+            fork: None,
+            protocol: PROTOCOL,
+            harness: "engine".into(),
+            created_ms: 0,
+            vcs: None,
+            dream: None,
+            source: None,
+        };
+        let path = log_path(&root, meta.session);
+        std::fs::write(&path, b"synthetic invalid JSON\n").unwrap();
+        assert!(Store::open(root, meta, None, Set::default()).await.is_err());
+        drop(lease(&path));
+        assert_eq!(std::fs::read(path).unwrap(), b"synthetic invalid JSON\n");
     }
 }
