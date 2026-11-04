@@ -1,0 +1,18 @@
+{
+  "base_native_sha256": "63ea269acac926c5efeba1e6937acd4d293e797d5c46624153f5279d575200a7",
+  "base_native_source": "9c3251e01348a6ab96804a7473fe17f8d1234e4a",
+  "commands": [
+    {
+      "command": "cargo test --offline --locked --lib process:: -- --nocapture",
+      "exit_code": 0,
+      "log": ".bboxy/runs/dream-integration-outcome-green.log",
+      "sha256": "dfa2b82292cda70584acf6f856a405460df9aebdc14509edf82d9d1b1da66e3c"
+    },
+    {
+      "command": "cargo test --offline --locked --test formal_nonvacuity admission_result_observations -- --nocapture",
+      "exit_code": 0,
+      "log": ".bboxy/runs/dream-integration-outcome-model-before.log",
+      "sha256": "e2980f9cb1ebeda2f6be11b1160f89f1e25d354ebe329a63821dbf1f5683d1cf"
+    }
+  ]
+}

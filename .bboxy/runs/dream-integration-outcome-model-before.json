@@ -1,0 +1,7 @@
+{
+  "command": "cargo test --offline --locked --test formal_nonvacuity admission_result_observations -- --nocapture",
+  "exit_code": 0,
+  "models_sha256": "03af5584a4bf47a422b924bde648169c6004b6f4f2c35e45da8a16ff3076b110",
+  "log_sha256": "e2980f9cb1ebeda2f6be11b1160f89f1e25d354ebe329a63821dbf1f5683d1cf",
+  "disposition": "New finite good and old-mapping control/nonvacuity checked before applying production helper correction; existing145 family bodies unmodified"
+}

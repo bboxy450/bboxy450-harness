@@ -1,0 +1,10 @@
+{
+  "command": "cargo test --offline --locked --lib process::spawn_admission_tests::closed_elapsed_result_beats_a_not_ready_caller_timer -- --exact",
+  "exit_code": 101,
+  "source_base": "9c3251e01348a6ab96804a7473fe17f8d1234e4a",
+  "source_snapshot": ".bboxy/runs/dream-integration-outcome-old-helper.rs",
+  "source_sha256": "f08a652b4b1d98b4afb5f67b60eb917fc0ac4408329750a704d30bd4b5191dee",
+  "log": ".bboxy/runs/dream-integration-outcome-red.log",
+  "log_sha256": "565bd9bad8116faf772ca97969c93ccfec3e907ecc2a0b35a779dc345aaef82f",
+  "disposition": "Private receive helper extracted with exact old mapping, deterministic closed+elapsed+pending-caller-timer fails Interrupted vs TimedOut"
+}

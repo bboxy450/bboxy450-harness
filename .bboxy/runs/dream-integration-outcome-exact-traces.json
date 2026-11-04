@@ -1,0 +1,90 @@
+[
+  {
+    "model": "HarnessProcessAdmissionResult",
+    "states": [
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0,
+        1,
+        1,
+        0
+      ],
+      [
+        0,
+        1,
+        0,
+        1,
+        1,
+        2
+      ]
+    ],
+    "actions": [
+      "ObserveElapsedDeadline",
+      "WorkerDeadlineClosesChannel",
+      "ReturnTimedOut1"
+    ],
+    "expected_return": "TimedOut",
+    "native_java_graph_equal": true
+  },
+  {
+    "model": "BrokenHarnessProcessAdmissionResult",
+    "states": [
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0,
+        1,
+        1,
+        0
+      ],
+      [
+        0,
+        1,
+        0,
+        1,
+        1,
+        1
+      ]
+    ],
+    "actions": [
+      "ObserveElapsedDeadline",
+      "WorkerDeadlineClosesChannel",
+      "OldMapping1"
+    ],
+    "expected_return": "Interrupted",
+    "native_java_graph_equal": true
+  }
+]

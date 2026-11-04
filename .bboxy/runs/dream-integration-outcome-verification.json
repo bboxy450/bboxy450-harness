@@ -1,0 +1,94 @@
+{
+  "environment": {
+    "jobs": 2,
+    "dev_debug": 0,
+    "test_debug": 0,
+    "incremental": false,
+    "offline": true,
+    "private_home": true,
+    "operator_input": false
+  },
+  "commands": [
+    {
+      "name": "primary",
+      "command": "cargo test --lib dream::resolve:: && cargo test --lib process:: && cargo test --lib store:: && cargo test --features acp-agent --test cancel_process --test store_recovery --test store_fork --test ir_v1_corpus --test dream_identity --test dream_graph --test dream_audit_broken --test dream_trust --test dream_seal --test dream_pipeline && make test-formal && make test-formal-parity && make check-formal-evidence",
+      "exit_code": 0,
+      "seconds": 264.855,
+      "log": ".bboxy/runs/dream-integration-outcome-primary.log",
+      "sha256": "5d456cb0f033eef4afe012b2be9b6afc052fb124441e1fc21432b7369dc7b002",
+      "source": "9fb4b1111b6e524a7c6de070156b33856ef87b1e"
+    },
+    {
+      "name": "clippy",
+      "command": "cargo clippy --offline --locked --all-targets --all-features -- -D warnings",
+      "exit_code": 0,
+      "seconds": 0.837,
+      "log": ".bboxy/runs/dream-integration-outcome-clippy.log",
+      "sha256": "e299a21b142d460a3074f887747f65bb248f29a8395ac9ab2c80f4bf5d8198d7",
+      "source": "9fb4b1111b6e524a7c6de070156b33856ef87b1e"
+    },
+    {
+      "name": "ir",
+      "command": "make test-ir && cargo test --offline --locked --test protocol_golden --test ir_v1_corpus",
+      "exit_code": 0,
+      "seconds": 2.767,
+      "log": ".bboxy/runs/dream-integration-outcome-ir.log",
+      "sha256": "01c4c18c1760465fd7717f9e7c595dc076398009c6153758848e85b1903e189a",
+      "source": "9fb4b1111b6e524a7c6de070156b33856ef87b1e"
+    },
+    {
+      "name": "default",
+      "command": "cargo test --offline --locked --all-targets -- --skip non_pty_spawn_does_not_keep_a_sibling_master_alive",
+      "exit_code": 0,
+      "seconds": 277.828,
+      "log": ".bboxy/runs/dream-integration-outcome-default.log",
+      "sha256": "759ad170d882c121aa318830dfa797acb49bdc88f97baca525ba17095ccf825d",
+      "source": "9fb4b1111b6e524a7c6de070156b33856ef87b1e"
+    },
+    {
+      "name": "acp",
+      "command": "cargo test --offline --locked --all-targets --features acp,test-fixtures -- --skip seat_launch:: --skip non_pty_spawn_does_not_keep_a_sibling_master_alive",
+      "exit_code": 0,
+      "seconds": 322.347,
+      "log": ".bboxy/runs/dream-integration-outcome-acp.log",
+      "sha256": "c5f469f276c480e16d641cd042b1b94e14de00e7ab79c9696cc441af9844ce5b",
+      "source": "9fb4b1111b6e524a7c6de070156b33856ef87b1e"
+    },
+    {
+      "name": "seat-launch",
+      "command": "cargo test --offline --locked --features acp,test-fixtures --test seat_process seat_launch::",
+      "exit_code": 0,
+      "seconds": 1.631,
+      "log": ".bboxy/runs/dream-integration-outcome-seat-launch.log",
+      "sha256": "d32ad8df1a873ae4629dbbb57ba0b99377c05724c841049772720f3cfbe5c16a",
+      "source": "9fb4b1111b6e524a7c6de070156b33856ef87b1e"
+    },
+    {
+      "name": "nonpty",
+      "command": "cargo test --offline --locked --features acp,test-fixtures --test seat_process non_pty_spawn_does_not_keep_a_sibling_master_alive -- --exact",
+      "exit_code": 0,
+      "seconds": 0.154,
+      "log": ".bboxy/runs/dream-integration-outcome-nonpty.log",
+      "sha256": "097423766545e9bc1f274c8afaaf0271a022cacfdc9fb3af9760f12d1cde7837",
+      "source": "9fb4b1111b6e524a7c6de070156b33856ef87b1e"
+    },
+    {
+      "name": "smoke",
+      "command": "make smoke-app",
+      "exit_code": 0,
+      "seconds": 82.843,
+      "log": ".bboxy/runs/dream-integration-outcome-smoke.log",
+      "sha256": "fa33126f9b286ee62632f1d616265949e45d4e3aadb9d6018535914b83c5ad52",
+      "source": "9fb4b1111b6e524a7c6de070156b33856ef87b1e"
+    },
+    {
+      "name": "source-checks",
+      "command": "cargo fmt --check && python3 -I scripts/checks.py headers && python3 -I scripts/checks.py secrets",
+      "exit_code": 0,
+      "seconds": 1.929,
+      "log": ".bboxy/runs/dream-integration-outcome-source-checks.log",
+      "sha256": "4f3519361c9706df98f5ea425497dd985445dcaafa8e31c4e1df26adce74e687",
+      "source": "9fb4b1111b6e524a7c6de070156b33856ef87b1e"
+    }
+  ]
+}

@@ -1,0 +1,156 @@
+{
+  "source": "9fb4b1111b6e524a7c6de070156b33856ef87b1e",
+  "evidence_sha256": "02f765b083ac9e2779d740866d0c589537a9825fb5d3629a35488e7493460e68",
+  "models": 147,
+  "contracts": 48,
+  "crates": 1,
+  "input_count": 357,
+  "states": 546630,
+  "edges": 2612456,
+  "new_pair": [
+    {
+      "name": "HarnessProcessAdmissionResult",
+      "expected": "pass",
+      "states": 50,
+      "edges": 76,
+      "tlc_exit": 0,
+      "graph_equal": true,
+      "contract_metadata": {
+        "variables": [
+          {
+            "name": "cancelled",
+            "min": 0,
+            "max": 1,
+            "initial": 0
+          },
+          {
+            "name": "elapsed",
+            "min": 0,
+            "max": 1,
+            "initial": 0
+          },
+          {
+            "name": "caller_timer_ready",
+            "min": 0,
+            "max": 1,
+            "initial": 0
+          },
+          {
+            "name": "worker_deadline_observed",
+            "min": 0,
+            "max": 1,
+            "initial": 0
+          },
+          {
+            "name": "received",
+            "min": 0,
+            "max": 3,
+            "initial": 0
+          },
+          {
+            "name": "returned",
+            "min": 0,
+            "max": 4,
+            "initial": 0
+          }
+        ],
+        "actions": [
+          "ObserveCancellation",
+          "ObserveElapsedDeadline",
+          "CallerTimerBecomesReady",
+          "WorkerDeadlineClosesChannel",
+          "ChannelUnavailable",
+          "ReceiveOwnedSuccess",
+          "ReceiveExplicitError",
+          "ReturnCancelled1",
+          "ReturnTimedOut1",
+          "ReturnBeforeCutoff1",
+          "ReturnCancelled2",
+          "ReturnTimedOut2",
+          "ReturnBeforeCutoff2",
+          "ReturnCancelled3",
+          "ReturnTimedOut3",
+          "ReturnBeforeCutoff3"
+        ],
+        "invariants": [
+          "ObservedCancellationHasPriority",
+          "ObservedElapsedResultIsTimedOut",
+          "BeforeCutoffPreservesOutcome"
+        ],
+        "responses": [],
+        "weak_fair": [],
+        "implementation_refinement_proven": false
+      },
+      "tla_sha256": "576f7c1258e3d9db683b8995985b0451578fb302a1c6f9c73ff86a0a44bbf7a6"
+    },
+    {
+      "name": "BrokenHarnessProcessAdmissionResult",
+      "expected": "safety",
+      "states": 50,
+      "edges": 76,
+      "tlc_exit": 12,
+      "graph_equal": true,
+      "contract_metadata": {
+        "variables": [
+          {
+            "name": "cancelled",
+            "min": 0,
+            "max": 1,
+            "initial": 0
+          },
+          {
+            "name": "elapsed",
+            "min": 0,
+            "max": 1,
+            "initial": 0
+          },
+          {
+            "name": "caller_timer_ready",
+            "min": 0,
+            "max": 1,
+            "initial": 0
+          },
+          {
+            "name": "worker_deadline_observed",
+            "min": 0,
+            "max": 1,
+            "initial": 0
+          },
+          {
+            "name": "received",
+            "min": 0,
+            "max": 3,
+            "initial": 0
+          },
+          {
+            "name": "returned",
+            "min": 0,
+            "max": 4,
+            "initial": 0
+          }
+        ],
+        "actions": [
+          "ObserveCancellation",
+          "ObserveElapsedDeadline",
+          "CallerTimerBecomesReady",
+          "WorkerDeadlineClosesChannel",
+          "ChannelUnavailable",
+          "ReceiveOwnedSuccess",
+          "ReceiveExplicitError",
+          "OldMapping1",
+          "OldMapping2",
+          "OldMapping3"
+        ],
+        "invariants": [
+          "ObservedCancellationHasPriority",
+          "ObservedElapsedResultIsTimedOut",
+          "BeforeCutoffPreservesOutcome"
+        ],
+        "responses": [],
+        "weak_fair": [],
+        "implementation_refinement_proven": false
+      },
+      "tla_sha256": "d26db59df849044ece181b6c1f1c4a623858d0a1cd4ca5e36917777a4a35de37"
+    }
+  ]
+}
