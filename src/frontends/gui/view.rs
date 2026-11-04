@@ -38,6 +38,7 @@ use face_rows::Folds;
 
 // Adapted from bboxy450-term scene::Metrics (CoreText, shared paint metrics).
 // https://github.com/bboxy450/bboxy450-term/blob/main/ATTRIBUTION.md
+type TranscriptColumn = (c::Element, Option<f32>, HashMap<ItemId, f32>);
 type FontKey = (u32, u16, bool, bool, u32);
 fn font_key(s: &MeasureStyle) -> FontKey {
     (
@@ -466,7 +467,7 @@ impl HarnessView {
         width: f32,
         first_frame: bool,
         ink: &super::face::Ink,
-    ) -> Result<(c::Element, Option<f32>, HashMap<ItemId, f32>), String> {
+    ) -> Result<TranscriptColumn, String> {
         let model = &state.transcript;
         let mut children = vec![];
         let mut total = 0.;

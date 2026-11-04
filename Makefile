@@ -19,6 +19,7 @@ help:
 	  'make test-formal                Native Yarn/formal checks and broken controls' \
 	  'make test-formal-parity         Native/Java TLC graph and verdict parity' \
 	  'make verify-gui-polish          Focused MCP output, prompt projection, loader and changed model checks' \
+	  'make check-embedded-lints       Strict embedded harness library lint compilation only' \
 	  'make check-embedded-build       Strict embedded lint and default/ACP/standalone compile checks' \
 	  'make app / app-unsigned         Release app, Apple identity / ad-hoc signed' \
 	  'make install                    Apple-signed app into ~/Applications' \
@@ -29,6 +30,10 @@ help:
 	  'make test-app-startup-control   Reject the missing title-bar image, then restore' \
 	  'make release-dry / release      Signed archive / publish verified main' \
 	  'Overrides: TARGET_DIR=... INSTALL_DIR=... UNSIGNED_INSTALL_DIR=...'
+
+.PHONY: check-embedded-lints
+check-embedded-lints:
+	cargo clippy --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --no-default-features --features embedded --lib --no-deps -- -D warnings
 
 check-embedded-build:
 	cargo clippy --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --no-default-features --features embedded --lib -- -D warnings

@@ -274,13 +274,12 @@ impl Mailbox {
     }
     fn prompt_status(&self, op: OpId, status: &str) {
         self.prompts(|prompts| {
-            if let Some(prompt) = prompts.get_mut(&op) {
-                if !prompt.status.starts_with("Rejected")
-                    && !prompt.status.starts_with("Ended")
-                    && (!status.starts_with("Queued") || prompt.status == "Sending…")
-                {
-                    prompt.status = status.to_owned();
-                }
+            if let Some(prompt) = prompts.get_mut(&op)
+                && !prompt.status.starts_with("Rejected")
+                && !prompt.status.starts_with("Ended")
+                && (!status.starts_with("Queued") || prompt.status == "Sending…")
+            {
+                prompt.status = status.to_owned();
             }
         });
     }
@@ -551,6 +550,10 @@ impl Bridge {
         budget: Duration,
         clock: &impl super::budget::Clock,
     ) -> bool {
+        #[allow(
+            clippy::large_enum_variant,
+            reason = "Moves one prepared frame at a time; boxing adds a heap allocation to every UI drain"
+        )]
         enum Update {
             State(FrameState),
             Notice,

@@ -297,6 +297,38 @@
         "full suites"
       ],
       "production_backend_restarted": false
+    },
+    {
+      "base": "0dfa2b8147f01c95dda5da8ac14c33ec249cd86d",
+      "created": "2026-11-04T04:48:56.859613+00:00",
+      "purpose": "Resolve three strict Clippy findings without runtime changes: equivalent let-chain, private transcript tuple alias, narrowly justified local allocation-free drain enum lint allowance.",
+      "changed_source_hashes": {
+        "Makefile": "33db365be8d2bfbb031a698c62ca6040441fcefe78f60ed0ec5af640493287ce",
+        "src/frontends/gui/bridge.rs": "5728ecce76499c2e98526fdeb17a29673b62f9fa2831cad2e55ab74ea94055de",
+        "src/frontends/gui/view.rs": "0be002ccff9972ede6516c1fad0c474457520915dedb672cdad975fb363f47fa"
+      },
+      "commands": [
+        {
+          "command": [
+            "make",
+            "check-embedded-lints"
+          ],
+          "exit_code": 0,
+          "log": "/Users/feral/mydev/bboxy450-harness-land/target/gui-polish/embedded-lints.log",
+          "sha256": "9fd5ec7df27545bf9f13c7c235694dfedf44ddea37996fbbdda73ae1ef33252d"
+        }
+      ],
+      "gate": "make check-embedded-lints: embedded library only, --no-deps -D warnings; the existing broader check-embedded-build gate retains its original recipe.",
+      "behavioral_tests": "Not repeated: conditional evaluation/assignment unchanged, type alias is the exact original tuple, local enum attribute changes lint treatment only. Pending behavioral proof from 0dfa2b8 retained.",
+      "reused_evidence": {
+        "gui_gate_source": "96dbfc34ae7ebb65d2a6321d98dec3f0767edfcb",
+        "pending_behavior_source": "0dfa2b8147f01c95dda5da8ac14c33ec249cd86d",
+        "unchanged_original_inputs": 36,
+        "model_TLC_capture_inputs_unchanged": true,
+        "capture_hashes_unchanged": true
+      },
+      "production_backend_restarted": false,
+      "full_suites_repeated": false
     }
   ],
   "executor_provenance": {
