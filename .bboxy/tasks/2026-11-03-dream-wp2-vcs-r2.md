@@ -15,6 +15,8 @@ allowed_paths:
 - tests/cli_headless.rs
 - .bboxy/reports/
 - verification/coverage.toml
+- src/import/reproject.rs
+- tests/ir_edge.rs
 verify: cargo test --test dream_vcs --test import_native --test cli_headless --features acp-agent
 depends_on:
 - '[[2026-11-03-dream-wp1-ir-1-3]]'
@@ -26,7 +28,7 @@ id: 01M6J8TT7HY4B7YPAP8SEWBE40
 status: claimed
 delegated_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
 swarm: 01M6ABW0CX6MY0D5WGCSQ3ADTG
-updated: 2026-11-04T04:06:39.839Z
+updated: 2026-11-04T04:20:21.363Z
 created: 2026-11-04T03:14:53.626Z
 number: 20261103136208
 created_by: seat:01M6J5YFATHYCK148JT0C4XGZ1
@@ -38,11 +40,11 @@ authorship:
   process_generation: '1'
 assignee: seat:01M6J7N5V103SG1KS0THEXB9R1
 provenance:
-  digest: sha256:b54e8f8bea7809d586944b0f3728d94ecb58eba48d847cd896fce8bb10ae00e6
-  frontmatter_digest: sha256:0a114212657aaf98c47e16c88473615cbe0580a349fa5973f4be8926fbea7a0c
+  digest: sha256:77b6cc863758459d1da3fc67e6cd3c65c845c3c3c9cc6d43de06a53212a4e459
+  frontmatter_digest: sha256:0e24faf96a7bdbf8142719e4917e1557339d8615c1eae8b2e8d7f586f7c3e853
   signer: seat:01M6J5YFATHYCK148JT0C4XGZ1
-  sig: bIB6sfhdUg1NoKizp3oaSYCHtHzawuP49jAC/W+22TiAKYsLKrjYZRFuK5h+AEF1lNaIXWxI50uZQ82iilf8Aw==
-  log: .bboxy/log/2026-11-04.jsonl#43224
+  sig: 1oxY72UXaaW/ecG/Ji7owy9S6cgQmtKsei8QKPgE5KGup/N/awAU60LHBkJ2TytnZW4OILOjiL+WkKkwXZpWAQ==
+  log: .bboxy/log/2026-11-04.jsonl#43274
 ---
 ROLE: EXECUTOR
 Read repository instructions and [[dream-log]], [[memory-graph]], [[dream-sinks]] (all on origin/main). Parent [[2026-11-03-swarm-dreaming-succession]].
@@ -69,3 +71,7 @@ This explicitly supersedes the earlier requirement that prerequisites first be a
 VCS acceptance details: capture actual repository/branch/commit/dirty data without inventing missing native fields, without operator auth/network or exposing credential-bearing remote URLs. Keep subprocess/metadata capture bounded and off the live UI hot path; report a missing interface/budget rather than adding an unbounded wait. Cover no-repo/git failure/dirty and available native mappings with private git fixtures. Source/model/process limits remain explicit; WP9 refreshes final implementation mappings.
 
 Oracle formal-inventory amendment 2026-11-03: verification/coverage.toml is additionally authorized ONLY to add the required src/vcs.rs source inventory entry and a precise implementation-coverage note naming actual WP2 tests and limits. Existing owned-process models/controls may remain unchanged only where their existing process helper/contract is reused; this amendment does not claim they prove Git parsing, snapshot consistency, bytes or wall-clock behavior. Do not silently map a new lifecycle/ownership/retry contract to an unrelated existing model: report that distinct gap if introduced. No broad inventory rewrite, model/control weakening, planned-source deletion unrelated to this WP, or gate change is authorized. Refresh current-source formal/parity evidence after the required new file is inventoried. Primary verify remains unchanged; maintain all canonical gates and disclose the existing KB failure without a waiver.
+
+Oracle parser-provenance amendment 2026-11-03: authorize src/import/reproject.rs only to use the shared native Projector PARSER_REVISION constant defined in src/import/mod.rs instead of a divergent native-parser header calculation; one-shot import must use that same constant. The prepared base at a279e0f actually uses previous_revision.saturating_add(1), not hardcoded Some(2), so native reprojection must not invent a higher parser version merely because the same mapping ran again. Scope this consistency to native Projector provenance; do not silently relabel a distinct ACP mapper with the native constant. Preserve unrelated non-native behavior and report any distinct parser-version boundary rather than widening it.
+
+Also authorize tests/ir_edge.rs only for the corresponding native parser-revision regression, alongside existing allowed import_native tests. Assert actual one-shot/reproject headers identify the current native mapping and repeated reprojection does not manufacture a new mapping revision; retain every existing immutable-source/prefix assertion. No VCS header promotion, replay-prefix rewrite, projection redesign or other reprojection behavior change is authorized. Run the unchanged primary verify plus cargo test --test ir_edge; refresh current-source evidence normally. All canonical acceptance gates remain required.
