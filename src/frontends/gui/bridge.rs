@@ -309,6 +309,7 @@ impl Mailbox {
             }
         });
         if changed {
+            self.resized.notify_one();
             let _ = self.notices.try_send(UiMsg::Changed { source: 0 });
         }
     }
@@ -794,6 +795,7 @@ async fn publish_frame(mut state: FrameState, mailbox: &Arc<Mailbox>, preparer: 
         let faces = state.faces.clone();
         let mut owned = std::mem::take(preparer);
         let source = state.transcript.clone();
+        let prompts = mailbox.prompts.load_full();
         let width = f32::from_bits(mailbox.width.load(Ordering::Acquire));
         let zoom = mailbox.zoom.load(Ordering::Acquire);
         let appearance = mailbox.appearance.load(Ordering::Acquire);
@@ -811,7 +813,12 @@ async fn publish_frame(mut state: FrameState, mailbox: &Arc<Mailbox>, preparer: 
                 appearance >> 1,
             );
             match owned.prepare_with_faces(source, width, &faces) {
-                Ok(prepared) => state.prepared = Some(Arc::new(prepared)),
+                Ok(mut prepared) => {
+                    if let Err(error) = owned.prepare_pending(&mut prepared, &prompts) {
+                        state.error = Some(error);
+                    }
+                    state.prepared = Some(Arc::new(prepared));
+                }
                 Err(error) => state.error = Some(error),
             }
             // Replacing Latest can retire a large old layout. Retire it on the

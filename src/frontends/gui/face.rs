@@ -1439,13 +1439,8 @@ pub fn group_member(card: c::Element, index: usize, n: usize, ink: &Ink) -> c::E
 }
 
 // ---------- conversation blocks ----------
-pub fn user_bubble(text_value: &str, ink: &Ink) -> c::Element {
-    prompt_bubble(text_value, "YOU", false, ink)
-}
-pub fn pending_bubble(text_value: &str, status: &str, ink: &Ink) -> c::Element {
-    prompt_bubble(text_value, &format!("YOU · {status}"), true, ink)
-}
-fn prompt_bubble(text_value: &str, caption: &str, pending: bool, ink: &Ink) -> c::Element {
+/// Shared bubble chrome; Markdown is prepared off the UI thread by Preparer.
+pub fn prompt_bubble(body: c::Element, caption: &str, pending: bool, ink: &Ink) -> c::Element {
     let accent = if pending { ink.dim } else { ink.seat };
     let bubble = frame(
         Frame {
@@ -1458,7 +1453,7 @@ fn prompt_bubble(text_value: &str, caption: &str, pending: bool, ink: &Ink) -> c
         },
         vec![
             line(caption, 10.5, 600, mix(accent, ink.fg, 0.7), false).into(),
-            c::Element::Text(text(text_value, 13.5, 400, ink.fg, false)).into(),
+            body.into(),
         ],
     );
     hstack(

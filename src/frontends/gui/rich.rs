@@ -559,8 +559,12 @@ impl Documents {
             last_line(l, &mut last);
             last.map(|[right, baseline]| [right, l.rect.bottom() - baseline + previous])
         });
+        let mut element = column(slots, None);
+        if let c::Element::Box(b) = &mut element {
+            b.style.overrides.width = Some(ui::Length::Px(width));
+        }
         Ok(Body {
-            element: column(slots, None),
+            element,
             blocks,
             tail,
         })

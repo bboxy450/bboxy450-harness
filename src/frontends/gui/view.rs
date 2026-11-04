@@ -619,22 +619,9 @@ impl HarnessView {
             .values()
             .filter(|p| Some(p.session) == model.session && p.epoch == model.epoch)
         {
-            let mut bubble = super::face::pending_bubble(&prompt.text, &prompt.status, ink);
-            super::face::zoom_text(&mut bubble, self.zoom.scale());
-            let element = named(
-                format!("pending/{}", prompt.op),
-                super::face::frame(
-                    super::face::Frame {
-                        padding: [4., 14., 18., 14.],
-                        ..Default::default()
-                    },
-                    vec![bubble.into()],
-                ),
-            );
-            let height = element
-                .layout(Rect::new(0., 0., width, 0.), self.context(), &self.metrics)?
-                .rect
-                .h;
+            let solved = prepared.and_then(|p| p.pending.get(&prompt.op));
+            let height = solved.map_or(36., |l| l.rect.h);
+            let element = named(format!("pending/{}", prompt.op), c::Element::Spacer);
             total += height;
             // Every sibling must declare its height. An Auto pending row makes
             // the toolkit fall back to natural measurement, where the cached
@@ -1058,6 +1045,7 @@ impl HarnessView {
                 &self.metrics,
                 &self.markdown_scroll,
             );
+            restore_pending(&mut layout, &prepared.pending, viewport, markdown_scroll);
             restore_rows(
                 &mut layout,
                 &prepared.rows,
@@ -2775,6 +2763,35 @@ fn visible_layout(
         children,
     })
 }
+fn restore_pending(
+    node: &mut c::Layout,
+    rows: &HashMap<OpId, Arc<c::Layout>>,
+    viewport: Rect,
+    scroll: &HashMap<String, [f32; 2]>,
+) {
+    if let c::LayoutKind::Named(name) = &node.kind
+        && let Some(id) = name
+            .strip_prefix("pending/")
+            .and_then(|s| s.parse().ok())
+            .map(OpId)
+        && let Some(row) = rows.get(&id)
+    {
+        if let Some(solved) = visible_layout(
+            row,
+            node.rect.x - row.rect.x,
+            node.rect.y - row.rect.y,
+            viewport,
+            scroll,
+            &mut stream_motion::Plain,
+        ) {
+            node.children = vec![solved];
+        }
+        return;
+    }
+    for child in &mut node.children {
+        restore_pending(child, rows, viewport, scroll);
+    }
+}
 pub(super) fn translate(node: &mut c::Layout, dx: f32, dy: f32) {
     node.rect.x += dx;
     node.rect.y += dy;
@@ -2801,6 +2818,7 @@ pub struct PreparedRows {
     rows: im::HashMap<ItemId, Arc<CachedRow>>,
     /// The rows' solved heights summed: the content height once every height tween rests.
     pub height: f32,
+    pub(crate) pending: HashMap<OpId, Arc<c::Layout>>,
     pub layout_builds: usize,
     pub parsed_markdown_bytes: usize,
     pub received_markdown_bytes: usize,
@@ -2830,6 +2848,49 @@ pub struct Preparer {
     zoom: Zoom,
 }
 impl Preparer {
+    pub(crate) fn prepare_pending(
+        &mut self,
+        prepared: &mut PreparedRows,
+        prompts: &im::OrdMap<OpId, super::bridge::PendingPrompt>,
+    ) -> Result<(), String> {
+        let ctx = self.context();
+        let ink = super::face::ink(ctx);
+        let gutter = (((prepared.width - 860.) / 2.).max(0.) + 14. - 4.)
+            .max(ctx.density.tokens().gap as f32);
+        let width = prepared.width - 2. * gutter - 8.;
+        for prompt in prompts.values().filter(|p| {
+            Some(p.session) == prepared.source.session && p.epoch == prepared.source.epoch
+        }) {
+            let doc = self.documents.prepare(
+                ItemId(prompt.op.0),
+                &prompt.text,
+                true,
+                (width * 0.86 - 26.).max(1.),
+                self.zoom.scale(),
+                &self.metrics,
+            )?;
+            let bubble = super::face::prompt_bubble(
+                doc.element.clone(),
+                &format!("YOU · {}", prompt.status),
+                true,
+                &ink,
+            );
+            let mut element = super::face::frame(
+                super::face::Frame {
+                    padding: [4., gutter + 4., 18., gutter + 4.],
+                    ..Default::default()
+                },
+                vec![bubble.into()],
+            );
+            flat(&mut element);
+            super::face::zoom_text(&mut element, self.zoom.scale());
+            let mut layout =
+                element.layout(Rect::new(0., 0., prepared.width, 0.), ctx, &self.metrics)?;
+            super::rich::restore(&mut layout, &doc.blocks);
+            prepared.pending.insert(prompt.op, Arc::new(layout));
+        }
+        Ok(())
+    }
     pub fn context(&self) -> ui::Context {
         ui::Context::new(self.theme, Density::Cozy)
     }
@@ -2959,6 +3020,7 @@ impl Preparer {
             zoom: zoom.percent(),
             rows: self.rows.clone(),
             height: total_height,
+            pending: HashMap::new(),
             layout_builds: self.layout_builds,
             parsed_markdown_bytes: self.documents.parsed_bytes,
             received_markdown_bytes: self.documents.received_bytes,
@@ -3203,5 +3265,57 @@ pub(super) fn flat(element: &mut c::Element) {
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod onboarding_markdown_tests {
+    use super::*;
+    #[tokio::test]
+    async fn onboarding_user_markdown_pending_and_history() {
+        crate::runtime::blocking(|| {
+            let source_text = "# Heading\n\n- **bold** [link](https://example.com) `inline`\n\n```python\nprint('never executed')\n```";
+            let base: Envelope = serde_json::from_str(include_str!("../../../tests/fixtures/protocol/all-items.jsonl").lines().next().unwrap()).unwrap();
+            let mut model = Transcript::default();
+            model.apply(&base);
+            let id = ItemId::new();
+            let mut event = base.clone();
+            event.seq = Some(Seq(2)); event.at = Seq(2);
+            event.event = Event::ItemStarted { turn: None, item: id, kind: ItemKind::UserMessage, parent: None, head: None };
+            model.apply(&event);
+            event.seq = Some(Seq(3)); event.at = Seq(3);
+            event.event = Event::ItemCompleted { item: id, status: ItemStatus::Completed, body: Item::UserMessage { blocks: vec![InputBlock::Text { text: source_text.into() }, InputBlock::Mention { path: "caption.txt".into() }] } };
+            model.apply(&event);
+            let mut prompt = super::super::bridge::PendingPrompt::new(OpId::new(), base.session, base.epoch, source_text.into());
+            prompt.status = "Queued".into();
+            let prompts = im::ordmap! { prompt.op => prompt.clone() };
+            for theme in [Theme::Light, Theme::Dark] {
+                for width in [280., 440.] {
+                    let mut p = Preparer::default(); p.set_theme(theme);
+                    let mut prepared = p.prepare(Arc::new(model.clone()), width).unwrap();
+                    p.prepare_pending(&mut prepared, &prompts).unwrap();
+                    let row = &prepared.rows[&id].layout;
+                    let pending = &prepared.pending[&prompt.op];
+                    fn text(n: &c::Layout) -> String {
+                        let mut s = String::new();
+                        if let c::LayoutKind::Text { runs, .. } = &n.kind { for r in runs { s.push_str(&r.text); } }
+                        for child in &n.children { s.push_str(&text(child)); } s
+                    }
+                    for node in [row, pending.as_ref()] {
+                        let t = text(node);
+                        for want in ["Heading", "bold", "link", "inline", "never executed"] { assert!(t.contains(want), "missing {want}: {t}"); }
+                        assert!(!t.contains("**bold**"));
+                        assert!(node.rect.h > 90.);
+                        fn bounds(n: &c::Layout, width: f32) { if let c::LayoutKind::Text { runs, .. } = &n.kind { for r in runs { assert!(r.rect.right() <= width + 2., "{:?} > {width}", r.rect); } } for child in &n.children { bounds(child, width); } }
+                        bounds(node, width);
+                    }
+                    assert!(text(row).contains("caption.txt"));
+                    assert!(text(pending).contains("Queued"));
+                    assert!(prepared.source.items[&id].body == model.items[&id].body);
+                    let empty = im::OrdMap::new(); p.prepare_pending(&mut prepared, &empty).unwrap();
+                    assert!(prepared.rows.contains_key(&id));
+                }
+            }
+        }).await;
     }
 }

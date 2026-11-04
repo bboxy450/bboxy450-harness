@@ -317,7 +317,17 @@ impl Preparer {
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
-                f::user_bubble(if text.is_empty() { "…" } else { &text }, &ink)
+                let doc = self.documents.prepare(
+                    id,
+                    if text.is_empty() { "…" } else { &text },
+                    true,
+                    (content_width * 0.86 - 26.).max(1.),
+                    self.zoom.scale(),
+                    &self.metrics,
+                )?;
+                let bubble = f::prompt_bubble(doc.element.clone(), "YOU", false, &ink);
+                rich = Some(doc);
+                bubble
             }
             Item::AgentMessage { markdown } if folds.loops.contains_key(&id) => {
                 let members = &folds.loops[&id];
