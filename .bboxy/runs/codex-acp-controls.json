@@ -3,15 +3,15 @@
     "command": "make verify-acp-controls",
     "exit_code": 0
   },
-  "source_head_at_check": "f2a0fd1304dec97b427f562f207f1b7f705635f6",
+  "source_head_at_check": "c26d785951108835f40dc62ae1b0936f32cafea7",
   "source_hashes": {
-    "ATTRIBUTION.md": "c3e62a7261de5168c87bc3cde54f99f87bc4338cf5454d72bd515b4fc1156a7d",
+    "ATTRIBUTION.md": "8da932bbc9e2198e1f695a174dfaba21a84c93607b718fe0bfdc07205acc52fe",
     "Cargo.lock": "11ea32b187e3be9ee9e239d54e38f83cc9cc0dbbf1cf2616a6d9f7b98dcfe40a",
     "Cargo.toml": "7fa6161c1c12856a1c17efef922d74302a73319d70e2ee5678bcbc012328c546",
     "Makefile": "61c2dd9dd805d108d85aa7387473327f311687a0139676d598239529c0832488",
     "protocol.schema.json": "86aac37623c520417adce46e35ede17a8ce29a85fa45599c99f36eb2dec46395",
     "scripts/formal.py": "7bd64ace2a79bc92d689ed64480938c2b9882d3dbb6f1c19ef23e0daa56d7cff",
-    "scripts/test-acp-controls.py": "b6fe26ed843c8fa815278fee719d022a59049db9133caca5f8a274fb2416d393",
+    "scripts/test-acp-controls.py": "18e3f8b846e591754f32bb6d700938f985a69e189c06d407b15ca895557dc3d3",
     "src/backend/acp_agent.rs": "f53c73b0ac20d4138cd4ea72c1e369448afeec58abd3784cf3647dd10008a8fe",
     "src/backend/mod.rs": "da4565000cfb0b21ae789afb3e9f008744bdddade47932be4f55447440910978",
     "src/capability.rs": "b793d2d9a02d33235e216758b23a03462ccd4c719c464657df5f153be07f7f64",
@@ -31,8 +31,8 @@
     "src/frontends/gui/chat_scroll.rs": "b9c25f771d9c0c555c02458d4cf4a18365a8742b502abcdd636ed604c4596275",
     "src/frontends/gui/chrome.rs": "49d763efe505a9f0a512a8ded40775284c9f43e0751a92bff28f0f36f5a1f4e4",
     "src/frontends/gui/editor.rs": "17a90b39d71a38bee946156e96d963565d46e171e50064b1d40ffc47093778c2",
-    "src/frontends/gui/face.rs": "8a9068b0452d3e260be7b68e27cb6cf84351c4f0c174347386d10306d620a50b",
-    "src/frontends/gui/face_rows.rs": "d06eda4520270c62ee67b9d901a6415d5241c7ab97b0998cc77c8e33b46edf96",
+    "src/frontends/gui/face.rs": "f2135be58a8f480116da8f0c73fd9ae7e0354c3ad10e99ffd8f44e0b3e689d07",
+    "src/frontends/gui/face_rows.rs": "a77c65a810e8d7ea4b44c269ab940b26fa4e6b269a0ef21708ad41fb621e9ec6",
     "src/frontends/gui/layout_checks.rs": "9a6ed45cbd4a9f5d7076aaf9f05b7abc77cc18e3a86d9258aaea9b5957c995f6",
     "src/frontends/gui/menu.rs": "230e0c64df98c39f6ded9443ef47066f45994110aebb51b3a66d4a41b7414a53",
     "src/frontends/gui/mod.rs": "cd66b8660456dc2ebfe980f5ba090f81ee7f4a3ddc96219a1839389839fdbff8",
@@ -41,8 +41,8 @@
     "src/frontends/gui/rich.rs": "ec1a24cf4aeae209600ef3f3fd6437e16438cdeca907da30604d1c55aca40fbd",
     "src/frontends/gui/smoke.rs": "225fb5bb73263c96df8809b607d63e0bb4d0e084b436a044162cea4d2ee2a8dd",
     "src/frontends/gui/stream_motion.rs": "faf675bf1b39d69ca4c2006dd79b2edee3f277e75529a185ac4f3592ff94e498",
-    "src/frontends/gui/view.rs": "8d6790a748089fc591f9895c4de62172eb86732a628e923149a4400813b0e0a3",
-    "src/frontends/gui/window.rs": "fd04284e9acd38ce6bbba78861f0b3089edc50724b64c01a522042c140fa803d",
+    "src/frontends/gui/view.rs": "4dfd7a7d08d8eb00c6b5302ae2d3a0cad635070bcac06d0eed38d3c8a812eefe",
+    "src/frontends/gui/window.rs": "203c71329a5c2349561e49ccb9fdb75ae6fb22aaa2187102181ec060b80db9d2",
     "src/frontends/gui/zoom.rs": "bd8b0b3f9decbdf9848a0d72f8da8a9c14b8d401a67dc791ad0b03d5d2678c1f",
     "src/frontends/headless.rs": "2cab5a9726b7329a55835762881a082956ffcced4e2da5db1ede2109204a5d9e",
     "src/frontends/mod.rs": "ce63f1bb07bf7b925e209367bd3085e9248a4582d4d78f62578325f281394daa",
@@ -87,8 +87,8 @@
     "tests/formal/models.rs": "b81318900d07c2750a1713fb05aefca2c3577bd4ae83510550c884f9195960cf",
     "tests/formal_models.rs": "c6e66b7ef242bfb18708c8ad6e4db6e359e7667e6034d8ed3d5611dad69ad1a7",
     "tests/gui_bridge.rs": "72cfe9b815cfca4450fdc03f88c4ec73fad63b82dd135d29d80d90ebd332af61",
-    "tests/gui_render.rs": "ea0f6f47ad511ce059a798af3730abc4a089056afcc22040dd17cd6a805379cc",
-    "tests/gui_rich.rs": "b018be08fbe914da454e8ecb39894e373ae3ff3a314d9b25154a5da57f9959b5",
+    "tests/gui_render.rs": "b4ea32a239e148aeab49fbebe9d1dddb5650ba0514af3b79453b416d52392dcb",
+    "tests/gui_rich.rs": "3015860c40cb8bed9c791e60bea224a89fcd958d392e0b1bb97ccc401ef58fc2",
     "verification/contracts.toml": "8cbe7ef735f95ae636dda33923400b85a1d7fddbed8976a31232cf849a55cfcd",
     "verification/corpus.toml": "2b560c64466f4698ff64cc89bb7c78528913a0d2bbbbbeebc0f38116e4e05383",
     "verification/coverage.toml": "d5dae8c853bfae50e9c45e49f960d4bfc5a25391b73cb15342cc1ef04bc68cfb",
@@ -109,7 +109,7 @@
       ],
       "exit_code": 0,
       "log": "target/acp-controls/default.log",
-      "sha256": "e94cbebcbb9543c7bc2c3082bd8628e22781069da648b2a6f34cfe5df6cecf68"
+      "sha256": "45d8f7d972875790a6cec7ca48e9acc17c5af68372da1940633becec3b4cd60a"
     },
     {
       "command": [
@@ -128,7 +128,7 @@
       ],
       "exit_code": 0,
       "log": "target/acp-controls/embedded.log",
-      "sha256": "e65de60d41e0e27d1d5daf2949541f1408f65c682f906e113394cd1e62822485"
+      "sha256": "b4e20dfcd9e3569c81f0c10877707922d8c96c00be76986bd8f4b92a89896b22"
     },
     {
       "command": [
@@ -148,7 +148,7 @@
       ],
       "exit_code": 0,
       "log": "target/acp-controls/acp-standalone.log",
-      "sha256": "011dfc65868240acdc37cfca30889ebd2e08831c54588436af69f27ab64abd0d"
+      "sha256": "bfe7b8593838527357ac163e64bca42028221c1822212c843bc781884578a131"
     },
     {
       "command": [
@@ -169,7 +169,7 @@
       ],
       "exit_code": 0,
       "log": "target/acp-controls/process-and-native-controls.log",
-      "sha256": "1e34da8c0e463c777d70f2e4d43843f3c2ab3baeb353904e719127f32080e14a"
+      "sha256": "143220d6ff571cd2196e17ca27f395041adf2ca5a34b52e9654c3b15e5a7f813"
     },
     {
       "command": [
@@ -188,7 +188,7 @@
       ],
       "exit_code": 0,
       "log": "target/acp-controls/existing-acp.log",
-      "sha256": "1c27c44addaac97b6d58aecd8c88b7d912a9a073bf42198d4d2aadc24532a4ce"
+      "sha256": "c8046a2f6bd8ff56dc5654150cc328701dd3e900334fc69cca86d55ab3640a23"
     },
     {
       "command": [
@@ -207,7 +207,7 @@
       ],
       "exit_code": 0,
       "log": "target/acp-controls/bridge.log",
-      "sha256": "131359d54913139aa3082807b8c9374ca46dd59e66a8b5ba69b7f0d1bcdc5a8e"
+      "sha256": "9e98b979bd20c102df41553e267de4d2b6c996769512725b0cb25eac88ebfede"
     },
     {
       "command": [
@@ -226,7 +226,7 @@
       ],
       "exit_code": 0,
       "log": "target/acp-controls/pending-core.log",
-      "sha256": "ca9b7abe063276f6922ff5f54139c85db1e808e4d290d350b88914580dac056f"
+      "sha256": "448bbdfddb25b34959eeb4a2d8ea96c170cc622479111df4312c5057e06b7bdb"
     },
     {
       "command": [
@@ -248,7 +248,7 @@
       ],
       "exit_code": 0,
       "log": "target/acp-controls/pending-raster.log",
-      "sha256": "f834744e43672bcf88339b508ced6b5f15e9fa8f1a445bd381faad4972d62264"
+      "sha256": "04800d9e3bbff82aef784d6f5e80eed301332f5b6906903f767854f067e16e7e"
     },
     {
       "command": [
@@ -270,7 +270,87 @@
       ],
       "exit_code": 0,
       "log": "target/acp-controls/preserved-gui.log",
-      "sha256": "e0fc08b35aba6fe238270fd7487b81cba6792c58c64041a8268b6c1ec4f937ea"
+      "sha256": "ae7e956044678074e5681b83f286265c2ed3c9804d336c9e2df214cf96e3a5c5"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--jobs",
+        "2",
+        "--target-dir",
+        "/Users/feral/mydev/bboxy450-harness-land/target",
+        "--features",
+        "embedded",
+        "--test",
+        "gui_rich",
+        "acp_controls_tool_cards"
+      ],
+      "exit_code": 0,
+      "log": "target/acp-controls/tool-card-bounds.log",
+      "sha256": "737a07771b557bcf3a06d4ddbf3308eaf14961be86f422e495f7d1df44d84724"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--jobs",
+        "2",
+        "--target-dir",
+        "/Users/feral/mydev/bboxy450-harness-land/target",
+        "--features",
+        "embedded",
+        "--test",
+        "gui_render",
+        "terminal_"
+      ],
+      "exit_code": 0,
+      "log": "target/acp-controls/terminal-rendering.log",
+      "sha256": "adba6a4c77b146699dab2f7ecad8d88ece2de41c32479e1a291d0c6621a9bf1b"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--jobs",
+        "2",
+        "--target-dir",
+        "/Users/feral/mydev/bboxy450-harness-land/target",
+        "--features",
+        "embedded",
+        "--test",
+        "gui_render",
+        "tight_tool_heads"
+      ],
+      "exit_code": 0,
+      "log": "target/acp-controls/tight-tool-heads.log",
+      "sha256": "4623c8e61c279211a4209f84575a110ea13db9a5c0a1182691b94691275250db"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--jobs",
+        "2",
+        "--target-dir",
+        "/Users/feral/mydev/bboxy450-harness-land/target",
+        "--features",
+        "embedded",
+        "--test",
+        "gui_rich",
+        "markdown_output_read"
+      ],
+      "exit_code": 0,
+      "log": "target/acp-controls/markdown-scroll.log",
+      "sha256": "42d04c2d3782acf955f4d73e611004fd67d63b547e7f14b807735716c6f98eb2"
     },
     {
       "command": [
@@ -289,7 +369,7 @@
       ],
       "exit_code": 0,
       "log": "target/acp-controls/path-unit.log",
-      "sha256": "3e91cb1e35b4501d0ceba0a405563ce9fe6fb01bab496fd865840147111a0440"
+      "sha256": "c72a2ff1972208fa1efd427db05d96584165419e3e135e680fce40275a42c93e"
     },
     {
       "command": [
@@ -312,7 +392,7 @@
       ],
       "exit_code": 0,
       "log": "target/acp-controls/embedded-lint.log",
-      "sha256": "545acf7f01fe099a38bba05212832feb6267cacebe1a53269906d4823f8f414f"
+      "sha256": "38acba83fb695081c9286d56e5b57db141dc43f5db432a9126a36aac7617a549"
     },
     {
       "command": [
@@ -335,7 +415,7 @@
       ],
       "exit_code": 0,
       "log": "target/acp-controls/all-lint.log",
-      "sha256": "ad33a2b92ed4f8a9c96430deca50d45e2ae992dd32866dc3cc724f9942370488"
+      "sha256": "b23bd3949b629d1a4d67914d787e97ef4a92732bcfab81329c5512d925b9ddbe"
     },
     {
       "command": [
@@ -352,7 +432,7 @@
       ],
       "exit_code": 0,
       "log": "target/acp-controls/schema.log",
-      "sha256": "51f99fcaa4f7194b21bb67087e2f9b35df4558d2045c268c1fb8aca494da0ba9"
+      "sha256": "b28399f58978e93d2bacb08d140859dd145cbf5344e21011826925131ee608d7"
     },
     {
       "command": [
@@ -370,7 +450,7 @@
       ],
       "exit_code": 0,
       "log": "target/acp-controls/formal-controls.log",
-      "sha256": "3d5a9560a7e271afb1c4d937c3695133d6eb6ad94e3f7e681dcfea97599cc2a4"
+      "sha256": "dfc58c4d76c6b4fa0129b6d4f20d1088aba3cad41b8ea71347ef7c390207d470"
     },
     {
       "command": [
@@ -388,7 +468,7 @@
       ],
       "exit_code": 0,
       "log": "target/acp-controls/formal-pending.log",
-      "sha256": "9afb1060b315c4c7586feb06f0d12f95973ef61718d4afb22eaae39834ad5d2f"
+      "sha256": "c665237603f85a9552c5a5de9c613c3aa7d651a903751c262e6db1c62d81b5e2"
     }
   ],
   "models": [

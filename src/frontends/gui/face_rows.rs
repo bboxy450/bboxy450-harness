@@ -575,6 +575,62 @@ impl Preparer {
             Item::Terminal { command, exit, .. } => {
                 let status = term_status(row, *exit);
                 let out = self.terminal_text(row, "");
+                let panel_width = (content_width - inset - 48.).max(1.);
+                let mut body = vec![];
+                if command.contains('\n')
+                    || f::line(command, 12., 400, ink.fg, true)
+                        .natural(f32::INFINITY, ctx, &self.metrics)?
+                        .0[0]
+                        > (content_width - inset - 170.).max(1.)
+                {
+                    body.push(
+                        code_panel(
+                            f::term_line(vec![(command.clone(), ink.fg, 400, false)], 12., false),
+                            &format!("codeout/{id}/command"),
+                            panel_width,
+                            if face.arguments_closed { 320. } else { 76. },
+                            &self.metrics,
+                        )?
+                        .into(),
+                    );
+                    body.push(
+                        named(
+                            format!("more/{id}"),
+                            f::line(
+                                if face.arguments_closed {
+                                    "Compact command"
+                                } else {
+                                    "Expand command"
+                                },
+                                11.5,
+                                500,
+                                ink.seat,
+                                false,
+                            ),
+                        )
+                        .into(),
+                    );
+                }
+                body.push(
+                    named(
+                        format!("term/{id}"),
+                        code_panel(
+                            f::term_output_full(
+                                out.as_deref().unwrap_or(if row.status.is_some() {
+                                    "no output"
+                                } else {
+                                    ""
+                                }),
+                                &ink,
+                            ),
+                            &format!("codeout/{id}/output"),
+                            panel_width,
+                            320.,
+                            &self.metrics,
+                        )?,
+                    )
+                    .into(),
+                );
                 f::card(
                     &status,
                     vec![
@@ -598,35 +654,7 @@ impl Preparer {
                             &ink,
                         )
                         .into(),
-                        named(
-                            format!("toolbody/{id}"),
-                            f::body_el(vec![
-                                f::terminal(
-                                    &format!("term/{id}"),
-                                    // a finished run without output says so (.hx-out dim)
-                                    out.map(|o| f::term_output(&o, &ink)).or_else(|| {
-                                        row.status.is_some().then(|| {
-                                            vec![
-                                                f::term_line(
-                                                    vec![(
-                                                        "no output".into(),
-                                                        f::hex("#7d8597"),
-                                                        400,
-                                                        false,
-                                                    )],
-                                                    12.,
-                                                    true,
-                                                )
-                                                .into(),
-                                            ]
-                                        })
-                                    }),
-                                    &ink,
-                                )
-                                .into(),
-                            ]),
-                        )
-                        .into(),
+                        named(format!("toolbody/{id}"), f::body_el(body)).into(),
                     ],
                     &ink,
                 )
@@ -976,12 +1004,57 @@ impl Preparer {
             .collect::<Vec<_>>()
             .join(" · ");
         if !caption.is_empty() {
-            inside.push(f::notice(&caption, &Level::Info, ink).into());
+            inside.push(
+                code_panel(
+                    f::runs(vec![(caption, ink.dim, 400, false)], 12., false, false),
+                    &format!("codeout/{id}/caption"),
+                    (content_width - 48.).max(1.),
+                    64.,
+                    &self.metrics,
+                )?
+                .into(),
+            );
         }
         let wrap = |kid: &Option<ViewItem>, e: c::Element| match kid {
             Some(k) => named(format!("item/{}", k.id), e),
             None => e,
         };
+        if open
+            && d.kind == "execute"
+            && (d.target.contains('\n')
+                || f::line(&d.target, 12., 400, ink.fg, true)
+                    .natural(f32::INFINITY, context(), &self.metrics)?
+                    .0[0]
+                    > (content_width - 170.).max(1.))
+        {
+            inside.push(
+                code_panel(
+                    f::term_line(vec![(d.target.clone(), ink.fg, 400, false)], 12., false),
+                    &format!("codeout/{id}/command"),
+                    (content_width - 48.).max(1.),
+                    if face.arguments_closed { 320. } else { 76. },
+                    &self.metrics,
+                )?
+                .into(),
+            );
+            inside.push(
+                named(
+                    format!("more/{id}"),
+                    f::line(
+                        if face.arguments_closed {
+                            "Compact command"
+                        } else {
+                            "Expand command"
+                        },
+                        11.5,
+                        500,
+                        ink.seat,
+                        false,
+                    ),
+                )
+                .into(),
+            );
+        }
         if open {
             if denied {
                 let reason = match &decision {
@@ -994,29 +1067,46 @@ impl Preparer {
                 inside.push(error_box(&reason, ink).into());
             } else if d.kind == "execute" {
                 // a finished run without output says so in the terminal's own voice
-                let out = out_text.map(|o| f::term_output(&o, ink)).or_else(|| {
-                    row.status.is_some().then(|| {
-                        vec![
-                            f::term_line(
-                                vec![(
-                                    if d.quiet {
-                                        "output stayed in the agent\u{2019}s own terminal"
-                                    } else {
-                                        "no output"
-                                    }
-                                    .into(),
-                                    f::hex("#7d8597"),
-                                    400,
-                                    false,
-                                )],
-                                12.,
-                                true,
-                            )
-                            .into(),
-                        ]
-                    })
-                });
-                inside.push(wrap(&term, f::terminal(&format!("term/{id}"), out, ink)).into());
+                let out = out_text
+                    .as_ref()
+                    .map(|o| f::term_output(o, ink))
+                    .or_else(|| {
+                        row.status.is_some().then(|| {
+                            vec![
+                                f::term_line(
+                                    vec![(
+                                        if d.quiet {
+                                            "output stayed in the agent\u{2019}s own terminal"
+                                        } else {
+                                            "no output"
+                                        }
+                                        .into(),
+                                        f::hex("#7d8597"),
+                                        400,
+                                        false,
+                                    )],
+                                    12.,
+                                    true,
+                                )
+                                .into(),
+                            ]
+                        })
+                    });
+                let output = if let Some(text) = out_text.as_deref() {
+                    named(
+                        format!("term/{id}"),
+                        code_panel(
+                            f::term_output_full(text, ink),
+                            &format!("codeout/{id}/output"),
+                            (content_width - 48.).max(1.),
+                            320.,
+                            &self.metrics,
+                        )?,
+                    )
+                } else {
+                    f::terminal(&format!("term/{id}"), out, ink)
+                };
+                inside.push(wrap(&term, output).into());
             } else if let Some(u) = &unified {
                 inside.push(
                     wrap(
@@ -1210,28 +1300,83 @@ fn plain_box(
     ink: &f::Ink,
     metrics: &impl c::Measure,
 ) -> Result<c::Element, String> {
-    let content = f::runs(vec![(text.to_owned(), ink.fg, 400, false)], 12., true, true);
-    let ([_, height], _) = content
-        .natural(width, context(), metrics)
-        .map_err(|e| format!("{e:?}"))?;
-    Ok(f::frame(
+    code_panel(
+        f::runs(
+            vec![(text.to_owned(), ink.fg, 400, false)],
+            12.,
+            true,
+            false,
+        ),
+        &format!("mdout/{id}"),
+        width.max(1.),
+        400.,
+        metrics,
+    )
+}
+
+/// Literal code/output keeps its full payload. Only the viewport enters card geometry.
+/// Project-owned bboxy450-harness; credit reuse with
+/// https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+fn code_panel(
+    content: c::Element,
+    key: &str,
+    width: f32,
+    cap: f32,
+    metrics: &impl c::Measure,
+) -> Result<c::Element, String> {
+    let ink = f::ink(context());
+    let ([natural_width, height], _) = content.natural(f32::INFINITY, context(), metrics)?;
+    let mut children = vec![
+        named(
+            key.to_owned(),
+            c::Element::ScrollView(c::ScrollView {
+                viewport: [width, height.min(cap).max(1.)],
+                offset: [0., 0.],
+                content_width: Some(natural_width.max(width)),
+                content: Box::new(content),
+            }),
+        )
+        .into(),
+    ];
+    if natural_width > width {
+        children.push(
+            f::hstack(
+                vec![
+                    f::fixed(named(
+                        format!("codeleft/{key}"),
+                        f::line("←", 12., 500, ink.dim, false),
+                    )),
+                    f::fixed(named(
+                        format!("coderight/{key}"),
+                        f::line("→", 12., 500, ink.dim, false),
+                    )),
+                ],
+                12.,
+            )
+            .into(),
+        );
+    }
+    let mut panel = f::frame(
         f::Frame {
             fill: f::alpha(ink.bg, 0.55),
             radius: [8.; 4],
-            padding: [8., 10., 8., 10.],
+            padding: [7., 10., 10., 10.],
             ..Default::default()
         },
-        vec![
-            named(
-                format!("mdout/{id}"),
-                c::Element::ScrollView(c::ScrollView {
-                    viewport: [width, height.min(400.)],
-                    offset: [0., 0.],
-                    content_width: None,
-                    content: Box::new(content),
-                }),
-            )
-            .into(),
-        ],
-    ))
+        children,
+    );
+    if let c::Element::Box(b) = &mut panel {
+        b.clip = true;
+    }
+    // Retain the terminal block's named output/padding contract inside its new viewport.
+    Ok(
+        if let Some(id) = key
+            .strip_prefix("codeout/")
+            .and_then(|k| k.strip_suffix("/output"))
+        {
+            named(format!("term/{id}/output"), panel)
+        } else {
+            panel
+        },
+    )
 }

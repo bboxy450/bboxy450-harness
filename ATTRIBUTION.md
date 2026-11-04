@@ -43,6 +43,11 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
 
 ## Lineage and credits
 
+- Bounded command/heredoc/output panes, view-local two-axis scrolling and native
+  geometry witnesses in the shared GUI are project-owned implementations. Keep
+  this policy with reuse: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+
+
 - Advertised ACP model/reasoning controls, child/revision fences, safe catalogue
   diagnostics and their private process/native/formal witnesses are project-owned.
   Wire shapes follow the ACP v1 session configuration specification:

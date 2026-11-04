@@ -124,6 +124,12 @@ pub fn find<'a>(n: &'a c::Layout, key: &str) -> Option<&'a c::Layout> {
         n.children.iter().find_map(|c| find(c, key))
     }
 }
+fn contains(r: Rect, at: [f32; 2]) -> bool {
+    at[0] >= r.x && at[0] < r.right() && at[1] >= r.y && at[1] < r.bottom()
+}
+fn scroll_panel(name: &str) -> bool {
+    name.starts_with("mdout/") || name.starts_with("codeout/")
+}
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     Send,
@@ -141,6 +147,7 @@ pub enum Action {
     /// A profile switcher row: the same path as `/profile NAME`.
     SwitchProfile(String),
     AgentConfig(OpEnvelope),
+    PanelScroll(String, [f32; 2]),
     /// Inside an open menu (true) keeps it; outside it (false) closes it.
     Menu(bool),
     /// The switcher's `+ New profile`: the native form is not built yet.
@@ -219,7 +226,7 @@ pub struct HarnessView {
     config_menu_rect: Option<Rect>,
     pub scroll: chat_scroll::State,
     /// View-local offsets into worker-prepared Markdown tool panels.
-    markdown_scroll: HashMap<ItemId, f32>,
+    markdown_scroll: HashMap<String, [f32; 2]>,
     metrics: Metrics,
     cached: Option<CacheKey>,
     controls: Option<Controls>,
@@ -382,26 +389,25 @@ impl HarnessView {
     }
     /// A wheel over an inset first scrolls that document, then the transcript at its edge.
     pub fn wheel(&mut self, at: [f32; 2], dy: f32) -> bool {
+        self.wheel_delta(at, [0., dy])
+    }
+    /// Both axes stay view-local; horizontal arrows also serve embedded hosts with a vertical-only wheel API.
+    pub fn wheel_delta(&mut self, at: [f32; 2], mut delta: [f32; 2]) -> bool {
         if self.config_menu_rect.is_some_and(|r| contains(r, at)) {
-            self.config_scroll = (self.config_scroll + dy).max(0.);
+            self.config_scroll = (self.config_scroll + delta[1]).max(0.);
             self.invalidate();
             return true;
         }
-        fn contains(r: Rect, at: [f32; 2]) -> bool {
-            at[0] >= r.x && at[0] < r.right() && at[1] >= r.y && at[1] < r.bottom()
-        }
-        fn panel(node: &c::Layout, at: [f32; 2]) -> Option<(ItemId, f32, f32)> {
+        fn panel(node: &c::Layout, at: [f32; 2]) -> Option<String> {
             if let c::LayoutKind::Named(name) = &node.kind
-                && let Some(id) = name.strip_prefix("mdout/").and_then(|s| s.parse().ok())
+                && scroll_panel(name)
                 && contains(node.rect, at)
-                && let Some(scroll) = node.children.first()
-                && let c::LayoutKind::ScrollView { content, offset } = scroll.kind
             {
-                return Some((ItemId(id), offset[1], (content[1] - scroll.rect.h).max(0.)));
+                return Some(name.clone());
             }
             node.children.iter().find_map(|n| panel(n, at))
         }
-        if let Some((id, offset, max)) = self
+        if let Some(key) = self
             .frame
             .layout
             .as_ref()
@@ -409,21 +415,56 @@ impl HarnessView {
             .filter(|n| contains(n.rect, at))
             .and_then(|n| panel(n, at))
         {
-            let next = (offset + dy).clamp(0., max);
-            if next != offset {
-                self.markdown_scroll.insert(id, next);
-                self.invalidate();
+            // A single long line is horizontally scrollable even in an older embedded host.
+            if let Some(n) = self
+                .frame
+                .layout
+                .as_ref()
+                .and_then(|r| find(r, &key))
+                .and_then(|n| n.children.first())
+                && let c::LayoutKind::ScrollView { content, .. } = n.kind
+                && content[1] <= n.rect.h
+                && content[0] > n.rect.w
+                && delta[0] == 0.
+            {
+                delta = [delta[1], 0.];
+            }
+            if self.shift_panel(&key, delta) {
                 return true;
             }
         }
         if self
             .scroll
-            .wheel(self.frame.scroll, self.frame.max_scroll, dy)
+            .wheel(self.frame.scroll, self.frame.max_scroll, delta[1])
         {
             self.invalidate();
             return true;
         }
         false
+    }
+    fn shift_panel(&mut self, key: &str, delta: [f32; 2]) -> bool {
+        let Some(node) = self
+            .frame
+            .layout
+            .as_ref()
+            .and_then(|r| find(r, key))
+            .and_then(|n| n.children.first())
+        else {
+            return false;
+        };
+        let c::LayoutKind::ScrollView { content, offset } = node.kind else {
+            return false;
+        };
+        let next = [
+            (offset[0] + delta[0]).clamp(0., (content[0] - node.rect.w).max(0.)),
+            (offset[1] + delta[1]).clamp(0., (content[1] - node.rect.h).max(0.)),
+        ];
+        if next == offset {
+            return false;
+        }
+        self.markdown_scroll.insert(key.to_owned(), next);
+        self.invalidate();
+        true
     }
 
     pub fn zoom(&self) -> Zoom {
@@ -615,7 +656,7 @@ impl HarnessView {
                 super::face::zoom_text(&mut empty, self.zoom.scale());
                 children.push(empty.into());
             } else {
-                let mut message = super::face::loading_session(state.ready, ink);
+                let mut message = super::face::loading_session(state.ready, ink, &mut self.anim);
                 super::face::zoom_text(&mut message, self.zoom.scale());
                 let centered = super::face::frame(
                     super::face::Frame {
@@ -1212,6 +1253,19 @@ impl HarnessView {
                 }
             }
         }
+        fn arrows(node: &c::Layout, out: &mut Vec<(Rect, Action)>) {
+            if let c::LayoutKind::Named(name) = &node.kind {
+                for (prefix, dx) in [("codeleft/", -160.), ("coderight/", 160.)] {
+                    if let Some(key) = name.strip_prefix(prefix) {
+                        out.push((node.rect, Action::PanelScroll(key.into(), [dx, 0.])));
+                    }
+                }
+            }
+            for child in &node.children {
+                arrows(child, out);
+            }
+        }
+        arrows(&layout, &mut frame.actions);
         for turn in state.transcript.turns.keys() {
             for (key, action) in [
                 (format!("turn/{}/retry", turn.0), Action::Retry(*turn)),
@@ -1846,6 +1900,10 @@ impl HarnessView {
     }
     pub fn activate(&mut self, action: Action, bridge: &Bridge) {
         match action {
+            Action::PanelScroll(key, delta) => {
+                self.shift_panel(&key, delta);
+                return;
+            }
             Action::Jump => self.scroll.follow_latest(),
             Action::AgentConfig(envelope) => {
                 self.notice = match bridge.send_envelope(envelope) {
@@ -2433,7 +2491,7 @@ fn restore_rows<'a>(
     rows: &im::HashMap<ItemId, Arc<CachedRow>>,
     viewport: Rect,
     enters: &HashMap<ItemId, f32>,
-    markdown_scroll: &HashMap<ItemId, f32>,
+    markdown_scroll: &HashMap<String, [f32; 2]>,
     runs: &mut dyn FnMut(ItemId) -> Box<dyn stream_motion::Runs + 'a>,
 ) {
     if let c::LayoutKind::Named(name) = &node.kind
@@ -2495,7 +2553,7 @@ fn visible_layout(
     dx: f32,
     dy: f32,
     viewport: Rect,
-    markdown_scroll: &HashMap<ItemId, f32>,
+    markdown_scroll: &HashMap<String, [f32; 2]>,
     runs: &mut dyn stream_motion::Runs,
 ) -> Option<c::Layout> {
     let rect = Rect::new(node.rect.x + dx, node.rect.y + dy, node.rect.w, node.rect.h);
@@ -2505,15 +2563,13 @@ fn visible_layout(
         return None;
     }
     if let c::LayoutKind::Named(name) = &node.kind
-        && let Some(id) = name.strip_prefix("mdout/").and_then(|s| s.parse().ok())
+        && scroll_panel(name)
         && let Some(scroll) = node.children.first()
         && let c::LayoutKind::ScrollView { content, offset } = scroll.kind
     {
-        let y = markdown_scroll
-            .get(&ItemId(id))
-            .copied()
-            .unwrap_or(0.)
-            .clamp(0., (content[1] - rect.h).max(0.));
+        let saved = markdown_scroll.get(name).copied().unwrap_or([0., 0.]);
+        let x = saved[0].clamp(0., (content[0] - rect.w).max(0.));
+        let y = saved[1].clamp(0., (content[1] - rect.h).max(0.));
         return Some(c::Layout {
             rect,
             baseline: node.baseline,
@@ -2523,7 +2579,7 @@ fn visible_layout(
                 baseline: scroll.baseline,
                 kind: c::LayoutKind::ScrollView {
                     content,
-                    offset: [offset[0], y],
+                    offset: [x, y],
                 },
                 children: scroll
                     .children
@@ -2531,7 +2587,7 @@ fn visible_layout(
                     .filter_map(|child| {
                         visible_layout(
                             child,
-                            dx,
+                            dx + offset[0] - x,
                             dy + offset[1] - y,
                             visible,
                             markdown_scroll,

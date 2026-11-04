@@ -822,6 +822,24 @@ pub fn term_output(out: &str, ink: &Ink) -> Vec<c::Item> {
     }
     items
 }
+pub fn term_output_full(out: &str, ink: &Ink) -> c::Element {
+    vstack(
+        out.trim_matches('\n')
+            .lines()
+            .map(|line| {
+                let color = match verdict(line) {
+                    Verdict::Ok => hex("#5BE08C"),
+                    Verdict::Bad => hex("#FF7A7A"),
+                    Verdict::Warn => hex("#FFC53D"),
+                    Verdict::Dim => ink.dim,
+                    Verdict::Plain => hex("#c9cfdc"),
+                };
+                term_line(vec![(line.to_owned(), color, 400, false)], 12., false).into()
+            })
+            .collect(),
+        0.,
+    )
+}
 pub struct Receipt {
     pub ok: bool,
     /// interrupted / cancelled: a neutral receipt with a stop disc, never red
@@ -1126,7 +1144,7 @@ pub fn head(h: Head, ink: &Ink) -> c::Element {
         // .hx-tgt is content-sized and ellipsised (min-width 0); .hx-sp takes the slack
         c::Item {
             element: line(
-                h.target,
+                h.target.lines().next().unwrap_or_default().to_owned(),
                 if h.mono { 12. } else { 13. },
                 400,
                 alpha(ink.fg, 0.82),
@@ -1202,7 +1220,7 @@ pub fn card(status: &Status, children: Vec<c::Item>, ink: &Ink) -> c::Element {
         Status::Running => (alpha(ink.fg, 0.04), alpha(ink.seat, 0.70)),
         _ => (alpha(ink.fg, 0.04), alpha(ink.fg, 0.10)),
     };
-    frame(
+    let mut card = frame(
         Frame {
             fill: fill_c,
             border: Some(border),
@@ -1210,7 +1228,11 @@ pub fn card(status: &Status, children: Vec<c::Item>, ink: &Ink) -> c::Element {
             ..Default::default()
         },
         children,
-    )
+    );
+    if let c::Element::Box(panel) = &mut card {
+        panel.clip = true;
+    }
+    card
 }
 pub fn body(children: Vec<c::Item>) -> c::Item {
     body_el(children).into()
@@ -2209,8 +2231,18 @@ pub fn zoom_text(e: &mut c::Element, scale: f32) {
             style(parent, scale);
             zoom_text(content, scale);
         }
-        c::Element::Named { content, .. }
-        | c::Element::FixedHeight { content, .. }
+        c::Element::Named { name, content } => {
+            // Literal panes were measured before text zoom. Their horizontal extent
+            // must grow with the glyphs, while the viewport stays inside the card.
+            if (name.starts_with("codeout/") || name.starts_with("mdout/"))
+                && let c::Element::ScrollView(scroll) = content.as_mut()
+                && let Some(width) = &mut scroll.content_width
+            {
+                *width = (*width * scale).max(scroll.viewport[0]);
+            }
+            zoom_text(content, scale);
+        }
+        c::Element::FixedHeight { content, .. }
         | c::Element::Filter { content, .. }
         | c::Element::Baseline { content, .. } => zoom_text(content, scale),
         c::Element::Layers { base, overlays } => {
@@ -2302,24 +2334,23 @@ fn identity_mark(ink: &Ink, halo_a: f32, halo_s: f32, key: &str) -> c::Element {
         }],
     }
 }
+fn breathing_halo(anim: &mut Clock) -> (f32, f32) {
+    if anim.animates() {
+        let v = 0.5 - 0.5 * (anim.cycle(3200.) * std::f32::consts::TAU).cos();
+        (0.25 + 0.55 * v, 0.96 + 0.08 * v)
+    } else {
+        (0.5, 1.)
+    }
+}
 /// The welcome portrait and one status label, with no welcome actions or copy.
-pub fn loading_session(preparing: bool, ink: &Ink) -> c::Element {
+pub fn loading_session(_preparing: bool, ink: &Ink, anim: &mut Clock) -> c::Element {
+    let (halo_a, halo_s) = breathing_halo(anim);
     let mut group = vstack(
         vec![
-            fixed(identity_mark(ink, 0.5, 1., "session-loader")),
+            fixed(identity_mark(ink, halo_a, halo_s, "session-loader")),
             fixed(named(
                 "session-loader/label",
-                line(
-                    if preparing {
-                        "Preparing transcript…"
-                    } else {
-                        "Loading session…"
-                    },
-                    13.5,
-                    400,
-                    ink.dim,
-                    false,
-                ),
+                line("Loading…", 13.5, 400, ink.dim, false),
             )),
         ],
         14.,
@@ -2347,12 +2378,7 @@ pub fn empty_session(
     anim: &mut Clock,
 ) -> c::Element {
     let rise = anim.enter("empty/in", 0., 1., 420., Ease::Out);
-    let (halo_a, halo_s) = if anim.animates() {
-        let v = 0.5 - 0.5 * (anim.cycle(3200.) * std::f32::consts::TAU).cos();
-        (0.25 + 0.55 * v, 0.96 + 0.08 * v)
-    } else {
-        (0.5, 1.)
-    };
+    let (halo_a, halo_s) = breathing_halo(anim);
     let mark = identity_mark(ink, halo_a, halo_s, "empty");
     let mut title = text("What are we building?", 17., 600, ink.fg, false);
     title.wrap = false;

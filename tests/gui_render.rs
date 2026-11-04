@@ -2016,6 +2016,10 @@ fn gui_polish_loader_is_centered_and_pending_bubbles_are_scoped() {
                 let mark = find(layout, "session-loader/mark")
                     .expect("welcome portrait above loading label");
                 let label = find(layout, "session-loader/label").unwrap();
+                assert_eq!(layout_text(label), "Loading…");
+                assert!(
+                    matches!(&mark.children[0].kind, bbt_ui::components::LayoutKind::Image { asset, .. } if asset == bboxy450_harness::frontends::gui::assets::MARK)
+                );
                 assert!(mark.rect.bottom() < label.rect.y);
                 assert!(
                     !layout_text(find(layout, "session-loader").unwrap())
@@ -2306,4 +2310,26 @@ async fn profiles_pending_history_remains_visible_through_preparation_gaps() {
         );
     })
     .await;
+}
+
+#[test]
+fn gui_polish_loader_preserves_welcome_motion_and_reduced_motion() {
+    use bboxy450_harness::frontends::gui::{anim::Clock, view::find};
+    for reduced in [false, true] {
+        let mut view = HarnessView::default();
+        view.anim = Clock::live(reduced);
+        let mut halos = vec![];
+        for time in [0., 800.] {
+            view.anim.tick(time);
+            let frame = view.render(&FrameState::default(), [470., 680.]).unwrap();
+            let halo = find(frame.layout.as_ref().unwrap(), "session-loader/halo").unwrap();
+            halos.push(format!("{:?}", halo.children[0].kind));
+        }
+        if reduced {
+            assert_eq!(halos[0], halos[1]);
+        } else {
+            assert_ne!(halos[0], halos[1]);
+            assert!(view.anim.in_motion());
+        }
+    }
 }

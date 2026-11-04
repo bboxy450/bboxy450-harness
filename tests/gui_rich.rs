@@ -1816,3 +1816,176 @@ async fn gui_polish_mcp_cards_show_real_raw_results_on_expansion() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn acp_controls_tool_cards_bound_long_commands_and_keep_full_payload_scrollable() {
+    use bboxy450_harness::frontends::gui::{
+        bridge::{FrameState, read_replay},
+        rich::{Face, Faces},
+        view::{Preparer, find, layout_text},
+    };
+    let temp = tempfile::tempdir().unwrap();
+    let commands = [
+        format!("printf '%s' '{}'", "single-token-".repeat(120)),
+        format!(
+            "python3 - <<'PY'\n{}\nprint('COMMAND-END')\nPY",
+            (0..90)
+                .map(|n| format!("print('line-{n}:{}')", "payload".repeat(20)))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
+    ];
+    let output = (0..100)
+        .map(|n| format!("output-{n}:{}", "long-token-".repeat(40)))
+        .chain(std::iter::once("OUTPUT-END".into()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let items=commands.iter().enumerate().map(|(index,command)|{
+        let body:Item=serde_json::from_value(serde_json::json!({"kind":"tool_call","call_id":format!("bounds-{index}"),"name":"bash","tool_kind":"execute","title":command,"input_raw":serde_json::json!({"command":command}).to_string(),"output":[{"type":"text","text":output}],"locations":[],"spill":null})).unwrap();
+        (body,Some(ItemStatus::Failed{reason:"fixture".into(),code:None}))
+    }).collect();
+    let (path, ids) = markdown_replay(temp.path(), items);
+    let source = Arc::new(read_replay(path).await.unwrap());
+    runtime::blocking(move || {
+        for width in [280., 1120.] {
+            let mut preparer = Preparer::default();
+            let faces: Faces = ids
+                .iter()
+                .map(|id| {
+                    (
+                        *id,
+                        Face {
+                            arguments_closed: true,
+                            ..Default::default()
+                        },
+                    )
+                })
+                .collect();
+            let mut state = FrameState {
+                transcript: source.clone(),
+                ready: true,
+                replay: true,
+                faces: Arc::new(faces.clone()),
+                ..Default::default()
+            };
+            state.prepared = Some(Arc::new(
+                preparer
+                    .prepare_with_faces(source.clone(), width, &faces)
+                    .unwrap(),
+            ));
+            let mut view = HarnessView::default();
+            view.scroll.follow_latest();
+            let frame = view.render(&state, [width, 1800.]).unwrap();
+            let layout = frame.layout.as_ref().unwrap();
+            for id in &ids {
+                let card = find(layout, &format!("tool/{id}")).unwrap();
+                assert!(
+                    card.rect.x >= 0. && card.rect.right() <= width,
+                    "card escaped pane {width}: {:?}",
+                    card.rect
+                );
+                let head = find(card, &format!("toolhead/{id}")).unwrap();
+                assert!(
+                    head.rect.h < 80.,
+                    "command created an oversized header: {:?}",
+                    head.rect
+                );
+                let command = find(card, &format!("codeout/{id}/command"))
+                    .expect("full command has a bounded code viewport");
+                let output = find(card, &format!("codeout/{id}/output"))
+                    .expect("full output has a bounded code viewport");
+                for panel in [command, output] {
+                    assert!(
+                        panel.rect.x >= card.rect.x
+                            && panel.rect.right() <= card.rect.right() + 0.1
+                    );
+                    assert!(panel.rect.h <= 400.);
+                }
+            }
+            // The last card is visible. Scroll both axes inside its output without moving the transcript.
+            let id = ids[1];
+            let key = format!("codeout/{id}/output");
+            let panel = find(layout, &key).unwrap().rect;
+            let before = frame.scroll;
+            assert!(view.wheel_delta([panel.x+5.,panel.y+5.],[0.,100_000.]));
+            let frame=view.render(&state,[width,1800.]).unwrap();
+            assert_eq!(frame.scroll,before);
+            assert!(layout_text(find(frame.layout.as_ref().unwrap(),&key).unwrap()).contains("OUTPUT-END"),"output tail disappeared");
+            let action=frame.actions.iter().find_map(|(_,a)|match a {bboxy450_harness::frontends::gui::view::Action::PanelScroll(k,d) if k==&key && d[0]>0.=>Some(a.clone()),_=>None}).unwrap();
+            view.activate(action,&Bridge::new(Arc::new(Wake)));
+            let frame=view.render(&state,[width,1800.]).unwrap();
+            let output=find(frame.layout.as_ref().unwrap(),&key).unwrap();
+            assert!(matches!(output.children[0].kind,bbt_ui::components::LayoutKind::ScrollView{offset,..} if offset[0]>0.));
+            let command_key=format!("codeout/{id}/command");
+            let command=find(frame.layout.as_ref().unwrap(),&command_key).unwrap().rect;
+            assert!(view.wheel_delta([command.x+5.,command.y+5.],[0.,100_000.]));
+            let frame=view.render(&state,[width,1800.]).unwrap();
+            let text=layout_text(find(frame.layout.as_ref().unwrap(),&command_key).unwrap());
+            assert!(text.contains("COMMAND-END") && text.contains("PY"),"heredoc tail disappeared: {text}");
+            let expanded_height=find(frame.layout.as_ref().unwrap(),&command_key).unwrap().rect.h;
+            let compact=Faces::default();
+            state.faces=Arc::new(compact.clone());
+            state.prepared=Some(Arc::new(preparer.prepare_with_faces(source.clone(),width,&compact).unwrap()));
+            view.scroll.follow_latest();
+            let frame=view.render(&state,[width,1800.]).unwrap();
+            let compact_height=find(frame.layout.as_ref().unwrap(),&command_key).unwrap().rect.h;
+            assert!(compact_height<=76. && expanded_height>compact_height,"command expansion must change the bounded viewport height");
+        }
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn acp_controls_tool_cards_text_zoom_keeps_full_horizontal_extent() {
+    use bboxy450_harness::frontends::gui::{
+        face,
+        view::{Metrics, context},
+    };
+    use bbt_ui::{components as c, modules::seat_row::named};
+    use bbt_ui_model::layout::Rect;
+    runtime::blocking(|| {
+        let metrics = Metrics::default();
+        let ctx = context();
+        let ink = face::ink(ctx);
+        for scale in [0.9, 1., 1.6] {
+            let content = face::term_line(
+                vec![("UNBROKEN-COMMAND-".repeat(100), ink.fg, 400, false)],
+                12.,
+                false,
+            );
+            let ([width, height], _) = content.natural(f32::INFINITY, ctx, &metrics).unwrap();
+            let mut panel = named(
+                "codeout/fixture/command",
+                c::Element::ScrollView(c::ScrollView {
+                    viewport: [240., height],
+                    offset: [0., 0.],
+                    content_width: Some(width),
+                    content: Box::new(content),
+                }),
+            );
+            face::zoom_text(&mut panel, scale);
+            let layout = panel
+                .layout(Rect::new(0., 0., 240., 0.), ctx, &metrics)
+                .unwrap();
+            let scroll = &layout.children[0];
+            let c::LayoutKind::ScrollView { content, .. } = scroll.kind else {
+                panic!("literal scroll viewport");
+            };
+            fn right(n: &c::Layout) -> f32 {
+                let own = match &n.kind {
+                    c::LayoutKind::Text { runs, .. } => {
+                        runs.iter().map(|r| r.rect.right()).fold(n.rect.x, f32::max)
+                    }
+                    _ => n.rect.x,
+                };
+                n.children.iter().map(right).fold(own, f32::max)
+            }
+            assert!(
+                content[0] + 0.1 >= right(&scroll.children[0]) - scroll.rect.x,
+                "zoom {scale}: scroll extent {content:?} lost the command tail"
+            );
+            assert_eq!(scroll.rect.w, 240., "zoom must not widen the card viewport");
+        }
+    })
+    .await;
+}

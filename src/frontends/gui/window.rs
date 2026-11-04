@@ -605,13 +605,17 @@ impl ApplicationHandler<Wake> for App {
                 self.view.pointer(self.pointer);
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                let dy = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => -y * 24.,
+                let mut delta = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => [-x * 24., -y * 24.],
                     MouseScrollDelta::PixelDelta(p) => {
-                        -p.y as f32 / self.window.as_ref().unwrap().scale_factor() as f32
+                        let scale = self.window.as_ref().unwrap().scale_factor() as f32;
+                        [-p.x as f32 / scale, -p.y as f32 / scale]
                     }
                 };
-                self.view.wheel(self.pointer, dy);
+                if self.modifiers.shift_key() && delta[0] == 0. {
+                    delta = [delta[1], 0.];
+                }
+                self.view.wheel_delta(self.pointer, delta);
             }
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
