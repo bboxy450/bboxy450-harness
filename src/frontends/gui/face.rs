@@ -1131,6 +1131,16 @@ pub struct Head {
     pub dur: Option<String>,
     pub status: Status,
 }
+/// One deterministic display line; exact source remains in the tool details.
+pub fn compact_heading(value: &str, limit: usize) -> String {
+    let first = value.lines().next().unwrap_or_default();
+    let clean = first.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut out: String = clean.chars().take(limit).collect();
+    if clean.chars().count() > limit || value.lines().count() > 1 {
+        out.push('…');
+    }
+    out
+}
 pub fn head(h: Head, ink: &Ink) -> c::Element {
     let kc = kind_color(h.tool_kind);
     let mut kids = vec![
@@ -1140,11 +1150,20 @@ pub fn head(h: Head, ink: &Ink) -> c::Element {
             7.,
             alpha(kc, 0.16),
         )),
-        fixed(line(h.verb, 13., 650, ink.fg, false)),
+        c::Item {
+            element: line(compact_heading(&h.verb, 40), 13., 650, ink.fg, false),
+            extent: c::Extent::Content {
+                grow: 0.,
+                shrink: 1.,
+                min: 0.,
+                max: Some(320.),
+                max_fraction: Some(0.5),
+            },
+        },
         // .hx-tgt is content-sized and ellipsised (min-width 0); .hx-sp takes the slack
         c::Item {
             element: line(
-                h.target.lines().next().unwrap_or_default().to_owned(),
+                compact_heading(&h.target, 80),
                 if h.mono { 12. } else { 13. },
                 400,
                 alpha(ink.fg, 0.82),
@@ -1160,7 +1179,13 @@ pub fn head(h: Head, ink: &Ink) -> c::Element {
         },
     ];
     if let Some(p) = h.place {
-        kids.push(fixed(line(format!("in {p}"), 12., 400, ink.dim, true)));
+        kids.push(fixed(line(
+            compact_heading(&format!("in {p}"), 36),
+            12.,
+            400,
+            ink.dim,
+            true,
+        )));
     }
     kids.push(spacer());
     if let Some((a, d)) = h.stat {
@@ -1180,7 +1205,7 @@ pub fn head(h: Head, ink: &Ink) -> c::Element {
             Some(false) => ink.bad,
             None => ink.dim,
         };
-        kids.push(fixed(line(m, 11.5, 400, c, false)));
+        kids.push(fixed(line(compact_heading(&m, 24), 11.5, 400, c, false)));
     }
     if let Some(b) = h.badge {
         kids.push(fixed(b));
@@ -1191,7 +1216,13 @@ pub fn head(h: Head, ink: &Ink) -> c::Element {
         c::Item::from(hstack(
             vec![
                 spacer(),
-                fixed(line(h.dur.unwrap_or_default(), 11., 400, ink.dim, false)),
+                fixed(line(
+                    compact_heading(&h.dur.unwrap_or_default(), 12),
+                    11.,
+                    400,
+                    ink.dim,
+                    false,
+                )),
             ],
             0.,
         ))

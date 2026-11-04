@@ -577,40 +577,15 @@ impl Preparer {
                 let out = self.terminal_text(row, "");
                 let panel_width = (content_width - inset - 48.).max(1.);
                 let mut body = vec![];
-                if command.contains('\n')
-                    || f::line(command, 12., 400, ink.fg, true)
-                        .natural(f32::INFINITY, ctx, &self.metrics)?
-                        .0[0]
-                        > (content_width - inset - 170.).max(1.)
-                {
-                    body.push(
-                        code_panel(
-                            f::term_line(vec![(command.clone(), ink.fg, 400, false)], 12., false),
-                            &format!("codeout/{id}/command"),
-                            panel_width,
-                            if face.arguments_closed { 320. } else { 76. },
-                            &self.metrics,
-                        )?
-                        .into(),
-                    );
-                    body.push(
-                        named(
-                            format!("more/{id}"),
-                            f::line(
-                                if face.arguments_closed {
-                                    "Compact command"
-                                } else {
-                                    "Expand command"
-                                },
-                                11.5,
-                                500,
-                                ink.seat,
-                                false,
-                            ),
-                        )
-                        .into(),
-                    );
-                }
+                body.extend(command_panels(
+                    &mut self.documents,
+                    command,
+                    id,
+                    panel_width,
+                    face,
+                    &ink,
+                    &self.metrics,
+                )?);
                 body.push(
                     named(
                         format!("term/{id}"),
@@ -638,8 +613,18 @@ impl Preparer {
                             f::Head {
                                 key: format!("toolhead/{id}"),
                                 tool_kind: "execute",
-                                verb: "Run".into(),
-                                target: command.trim_start_matches("bash -c ").to_owned(),
+                                verb: if super::super::rich::python_snippet(command).is_some() {
+                                    "Run Python"
+                                } else {
+                                    "Run command"
+                                }
+                                .into(),
+                                target: f::compact_heading(
+                                    super::super::rich::python_snippet(command)
+                                        .as_ref()
+                                        .map_or(command.as_str(), |p| p.source),
+                                    80,
+                                ),
                                 mono: true,
                                 place: None,
                                 stat: None,
@@ -918,11 +903,43 @@ impl Preparer {
         if let Some(Item::Terminal { command, .. }) = term.as_ref().map(|t| &t.body)
             && !command.is_empty()
         {
-            d.target = command
-                .strip_prefix("bash -c ")
-                .unwrap_or(command)
-                .to_owned();
+            d.target = command.clone();
             d.mono = true;
+        }
+        let original_command = if d.kind == "execute" {
+            Some(if !d.target.is_empty() {
+                d.target.clone()
+            } else if name.chars().any(char::is_whitespace) {
+                name.clone()
+            } else {
+                title
+                    .as_ref()
+                    .filter(|t| !t.is_empty())
+                    .unwrap_or(name)
+                    .clone()
+            })
+        } else if super::super::rich::python_snippet(name).is_some() {
+            Some(name.clone())
+        } else {
+            title
+                .as_ref()
+                .filter(|t| super::super::rich::python_snippet(t).is_some())
+                .cloned()
+        };
+        if let Some(command) = &original_command {
+            let python = super::super::rich::python_snippet(command);
+            d.kind = "execute";
+            d.mono = true;
+            d.verb = if python.is_some() {
+                "Run Python"
+            } else {
+                "Run command"
+            }
+            .into();
+            d.target =
+                f::compact_heading(python.as_ref().map_or(command.as_str(), |p| p.source), 80);
+        } else if name.starts_with("mcp.") || name.starts_with("mcp__") {
+            d.verb = f::compact_heading(name, 64);
         }
         let exit = term.as_ref().and_then(|t| match &t.body {
             Item::Terminal { exit, .. } => *exit,
@@ -998,62 +1015,39 @@ impl Preparer {
         ];
         let mut inside: Vec<c::Item> = vec![];
         let mut rich = None;
-        let caption = [title.as_deref(), server.as_deref()]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · ");
+        let caption = [
+            title.as_deref().filter(|t| {
+                !t.contains('\n')
+                    && t.chars().count() <= 120
+                    && Some(*t) != original_command.as_deref()
+                    && *t != name
+                    && *t != d.verb
+            }),
+            server.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .map(|s| f::compact_heading(s, 64))
+        .collect::<Vec<_>>()
+        .join(" · ");
         if !caption.is_empty() {
-            inside.push(
-                code_panel(
-                    f::runs(vec![(caption, ink.dim, 400, false)], 12., false, false),
-                    &format!("codeout/{id}/caption"),
-                    (content_width - 48.).max(1.),
-                    64.,
-                    &self.metrics,
-                )?
-                .into(),
-            );
+            inside
+                .push(f::line(f::compact_heading(&caption, 80), 11.5, 400, ink.dim, false).into());
         }
         let wrap = |kid: &Option<ViewItem>, e: c::Element| match kid {
             Some(k) => named(format!("item/{}", k.id), e),
             None => e,
         };
-        if open
-            && d.kind == "execute"
-            && (d.target.contains('\n')
-                || f::line(&d.target, 12., 400, ink.fg, true)
-                    .natural(f32::INFINITY, context(), &self.metrics)?
-                    .0[0]
-                    > (content_width - 170.).max(1.))
-        {
-            inside.push(
-                code_panel(
-                    f::term_line(vec![(d.target.clone(), ink.fg, 400, false)], 12., false),
-                    &format!("codeout/{id}/command"),
-                    (content_width - 48.).max(1.),
-                    if face.arguments_closed { 320. } else { 76. },
-                    &self.metrics,
-                )?
-                .into(),
-            );
-            inside.push(
-                named(
-                    format!("more/{id}"),
-                    f::line(
-                        if face.arguments_closed {
-                            "Compact command"
-                        } else {
-                            "Expand command"
-                        },
-                        11.5,
-                        500,
-                        ink.seat,
-                        false,
-                    ),
-                )
-                .into(),
-            );
+        if open && let Some(command) = &original_command {
+            inside.extend(command_panels(
+                &mut self.documents,
+                command,
+                id,
+                (content_width - 48.).max(1.),
+                face,
+                ink,
+                &self.metrics,
+            )?);
         }
         if open {
             if denied {
@@ -1314,17 +1308,100 @@ fn plain_box(
     )
 }
 
+fn command_panels(
+    documents: &mut super::super::rich::Documents,
+    command: &str,
+    id: ItemId,
+    width: f32,
+    face: &Face,
+    ink: &f::Ink,
+    metrics: &impl c::Measure,
+) -> Result<Vec<c::Item>, String> {
+    let python = super::super::rich::python_snippet(command);
+    let long = command.contains('\n')
+        || command.chars().count() > 80
+        || f::line(command, 12., 400, ink.fg, true)
+            .natural(f32::INFINITY, context(), metrics)?
+            .0[0]
+            > (width - 122.).max(1.);
+    if !long && python.is_none() {
+        return Ok(vec![]);
+    }
+    let content = match &python {
+        Some(p) => documents.code_element(p.source, metrics),
+        None => f::term_line(vec![(command.into(), ink.fg, 400, false)], 12., false),
+    };
+    let mut children = vec![
+        code_panel(
+            content,
+            &format!("codeout/{id}/command"),
+            width,
+            if face.arguments_closed { 320. } else { 76. },
+            metrics,
+        )?
+        .into(),
+        named(
+            format!("more/{id}"),
+            f::line(
+                if face.arguments_closed {
+                    "Compact command"
+                } else {
+                    "Expand command"
+                },
+                11.5,
+                500,
+                ink.seat,
+                false,
+            ),
+        )
+        .into(),
+    ];
+    if python.is_some() {
+        children.push(
+            named(
+                format!("source/{id}/toggle"),
+                f::line(
+                    if face.source {
+                        "Hide original command"
+                    } else {
+                        "Original command"
+                    },
+                    10.5,
+                    500,
+                    ink.dim,
+                    true,
+                ),
+            )
+            .into(),
+        );
+        if face.source {
+            children.push(
+                code_panel(
+                    f::term_line(vec![(command.into(), ink.fg, 400, false)], 12., false),
+                    &format!("codeout/{id}/original"),
+                    width,
+                    320.,
+                    metrics,
+                )?
+                .into(),
+            );
+        }
+    }
+    Ok(children)
+}
+
 /// Literal code/output keeps its full payload. Only the viewport enters card geometry.
 /// Project-owned bboxy450-harness; credit reuse with
 /// https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
 fn code_panel(
-    content: c::Element,
+    mut content: c::Element,
     key: &str,
     width: f32,
     cap: f32,
     metrics: &impl c::Measure,
 ) -> Result<c::Element, String> {
     let ink = f::ink(context());
+    super::super::rich::bound_native_runs(&mut content);
     let ([natural_width, height], _) = content.natural(f32::INFINITY, context(), metrics)?;
     let mut children = vec![
         named(

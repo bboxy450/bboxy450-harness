@@ -1818,7 +1818,7 @@ async fn gui_polish_mcp_cards_show_real_raw_results_on_expansion() {
 }
 
 #[tokio::test]
-async fn acp_controls_tool_cards_bound_long_commands_and_keep_full_payload_scrollable() {
+async fn acp_controls_tool_cards_quiet_code_bound_long_commands_and_keep_full_payload_scrollable() {
     use bboxy450_harness::frontends::gui::{
         bridge::{FrameState, read_replay},
         rich::{Face, Faces},
@@ -1921,7 +1921,7 @@ async fn acp_controls_tool_cards_bound_long_commands_and_keep_full_payload_scrol
             assert!(view.wheel_delta([command.x+5.,command.y+5.],[0.,100_000.]));
             let frame=view.render(&state,[width,1800.]).unwrap();
             let text=layout_text(find(frame.layout.as_ref().unwrap(),&command_key).unwrap());
-            assert!(text.contains("COMMAND-END") && text.contains("PY"),"heredoc tail disappeared: {text}");
+            assert!(text.contains("COMMAND-END"),"highlighted Python tail disappeared: {text}");
             let expanded_height=find(frame.layout.as_ref().unwrap(),&command_key).unwrap().rect.h;
             let compact=Faces::default();
             state.faces=Arc::new(compact.clone());
@@ -1985,6 +1985,328 @@ async fn acp_controls_tool_cards_text_zoom_keeps_full_horizontal_extent() {
                 "zoom {scale}: scroll extent {content:?} lost the command tail"
             );
             assert_eq!(scroll.rect.w, 240., "zoom must not widen the card viewport");
+        }
+    })
+    .await;
+}
+
+// Project-owned ACP title/name and large-MCP producer witnesses. Keep credit:
+// https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+fn quiet_tool(name: &str, title: &str, kind: ToolKind, output: &str) -> Item {
+    serde_json::from_value(serde_json::json!({
+        "kind":"tool_call", "call_id":"quiet-code", "name":name, "title":title,
+        "tool_kind":kind, "input_raw":"{}", "locations":[], "spill":null,
+        "output":[{"type":"text", "text":output}]
+    }))
+    .unwrap()
+}
+
+fn quiet_runs<'a>(
+    layout: &'a bbt_ui::components::Layout,
+    out: &mut Vec<&'a bbt_ui::components::PositionedRun>,
+) {
+    if let bbt_ui::components::LayoutKind::Text { runs, .. } = &layout.kind {
+        out.extend(runs);
+    }
+    for child in &layout.children {
+        quiet_runs(child, out);
+    }
+}
+
+#[tokio::test]
+async fn quiet_code_acp_name_title_python_and_shell_keep_bounded_accessible_source() {
+    use bboxy450_harness::frontends::gui::{
+        bridge::{FrameState, read_replay},
+        rich::{Face, Faces},
+        view::{Preparer, find, layout_text},
+        zoom::Zoom,
+    };
+    let python = format!(
+        "from pathlib import Path\n{}\nprint('PYTHON-LAST-雪🦊')\n",
+        (0..50)
+            .map(|n| format!("print('line-{n}', 42, 'αβ')"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    let heredoc = format!("python3 - <<'PY'\n{python}PY");
+    let shell = format!(
+        "git add ATTRIBUTION.md Makefile\n{}\nprintf 'SHELL-LAST-雪🦊'",
+        "git diff --cached --stat\n".repeat(50)
+    );
+    let ambiguous = "python3 - <<PY\nprint('$HOME')\nPY\nprintf 'MIXED-LAST'".to_owned();
+    let output = format!(
+        "OUTPUT-FIRST\n{}\nOUTPUT-LAST",
+        "real-output-雪🦊\n".repeat(80)
+    );
+    for (name, title, command, highlighted) in [
+        (heredoc.clone(), heredoc.clone(), heredoc.clone(), true),
+        ("exec".into(), heredoc.clone(), heredoc.clone(), true),
+        (shell.clone(), shell.clone(), shell.clone(), false),
+        ("exec".into(), shell.clone(), shell.clone(), false),
+        (ambiguous.clone(), ambiguous.clone(), ambiguous, false),
+        (
+            "python3 -c 'print(42, \"雪🦊\")'".into(),
+            "Run Python".into(),
+            "python3 -c 'print(42, \"雪🦊\")'".into(),
+            true,
+        ),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let (path, ids) = markdown_replay(
+            temp.path(),
+            vec![(
+                quiet_tool(&name, &title, ToolKind::Execute, &output),
+                Some(ItemStatus::Failed {
+                    reason: "fixture".into(),
+                    code: None,
+                }),
+            )],
+        );
+        // Give the production duration slot real elapsed time, without a clock or provider.
+        let events = std::fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .enumerate()
+            .map(|(n, line)| {
+                let mut event: Envelope = serde_json::from_str(line).unwrap();
+                event.ts_ms = n as u64 * 1500;
+                serde_json::to_string(&event).unwrap()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&path, events + "\n").unwrap();
+        let source = Arc::new(read_replay(path).await.unwrap());
+        let id = ids[0];
+        runtime::blocking(move || {
+            for width in [280., 1120.] {
+                for percent in [90, 100, 160] {
+                    for expanded in [false, true] {
+                        let zoom = Zoom::from_percent(percent);
+                        let mut preparer = Preparer::default();
+                        preparer.set_zoom(zoom);
+                        let faces: Faces = [(
+                            id,
+                            Face {
+                                arguments_closed: expanded,
+                                source: highlighted && expanded,
+                                ..Default::default()
+                            },
+                        )]
+                        .into_iter()
+                        .collect();
+                        let state = FrameState {
+                            transcript: source.clone(),
+                            ready: true,
+                            replay: true,
+                            faces: Arc::new(faces.clone()),
+                            prepared: Some(Arc::new(
+                                preparer
+                                    .prepare_with_faces(source.clone(), width, &faces)
+                                    .unwrap(),
+                            )),
+                            ..Default::default()
+                        };
+                        let mut view = HarnessView::standalone(zoom);
+                        let frame = view.render(&state, [width, 1800.]).unwrap();
+                        let card =
+                            find(frame.layout.as_ref().unwrap(), &format!("tool/{id}")).unwrap();
+                        let head = find(card, &format!("toolhead/{id}")).unwrap();
+                        let heading = layout_text(head);
+                        assert!(
+                            head.rect.h < 75. && heading.chars().count() < 160,
+                            "unbounded heading {heading:?}"
+                        );
+                        assert!(
+                            (!highlighted || !heading.contains("python3 -"))
+                                && !heading.contains("git diff")
+                                && !heading.contains("PYTHON-LAST"),
+                            "script repeated in heading: {heading:?}"
+                        );
+                        assert!(
+                            heading.contains("Run") && heading.contains("1.5s"),
+                            "label/duration lost: {heading:?}"
+                        );
+                        let status = find(card, &format!("tool/{id}/status")).unwrap();
+                        assert!(
+                            status.rect.right() <= card.rect.right() + 0.1,
+                            "status escaped at {width}/{percent}"
+                        );
+                        let key = format!("codeout/{id}/command");
+                        let panel = find(card, &key).unwrap();
+                        assert!(panel.rect.h <= if expanded { 320.1 } else { 76.1 });
+                        assert!(panel.rect.right() <= card.rect.right() + 0.1);
+                        let first = layout_text(panel);
+                        assert!(
+                            first.contains(if highlighted {
+                                "print"
+                            } else {
+                                command.lines().next().unwrap()
+                            }),
+                            "first line lost: {first}"
+                        );
+                        let mut runs = vec![];
+                        quiet_runs(panel, &mut runs);
+                        assert!(runs.iter().all(|r| r.text.len() <= 128));
+                        let colors: std::collections::BTreeSet<_> = runs
+                            .iter()
+                            .map(|r| r.style.color.map(f32::to_bits))
+                            .collect();
+                        assert!(
+                            if highlighted {
+                                colors.len() >= 3
+                            } else {
+                                colors.len() == 1
+                            },
+                            "wrong language colors: {colors:?}"
+                        );
+                        if highlighted {
+                            let raw = find(card, &format!("codeout/{id}/original"));
+                            if expanded {
+                                assert!(layout_text(raw.unwrap()).starts_with("python3"));
+                            } else {
+                                assert!(raw.is_none(), "original wrapper must be opt-in");
+                            }
+                            // The replay retains the exact wrapper; the pure parser borrows its bytes.
+                            let snippet =
+                                bboxy450_harness::frontends::gui::rich::python_snippet(&command)
+                                    .unwrap();
+                            assert_eq!(snippet.original, command);
+                        }
+                        let at = [panel.rect.x + 2., panel.rect.y + 2.];
+                        let before = frame.scroll;
+                        if command.lines().count() > 10 {
+                            assert!(view.wheel_delta(at, [0., 100_000.]));
+                            let frame = view.render(&state, [width, 1800.]).unwrap();
+                            assert_eq!(frame.scroll, before, "command wheel escaped to transcript");
+                            let tail =
+                                layout_text(find(frame.layout.as_ref().unwrap(), &key).unwrap());
+                            assert!(
+                                tail.contains(if highlighted {
+                                    "PYTHON-LAST-雪🦊"
+                                } else {
+                                    command.lines().last().unwrap()
+                                }),
+                                "last line lost: {tail}"
+                            );
+                        }
+                    }
+                }
+            }
+        })
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn quiet_code_large_mcp_expansion_raster_preserves_unicode_first_and_last_output() {
+    use bboxy450_harness::frontends::gui::{
+        assets,
+        bridge::{FrameState, read_replay},
+        rich::{Face, Faces},
+        view::{Preparer, find, layout_text},
+    };
+    let temp = tempfile::tempdir().unwrap();
+    // knowledge_fetch-shaped, public synthetic record: a large escaped source line and many fields.
+    // This catches the real native raster limit; scissoring alone cannot bound a text canvas.
+    let output=serde_json::to_string_pretty(&serde_json::json!({"id":"fixture", "body":format!("MCP-FIRST:{}:MCP-INNER-LAST", "α雪🦊\\\"".repeat(8000)), "resources":(0..100).map(|n|format!("record-{n}")).collect::<Vec<_>>(),"zz_tail":"MCP-LAST-雪🦊"})).unwrap();
+    assert!(output.len() > 100_000);
+    let (path, ids) = markdown_replay(
+        temp.path(),
+        vec![(
+            quiet_tool(
+                "mcp.bboxy.knowledge_fetch",
+                "Fetch knowledge",
+                ToolKind::Fetch,
+                &output,
+            ),
+            Some(ItemStatus::Completed),
+        )],
+    );
+    let source = Arc::new(read_replay(path).await.unwrap());
+    let device = bbt_render::device::DeviceContext::new().await.unwrap();
+    runtime::blocking(move || {
+        let id = ids[0];
+        let mut renderer =
+            bbt_render::chrome::ChromeRenderer::with_context(device, assets::icons()).unwrap();
+        for width in [280., 640.] {
+            let faces: Faces = [(
+                id,
+                Face {
+                    output_closed: true,
+                    ..Default::default()
+                },
+            )]
+            .into_iter()
+            .collect();
+            let mut preparer = Preparer::default();
+            let state = FrameState {
+                transcript: source.clone(),
+                ready: true,
+                replay: true,
+                faces: Arc::new(faces.clone()),
+                prepared: Some(Arc::new(
+                    preparer
+                        .prepare_with_faces(source.clone(), width, &faces)
+                        .unwrap(),
+                )),
+                ..Default::default()
+            };
+            let mut view = HarnessView::default();
+            let frame = view.render(&state, [width, 900.]).unwrap();
+            let layout = frame.layout.as_ref().unwrap();
+            let head = find(layout, &format!("toolhead/{id}")).unwrap();
+            assert!(layout_text(head).contains("mcp.bboxy.knowledge_fetch"));
+            let key = format!("mdout/{id}");
+            let panel = find(layout, &key).unwrap();
+            assert!(panel.rect.h <= 400.1 && layout_text(panel).contains("MCP-FIRST"));
+            let mut runs = vec![];
+            quiet_runs(panel, &mut runs);
+            assert!(runs.iter().all(|r| r.text.len() <= 128));
+            let pixels = renderer
+                .render_to_rgba(&frame.list, width as u32, 900, 1.)
+                .expect("real MCP native raster must not allocate an oversized text line");
+            assert!(
+                pixels
+                    .chunks_exact(4)
+                    .any(|p| p[0] > 160 && p[1] > 160 && p[2] > 160),
+                "native glyph ink absent"
+            );
+            if let Some(root) = std::env::var_os("QUIET_CODE_CAPTURE_DIR") {
+                let root = std::path::PathBuf::from(root);
+                std::fs::create_dir_all(&root).unwrap();
+                let mut encoder = png::Encoder::new(
+                    std::fs::File::create(root.join(format!("mcp-expanded-{width}.png"))).unwrap(),
+                    width as u32,
+                    900,
+                );
+                encoder.set_color(png::ColorType::Rgba);
+                encoder.set_depth(png::BitDepth::Eight);
+                encoder
+                    .write_header()
+                    .unwrap()
+                    .write_image_data(&pixels)
+                    .unwrap();
+            }
+            let at = [panel.rect.x + 5., panel.rect.y + 5.];
+            assert!(view.wheel_delta(at, [0., 1_000_000.]));
+            let frame = view.render(&state, [width, 900.]).unwrap();
+            assert!(
+                layout_text(find(frame.layout.as_ref().unwrap(), &key).unwrap())
+                    .contains("MCP-LAST-雪🦊")
+            );
+            renderer
+                .render_to_rgba(&frame.list, width as u32, 900, 1.)
+                .unwrap();
+            // Exact original data remains in the transcript; producer bounds change no IR bytes.
+            let Item::ToolCall { output: blocks, .. } = &source.items[&id].body else {
+                panic!("MCP fixture")
+            };
+            assert_eq!(
+                blocks[0],
+                OutputBlock::Text {
+                    text: output.clone()
+                }
+            );
         }
     })
     .await;

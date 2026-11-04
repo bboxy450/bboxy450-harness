@@ -43,6 +43,13 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
 
 ## Lineage and credits
 
+- Conservative Python command extraction, concise ACP heading projection and
+  bounded native text producers in `src/frontends/gui/` are project-owned.
+  Python colors and code blocks reuse bboxy450-term's existing `bbt-doc`
+  Markdown renderer and syntect-backed `RustHighlighter`; no syntax engine was copied.
+  The focused Unicode/source/geometry/MCP raster witnesses and gate retain
+  this policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+
 - Bounded command/heredoc/output panes, view-local two-axis scrolling and native
   geometry and raster broken-control witnesses in the shared GUI are project-owned implementations. Keep
   this policy with reuse: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.

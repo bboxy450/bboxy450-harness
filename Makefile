@@ -19,6 +19,7 @@ help:
 	  'make test-formal                Native Yarn/formal checks and broken controls' \
 	  'make test-formal-parity         Native/Java TLC graph and verdict parity' \
 	  'make verify-gui-polish          Focused MCP output, prompt projection, loader and changed model checks' \
+	  'make verify-quiet-code-cards    Focused Python/title/MCP geometry, native raster and embedded lint checks' \
 	  'make check-embedded-lints       Strict embedded harness library lint compilation only' \
 	  'make check-embedded-build       Strict embedded lint and default/ACP/standalone compile checks' \
 	  'make app / app-unsigned         Release app, Apple identity / ad-hoc signed' \
@@ -216,3 +217,7 @@ verify-acp-controls:
 .PHONY: verify-harness-card-bounds
 verify-harness-card-bounds:
 	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-harness-card-bounds.py
+
+.PHONY: verify-quiet-code-cards
+verify-quiet-code-cards:
+	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-quiet-code-cards.py

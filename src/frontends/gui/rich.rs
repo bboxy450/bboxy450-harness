@@ -19,6 +19,158 @@ use bbt_ui::{self as ui, components as c, modules::seat_row::named};
 use bbt_ui_model::layout::Rect;
 use std::{collections::HashMap, ops::Range, sync::Arc};
 
+/// A conservative, borrowed Python view. Parsing never starts a shell or changes source bytes.
+/// Origin/credit: bboxy450-harness — https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+#[derive(Debug, PartialEq, Eq)]
+pub struct PythonSnippet<'a> {
+    pub source: &'a str,
+    pub original: &'a str,
+}
+pub fn python_snippet(command: &str) -> Option<PythonSnippet<'_>> {
+    fn executable(word: &str) -> bool {
+        if !word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_./-".contains(c))
+        {
+            return false;
+        }
+        let name = word.rsplit('/').next().unwrap_or("");
+        matches!(name, "python" | "python3")
+            || name
+                .strip_prefix("python3.")
+                .is_some_and(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit()))
+    }
+    fn invocation(prefix: &str) -> bool {
+        let mut words = prefix.split_whitespace();
+        words.next().is_some_and(executable)
+            && words.all(|w| matches!(w, "-" | "-u" | "-B" | "-I" | "-E" | "-s" | "-S"))
+    }
+    if let Some((header, rest)) = command.split_once('\n')
+        && let Some((prefix, delimiter)) = header.trim_end_matches('\r').split_once("<<")
+    {
+        if !invocation(prefix) {
+            return None;
+        }
+        let delimiter = delimiter.trim();
+        let (delimiter, quoted) =
+            if let Some(q) = delimiter.chars().next().filter(|c| matches!(c, '\'' | '"')) {
+                (delimiter.strip_prefix(q)?.strip_suffix(q)?, true)
+            } else {
+                (delimiter, false)
+            };
+        if delimiter.is_empty()
+            || !delimiter
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return None;
+        }
+        let mut offset = 0;
+        for line in rest.split_inclusive('\n') {
+            if line.trim_end_matches(['\r', '\n']) == delimiter {
+                if !rest[offset + line.len()..].trim().is_empty() {
+                    return None;
+                }
+                let source = &rest[..offset];
+                if !quoted && source.contains(['$', '`', '\\']) {
+                    return None;
+                }
+                return Some(PythonSnippet {
+                    source,
+                    original: command,
+                });
+            }
+            offset += line.len();
+        }
+        return None;
+    }
+    // Only a single literal shell argument is admitted. Interpolation, adjacent
+    // shell strings, escapes in double quotes and trailing commands stay shell.
+    let mut rest = command.trim_start();
+    let n = rest.find(char::is_whitespace)?;
+    if !executable(&rest[..n]) {
+        return None;
+    }
+    rest = rest[n..].trim_start();
+    loop {
+        let n = rest.find(char::is_whitespace)?;
+        let word = &rest[..n];
+        rest = rest[n..].trim_start();
+        if word == "-c" {
+            break;
+        }
+        if !matches!(word, "-u" | "-B" | "-I" | "-E" | "-s" | "-S") {
+            return None;
+        }
+    }
+    let quote = rest.chars().next().filter(|c| matches!(c, '\'' | '"'))?;
+    let rest = rest.strip_prefix(quote)?;
+    let end = rest.find(quote)?;
+    let source = &rest[..end];
+    if !rest[end + 1..].trim().is_empty() || quote == '"' && source.contains(['$', '`', '\\']) {
+        return None;
+    }
+    Some(PythonSnippet {
+        source,
+        original: command,
+    })
+}
+
+/// Bound individual native text producers without dropping or reordering UTF-8.
+/// The shared raster backend owns its own device limits; this is a small producer bound.
+pub const NATIVE_RUN_BYTES: usize = 128;
+pub fn bound_native_runs(element: &mut c::Element) {
+    match element {
+        c::Element::Text(text) => {
+            let mut runs = vec![];
+            for run in std::mem::take(&mut text.runs) {
+                let mut rest = run.value.as_str();
+                while !rest.is_empty() {
+                    let mut n = rest.len().min(NATIVE_RUN_BYTES);
+                    while !rest.is_char_boundary(n) {
+                        n -= 1;
+                    }
+                    runs.push(c::TextRun {
+                        value: rest[..n].into(),
+                        style: run.style,
+                    });
+                    rest = &rest[n..];
+                }
+            }
+            text.runs = runs;
+        }
+        c::Element::Box(b) => {
+            for item in &mut b.children {
+                bound_native_runs(&mut item.element)
+            }
+        }
+        c::Element::Stack(b) => {
+            for item in &mut b.children {
+                bound_native_runs(&mut item.element)
+            }
+        }
+        c::Element::Flow(b) => {
+            for item in &mut b.children {
+                bound_native_runs(&mut item.element)
+            }
+        }
+        c::Element::Named { content, .. }
+        | c::Element::FixedHeight { content, .. }
+        | c::Element::Filter { content, .. }
+        | c::Element::InlineMiddle { content, .. }
+        | c::Element::Baseline { content, .. } => bound_native_runs(content),
+        c::Element::ScrollView(v) => bound_native_runs(&mut v.content),
+        c::Element::Overlay(v) => bound_native_runs(&mut v.content),
+        c::Element::Layers { base, overlays } => {
+            bound_native_runs(base);
+            for p in overlays {
+                bound_native_runs(&mut p.content);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Only prose bodies enter the document worker; terminal and failed output stay literal.
 pub(super) fn tool_markdown(kind: &str, path: &str, failed: bool, text: &str) -> Option<String> {
     if kind == "execute" || failed || text.is_empty() {
@@ -192,6 +344,56 @@ impl Body {
     }
 }
 impl Documents {
+    /// Reuse the shared Markdown Code block and syntect-backed highlighter.
+    /// Only the literal code subtree is returned; the harness owns its outer viewport.
+    pub fn code_element(&mut self, source: &str, metrics: &impl c::Measure) -> c::Element {
+        bbt_rt::assert_not_ui_thread();
+        let document = Markdown {
+            source: source.into(),
+            blocks: vec![bbt_doc::Block {
+                source: 0..source.len(),
+                kind: bbt_doc::BlockKind::Code {
+                    info: "python".into(),
+                    text: source.into(),
+                },
+            }],
+            ..Default::default()
+        };
+        let highlighter = self
+            .highlighter
+            .get_or_insert_with(|| RustHighlighter::new(false));
+        let highlights = Highlights::prepare(&document, highlighter);
+        let element = document.transcript_body_element(&highlights, context(), metrics, 576.);
+        fn take(e: c::Element) -> Option<c::Element> {
+            match e {
+                c::Element::Named { name, content } if name == "block0" => Some(*content),
+                c::Element::Named { content, .. } => take(*content),
+                c::Element::Box(b) => b.children.into_iter().find_map(|i| take(i.element)),
+                _ => None,
+            }
+        }
+        fn unscroll(e: &mut c::Element) {
+            if let c::Element::ScrollView(s) = e {
+                *e = *s.content.clone();
+                unscroll(e);
+                return;
+            }
+            match e {
+                c::Element::Box(b) => {
+                    for i in &mut b.children {
+                        unscroll(&mut i.element)
+                    }
+                }
+                c::Element::Named { content, .. } => unscroll(content),
+                _ => {}
+            }
+        }
+        let mut code = take(element).expect("shared Markdown code block");
+        unscroll(&mut code);
+        super::view::flat(&mut code);
+        bound_native_runs(&mut code);
+        code
+    }
     /// `zoom` scales every text size in the blocks (harness-spec.md Standalone window).
     pub fn prepare(
         &mut self,
@@ -273,6 +475,7 @@ impl Documents {
             super::view::flat(&mut element);
             transcript_type(&mut element, (width - MEASURE).max(0.), false, reasoning);
             super::face::zoom_text(&mut element, zoom);
+            bound_native_runs(&mut element);
             let mut layout = element.layout(Rect::new(0., 0., width, 0.), context(), metrics)?;
             chips_and_bullets(&mut layout, metrics)?;
             let prose = matches!(
@@ -300,6 +503,7 @@ impl Documents {
             text.preserve_whitespace = true;
             let mut text = c::Element::Text(text);
             super::face::zoom_text(&mut text, zoom);
+            bound_native_runs(&mut text);
             blocks.push(Arc::new(text.layout(
                 Rect::new(0., 0., width, 0.),
                 context(),
@@ -725,5 +929,122 @@ mod gui_polish_geometry {
         }
         assert!(chips > 0, "chip witness absent");
         }).await;
+    }
+}
+
+#[cfg(test)]
+mod quiet_code_tests {
+    use super::*;
+    #[test]
+    fn quiet_code_parser_preserves_literal_python_bytes_and_rejects_shell_mixtures() {
+        for command in [
+            "python3 - <<'PY'\nfrom pathlib import Path\nprint('雪 🦊')\nPY\n",
+            "python -u <<\"END\"\r\nprint('雪')\r\nEND\r\n",
+            "python3 <<PY\nprint(42)\nPY",
+            "python3 -I -c 'import json; print(\"雪\")'",
+            "python -c \"print('snow')\"",
+        ] {
+            let parsed = python_snippet(command).expect(command);
+            assert_eq!(parsed.original.as_bytes(), command.as_bytes());
+            assert!(
+                command
+                    .as_bytes()
+                    .windows(parsed.source.len())
+                    .any(|w| w == parsed.source.as_bytes())
+            );
+            assert!(parsed.source.contains("print"));
+        }
+        for command in [
+            "python3 - <<'PY'\nprint(1)\nPY\ngit add .",
+            "echo x; python3 -c 'print(1)'",
+            "python3 -c 'print(1)' && git status",
+            "python3 -c \"print('$HOME')\"",
+            "python3 <<PY\nprint('$HOME')\nPY",
+            "python3 - <<-PY\n\tprint(1)\n\tPY",
+            "node -e 'console.log(1)'",
+            "git add file\ngit commit",
+            "python3 -m pip install x",
+        ] {
+            assert!(
+                python_snippet(command).is_none(),
+                "ambiguous/non-Python command: {command}"
+            );
+        }
+    }
+    #[test]
+    fn quiet_code_native_chunks_preserve_all_unicode_bytes() {
+        let source = format!("first:{}:last", "α雪🦊\\\\\"".repeat(10_000));
+        let mut element = super::super::face::runs(
+            vec![(source.clone(), [1.; 4], 400, false)],
+            12.,
+            true,
+            false,
+        );
+        bound_native_runs(&mut element);
+        let c::Element::Text(text) = element else {
+            panic!("literal text")
+        };
+        assert!(text.runs.iter().all(|r| r.value.len() <= NATIVE_RUN_BYTES));
+        assert_eq!(
+            text.runs
+                .iter()
+                .map(|r| r.value.as_str())
+                .collect::<String>()
+                .as_bytes(),
+            source.as_bytes()
+        );
+    }
+    #[tokio::test]
+    async fn quiet_code_python_uses_shared_markdown_highlight_spans() {
+        crate::runtime::blocking(|| {
+            use bbt_doc::highlight::Highlighter;
+            let source = "from pathlib import Path\nvalue = '雪 🦊'\nprint(value, 42)\n";
+            let spans = RustHighlighter::new(false).highlight("python", source);
+            assert_eq!(
+                spans.iter().map(|s| s.text.as_str()).collect::<String>(),
+                source
+            );
+            let colors: std::collections::BTreeSet<_> =
+                spans.iter().map(|s| s.color.map(f32::to_bits)).collect();
+            assert!(
+                colors.len() >= 3,
+                "Python was rendered without syntax colors"
+            );
+            fn text(e: &c::Element, out: &mut String) {
+                match e {
+                    c::Element::Text(t) => {
+                        for r in &t.runs {
+                            out.push_str(&r.value)
+                        }
+                    }
+                    c::Element::Box(b) => {
+                        for i in &b.children {
+                            text(&i.element, out)
+                        }
+                    }
+                    c::Element::Named { content, .. } => text(content, out),
+                    _ => {}
+                }
+            }
+            let element =
+                Documents::default().code_element(source, &super::super::view::Metrics::default());
+            let mut rendered = String::new();
+            text(&element, &mut rendered);
+            assert_eq!(rendered, source.strip_suffix('\n').unwrap());
+            let parsed = bbt_doc::parse(&format!("```python\n{source}```\n"));
+            let highlights = Highlights::prepare(&parsed, &RustHighlighter::new(false));
+            let block = parsed
+                .blocks
+                .iter()
+                .find(|b| matches!(b.kind, bbt_doc::BlockKind::Code { .. }))
+                .unwrap();
+            let ordinary = highlights.spans(block).unwrap();
+            assert_eq!(
+                ordinary,
+                spans.as_slice(),
+                "ordinary fenced Python must use the same highlighter"
+            );
+        })
+        .await;
     }
 }
