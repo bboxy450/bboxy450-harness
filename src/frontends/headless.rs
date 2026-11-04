@@ -67,19 +67,7 @@ async fn run_cli(
     let mut json = false;
     let mut seat = false;
     let mut acp = false;
-    // Default profile: BBOXY450_HARNESS_PROFILE, then ~/.bboxy450-harness/default-profile, then nemotron.
-    let mut profile = std::env::var("BBOXY450_HARNESS_PROFILE")
-        .ok()
-        .filter(|p| !p.trim().is_empty())
-        .or_else(|| {
-            let home = std::env::var_os("HOME")?;
-            let text = std::fs::read_to_string(
-                PathBuf::from(home).join(".bboxy450-harness/default-profile"),
-            )
-            .ok()?;
-            Some(text.trim().to_owned()).filter(|t| !t.is_empty())
-        })
-        .unwrap_or_else(|| "nemotron".to_owned());
+    let mut explicit_profile = None;
     let mut cwd = std::env::current_dir().map_err(|_| "working directory unavailable")?;
     let mut sessions = None;
     let mut scripts = vec![];
@@ -130,7 +118,7 @@ async fn run_cli(
             "acp" => acp = true,
             "-p" | "--prompt" => prompt = Some(args.next().ok_or("missing prompt")?),
             "--json" => json = true,
-            "--profile" => profile = args.next().ok_or("missing profile")?,
+            "--profile" => explicit_profile = Some(args.next().ok_or("missing profile")?),
             "--cwd" => cwd = PathBuf::from(args.next().ok_or("missing cwd")?),
             "--sessions" => {
                 sessions = Some(PathBuf::from(args.next().ok_or("missing sessions path")?))
@@ -286,6 +274,7 @@ async fn run_cli(
         stdout.flush().await.map_err(|_| "output unavailable")?;
         return Ok(0);
     }
+    let profile = tokio::select! {biased;_=stop.cancelled()=>return Ok(0),name=crate::onboarding::bootstrap(root.join("profiles"), explicit_profile, scripts.is_empty() && resume.is_none())=>name};
     let defer_acp_profile = acp && scripts.is_empty();
     let (provider, model, mut policy): (Arc<dyn Provider>, String, Policy) = if !scripts.is_empty()
     {
@@ -306,7 +295,21 @@ async fn run_cli(
         let p = Profile::path(&profile).map_err(|e| e.message)?;
         let loaded =
             tokio::select! {biased;_=stop.cancelled()=>return Ok(0),p=Profile::load(&p)=>p};
+        // Fail before creating a session when local setup cannot launch it.
+        // Resolve only the executable, never any credential command.
+        #[cfg(feature = "acp-agent")]
+        if let Ok(p) = &loaded && resume.is_none() && p.is_acp_agent() {
+            let command = &p.agent.as_ref().unwrap().command[0];
+            // Match the real ACP spawn path, including login-shell PATH. Direct
+            // paths retain Command's existing cwd-relative launch semantics.
+            if !command.contains('/') {
+                let path = crate::backend::acp_agent::login_path().await;
+                crate::backend::acp_agent::find_agent(command, path, &cwd).await
+                    .map_err(|e| format!("{e}; {}", crate::onboarding::setup_guidance(&profile)))?;
+            }
+        }
         match loaded {
+            Err(e) if resume.is_none() => return Err(format!("{}; {}", e.message, crate::onboarding::setup_guidance(&profile))),
             Ok(p) if defer_acp_profile => {
                 // Advertise capabilities without executing a credential command.
                 // Host resolves the real provider inside its cancellable factory.

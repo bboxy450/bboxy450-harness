@@ -71,7 +71,7 @@ static LOGIN_PATH: tokio::sync::OnceCell<OsString> = tokio::sync::OnceCell::cons
 
 /// Finder does not inherit the terminal's PATH. Probe once, off the UI thread,
 /// with the same bounded, owned process-group capture used by profile resolvers.
-async fn login_path() -> &'static OsStr {
+pub(crate) async fn login_path() -> &'static OsStr {
     LOGIN_PATH
         .get_or_init(|| async {
             if let Some(shell) = std::env::var_os("SHELL") {
@@ -112,7 +112,7 @@ async fn login_path() -> &'static OsStr {
         .await
 }
 
-async fn find_agent(program: &str, path: &OsStr, cwd: &Path) -> std::io::Result<PathBuf> {
+pub(crate) async fn find_agent(program: &str, path: &OsStr, cwd: &Path) -> std::io::Result<PathBuf> {
     for dir in std::env::split_paths(path) {
         let candidate = cwd.join(dir).join(program);
         if let Ok(meta) = tokio::fs::metadata(&candidate).await

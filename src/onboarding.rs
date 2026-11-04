@@ -327,6 +327,39 @@ pub fn discover(env: &Environment) -> Snapshot {
     snapshot.catalogue_revision = hash.finish();
     snapshot
 }
+/// Discover locally before selecting a new session's profile. Runs only on a
+/// blocking worker, never a GUI callback. Missing saved preferences stay missing:
+/// first-run Codex selection needs no new persistence/ownership protocol.
+pub async fn bootstrap(
+    profiles: PathBuf,
+    explicit: Option<String>,
+    discover_profiles: bool,
+) -> String {
+    let environment = std::env::var("BBOXY450_HARNESS_PROFILE").ok();
+    let env = Environment::host(profiles.clone());
+    crate::runtime::blocking(move || {
+        if discover_profiles && let Some(env) = env {
+            discover(&env);
+        }
+        explicit
+            .or_else(|| environment.filter(|p| !p.trim().is_empty()))
+            .or_else(|| {
+                let path = profiles.parent()?.join("default-profile");
+                std::fs::read_to_string(path)
+                    .ok()
+                    .map(|p| p.trim().to_owned())
+                    .filter(|p| !p.is_empty())
+            })
+            .unwrap_or_else(|| "codex".into())
+    })
+    .await
+}
+/// Local setup guidance; no credential commands, installers or vendor calls.
+pub fn setup_guidance(profile: &str) -> String {
+    format!(
+        "Profile {profile:?} is unavailable or its ACP adapter is missing. Open bboxy450-harness gui for setup, install the required adapter on PATH (Codex uses codex-acp), or configure ~/.bboxy450-harness/profiles and select --profile NAME."
+    )
+}
 struct Running {
     generation: u64,
     cancel: CancellationToken,

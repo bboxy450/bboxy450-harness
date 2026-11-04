@@ -15,6 +15,7 @@ test:
 
 help:
 	@printf '%s\n' \
+	  'make verify-clean-start        Private Codex defaults, CLI/seat, native GUI and Bridge checks' \
 	  'make verify-harness-onboarding  Private discovery, setup, installer and user Markdown checks' \
 	  'make verify-harness-attachments  Focused private composer, clipboard, ACP and ownership checks' \
 	  'make test                       Full unattended unit, integration, formal, GUI and packaging checks' \
@@ -243,3 +244,7 @@ verify-harness-onboarding:
 .PHONY: verify-onboarding-routing
 verify-onboarding-routing:
 	cargo nextest run --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' -p bboxy450-harness --features standalone --test harness_onboarding -E 'test(onboarding_loader_welcome_routing)'
+
+.PHONY: verify-clean-start
+verify-clean-start:
+	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-clean-start.py

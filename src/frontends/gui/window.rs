@@ -244,7 +244,7 @@ impl App {
                 Some((native, path)) => self.bridge.watch(config(&self.options)?, native, path),
                 None => match self.options.resume {
                     Some(session) => self.bridge.resume(config(&self.options)?, session),
-                    None => self.bridge.create(config(&self.options)?),
+                    None => self.bridge.create_with_defaults(config(&self.options)?),
                 },
             }
         }
@@ -813,7 +813,7 @@ fn config_at_home(options: &Options, home: Option<std::ffi::OsString>) -> Result
             source: None,
             session,
             cwd: options.cwd.clone(),
-            profile: Some(options.profile.clone()),
+            profile: options.profile.clone(),
             fork: None,
             protocol: PROTOCOL,
             harness: env!("CARGO_PKG_VERSION").into(),
@@ -1143,5 +1143,120 @@ mod onboarding_startup_tests {
             println!("empty-home startup and same-view catalogue refresh: PASS; profiles=0->1; session/epoch unchanged");
             if let Some(worker)=bridge.detach() {tokio::time::timeout(Duration::from_secs(5),worker).await.unwrap().unwrap();}
         });
+    }
+}
+
+#[cfg(test)]
+#[path = "../../../tests/support/clean_start.rs"]
+mod clean_start_fixture;
+#[cfg(test)]
+mod clean_start_tests {
+    use super::*;
+    struct Quiet;
+    impl Waker for Quiet {
+        fn wake(&self) {}
+    }
+    #[test]
+    #[allow(clippy::disallowed_methods)] // Private child owns HOME/PATH, not a GUI callback.
+    fn clean_start_bridge_shared_precedence() {
+        const CASE: &str =
+            "frontends::gui::window::clean_start_tests::clean_start_bridge_shared_precedence";
+        if let Ok(expected) = std::env::var("CLEAN_START_EXPECTED") {
+            bbt_rt::handle().block_on(async {
+                let options = Options::parse(if expected == "explicit" {
+                    vec!["--profile".into(), "explicit".into()]
+                } else {
+                    vec![]
+                })
+                .unwrap();
+                let mut bridge = super::super::bridge::Bridge::new(Arc::new(Quiet));
+                bridge.create_with_defaults(config(&options).unwrap());
+                tokio::time::timeout(Duration::from_secs(10), async {
+                    loop {
+                        bridge.drain(Duration::from_millis(2));
+                        if bridge.state.ready
+                            && bridge.state.prepared.is_some()
+                            && bridge
+                                .state
+                                .transcript
+                                .meta
+                                .as_ref()
+                                .is_some_and(|m| m.profile.as_deref() == Some(&expected))
+                            && !bridge.state.onboarding.entries.is_empty()
+                        {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                })
+                .await
+                .unwrap();
+                assert_eq!(
+                    bridge
+                        .state
+                        .transcript
+                        .meta
+                        .as_ref()
+                        .unwrap()
+                        .profile
+                        .as_deref(),
+                    Some(expected.as_str())
+                );
+                assert!(bridge.state.error.is_none());
+                if let Some(worker) = bridge.detach() {
+                    tokio::time::timeout(Duration::from_secs(5), worker)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                }
+            });
+            return;
+        }
+        for (expected, environment, saved) in [
+            ("codex", None, None),
+            ("saved", None, Some(" saved \n")),
+            ("saved", Some("  "), Some(" saved \n")),
+            ("environment", Some("environment"), Some(" saved \n")),
+            ("explicit", Some("environment"), Some(" saved \n")),
+        ] {
+            let home = clean_start_fixture::home();
+            clean_start_fixture::install(home.path(), true);
+            let root = home.path().join(".bboxy450-harness");
+            if let Some(saved) = saved {
+                let env = crate::onboarding::Environment {
+                    profiles: root.join("profiles"),
+                    home: home.path().into(),
+                    path: home.path().join("bin").into_os_string(),
+                    os: "macos".into(),
+                };
+                crate::onboarding::discover(&env);
+                let bytes = clean_start_fixture::profile(home.path(), "codex");
+                for name in ["saved", "environment", "explicit"] {
+                    std::fs::write(root.join(format!("profiles/{name}.md")), &bytes).unwrap();
+                }
+                std::fs::write(root.join("default-profile"), saved).unwrap();
+            }
+            let mut command =
+                clean_start_fixture::command(&std::env::current_exe().unwrap(), home.path());
+            command
+                .args(["--exact", CASE, "--nocapture"])
+                .env("CLEAN_START_EXPECTED", expected);
+            if let Some(value) = environment {
+                command.env("BBOXY450_HARNESS_PROFILE", value);
+            }
+            let output = clean_start_fixture::run(&mut command);
+            assert!(
+                output.status.success(),
+                "{} {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            if let Some(saved) = saved {
+                assert_eq!(
+                    std::fs::read_to_string(root.join("default-profile")).unwrap(),
+                    saved
+                );
+            }
+        }
     }
 }
