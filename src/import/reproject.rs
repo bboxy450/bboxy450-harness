@@ -66,7 +66,11 @@ pub async fn run(source: PathBuf, out: PathBuf, redactor: Set) -> io::Result<Pat
     meta.created_ms = crate::store::now_ms();
     meta.harness = env!("CARGO_PKG_VERSION").into();
     if let Some(source) = &mut meta.source {
-        source.parser_revision = Some(source.parser_revision.unwrap_or(0).saturating_add(1));
+        source.parser_revision = Some(if Native::parse(&source.harness).is_some() {
+            super::PARSER_REVISION
+        } else {
+            source.parser_revision.unwrap_or(0).saturating_add(1)
+        });
     }
     let mut header = first.clone();
     header.raw = None;

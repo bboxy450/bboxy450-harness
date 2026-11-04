@@ -176,6 +176,7 @@ impl SessionActor {
         if launch.yolo {
             config.policy = Policy::allow_all(config.policy.on_unattended);
         }
+        crate::vcs::capture_new_session(&mut config.meta, &config.sessions).await;
         let mut store = Store::open(
             config.sessions.clone(),
             config.meta.clone(),

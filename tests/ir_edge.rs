@@ -194,6 +194,8 @@ async fn reproject_promotes_native_and_ext_in_a_derived_log_without_rewriting_so
     .unwrap();
     let path = tmp.path().join(format!("sessions/{id}.jsonl"));
     let mut rows = read(&path);
+    assert!(matches!(&rows[0].event, Event::SessionStarted { meta }
+        if meta.source.as_ref().is_some_and(|s| s.parser_revision == Some(bboxy450_harness::import::PARSER_REVISION))));
     for row in &mut rows {
         row.raw = None;
         if let Event::ItemCompleted {
@@ -229,7 +231,31 @@ async fn reproject_promotes_native_and_ext_in_a_derived_log_without_rewriting_so
     for text in ["now typed", "typed from ext"] {
         assert!(output.iter().any(|e|matches!(&e.event,Event::ItemCompleted {body:Item::AgentMessage {markdown},..} if markdown==text)));
     }
-    let derived_bytes = std::fs::read_to_string(derived).unwrap();
+    let derived_bytes = std::fs::read_to_string(&derived).unwrap();
+    assert!(matches!(&output[0].event, Event::SessionStarted { meta }
+        if meta.source.as_ref().is_some_and(|s| s.parser_revision == Some(bboxy450_harness::import::PARSER_REVISION))));
+    let repeated = bboxy450_harness::import::reproject::run(
+        derived.clone(),
+        tmp.path().join("derived-again"),
+        Set::default(),
+    )
+    .await
+    .unwrap();
+    let repeated_output = read(&repeated);
+    bboxy450_harness::protocol::laws::check_transcript(&repeated_output).unwrap();
+    assert!(
+        matches!(&repeated_output[0].event, Event::SessionStarted { meta }
+        if meta.source.as_ref().is_some_and(|s| s.parser_revision == Some(bboxy450_harness::import::PARSER_REVISION)))
+    );
+    assert_eq!(std::fs::read_to_string(&derived).unwrap(), derived_bytes);
+    let repeated_bytes = std::fs::read_to_string(&repeated).unwrap();
+    for row in derived_bytes
+        .lines()
+        .skip(1)
+        .take_while(|l| !l.contains("session_closed"))
+    {
+        assert!(repeated_bytes.contains(row));
+    }
     for row in bytes
         .lines()
         .skip(1)
