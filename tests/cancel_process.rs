@@ -408,3 +408,36 @@ async fn process_admission_preserves_environment_exclusion_in_real_child() {
     .expect("private environment child did not finish");
     assert!(status.success());
 }
+
+#[tokio::test]
+async fn expired_public_admission_preserves_cancel_priority_and_never_runs() {
+    use bboxy450_harness::process::{Request, run};
+    let own = tempfile::tempdir_in("/tmp").unwrap();
+    for cancelled in [false, true] {
+        let cancel = tokio_util::sync::CancellationToken::new();
+        if cancelled {
+            cancel.cancel();
+        }
+        let request = Request {
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), "printf unexpected > must-not-exist".into()],
+            stdin: None,
+            cwd: own.path().into(),
+            timeout: Duration::ZERO,
+            spill_dir: own.path().into(),
+            cap: 1024,
+            redactor: Default::default(),
+        };
+        let error = run(request, cancel.clone()).await.err().unwrap();
+        assert_eq!(
+            error.kind(),
+            if cancelled {
+                std::io::ErrorKind::Interrupted
+            } else {
+                std::io::ErrorKind::TimedOut
+            }
+        );
+        assert_eq!(cancel.is_cancelled(), cancelled);
+        assert!(!own.path().join("must-not-exist").exists());
+    }
+}

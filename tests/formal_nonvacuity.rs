@@ -1623,3 +1623,61 @@ fn store_writer_lease_has_real_error_abandonment_clone_and_replacement_witnesses
         checked.edges.iter().map(Vec::len).sum::<usize>()
     );
 }
+
+#[test]
+fn admission_result_observations_reach_the_closed_elapsed_not_ready_counterexample() {
+    for (name, returned) in [
+        ("HarnessProcessAdmissionResult", 2),
+        ("BrokenHarnessProcessAdmissionResult", 1),
+    ] {
+        let m = model(name);
+        let checked = m.check(100_000).unwrap();
+        let c = variable(&m, "cancelled");
+        let e = variable(&m, "elapsed");
+        let t = variable(&m, "caller_timer_ready");
+        let w = variable(&m, "worker_deadline_observed");
+        let k = variable(&m, "received");
+        let r = variable(&m, "returned");
+        let exact = checked.states.iter().find(|s| {
+            s[c] == 0 && s[e] == 1 && s[t] == 0 && s[w] == 1 && s[k] == 1 && s[r] == returned
+        });
+        assert!(
+            exact.is_some(),
+            "missing exact closed/elapsed/not-ready case in {name}"
+        );
+        if name.starts_with("Broken") {
+            assert!(
+                checked
+                    .violations
+                    .iter()
+                    .any(|v| v.property == "ObservedElapsedResultIsTimedOut")
+            );
+        } else {
+            assert!(checked.violations.is_empty(), "{:?}", checked.violations);
+            for kind in 1..=3 {
+                assert!(
+                    checked
+                        .states
+                        .iter()
+                        .any(|s| s[c] == 1 && s[e] == 1 && s[k] == kind && s[r] == 1),
+                    "cancel priority {kind}"
+                );
+            }
+            for (kind, class) in [(1, 1), (2, 3), (3, 4)] {
+                assert!(
+                    checked
+                        .states
+                        .iter()
+                        .any(|s| s[c] == 0 && s[e] == 0 && s[k] == kind && s[r] == class),
+                    "before cutoff {kind}"
+                );
+            }
+        }
+        println!(
+            "{name}: exact closed/elapsed/not-ready={:?}; {} states; {} edges",
+            exact.unwrap(),
+            checked.states.len(),
+            checked.edges.iter().map(Vec::len).sum::<usize>()
+        );
+    }
+}

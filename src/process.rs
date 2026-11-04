@@ -465,6 +465,31 @@ impl Drop for SpawnResult {
         }
     }
 }
+// Decision d20261103136567: classify caller observations, never infer their
+// historical cause from channel closure. The packet keeps its existing owner.
+fn observe_spawn_result(
+    result: Result<io::Result<SpawnResult>, tokio::sync::oneshot::error::RecvError>,
+    cancelled: bool,
+    now: Instant,
+    deadline: Instant,
+) -> io::Result<OwnedChild> {
+    if cancelled {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "cancelled during process admission",
+        ));
+    }
+    if now >= deadline {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "process admission deadline",
+        ));
+    }
+    let mut packet = result.map_err(|_| {
+        io::Error::new(io::ErrorKind::Interrupted, "process admission unavailable")
+    })??;
+    Ok(packet.0.take().expect("exclusive admitted child"))
+}
 async fn spawn_admission(
     make: impl FnOnce() -> io::Result<OwnedChild> + Send + 'static,
     cancel: CancellationToken,
@@ -505,10 +530,7 @@ async fn spawn_admission(
     tokio::select! {biased;
         _=cancel.cancelled()=>Err(io::Error::new(io::ErrorKind::Interrupted,"cancelled during process admission")),
         _=sleep_until(deadline)=>Err(io::Error::new(io::ErrorKind::TimedOut,"process admission deadline")),
-        result=receive=>{
-            let mut packet=result.map_err(|_|io::Error::new(io::ErrorKind::Interrupted,"process admission unavailable"))??;
-            Ok(packet.0.take().expect("exclusive admitted child"))
-        },
+        result=receive=>observe_spawn_result(result, cancel.is_cancelled(), Instant::now(), deadline),
     }
 }
 async fn run_inner(
@@ -915,6 +937,119 @@ mod spawn_admission_tests {
         })
         .await
         .expect("test-owned admitted child was not reaped");
+    }
+    #[tokio::test]
+    async fn closed_elapsed_result_beats_a_not_ready_caller_timer() {
+        let (send, receive) = tokio::sync::oneshot::channel::<io::Result<SpawnResult>>();
+        drop(send);
+        let now = Instant::now();
+        // Explicitly pending caller timer models the other runtime's deadline
+        // observation preceding readiness here. The real receive helper runs.
+        let result = tokio::select! {biased;
+            _=std::future::pending::<()>()=>unreachable!("caller timer is not ready"),
+            result=receive=>observe_spawn_result(result, false, now, now),
+        };
+        assert_eq!(result.err().unwrap().kind(), io::ErrorKind::TimedOut);
+    }
+    #[tokio::test]
+    async fn result_observations_preserve_priority_cutoff_and_explicit_errors() {
+        let now = Instant::now();
+        for (cancelled, deadline, expected) in [
+            (
+                false,
+                now + Duration::from_secs(1),
+                io::ErrorKind::Interrupted,
+            ),
+            (
+                true,
+                now + Duration::from_secs(1),
+                io::ErrorKind::Interrupted,
+            ),
+            (true, now, io::ErrorKind::Interrupted),
+            (false, now, io::ErrorKind::TimedOut),
+            (
+                false,
+                now - Duration::from_nanos(1),
+                io::ErrorKind::TimedOut,
+            ),
+        ] {
+            let (send, receive) = tokio::sync::oneshot::channel::<io::Result<SpawnResult>>();
+            drop(send);
+            let error = observe_spawn_result(receive.await, cancelled, now, deadline)
+                .err()
+                .unwrap();
+            assert_eq!(error.kind(), expected);
+            if cancelled {
+                assert_eq!(error.to_string(), "cancelled during process admission");
+            } else if now < deadline {
+                assert_eq!(error.to_string(), "process admission unavailable");
+            }
+        }
+        for (cancelled, deadline, expected) in [
+            (
+                false,
+                now + Duration::from_secs(1),
+                io::ErrorKind::PermissionDenied,
+            ),
+            (false, now, io::ErrorKind::TimedOut),
+            (true, now, io::ErrorKind::Interrupted),
+        ] {
+            let error = observe_spawn_result(
+                Ok(Err(io::Error::from_raw_os_error(libc::EACCES))),
+                cancelled,
+                now,
+                deadline,
+            )
+            .err()
+            .unwrap();
+            assert_eq!(error.kind(), expected);
+            if expected == io::ErrorKind::PermissionDenied {
+                assert_eq!(error.raw_os_error(), Some(libc::EACCES));
+            }
+        }
+    }
+    #[tokio::test]
+    async fn result_observation_hands_off_live_and_reaps_late_owned_packets() {
+        for (cancelled, late) in [(false, false), (false, true), (true, false), (true, true)] {
+            let child = crate::runtime::blocking(sleeper).await.unwrap();
+            let pid = child.pgid();
+            let (send, receive) = tokio::sync::oneshot::channel();
+            assert!(send.send(Ok(SpawnResult(Some(child)))).is_ok());
+            let now = Instant::now();
+            let deadline = if late {
+                now
+            } else {
+                now + Duration::from_secs(5)
+            };
+            let result = observe_spawn_result(receive.await, cancelled, now, deadline);
+            if !cancelled && !late {
+                let mut child = result.unwrap();
+                assert_eq!(child.pgid(), pid);
+                child.send(libc::SIGKILL);
+                child.wait().await.unwrap();
+            } else {
+                let kind = match result {
+                    Err(error) => error.kind(),
+                    Ok(mut unexpected) => {
+                        // Retain cleanup even when run against the old mapping.
+                        unexpected.send(libc::SIGKILL);
+                        unexpected.wait().await.unwrap();
+                        panic!("late/cancelled packet was handed off");
+                    }
+                };
+                assert_eq!(
+                    kind,
+                    if cancelled {
+                        io::ErrorKind::Interrupted
+                    } else {
+                        io::ErrorKind::TimedOut
+                    }
+                );
+            }
+            // ECHILD plus ESRCH for this exact private group prove actual reap;
+            // the helper returning an error alone makes no joined-cleanup claim.
+            reaped(pid).await;
+        }
     }
     #[tokio::test]
     async fn queued_cancel_drop_and_deadline_do_not_need_permit_service() {
