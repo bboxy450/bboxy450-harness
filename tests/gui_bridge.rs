@@ -567,3 +567,73 @@ async fn stale_unknown_dispatch_does_not_hold_detach_on_the_replacement_session(
     server.retire().await.unwrap();
     support::close(first).await;
 }
+
+#[tokio::test]
+async fn gui_polish_identical_mid_turn_prompts_become_one_durable_row_each() {
+    let mut provider =
+        bboxy450_harness::provider::ScriptedProvider::new(vec![support::sse("text"); 3]);
+    provider.delay = Duration::from_millis(1);
+    let calls = provider.calls.clone();
+    let session = support::with_provider(Arc::new(provider), true).await;
+    let mut bridge = Bridge::new(Arc::new(Wake::default()));
+    bridge.attach(session.gateway.clone());
+    wait(&mut bridge, |b| b.state.ready).await;
+    bridge
+        .send(Op::UserTurn {
+            blocks: vec![InputBlock::Text {
+                text: "first".into(),
+            }],
+            mode: TurnMode::Queue,
+        })
+        .unwrap();
+    wait(&mut bridge, |b| {
+        b.state
+            .transcript
+            .turns
+            .values()
+            .any(|t| matches!(t, TurnState::Running))
+    })
+    .await;
+    for _ in 0..2 {
+        bridge
+            .send(Op::UserTurn {
+                blocks: vec![InputBlock::Text {
+                    text: "same prompt".into(),
+                }],
+                mode: TurnMode::Queue,
+            })
+            .unwrap();
+    }
+    bridge.drain(Duration::from_millis(2));
+    assert_eq!(
+        bridge
+            .state
+            .pending_prompts
+            .values()
+            .filter(|p| p.text == "same prompt")
+            .count(),
+        2
+    );
+    // Detach is view lifecycle only; the worker retains ownership until these end.
+    let worker = bridge.detach().unwrap();
+    tokio::time::timeout(Duration::from_secs(10), worker)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut reattached = Bridge::new(Arc::new(Wake::default()));
+    reattached.attach(session.gateway.clone());
+    wait(&mut reattached, |b| {
+        b.state.transcript.turns.len() == 3
+            && b.state
+                .transcript
+                .turns
+                .values()
+                .all(|t| matches!(t, TurnState::Ended { .. }))
+    })
+    .await;
+    assert_eq!(reattached.state.transcript.items.values().filter(|r| matches!(&r.body, Item::UserMessage{blocks} if matches!(&blocks[..], [InputBlock::Text{text}] if text=="same prompt"))).count(),2);
+    assert!(reattached.state.pending_prompts.is_empty());
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    reattached.send(Op::Close).unwrap();
+    session.task.await.unwrap().unwrap();
+}

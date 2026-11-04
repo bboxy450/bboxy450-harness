@@ -463,9 +463,10 @@ impl HarnessView {
         state: &FrameState,
         prepared: Option<&Arc<PreparedRows>>,
         rows_h: f32,
+        width: f32,
         first_frame: bool,
         ink: &super::face::Ink,
-    ) -> (c::Element, Option<f32>, HashMap<ItemId, f32>) {
+    ) -> Result<(c::Element, Option<f32>, HashMap<ItemId, f32>), String> {
         let model = &state.transcript;
         let mut children = vec![];
         let mut total = 0.;
@@ -528,6 +529,30 @@ impl HarnessView {
                 self.anchor = None;
             }
         }
+        for prompt in state
+            .pending_prompts
+            .values()
+            .filter(|p| Some(p.session) == model.session && p.epoch == model.epoch)
+        {
+            let mut bubble = super::face::pending_bubble(&prompt.text, &prompt.status, ink);
+            super::face::zoom_text(&mut bubble, self.zoom.scale());
+            let element = named(
+                format!("pending/{}", prompt.op),
+                super::face::frame(
+                    super::face::Frame {
+                        padding: [4., 14., 18., 14.],
+                        ..Default::default()
+                    },
+                    vec![bubble.into()],
+                ),
+            );
+            total += element
+                .layout(Rect::new(0., 0., width, 0.), context(), &self.metrics)?
+                .rect
+                .h;
+            children.push(element.into());
+        }
+        let has_pending = !children.is_empty();
         if children.is_empty() {
             if state.ready && !has_rows {
                 // harness-spec.md "Empty session": the page's `who` is the ACP agent line, else
@@ -570,24 +595,38 @@ impl HarnessView {
                 super::face::zoom_text(&mut empty, self.zoom.scale());
                 children.push(empty.into());
             } else {
-                children.push(
-                    label(if !state.ready {
-                        "Loading session…"
-                    } else {
-                        "Preparing transcript…"
-                    })
-                    .into(),
+                let mut message = super::face::loading_session(state.ready, ink);
+                super::face::zoom_text(&mut message, self.zoom.scale());
+                let centered = super::face::frame(
+                    super::face::Frame {
+                        row: true,
+                        ..Default::default()
+                    },
+                    vec![
+                        super::face::fill(c::Element::Spacer),
+                        message.into(),
+                        super::face::fill(c::Element::Spacer),
+                    ],
                 );
+                let height = centered
+                    .layout(Rect::new(0., 0., width, 0.), context(), &self.metrics)?
+                    .rect
+                    .h;
+                children.push(c::Item {
+                    element: c::Element::Spacer,
+                    extent: c::Extent::Fixed(((rows_h - height) / 2.).max(0.)),
+                });
+                children.push(centered.into());
             }
         }
-        if prepared.is_some() && has_rows {
-            (
+        if (prepared.is_some() && has_rows) || has_pending {
+            Ok((
                 column(children, None).fixed_height(total, "transcript-content", 0.),
                 Some(total),
                 enters,
-            )
+            ))
         } else {
-            (column(children, None), None, enters)
+            Ok((column(children, None), None, enters))
         }
     }
     /// The scroll offset for this frame: the tail follow glides there with a critically
@@ -638,6 +677,7 @@ impl HarnessView {
             self.zoom.percent(),
             self.chrome,
         );
+        let draft = format!("{draft}{:p}", Arc::as_ptr(&state.pending_prompts));
         // a hover change rebuilds too: the menu row's fill starts its fade
         if !self.anim.in_motion()
             && !self.menus.dirty
@@ -756,7 +796,7 @@ impl HarnessView {
                 (controls.layout.clone(), controls.rows_h)
             };
             let (transcript, content_h, enters) =
-                self.transcript(state, prepared, rows_h, first_frame, &ink);
+                self.transcript(state, prepared, rows_h, width, first_frame, &ink)?;
             let offset = self.scroll_offset(content_h, rows_h, first_frame);
             let slot = find_mut(&mut layout, "transcript")
                 .and_then(|n| n.children.first_mut())
@@ -832,7 +872,7 @@ impl HarnessView {
             let bar_h = if self.chrome { chrome::TITLE_BAR_H } else { 0. };
             let rows_h = (size[1] - composer_h - header_h - bar_h).max(1.);
             let (transcript, content_h, enters) =
-                self.transcript(state, prepared, rows_h, first_frame, &ink);
+                self.transcript(state, prepared, rows_h, width, first_frame, &ink)?;
             let offset = self.scroll_offset(content_h, rows_h, first_frame);
             let rows = named(
                 "transcript",

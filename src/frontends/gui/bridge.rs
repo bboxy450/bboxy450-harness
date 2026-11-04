@@ -27,9 +27,76 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
+/// Local presentation only: Ack is admission, never durable chat confirmation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingPrompt {
+    pub op: OpId,
+    pub session: SessionId,
+    pub epoch: Epoch,
+    pub text: String,
+    pub status: String,
+    item: Option<ItemId>,
+    turn: Option<TurnId>,
+}
+impl PendingPrompt {
+    pub fn new(op: OpId, session: SessionId, epoch: Epoch, text: String) -> Self {
+        Self {
+            op,
+            session,
+            epoch,
+            text,
+            status: "Sending…".into(),
+            item: None,
+            turn: None,
+        }
+    }
+    fn confirmed(&self, model: &Transcript) -> bool {
+        Some(self.session) == model.session
+            && self.epoch == model.epoch
+            && self.item.is_some_and(|item| {
+                model
+                    .items
+                    .get(&item)
+                    .is_some_and(|row| row.completed.is_some() && row.kind == ItemKind::UserMessage)
+            })
+    }
+    fn observe(&mut self, event: &Envelope) -> bool {
+        if event.session != self.session || event.epoch != self.epoch || event.seq.is_none() {
+            return false;
+        }
+        match &event.event {
+            Event::TurnQueued { turn } if event.cause == Some(self.op) => {
+                self.turn = Some(*turn);
+                if self.status == "Sending…" {
+                    self.status = "Queued…".into();
+                }
+            }
+            Event::ItemStarted {
+                item,
+                kind: ItemKind::UserMessage,
+                ..
+            } if event.cause == Some(self.op) => self.item = Some(*item),
+            Event::ItemCompleted {
+                item,
+                body: Item::UserMessage { .. },
+                ..
+            } if self.item == Some(*item) => return true,
+            Event::TurnEnded { turn, .. } if self.turn == Some(*turn) && self.item.is_none() => {
+                self.status = "Ended · no durable message was recorded".into();
+            }
+            Event::OpRejected { op, .. } if *op == self.op => {
+                self.status = "Rejected · message was not sent".into()
+            }
+            _ => {}
+        }
+        false
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct FrameState {
     pub revision: u64,
+    pub pending_prompts: Arc<im::OrdMap<OpId, PendingPrompt>>,
     pub transcript: Arc<Transcript>,
     pub gateway: Option<ViewGateway>,
     pub error: Option<String>,
@@ -164,6 +231,7 @@ struct Mailbox {
     latest: Latest<FrameState>,
     notices: UiSender,
     pending_turns: arc_swap::ArcSwap<im::OrdSet<OpId>>,
+    prompts: arc_swap::ArcSwap<im::OrdMap<OpId, PendingPrompt>>,
     width: AtomicU32,
     /// Global text zoom, percent (harness-spec.md Standalone window); rows re-prepare.
     zoom: AtomicU32,
@@ -186,7 +254,28 @@ impl Mailbox {
             Arc::new(next)
         });
     }
+    fn prompts(&self, edit: impl Fn(&mut im::OrdMap<OpId, PendingPrompt>)) {
+        self.prompts.rcu(|current| {
+            let mut next = current.as_ref().clone();
+            edit(&mut next);
+            Arc::new(next)
+        });
+        let _ = self.notices.try_send(UiMsg::Changed { source: 0 });
+    }
+    fn prompt_status(&self, op: OpId, status: &str) {
+        self.prompts(|prompts| {
+            if let Some(prompt) = prompts.get_mut(&op) {
+                if !prompt.status.starts_with("Rejected")
+                    && !prompt.status.starts_with("Ended")
+                    && (!status.starts_with("Queued") || prompt.status == "Sending…")
+                {
+                    prompt.status = status.to_owned();
+                }
+            }
+        });
+    }
     fn publish(&self, mut state: FrameState) {
+        state.pending_prompts = self.prompts.load_full();
         state.revision = self.published.load(Ordering::Acquire) + 1;
         state.profiles = self.profiles.load_full();
         let revision = state.revision;
@@ -220,6 +309,7 @@ impl Bridge {
                 latest: Latest::new(dirty.paint_source(0)),
                 notices,
                 pending_turns: arc_swap::ArcSwap::from_pointee(im::OrdSet::new()),
+                prompts: arc_swap::ArcSwap::from_pointee(im::OrdMap::new()),
                 width: AtomicU32::new(1120f32.to_bits()),
                 zoom: AtomicU32::new(u32::from(super::zoom::DEFAULT)),
                 resized: tokio::sync::Notify::new(),
@@ -479,6 +569,29 @@ impl Bridge {
         );
         self.messages.complete_drain();
         self.mailbox.latest.complete_drain();
+        // Retire on the UI owner's consumed projection, after worker preparation.
+        // Clearing at event arrival could briefly show neither gray nor blue.
+        if self
+            .mailbox
+            .prompts
+            .load()
+            .values()
+            .any(|p| p.confirmed(&state.transcript))
+        {
+            self.mailbox.prompts(|prompts| {
+                let confirmed: Vec<_> = prompts
+                    .iter()
+                    .filter(|(_, p)| p.confirmed(&state.transcript))
+                    .map(|(op, _)| *op)
+                    .collect();
+                for op in confirmed {
+                    prompts.remove(&op);
+                }
+            });
+        }
+        let prompts = self.mailbox.prompts.load_full();
+        changed |= !Arc::ptr_eq(&state.pending_prompts, &prompts);
+        state.pending_prompts = prompts;
         changed
     }
     pub fn send(&self, op: Op) -> Result<Submission, Refused> {
@@ -501,12 +614,25 @@ impl Bridge {
         let gateway = self.state.gateway.as_ref().ok_or(Refused::Closed)?;
         let turn = matches!(envelope.op, Op::UserTurn { .. });
         let op_id = envelope.op_id;
-        if turn {
+        if let Op::UserTurn { blocks, .. } = &envelope.op {
+            let text = blocks
+                .iter()
+                .map(InputBlock::display_text)
+                .collect::<Vec<_>>()
+                .join("\n");
+            let prompt =
+                PendingPrompt::new(op_id, envelope.session, self.state.transcript.epoch, text);
+            self.mailbox.prompts(|prompts| {
+                prompts.entry(op_id).or_insert(prompt.clone());
+            });
             self.mailbox.pending(op_id, true);
         }
         let result = gateway.send(envelope);
         if turn && result.is_err() {
             self.mailbox.pending(op_id, false);
+            self.mailbox.prompts(|prompts| {
+                prompts.remove(&op_id);
+            });
         }
         result
     }
@@ -588,6 +714,20 @@ fn apply_event(
             Event::OpRejected { op, .. } => mailbox.pending(*op, false),
             _ => {}
         }
+    }
+    // Accept only events admitted by this model's current session/epoch/cursor.
+    if event.session == model.session.unwrap_or(event.session)
+        && event.epoch == model.epoch
+        && event.seq.is_some_and(|seq| seq > model.cursor)
+    {
+        mailbox.prompts(|prompts| {
+            let ids: Vec<_> = prompts.keys().copied().collect();
+            for id in ids {
+                if let Some(prompt) = prompts.get_mut(&id) {
+                    prompt.observe(event);
+                }
+            }
+        });
     }
     model.apply(event)
 }
@@ -697,7 +837,13 @@ async fn consume(
                         mailbox.pending(op, false);
                         continue;
                     }
+                    if result.is_ok() {
+                        mailbox.prompt_status(op, "Queued · awaiting durable message…");
+                    }
                     if let Err(error) = result {
+                        mailbox.prompt_status(op, if matches!(error, ClientError::Refused(_)) {
+                            "Rejected · message was not sent"
+                        } else { "Outcome unknown · no automatic resend" });
                         mailbox.pending(op, false);
                         dispatch_error = Some(format!("Dispatch {op}: {}", client_error_text(&error)));
                         if !detached {
@@ -1016,4 +1162,130 @@ pub async fn profile_names(dir: &std::path::Path) -> Vec<ProfileInfo> {
         p.default = true;
     }
     out
+}
+
+#[cfg(test)]
+mod gui_polish_tests {
+    use super::*;
+    #[test]
+    fn gui_polish_pending_requires_causal_durable_user_in_current_birth() {
+        let mut event: Envelope = serde_json::from_str(
+            include_str!("../../../tests/fixtures/protocol/all-items.jsonl")
+                .lines()
+                .next()
+                .unwrap(),
+        )
+        .unwrap();
+        let op = OpId::new();
+        let item = ItemId::new();
+        let mut prompt = PendingPrompt::new(op, event.session, event.epoch, "repeat".into());
+        let mut other =
+            PendingPrompt::new(OpId::new(), event.session, event.epoch, "repeat".into());
+        event.cause = Some(op);
+        event.seq = Some(Seq(100));
+        event.event = Event::TurnQueued {
+            turn: TurnId::new(),
+        };
+        assert!(!prompt.observe(&event));
+        assert_eq!(prompt.status, "Queued…");
+        event.event = Event::ItemStarted {
+            turn: None,
+            item,
+            kind: ItemKind::UserMessage,
+            parent: None,
+            head: None,
+        };
+        assert!(!other.observe(&event));
+        let mut stale = event.clone();
+        stale.epoch = Epoch(event.epoch.0 + 1);
+        assert!(!prompt.observe(&stale));
+        assert!(prompt.item.is_none());
+        stale = event.clone();
+        stale.session = SessionId::new();
+        assert!(!prompt.observe(&stale));
+        assert!(prompt.item.is_none());
+        assert!(!prompt.observe(&event));
+        event.event = Event::ItemCompleted {
+            item,
+            status: ItemStatus::Completed,
+            body: Item::UserMessage {
+                blocks: vec![InputBlock::Text {
+                    text: "repeat".into(),
+                }],
+            },
+        };
+        event.cause = None; // completions inherit the immutable item's recorded cause
+        assert!(prompt.observe(&event));
+        assert!(!other.observe(&event));
+        let mut bridge = Bridge::new(Arc::new(TestWake));
+        bridge.state.transcript = Arc::new({
+            let mut t = Transcript::default();
+            t.hello(event.session, event.epoch);
+            t
+        });
+        bridge.mailbox.prompts(|p| {
+            p.insert(op, prompt.clone());
+        });
+        let mut model = (*bridge.state.transcript).clone();
+        model.cursor = Seq(100);
+        // Duplicate/stale durable records cannot retire a newly owned prompt.
+        apply_event(&mut model, &event, &mut Default::default(), &bridge.mailbox);
+        assert_eq!(bridge.mailbox.prompts.load().len(), 1);
+        let completion = event.event.clone();
+        event.event = Event::ItemStarted {
+            turn: None,
+            item,
+            kind: ItemKind::UserMessage,
+            parent: None,
+            head: None,
+        };
+        event.seq = Some(Seq(101));
+        apply_event(&mut model, &event, &mut Default::default(), &bridge.mailbox);
+        event.seq = Some(Seq(102));
+        event.event = completion;
+        apply_event(&mut model, &event, &mut Default::default(), &bridge.mailbox);
+        assert!(
+            !bridge.mailbox.prompts.load().is_empty(),
+            "pending retires only when prepared model is consumed"
+        );
+        bridge.state.transcript = Arc::new(model.clone());
+        bridge.drain(Duration::from_millis(1));
+        assert!(bridge.mailbox.prompts.load().is_empty());
+        bridge.mailbox.prompts(|p| {
+            p.insert(other.op, other.clone());
+        });
+        bridge
+            .mailbox
+            .prompt_status(other.op, "Queued · awaiting durable message…");
+        assert_eq!(
+            bridge.mailbox.prompts.load().len(),
+            1,
+            "Ack alone is still a gray local intent"
+        );
+        bridge
+            .mailbox
+            .prompt_status(other.op, "Outcome unknown · no automatic resend");
+        assert!(
+            bridge.mailbox.prompts.load()[&other.op]
+                .status
+                .contains("unknown")
+        );
+        event.seq = Some(Seq(103));
+        event.event = Event::OpRejected {
+            op: other.op,
+            reason: Rejection::InvalidInput {
+                detail: "fixture".into(),
+            },
+        };
+        apply_event(&mut model, &event, &mut Default::default(), &bridge.mailbox);
+        assert!(
+            bridge.mailbox.prompts.load()[&other.op]
+                .status
+                .contains("Rejected")
+        );
+    }
+    struct TestWake;
+    impl Waker for TestWake {
+        fn wake(&self) {}
+    }
 }

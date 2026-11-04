@@ -1976,3 +1976,101 @@ fn tool_kind_icons_and_colours_match_the_web_table() {
     assert_eq!(glyphs[4][0], P::Move([3., 4.5]));
     assert!(glyphs[5].contains(&P::Line([13.5, 8.])));
 }
+
+#[test]
+fn gui_polish_loader_is_centered_and_pending_bubbles_are_scoped() {
+    use bboxy450_harness::frontends::gui::{
+        bridge::PendingPrompt,
+        view::{find, layout_text},
+    };
+    let mut view = HarnessView::default();
+    for chrome in [false, true] {
+        view.chrome = chrome;
+        for size in [[280., 430.], [1120., 800.], [470., 680.]] {
+            for preparing in [false, true] {
+                let mut state = FrameState::default();
+                state.ready = preparing;
+                if preparing {
+                    let item = ItemId::new();
+                    let mut t = Transcript::default();
+                    let mut e: Envelope = serde_json::from_str(
+                        include_str!("fixtures/protocol/all-items.jsonl")
+                            .lines()
+                            .next()
+                            .unwrap(),
+                    )
+                    .unwrap();
+                    e.event = Event::ItemStarted {
+                        turn: None,
+                        item,
+                        kind: ItemKind::AgentMessage,
+                        parent: None,
+                        head: None,
+                    };
+                    t.apply(&e);
+                    state.transcript = Arc::new(t);
+                }
+                let frame = view.render(&state, size).unwrap();
+                let layout = frame.layout.as_ref().unwrap();
+                let loader = find(layout, "session-loader").unwrap().rect;
+                let mark = find(layout, "session-loader/mark")
+                    .expect("welcome portrait above loading label");
+                let label = find(layout, "session-loader/label").unwrap();
+                assert!(mark.rect.bottom() < label.rect.y);
+                assert!(
+                    !layout_text(find(layout, "session-loader").unwrap())
+                        .contains("What are we building")
+                );
+                assert!(find(layout, "empty/chip/0").is_none());
+
+                let viewport = find(layout, "transcript").unwrap().children[0].rect;
+                assert!(
+                    ((loader.x + loader.w / 2.) - (viewport.x + viewport.w / 2.)).abs() < 1.,
+                    "horizontal: {loader:?} {viewport:?}"
+                );
+                assert!(
+                    ((loader.y + loader.h / 2.) - (viewport.y + viewport.h / 2.)).abs() < 1.,
+                    "vertical: {loader:?} {viewport:?}"
+                );
+            }
+        }
+    }
+    let session = SessionId::new();
+    let mut model = Transcript::default();
+    model.hello(session, Epoch(7));
+    let mut state = FrameState {
+        transcript: Arc::new(model),
+        ready: true,
+        ..Default::default()
+    };
+    let op = OpId::new();
+    state.pending_prompts = Arc::new(
+        [(
+            op,
+            PendingPrompt::new(op, session, Epoch(7), "identical text".into()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    let layout = view
+        .render(&state, [470., 680.])
+        .unwrap()
+        .layout
+        .as_ref()
+        .unwrap();
+    assert_eq!(layout_text(layout).matches("identical text").count(), 1);
+    assert!(find(layout, &format!("pending/{op}")).is_some());
+    let mut switched = (*state.transcript).clone();
+    switched.hello(SessionId::new(), Epoch(7));
+    state.transcript = Arc::new(switched);
+    assert!(
+        !layout_text(
+            view.render(&state, [470., 680.])
+                .unwrap()
+                .layout
+                .as_ref()
+                .unwrap()
+        )
+        .contains("identical text")
+    );
+}

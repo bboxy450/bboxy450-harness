@@ -164,7 +164,6 @@ struct Tool {
     output: Vec<OutputBlock>,
     locations: Vec<Location>,
     raw_output: Option<Value>,
-    content_seen: bool,
 }
 struct Permission {
     rpc: Value,
@@ -1789,7 +1788,6 @@ impl AcpAgentActor {
                     output: vec![],
                     locations: vec![],
                     raw_output: None,
-                    content_seen: false,
                 },
             );
         }
@@ -1819,8 +1817,14 @@ impl AcpAgentActor {
                 .collect();
         }
         if let Some(content) = u.get("content").and_then(Value::as_array) {
-            t.content_seen = true;
-            t.output = content.iter().filter_map(output_block).collect();
+            t.output = content
+                .iter()
+                .map(|value| {
+                    output_block(value).unwrap_or_else(|| OutputBlock::Json {
+                        value: value.clone(),
+                    })
+                })
+                .collect();
         }
         let item = t.item;
         if fresh {
@@ -2128,23 +2132,30 @@ pub fn tool_kind(k: &str) -> ToolKind {
     }
 }
 fn tool_body(t: Tool, empty: &str) -> Item {
+    let output = if t.output.is_empty() {
+        match t.raw_output.as_ref().filter(|value| !value.is_null()) {
+            Some(value) => vec![OutputBlock::Json {
+                value: value.clone(),
+            }],
+            None => vec![OutputBlock::Text { text: empty.into() }],
+        }
+    } else {
+        t.output
+    };
     Item::ToolCall {
         title: None,
         server: None,
         raw_output: t.raw_output,
         call_id: t.call_id,
         name: t.name,
-        tool_kind: t.kind.clone(),
+        tool_kind: t.kind,
         input_raw: t.input,
-        output: if t.output.is_empty() && !t.content_seen {
-            vec![OutputBlock::Text { text: empty.into() }]
-        } else {
-            t.output
-        },
+        output,
         locations: t.locations,
         spill: None,
     }
 }
+
 fn decided(body: Item, decision: Option<ApprovalDecision>, by: Resolver) -> Item {
     match body {
         Item::Approval {

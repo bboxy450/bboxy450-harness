@@ -18,6 +18,7 @@ help:
 	  'make test                       Full unattended unit, integration, formal, GUI and packaging checks' \
 	  'make test-formal                Native Yarn/formal checks and broken controls' \
 	  'make test-formal-parity         Native/Java TLC graph and verdict parity' \
+	  'make verify-gui-polish          Focused MCP output, prompt projection, loader and changed model checks' \
 	  'make check-embedded-build       Strict embedded lint and default/ACP/standalone compile checks' \
 	  'make app / app-unsigned         Release app, Apple identity / ad-hoc signed' \
 	  'make install                    Apple-signed app into ~/Applications' \
@@ -191,3 +192,7 @@ test-ir:
 # Refresh the IR lock after an addition; refused unless the schema is additive over the old lock.
 lock-ir:
 	python3 -I scripts/ir-compat.py lock
+
+.PHONY: verify-gui-polish
+verify-gui-polish:
+	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-gui-polish.py

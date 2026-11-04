@@ -20,3 +20,32 @@ fn native_contracts_and_broken_controls() {
     }
     std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
 }
+
+#[test]
+fn gui_polish_pending_native_models_and_controls() {
+    let path = std::env::var("GUI_POLISH_FORMAL_OUT")
+        .unwrap_or_else(|_| "target/gui-polish/formal".into());
+    let root = std::path::Path::new(&path);
+    std::fs::create_dir_all(root).unwrap();
+    let mut manifest = String::new();
+    for (control, expected) in [(0, "pass"), (1, "safety"), (2, "safety")] {
+        let model = models::gui_pending(control);
+        let checked = model.check(100_000).unwrap();
+        if control == 0 {
+            assert!(
+                checked.states.iter().any(|s| s[1] == 1 && s[5] == 1),
+                "both repeated prompts must coexist"
+            );
+            assert!(
+                checked.states.iter().any(|s| s[1] == 2 && s[5] == 2),
+                "both causal completions must be reachable"
+            );
+            assert!(
+                checked.states.iter().any(|s| s[0] == 2 && s[1] == 4),
+                "A-B-A must retain unknown old ownership"
+            );
+        }
+        export::export(model, expected, root, &mut manifest).unwrap();
+    }
+    std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
+}

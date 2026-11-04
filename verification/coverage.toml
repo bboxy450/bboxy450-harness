@@ -8,6 +8,7 @@
 name = "bboxy450-harness"
 status = "contract-model"
 models = [
+    "HarnessGuiPendingPrompt",
     "HarnessLaunchContext",
     "HarnessSocketHeartbeat",
     "HarnessFourViewBudget",
