@@ -49,11 +49,15 @@
   "report_registration": {
     "path": "reports/2026-11-04-codex-embedded-build.md",
     "original_op_id": "01M6J5FMA8VMVWW8MGMWYHYAWC",
-    "status": "unknown",
+    "status": "indexed_report_observed_on_disk_after_unknown_response",
     "operation_status_queries": [
       "01M6J5G5RMBD2QT0NF3E0V7QV1",
       "01M6J5J4FQX7V3SEF8BXZ9Y8AC"
     ],
-    "error": "Seat control transport unavailable; read_response WouldBlock after 10001ms; report not present when checked read-only"
+    "error": "Seat control transport unavailable; read_response WouldBlock after 10001ms; report not present when checked read-only",
+    "id": "01M6J5FMA8VMVWW8MGMWYHYAWC",
+    "number": 19676,
+    "report_sha256": "6bf82e42b9572f02aa085cb29c3c0fb4ae3455d9694b2d25dcf0ba491eda2877",
+    "operation_status_still_unavailable": true
   }
 }
