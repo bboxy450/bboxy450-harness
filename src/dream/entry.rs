@@ -108,6 +108,12 @@ impl Identity {
     }
 }
 
+/// Receipt canonical JSON shares NFC/object ordering, without reordering semantic arrays.
+pub fn canonical_value(mut value: Value) -> Result<Vec<u8>, Invalid> {
+    normalize(&mut value)?;
+    serde_json::to_vec(&value).map_err(|_| Invalid("canonical JSON encoding"))
+}
+
 fn normalize(value: &mut Value) -> Result<(), Invalid> {
     match value {
         Value::String(text) => {
@@ -280,6 +286,23 @@ impl Record {
             || self.body.len() > 8192
         {
             return Err(Invalid("invalid memory record type/body bound"));
+        }
+        if self.front.get("description").is_some_and(|d| {
+            d.as_str()
+                .is_none_or(|s| s.chars().count() > 1024 || s.contains(['\r', '\n']))
+        }) || self
+            .front
+            .get("links")
+            .is_some_and(|l| l.as_array().is_none_or(|a| a.len() > 32))
+            || self.front.get("keywords").is_some_and(|k| {
+                k.as_array().is_none_or(|a| {
+                    a.len() > 16
+                        || a.iter()
+                            .any(|s| s.as_str().is_none_or(|s| s.chars().count() > 16))
+                })
+            })
+        {
+            return Err(Invalid("memory metadata bound"));
         }
         let identity = self.identity()?;
         if self.front.get("entry").and_then(Value::as_str) != Some(identity.id()?.as_str()) {

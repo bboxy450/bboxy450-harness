@@ -15,6 +15,7 @@ pub mod join;
 pub mod projection;
 pub mod receipt;
 pub mod resolve;
+pub mod seal;
 pub mod trust;
 
 pub fn directory() -> std::io::Result<std::path::PathBuf> {

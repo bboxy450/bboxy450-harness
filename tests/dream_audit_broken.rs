@@ -152,13 +152,10 @@ impl Fixture {
             .args(extra)
             .current_dir(&self.repo.path)
             .env("HOME", self.repo.home.path());
-        for name in [
-            "BBOXY_CAPABILITY",
-            "BBOXY_CAPABILITY_FILE",
-            "BBOXY_SEAT_ID",
-            "BBOXY_SOCK",
-        ] {
-            command.env_remove(name);
+        for (name, _) in std::env::vars_os() {
+            if name.to_str().is_some_and(|n| n.starts_with("BBOXY_")) {
+                command.env_remove(name);
+            }
         }
         command.output().unwrap()
     }
@@ -225,7 +222,12 @@ fn every_retained_broken_case_exits_one_and_names_its_check() {
             "{check}: {}",
             String::from_utf8_lossy(&output.stdout)
         );
-        let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+        let value: Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {
+            panic!(
+                "{check}: {e}; stderr={}",
+                String::from_utf8_lossy(&output.stderr)
+            )
+        });
         assert!(
             value["findings"]
                 .as_array()
@@ -263,4 +265,119 @@ async fn matching_current_bytes_never_replace_missing_publication_history() {
             .iter()
             .any(|f| f.check == "P2" && f.kind == "unproven")
     );
+}
+
+#[allow(dead_code)]
+#[path = "fixtures/dream/trust/fixture.rs"]
+mod fixture;
+#[allow(dead_code)]
+#[path = "fixtures/dream/good/receipt_support.rs"]
+mod r;
+#[allow(dead_code)]
+#[path = "fixtures/dream/good/audit_fixture.rs"]
+mod sufficient;
+
+#[tokio::test]
+async fn sufficient_retained_publication_run_idempotence_and_stale_exposure_accept() {
+    let fixture = sufficient::AuditFixture::new(true);
+    let before = fixture
+        .logs
+        .iter()
+        .map(|(s, l)| {
+            (
+                *s,
+                entry::digest(
+                    l.iter()
+                        .flat_map(|e| e.wire_bytes().unwrap())
+                        .collect::<Vec<_>>(),
+                ),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut resolver = fixture.resolver().await;
+    let result = audit::run(&mut resolver, Set::default(), true, 50000)
+        .await
+        .unwrap();
+    assert_eq!(
+        result.exit_code(),
+        0,
+        "{}",
+        serde_json::to_string_pretty(&result).unwrap()
+    );
+    assert!(result.labels.iter().any(|l| l["kind"] == "stale_exposure"));
+    assert!(result.graph.nodes.values().any(|n| n.kind == "sink_line"));
+    let sink = result
+        .graph
+        .nodes
+        .values()
+        .find(|n| n.kind == "sink_line")
+        .unwrap()
+        .id
+        .clone();
+    for (command, query) in [("audit", None), ("why", Some(sink.as_str()))] {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"));
+        cmd.args(["dream", command, "--sessions"])
+            .arg(&fixture.sessions)
+            .args([
+                "--root",
+                &format!(
+                    "fixture.invalid/dream/repo={}",
+                    fixture.fixture.repo.path.display()
+                ),
+                "--trust-policy",
+            ])
+            .arg(&fixture.fixture.policy)
+            .arg("--json");
+        if let Some(query) = query {
+            cmd.arg(query);
+        }
+        for (name, _) in std::env::vars_os() {
+            if name.to_str().is_some_and(|n| n.starts_with("BBOXY_")) {
+                cmd.env_remove(name);
+            }
+        }
+        let out = cmd
+            .current_dir(&fixture.fixture.repo.path)
+            .env("HOME", fixture.fixture.repo.home.path())
+            .env_remove("BBOXY_CAPABILITY_FILE")
+            .env_remove("BBOXY_CAPABILITY")
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&out.stdout)
+        );
+    }
+
+    let path = &fixture.publications[0]
+        .2
+        .selection
+        .as_ref()
+        .unwrap()
+        .generated[0]
+        .path;
+    std::fs::write(path, b"a legitimate later hand edit\n").unwrap();
+    let mut resolver = fixture.resolver().await;
+    let changed = audit::run(&mut resolver, Set::default(), false, 0)
+        .await
+        .unwrap();
+    assert_eq!(
+        changed.exit_code(),
+        0,
+        "{}",
+        serde_json::to_string(&changed).unwrap()
+    );
+    assert!(changed.labels.iter().any(|l| l["kind"] == "drift"));
+    assert_eq!(
+        std::fs::read(path).unwrap(),
+        b"a legitimate later hand edit\n"
+    );
+    for (s, digest) in before {
+        assert_eq!(
+            entry::digest(std::fs::read(fixture.sessions.join(format!("{s}.jsonl"))).unwrap()),
+            digest
+        );
+    }
 }
