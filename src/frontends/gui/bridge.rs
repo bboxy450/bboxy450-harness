@@ -255,12 +255,22 @@ impl Mailbox {
         });
     }
     fn prompts(&self, edit: impl Fn(&mut im::OrdMap<OpId, PendingPrompt>)) {
+        let mut changed = false;
         self.prompts.rcu(|current| {
             let mut next = current.as_ref().clone();
             edit(&mut next);
-            Arc::new(next)
+            // RCU can retry. Only its successful attempt decides whether this
+            // publisher changed the projection and owes a notification.
+            changed = next != **current;
+            if changed {
+                Arc::new(next)
+            } else {
+                current.clone()
+            }
         });
-        let _ = self.notices.try_send(UiMsg::Changed { source: 0 });
+        if changed {
+            let _ = self.notices.try_send(UiMsg::Changed { source: 0 });
+        }
     }
     fn prompt_status(&self, op: OpId, status: &str) {
         self.prompts(|prompts| {
@@ -719,6 +729,21 @@ fn apply_event(
     if event.session == model.session.unwrap_or(event.session)
         && event.epoch == model.epoch
         && event.seq.is_some_and(|seq| seq > model.cursor)
+        && !mailbox.prompts.load().is_empty()
+        && matches!(
+            &event.event,
+            Event::TurnQueued { .. }
+                | Event::TurnEnded { .. }
+                | Event::OpRejected { .. }
+                | Event::ItemStarted {
+                    kind: ItemKind::UserMessage,
+                    ..
+                }
+                | Event::ItemCompleted {
+                    body: Item::UserMessage { .. },
+                    ..
+                }
+        )
     {
         mailbox.prompts(|prompts| {
             let ids: Vec<_> = prompts.keys().copied().collect();
@@ -1282,6 +1307,155 @@ mod gui_polish_tests {
             bridge.mailbox.prompts.load()[&other.op]
                 .status
                 .contains("Rejected")
+        );
+    }
+    #[test]
+    fn gui_polish_pending_noop_events_preserve_identity_and_notifications() {
+        fn apply(model: &mut Transcript, bridge: &Bridge, event: &mut Envelope, body: Event) {
+            event.seq = Some(Seq(model.cursor.0 + 1));
+            event.at = event.seq.unwrap();
+            event.event = body;
+            apply_event(model, event, &mut Default::default(), &bridge.mailbox);
+        }
+        fn quiet_records(model: &mut Transcript, bridge: &Bridge, event: &mut Envelope) {
+            let before = bridge.mailbox.prompts.load_full();
+            event.cause = None;
+            for body in [
+                Item::Native {
+                    provider: "fixture".into(),
+                    record_type: "token".into(),
+                    raw: serde_json::json!({"tokens":1}),
+                    blob: None,
+                },
+                Item::Usage {
+                    usage: Usage::default(),
+                },
+            ] {
+                let item = ItemId::new();
+                apply(
+                    model,
+                    bridge,
+                    event,
+                    Event::ItemStarted {
+                        turn: None,
+                        item,
+                        kind: body.kind(),
+                        parent: None,
+                        head: None,
+                    },
+                );
+                apply(
+                    model,
+                    bridge,
+                    event,
+                    Event::ItemCompleted {
+                        item,
+                        status: ItemStatus::Completed,
+                        body,
+                    },
+                );
+                assert!(
+                    Arc::ptr_eq(&before, &bridge.mailbox.prompts.load_full()),
+                    "unrelated records replaced the pending projection"
+                );
+                assert!(
+                    !bridge.pending_notices(),
+                    "unrelated records sent an extra pending notification"
+                );
+            }
+        }
+        let mut event: Envelope = serde_json::from_str(
+            include_str!("../../../tests/fixtures/protocol/all-items.jsonl")
+                .lines()
+                .next()
+                .unwrap(),
+        )
+        .unwrap();
+        let mut model = Transcript::default();
+        model.hello(event.session, event.epoch);
+        let mut bridge = Bridge::new(Arc::new(TestWake));
+        quiet_records(&mut model, &bridge, &mut event);
+        let op = OpId::new();
+        let prompt = PendingPrompt::new(op, event.session, event.epoch, "pending".into());
+        let empty = bridge.mailbox.prompts.load_full();
+        bridge.mailbox.prompts(|prompts| {
+            prompts.insert(op, prompt.clone());
+        });
+        assert!(!Arc::ptr_eq(&empty, &bridge.mailbox.prompts.load_full()));
+        assert!(bridge.pending_notices(), "local submit must notify");
+        bridge.drain(Duration::from_millis(1));
+        quiet_records(&mut model, &bridge, &mut event);
+        // A relevant event for another immutable op is also a no-op.
+        event.cause = Some(OpId::new());
+        let before = bridge.mailbox.prompts.load_full();
+        apply(
+            &mut model,
+            &bridge,
+            &mut event,
+            Event::TurnQueued {
+                turn: TurnId::new(),
+            },
+        );
+        assert!(Arc::ptr_eq(&before, &bridge.mailbox.prompts.load_full()));
+        assert!(!bridge.pending_notices());
+        event.cause = Some(op);
+        apply(
+            &mut model,
+            &bridge,
+            &mut event,
+            Event::TurnQueued {
+                turn: TurnId::new(),
+            },
+        );
+        assert!(!Arc::ptr_eq(&before, &bridge.mailbox.prompts.load_full()));
+        assert!(bridge.pending_notices(), "queued status must notify");
+        bridge.drain(Duration::from_millis(1));
+        let before = bridge.mailbox.prompts.load_full();
+        bridge.mailbox.prompt_status(op, "Queued…");
+        assert!(Arc::ptr_eq(&before, &bridge.mailbox.prompts.load_full()));
+        assert!(
+            !bridge.pending_notices(),
+            "unchanged status must stay quiet"
+        );
+        let item = ItemId::new();
+        apply(
+            &mut model,
+            &bridge,
+            &mut event,
+            Event::ItemStarted {
+                turn: None,
+                item,
+                kind: ItemKind::UserMessage,
+                parent: None,
+                head: None,
+            },
+        );
+        assert!(
+            bridge.pending_notices(),
+            "causal ownership update must notify"
+        );
+        bridge.drain(Duration::from_millis(1));
+        event.cause = None;
+        apply(
+            &mut model,
+            &bridge,
+            &mut event,
+            Event::ItemCompleted {
+                item,
+                status: ItemStatus::Completed,
+                body: Item::UserMessage {
+                    blocks: vec![InputBlock::Text {
+                        text: "pending".into(),
+                    }],
+                },
+            },
+        );
+        bridge.state.transcript = Arc::new(model);
+        bridge.drain(Duration::from_millis(1));
+        assert!(bridge.mailbox.prompts.load().is_empty());
+        assert!(
+            bridge.pending_notices(),
+            "retiring confirmed local prompt must notify"
         );
     }
     struct TestWake;

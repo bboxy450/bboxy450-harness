@@ -225,5 +225,85 @@
     "base": "5c288d0bcbdaebc7249740220158829e87c85e5a",
     "term_source_modified": false,
     "production_backend_restarted": false
+  },
+  "followups": [
+    {
+      "purpose": "Preserve pending-map Arc identity and avoid additional UiMsg notifications for no-op edits; bypass prompt iteration for empty maps or unrelated durable records.",
+      "base": "96dbfc34ae7ebb65d2a6321d98dec3f0767edfcb",
+      "created": "2026-11-04T03:46:37.093659+00:00",
+      "changed_source_hashes": {
+        "src/frontends/gui/bridge.rs": "2b0edcc5458c8b76a52e470b2d7447d97baf8c769219c6b1312c11877799ecac"
+      },
+      "commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "--jobs",
+            "2",
+            "--target-dir",
+            "target",
+            "--features",
+            "embedded",
+            "--lib",
+            "gui_polish_pending",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "log": "/Users/feral/mydev/bboxy450-harness-land/target/gui-polish/noop-followup/native.log",
+          "sha256": "ada4577b93fc698e0ee68e51e6abe248420232bffe07cfc371174602c629360d"
+        },
+        {
+          "command": [
+            "cargo",
+            "check",
+            "--offline",
+            "--locked",
+            "--jobs",
+            "2",
+            "--target-dir",
+            "target",
+            "--no-default-features",
+            "--features",
+            "embedded",
+            "--lib"
+          ],
+          "exit_code": 0,
+          "log": "/Users/feral/mydev/bboxy450-harness-land/target/gui-polish/noop-followup/embedded.log",
+          "sha256": "e5696eddbb37b0c2ad5399c7398aace490ed4c58730636098da061b95ee83cb0"
+        }
+      ],
+      "regression_control": {
+        "log": "/tmp/gui-polish-noop-before.log",
+        "sha256": "9bd4145edf908b722dec546571427a52076c27796476bd55e699058ac06b0625",
+        "exit_code": 101,
+        "assertion": "unrelated records replaced the pending projection"
+      },
+      "reused_evidence": {
+        "source": "96dbfc34ae7ebb65d2a6321d98dec3f0767edfcb",
+        "unchanged_original_verification_inputs": 38,
+        "formal_model_and_tool_inputs_unchanged": true,
+        "capture_hashes_unchanged": true,
+        "reason": "No queued-state semantics, rendering, context, protocol or model changes; only no-op allocation/notification suppression and its native witness. Operator directed focused checks and reuse."
+      },
+      "not_repeated": [
+        "make verify-gui-polish",
+        "model/TLC exploration",
+        "captures",
+        "standalone window compilation",
+        "full suites"
+      ],
+      "production_backend_restarted": false
+    }
+  ],
+  "executor_provenance": {
+    "local_subagent": "/root/gui_polish",
+    "harness": "Codex",
+    "delegating_parent": "/root",
+    "authenticated_bboxy_seat_shared_with_parent": "01M6H97SAX3GN1BYB4YG76P3P0",
+    "delivery": "operator-authorized /tmp brief and local collaboration task; not an independently registered bboxy worker task"
   }
 }
