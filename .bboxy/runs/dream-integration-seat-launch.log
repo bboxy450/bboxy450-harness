@@ -1,0 +1,14 @@
+    Finished `test` profile [unoptimized] target(s) in 0.13s
+     Running tests/seat_process.rs (target/debug/deps/seat_process-65718999c6982c9a)
+
+running 7 tests
+test seat_launch::unknown_options_and_missing_flag_arguments_still_fail ... ok
+test seat_launch::acp_server_cannot_inherit_bboxy_environment ... ok
+test seat_launch::profile_server_cannot_inherit_bboxy_environment ... ok
+test seat_launch::launcher_flags_deliver_context_tools_and_only_launcher_environment ... ok
+test seat_launch::unavailable_config_is_a_notice_and_the_turn_completes ... ok
+test seat_launch::profile_and_acp_refuse_bboxy_environment_indirection ... ok
+test seat_launch::command_resolver_cannot_copy_seat_environment_into_mcp_aliases ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 21 filtered out; finished in 1.18s
+

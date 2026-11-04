@@ -1,0 +1,116 @@
+{
+  "receipt": {
+    "checkout": "/Users/feral/mydev/bboxy450-harness-dream-wp4",
+    "contracts": 47,
+    "crates": 1,
+    "dirty": false,
+    "evidence": "/Users/feral/mydev/bboxy450-harness-dream-wp4/target/formal/evidence.json",
+    "evidence_sha256": "bd6b56702ebd3b28ad07d5d910b7d8a3c17c0235a5862fa8613fb1648ea44bfe",
+    "models": 145,
+    "source": "21bd689c070d122932381a5f49d04954adc39bda"
+  },
+  "models": 145,
+  "contracts": 47,
+  "crates": 1,
+  "total_states": 546530,
+  "total_edges": 2612304,
+  "input_count": 357,
+  "suite_results": [
+    {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 15,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 7,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 16,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 34,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 34,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    }
+  ],
+  "evidence_sha256": "bd6b56702ebd3b28ad07d5d910b7d8a3c17c0235a5862fa8613fb1648ea44bfe"
+}

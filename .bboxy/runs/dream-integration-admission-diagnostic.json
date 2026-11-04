@@ -1,0 +1,62 @@
+{
+  "source": "21bd689c070d122932381a5f49d04954adc39bda",
+  "binary": "/Users/feral/mydev/bboxy450-harness-dream-wp4/target/debug/deps/cancel_process-44b0e69f1ab32b88",
+  "binary_sha256": "641feec302134786645258e569d1d389fd86b0106060f3fc15299c0dca8282da",
+  "command": [
+    "/Users/feral/mydev/bboxy450-harness-dream-wp4/target/debug/deps/cancel_process-44b0e69f1ab32b88",
+    "--exact",
+    "process_admission_public_queue_cancellation_and_deadline_are_observable",
+    "--nocapture"
+  ],
+  "samples": [
+    {
+      "sample": 0,
+      "exit_code": 0,
+      "log": ".bboxy/runs/dream-integration-admission-sample-0.log",
+      "sha256": "af2ef8ef746421e970bd2a63022fea618afe6cdec48d6ddc4388a2502293a6dd"
+    },
+    {
+      "sample": 1,
+      "exit_code": 0,
+      "log": ".bboxy/runs/dream-integration-admission-sample-1.log",
+      "sha256": "92e46035ed7e69f7432fe05411ea205c9d8774ea64e86497d8eafd7aba54afcc"
+    },
+    {
+      "sample": 2,
+      "exit_code": 0,
+      "log": ".bboxy/runs/dream-integration-admission-sample-2.log",
+      "sha256": "92e46035ed7e69f7432fe05411ea205c9d8774ea64e86497d8eafd7aba54afcc"
+    },
+    {
+      "sample": 3,
+      "exit_code": 0,
+      "log": ".bboxy/runs/dream-integration-admission-sample-3.log",
+      "sha256": "92e46035ed7e69f7432fe05411ea205c9d8774ea64e86497d8eafd7aba54afcc"
+    },
+    {
+      "sample": 4,
+      "exit_code": 0,
+      "log": ".bboxy/runs/dream-integration-admission-sample-4.log",
+      "sha256": "92e46035ed7e69f7432fe05411ea205c9d8774ea64e86497d8eafd7aba54afcc"
+    },
+    {
+      "sample": 5,
+      "exit_code": 0,
+      "log": ".bboxy/runs/dream-integration-admission-sample-5.log",
+      "sha256": "92e46035ed7e69f7432fe05411ea205c9d8774ea64e86497d8eafd7aba54afcc"
+    },
+    {
+      "sample": 6,
+      "exit_code": 0,
+      "log": ".bboxy/runs/dream-integration-admission-sample-6.log",
+      "sha256": "92e46035ed7e69f7432fe05411ea205c9d8774ea64e86497d8eafd7aba54afcc"
+    },
+    {
+      "sample": 7,
+      "exit_code": 0,
+      "log": ".bboxy/runs/dream-integration-admission-sample-7.log",
+      "sha256": "92e46035ed7e69f7432fe05411ea205c9d8774ea64e86497d8eafd7aba54afcc"
+    }
+  ],
+  "disposition": "Bounded unchanged-source diagnostic, not a replacement for the failed composed ACP gate"
+}

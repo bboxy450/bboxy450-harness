@@ -1,0 +1,15 @@
+{
+  "head": "9ac3c707a57a84db107cb26d21920956a42ebf03",
+  "branch": "perf/dream-hashbrown",
+  "index_changes": "",
+  "tracked_changes": [
+    ".bboxy/runs/formal-native.json"
+  ],
+  "untracked_retained": [
+    ".bboxy/runs/hashbrown-postreport-diff.json",
+    ".bboxy/runs/hashbrown-report-head-formal.json",
+    ".bboxy/runs/hashbrown-report-head-formal.log"
+  ],
+  "native_sha256": "d2b4d9b31de910313fbaefeb1c9e00efd1875605eb31b8fad27d5dd43b5786f8",
+  "native_copy": ".bboxy/runs/dream-integration-base-formal-native.json"
+}

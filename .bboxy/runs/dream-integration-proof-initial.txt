@@ -1,0 +1,1 @@
+Initial proof instrument exit1: AssertionError CLAUDE.md. The instrument read a symlink target as file contents but Git stores symlink target text. Corrected the instrument to compare os.readlink bytes for symlinks; no product bytes changed.

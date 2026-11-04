@@ -1,0 +1,20 @@
+{
+  "disposition": "Known unchanged make2/checker1 KB5974 collision retained; full canonical gate not rerun or waived",
+  "files": [
+    {
+      "path": "/tmp/dream-wp3-make-test.log",
+      "exists": true,
+      "sha256": "651c9eace96f8d01c7378655c00203e3bb1825b1e03f71662d0cdfae90d193d3"
+    },
+    {
+      "path": ".bboxy/decisions/d5974-log-ir-v1-only-add.md",
+      "exists": true,
+      "sha256": "28f3442ce7dbfa406518135828bf5f063f1b06b573f3fa2b7987ef4c832ba450"
+    },
+    {
+      "path": ".bboxy/decisions/d5974-memories-are-kb-records.md",
+      "exists": true,
+      "sha256": "d2eb97c855304806f9da7abfaa6ff6b2d003a1320aea582982fbe963c378a4d4"
+    }
+  ]
+}

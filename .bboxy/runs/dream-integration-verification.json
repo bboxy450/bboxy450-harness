@@ -1,0 +1,94 @@
+{
+  "environment": {
+    "cargo_build_jobs": 2,
+    "dev_debug": 0,
+    "test_debug": 0,
+    "incremental": false,
+    "offline": true,
+    "private_home": true,
+    "operator_input": false
+  },
+  "commands": [
+    {
+      "name": "primary",
+      "command": "cargo test --lib dream::resolve:: && cargo test --lib process:: && cargo test --lib store:: && cargo test --features acp-agent --test cancel_process --test store_recovery --test store_fork --test ir_v1_corpus --test dream_identity --test dream_graph --test dream_audit_broken --test dream_trust --test dream_seal --test dream_pipeline && make test-formal && make test-formal-parity && make check-formal-evidence",
+      "exit_code": 0,
+      "seconds": 351.834,
+      "log": ".bboxy/runs/dream-integration-primary.log",
+      "sha256": "90fa9296cd9ac535ff01ea22c53b2126042b0060f61b7c764a17155d7dc8fe0a",
+      "source": "21bd689c070d122932381a5f49d04954adc39bda"
+    },
+    {
+      "name": "clippy",
+      "command": "cargo clippy --offline --locked --all-targets --all-features -- -D warnings",
+      "exit_code": 0,
+      "seconds": 61.027,
+      "log": ".bboxy/runs/dream-integration-clippy.log",
+      "sha256": "3b4c5276f37e5d1742bdf05cfb18c4c060afb5b6ed482b9e4859009491912df7",
+      "source": "21bd689c070d122932381a5f49d04954adc39bda"
+    },
+    {
+      "name": "ir",
+      "command": "make test-ir && cargo test --offline --locked --test protocol_golden --test ir_v1_corpus",
+      "exit_code": 0,
+      "seconds": 2.572,
+      "log": ".bboxy/runs/dream-integration-ir.log",
+      "sha256": "d93f4b7a2f6e589900f07717ec16622cc55ecd094e3fe6fc3a8dd19586a8718f",
+      "source": "21bd689c070d122932381a5f49d04954adc39bda"
+    },
+    {
+      "name": "default",
+      "command": "cargo test --offline --locked --all-targets -- --skip non_pty_spawn_does_not_keep_a_sibling_master_alive",
+      "exit_code": 0,
+      "seconds": 302.107,
+      "log": ".bboxy/runs/dream-integration-default.log",
+      "sha256": "e90b3e3963d4df432802e8de37ea5b9356821540c5700db5a2427680e40703cc",
+      "source": "21bd689c070d122932381a5f49d04954adc39bda"
+    },
+    {
+      "name": "acp",
+      "command": "cargo test --offline --locked --all-targets --features acp,test-fixtures -- --skip seat_launch:: --skip non_pty_spawn_does_not_keep_a_sibling_master_alive",
+      "exit_code": 101,
+      "seconds": 50.616,
+      "log": ".bboxy/runs/dream-integration-acp.log",
+      "sha256": "172a32bbc3cf358e9a5cb2542d908294bcbd0b1739a1fe43dcfb7ebd3c77fa78",
+      "source": "21bd689c070d122932381a5f49d04954adc39bda"
+    },
+    {
+      "name": "seat-launch",
+      "command": "cargo test --offline --locked --features acp,test-fixtures --test seat_process seat_launch::",
+      "exit_code": 0,
+      "seconds": 1.826,
+      "log": ".bboxy/runs/dream-integration-seat-launch.log",
+      "sha256": "d522eec13c01eab96baa8d8207201a5280014efba2cf24a968ef9fb9b2293230",
+      "source": "21bd689c070d122932381a5f49d04954adc39bda"
+    },
+    {
+      "name": "nonpty",
+      "command": "cargo test --offline --locked --features acp,test-fixtures --test seat_process non_pty_spawn_does_not_keep_a_sibling_master_alive -- --exact",
+      "exit_code": 0,
+      "seconds": 0.15,
+      "log": ".bboxy/runs/dream-integration-nonpty.log",
+      "sha256": "097423766545e9bc1f274c8afaaf0271a022cacfdc9fb3af9760f12d1cde7837",
+      "source": "21bd689c070d122932381a5f49d04954adc39bda"
+    },
+    {
+      "name": "smoke",
+      "command": "make smoke-app",
+      "exit_code": 0,
+      "seconds": 49.146,
+      "log": ".bboxy/runs/dream-integration-smoke.log",
+      "sha256": "16c5ce98f76aa9adf495a87b9a77957df654f863b0748e509b42b1386dee47ee",
+      "source": "21bd689c070d122932381a5f49d04954adc39bda"
+    },
+    {
+      "name": "source-checks",
+      "command": "cargo fmt --check && python3 -I scripts/checks.py headers && python3 -I scripts/checks.py secrets",
+      "exit_code": 0,
+      "seconds": 1.854,
+      "log": ".bboxy/runs/dream-integration-source-checks.log",
+      "sha256": "4f3519361c9706df98f5ea425497dd985445dcaafa8e31c4e1df26adce74e687",
+      "source": "21bd689c070d122932381a5f49d04954adc39bda"
+    }
+  ]
+}
