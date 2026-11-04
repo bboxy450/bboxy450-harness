@@ -10,7 +10,7 @@ mod support;
 use bboxy450_harness::{
     engine::Config,
     gateway::{Gateway, Host, Subscribe},
-    import::{Native, import_file, rfc3339_ms},
+    import::{Native, import_file, import_file_with_redactor, rfc3339_ms},
     policy::Policy,
     protocol::*,
     provider::{ScriptedProvider, profile::Unattended},
@@ -866,4 +866,161 @@ async fn a_watched_native_log_streams_live_and_continues_on_an_acp_agent_with_th
         if markdown.starts_with("ECHO:") && markdown.contains("[user] Find the flaky test.")
             && markdown.contains("[tool Bash]") && markdown.contains("[assistant] The build fails before any test runs.") && markdown.contains("what failed?"))),
         "{:?}", completed(&forked));
+}
+
+#[tokio::test]
+async fn native_vcs_availability_is_recorded_without_guessing_from_todays_checkout() {
+    use serde_json::json;
+    let home = tempfile::tempdir_in("/tmp").unwrap();
+    let checkout = home.path().join("checkout");
+    std::fs::create_dir(&checkout).unwrap();
+    for args in [
+        vec!["init", "-b", "current-branch"],
+        vec![
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/fixture/current.git",
+        ],
+    ] {
+        assert!(
+            std::process::Command::new("/usr/bin/git")
+                .args(args)
+                .current_dir(&checkout)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+    }
+    std::fs::write(checkout.join("dirty.txt"), "today's unrelated work\n").unwrap();
+    let cases = [
+        (
+            Native::ClaudeCode,
+            json!({"type":"user","sessionId":"native-claude","uuid":"record-1","cwd":checkout,"gitBranch":"recorded-branch","message":{"role":"user","content":"fixture"}}),
+            Some(Vcs {
+                branch: Some("recorded-branch".into()),
+                ..Default::default()
+            }),
+        ),
+        (
+            Native::Codex,
+            json!({"type":"session_meta","payload":{"id":"native-codex","cwd":checkout,"git":{"commit_hash":"recorded-commit"}}}),
+            Some(Vcs {
+                commit: Some("recorded-commit".into()),
+                ..Default::default()
+            }),
+        ),
+        (
+            Native::Codex,
+            json!({"type":"session_meta","payload":{"id":"native-codex","cwd":checkout,"git":{"branch":"recorded-branch","commit_hash":"recorded-commit","repository_url":"git@GitHub.COM:fixture/recorded.git","dirty":true,"future":{"kept":[42]}}}}),
+            Some(Vcs {
+                repo: Some("github.com/fixture/recorded".into()),
+                branch: Some("recorded-branch".into()),
+                commit: Some("recorded-commit".into()),
+                dirty: None,
+            }),
+        ),
+        (
+            Native::ClaudeCode,
+            json!({"type":"user","sessionId":"native-claude","uuid":"record-1","cwd":checkout,"gitBranch":{"future":"branch"},"message":{"role":"user","content":"fixture"}}),
+            None,
+        ),
+    ];
+    let oversized = json!({"type":"user","sessionId":"native-claude","uuid":"oversized","cwd":checkout,"gitBranch":"x".repeat(20_000),"message":{"role":"user","content":"fixture"}});
+    let mut bounded = bboxy450_harness::import::Projector::new(Native::ClaudeCode);
+    let projected = bounded.project(&oversized);
+    assert!(bounded.vcs.is_none());
+    assert!(projected.iter().any(
+        |p| p.ext.get("claude-code").and_then(|v| v.get("gitBranch")) == oversized.get("gitBranch")
+    ));
+    for (index, (native, record, expected)) in cases.into_iter().enumerate() {
+        let input = home.path().join(format!("native-{index}.jsonl"));
+        let original = record.to_string() + "\n";
+        std::fs::write(&input, &original).unwrap();
+        let sessions = home.path().join(format!("sessions-{index}"));
+        let session =
+            import_file_with_redactor(Some(native), &input, sessions.clone(), Set::default())
+                .await
+                .unwrap();
+        let log = read(&sessions.join(format!("{session}.jsonl")));
+        laws::check_authored(&log).unwrap();
+        let Event::SessionStarted { meta } = &log[0].event else {
+            panic!("missing header")
+        };
+        assert_eq!(meta.vcs, expected);
+        assert_eq!(meta.source.as_ref().unwrap().parser_revision, Some(3));
+        assert_eq!(std::fs::read_to_string(&input).unwrap(), original);
+        if index == 2 {
+            assert!(log.iter().any(|e| matches!(&e.event, Event::ItemCompleted { body: Item::Native {raw,..},.. } if raw.pointer("/payload/git/future/kept")==Some(&json!([42])) && raw.pointer("/payload/git/dirty")==Some(&json!(true)))));
+        }
+        if index == 3 {
+            assert!(log.iter().any(|e| matches!(&e.event, Event::ItemCompleted {body:Item::UserMessage{..},..} if e.ext.get("claude-code").and_then(|v|v.get("gitBranch"))==Some(&json!({"future":"branch"})))));
+        }
+    }
+}
+
+#[tokio::test]
+async fn native_remote_credentials_are_removed_from_both_raw_and_extension_paths() {
+    use serde_json::json;
+    let home = tempfile::tempdir_in("/tmp").unwrap();
+    let record = json!({"type":"session_meta","payload":{"id":"native-codex","cwd":"/native/path","git":{"repository_url":"https://fixture-user:fixture-password@GitHub.COM/fixture/repo.git?token=private-query#private-fragment","branch":"native-branch","future":{"opaque":[1,2,3]}}}});
+    let mut projector = bboxy450_harness::import::Projector::new(Native::Codex);
+    let projected = projector.project(&record);
+    assert_eq!(
+        projector.vcs.as_ref().unwrap().repo.as_deref(),
+        Some("github.com/fixture/repo")
+    );
+    let raw = projected
+        .iter()
+        .find_map(|p| match &p.event {
+            Event::ItemCompleted {
+                body: Item::Native { raw, .. },
+                ..
+            } => Some(raw),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        raw.pointer("/payload/git/future"),
+        record.pointer("/payload/git/future")
+    );
+    let extra = bboxy450_harness::import::edge::remainder(Native::Codex, &record);
+    assert_eq!(
+        extra.pointer("/payload/git/future"),
+        record.pointer("/payload/git/future")
+    );
+    for safe in [raw, &extra] {
+        let encoded = safe.to_string();
+        for secret in [
+            "fixture-user",
+            "fixture-password",
+            "private-query",
+            "private-fragment",
+        ] {
+            assert!(!encoded.contains(secret));
+        }
+    }
+    let input = home.path().join("native.jsonl");
+    std::fs::write(&input, record.to_string() + "\n").unwrap();
+    let sessions = home.path().join("sessions");
+    let session = import_file_with_redactor(
+        Some(Native::Codex),
+        &input,
+        sessions.clone(),
+        Set::default(),
+    )
+    .await
+    .unwrap();
+    let bytes = std::fs::read_to_string(sessions.join(format!("{session}.jsonl"))).unwrap();
+    for secret in [
+        "fixture-user",
+        "fixture-password",
+        "private-query",
+        "private-fragment",
+    ] {
+        assert!(!bytes.contains(secret));
+    }
 }

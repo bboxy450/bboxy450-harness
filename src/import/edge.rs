@@ -8,6 +8,50 @@
 //! path, including array positions. Source discriminants accompany a nonempty
 //! remainder so a later projector can interpret it.
 use super::Native;
+use crate::protocol::Vcs;
+
+/// Promote only actual native fields; never inspect today's checkout to fill
+/// historical gaps. Unknown native Git leaves remain in the raw projection.
+pub fn vcs(native: Native, record: &Value) -> Option<Vcs> {
+    let text = |value: Option<&Value>| {
+        value
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty() && s.len() < crate::vcs::MAX_METADATA_BYTES)
+            .map(str::to_owned)
+    };
+    let value = match native {
+        Native::ClaudeCode if record.get("isSidechain").and_then(Value::as_bool) != Some(true) => {
+            Vcs {
+                branch: text(record.get("gitBranch")),
+                ..Default::default()
+            }
+        }
+        Native::Codex if record.get("type").and_then(Value::as_str) == Some("session_meta") => {
+            Vcs {
+                repo: record
+                    .pointer("/payload/git/repository_url")
+                    .and_then(Value::as_str)
+                    .and_then(crate::vcs::normalize_repo_key),
+                branch: text(record.pointer("/payload/git/branch")),
+                commit: text(record.pointer("/payload/git/commit_hash")),
+                dirty: None,
+            }
+        }
+        _ => return None,
+    };
+    (value != Vcs::default()).then_some(value)
+}
+
+pub(super) fn sanitized_record(native: Native, record: &Value) -> Value {
+    let mut out = record.clone();
+    if native == Native::Codex
+        && record.get("type").and_then(Value::as_str) == Some("session_meta")
+        && let Some(Value::String(url)) = out.pointer_mut("/payload/git/repository_url")
+    {
+        *url = crate::vcs::public_remote(url);
+    }
+    out
+}
 use serde_json::Value;
 
 fn remove(value: &mut Value, keys: &[&str]) {
@@ -64,7 +108,7 @@ fn content(value: &mut Value) {
 /// This allowlist contains only values carried by native identity or typed
 /// fields. Unknown values of known keys are retained, never coerced away.
 pub fn remainder(native: Native, record: &Value) -> Value {
-    let mut out = record.clone();
+    let mut out = sanitized_record(native, record);
     let source_type = record.get("type").cloned();
     if record
         .get("timestamp")
