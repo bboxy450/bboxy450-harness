@@ -419,3 +419,38 @@ async fn private_setup_survives_unconfigured_startup_notice() {
     })
     .await;
 }
+
+#[cfg(feature = "standalone")]
+#[path = "support/onboarding_startup.rs"]
+mod startup_fixture;
+#[cfg(feature = "standalone")]
+#[test]
+fn private_empty_home_native_app_reaches_setup() {
+    let home = startup_fixture::home();
+    assert!(!home.path().join(".bboxy450-harness").exists());
+    let mut command = startup_fixture::command(
+        std::path::Path::new(env!("CARGO_BIN_EXE_bboxy450-harness")),
+        home.path(),
+    );
+    command
+        .args(["gui"])
+        .env("BBOXY450_HARNESS_SMOKE_WINDOW", "1");
+    let output = startup_fixture::run(&mut command);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "actual app exited before setup: {stderr}"
+    );
+    assert!(
+        stderr.contains("visible=false; setup=true; profiles=0"),
+        "{stderr}"
+    );
+    assert!(
+        !home.path().join("installer-argv").exists(),
+        "startup never executes a manager"
+    );
+    startup_fixture::evidence(
+        "empty-home-native-app.json",
+        serde_json::json!({"command":["bboxy450-harness","gui"],"private_home":true,"private_path":true,"exit_code":output.status.code(),"stderr":stderr}),
+    );
+}

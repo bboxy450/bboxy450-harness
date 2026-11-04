@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TARGET = Path(os.environ.get('TARGET_DIR', ROOT / 'target')).resolve()
 OUT = TARGET / 'harness-onboarding'
 OUT.mkdir(parents=True, exist_ok=True)
-env = dict(os.environ, RUSTC_WRAPPER='', CARGO_PROFILE_DEV_DEBUG='0', CARGO_BUILD_JOBS='2', RUST_TEST_THREADS='2', NEXTEST_TEST_THREADS='2', ONBOARDING_FORMAL_OUT=str(OUT / 'formal'), ONBOARDING_CAPTURE_DIR=str(OUT / 'captures'), CLIPPY_CONF_DIR=str(ROOT / 'src/frontends/gui/lint'))
+env = dict(os.environ, RUSTC_WRAPPER='', CARGO_PROFILE_DEV_DEBUG='0', CARGO_BUILD_JOBS='2', RUST_TEST_THREADS='2', NEXTEST_TEST_THREADS='2', ONBOARDING_FORMAL_OUT=str(OUT / 'formal'), ONBOARDING_EVIDENCE_DIR=str(OUT / 'startup'), ONBOARDING_CAPTURE_DIR=str(OUT / 'captures'), CLIPPY_CONF_DIR=str(ROOT / 'src/frontends/gui/lint'))
 commands = []
 
 
@@ -34,8 +34,8 @@ def run(name, command):
 
 
 cargo = ['--offline', '--locked', '--jobs', '2', '--target-dir', str(TARGET), '-p', 'bboxy450-harness']
-run('private-discovery-profile-installer-native-gui', ['cargo', 'nextest', 'run', *cargo, '--features', 'embedded', '--test', 'harness_onboarding'])
-run('markdown-native-source-queued-history-and-causal-guard', ['cargo', 'nextest', 'run', *cargo, '--features', 'embedded', '--lib', '-E', 'test(onboarding_) | test(gui_polish_pending_requires_causal_durable_user_in_current_birth)'])
+run('private-discovery-profile-installer-native-gui', ['cargo', 'nextest', 'run', *cargo, '--features', 'standalone', '--test', 'harness_onboarding'])
+run('markdown-native-source-queued-history-and-causal-guard', ['cargo', 'nextest', 'run', *cargo, '--features', 'standalone', '--lib', '-E', 'test(onboarding_) | test(gui_polish_pending_requires_causal_durable_user_in_current_birth)'])
 run('install-model-and-control', ['cargo', 'test', *cargo, '--test', 'formal_models', 'onboarding_install_native_model_and_control', '--', '--exact'])
 run('strict-producer-and-standalone', ['cargo', 'clippy', *cargo, '--features', 'standalone', '--lib', '--bin', 'bboxy450-harness', '--test', 'harness_onboarding', '--test', 'formal_models', '--no-deps', '--', '-D', 'warnings'])
 run('embedded-without-acp', ['cargo', 'check', *cargo, '--no-default-features', '--features', 'embedded', '--lib'])
@@ -58,6 +58,8 @@ for line in (OUT / 'formal/manifest.tsv').read_text().splitlines():
     models.append(dict(name=name, expected=expected, states=len(actual[0]), transitions=len(actual[1]), graph_equal=True, tlc_exit=checked.returncode))
     print(f'harness-onboarding: {name}: {expected}; {len(actual[0])} states / {len(actual[1])} transitions match', flush=True)
 assert len(models) == 2
+startup = [dict(path=str(p), sha256=hashlib.sha256(p.read_bytes()).hexdigest()) for p in sorted((OUT / 'startup').glob('*.json'))]
+assert len(startup) == 2, 'Actual empty-home app and same-view live refresh evidence are required'
 captures = [dict(path=str(p), sha256=hashlib.sha256(p.read_bytes()).hexdigest()) for p in sorted((OUT / 'captures').glob('*.png'))]
 assert len(captures) == 8, 'Four setup and four user Markdown captures are required'
-(OUT / 'producer.json').write_text(json.dumps(dict(commands=commands, models=models, pins=pins, captures=captures, operator_input=False, arbitrary_rust_refinement=False), indent=2) + '\n')
+(OUT / 'producer.json').write_text(json.dumps(dict(commands=commands, models=models, pins=pins, captures=captures, startup=startup, operator_input=False, arbitrary_rust_refinement=False), indent=2) + '\n')

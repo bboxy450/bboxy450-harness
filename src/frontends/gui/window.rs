@@ -630,12 +630,25 @@ impl ApplicationHandler<Wake> for App {
                 event_loop.exit();
                 return;
             }
-            if self.rendered && self.bridge.state.ready && self.bridge.state.prepared.is_some() {
+            let setup_visible = self
+                .view
+                .frame
+                .layout
+                .as_ref()
+                .is_some_and(|layout| super::view::find(layout, "setup").is_some());
+            let needs_setup =
+                self.options.replay.is_none() && self.bridge.state.profiles.is_empty();
+            if self.rendered
+                && self.bridge.state.ready
+                && self.bridge.state.prepared.is_some()
+                && (!needs_setup || setup_visible)
+            {
                 if self.window.as_ref().and_then(|w| w.is_visible()) != Some(false) {
                     self.error = Some("smoke window must stay hidden".into());
                 } else {
                     eprintln!(
-                        "smoke-window: native window created; surface configured; live frame submitted to private texture; visible=false"
+                        "smoke-window: native window created; surface configured; live frame submitted to private texture; visible=false; setup={setup_visible}; profiles={}",
+                        self.bridge.state.profiles.len()
                     );
                 }
                 self.bridge.request_detach();
@@ -1043,5 +1056,87 @@ mod acp_controls_path_tests {
         );
         assert!(config_at_home(&options, None).is_err());
         assert!(config_at_home(&options, Some("".into())).is_err());
+    }
+}
+
+#[cfg(test)]
+#[path = "../../../tests/support/onboarding_startup.rs"]
+mod onboarding_startup_fixture;
+#[cfg(test)]
+mod onboarding_startup_tests {
+    use super::*;
+    #[test]
+    #[allow(clippy::disallowed_methods)] // Child test owns a private HOME/PATH and actor.
+    fn onboarding_empty_home_live_bridge_refresh() {
+        const CASE: &str = "frontends::gui::window::onboarding_startup_tests::onboarding_empty_home_live_bridge_refresh";
+        if std::env::var_os("ONBOARDING_PRIVATE_STARTUP_CHILD").is_none() {
+            let home = onboarding_startup_fixture::home();
+            assert!(!home.path().join(".bboxy450-harness").exists());
+            let mut command =
+                onboarding_startup_fixture::command(&std::env::current_exe().unwrap(), home.path());
+            command
+                .args(["--exact", CASE, "--nocapture"])
+                .env("ONBOARDING_PRIVATE_STARTUP_CHILD", "1");
+            let output = onboarding_startup_fixture::run(&mut command);
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stdout)
+                    .contains("same-view catalogue refresh: PASS")
+            );
+            onboarding_startup_fixture::evidence(
+                "same-view-refresh-process.json",
+                serde_json::json!({"test":CASE,"exit_code":output.status.code(),"stdout":String::from_utf8_lossy(&output.stdout),"stderr":String::from_utf8_lossy(&output.stderr)}),
+            );
+            return;
+        }
+        struct Quiet;
+        impl Waker for Quiet {
+            fn wake(&self) {}
+        }
+        bbt_rt::handle().block_on(async {
+            // Actual standalone startup configuration and actual Host/Bridge actor.
+            // Missing default profiles must become a live setup view, not an exit.
+            let options=Options::parse(Vec::<String>::new()).unwrap();
+            let config=config(&options).unwrap();
+            assert!(!config.profiles.exists());
+            let mut bridge=Bridge::new(Arc::new(Quiet));
+            bridge.create(config);
+            let mut view=HarnessView::standalone(Zoom::default());
+            tokio::time::timeout(Duration::from_secs(10),async {
+                loop {
+                    bridge.drain(Duration::from_millis(2));
+                    if bridge.state.ready && bridge.state.gateway.is_some() && !bridge.state.onboarding.entries.is_empty() && bridge.state.prepared.is_some() {break}
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            }).await.unwrap();
+            assert!(bridge.state.profiles.is_empty());
+            let session=bridge.state.transcript.session;
+            let epoch=bridge.state.transcript.epoch;
+            let frame=view.render(&bridge.state,[800.,1000.]).unwrap();
+            assert!(super::super::view::find(frame.layout.as_ref().unwrap(),"setup").is_some());
+            let action=frame.actions.iter().find_map(|(_,action)|match action {
+                Action::InstallAdapter(recipe) if recipe.agent==crate::onboarding::Agent::Codex=>Some(action.clone()),_=>None
+            }).expect("real setup install hit action");
+            view.activate(action,&bridge);
+            tokio::time::timeout(Duration::from_secs(10),async {
+                loop {
+                    bridge.drain(Duration::from_millis(2));
+                    if bridge.state.profiles.iter().any(|p|p.name=="codex") && bridge.state.onboarding.entries.iter().any(|e|e.agent==crate::onboarding::Agent::Codex && e.adapter) && bridge.state.onboarding.installs.get(&crate::onboarding::Agent::Codex).is_some_and(|i|!i.running && i.result.as_deref().is_some_and(|r|r.contains("complete"))) {break}
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            }).await.unwrap();
+            let frame=view.render(&bridge.state,[800.,1000.]).unwrap();
+            let text=super::super::view::layout_text(frame.layout.as_ref().unwrap());
+            assert!(text.contains("ACP adapter available") && text.contains("Installation complete"));
+            assert_eq!(bridge.state.transcript.session,session,"same actor/session");
+            assert_eq!(bridge.state.transcript.epoch,epoch,"no backend restart");
+            assert_eq!(std::fs::read_to_string(std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join("installer-argv")).unwrap().trim(),"install --global @agentclientprotocol/codex-acp@2.5.0");
+            println!("empty-home startup and same-view catalogue refresh: PASS; profiles=0->1; session/epoch unchanged");
+            if let Some(worker)=bridge.detach() {tokio::time::timeout(Duration::from_secs(5),worker).await.unwrap().unwrap();}
+        });
     }
 }
