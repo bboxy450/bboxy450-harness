@@ -95,12 +95,15 @@ impl AuditFixture {
         self.logs.insert(session, log);
     }
     pub fn new(stale: bool) -> Self {
-        Self::build(stale, false)
+        Self::build(stale, false, |body| vec![body])
     }
     pub fn skipped() -> Self {
-        Self::build(false, true)
+        Self::build(false, true, |body| vec![body])
     }
-    fn build(stale: bool, skipped: bool) -> Self {
+    pub fn with_adoptions(transform: fn(Item) -> Vec<Item>) -> Self {
+        Self::build(false, false, transform)
+    }
+    fn build(stale: bool, skipped: bool, transform: fn(Item) -> Vec<Item>) -> Self {
         let mut fixture = Fixture::new();
         let producer = fixture.approve_fixture();
         let sessions = fixture.repo.home.path().join("sessions");
@@ -457,21 +460,19 @@ impl AuditFixture {
             let index = log.len();
             completed(&mut log, publication, id, carrier);
             if !skipped {
-                let adoption = item(60 + which);
-                begin(&mut log, publication, adoption, ItemKind::Adoption);
-                completed(
-                    &mut log,
-                    publication,
-                    adoption,
-                    Item::Adoption {
-                        entry: entry.clone(),
-                        harness: "engine".into(),
-                        sink,
-                        record: Some(pin.clone()),
-                        block_digest: entry::digest(&block),
-                        receipt: Some(format!("sha256:{sha}")),
-                    },
-                );
+                let body = Item::Adoption {
+                    entry: entry.clone(),
+                    harness: "engine".into(),
+                    sink,
+                    record: Some(pin.clone()),
+                    block_digest: entry::digest(&block),
+                    receipt: Some(format!("sha256:{sha}")),
+                };
+                for (n, body) in transform(body).into_iter().enumerate() {
+                    let adoption = item(60 + which + (n as u128) * 1000);
+                    begin(&mut log, publication, adoption, ItemKind::Adoption);
+                    completed(&mut log, publication, adoption, body);
+                }
             }
             run_owner
                 .admit()

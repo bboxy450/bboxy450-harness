@@ -799,18 +799,18 @@ async fn audit_receipts(
         proof(audit, "P4", receipt::check_sources(run, &refs, &logs));
     }
     let mut good = vec![];
-    for publication in publications {
+    for publication in &publications {
         let Some(run) = runs.get(&publication.body.run.session) else {
             audit.unproven("P2", "missing_outer_run");
             continue;
         };
-        let result = receipt::check_outer(&publication, run);
+        let result = receipt::check_outer(publication, run);
         if result.is_err() {
             proof(audit, "P2", result);
             continue;
         }
         match Box::pin(receipt::check_publication(
-            &publication,
+            publication,
             resolver,
             &domains,
             accepted,
@@ -841,7 +841,7 @@ async fn audit_receipts(
                         audit.labels.push(json!({"kind":"stale_exposure","entry":entry,"receipt":publication.blob.sha256}));
                     }
                 }
-                good.push(publication);
+                good.push(publication.clone());
             }
             Err(e) => proof(audit, "P2", Err(e)),
         }
@@ -851,9 +851,31 @@ async fn audit_receipts(
             Item::Adoption {
                 receipt: Some(digest),
                 ..
-            } if good
-                .iter()
-                .any(|r| format!("sha256:{}", r.blob.sha256) == *digest) => {}
+            } => {
+                if let Some(publication) = good
+                    .iter()
+                    .find(|r| format!("sha256:{}", r.blob.sha256) == *digest)
+                {
+                    let event = fact
+                        .seq
+                        .0
+                        .checked_sub(1)
+                        .and_then(|n| logs.get(&fact.session)?.get(n as usize));
+                    match event {
+                        Some(event) => {
+                            proof(audit, "P2", receipt::check_adoption(publication, event))
+                        }
+                        None => audit.unproven("P2", "lost_witness"),
+                    }
+                } else if publications
+                    .iter()
+                    .any(|r| format!("sha256:{}", r.blob.sha256) == *digest)
+                {
+                    audit.reject("P2", "adoption_publication_unqualified");
+                } else {
+                    audit.unproven("P2", "lost_witness");
+                }
+            }
             Item::Adoption { .. } => audit.unproven("P2", "lost_witness"),
             Item::Recall {
                 entry,
