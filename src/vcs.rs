@@ -187,7 +187,9 @@ async fn capture_until(cwd: &Path, deadline: Instant) -> Option<Vcs> {
             "status",
             "--porcelain=v1",
             "--untracked-files=normal",
-            "--ignore-submodules=all",
+            // Override repository/.gitmodules ignore policy: changed gitlinks
+            // and submodule worktrees are part of this checkout's dirty state.
+            "--ignore-submodules=none",
         ],
         deadline,
     )
