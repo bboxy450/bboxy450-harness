@@ -51,6 +51,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 serde_yaml = "0.9"
 zeroize = "1"
 sha2 = "0.10"
+# Reuse the locked NFC data and Ed25519 implementation; enable no new package graph.
+icu_normalizer = { version = "=2.4.0", default-features = false, features = ["compiled_data"] }
+ring = "=0.17.14"
 libc = "0.2"
 glob = "0.3"
 regex = "1"
