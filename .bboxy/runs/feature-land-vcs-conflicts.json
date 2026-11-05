@@ -1,0 +1,5 @@
+{
+  "file": "verification/coverage.toml",
+  "resolution": "Retain current-main file and add only src/vcs.rs inventory entry plus exact accepted WP2 implementation-only note; do not import legacy Dream-model note or planned_sources.",
+  "all_other_patch_files": "automatically merged"
+}

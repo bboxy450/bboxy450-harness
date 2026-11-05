@@ -1,0 +1,9 @@
+{
+  "source": "f137fc78e4dcce71585263dcd4e2e2d70c33caea",
+  "protected_count": 205,
+  "all_protected_hashes_match": true,
+  "source_vcs_matches_accepted_correction_byte_exact": true,
+  "all_prior_branch_and_untracked_hashes_match": true,
+  "coverage_delta": "only src/vcs.rs and one implementation-only VCS note",
+  "models_controls_corpus_contracts_checkers_Cargo_protocol_GUI_licenses_fixtures_unchanged": true
+}

@@ -10,6 +10,7 @@
 //! One core, one event log, and protocol consumers for every face.
 
 pub mod protocol;
+pub mod vcs;
 
 pub mod capability;
 pub mod process;

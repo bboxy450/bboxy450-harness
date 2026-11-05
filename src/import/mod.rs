@@ -12,6 +12,9 @@
 //! A projector is pure and streaming: `push` one native JSONL record, get the events it
 //! adds; `finish` closes whatever is still open. Unmapped records remain Native;
 //! unconsumed mapped fields accompany their item in the provider extension.
+/// Revision of the shared native Claude Code/Codex Projector mapping.
+pub const PARSER_REVISION: u32 = 3;
+
 pub mod edge;
 pub mod reproject;
 mod spill;
@@ -114,6 +117,8 @@ pub struct Projector {
     context_window: Option<u64>,
     /// The native session's working directory, once a record names it.
     pub cwd: Option<String>,
+    /// First available native observations; absent fields stay absent.
+    pub vcs: Option<Vcs>,
     pub model: Option<String>,
     /// The native clock of the last record that carried one (ms since the epoch).
     pub ts_ms: Option<u64>,
@@ -133,6 +138,7 @@ impl Projector {
             native_version: None,
             context_window: None,
             cwd: None,
+            vcs: None,
             model: None,
             ts_ms: None,
             #[cfg(feature = "test-fixtures")]
@@ -140,6 +146,12 @@ impl Projector {
         }
     }
     pub fn push(&mut self, record: &Value) -> Vec<Event> {
+        if let Some(observed) = edge::vcs(self.native, record) {
+            let vcs = self.vcs.get_or_insert_with(Vcs::default);
+            vcs.repo = vcs.repo.take().or(observed.repo);
+            vcs.branch = vcs.branch.take().or(observed.branch);
+            vcs.commit = vcs.commit.take().or(observed.commit);
+        }
         if let Some(ts) = record
             .get("timestamp")
             .and_then(Value::as_str)
@@ -208,7 +220,8 @@ impl Projector {
         if self.restore_drop {
             return;
         }
-        if out.iter().any(|e| matches!(e, Event::ItemCompleted { body: Item::Native { raw, .. }, .. } if raw == record)) { return; }
+        let record = edge::sanitized_record(self.native, record);
+        if out.iter().any(|e| matches!(e, Event::ItemCompleted { body: Item::Native { raw, .. }, .. } if raw == &record)) { return; }
         let item = ItemId::new();
         out.push(Event::ItemStarted {
             turn: self.turn,
@@ -222,8 +235,8 @@ impl Projector {
             status: ItemStatus::Completed,
             body: Item::Native {
                 provider: self.native.label().into(),
-                record_type: record_type(record),
-                raw: record.clone(),
+                record_type: record_type(&record),
+                raw: record,
                 blob: None,
             },
         });
@@ -934,7 +947,7 @@ pub async fn import_file_with_redactor(
         )
     }));
     let meta = SessionMeta {
-        vcs: None,
+        vcs: p.vcs.clone(),
         dream: None,
         source: Some(Source {
             harness: native.label().into(),
@@ -945,7 +958,7 @@ pub async fn import_file_with_redactor(
                     .map(str::to_owned)
             }),
             version: p.native_version.clone(),
-            parser_revision: Some(2),
+            parser_revision: Some(PARSER_REVISION),
         }),
         session: SessionId::new(),
         cwd: p.cwd.clone().unwrap_or_else(|| "/".into()).into(),

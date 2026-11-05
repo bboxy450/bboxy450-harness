@@ -1,0 +1,29 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp6)
+    Finished `test` profile [unoptimized] target(s) in 9.99s
+     Running tests/dream_vcs.rs (target/debug/deps/dream_vcs-58649dc2cfc76c8e)
+
+running 8 tests
+test normalization_is_shared_and_discards_remote_authentication ... ok
+test missing_origin_uses_real_toplevel_and_no_repository_stays_absent ... ok
+test real_git_capture_records_origin_branch_commit_clean_and_dirty ... ok
+test missing_git_and_git_errors_degrade_without_failing_a_turn ... ok
+test incomplete_git_status_never_claims_a_clean_checkout ... ok
+test engine_and_acp_headers_capture_without_persisting_remote_credentials ... ok
+test changed_submodule_worktree_and_gitlink_are_dirty_in_actual_headers ... FAILED
+test stalled_git_is_bounded_and_its_owned_children_are_reaped ... ok
+
+failures:
+
+---- changed_submodule_worktree_and_gitlink_are_dirty_in_actual_headers stdout ----
+
+thread 'changed_submodule_worktree_and_gitlink_are_dirty_in_actual_headers' (197040667) panicked at tests/dream_vcs.rs:125:5:
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    changed_submodule_worktree_and_gitlink_are_dirty_in_actual_headers
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.17s
+
+error: test failed, to rerun pass `--test dream_vcs`

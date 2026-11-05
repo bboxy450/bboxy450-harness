@@ -1,0 +1,15 @@
+{
+  "protected_branches": {
+    "landing/dream-ir13-20261105": "fc6c0ef9754ea4f530111f54a23096f3434d151c",
+    "feature/dream-ir13-land-20261105": "5a6d3789f12d3308ba04baf2fcb5110a102ce825",
+    "dream/wp6": "c98d185bc2182f3a37ceee936031081f8c7cb2bd"
+  },
+  "preexisting_untracked_sha256": {
+    ".bboxy/runs/feature-land-ir-final-head.json": "98d3ce9d82256e528d20c949f69096d064755752326a9c38330bc1fd10225307",
+    ".bboxy/runs/feature-land-ir-final-head.log": "08d4d6e0d485dbe4e812d18d6bd0c1a91b67427f756631035aa11d35aa26a9d4",
+    ".bboxy/runs/feature-land-ir-final-state.json": "dea6bad9ca78f332d5d9d2ee6dd40fdf7526737ca1cfb669bc5c98a118487774",
+    ".bboxy/runs/oracle-ir13-report-head-native.json": "12e9c6ef4fe2fd079c838adeb7903d8f53075be2c81378d669d3e9865ce2a60a"
+  },
+  "retained_native_sha256": "fd5a099e99968f99965128bfb36eaa33beaf5e99c9dcb650f8132cafe1c87c6a",
+  "source_index_clean_before_restore": true
+}
