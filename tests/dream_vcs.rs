@@ -116,15 +116,24 @@ fn run(home: &Path, cwd: &Path, acp: bool, configure: impl FnOnce(&mut Command))
         std::fs::write(profiles.join("vcs-acp.md"), format!("---\nname: vcs-acp\nprovider: acp-agent\nagent:\n  command: [/usr/bin/python3, -I, {}, text]\non_unattended: deny\n---\n", manifest.join("tests/fixtures/acp-agent/fake_agent.py").display())).unwrap();
         command.args(["--profile", "vcs-acp"]);
     } else {
+        // An earlier ACP leg can discover adapter profiles in this same private
+        // HOME. Pin the scripted leg so it never selects a discovered adapter.
         command
-            .arg("--scripted")
+            .args(["--profile", "vcs-scripted", "--scripted"])
             .arg(manifest.join("tests/fixtures/sse/text.sse"));
     }
     configure(&mut command);
     let output = command.output().unwrap();
+    let terminal = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|value| value["event"]["type"] == "turn_ended")
+        .map(|value| value["event"]["reason"].clone())
+        .next_back();
     assert!(
         output.status.success(),
-        "{}",
+        "VCS fixture child status={} acp={acp} terminal={terminal:?}: {}",
+        output.status,
         String::from_utf8_lossy(&output.stderr)
     );
     output
