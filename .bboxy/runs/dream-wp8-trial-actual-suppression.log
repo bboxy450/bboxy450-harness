@@ -1,0 +1,21 @@
+command: cargo test --lib dream::recall::tests::actual_trial_capability_suppresses_automatic_recall_in_both_engine_arms -- --exact --nocapture && cargo clippy --all-targets --all-features -- -D warnings
+source: 0978382e0efd5fe161dd320bc656f78472a9a9c9
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized] target(s) in 12.73s
+     Running unittests src/lib.rs (target/debug/deps/bboxy450_harness-9ec84fafe6b6c998)
+
+running 1 test
+
+thread 'dream::recall::tests::actual_trial_capability_suppresses_automatic_recall_in_both_engine_arms' (199533825) panicked at src/dream/recall.rs:395:22:
+called `Result::unwrap()` on an `Err` value: Custom { kind: Other, error: "trial directory is not private and owned" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test dream::recall::tests::actual_trial_capability_suppresses_automatic_recall_in_both_engine_arms ... FAILED
+
+failures:
+
+failures:
+    dream::recall::tests::actual_trial_capability_suppresses_automatic_recall_in_both_engine_arms
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 65 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `--lib`

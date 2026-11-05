@@ -1,0 +1,22 @@
+command: cargo test --test dream_sinks lower -- --nocapture
+source: 0978382e0efd5fe161dd320bc656f78472a9a9c9
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized] target(s) in 11.13s
+     Running tests/dream_sinks.rs (target/debug/deps/dream_sinks-98b09ad2f70a2b9a)
+
+running 2 tests
+
+thread 'lower_handwritten_shared_index_symlink_and_unapproved_are_not_adoptions' (198816360) panicked at tests/dream_sinks.rs:550:16:
+called `Result::unwrap()` on an `Err` value: Fail("noncanonical_receipt")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test lower_handwritten_shared_index_symlink_and_unapproved_are_not_adoptions ... FAILED
+test lower_actual_publication_custody_idempotence_and_outer_run ... ok
+
+failures:
+
+failures:
+    lower_handwritten_shared_index_symlink_and_unapproved_are_not_adoptions
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 8.48s
+
+error: test failed, to rerun pass `--test dream_sinks`

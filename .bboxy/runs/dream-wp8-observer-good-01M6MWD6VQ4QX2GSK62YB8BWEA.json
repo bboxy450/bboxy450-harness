@@ -1,0 +1,8 @@
+{
+  "fault": "good",
+  "accepted_by_independent_observer": true,
+  "producer_declared_outcome": "published",
+  "raw_call_count": 30,
+  "raw_trace_sha256": "6e0a1a1676713b1829533553a79b060ae97c4a66d9ac22e0474f24aa184f6802",
+  "raw_trace_retention": "private temporary directory; bytes and secret/transcript content never recorded"
+}

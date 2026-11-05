@@ -1,0 +1,49 @@
+command: cargo test --test dream_sinks -- --nocapture
+source: 0978382e0efd5fe161dd320bc656f78472a9a9c9
+    Finished `test` profile [unoptimized] target(s) in 0.41s
+     Running tests/dream_sinks.rs (target/debug/deps/dream_sinks-98b09ad2f70a2b9a)
+
+running 6 tests
+test independent_filesystem_observer_process_child ... ok
+test flush_real_mcp_lost_write_and_commit_query_original_before_created ... ok
+test flush_real_commit_failure_wrong_root_and_no_route_stay_ineligible ... ok
+
+thread 'lower_independent_syscall_digest_observer_rejects_clobber_aba_unsynced_and_wrong_bytes' (198949210) panicked at tests/dream_sinks.rs:635:9:
+assertion `left == right` failed: good: open	14	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze	-	-	17826048
+open	15	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/.bboxy450-harness	-	-	17826048
+open	14	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/.bboxy450-harness/dream	-	-	17826048
+open	15	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/.bboxy450-harness/dream/context	-	-	17826048
+open	14	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/.bboxy450-harness/dream/context/6c3aeae59564ff87	-	-	17826048
+open	-1	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/.bboxy450-harness/dream/context/6c3aeae59564ff87/01M6MVCR5701H3VATZQSDVKQNN.md	-	-	16777476
+open	15	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/.bboxy450-harness/dream/context/6c3aeae59564ff87/.dream-tmp-01M6MVCT5KP684THTNKR5CAD80	-	-	16780033
+write	384	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/.bboxy450-harness/dream/context/6c3aeae59564ff87/.dream-tmp-01M6MVCT5KP684THTNKR5CAD80	-	31d74d3e6b70d987e033d04ee74aa1075c1723c13f52c884da2632e97e1ca6ed	384
+link	0	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/.bboxy450-harness/dream/context/6c3aeae59564ff87/.dream-tmp-01M6MVCT5KP684THTNKR5CAD80	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/.bboxy450-harness/dream/context/6c3aeae59564ff87/01M6MVCR5701H3VATZQSDVKQNN.md	-	0
+unlink	0	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/.bboxy450-harness/dream/context/6c3aeae59564ff87/.dream-tmp-01M6MVCT5KP684THTNKR5CAD80	-	-	0
+write	241	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/sessions/01M6MVCR4RZ54QH0P97E8ND7EH.jsonl	-	273d571fb64d5569dea8ced26903b69bb5457f74c37ae0d5029f12843998a303	241
+open	15	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/sessions/01M6MVCR4RZ54QH0P97E8ND7EH.jsonl	-	-	16777476
+open	16	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/sessions/01M6MVCR4RZ54QH0P97E8ND7EH	-	-	17826048
+mkdir	0	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/sessions/01M6MVCR4RZ54QH0P97E8ND7EH/blobs	-	-	0
+open	17	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/sessions/01M6MVCR4RZ54QH0P97E8ND7EH/blobs	-	-	17826048
+open	18	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/sessions/01M6MVCR4RZ54QH0P97E8ND7EH/blobs/.dream-tmp-01M6MVCT69F2MZJKP61M5JQ5GE	-	-	16780033
+write	9971	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/sessions/01M6MVCR4RZ54QH0P97E8ND7EH/blobs/.dream-tmp-01M6MVCT69F2MZJKP61M5JQ5GE	-	21cbd7f55fd60d947be56284cec989705090f866585d43828dd2d2db9369866a	9971
+link	0	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/sessions/01M6MVCR4RZ54QH0P97E8ND7EH/blobs/.dream-tmp-01M6MVCT69F2MZJKP61M5JQ5GE	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/sessions/01M6MVCR4RZ54QH0P97E8ND7EH/blobs/21cbd7f55fd60d947be56284cec989705090f866585d43828dd2d2db9369866a	-	0
+unlink	0	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/sessions/01M6MVCR4RZ54QH0P97E8ND7EH/blobs/.dream-tmp-01M6MVCT69F2MZJKP61M5JQ5GE	-	-	0
+write	668	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/sessions/01M6MVCR4RZ54QH0P97E8ND7EH.jsonl	-	75417129d47ed94f44988a8cd270cb89a32c5567860e459a284930141d506ddb	668
+write	251	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/sessions/01M6MVCR4RZ54QH0P97E8ND7EH.jsonl	-	72e4950869b94da1f40d3073be948a53e8fb5db3790e78553d436eff3ec31700	251
+write	945	/private/tmp/wp8-check-mrr0czwc/.tmpon5Bze/sessions/01M6MVCR4RZ54QH0P97E8ND7EH.jsonl	-	86a47135eb7b881804611f255dce0c7c2473a96d82d65364c4e23250fa1030db	945
+
+  left: false
+ right: true
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test lower_independent_syscall_digest_observer_rejects_clobber_aba_unsynced_and_wrong_bytes ... FAILED
+test lower_handwritten_shared_index_symlink_and_unapproved_are_not_adoptions ... ok
+test lower_actual_publication_custody_idempotence_and_outer_run ... ok
+
+failures:
+
+failures:
+    lower_independent_syscall_digest_observer_rejects_clobber_aba_unsynced_and_wrong_bytes
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.72s
+
+error: test failed, to rerun pass `--test dream_sinks`

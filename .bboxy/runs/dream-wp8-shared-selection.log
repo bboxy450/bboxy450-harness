@@ -1,0 +1,70 @@
+command: cargo test --test dream_audit_broken --test dream_graph --test dream_trust --test dream_seal
+source: 0978382e0efd5fe161dd320bc656f78472a9a9c9
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+warning: unused variable: `harness`
+    --> src/dream/receipt.rs:1454:9
+     |
+1454 |     let harness = body
+     |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_harness`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `bboxy450-harness` (lib) generated 1 warning (run `cargo fix --lib -p bboxy450-harness` to apply 1 suggestion)
+    Finished `test` profile [unoptimized] target(s) in 12.80s
+     Running tests/dream_audit_broken.rs (target/debug/deps/dream_audit_broken-b4b854b595673d5a)
+
+running 7 tests
+test matching_current_bytes_never_replace_missing_publication_history ... ok
+test incomplete_run_stays_unproven_and_real_cli_queries_are_read_only ... ok
+test every_retained_broken_case_exits_one_and_names_its_check ... ok
+test adoption_cannot_borrow_a_publication_from_another_session ... ok
+test reported_recall_requires_successful_publication_not_a_valid_skip ... ok
+test sufficient_retained_publication_run_idempotence_and_stale_exposure_accept ... ok
+test altered_and_duplicate_adoptions_cannot_piggyback_a_good_digest has been running for over 60 seconds
+test altered_and_duplicate_adoptions_cannot_piggyback_a_good_digest ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 102.28s
+
+     Running tests/dream_graph.rs (target/debug/deps/dream_graph-3a3b2eb9c1801ef4)
+
+running 9 tests
+test net_gain_keeps_failed_held_out_observations ... ok
+test numeric_pass_cannot_fill_missing_cost_duplicate_held_out_or_harm_controls ... ok
+test pair_terminal_reasons_survive_and_inconclusive_remains_tested ... ok
+test adoption_cannot_borrow_a_harness_revision_or_unknown_threshold ... ok
+test durable_union_rejects_conflicting_raw_identity_and_keeps_unknown_bytes ... ok
+test projection_ignores_clocks_order_duplicates_and_cross_harness_rejection ... ok
+test graph_refuses_invalid_weights_and_strength_is_only_a_read_projection ... ok
+test cross_root_links_match_whole_authorized_names_and_keep_external_edges ... ok
+test derived_qualification_binds_closed_fork_call_leaves_and_current_fact ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.69s
+
+     Running tests/dream_seal.rs (target/debug/deps/dream_seal-44d88f6741817b71)
+
+running 8 tests
+test owned_child_fixture ... ignored, private child process fixture, explicitly invoked by the process witness
+test registered_data_cannot_be_sealed_or_silently_redacted_into_different_pins ... ok
+test freeze_requires_observed_quiescence_and_completed_admissions ... ok
+test native_resource_shapes_bind_full_entries_and_fixed_adapter_bytes ... ok
+test real_delayed_child_is_unproven_and_broken_exception_exposes_aba ... ok
+test own_receipt_custody_is_atomic_noreplace_and_preserves_a_conflict ... ok
+test receipt_seal_constructs_without_self_hash_and_exact_suffix_roundtrips ... ok
+test retained_seal_cut_selection_and_outer_coverage_controls_reject ... ok
+
+test result: ok. 7 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 6.44s
+
+     Running tests/dream_trust.rs (target/debug/deps/dream_trust-89b769f2a6bdbf09)
+
+running 8 tests
+test deterministic_effect_trace_positive_and_negative_controls ... ok
+test pinned_real_producer_record_is_a_byte_vector_only ... ok
+test receipt_seal_constructs_without_self_hash ... ok
+test exact_v_rejects_byte_serialization_crypto_and_binding_controls ... ok
+test policy_rejects_unknown_schema_aliases_permissions_and_root_rebinding ... ok
+test receipt_header_body_roundtrip ... ok
+test independent_git_authority_and_rotation_are_ancestry_based ... ok
+test approved_artifact_binds_executable_capabilities_gate_and_accepted_task ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.80s
+
