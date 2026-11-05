@@ -1,0 +1,8 @@
+command: python3 -I scripts/checks.py headers && python3 -I scripts/checks.py secrets && python3 -I scripts/checks.py kb-records && python3 -I scripts/checks.py kb-records-control && python3 -I scripts/checks.py inventory-shape && python3 -I scripts/checks.py inventory-shape-control && git diff --check fc6c0ef9754ea4f530111f54a23096f3434d151c HEAD -- protocol.schema.json src tests verification
+source: f41a99bf458e08c76b9c92a02d6350f227af4af7
+headers: PASS
+secret scan: PASS
+kb records: PASS (2926)
+kb records control: PASS (rejected)
+inventory shape: PASS (1)
+inventory shape control: PASS (rejected 2)

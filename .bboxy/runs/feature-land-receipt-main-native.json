@@ -1,0 +1,661 @@
+{
+  "source": "b3ef7468d016b6e935511542ac2f32c8adfb0e12",
+  "input_sha256": {
+    ".bboxy/interfaces/acp-agent.md": "c122391962a9b0a961d3f5873c3d37a8351398e86ad9455235c3e58d708d1b89",
+    ".bboxy/interfaces/acp.md": "dd1fd0ca08ad38909569086559ec41b0ce505e29058403624f81d3eb38e5c074",
+    ".bboxy/interfaces/embed-seat.md": "0f197cdd1fff7f9598878818b8747a5fcc4e2f0707a67cd1b8606c5ee00a23a4",
+    ".bboxy/interfaces/gateway.md": "c8e9f7b2e1bee4765a0fc008d0c528e1407423d535edc793ee0e69495577c63f",
+    ".bboxy/interfaces/interfaces.md": "12e1d2c88e56881b9316a70eb0dc04c66392a71d50dcc1deb4380e54617e7601",
+    ".bboxy/interfaces/lc-bxl.md": "05faab13bf470ddb51d446268326dc62207a0d21a6f117f3c7f04347d4b70075",
+    ".bboxy/interfaces/lc-ir.md": "23aba34db313fd481260c1ed9d0a46de1401ab10898d925c24994748ac86d9d4",
+    ".bboxy/interfaces/lc-watch-sink.md": "cd1e33fd41919177f49fa9464f8c64fb119041267e8683f0405f945eb8adbbfc",
+    ".bboxy/interfaces/mcp.md": "cf6562428ffc74fe283f069683ed0a1060f828254257e64befd8f78bfc8e3c85",
+    ".bboxy/interfaces/protocol.md": "16cf4e17e9e559b2c47b788faf1c79c738896dee7c76cbc76603be5a07094f9a",
+    ".bboxy/interfaces/provider.md": "5a3d809c702a302fda066320cf018c8476f96d1efbaf3d6e2cefea56ea612d60",
+    ".bboxy/interfaces/rich-pane.md": "7fea1cb9fc5e873eac7939316dbc6486c6b46242b032e34bf878e59238df57b9",
+    ".bboxy/interfaces/seat-capability-delivery.md": "385c641da92ce1c3de4ae8790ec5608d49e9650553d5cec615f26373bd26d096",
+    ".bboxy/interfaces/session-switch.md": "54e66efba68bd2cc8c98efd68e4ba0bfa9eacb1fe2f5d5db8a56ef30b6283190",
+    ".bboxy/interfaces/upstream-toolkit.md": "410085b91dfd17a9e281fd55764e54d8fb4960abe415df108cea6a8b9cf256f4",
+    ".bboxy/invariants/cancel-is-cancel.md": "c9026e09e83be8db91efda1102f7ac4f88f740803a9aaebd38b5818475e7da6e",
+    ".bboxy/invariants/inventory-one-entry-per-line.md": "d290664ecb948456f78897584b9b81397e55308a73c5ed30fc39549819fc1091",
+    ".bboxy/invariants/kb-records-index.md": "56a10ab107e03476852e22adda5335f439a3dbb1cbec0c1c4fc75dbe0477e0e6",
+    ".bboxy/invariants/log-is-truth.md": "824ce491b47534850db0b5487b9cf95b40530898dc63db778f0529283d31a91b",
+    ".bboxy/invariants/never-block.md": "246ebc853838ce7619e1f5de38c0af0c92ea2814a76a55c01a9a57a48427851f",
+    ".bboxy/invariants/one-ending.md": "6604cc2803cf39d622955f29cd39a8ab90df1f83374ff6ac6a1ef06eb3addc13",
+    ".bboxy/invariants/policy-gates-effects.md": "650fb5078bc4e04ccec88389294809032648d664139c0eeba43c19aa856c2351",
+    ".bboxy/invariants/secrets-never-persist.md": "f63fe8ab15018e4a9f5008b5b047b55496ad7d8345f94b2320dcd28897bc85ab",
+    ".bboxy/invariants/tool-pairing.md": "17ecf5ea1ef2b3e29a0a0f5bccb373249f66d28a1310ea9d283d1491a64396c9",
+    "Cargo.lock": "4a0a3d0843725afbb5754016b98ee22dc2b599a50603fe0b75045a2d24e86a19",
+    "Cargo.toml": "66e8a43e909f4148941d3b9194c60ab857aba75533a8da8311df3d9f9e2dc6f1",
+    "protocol.schema.json": "3ef7a745629811e432894beb6202300c520d800810143d3ceae20792eec0af6c",
+    "scripts/bench-budgets.py": "80b3fa2fc5bedb8d029502c80122f7ad34c2d8f859bfad7c7413b527720339dc",
+    "scripts/checks.py": "309741d26936988e3a975335ace5be3fc771e51dd602805be2975ea672ecc0ac",
+    "scripts/formal.py": "7bd64ace2a79bc92d689ed64480938c2b9882d3dbb6f1c19ef23e0daa56d7cff",
+    "scripts/gui-polish-controls.py": "d46b8939a3edd43152be12fdd34ab607a2ae13a2ec2f6029098eef0e9b2793d7",
+    "scripts/hardening-controls.py": "ae83ceca439064dec5d07fe3dd8a55f3276d5b6d4cf5a3276294a4498b314c6c",
+    "scripts/ir-compat.py": "df509118219b20626e5227bd335fc049b7d9030653d70a7678d475258cd87803",
+    "scripts/parity-gate.py": "b9852b2b64f1b66cbfac5f90920dd5f5ea8f9558aea915a478cd8474db783646",
+    "scripts/parity-web.sh": "33c65f35d30373ba0f96f5549809e6700bd5b896a441c5048b28db4290b081e8",
+    "scripts/smoke-app.py": "625f8ded3e23d358a0ac2775fd9a61da60eadd400785a039701ac49ef2114a6a",
+    "scripts/smoke-live.py": "688396f814ce8bf1c8ccf0cd1bd241a6af451707636d5989561067767b798eea",
+    "scripts/test-capability-control.py": "4e8cba454d3a574dec48cd016f15d47816ef4085e9a327e390fd42a239ea6e31",
+    "scripts/test-e1c-controls.py": "6191bb3d57c708243357a2ffa245820e20ddc1867a9bfb78449b1391bfcae67b",
+    "scripts/test-e1c-rework-controls.py": "b7f66d2c136f00d0fc9114f115c8920399c19536d80fa99d58271cc7ab0d400c",
+    "scripts/test-formal.py": "7d123846f22e30f108175e050a07d9be37c333866932a20488ef7cf4ffb4a1cf",
+    "scripts/test-hardening.py": "edf92fd8f3bafde5066479c47bbb5f291b7c6c26c3b14f9f41fe05fb631af5c4",
+    "scripts/test.py": "7cd2521bf47e32180cd5846109cd3291e47451c986ab4ecfd70e5be203ff62c5",
+    "src/backend/acp_agent.rs": "7abd6258a62cc8bddfa9adf1e05eb4c3ec28312bed022d55081d979827bcdc63",
+    "src/backend/mod.rs": "da4565000cfb0b21ae789afb3e9f008744bdddade47932be4f55447440910978",
+    "src/capability.rs": "b793d2d9a02d33235e216758b23a03462ccd4c719c464657df5f153be07f7f64",
+    "src/context/auto.rs": "a87cdc60a48e8c9199cfe2287288a5094264a9f0c2313f64f5fc2a685445b79f",
+    "src/context/compact.rs": "ace4de06457032249dc29afd7c3eeabea45dda8fc2ae13f0560034d4fc698142",
+    "src/context/mod.rs": "23bfffbd3855acb190c75d8cc9514f1c34417eb6acd1b0ce6674a41f6ec0d8a3",
+    "src/engine/history.rs": "28bdf97337c7af0308a287c435134824ab269faed523bb6e52ac913a5581d6db",
+    "src/engine/mod.rs": "4ae3d11442cd41402384f3f824ef647f2a1439df0e8f1fe98bee46de96dbe8d8",
+    "src/engine/task_group.rs": "48c04c8bf8683535f2f14a778a4d61a6e0fee38997a9665e44c7d5250c155ac1",
+    "src/engine/turn_loop.rs": "e6683dba876a082bfb34b9ebc674631f28fff6c798378a209767d0563f98695a",
+    "src/frontends/acp.rs": "876aaad3120c3b9f2a1e45ad4aa70a8496fdf54cd6ca0e7a15d8b5e6fb064406",
+    "src/frontends/face_core.rs": "a517dd7c066f9e56fc07699023effc7ae626e4ba85f9480c09ad5aff60e11169",
+    "src/frontends/gui/assets.rs": "515bb8b264dcb9571183f10ed23533e1722dea174a98f0b906e2ec00e200e0ef",
+    "src/frontends/gui/bboxy-mark.png": "c73d4cbdd38b36efaffaf36c6f627ec92757d90c3dfbcfd2532d8c33a5237382",
+    "src/frontends/gui/bridge.rs": "391aec0d814728e2d497026389d57ac8131b4baae7ac479428a439e27b662a2e",
+    "src/frontends/gui/budget.rs": "32022e379288c2dfe39e084984ff5538899c5898b6c1226408b632f150734bf5",
+    "src/frontends/gui/chat_scroll.rs": "e6e9bc28ed4da5b5e0ba3d9c929ac255cba65b6b7bfe2ee379942113865c43a2",
+    "src/frontends/gui/editor.rs": "30701aaa2a5cb09644c3461fc7ab670a58d026f084394f565e00245eb88673d9",
+    "src/frontends/gui/face.rs": "93d8c5e120dc4f59c2f1f6b837b5b49ed93f5a0a4d89f79dae67c89e75d18bfb",
+    "src/frontends/gui/face_rows.rs": "18078fbee38d1fbb0196ab26494ab20aabcd1d59f1b3775fce666784bb45b838",
+    "src/frontends/gui/layout_checks.rs": "9a6ed45cbd4a9f5d7076aaf9f05b7abc77cc18e3a86d9258aaea9b5957c995f6",
+    "src/frontends/gui/lint/clippy.toml": "28aa1de626f990b70d1efe594734cb217c471103a9e61b597452f8f169993f3d",
+    "src/frontends/gui/menu.rs": "ccba43674be610219ec1b3c2d908ced467191cd070d2d2da736627be09737edb",
+    "src/frontends/gui/mod.rs": "74f17f73bb0df5a3ac90f3c9e1b81f5a0450d370e06131a0878ab55835243a58",
+    "src/frontends/gui/model.rs": "44a980a4d8e71d604df32e3bd293cc055f3c6cfc3a07e6775517f651572f4406",
+    "src/frontends/gui/options.rs": "ebd64f399d907afcf20ba1b440b771f72ff87d5a6a9fe6e39f396814f1ad38aa",
+    "src/frontends/gui/rich.rs": "9b51334c17e635756a8e6b7473fe1c114f333b1740a73ba47bf61152350af1f9",
+    "src/frontends/gui/smoke.rs": "26732c6df3db3e98d502a6a4ad5d0ae9af470da6183d4988b8a5ac0ddc466c7e",
+    "src/frontends/gui/view.rs": "e7d10bb0312086d0900cfc46369f327ec4a57385c4413c1241174345ac342a16",
+    "src/frontends/gui/window.rs": "a88c79d47e85ae1a4899b2872d36d6e28cb9b05caa87444727427786adb7ac33",
+    "src/frontends/headless.rs": "c0ab7ed713571a626b43b13972a99ef4a2b9145bd1c0f4d0f14349189f3431c1",
+    "src/frontends/mod.rs": "62c00fc82cac797f1538eade20a1612a49c5c997db2be85c3315c6091c1bcf60",
+    "src/frontends/seat.rs": "b12c58880ce24b5d0263664f940c6e6f518b3e37da863520fdb319dc7bcb4912",
+    "src/frontends/smoke.rs": "29dc6dd5e0c56b06f04c4d3da35548855338c5000d5c91b102106a764e70a339",
+    "src/gateway/host.rs": "5f7c0da6d95723aef0a2f17f7b42c4856f27e87cf044f82304d26b301789392f",
+    "src/gateway/mod.rs": "e41e8e8cd3e6c8e5de6864412ab76de68a61861c8f5765e3b30bb06f1fbc88a6",
+    "src/gateway/unix.rs": "8e8c12406c0eafce23d364e9dfb99df7e5276facb0dd517d7cfa599255b81bac",
+    "src/import/mod.rs": "cce34bf1859e5af89b640d9c480ae3169d42bdf600a601a59161a41a43434b24",
+    "src/import/watch.rs": "c81860a7972067ef74e705bec3095c13adc841662fef5ecdc9a0833dcdd4c117",
+    "src/lib.rs": "4e1a9973754deebbb6aa3c64a6c4dd86b038d4105a9a09d5010567f7e4891923",
+    "src/main.rs": "6c971b442647d39aa602a4e009070d3ae9e8d34a15ee4d1b7ed93c1c3a6a88ed",
+    "src/mcp.rs": "5a47378808e3111db984241eb114556fc35bf86521900c125ae44de1023dacfd",
+    "src/policy.rs": "4a88c7dd75ed079340d74cbc70fb7f5ffef871f9dffb51c004fdd9d61e16cae7",
+    "src/process.rs": "f949667909428f78aa3ceb26c3dbe5f768ab65b52d32675ceef8717dc02d033f",
+    "src/protocol/laws.rs": "74ef636edec3e1ae7e2c67dfc4f14d152a0ae0346a4f32e0f0d6ee845a08d47b",
+    "src/protocol/mod.rs": "8be46a0006da14dab40f0e706f7d60fa4934403f7be528f7d19761e43866e43f",
+    "src/provider/anthropic.rs": "5620f3797885c82ca220b5edf0b909f90434a60d2aa600a74e4e5365e99c8555",
+    "src/provider/anthropic_parser.rs": "09da442f0e78b136cf34dec25f53e4e5a8178d794e5d58fdc4623c46b5d5ec72",
+    "src/provider/http.rs": "b7f0fa64577251b671045ed7dbdfb1e31c29fcd59114aa615398448f14ec8d18",
+    "src/provider/mod.rs": "0a8b907e434a5957fdef5b8736b069b14546982bb8b140532c68057d6196ce90",
+    "src/provider/parser.rs": "e5f42a731bf84e28e6ada665ff9a9386114a577b44219b9d25fc99c8acdc644d",
+    "src/provider/profile.rs": "741d44d89886d5bf41162c25c791f5bf6ef47bfc21ec472c6ec7ef6e25920607",
+    "src/redact.rs": "8733906a637be4b5517c729a2adf9e1183d67a4c4daa6b933ee0d7a3e20b4d4c",
+    "src/runtime.rs": "5d07be0ce4800646fb41d8743523cb48a78a93dcb6585d8be63e3c59e9fc47a2",
+    "src/store.rs": "59a8a38a7827ab2ddcc68298f04370c8271273d01e3cbaf773e217127540f7bf",
+    "src/store/fork.rs": "778faff5f5302a2597a0ca5a1e29b7a7431efa3a114cba9482c775664f6a575c",
+    "src/tools.rs": "11f4923f040bb1bad3154d6a74e82eb5bdc5093b5dfc32e5d06c3591c177da19",
+    "tests/acp_agent.rs": "fdd8c093d7c50297c1f68eadf3b48d1e6b0d2ea7f49ae4cc42e46134680f85a0",
+    "tests/acp_face.rs": "e2ba6c7026d9c08d923a0f2054aa7a5f8ffc141c741c80da682eaafdb7558f32",
+    "tests/anthropic_provider.rs": "3cb19056c441a1f51432bf5357e84e9d8e517adcd510549f86c8b3ce9469e311",
+    "tests/app_packaging.py": "3d7582221ffba7c4f99393846ce04057d1ade7a1f4c7025cedbba3fff1a237a8",
+    "tests/bin/mcp_fixture.rs": "5401997a7cd6a38e8768cf9c37b8638e614e0535a0db8a8e6f869d5a1ffbe639",
+    "tests/cancel_process.rs": "5995ca7d4f269f975da9b02e4a04a8270b4bc58669458114972e942f02693330",
+    "tests/capability_delivery.rs": "f87898c50890e9a2c9485f838a0548f627f538e6c0e35ce909d587524f26a469",
+    "tests/cli_headless.rs": "83a2eb17818eddff50846e58d51e78ec2cedb2a05e2303e654bea0823c842c1c",
+    "tests/context_auto.rs": "28a79a4adf60fb0db6d40cea63d8668c1ccb1b62a2634411d7fe4c4d95c45bd8",
+    "tests/context_compact.rs": "4ff53a6bd1dee33102a2db4b4de5e395459ca85d2906b413f0db3314e4a3bbed",
+    "tests/e2e_scripted.rs": "e03f186a0983c6a294d5b356fe3dda04fd03911d54e4dd4f22dac8b9011050fb",
+    "tests/exec_stream.rs": "0284f3ed899e2db585c84ca482c560cae5a4430d3f3b888b08027dc7e3516e75",
+    "tests/fixtures/acp-agent/fake_agent.py": "fbce3a85972289e79f90fdf3e10c789ebf6319934db95942278130c11d776858",
+    "tests/fixtures/acp/loaded-all-items.jsonl": "fdef7499cae54e54c2ffef7a27d4ebd9c164d6668f0b869395d20587cde60e3b",
+    "tests/fixtures/acp/scripted-turn.jsonl": "a00ef7a591d5d23b894c889ddb96e994933100db1377d773fc72c805e760cbe6",
+    "tests/fixtures/compact/all-items.md": "747bbc3c10c30ceae7eb077ea626f623ef77411f00ad5f89860b4672af32610d",
+    "tests/fixtures/gui/profiles-home/.bboxy450-harness/default-profile": "c283d89fe30ea2847ec848a4a2dfd2d0d7630d64500479e492afc449b527ccff",
+    "tests/fixtures/gui/profiles-home/.bboxy450-harness/profiles/claude-acp.md": "58a6077984b46cdec00472e51cd52e1f8b313a03953e1802201824f5872af392",
+    "tests/fixtures/gui/profiles-home/.bboxy450-harness/profiles/codex-acp.md": "022a9c96a1d93437d741fd5bd850a45141162c8acdef89d8a2e4309c2bf01445",
+    "tests/fixtures/gui/profiles-home/.bboxy450-harness/profiles/goose-acp.md": "8ac12a122a1c21da87c8333df3457ae7232006348c041d54f658c630161c4f91",
+    "tests/fixtures/gui/profiles-home/.bboxy450-harness/profiles/gpt.md": "67faed800956859b37f78ac418b53cd7cc05fce84579b0ad80cdf8ece2b63252",
+    "tests/fixtures/gui/profiles-home/.bboxy450-harness/profiles/haiku.md": "2710d2bc3598b249713c90dc64187cf6fa67e700849b3c38fa2025a3a119e901",
+    "tests/fixtures/gui/profiles-home/.bboxy450-harness/profiles/nemotron.md": "2bec0ad8b7958ca685e1c6882d85c386c6b5b79a252d19a7a35812305e35e6d6",
+    "tests/fixtures/gui/profiles-home/.bboxy450-harness/profiles/omp-acp.md": "aba36d6bbf3c63f74af5fa78afb9d4d39f2016dae8b336e024c4ce0a786fbffe",
+    "tests/fixtures/gui/profiles-home/.bboxy450-harness/profiles/opencode-acp.md": "b6e6313be535669a8efa8dc7ef108a701de7e23c36f1624b7d5109231f4ca40e",
+    "tests/fixtures/gui/profiles-home/.bboxy450-harness/profiles/opus.md": "bcb4d151a45abaa1c8f459efb2392ab7b3d490c924c478b041ebe9f017ea63ca",
+    "tests/fixtures/gui/profiles-home/.bboxy450-harness/profiles/pi-acp.md": "27f7aa94632a130aa07b5d4c57e2471caa84dbf23f7efbfa7d5e88f375f0f650",
+    "tests/fixtures/gui/profiles-home/.bboxy450-harness/profiles/qwen-local.md": "d27e8a2e345e0d895808ceb0ff205070f1e55c8ccb32cea9eae1c45f8824c631",
+    "tests/fixtures/gui/profiles-home/.bboxy450-harness/profiles/sonnet.md": "f13c99fae489a0c093d895d8c29ffc5aaed10a37d50df5ecfd467dc21d54e58d",
+    "tests/fixtures/gui/rich-all-items.jsonl": "7101ee048cad27138d4d62dad028e2e36a0a18898fbff999819c667723be55da",
+    "tests/fixtures/gui/v0_2-identity-terminal.jsonl": "f4d7fe14ee2dd5c1c87703868c62274f2fc544a9b492f00fb865fd713367f635",
+    "tests/fixtures/ir-v1/v0.4-acp-claude-acp.jsonl": "7a9f96c75aae1aa6d4b3da377a5ec75d2337040a4095266a817b1f9b7240f436",
+    "tests/fixtures/ir-v1/v0.4-acp-codex-acp.jsonl": "4efaaf9347d0777008d23c5ea0b5798ec795a5e2a58674e59938aeb0455d3221",
+    "tests/fixtures/ir-v1/v0.4-acp-omp.jsonl": "b4995a80b27465699c6d97de72ee46555b0a6c0c00072cb386e52e8bb8fbad76",
+    "tests/fixtures/ir-v1/v0.4-acp-opencode.jsonl": "935ef1f3e1276b32b9d893c4d644e18bcffd01bb4df71d1908445af26d1a6c40",
+    "tests/fixtures/ir-v1/v0.4-acp-pi.jsonl": "48e703c0f632b96b94c30046bc0a343c8157805ca401a1b310c487f6bb09b184",
+    "tests/fixtures/ir-v1/v0.4-all-items.jsonl": "3c6931e5791a2d7107e44101b43220f3d084ad961b1ab2d88262109f2374e104",
+    "tests/fixtures/ir-v1/v0.4-interrupt-mid-tool.jsonl": "c504d1671fbe9fc1a5bf067bdf9f574feb11c7a6218884cf8c1b87266067cc58",
+    "tests/fixtures/ir-v1/v0.4-lagged.jsonl": "0ee568f5135f4319c604c8dd3b1ca9914883d0c6a246f78c8d321462048c4d0a",
+    "tests/fixtures/ir-v1/v0.4-recovery.jsonl": "9618bc8b716d688afc8eb4a23108937badb3b001ad5fa5ca54ca4fc9fdb95b5d",
+    "tests/fixtures/ir-v1/v0.4-reset.jsonl": "2cd2f036c6bdc4ab22fead6ca85f4981c2af0871a0410a3b366a8550b0082ccf",
+    "tests/fixtures/native/claude.jsonl": "3d11721953cf5b239d32a51a0fafb6e8305d487d5a7501fbcaea0a074b62c9e5",
+    "tests/fixtures/native/codex.jsonl": "b527aa368cfedd9d9e01d1d7b1351bb9bc113ea59c1ea54e61a197f6dcc60acb",
+    "tests/fixtures/parity/acp-claude-acp.jsonl": "7a9f96c75aae1aa6d4b3da377a5ec75d2337040a4095266a817b1f9b7240f436",
+    "tests/fixtures/parity/acp-codex-acp.jsonl": "4efaaf9347d0777008d23c5ea0b5798ec795a5e2a58674e59938aeb0455d3221",
+    "tests/fixtures/parity/acp-omp.jsonl": "b4995a80b27465699c6d97de72ee46555b0a6c0c00072cb386e52e8bb8fbad76",
+    "tests/fixtures/parity/acp-opencode.jsonl": "935ef1f3e1276b32b9d893c4d644e18bcffd01bb4df71d1908445af26d1a6c40",
+    "tests/fixtures/parity/acp-pi.jsonl": "48e703c0f632b96b94c30046bc0a343c8157805ca401a1b310c487f6bb09b184",
+    "tests/fixtures/parity/glyph-atlas.jsonl": "6d9dc0fe84bef84c79e01cba0a24c5de511fc05b9c353a01aeccbfe2a16dbb1c",
+    "tests/fixtures/parity/mermaid.jsonl": "4bce464d690c7906a4a2fda7c81f2892780d1a339f548cdc06254b5d54904c27",
+    "tests/fixtures/protocol/all-items.jsonl": "3c6931e5791a2d7107e44101b43220f3d084ad961b1ab2d88262109f2374e104",
+    "tests/fixtures/protocol/interrupt-mid-tool.jsonl": "c504d1671fbe9fc1a5bf067bdf9f574feb11c7a6218884cf8c1b87266067cc58",
+    "tests/fixtures/protocol/lagged.jsonl": "0ee568f5135f4319c604c8dd3b1ca9914883d0c6a246f78c8d321462048c4d0a",
+    "tests/fixtures/protocol/recovery.jsonl": "9618bc8b716d688afc8eb4a23108937badb3b001ad5fa5ca54ca4fc9fdb95b5d",
+    "tests/fixtures/protocol/reset.jsonl": "2cd2f036c6bdc4ab22fead6ca85f4981c2af0871a0410a3b366a8550b0082ccf",
+    "tests/fixtures/seat/all-items.ansi": "df1d8a5ee784db7f6d7b77fa81e4d3c43fc32c6ae349fd6a6f3a1cf90a3b16bb",
+    "tests/fixtures/seat/all-items.txt": "42e6fb11a798ff6ffa2cb494d194b35e20c2bea3210d81bd492cc1e65938f731",
+    "tests/fixtures/seat/interrupt-mid-tool.ansi": "8fb043cf14acce5367ff4a365c0314a523f5784ae75d2bafb893a1e7a19352f2",
+    "tests/fixtures/seat/interrupt-mid-tool.txt": "086be9749c89e02b3a1f90867fbeb155c397692359a75485a8784cd7c71f4085",
+    "tests/fixtures/seat/lagged.ansi": "586f6195da4f6d861b3621f205f6860f74b3096aa25fefef0b0c71c018e413dd",
+    "tests/fixtures/seat/lagged.txt": "82faa154f70996652155a53842e79a5701eca5dd0820f50f25f7a041272a6bd0",
+    "tests/fixtures/seat/recovery.ansi": "a94087df71886a7b7351f5f021e362b70e90657a830c189d5245f467f15d6b55",
+    "tests/fixtures/seat/recovery.txt": "f573654fb76ea8ddc8c4d6c9ba0dd82230864d066be80e884f619543bba969d6",
+    "tests/fixtures/seat/reset.ansi": "7cf23832bc4a5ce2212e9c514a0eef360681c04b6af7c3790949356ea2f0e082",
+    "tests/fixtures/seat/reset.txt": "81c60b0ee462c25cc28a24faad452ad8878f148b54e877118197fa8828b86f84",
+    "tests/fixtures/sse/429-then-ok.sse": "453671a2fac9a73b2595b9453e5213e428c3e4b9ba2cf543a7226d90109587c1",
+    "tests/fixtures/sse/500-after-output.sse": "3070192d51f2eea0b93390511faadf6bfc98fc3732a8a454a4f10cfe25772640",
+    "tests/fixtures/sse/anthropic/429-then-success.sse": "9f0266927e46555884109234b8b66bc00a3d9d0aca05415f2d93095f055c1959",
+    "tests/fixtures/sse/anthropic/500-after-output.sse": "cfc221868d3aaeae865fb67090b338710b670f27515280c63659f3d4b3e8c672",
+    "tests/fixtures/sse/anthropic/cancel.sse": "cfc221868d3aaeae865fb67090b338710b670f27515280c63659f3d4b3e8c672",
+    "tests/fixtures/sse/anthropic/contradictory-finish.sse": "1ed7fa31fcd8309f8d6bbaf60a89b2005f72c75afcb09d50d1f8c12708f713e0",
+    "tests/fixtures/sse/anthropic/duplicate-id.sse": "9165d469e2cd500bb2b9d5e5a2b32399e267e2294ae7f17541fa262406018605",
+    "tests/fixtures/sse/anthropic/error-after-output.sse": "596f78021e22bd469d195d3b822fa83a3405298728a438b27fb418ca43a20d55",
+    "tests/fixtures/sse/anthropic/error-before-output.sse": "5267c8925c0bff7ca7bd473338313a8bc219ddc2f81b0651f655764d8d4bddab",
+    "tests/fixtures/sse/anthropic/invalid-args.sse": "637842a6d38fc639f6ae967df6e51d91a4431c91f01e1818f86d6e1a26d2801d",
+    "tests/fixtures/sse/anthropic/length-tool.sse": "4ee1c6d7fa31314e57317b690c4a3e41536deaf6ca9034b332d381355738a0ac",
+    "tests/fixtures/sse/anthropic/length.sse": "51a58e1964d6fdf28114b7a6a3e384429c836b2a56576294eb2135684c5a6805",
+    "tests/fixtures/sse/anthropic/missing-finish.sse": "3dd889babe62bfa589cfe14a450aa1d48bddc39747c2f639a30910926cc85cf2",
+    "tests/fixtures/sse/anthropic/parallel.sse": "b8a3b2d86204a610ca153de7ee0847b33f59fd568acbc433821015423004f611",
+    "tests/fixtures/sse/anthropic/redacted-thinking.sse": "f399013efe16679d759d065ce6de14bdfca125cc3de0521a7490865f8225f581",
+    "tests/fixtures/sse/anthropic/refusal-tool.sse": "c25f431c1538c886db8dd4167b220296a7aca1085e3ee815d36be6519d1ee910",
+    "tests/fixtures/sse/anthropic/refusal.sse": "24e193595b7aa932688e9211ce4147d4b46050080d7f38e2a8803c2f5e577a25",
+    "tests/fixtures/sse/anthropic/stall.sse": "c206c1f41645189adc880594710363c143c110c9816b85e81120c5672f894b8a",
+    "tests/fixtures/sse/anthropic/stop-sequence.sse": "81b9ef182f8567b9c4eb9bd41bf5633897a92440d3c30f097e5fbe81d609af01",
+    "tests/fixtures/sse/anthropic/text-then-tool.sse": "60484c11d0d5fb59fce374f5bc4e122826f913f113749dcb57277061e4b30420",
+    "tests/fixtures/sse/anthropic/text.sse": "7ca821fc450cd9a2307c1be2086c8f211b2e6b6bcf2f43e0ea1634f41271ca6d",
+    "tests/fixtures/sse/anthropic/thinking-signature.sse": "d5a703650ac5a4f7d9c9534592e002250d0fcf3cf580efb39bff0da0eb52b451",
+    "tests/fixtures/sse/anthropic/thinking-tool.sse": "c0c4ff980bdf90e4157784e66999dba73d9bd680b78e00b1e03532bb348ffc6d",
+    "tests/fixtures/sse/anthropic/unknown-finish.sse": "f700b665121248401f2deed8081c1b0b3f4ed2dc8e91bbecc2aa410fb8b4ea6c",
+    "tests/fixtures/sse/anthropic/utf8-split.sse": "a2f21b34161319c39010f30f15c1b359d8ddfa547e23a73181142b1bc9c5c489",
+    "tests/fixtures/sse/bash.sse": "208a19fca98e92b248de330cc791c758224ee6dec34b1f7f65fe6f0124863b4e",
+    "tests/fixtures/sse/cancel.sse": "e5c49cc51712b0d65a956a82cf2f61f1ceb6acc170f4549db593488997598483",
+    "tests/fixtures/sse/duplicate-id.sse": "aa1fe938dfe4e29ec265eefab606d659cbe0574c75b43b8d21829ddf5e7ae984",
+    "tests/fixtures/sse/edit.sse": "f38cb3a2d8380387e3d0bbcb5120b79d5d4fc2f882aff7d22c7ee09544f5a1f5",
+    "tests/fixtures/sse/missing-finish.sse": "731babae49fc487dcd251b4e15c91d0b6dcb876450dc6fb19d6b284a67944461",
+    "tests/fixtures/sse/parallel.sse": "c20ac4fd0863f68faa8cda4018b8ba5afbe96303c1fa8b16cacd232cd4fb0771",
+    "tests/fixtures/sse/stall.sse": "e5c49cc51712b0d65a956a82cf2f61f1ceb6acc170f4549db593488997598483",
+    "tests/fixtures/sse/text-tool.sse": "c20ac4fd0863f68faa8cda4018b8ba5afbe96303c1fa8b16cacd232cd4fb0771",
+    "tests/fixtures/sse/text.sse": "453671a2fac9a73b2595b9453e5213e428c3e4b9ba2cf543a7226d90109587c1",
+    "tests/fixtures/sse/tools.sse": "c20ac4fd0863f68faa8cda4018b8ba5afbe96303c1fa8b16cacd232cd4fb0771",
+    "tests/fixtures/sse/utf8-split.sse": "df1684e41815d2ffe11033e2ec019de614439dbb1d9bb7ef507a75a1d1e0e073",
+    "tests/formal/export.rs": "8c7222a2575965b19f1a7b8add2fa176ef16d2d4033048ce1790125e5935cb95",
+    "tests/formal/models.rs": "bfe09e2fef902ae592e43781c0e439718e4886a26a212c7259a44363094367eb",
+    "tests/formal_models.rs": "ce809fcbe081559a25f046e65e894f24d59bdad654ee95d92604066befe95fd7",
+    "tests/formal_nonvacuity.rs": "20c94efbb89062e5bbd96a2ba258fe183fa0541f8c3717a3dad6dd7e4126035d",
+    "tests/gateway_host.rs": "9a88dbc6e0792f5dd65f318d46bac3f0dc26bacd43f34d6feb49fac4f7b9eab3",
+    "tests/gateway_lag.rs": "7483c5a3c013c615e8c885d61ba743ecb48e38bf62b6568d485d4eba6b3981ee",
+    "tests/gateway_ops.rs": "0ac333bb286fb98840f9c14ec3f070fb52d7440c9d1879f304ab993b62bb27b7",
+    "tests/gateway_replay.rs": "d51eee4a3c98c96132788b879fd7a217eb7059ec2b68d00cd84e88398f498ce3",
+    "tests/gateway_unix.rs": "24f792877c2c3c867071e704d56179e402bb62230b7a8ffd525f29a0a15dfcaf",
+    "tests/gui_bench.rs": "f000d7a065ad1440bf0de47f64909e86455cc50203ce99170ff13b917e980bfe",
+    "tests/gui_bridge.rs": "ed2128a92656ea1573f2c011c4f1b5cc5572bb6bbeb0bac6aedda0f5b48516fe",
+    "tests/gui_budget.rs": "8836ca19c7e30f8b7b0129049c69bbb23b29510de424a7689346b1fc9a1852ed",
+    "tests/gui_cli.rs": "b4fa6378743c0242981bd3e97a63d6188430395caf11f6f7f4bd202cf2972315",
+    "tests/gui_dependencies.py": "69e38a397de4a65885a268915451d27e0065f5f8c3ca0ed5a490777211559f53",
+    "tests/gui_fixtures.rs": "56072922bc11a25d56dafdedda47168f308b700029487a8305738b48b4db0d7f",
+    "tests/gui_gate.py": "8f9607761cd9bce3f1e46c8ca758c60b2abefffde15fee11ddd77ee79f024e5b",
+    "tests/gui_render.rs": "2ade2335cf07914c17a8afc2040ee374b52b3ee29c026db7f88234968eda5003",
+    "tests/gui_rich.rs": "422732483ac7d0881af7b8ed840ef0cebb2dca717853b821371e7395a48ac625",
+    "tests/import_native.rs": "b8896b87ba5d703d22cdc516ce5016187c3bb3d1bc4bc3560cc74b100a112bd4",
+    "tests/mcp_client.rs": "8e388ebb82aa5e25bbe8777e008094d2566d02cba973a198f90b693e6f1b9c7f",
+    "tests/policy_gate.rs": "700c6fefb150022e1c81c822deb811b2ca7d6710ed2b72e061056cccaa0f6c4e",
+    "tests/profile_lifecycle.rs": "b15ce1fac0bf24d4ebeb58e7f22ef48d8dcbe38c8676298ecc52a9789f38ae4b",
+    "tests/protocol_golden.rs": "ef873d7e44ef6cb1792821e6843f8abd559937a16d0325efc08cb743e66af93c",
+    "tests/protocol_laws.rs": "24ea9cde614fa073f9dd07e9f917b397286b14ed1ea513a0c42425c2aa158286",
+    "tests/provider_stream.rs": "17071da321247fc7e9d32e4c23a44367ff23fcbad3397221da5a73ad43b051af",
+    "tests/reactor_projection.rs": "8631b450483a054fee0ccefa53cd56e10e552285e603ea3f51382bb0022336fe",
+    "tests/rt_budget.rs": "34596e9132cd70d740a7fa77dc0fc4999d9e0ebd6ab4d574687c3dcfce32635e",
+    "tests/seat_golden.rs": "0f482426109d6ce86a086f74f0012b21a848fd65835c7e48e06527d07ff6e853",
+    "tests/seat_process.rs": "c7f74e4a15ffa9dae5ee79049286b93d09a7eab17002cd5a4d9b8a34ce70a3b4",
+    "tests/secrets.rs": "531c11f28d5d39643a9bacfc9a74225e860b900f661c92b092083f1048743a39",
+    "tests/store_fork.rs": "11862a11510fac2295adfe4246b6bc430ff3a690b2146a770719113d911764ce",
+    "tests/store_recovery.rs": "71993b22894b6779fef73904667685acab2f5d5f19e814486410e396780c3863",
+    "tests/support/mod.rs": "676004ef70cd21b5108332931fb54bdcc10d97a8153a2ef417fb49131678be45",
+    "tests/support/seat_launch.rs": "a0fdc68e7ee9fb5c117dffd73902d6497c7435028ae17ab29393fdc9cd7f6b47",
+    "tests/support/seat_shutdown.rs": "0280fd7dd8b11d3d7bfa389ee610cba0de06cb80b9cbc233c2417aa1a014e7d2",
+    "tests/support/setsid.py": "494b864d2df3524ce69fdf57f05ce253c46f90a743d8159386ab7a5689d7f040",
+    "tests/support/sse_server.rs": "cb99f2d8c6c555634a94e306041ec6a8de6fe0a8554a83f3fc6cad82b9aec7d1",
+    "tests/tools.rs": "eb3dc1cc3f0ac60ee64bde39d6d330b1efb681b7cbabf5b501ad0752e836dbde",
+    "verification/contracts.toml": "0e61c163df81f8a846705a4c20d6dcf2ad6fae2a876a7562662b565fdc2ea229",
+    "verification/corpus.toml": "9ffc13fcac8a579fac87fa35099a35c6568b50814e67e744dda7bc3fd4486e6d",
+    "verification/coverage.toml": "f2a594b8dc891ad5c22a27316ef72bb7a3265f8b5fa2477eb26a2d47aa6b47b0",
+    "verification/tools.lock.json": "45d8a35d0b533e53689efc46542315cf91713ee5821a2f002289cc0b8bc7a8dd",
+    "verification/upstream-sources.json": "ff6ba970c7eaba23643502453ddf59215efed8459c611806e07602dbc335a9e3",
+    "verification/upstream/crates-bboxy450-tlc-examples-verify.rs": "8451a8b06b9356f77b0bb04004f91cef2b1450941c520d4ca2c9f2dad97ca23b",
+    "verification/upstream/scripts-formal.py": "b29da35dafb6daf6295e5434e7dff3f4d72ae990d164739433aabe69aa5bf018",
+    "verification/upstream/scripts-test-formal.py": "25680d110c95b8007a79836dca67c08ae4bae458cd03fbafb69075bd133de9d7"
+  },
+  "models": [
+    {
+      "name": "HarnessAgentPath",
+      "expected": "pass",
+      "states": 23
+    },
+    {
+      "name": "BrokenHarnessAgentPathDuplicateProbe",
+      "expected": "safety",
+      "states": 32
+    },
+    {
+      "name": "BrokenHarnessAgentPathNoDeadline",
+      "expected": "liveness",
+      "states": 23
+    },
+    {
+      "name": "BrokenHarnessAgentPathChildEnv",
+      "expected": "safety",
+      "states": 23
+    },
+    {
+      "name": "HarnessGuiMarkdownBudget",
+      "expected": "pass",
+      "states": 1184
+    },
+    {
+      "name": "BrokenHarnessGuiMarkdownQuadratic",
+      "expected": "safety",
+      "states": 1348
+    },
+    {
+      "name": "BrokenHarnessGuiMarkdownHiddenTail",
+      "expected": "safety",
+      "states": 968
+    },
+    {
+      "name": "BrokenHarnessGuiMarkdownSuppressedRender",
+      "expected": "liveness",
+      "states": 1162
+    },
+    {
+      "name": "HarnessGuiApprovalChoice",
+      "expected": "pass",
+      "states": 14
+    },
+    {
+      "name": "BrokenHarnessGuiApprovalChoice",
+      "expected": "safety",
+      "states": 17
+    },
+    {
+      "name": "HarnessTurnLifecycle",
+      "expected": "pass",
+      "states": 504
+    },
+    {
+      "name": "HarnessTurnLifecyclePairing",
+      "expected": "pass",
+      "states": 504
+    },
+    {
+      "name": "HarnessCancelTree",
+      "expected": "pass",
+      "states": 36
+    },
+    {
+      "name": "HarnessCancelTreeGroup",
+      "expected": "pass",
+      "states": 36
+    },
+    {
+      "name": "HarnessSteerQueue",
+      "expected": "pass",
+      "states": 15
+    },
+    {
+      "name": "HarnessControlLaneBound",
+      "expected": "pass",
+      "states": 8580
+    },
+    {
+      "name": "HarnessApprovalLifecycle",
+      "expected": "pass",
+      "states": 13
+    },
+    {
+      "name": "HarnessApprovalUnattended",
+      "expected": "pass",
+      "states": 6
+    },
+    {
+      "name": "HarnessSubscriberReplay",
+      "expected": "pass",
+      "states": 166
+    },
+    {
+      "name": "HarnessSubscriberReplayDrop",
+      "expected": "pass",
+      "states": 19
+    },
+    {
+      "name": "HarnessSubscriberReplayHealthy",
+      "expected": "pass",
+      "states": 10
+    },
+    {
+      "name": "HarnessStreamToView",
+      "expected": "pass",
+      "states": 20
+    },
+    {
+      "name": "HarnessDirtyWakeFrame",
+      "expected": "pass",
+      "states": 19
+    },
+    {
+      "name": "HarnessScrollStick",
+      "expected": "pass",
+      "states": 12
+    },
+    {
+      "name": "HarnessAcpAgentTurn",
+      "expected": "pass",
+      "states": 12
+    },
+    {
+      "name": "HarnessFoldedCard",
+      "expected": "pass",
+      "states": 9
+    },
+    {
+      "name": "HarnessEmbedLifecycle",
+      "expected": "pass",
+      "states": 74
+    },
+    {
+      "name": "HarnessProfileLoad",
+      "expected": "pass",
+      "states": 51
+    },
+    {
+      "name": "HarnessForkMaterialize",
+      "expected": "pass",
+      "states": 8
+    },
+    {
+      "name": "BrokenHarnessTurnLifecycle",
+      "expected": "safety",
+      "states": 738
+    },
+    {
+      "name": "BrokenHarnessTurnLifecyclePairing",
+      "expected": "safety",
+      "states": 712
+    },
+    {
+      "name": "BrokenHarnessCancelTree",
+      "expected": "safety",
+      "states": 66
+    },
+    {
+      "name": "BrokenHarnessCancelTreeGroup",
+      "expected": "safety",
+      "states": 36
+    },
+    {
+      "name": "BrokenHarnessSteerQueue",
+      "expected": "liveness",
+      "states": 5
+    },
+    {
+      "name": "BrokenHarnessControlLaneBound",
+      "expected": "safety",
+      "states": 8708
+    },
+    {
+      "name": "BrokenHarnessApprovalLifecycle",
+      "expected": "safety",
+      "states": 15
+    },
+    {
+      "name": "BrokenHarnessApprovalUnattended",
+      "expected": "liveness",
+      "states": 3
+    },
+    {
+      "name": "BrokenHarnessSubscriberReplay",
+      "expected": "safety",
+      "states": 44
+    },
+    {
+      "name": "BrokenHarnessSubscriberReplayDrop",
+      "expected": "safety",
+      "states": 20
+    },
+    {
+      "name": "BrokenHarnessSubscriberReplayHealthy",
+      "expected": "liveness",
+      "states": 4
+    },
+    {
+      "name": "BrokenHarnessStreamToView",
+      "expected": "safety",
+      "states": 21
+    },
+    {
+      "name": "BrokenHarnessDirtyWakeFrame",
+      "expected": "safety",
+      "states": 22
+    },
+    {
+      "name": "BrokenHarnessScrollStick",
+      "expected": "safety",
+      "states": 14
+    },
+    {
+      "name": "BrokenHarnessAcpAgentTurn",
+      "expected": "safety",
+      "states": 13
+    },
+    {
+      "name": "BrokenHarnessFoldedCard",
+      "expected": "safety",
+      "states": 12
+    },
+    {
+      "name": "BrokenHarnessEmbedLifecycle",
+      "expected": "safety",
+      "states": 83
+    },
+    {
+      "name": "BrokenHarnessProfileLoad",
+      "expected": "safety",
+      "states": 60
+    },
+    {
+      "name": "BrokenHarnessForkMaterialize",
+      "expected": "safety",
+      "states": 8
+    },
+    {
+      "name": "HarnessAutoCompact",
+      "expected": "pass",
+      "states": 320
+    },
+    {
+      "name": "HarnessMcpServer",
+      "expected": "pass",
+      "states": 534
+    },
+    {
+      "name": "BrokenHarnessAutoCompactA",
+      "expected": "safety",
+      "states": 256
+    },
+    {
+      "name": "BrokenHarnessMcpServerA",
+      "expected": "deadlock",
+      "states": 510
+    },
+    {
+      "name": "BrokenHarnessAutoCompactB",
+      "expected": "safety",
+      "states": 700
+    },
+    {
+      "name": "BrokenHarnessMcpServerB",
+      "expected": "safety",
+      "states": 606
+    },
+    {
+      "name": "BrokenHarnessAutoCompactC",
+      "expected": "liveness",
+      "states": 280
+    },
+    {
+      "name": "BrokenHarnessMcpServerC",
+      "expected": "liveness",
+      "states": 450
+    },
+    {
+      "name": "BrokenHarnessAutoCompactD",
+      "expected": "safety",
+      "states": 628
+    },
+    {
+      "name": "BrokenHarnessMcpServerD",
+      "expected": "safety",
+      "states": 534
+    },
+    {
+      "name": "BrokenHarnessMcpServerE",
+      "expected": "safety",
+      "states": 534
+    },
+    {
+      "name": "HarnessAcpFlow",
+      "expected": "pass",
+      "states": 1148
+    },
+    {
+      "name": "BrokenHarnessAcpFlowA",
+      "expected": "safety",
+      "states": 1484
+    },
+    {
+      "name": "BrokenHarnessAcpFlowB",
+      "expected": "safety",
+      "states": 1296
+    },
+    {
+      "name": "BrokenHarnessAcpFlowC",
+      "expected": "safety",
+      "states": 1148
+    },
+    {
+      "name": "HarnessMcpGroupClose",
+      "expected": "pass",
+      "states": 26
+    },
+    {
+      "name": "BrokenHarnessMcpGroupClose",
+      "expected": "safety",
+      "states": 34
+    },
+    {
+      "name": "BrokenHarnessSteerQueueDelivery",
+      "expected": "safety",
+      "states": 18
+    },
+    {
+      "name": "HarnessSubscriberReplayRegistration",
+      "expected": "pass",
+      "states": 19
+    },
+    {
+      "name": "BrokenHarnessSubscriberReplayRegistration",
+      "expected": "safety",
+      "states": 16
+    },
+    {
+      "name": "BrokenHarnessSubscriberReplayEpochReuse",
+      "expected": "safety",
+      "states": 118
+    },
+    {
+      "name": "HarnessProcessLifecycle",
+      "expected": "pass",
+      "states": 35
+    },
+    {
+      "name": "BrokenHarnessProcessDrain",
+      "expected": "liveness",
+      "states": 23
+    },
+    {
+      "name": "BrokenHarnessProcessOwnership",
+      "expected": "safety",
+      "states": 46
+    },
+    {
+      "name": "BrokenHarnessProcessReapedMembers",
+      "expected": "safety",
+      "states": 56
+    },
+    {
+      "name": "BrokenHarnessProcessHangup",
+      "expected": "safety",
+      "states": 45
+    },
+    {
+      "name": "BrokenHarnessProcessReapLease",
+      "expected": "safety",
+      "states": 46
+    },
+    {
+      "name": "BrokenHarnessMcpLostChild",
+      "expected": "safety",
+      "states": 23
+    },
+    {
+      "name": "HarnessProviderStream",
+      "expected": "pass",
+      "states": 242
+    },
+    {
+      "name": "BrokenHarnessProviderRetry",
+      "expected": "safety",
+      "states": 278
+    },
+    {
+      "name": "BrokenHarnessProviderFinish",
+      "expected": "safety",
+      "states": 242
+    },
+    {
+      "name": "BrokenHarnessProviderEnding",
+      "expected": "safety",
+      "states": 423
+    },
+    {
+      "name": "HarnessTurnLoop",
+      "expected": "pass",
+      "states": 208
+    }
+  ],
+  "reference_parity": "not checked by native target",
+  "complete_tlc_replacement": false
+}
