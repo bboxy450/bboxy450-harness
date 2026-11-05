@@ -5722,8 +5722,109 @@ fn dream_seal(mode: u8) -> Model {
     m
 }
 
+// Decision d20261103136567: frozen caller observations at receive/return.
+// Timer readiness is independent of the already elapsed absolute deadline.
+// Concrete packets/ownership/reap remain the unchanged process families.
+fn process_admission_result(broken: bool) -> Model {
+    let mut m = base::<6>(
+        "ProcessAdmissionResult",
+        broken,
+        &[
+            ("cancelled", 1, 0),
+            ("elapsed", 1, 0),
+            ("caller_timer_ready", 1, 0),
+            ("worker_deadline_observed", 1, 0),
+            ("received", 3, 0), // pending, closed, success, explicit error
+            ("returned", 4, 0), // pending, Interrupted, TimedOut, success, explicit error
+        ],
+    );
+    // All inputs stop changing when returned is set: no later observation may
+    // retroactively invalidate a correctly classified earlier result.
+    act(
+        &mut m,
+        "ObserveCancellation",
+        all([eq(5, 0), eq(0, 0)]),
+        &[(0, Int(1))],
+    );
+    act(
+        &mut m,
+        "ObserveElapsedDeadline",
+        all([eq(5, 0), eq(1, 0)]),
+        &[(1, Int(1))],
+    );
+    act(
+        &mut m,
+        "CallerTimerBecomesReady",
+        all([eq(5, 0), eq(1, 1), eq(2, 0)]),
+        &[(2, Int(1))],
+    );
+    act(
+        &mut m,
+        "WorkerDeadlineClosesChannel",
+        all([eq(5, 0), eq(1, 1), eq(4, 0)]),
+        &[(3, Int(1)), (4, Int(1))],
+    );
+    for (name, kind) in [
+        ("ChannelUnavailable", 1),
+        ("ReceiveOwnedSuccess", 2),
+        ("ReceiveExplicitError", 3),
+    ] {
+        act(&mut m, name, all([eq(5, 0), eq(4, 0)]), &[(4, Int(kind))]);
+    }
+    for (kind, class) in [(1, 1), (2, 3), (3, 4)] {
+        if broken {
+            act(
+                &mut m,
+                &format!("OldMapping{kind}"),
+                all([eq(5, 0), eq(4, kind)]),
+                &[(5, Int(class))],
+            );
+        } else {
+            act(
+                &mut m,
+                &format!("ReturnCancelled{kind}"),
+                all([eq(5, 0), eq(4, kind), eq(0, 1)]),
+                &[(5, Int(1))],
+            );
+            act(
+                &mut m,
+                &format!("ReturnTimedOut{kind}"),
+                all([eq(5, 0), eq(4, kind), eq(0, 0), eq(1, 1)]),
+                &[(5, Int(2))],
+            );
+            act(
+                &mut m,
+                &format!("ReturnBeforeCutoff{kind}"),
+                all([eq(5, 0), eq(4, kind), eq(0, 0), eq(1, 0)]),
+                &[(5, Int(class))],
+            );
+        }
+    }
+    safe(
+        &mut m,
+        "ObservedCancellationHasPriority",
+        eq(5, 0).or(eq(0, 0)).or(eq(5, 1)),
+    );
+    safe(
+        &mut m,
+        "ObservedElapsedResultIsTimedOut",
+        eq(5, 0).or(eq(0, 1)).or(eq(1, 0)).or(eq(5, 2)),
+    );
+    let before = eq(4, 1)
+        .and(eq(5, 1))
+        .or(eq(4, 2).and(eq(5, 3)))
+        .or(eq(4, 3).and(eq(5, 4)));
+    safe(
+        &mut m,
+        "BeforeCutoffPreservesOutcome",
+        eq(5, 0).or(eq(0, 1)).or(eq(1, 1)).or(before),
+    );
+    m
+}
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (process_admission_result(false), "pass"),
+        (process_admission_result(true), "safety"),
         (dream_seal(0), "pass"),
         (dream_seal(1), "safety"),
         (dream_seal(2), "safety"),
