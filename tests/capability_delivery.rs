@@ -61,6 +61,7 @@ mod processes {
             .env("BBOXY_CAPABILITY_FILE", &f.file)
             .env("BBOXY_TEST_FORBIDDEN", "namespace-marker")
             .env("BBOXY_SEAT_ID", "private-seat")
+            .args(["--profile", "nemotron"])
             .arg("--cwd")
             .arg(f.root())
             .arg("--sessions")
