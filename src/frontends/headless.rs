@@ -26,8 +26,12 @@ fn stop_cli(stop: &CancellationToken) {
 }
 pub async fn cli() -> i32 {
     let mut early = std::env::args().skip(1);
-    if early.next().as_deref() == Some("dream") && early.next().as_deref() == Some("inspect-c1") {
-        return crate::dream::c1::cli(early).await;
+    if early.next().as_deref() == Some("dream") {
+        match early.next().as_deref() {
+            Some("inspect-c1") => return crate::dream::c1::cli(early).await,
+            Some("prepare-read") => return crate::dream::read::cli(early).await,
+            _ => {}
+        }
     }
     let result=async {
         crate::process::install_shutdown_handlers().map_err(|_|"signal handler failed".to_string())?;

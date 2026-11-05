@@ -20,6 +20,8 @@ pub mod join;
 pub mod lower;
 pub mod projection;
 pub mod prompt;
+pub mod read;
+pub mod read_wire;
 pub mod recall;
 pub mod receipt;
 pub mod resolve;
@@ -27,6 +29,7 @@ pub mod seal;
 pub mod synth;
 pub mod trial;
 pub mod trust;
+pub(crate) mod worker;
 
 pub fn directory() -> std::io::Result<std::path::PathBuf> {
     std::env::var_os("HOME")

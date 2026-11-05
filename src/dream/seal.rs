@@ -6,10 +6,7 @@
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 //! Constructive per-invocation freeze and retained prefix/suffix validation.
 //! Model: HarnessDreamSeal; hashes/OS confinement/completeness remain real witnesses.
-use super::{
-    entry,
-    receipt::{Effect, Operation},
-};
+use super::receipt::{Effect, Operation};
 use crate::protocol::*;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -84,8 +81,10 @@ pub fn prefix(events: &[Envelope], through: u64) -> Proof<String> {
     if through == 0 || through as usize > events.len() {
         return Err(ProofError::Unproven("truncated_witness"));
     }
-    let mut bytes = Vec::new();
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
     for (index, event) in events.iter().take(through as usize).enumerate() {
+        super::resolve::checkpoint()?;
         if event.seq != Some(Seq(index as u64 + 1)) {
             return Err(ProofError::Unproven("truncated_witness"));
         }
@@ -95,9 +94,12 @@ pub fn prefix(events: &[Envelope], through: u64) -> Proof<String> {
         if !wire.ends_with(b"\n") {
             return Err(ProofError::Unproven("truncated_witness"));
         }
-        bytes.extend(wire);
+        for chunk in wire.chunks(16384) {
+            super::resolve::checkpoint()?;
+            hash.update(chunk);
+        }
     }
-    Ok(entry::digest(bytes))
+    Ok(format!("sha256:{:x}", hash.finalize()))
 }
 impl Seal {
     pub fn validate(

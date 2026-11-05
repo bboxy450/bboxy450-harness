@@ -467,3 +467,274 @@ mod tests {
         }
     }
 }
+
+/// Safe read-only data after the common independent verifier has accepted the
+/// exact finite publication/current-head closure. This never appends Recall.
+#[derive(Clone)]
+pub(crate) struct PreparedLesson {
+    pub entry: String,
+    pub record: RecordPin,
+    pub current_record: RecordPin,
+    pub identity: entry::Identity,
+    pub context: String,
+    pub citation: String,
+    pub trial: EvidenceRef,
+    pub publication: EvidenceRef,
+    pub outer: EvidenceRef,
+    pub projection_digest: String,
+    pub producer_digest: String,
+    pub currentness_digest: String,
+    pub evidence: Vec<EvidenceRef>,
+}
+
+/// Qualify only explicit publication pins against already completed selected
+/// custody. Missing proof remains unproven; malformed proof remains a failure.
+/// Call on the installed SelectedScope's dedicated low-priority owner.
+pub(crate) async fn prepare_selected(
+    resolver: &mut Resolver,
+    requested: &[EvidenceRef],
+    harness: &str,
+    repo: &str,
+    set: &Set,
+    selected_at_ms: u64,
+) -> Proof<Vec<PreparedLesson>> {
+    use super::{projection, resolve};
+    use std::collections::BTreeMap;
+    if !resolve::selected() {
+        return Err(E::Unproven("selected proof owner unavailable"));
+    }
+    resolve::checkpoint()?;
+    if requested.is_empty() {
+        return Ok(vec![]);
+    }
+    let audit =
+        resolve::ProofOwned::new(audit::run(resolver, set.clone(), false, selected_at_ms).await?);
+    if let Some(finding) = audit.findings.first() {
+        // Do not convert an invalid seal/signature into an empty successful read.
+        return Err(if finding.kind == "violation" {
+            E::Fail("selected audit violation")
+        } else {
+            E::Unproven("selected audit proof unavailable")
+        });
+    }
+    let domains = resolver.receipt_domains();
+    let trust = resolver.trust().ok_or(E::Unproven("producer_unapproved"))?;
+    let logs = resolver.logs.clone();
+    let mut publications = resolve::ProofOwned::new(Vec::new());
+    let mut runs = resolve::ProofOwned::new(BTreeMap::new());
+    for log in logs.values() {
+        for event in log {
+            resolve::checkpoint()?;
+            if matches!(
+                event.event,
+                Event::ItemCompleted {
+                    body: Item::Receipt { .. },
+                    ..
+                }
+            ) {
+                let accepted = receipt::accept_with_publications(
+                    event,
+                    log,
+                    &domains,
+                    Some(&trust),
+                    &publications,
+                )
+                .await?;
+                if accepted.body.kind == ReceiptKind::Run {
+                    runs.insert(event.session, accepted);
+                } else {
+                    publications.push(accepted);
+                }
+            }
+        }
+    }
+    let projection_digest = entry::digest(entry::canonical_value(
+        serde_json::to_value(&audit.projection)
+            .map_err(|_| E::Fail("selected projection encoding"))?,
+    )?);
+    let mut lessons = resolve::ProofOwned::new(BTreeMap::new());
+    for pin in requested {
+        resolve::checkpoint()?;
+        let event = resolver.event_async(pin).await?;
+        let Event::ItemCompleted {
+            item,
+            body:
+                Item::Receipt {
+                    kind: ReceiptKind::Publication,
+                    ..
+                },
+            ..
+        } = event.event
+        else {
+            return Err(E::Fail("selected publication pin"));
+        };
+        let publication = publications
+            .iter()
+            .find(|p| p.body.run.session == event.session && p.item == item)
+            .ok_or(E::Unproven("selected publication unavailable"))?;
+        if publication.body.harness.as_deref() != Some(harness) {
+            return Err(E::Unproven("harness_incompatible"));
+        }
+        let sink = publication
+            .body
+            .sink
+            .as_ref()
+            .ok_or(E::Unproven("selected sink unavailable"))?;
+        if !matches!(sink.kind, SinkKind::EngineContext | SinkKind::AcpContext)
+            || !matches!(
+                publication.body.outcome,
+                ReceiptOutcome::Published | ReceiptOutcome::Idempotent
+            )
+        {
+            return Err(E::Unproven("selected publication unsupported"));
+        }
+        let run = runs
+            .get(&event.session)
+            .ok_or(E::Unproven("missing_outer_run"))?;
+        receipt::check_outer(publication, run)?;
+        let log = logs
+            .get(&event.session)
+            .ok_or(E::Unproven("selected publication custody"))?;
+        let outer_event = log
+            .iter()
+            .find(|e| e.seq == Some(run.seq))
+            .ok_or(E::Unproven("selected outer custody"))?;
+        let outer_bytes = outer_event
+            .wire_bytes()
+            .map_err(|_| E::Unproven("selected outer bytes"))?;
+        let outer = EvidenceRef::Event {
+            session: event.session,
+            seq: run.seq,
+            digest: entry::digest(outer_bytes.strip_suffix(b"\n").unwrap_or(&outer_bytes)),
+        };
+        let selection = publication
+            .body
+            .selection
+            .as_ref()
+            .ok_or(E::Unproven("missing_selection"))?;
+        for id in &selection.selected {
+            resolve::checkpoint()?;
+            let state = audit
+                .projection
+                .entries
+                .get(id)
+                .ok_or(E::Unproven("selected projection"))?;
+            if !state.active(harness)
+                || audit.record_views.get(id) != Some(&projection::RecordView::Current)
+            {
+                return Err(E::Unproven("selected terminal or stale record"));
+            }
+            let candidate = selection
+                .candidates
+                .iter()
+                .find(|c| &c.entry == id)
+                .ok_or(E::Fail("selected candidate binding"))?;
+            let record = resolver.record(&candidate.record).await?;
+            let identity = record.record.validate_identity()?;
+            if identity.id()? != *id || !record.signature_valid {
+                return Err(E::Fail("selected record identity or signature"));
+            }
+            let scope = record.record.scope()?;
+            if scope.level != ScopeLevel::Repo || scope.repos != [repo.to_owned()] {
+                return Err(E::Unproven("selected repository incompatible"));
+            }
+            let root = resolver
+                .roots
+                .get(&candidate.record.root)
+                .ok_or(E::Unproven("selected root unavailable"))?;
+            let mut current_record = candidate.record.clone();
+            current_record.commit = Some(root.main.clone());
+            let current = resolver.record(&current_record).await?;
+            if current.record.bytes != record.record.bytes
+                || !current.signature_valid
+                || projection::record_view(&current.record, state)?
+                    != projection::RecordView::Current
+            {
+                return Err(E::Unproven("selected current-head record unavailable"));
+            }
+            let pair = state
+                .pairs
+                .get(harness)
+                .ok_or(E::Unproven("selected pair unavailable"))?;
+            let trial: EvidenceRef = pair
+                .trials
+                .iter()
+                .next()
+                .ok_or(E::Unproven("selected trial unavailable"))
+                .and_then(|s| {
+                    serde_json::from_str(s).map_err(|_| E::Fail("selected trial encoding"))
+                })?;
+            resolver.event_async(&trial).await?;
+            let mut evidence = vec![];
+            for value in &identity.evidence {
+                resolve::checkpoint()?;
+                evidence.push(
+                    resolver
+                        .evidence_value(&candidate.record.root, value)
+                        .await?,
+                );
+            }
+            // Graph::why remains explanatory. Only typed pins leave this owner;
+            // arbitrary node payloads and resolved transcripts are never exported.
+            let why = resolve::ProofOwned::new(audit.graph.why(id)?);
+            for node in why.nodes.values() {
+                resolve::checkpoint()?;
+                if let Some(value) = node.data.get("pin") {
+                    let pin: EvidenceRef = serde_json::from_value(value.clone())
+                        .map_err(|_| E::Fail("selected graph pin"))?;
+                    if !evidence.contains(&pin) {
+                        evidence.push(pin);
+                    }
+                }
+            }
+            let kind = match harness {
+                "engine" => crate::protocol::SinkKind::EngineContext,
+                "acp" => crate::protocol::SinkKind::AcpContext,
+                _ => return Err(E::Unproven("harness_incompatible")),
+            };
+            let context = String::from_utf8(receipt::render_selected_index(
+                candidate,
+                &current.record,
+                &kind,
+            )?)
+            .map_err(|_| E::Fail("selected context encoding"))?;
+            super::deny::text(&context).map_err(|_| E::Fail("selected denied context"))?;
+            if set.scrub(&context) != context {
+                return Err(E::Fail("selected denied context"));
+            }
+            let producer_digest = entry::digest(entry::canonical_value(
+                serde_json::to_value(&publication.body.producer)
+                    .map_err(|_| E::Fail("selected producer encoding"))?,
+            )?);
+            let currentness_digest = entry::digest(entry::canonical_value(
+                serde_json::json!({"record":current_record,"projection":projection_digest,"selected_at_ms":selected_at_ms}),
+            )?);
+            let citation = format!("dream:{id}");
+            let lesson = PreparedLesson {
+                entry: id.clone(),
+                record: candidate.record.clone(),
+                current_record,
+                identity,
+                context,
+                citation,
+                trial,
+                publication: pin.clone(),
+                outer: outer.clone(),
+                projection_digest: projection_digest.clone(),
+                producer_digest,
+                currentness_digest,
+                evidence,
+            };
+            if lessons.insert(id.clone(), lesson).is_some() {
+                return Err(E::Fail("selected duplicate lesson publication"));
+            }
+        }
+    }
+    Ok(lessons.take_value().into_values().collect())
+}
+
+impl super::c1::disposal::Drain for PreparedLesson {
+    fn drain_step(&mut self) -> bool {
+        self.identity.drain_step() || self.evidence.drain_step()
+    }
+}

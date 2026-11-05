@@ -153,6 +153,7 @@ impl Graph {
         let mut catalogue = BTreeMap::new();
         let mut roots = BTreeSet::new();
         for memory in &memories {
+            super::resolve::checkpoint()?;
             let id = memory
                 .record
                 .front
@@ -206,6 +207,7 @@ impl Graph {
             regex::Regex::new(r"\[\[([^\]\n]+)\]\](?:\{([a-z_]+):([0-9.]+)\})?").unwrap()
         });
         for memory in &memories {
+            super::resolve::checkpoint()?;
             let identity = memory.record.identity()?;
             let id = identity.id()?;
             for predecessor in &identity.derived_from {
@@ -264,6 +266,7 @@ impl Graph {
         let mut last: BTreeMap<String, u64> = BTreeMap::new();
         let mut recalls: BTreeMap<SessionId, BTreeMap<String, u64>> = BTreeMap::new();
         for (session, meta) in metas {
+            super::resolve::checkpoint()?;
             let node = format!("session:{session}");
             graph.node(
                 node.clone(),
@@ -284,6 +287,7 @@ impl Graph {
             }
         }
         for fact in facts {
+            super::resolve::checkpoint()?;
             let pin = evidence_node(&fact.pin)?;
             let session = format!("session:{}", fact.session);
             match &fact.body {
@@ -426,6 +430,7 @@ impl Graph {
         let mut todo = vec![start.to_owned()];
         let mut seen = BTreeSet::new();
         while let Some(id) = todo.pop() {
+            super::resolve::checkpoint()?;
             if !seen.insert(id.clone()) {
                 continue;
             }
@@ -433,6 +438,7 @@ impl Graph {
                 result.nodes.insert(id.clone(), node.clone());
             }
             for edge in self.edges.iter().filter(|e| e.from == id) {
+                super::resolve::checkpoint()?;
                 todo.push(edge.to.clone());
                 result.edges.push(edge.clone());
             }
@@ -442,5 +448,17 @@ impl Graph {
             .sort_by(|a, b| (&a.from, &a.to, &a.relation).cmp(&(&b.from, &b.to, &b.relation)));
         result.edges.dedup();
         Ok(result)
+    }
+}
+
+impl super::c1::disposal::Drain for Graph {
+    fn drain_step(&mut self) -> bool {
+        if let Some(mut first) = self.nodes.first_entry() {
+            if !first.get_mut().data.drain_step() {
+                first.remove_entry();
+            }
+            return true;
+        }
+        self.edges.pop().is_some()
     }
 }

@@ -72,8 +72,8 @@ async fn inspect(
 ) -> Option<(String, Info)> {
     let source = record.clone();
     let redact = set.clone();
-    let parsed = crate::runtime::blocking(move || {
-        crate::runtime::assert_off_rt_worker();
+    let parsed = super::resolve::proof_blocking(move || {
+        super::resolve::assert_proof_owner();
         let safe = deny::value(&source.record.front, &redact).is_ok()
             && redact.scrub(&source.record.body) == source.record.body
             && deny::text(&source.record.body).is_ok();
@@ -85,7 +85,8 @@ async fn inspect(
             safe,
         )
     })
-    .await;
+    .await
+    .ok()?;
     if !parsed.1 {
         audit.reject("P8", "record contains denied or registered secret data");
     }
@@ -98,13 +99,19 @@ async fn inspect(
     };
     let mut evidence = Vec::new();
     for value in &identity.evidence {
+        if super::resolve::checkpoint().is_err() {
+            return None;
+        }
         match resolver.evidence_value(&record.pin.root, value).await {
             Ok(pin) => evidence.push(pin),
             Err(error) => audit.unproven("P1", error.0),
         }
     }
     let source = record.clone();
-    match crate::runtime::blocking(move || source.record.scope()).await {
+    match super::resolve::proof_blocking(move || source.record.scope())
+        .await
+        .ok()?
+    {
         Ok(scope) => {
             if let Err(error) = resolver.scope(&scope, &evidence).await {
                 audit.reject("P7", error.0);
@@ -131,8 +138,8 @@ pub async fn run(
     now_ms: u64,
 ) -> Result<Audit, Invalid> {
     let logs = resolver.logs.clone();
-    let (envelopes, metas, transcript_bad) = crate::runtime::blocking(move || {
-        crate::runtime::assert_off_rt_worker();
+    let (envelopes, metas, transcript_bad) = super::resolve::proof_blocking(move || {
+        super::resolve::assert_proof_owner();
         let mut envelopes = Vec::new();
         let mut metas = BTreeMap::new();
         let mut bad = false;
@@ -147,18 +154,24 @@ pub async fn run(
                 bad = true;
                 continue;
             };
-            let mut projected = events.clone();
-            for event in &mut projected {
+            let mut projected = Vec::new();
+            for event in events {
+                super::resolve::checkpoint()?;
+                let mut event = event.clone();
                 event.project_into(&meta);
+                projected.push(event);
             }
             bad |= meta.session != *session || laws::check_transcript(&projected).is_err();
             metas.insert(*session, meta);
-            envelopes.extend(events.clone());
+            for event in events {
+                super::resolve::checkpoint()?;
+                envelopes.push(event.clone());
+            }
         }
-        (projection::union(envelopes), metas, bad)
+        Ok::<_, Invalid>((projection::union(envelopes), metas, bad))
     })
-    .await;
-    let mut audit = Audit::default();
+    .await??;
+    let mut audit = super::resolve::ProofOwned::new(Audit::default());
     if transcript_bad {
         audit.reject("P1", "retained transcript checker failed");
     }
@@ -166,15 +179,16 @@ pub async fn run(
         Ok(events) => events,
         Err(error) => {
             audit.reject("P1", error.0);
-            return Ok(audit);
+            return Ok(audit.take_value());
         }
     };
     let retained = resolver.logs.clone();
-    let facts = Arc::new(
-        crate::runtime::blocking(move || projection::facts_with_logs(&envelopes, &retained))
-            .await?,
-    );
+    let facts = super::resolve::ProofOwned::new(Arc::new(
+        super::resolve::proof_blocking(move || projection::facts_with_logs(&envelopes, &retained))
+            .await??,
+    ));
     for fact in facts.iter() {
+        super::resolve::checkpoint()?;
         if let Some(error) = fact.usage_error() {
             match error {
                 projection::UsageProofError::Unavailable(s) => audit.unproven("P5", s),
@@ -183,6 +197,7 @@ pub async fn run(
         }
     }
     for meta in metas.values() {
+        super::resolve::checkpoint()?;
         if (meta.harness == "dream" || meta.dream.is_some())
             && meta
                 .dream
@@ -192,11 +207,12 @@ pub async fn run(
             audit.reject("P3", "dream session has no known trigger");
         }
     }
-    let mut infos: BTreeMap<String, Info> = BTreeMap::new();
+    let mut infos = super::resolve::ProofOwned::new(BTreeMap::<String, Info>::new());
     let mut current = BTreeSet::new();
     let mut body_revisions: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let roots = resolver.roots.values().cloned().collect::<Vec<_>>();
     for root in roots {
+        super::resolve::checkpoint()?;
         for path in root
             .paths(".bboxy/memories")
             .await?
@@ -204,7 +220,7 @@ pub async fn run(
             .filter(|p| p.ends_with(".md"))
         {
             let bytes = root.read(&path, &root.main).await?;
-            let digest = crate::runtime::blocking(move || entry::digest(bytes)).await;
+            let digest = super::resolve::proof_blocking(move || entry::digest(bytes)).await?;
             let pin = RecordPin {
                 root: root.name.clone(),
                 path: path.clone(),
@@ -216,9 +232,10 @@ pub async fn run(
                 Ok(record) => {
                     if let Some((id, info)) = inspect(record, resolver, &mut audit, &set).await {
                         let source = info.record.clone();
-                        let digest =
-                            crate::runtime::blocking(move || entry::digest(&source.record.body))
-                                .await;
+                        let digest = super::resolve::proof_blocking(move || {
+                            entry::digest(&source.record.body)
+                        })
+                        .await?;
                         body_revisions.entry(id.clone()).or_default().insert(digest);
                         current.insert(id.clone());
                         infos.insert(id, info);
@@ -230,6 +247,7 @@ pub async fn run(
     }
     let mut adopted = BTreeSet::new();
     for fact in facts.iter() {
+        super::resolve::checkpoint()?;
         let dream = metas
             .get(&fact.session)
             .is_some_and(|m| m.harness == "dream" && m.dream.is_some());
@@ -253,14 +271,14 @@ pub async fn run(
                     let draft = draft.clone();
                     let redact = set.clone();
                     let declared = declared.clone();
-                    let (identity, safe) = crate::runtime::blocking(move || {
+                    let (identity, safe) = super::resolve::proof_blocking(move || {
                         let safe = deny::value(&draft, &redact).is_ok();
                         let identity = Record::draft(&draft)
                             .and_then(|r| r.validate_identity())
                             .and_then(|i| i.id());
                         (identity.map(|id| id == declared), safe)
                     })
-                    .await;
+                    .await?;
                     if !safe {
                         audit.reject("P8", "draft contains denied or registered secret data");
                     }
@@ -289,10 +307,10 @@ pub async fn run(
                                 );
                             }
                             let source = info.record.clone();
-                            let digest = crate::runtime::blocking(move || {
+                            let digest = super::resolve::proof_blocking(move || {
                                 entry::digest(&source.record.body)
                             })
-                            .await;
+                            .await?;
                             body_revisions.entry(id.clone()).or_default().insert(digest);
                             infos.entry(id).or_insert(info);
                         }
@@ -320,6 +338,7 @@ pub async fn run(
         }
     }
     for revisions in body_revisions.values() {
+        super::resolve::checkpoint()?;
         if revisions.len() > 1 {
             audit.reject(
                 "P9",
@@ -328,7 +347,7 @@ pub async fn run(
         }
     }
     let source = facts.clone();
-    match crate::runtime::blocking(move || Projection::build(&source)).await {
+    match super::resolve::proof_blocking(move || Projection::build(&source)).await? {
         Ok(projection) => audit.projection = projection,
         Err(error) if error.0 == "derived trial usage proof unavailable" => {
             audit.unproven("P5", error.0)
@@ -340,6 +359,7 @@ pub async fn run(
     let mut todo = adopted.iter().cloned().collect::<Vec<_>>();
     let mut visited = BTreeSet::new();
     while let Some(id) = todo.pop() {
+        super::resolve::checkpoint()?;
         if !visited.insert(id.clone()) {
             continue;
         }
@@ -355,6 +375,7 @@ pub async fn run(
             .cloned()
             .collect::<BTreeSet<_>>();
         for pin in evidence {
+            super::resolve::checkpoint()?;
             match resolver.evidence(&pin).await {
                 Ok(true) => {
                     anchors.insert(id.clone());
@@ -389,12 +410,14 @@ pub async fn run(
         adjacency.insert(id, children);
     }
     for entry in &adopted {
+        super::resolve::checkpoint()?;
         let mut stack = vec![(entry.clone(), false)];
         let mut active = BTreeSet::new();
         let mut seen = BTreeSet::new();
         let mut trusted = false;
         let mut closure = BTreeSet::new();
         while let Some((id, exit)) = stack.pop() {
+            super::resolve::checkpoint()?;
             if exit {
                 active.remove(&id);
                 continue;
@@ -443,6 +466,7 @@ pub async fn run(
             .map(pin_key)
             .collect::<Result<BTreeSet<_>, _>>()?;
         for fact in facts.iter() {
+            super::resolve::checkpoint()?;
             if let Item::Trial {
                 entry: trial_entry,
                 episodes,
@@ -482,7 +506,8 @@ pub async fn run(
         }
     }
     let mut memories = Vec::new();
-    for (id, info) in &infos {
+    for (id, info) in infos.iter() {
+        super::resolve::checkpoint()?;
         if current.contains(id) {
             let source = info.record.clone();
             let projected = audit
@@ -491,10 +516,10 @@ pub async fn run(
                 .get(id)
                 .cloned()
                 .unwrap_or_default();
-            match crate::runtime::blocking(move || {
+            match super::resolve::proof_blocking(move || {
                 projection::record_view(&source.record, &projected)
             })
-            .await
+            .await?
             {
                 Ok(view) => {
                     if view != RecordView::Current {
@@ -510,7 +535,7 @@ pub async fn run(
     let projected = audit.projection.clone();
     let tasks = resolver.accepted_tasks().await?;
     let retained = resolver.logs.clone();
-    let accepted = crate::runtime::blocking(move || {
+    let accepted = super::resolve::proof_blocking(move || {
         retained
             .iter()
             .filter_map(|(session, events)| {
@@ -533,12 +558,13 @@ pub async fn run(
             })
             .collect::<BTreeSet<_>>()
     })
-    .await;
-    let publications =
-        audit_receipts(&mut audit, resolver, &facts, &infos, &metas, &accepted).await;
+    .await?;
+    let publications = super::resolve::ProofOwned::new(
+        audit_receipts(&mut audit, resolver, &facts, &infos, &metas, &accepted).await?,
+    );
     let graph_facts = facts.clone();
-    audit.graph = crate::runtime::blocking(move || {
-        crate::runtime::assert_off_rt_worker();
+    audit.graph = super::resolve::proof_blocking(move || {
+        super::resolve::assert_proof_owner();
         let memories = memories
             .into_iter()
             .map(|record| Memory {
@@ -557,8 +583,9 @@ pub async fn run(
             now_ms,
         )
     })
-    .await?;
-    for publication in publications {
+    .await??;
+    for publication in publications.iter() {
+        super::resolve::checkpoint()?;
         let Some(selection) = &publication.body.selection else {
             continue;
         };
@@ -567,6 +594,7 @@ pub async fn run(
         };
         let mut rows = vec![];
         for entry in &selection.selected {
+            super::resolve::checkpoint()?;
             if let Some(candidate) = selection.candidates.iter().find(|c| &c.entry == entry)
                 && let Ok(record) = resolver.record(&candidate.record).await
             {
@@ -592,14 +620,14 @@ pub async fn run(
             })
             .map(|e| e.ts_ms)
             .unwrap_or(0);
-        let rendered = crate::runtime::blocking(move || {
+        let rendered = super::resolve::proof_blocking(move || {
             let rows = rows
                 .into_iter()
                 .map(|(c, r)| (c, r.record.clone()))
                 .collect::<Vec<_>>();
             super::receipt::render_resources(&rows, &sink, session, at)
         })
-        .await;
+        .await?;
         let event = resolver
             .logs
             .get(&session)
@@ -671,6 +699,7 @@ pub async fn run(
         })
         .collect::<Vec<_>>();
     for (id, pin) in pins {
+        super::resolve::checkpoint()?;
         let value=match &pin {
             EvidenceRef::Event{..}=>resolver.event_async(&pin).await.ok().and_then(|e|serde_json::to_value(e).ok()),
             EvidenceRef::Record{root,id,path,commit,digest}=>resolver.record(&RecordPin{root:root.clone(),id:Some(id.clone()),path:path.clone(),commit:Some(commit.clone()),digest:digest.clone()}).await.ok().map(|r|
@@ -679,13 +708,13 @@ pub async fn run(
         };
         if let Some(value) = value {
             let redact = set.clone();
-            let snippet = crate::runtime::blocking(move || {
+            let snippet = super::resolve::proof_blocking(move || {
                 let value = deny::model_input(value, &redact);
                 let text = serde_json::to_string(&value).unwrap_or_default();
                 let excerpt = text.chars().take(4096).collect::<String>();
                 json!({"text":excerpt,"redacted":true,"truncated":text.chars().count()>4096})
             })
-            .await;
+            .await?;
             if let Some(node) = audit.graph.nodes.get_mut(&id) {
                 node.data["resolved"] = snippet;
             }
@@ -693,7 +722,7 @@ pub async fn run(
     }
     audit.findings.sort();
     audit.findings.dedup();
-    Ok(audit)
+    Ok(audit.take_value())
 }
 
 fn proof(audit: &mut Audit, check: &str, result: super::seal::Proof<()>) {
@@ -717,15 +746,17 @@ async fn audit_receipts(
     infos: &BTreeMap<String, Info>,
     metas: &BTreeMap<SessionId, SessionMeta>,
     accepted: &BTreeSet<SessionId>,
-) -> Vec<super::receipt::Accepted> {
+) -> Result<Vec<super::receipt::Accepted>, Invalid> {
     use super::{receipt, seal::ProofError};
     let domains = resolver.receipt_domains();
     let trust = resolver.trust();
     let logs = resolver.logs.clone();
-    let mut runs = BTreeMap::new();
-    let mut publications = vec![];
+    let mut runs = super::resolve::ProofOwned::new(BTreeMap::new());
+    let mut publications = super::resolve::ProofOwned::new(vec![]);
     for events in logs.values() {
+        super::resolve::checkpoint()?;
         for event in events {
+            super::resolve::checkpoint()?;
             if let Event::ItemCompleted {
                 body: Item::Receipt { kind, .. },
                 ..
@@ -749,10 +780,10 @@ async fn audit_receipts(
                         let observed = r.clone();
                         let observed_domains = domains.clone();
                         audit.labels.extend(
-                            crate::runtime::blocking(move || {
+                            super::resolve::proof_blocking(move || {
                                 receipt::current_labels(&observed, &observed_domains)
                             })
-                            .await,
+                            .await?,
                         );
                         if runs.insert(event.session, r).is_some() {
                             audit.reject("P4", "duplicate_run_receipt");
@@ -785,6 +816,7 @@ async fn audit_receipts(
         }
     }
     for (session, meta) in metas {
+        super::resolve::checkpoint()?;
         if meta.harness != "dream" && meta.dream.is_none() {
             continue;
         }
@@ -813,8 +845,9 @@ async fn audit_receipts(
         }
         proof(audit, "P4", receipt::check_sources(run, &refs, &logs));
     }
-    let mut good = vec![];
-    for publication in &publications {
+    let mut good = super::resolve::ProofOwned::new(vec![]);
+    for publication in publications.iter() {
+        super::resolve::checkpoint()?;
         let Some(run) = runs.get(&publication.body.run.session) else {
             audit.unproven("P2", "missing_outer_run");
             continue;
@@ -836,10 +869,10 @@ async fn audit_receipts(
                 let observed = publication.clone();
                 let observed_domains = domains.clone();
                 audit.labels.extend(
-                    crate::runtime::blocking(move || {
+                    super::resolve::proof_blocking(move || {
                         receipt::current_labels(&observed, &observed_domains)
                     })
-                    .await,
+                    .await?,
                 );
                 if publication.body.outcome == ReceiptOutcome::Skipped {
                     audit.labels.push(json!({"kind":"skipped","receipt":publication.blob.sha256,"reason":publication.body.skip_reason}));
@@ -862,6 +895,7 @@ async fn audit_receipts(
         }
     }
     for fact in facts {
+        super::resolve::checkpoint()?;
         match &fact.body {
             Item::Adoption {
                 receipt: Some(digest),
@@ -922,7 +956,7 @@ async fn audit_receipts(
             _ => {}
         }
     }
-    good
+    Ok(good.take_value())
 }
 
 pub async fn cli(subcommand: &str, args: impl Iterator<Item = String>) -> Result<i32, String> {
@@ -1126,4 +1160,20 @@ fn render(
             .to_vec()
     };
     Ok((code, bytes))
+}
+
+impl super::c1::disposal::Drain for Audit {
+    fn drain_step(&mut self) -> bool {
+        self.labels.drain_step()
+            || self.projection.drain_step()
+            || self.graph.drain_step()
+            || self.findings.pop().is_some()
+            || self.record_views.drain_step()
+    }
+}
+
+impl super::c1::disposal::Drain for Info {
+    fn drain_step(&mut self) -> bool {
+        self.identity.drain_step() || self.evidence.drain_step()
+    }
 }

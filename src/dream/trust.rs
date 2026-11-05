@@ -22,40 +22,49 @@ use std::{
 
 /// This has no authority bit. Passing V never makes the record trusted.
 pub fn verify_bytes(bytes: &[u8], id: &str, kinds: &[String]) -> Result<Record, Invalid> {
+    super::resolve::checkpoint()?;
     let text = std::str::from_utf8(bytes).map_err(|_| Invalid("MALFORMED"))?;
     if !text.starts_with("---\n") || text.contains("\r\n") {
         return Err(Invalid("MALFORMED"));
     }
-    let record = Record::parse(bytes).map_err(|_| Invalid("MALFORMED"))?;
-    let mut front: Value = serde_yaml::from_str(
-        text.strip_prefix("---\n")
-            .unwrap()
-            .split_once("\n---\n")
-            .map(|(front, _)| front)
-            .ok_or(Invalid("MALFORMED"))?,
-    )
-    .map_err(|_| Invalid("MALFORMED"))?;
+    let mut record =
+        super::resolve::ProofOwned::new(Record::parse(bytes).map_err(|_| Invalid("MALFORMED"))?);
+    super::resolve::checkpoint()?;
+    let mut front = super::resolve::ProofOwned::new(
+        serde_yaml::from_str::<Value>(
+            text.strip_prefix("---\n")
+                .unwrap()
+                .split_once("\n---\n")
+                .map(|(front, _)| front)
+                .ok_or(Invalid("MALFORMED"))?,
+        )
+        .map_err(|_| Invalid("MALFORMED"))?,
+    );
+    super::resolve::checkpoint()?;
     let object = front.as_object_mut().ok_or(Invalid("MALFORMED"))?;
     if object.keys().next_back().map(String::as_str) != Some("provenance") {
         return Err(Invalid("NONCANONICAL"));
     }
-    let proof = object.remove("provenance").ok_or(Invalid("MALFORMED"))?;
+    let proof =
+        super::resolve::ProofOwned::new(object.remove("provenance").ok_or(Invalid("MALFORMED"))?);
     let proof_object = proof.as_object().ok_or(Invalid("MALFORMED"))?;
     for field in ["digest", "frontmatter_digest", "signer", "sig"] {
         if !proof_object.get(field).is_some_and(Value::is_string) {
             return Err(Invalid("MALFORMED"));
         }
     }
-    let unsigned = serde_yaml::to_string(&front).map_err(|_| Invalid("MALFORMED"))?;
+    let unsigned = serde_yaml::to_string(&*front).map_err(|_| Invalid("MALFORMED"))?;
+    super::resolve::checkpoint()?;
     front
         .as_object_mut()
         .unwrap()
         .insert("provenance".into(), proof.clone());
     let rendered = format!(
         "---\n{}---\n{}",
-        serde_yaml::to_string(&front).map_err(|_| Invalid("MALFORMED"))?,
+        serde_yaml::to_string(&*front).map_err(|_| Invalid("MALFORMED"))?,
         record.body
     );
+    super::resolve::checkpoint()?;
     if rendered.as_bytes() != bytes {
         return Err(Invalid("NONCANONICAL"));
     }
@@ -102,10 +111,12 @@ pub fn verify_bytes(bytes: &[u8], id: &str, kinds: &[String]) -> Result<Record, 
     let key = decode(&author["public_key"], 32)?;
     let sig = decode(&proof["sig"], 64)?;
     let pae = format!("DSSEv1 13 bboxy/item/v1 128 {}{}", &f[7..], &d[7..]);
+    super::resolve::checkpoint()?;
     ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, key)
         .verify(pae.as_bytes(), &sig)
         .map_err(|_| Invalid("BAD_SIGNATURE"))?;
-    Ok(record)
+    super::resolve::checkpoint()?;
+    Ok(record.take_value())
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -335,6 +346,52 @@ impl Policy {
     }
 }
 
+/// Selected public keys are admitted immutable bytes, never pathname IO.
+/// Only the two existing exact public-key operations accept a key binding.
+pub(crate) fn selected_key_command(
+    path: &Path,
+    args: &[String],
+    home: Option<&Path>,
+) -> Result<(i32, Vec<u8>), Invalid> {
+    let home = home.ok_or(Invalid("selected private public key custody unavailable"))?;
+    let action = args
+        .iter()
+        .position(|arg| matches!(arg.as_str(), "--show-keys" | "--import"))
+        .ok_or(Invalid("selected public key operation unavailable"))?;
+    if action + 2 != args.len()
+        || args[..action].iter().any(|arg| {
+            !matches!(
+                arg.as_str(),
+                "--no-options" | "--no-autostart" | "--batch" | "--no-tty" | "--with-colons"
+            )
+        })
+    {
+        return Err(Invalid("selected public key argument unavailable"));
+    }
+    if ["--no-options", "--no-autostart", "--batch", "--no-tty"]
+        .iter()
+        .any(|required| !args[..action].iter().any(|arg| arg == required))
+    {
+        return Err(Invalid("selected public key isolation unavailable"));
+    }
+    let bindings =
+        super::resolve::bindings().ok_or(Invalid("selected public key bindings unavailable"))?;
+    let physical = Path::new(&args[action + 1]);
+    if !bindings.keys.values().any(|bound| bound == physical) {
+        return Err(Invalid("selected public key binding unavailable"));
+    }
+    let bytes = bindings
+        .key_bytes
+        .get(physical)
+        .ok_or(Invalid("selected public key bytes unavailable"))?;
+    if bytes.is_empty() || bytes.len() > 2 * 1024 * 1024 {
+        return Err(Invalid("selected public key byte bound"));
+    }
+    let mut pipe_args = args.to_vec();
+    pipe_args[action + 1] = "-".into();
+    super::resolve::selected_command_input(path, "gpg", &pipe_args, Some(home), Some(bytes))
+}
+
 /// Every subprocess uses the existing owned process runner and a shared deadline.
 /// No operator keyring, Git tracing/configuration, network, hooks or prompts.
 async fn command(
@@ -343,6 +400,13 @@ async fn command(
     home: Option<&Path>,
     until: tokio::time::Instant,
 ) -> Result<(i32, Vec<u8>), Invalid> {
+    if super::resolve::selected() {
+        let (program, args) = args.split_first().ok_or(Invalid("TRUST_UNAVAILABLE"))?;
+        if program == "gpg" {
+            return selected_key_command(path, args, home);
+        }
+        return super::resolve::selected_command(path, program, args, home);
+    }
     let mut isolated = Vec::new();
     for name in std::env::vars_os()
         .filter_map(|(k, _)| k.into_string().ok())
@@ -427,48 +491,371 @@ fn line(bytes: &[u8]) -> Result<&str, Invalid> {
         .map_err(|_| Invalid("untrusted_git"))
 }
 
-async fn private_home() -> Result<PathBuf, Invalid> {
-    crate::runtime::blocking(|| {
+struct ScratchDirectory {
+    stream: usize,
+    parent: i32,
+    name: Option<std::ffi::CString>,
+}
+impl Drop for ScratchDirectory {
+    fn drop(&mut self) {
+        if self.stream != 0 {
+            unsafe {
+                libc::closedir(self.stream as *mut libc::DIR);
+            }
+        }
+    }
+}
+/// Only this constructor's private public-key scratch tree is removable. Walking
+/// and unlinking are descriptor-relative and never follow a helper-created link.
+struct PublicHome {
+    path: PathBuf,
+    directories: Vec<ScratchDirectory>,
+    pending: Option<std::ffi::CString>,
+    started: bool,
+    finished: bool,
+    failed: bool,
+    keep_root: bool,
+}
+impl std::ops::Deref for PublicHome {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.path
+    }
+}
+impl PublicHome {
+    fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            directories: vec![],
+            pending: None,
+            started: false,
+            finished: false,
+            failed: false,
+            keep_root: false,
+        }
+    }
+    fn finish(&mut self) -> Result<(), Invalid> {
+        use super::c1::disposal::Drain;
+        super::resolve::cleanup_steps(&mut || self.drain_step());
+        if self.failed {
+            Err(Invalid("selected public scratch cleanup failed"))
+        } else {
+            Ok(())
+        }
+    }
+}
+impl super::c1::disposal::Drain for PublicHome {
+    fn drain_step(&mut self) -> bool {
+        if self.finished {
+            return false;
+        }
+        if !self.started {
+            self.started = true;
+            let Ok(path) = std::ffi::CString::new(self.path.as_os_str().as_encoded_bytes()) else {
+                self.failed = true;
+                self.finished = true;
+                return false;
+            };
+            let raw = unsafe {
+                libc::open(
+                    path.as_ptr(),
+                    libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_DIRECTORY | libc::O_CLOEXEC,
+                )
+            };
+            if raw < 0 {
+                self.failed |=
+                    std::io::Error::last_os_error().kind() != std::io::ErrorKind::NotFound;
+                self.finished = true;
+                return false;
+            }
+            let stream = unsafe { libc::fdopendir(raw) };
+            if stream.is_null() {
+                unsafe {
+                    libc::close(raw);
+                }
+                self.failed = true;
+                self.finished = true;
+                return false;
+            }
+            self.directories.push(ScratchDirectory {
+                stream: stream as usize,
+                parent: -1,
+                name: None,
+            });
+            return true;
+        }
+        if let Some(name) = self.pending.take() {
+            let parent =
+                unsafe { libc::dirfd(self.directories.last().unwrap().stream as *mut libc::DIR) };
+            let mut info = std::mem::MaybeUninit::<libc::stat>::uninit();
+            if unsafe {
+                libc::fstatat(
+                    parent,
+                    name.as_ptr(),
+                    info.as_mut_ptr(),
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
+            } != 0
+            {
+                self.failed |=
+                    std::io::Error::last_os_error().kind() != std::io::ErrorKind::NotFound;
+                return true;
+            }
+            let info = unsafe { info.assume_init() };
+            if info.st_mode & libc::S_IFMT == libc::S_IFDIR {
+                // Public GPG scratch has shallow fixed shape. Unexpected trees
+                // are retained as a cleanup failure, never traversed unboundedly.
+                if self.directories.len() >= 16 {
+                    self.failed = true;
+                    return true;
+                }
+                let raw = unsafe {
+                    libc::openat(
+                        parent,
+                        name.as_ptr(),
+                        libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_DIRECTORY | libc::O_CLOEXEC,
+                    )
+                };
+                if raw < 0 {
+                    self.failed = true;
+                    return true;
+                }
+                let stream = unsafe { libc::fdopendir(raw) };
+                if stream.is_null() {
+                    unsafe {
+                        libc::close(raw);
+                    }
+                    self.failed = true;
+                    return true;
+                }
+                self.directories.push(ScratchDirectory {
+                    stream: stream as usize,
+                    parent,
+                    name: Some(name),
+                });
+            } else if unsafe { libc::unlinkat(parent, name.as_ptr(), 0) } != 0 {
+                self.failed |=
+                    std::io::Error::last_os_error().kind() != std::io::ErrorKind::NotFound;
+            }
+            return true;
+        }
+        let directory = self.directories.last().unwrap();
+        #[cfg(target_os = "macos")]
+        unsafe {
+            *libc::__error() = 0;
+        }
+        #[cfg(not(target_os = "macos"))]
+        unsafe {
+            *libc::__errno_location() = 0;
+        }
+        let entry = unsafe { libc::readdir(directory.stream as *mut libc::DIR) };
+        if !entry.is_null() {
+            let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
+            if name.to_bytes() != b"." && name.to_bytes() != b".." {
+                self.pending = Some(name.to_owned());
+            }
+            return true;
+        }
+        self.failed |= std::io::Error::last_os_error().raw_os_error().unwrap_or(0) != 0;
+        let mut directory = self.directories.pop().unwrap();
+        unsafe {
+            libc::closedir(directory.stream as *mut libc::DIR);
+        }
+        directory.stream = 0;
+        if let Some(name) = &directory.name {
+            if unsafe { libc::unlinkat(directory.parent, name.as_ptr(), libc::AT_REMOVEDIR) } != 0 {
+                self.failed |=
+                    std::io::Error::last_os_error().kind() != std::io::ErrorKind::NotFound;
+            }
+        } else {
+            if !self.keep_root && std::fs::remove_dir(&self.path).is_err() {
+                self.failed = true;
+            }
+            self.finished = true;
+        }
+        true
+    }
+}
+impl Drop for PublicHome {
+    fn drop(&mut self) {
+        if !self.finished {
+            let _ = self.finish();
+        }
+    }
+}
+async fn private_home() -> Result<PublicHome, Invalid> {
+    super::resolve::proof_blocking(|| {
         use std::os::unix::fs::DirBuilderExt;
-        crate::runtime::assert_off_rt_worker();
-        // Short private path keeps GnuPG Unix sockets below macOS sockaddr_un bounds.
-        let path = PathBuf::from("/tmp").join(format!("dream-public-{}", ulid::Ulid::new()));
+        super::resolve::assert_proof_owner();
+        let base=if super::resolve::selected() { super::resolve::bindings().and_then(|bindings|bindings.scratch.clone()).ok_or(Invalid("helper private scratch unavailable"))? } else { PathBuf::from("/tmp") };
+        let path = base.join(format!("dream-public-{}", ulid::Ulid::new()));
         std::fs::DirBuilder::new()
             .mode(0o700)
             .create(&path)
             .map_err(|_| Invalid("TRUST_UNAVAILABLE"))?;
-        if std::fs::write(
-            path.join("gpg.conf"),
+        let home = PublicHome::new(path);
+        std::fs::write(
+            home.path.join("gpg.conf"),
             "no-autostart\nno-auto-key-retrieve\nno-auto-key-import\nauto-key-locate clear\n",
         )
-        .is_err()
-        {
-            let _ = std::fs::remove_dir_all(&path);
-            return Err(Invalid("TRUST_UNAVAILABLE"));
-        }
-        Ok(path)
+        .map_err(|_| Invalid("TRUST_UNAVAILABLE"))?;
+        Ok(home)
     })
-    .await
+    .await?
 }
-async fn remove_home(path: PathBuf) {
-    crate::runtime::blocking(move || {
-        let _ = std::fs::remove_dir_all(path);
-    })
-    .await;
+async fn remove_home(mut home: PublicHome) -> Result<(), Invalid> {
+    if super::resolve::selected() {
+        return home.finish();
+    }
+    crate::runtime::blocking(move || home.finish()).await
+}
+pub(crate) fn cleanup_selected_scratch()->Result<(),Invalid> {
+    if !super::resolve::selected(){return Ok(());}
+    if super::resolve::helper_active(){return Err(Invalid("helper still owns private scratch"));}
+    let Some(path)=super::resolve::bindings().and_then(|bindings|bindings.scratch.clone()) else{return Ok(());};
+    use std::os::unix::fs::MetadataExt;
+    let meta=std::fs::symlink_metadata(&path).map_err(|_|Invalid("helper scratch unavailable"))?;
+    if !meta.is_dir()||meta.uid()!=unsafe{libc::geteuid()}||meta.mode()&0o077!=0{return Err(Invalid("helper scratch custody unavailable"));}
+    let mut scratch=PublicHome::new(path);scratch.keep_root=true;scratch.finish()
 }
 pub struct Trust {
     policy: Policy,
     /// Only independently bound repository keys are present. No aliases.
     roots: BTreeMap<String, Root>,
+    selected_cache_tag: String,
 }
 impl Trust {
+    /// Parse the exact admitted public policy; bind its logical roots and keys
+    /// solely to independently mounted finite snapshots. Never open a policy
+    /// supplied pathname or infer origin/main or the operator's HOME/keyring.
+    pub(crate) async fn load_selected(bytes: &[u8], supplied: Vec<Root>) -> Result<Self, Invalid> {
+        if !super::resolve::selected() {
+            return Err(Invalid("selected trust owner unavailable"));
+        }
+        super::resolve::checkpoint()?;
+        let mut policy = Policy::parse(bytes)?;
+        super::resolve::admit_policy_branches(policy.roots.iter().map(|root|root.branch.clone()))?;
+        let bindings =
+            super::resolve::bindings().ok_or(Invalid("selected trust bindings unavailable"))?;
+        let mut roots = BTreeMap::new();
+        for config in &policy.roots {
+            super::resolve::checkpoint()?;
+            let found = supplied
+                .iter()
+                .filter(|root| root.repo == config.repo)
+                .collect::<Vec<_>>();
+            if found.len() != 1 {
+                return Err(Invalid("selected trust root unavailable"));
+            }
+            let root = found[0].clone();
+            let until = tokio::time::Instant::now() + crate::vcs::CAPTURE_BUDGET;
+            let bare = git(&root, &["rev-parse", "--is-bare-repository"], None, until).await?;
+            let actual = git(&root, &["rev-parse", "--show-toplevel"], None, until).await?;
+            let head = git(
+                &root,
+                &["rev-parse", "--verify", &config.branch],
+                None,
+                until,
+            )
+            .await?;
+            let origin = git(
+                &root,
+                &["config", "--get", "remote.origin.url"],
+                None,
+                until,
+            )
+            .await?;
+            let main = git(
+                &root,
+                &["rev-parse", "--verify", "refs/remotes/origin/main"],
+                None,
+                until,
+            )
+            .await?;
+            if bare != b"false\n"
+                || PathBuf::from(line(&actual)?) != root.path
+                || line(&head)? != root.main
+                || line(&main)? != root.main
+                || crate::vcs::normalize_repo_key(line(&origin)?).as_deref()
+                    != Some(config.repo.as_str())
+                || roots.insert(config.repo.clone(), root).is_some()
+            {
+                return Err(Invalid("selected trust root mismatch"));
+            }
+        }
+        for signer in &mut policy.git_signers {
+            super::resolve::checkpoint()?;
+            signer.public_key_file = bindings
+                .keys
+                .get(&signer.public_key_file)
+                .cloned()
+                .ok_or(Invalid("selected public key unavailable"))?;
+        }
+        let result = Self {
+            policy,
+            roots,
+            selected_cache_tag: ulid::Ulid::new().to_string(),
+        };
+        let private = private_home().await?;
+        let checked = async {
+            for signer in &result.policy.git_signers {
+                super::resolve::checkpoint()?;
+                let root = result
+                    .roots
+                    .values()
+                    .next()
+                    .ok_or(Invalid("selected trust root unavailable"))?;
+                let (code, bytes) = command(
+                    &root.path,
+                    vec![
+                        "gpg".into(),
+                        "--no-options".into(),
+                        "--no-autostart".into(),
+                        "--batch".into(),
+                        "--no-tty".into(),
+                        "--with-colons".into(),
+                        "--show-keys".into(),
+                        signer.public_key_file.to_string_lossy().into_owned(),
+                    ],
+                    Some(&private),
+                    tokio::time::Instant::now() + crate::vcs::CAPTURE_BUDGET,
+                )
+                .await?;
+                let mut primary = false;
+                let mut fingerprints = vec![];
+                for row in line(&bytes)?.lines() {
+                    super::resolve::checkpoint()?;
+                    let fields = row.split(':').collect::<Vec<_>>();
+                    if fields[0] == "pub" {
+                        primary = true;
+                    } else if fields[0] == "sub" {
+                        primary = false;
+                    } else if fields[0] == "fpr" && primary {
+                        fingerprints.push(fields.get(9).copied().unwrap_or(""));
+                        primary = false;
+                    }
+                    if fields[0] == "sec" || fields[0] == "ssb" {
+                        return Err(Invalid("selected public key required"));
+                    }
+                }
+                if code != 0 || fingerprints != [signer.fingerprint.as_str()] {
+                    return Err(Invalid("TRUST_UNAVAILABLE"));
+                }
+            }
+            Ok(())
+        }
+        .await;
+        remove_home(private).await?;
+        checked?;
+        Ok(result)
+    }
     pub async fn load(path: PathBuf, forbidden: Vec<PathBuf>) -> Result<Self, Invalid> {
-        let (policy, file) = crate::runtime::blocking(move || {
+        let (policy, file) = super::resolve::proof_blocking(move || {
             use std::{
                 io::Read,
                 os::unix::fs::{MetadataExt, OpenOptionsExt},
             };
-            crate::runtime::assert_off_rt_worker();
+            super::resolve::assert_proof_owner();
             let mut fd = std::fs::OpenOptions::new()
                 .read(true)
                 .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
@@ -497,7 +884,7 @@ impl Trust {
             }
             Ok((Policy::parse(&bytes)?, file))
         })
-        .await?;
+        .await??;
         // The policy may not be smuggled through an unrelated repository either.
         let location = Root {
             name: String::new(),
@@ -543,7 +930,11 @@ impl Trust {
                 }
             }
         }
-        let result = Self { policy, roots };
+        let result = Self {
+            policy,
+            roots,
+            selected_cache_tag: ulid::Ulid::new().to_string(),
+        };
         // Fingerprint inspection never consults or creates the operator's keyring.
         let private = private_home().await?;
         let checked = async {
@@ -586,11 +977,18 @@ impl Trust {
             Ok::<_, Invalid>(())
         }
         .await;
-        remove_home(private).await;
+        remove_home(private).await?;
         checked?;
         Ok(result)
     }
     async fn signed(&self, root: &Root, commit: &str) -> Result<(), Invalid> {
+        let cache_key = format!("sig:{}:{}:{commit}", self.selected_cache_tag, root.repo);
+        if super::resolve::selected() {
+            super::resolve::checkpoint()?;
+            if super::resolve::trust_cache_has(&cache_key) {
+                return Ok(());
+            }
+        }
         let keys = self
             .policy
             .git_signers
@@ -602,6 +1000,7 @@ impl Trust {
         let until = tokio::time::Instant::now() + crate::vcs::CAPTURE_BUDGET;
         let result = async {
             for key in &keys {
+                super::resolve::checkpoint()?;
                 let (code, _) = command(
                     &root.path,
                     vec![
@@ -633,6 +1032,7 @@ impl Trust {
                 return Err(Invalid("unknown_signer"));
             }
             for signer in &keys {
+                super::resolve::checkpoint()?;
                 if fields[1] != signer.fingerprint && fields[2] != signer.fingerprint {
                     continue;
                 }
@@ -654,33 +1054,52 @@ impl Trust {
             Err(Invalid("unknown_or_revoked_signer"))
         }
         .await;
-        remove_home(private).await;
+        remove_home(private).await?;
+        if result.is_ok() && super::resolve::selected() {
+            super::resolve::trust_cache_put(cache_key);
+        }
         result
     }
     pub async fn anchor(&self, pin: &EvidenceRef) -> Result<Record, Invalid> {
+        let EvidenceRef::Record { root, .. } = pin else {
+            return Err(Invalid("not_record"));
+        };
+        let root = if super::resolve::selected() {
+            let mut matches = self.roots.values().filter(|mounted| mounted.name == *root);
+            let found = matches.next().ok_or(Invalid("unknown_root"))?;
+            if matches.next().is_some() {
+                return Err(Invalid("ambiguous selected root"));
+            }
+            found
+        } else {
+            self.roots.get(root).ok_or(Invalid("unknown_root"))?
+        };
+        self.anchor_at(pin, root).await
+    }
+    async fn anchor_at(&self, pin: &EvidenceRef, root: &Root) -> Result<Record, Invalid> {
         let EvidenceRef::Record {
-            root,
             id,
             path,
             commit,
             digest,
+            ..
         } = pin
         else {
             return Err(Invalid("not_record"));
         };
-        let root = self.roots.get(root).ok_or(Invalid("unknown_root"))?;
         let path = repository_path(path)?;
         let bytes = root.read(&path, commit).await?;
+        super::resolve::reserve_record(&bytes)?;
         let expected = digest.clone();
         let id = id.clone();
         let kinds = self.policy.kb_signer_kinds.clone();
-        let record = crate::runtime::blocking(move || {
+        let record = super::resolve::proof_blocking(move || {
             if entry::digest(&bytes) != expected {
                 return Err(Invalid("pin_digest"));
             }
             verify_bytes(&bytes, &id, &kinds)
         })
-        .await?;
+        .await??;
         if record.front["type"] != "decision"
             && !(record.front["type"] == "task"
                 && (record.front.get("verify_result").is_some()
@@ -712,7 +1131,7 @@ impl Trust {
     /// Producers call this during startup; process-wide identity is measured once.
     pub async fn current_producer(&self, required: &[&str]) -> Result<Producer, Invalid> {
         static EXE: std::sync::OnceLock<Result<String, Invalid>> = std::sync::OnceLock::new();
-        let digest = crate::runtime::blocking(|| {
+        let digest = super::resolve::proof_blocking(|| {
             EXE.get_or_init(|| {
                 use sha2::Digest;
                 use std::io::Read;
@@ -741,7 +1160,7 @@ impl Trust {
             })
             .clone()
         })
-        .await?;
+        .await??;
         let candidates = self
             .policy
             .producers
@@ -769,6 +1188,18 @@ impl Trust {
         {
             return Err(Invalid("producer_unapproved"));
         }
+        let cache_key = if super::resolve::selected() {
+            super::resolve::checkpoint()?;
+            let encoded = serde_json::to_string(&(producer, required))
+                .map_err(|_| Invalid("producer_unapproved"))?;
+            let key = format!("producer:{}:{encoded}", self.selected_cache_tag);
+            if super::resolve::trust_cache_has(&key) {
+                return Ok(());
+            }
+            Some(key)
+        } else {
+            None
+        };
         let root = self
             .roots
             .get(&producer.repo)
@@ -798,13 +1229,13 @@ impl Trust {
         let gate = &entries[0].gate;
         let bytes = root.read(&gate.path, &gate.commit).await?;
         let expected = gate.sha256.clone();
-        let bytes = crate::runtime::blocking(move || {
+        let bytes = super::resolve::proof_blocking(move || {
             if super::fingerprint::digest(&bytes) != expected {
                 return Err(Invalid("producer_unapproved"));
             }
             Ok(bytes)
         })
-        .await?;
+        .await??;
         let last = git(
             root,
             &["rev-list", "-1", &gate.commit, "--", &gate.path],
@@ -831,7 +1262,7 @@ impl Trust {
             return Err(Invalid("producer_unapproved"));
         }
         self.signed(root, last).await?;
-        let record = self.anchor(&gate.task).await?;
+        let record = self.anchor_at(&gate.task, root).await?;
         if !matches!(record.front["status"].as_str(), Some("accepted" | "done"))
             || record.front["verify_result"]["exit_code"].as_i64() != Some(0)
         {
@@ -886,6 +1317,7 @@ impl Trust {
         }
         let path = &paths[0];
         let report_bytes = root.read(path, report).await?;
+        super::resolve::reserve_record(&report_bytes)?;
         let kinds = self.policy.kb_signer_kinds.clone();
         let source = producer.commit.clone();
         let gate_commit = gate.commit.clone();
@@ -899,7 +1331,7 @@ impl Trust {
             .front
             .get("number")
             .and_then(|n| n.as_u64().or_else(|| n.as_str()?.parse().ok()));
-        crate::runtime::blocking(move || {
+        super::resolve::proof_blocking(move || {
             let parsed = Record::parse(&report_bytes)?;
             let id = parsed.front["id"]
                 .as_str()
@@ -929,7 +1361,7 @@ impl Trust {
             }
             Ok(())
         })
-        .await?;
+        .await??;
         let until = tokio::time::Instant::now() + crate::vcs::CAPTURE_BUDGET;
         let touching = git(root, &["rev-list", "-1", report, "--", path], None, until).await?;
         let touching = line(&touching)?;
@@ -952,13 +1384,14 @@ impl Trust {
         }
         self.signed(root, touching).await?;
         let expected = producer.clone();
-        crate::runtime::blocking(move || {
+        let checked = super::resolve::proof_blocking(move || {
             let gate: ProducerGate =
                 serde_json::from_slice(&bytes).map_err(|_| Invalid("producer_unapproved"))?;
             if gate.schema != "bboxy.dream.producer-gate/1" || gate.producer != expected {
                 return Err(Invalid("producer_unapproved"));
             }
             for capability in &expected.capabilities {
+                super::resolve::checkpoint()?;
                 let ids: &[&str] = match capability.as_str() {
                     "receipt/1" => &["dream_trust::receipt_header_body_roundtrip"],
                     "effect-wrapper/1" => &["dream_sinks::receipt_ops_match_independent_observer"],
@@ -974,6 +1407,7 @@ impl Trust {
                     _ => return Err(Invalid("producer_unapproved")),
                 };
                 for id in ids {
+                    super::resolve::checkpoint()?;
                     let witnesses = gate
                         .witnesses
                         .iter()
@@ -986,6 +1420,57 @@ impl Trust {
             }
             Ok(())
         })
-        .await
+        .await?;
+        if checked.is_ok()
+            && let Some(key) = cache_key
+        {
+            super::resolve::trust_cache_put(key);
+        }
+        checked
+    }
+}
+
+impl super::c1::disposal::Drain for Trust {
+    fn drain_step(&mut self) -> bool {
+        if self.roots.pop_first().is_some()
+            || self.policy.roots.pop().is_some()
+            || self.policy.kb_signer_kinds.pop().is_some()
+        {
+            return true;
+        }
+        if let Some(signer) = self.policy.git_signers.last_mut() {
+            if signer.repos.pop().is_none() {
+                self.policy.git_signers.pop();
+            }
+            return true;
+        }
+        if let Some(approval) = self.policy.producers.last_mut() {
+            if approval.producer.capabilities.pop().is_none() {
+                self.policy.producers.pop();
+            }
+            return true;
+        }
+        false
+    }
+}
+
+impl super::c1::disposal::Drain for Policy {
+    fn drain_step(&mut self) -> bool {
+        if self.roots.pop().is_some() || self.kb_signer_kinds.pop().is_some() {
+            return true;
+        }
+        if let Some(signer) = self.git_signers.last_mut() {
+            if signer.repos.pop().is_none() {
+                self.git_signers.pop();
+            }
+            return true;
+        }
+        if let Some(approval) = self.producers.last_mut() {
+            if approval.producer.capabilities.pop().is_none() {
+                self.producers.pop();
+            }
+            return true;
+        }
+        false
     }
 }

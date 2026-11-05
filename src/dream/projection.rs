@@ -115,6 +115,7 @@ pub fn facts_with_logs(
 ) -> Result<Vec<Fact>, Invalid> {
     let mut facts = facts(envelopes)?;
     for fact in &mut facts {
+        super::resolve::checkpoint()?;
         if matches!(fact.body, Item::Trial { .. }) {
             fact.checked_usage = Some(check_trial_usage(&fact.body, logs));
         }
@@ -135,6 +136,7 @@ pub(crate) fn check_trial_usage(
     let mut runs = BTreeMap::new();
     let mut basis = None;
     for run in episodes.iter().chain(controls).flat_map(|e| &e.runs) {
+        super::resolve::checkpoint().map_err(|e| Unavailable(e.0))?;
         let retained_derived=logs.get(&run.session).is_some_and(|log| {
             let cut=log.first().and_then(|e|if let Event::SessionStarted{meta}=&e.event {meta.fork.map(|f|f.1)}else{None});
             log.iter().any(|e|e.seq.is_some_and(|s|cut.is_some_and(|c|s>c)) && matches!(&e.event,Event::TurnEnded{usage:Some(u),..} if u.source==Some(NumberSource::Derived)))
@@ -179,6 +181,7 @@ pub(crate) fn check_trial_usage(
 pub(crate) fn retained_bytes(log: &[Envelope]) -> Result<(), UsageProofError> {
     use UsageProofError::*;
     for e in log {
+        super::resolve::checkpoint().map_err(|e| Unavailable(e.0))?;
         let bytes = e
             .wire_bytes()
             .map_err(|_| Unavailable("derived event bytes unavailable"))?;
@@ -302,6 +305,7 @@ fn check_run_usage(
     let mut leaves = Vec::new();
     let mut basis = None;
     for e in &continuation {
+        super::resolve::checkpoint().map_err(|e| Unavailable(e.0))?;
         if e.seq <= *start || e.seq >= *end {
             continue;
         }
@@ -388,6 +392,7 @@ fn check_run_usage(
 pub fn union(envelopes: impl IntoIterator<Item = Envelope>) -> Result<Vec<Envelope>, Invalid> {
     let mut union: BTreeMap<(SessionId, Seq), (String, Envelope)> = BTreeMap::new();
     for envelope in envelopes {
+        super::resolve::checkpoint()?;
         let Some(seq) = envelope.seq else {
             continue;
         };
@@ -559,6 +564,7 @@ impl Projection {
     pub fn build(facts: &[Fact]) -> Result<Self, Invalid> {
         let mut projection = Self::default();
         for fact in facts {
+            super::resolve::checkpoint()?;
             if let Item::MemoryState {
                 entry,
                 state,
@@ -599,6 +605,7 @@ impl Projection {
                             EntryState::Adopted => {
                                 let mut pins = BTreeSet::new();
                                 for pin in refs {
+                                    super::resolve::checkpoint()?;
                                     let trial = facts
                                         .iter()
                                         .find(|f| &f.pin == pin)
@@ -854,4 +861,45 @@ fn trial_gain_math(item: &Item) -> Result<i64, Invalid> {
         }
     }
     Ok(gain)
+}
+
+impl super::c1::disposal::Drain for Projection {
+    fn drain_step(&mut self) -> bool {
+        let Some(mut first) = self.entries.first_entry() else {
+            return false;
+        };
+        let entry = first.get_mut();
+        if entry.reasons.pop_first().is_some() {
+            return true;
+        }
+        if let Some(mut pair) = entry.pairs.first_entry() {
+            if pair.get_mut().reasons.pop_first().is_none()
+                && pair.get_mut().trials.pop_first().is_none()
+            {
+                pair.remove_entry();
+            }
+            return true;
+        }
+        first.remove_entry();
+        true
+    }
+}
+impl super::c1::disposal::Drain for Fact {
+    fn drain_step(&mut self) -> bool {
+        if self.body.drain_step() {
+            return true;
+        }
+        if let Some(Ok(proof)) = self.checked_usage.as_mut() {
+            if proof.item.drain_step() {
+                return true;
+            }
+            if let Some(mut run) = proof.runs.first_entry() {
+                if !run.get_mut().aggregate.drain_step() && run.get_mut()._digests.pop().is_none() {
+                    run.remove_entry();
+                }
+                return true;
+            }
+        }
+        self.checked_usage.take().is_some()
+    }
 }
