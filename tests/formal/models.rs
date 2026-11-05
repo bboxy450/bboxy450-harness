@@ -7388,12 +7388,6 @@ pub fn draft_handoff(b: bool) -> Model {
     safe(&mut m, "AcceptedEditSurvivesReopen", eq(3, 0).or(eq(4, 1)));
     m
 }
-pub fn pane_spill_models() -> Vec<(Model, &'static str)> {
-    vec![(unrestricted_startup(false), "pass"), (unrestricted_startup(true), "safety"),
-        (draft_handoff(false), "pass"), (draft_handoff(true), "safety"),
-        (native_spill(false), "pass"), (native_spill(true), "safety")]
-}
-
 pub fn unrestricted_startup(b: bool) -> Model {
     let mut m = base::<3>("UnrestrictedStartup", b,
         &[("phase", 3, 0), ("mode_confirmed", 1, 0), ("prompt_sent", 1, 0)]);
