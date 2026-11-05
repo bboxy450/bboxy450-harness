@@ -201,3 +201,8 @@ and the exact shared checker copies. These checks do not replace upstream terms.
   and linked command-style execution cards are project-owned implementations.
   Keep this source and policy with extracted runtime, rendering and formal witnesses:
   https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+
+- Dream prepared-read DTOs, selected immutable evidence bindings, shared C1 owner
+  adapters and private publication/process/formal conformance witnesses are
+  project-owned. Retain this origin and the absolute policy URL with extracts:
+  https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
