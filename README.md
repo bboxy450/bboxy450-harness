@@ -242,7 +242,10 @@ The unchanged `ResultDescriptor.max_poll_cpu_ns` captures the raw inclusive
 maximum **before descriptor serialization/hash/write/publication**. It includes
 native calls already observed and cannot certify its own later publication.
 Terminal metrics include descriptor work, cleanup, joined ownership and the
-final measured control tick. Captured maximum must not exceed terminal maximum.
+final measured control tick. Fallback parked-owner sender disposal/join is a
+measured ordinary settlement unit, folded into application/inclusive/main-owner
+maxima with its post-span debt paid before terminal telemetry. Captured maximum
+must not exceed terminal maximum.
 Legacy 1 ms-only consumers may refuse; ≤3 ms alone does not prove this profile.
 The ordinary-release/no-test-fixtures worker is retained in
 `target/dream-c1-native-profile/worker` by the focused gate, beside exact source
@@ -263,8 +266,9 @@ Private bounded diagnostics freeze these metric names (all durations are ns):
 `span_cpu_ns` sums measured expensive calling-thread spans only. Owner-thread CPU
 and full process user/system CPU are separate overlapping observations and must
 not be added together. Final parent post-reap usage covers telemetry/exit tail.
-Unknown cost retains a conservative 27 ms settlement rest and a sticky failure;
-it never authorizes another expensive span. No unbounded per-call logging or
+An unavailable inclusive CPU sample retains a conservative 27 ms settlement
+rest. Every invalid measurement remains a sticky failure and never authorizes
+another expensive span; a finite raw outer interval keeps its actual cost. No unbounded per-call logging or
 additional wire frames are introduced. Formal C1QuantumDebt is a finite per-run
 projection against a held peer; byte identity, OS timing, native heap, actual
 process exit and complete consumer integration remain implementation witnesses.

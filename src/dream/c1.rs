@@ -2367,18 +2367,44 @@ struct ComputeWork {
 }
 struct ParkedOwner {
     accounting: Arc<Accounting>,
+    reactor: Arc<AtomicU64>,
     sender: Option<std::sync::mpsc::SyncSender<ComputeWork>>,
     handle: Option<thread::JoinHandle<Result<Completed, w::Error>>>,
 }
-impl Drop for ParkedOwner {
-    fn drop(&mut self) {
+impl ParkedOwner {
+    fn settle_clock(&mut self, mut clock: impl FnMut() -> u64) {
+        if self.sender.is_none() && self.handle.is_none() {
+            return;
+        }
         // EOF/malformed/missing Start disconnects the parked owner, then joins
-        // the actual returned handle, including timing-failed creation.
+        // the actual returned handle, including timing-failed creation. This is
+        // an ordinary settlement unit, with no native exemption. Its ending
+        // sample follows the actual join and returned-result disposal.
         self.accounting.pay();
+        let wall_at = Instant::now();
+        let at = clock();
         drop(self.sender.take());
         if let Some(h) = self.handle.take() {
             let _ = h.join();
         }
+        let used = observed_interval(&self.accounting, at, clock());
+        self.accounting.inclusive_wall_max.fetch_max(
+            wall_at.elapsed().as_nanos().min(u64::MAX as u128) as u64,
+            Ordering::AcqRel,
+        );
+        self.accounting.charge(used, used);
+        self.reactor.fetch_max(used, Ordering::AcqRel);
+        if used > UNIT_NS {
+            self.accounting
+                .resource_failed
+                .store(true, Ordering::Release);
+        }
+        self.accounting.pay();
+    }
+}
+impl Drop for ParkedOwner {
+    fn drop(&mut self) {
+        self.settle_clock(cpu_ns);
     }
 }
 fn bootstrap_failure(
@@ -2444,6 +2470,7 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>, mut gate: bootstrap::Gate) -> i32
     };
     let mut owner = ParkedOwner {
         accounting: accounting.clone(),
+        reactor: reactor.clone(),
         sender: Some(sender),
         handle: created.value.ok(),
     };
@@ -2865,6 +2892,57 @@ mod tests {
             assert_eq!(accounting.native[0].effects.load(Ordering::Acquire), 1);
             eprintln!(
                 "native-owner-failure mode={failure} actual_join=true clock_fixture=true effect=present"
+            );
+        }
+    }
+    #[test]
+    fn fallback_parked_join_is_measured_and_paid_after_actual_exit_even_on_bad_clocks() {
+        for end in [200, 1_000_101, u64::MAX, 99] {
+            let accounting = Arc::new(Accounting::new());
+            let reactor = Arc::new(AtomicU64::new(0));
+            let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+            let exited = Arc::new(AtomicBool::new(false));
+            let exited_thread = exited.clone();
+            let handle = thread::Builder::new()
+                .stack_size(2 * 1024 * 1024)
+                .spawn(move || {
+                    assert!(receiver.recv().is_err());
+                    exited_thread.store(true, Ordering::Release);
+                    Err(w::Error {
+                        code: w::Code::Cancelled,
+                        source: None,
+                    })
+                })
+                .unwrap();
+            let mut owner = ParkedOwner {
+                accounting: accounting.clone(),
+                reactor: reactor.clone(),
+                sender: Some(sender),
+                handle: Some(handle),
+            };
+            let mut clocks = [100, end].into_iter();
+            owner.settle_clock(|| clocks.next().unwrap());
+            assert!(exited.load(Ordering::Acquire));
+            assert!(owner.sender.is_none() && owner.handle.is_none());
+            let used = interval(100, end);
+            assert_eq!(accounting.app_max.load(Ordering::Acquire), used);
+            assert_eq!(reactor.load(Ordering::Acquire), used);
+            assert_eq!(
+                accounting.resource_failed.load(Ordering::Acquire),
+                used > UNIT_NS
+            );
+            assert_eq!(
+                accounting.clock_failed.load(Ordering::Acquire),
+                used == u64::MAX
+            );
+            assert!(accounting.now() >= accounting.rest_until.load(Ordering::Acquire));
+            assert!(accounting.rest_total.load(Ordering::Acquire) >= 9 * UNIT_NS);
+            let charged = accounting.debt_total.load(Ordering::Acquire);
+            drop(owner);
+            assert_eq!(
+                accounting.debt_total.load(Ordering::Acquire),
+                charged,
+                "already joined owner was disposed/charged twice"
             );
         }
     }
