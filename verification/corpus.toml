@@ -1131,3 +1131,63 @@ frontend = "project"
 name = "BrokenHarnessDreamC1ReturnedOwnerDone"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamC1QuantumDebt"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1QuantumDebtUnpaidRest"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1QuantumDebtFakeNativeApp"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1QuantumDebtRepeatedEffect"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1QuantumDebtEarlyOwnerRelease"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1QuantumDebtHiddenNativeCpu"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1QuantumDebtMissingCost"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1QuantumDebtClockEffect"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1QuantumDebtCancelEffect"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1QuantumDebtAbaEffect"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1QuantumDebtWithheldCompletion"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1QuantumDebtEarlyPresent"
+expected = "safety"
+frontend = "project"

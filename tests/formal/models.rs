@@ -6882,6 +6882,18 @@ fn wp8_recall(mode: u8) -> Model {
 mod dream_c1;
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (dream_c1::quantum_debt(0), "pass"),
+        (dream_c1::quantum_debt(1), "safety"),
+        (dream_c1::quantum_debt(2), "safety"),
+        (dream_c1::quantum_debt(3), "safety"),
+        (dream_c1::quantum_debt(4), "safety"),
+        (dream_c1::quantum_debt(5), "safety"),
+        (dream_c1::quantum_debt(6), "safety"),
+        (dream_c1::quantum_debt(7), "safety"),
+        (dream_c1::quantum_debt(8), "safety"),
+        (dream_c1::quantum_debt(9), "safety"),
+        (dream_c1::quantum_debt(10), "safety"),
+        (dream_c1::quantum_debt(11), "safety"),
         (dream_c1::returned_owner(0), "pass"),
         (dream_c1::returned_owner(1), "safety"),
         (dream_c1::returned_owner(2), "safety"),
