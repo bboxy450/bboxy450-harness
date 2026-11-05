@@ -412,6 +412,9 @@ async fn replay_inner(
     let mut result = Replay::default();
     let mut logs = Vec::new();
     for input in inputs {
+        // Ready IO completions may otherwise chain across the entire corpus in
+        // one caller poll. Bound each read phase without changing its contents.
+        tokio::task::yield_now().await;
         let file = input.clone();
         let ir = crate::runtime::blocking(move || is_ir(&file)).await?;
         let input = if ir {
@@ -483,6 +486,9 @@ async fn replay_inner(
     .await;
     let mut clusters: BTreeMap<(String, String), Cluster> = BTreeMap::new();
     for log in logs {
+        // Includes early-continue paths, which never reach the existing final
+        // per-log yield. Claims/cache publication remain in their owned jobs.
+        tokio::task::yield_now().await;
         let repo = match log.meta.vcs.as_ref().and_then(|v| v.repo.clone()) {
             Some(repo) => Some(repo),
             None => crate::vcs::repo_key(&log.meta.cwd).await,
@@ -684,9 +690,9 @@ async fn budgeted(
         let used = cpu_ns().saturating_sub(start);
         maximum = maximum.max(used);
         if used > 1_000_000 {
-            return std::task::Poll::Ready(Err(io::Error::other(
-                "D0 exceeded 1ms CPU between awaits",
-            )));
+            return std::task::Poll::Ready(Err(io::Error::other(format!(
+                "D0 exceeded 1ms CPU between awaits: {used}ns in replay"
+            ))));
         }
         poll.map(|result| {
             result.map(|mut r| {

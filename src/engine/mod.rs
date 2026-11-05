@@ -418,17 +418,21 @@ impl SessionActor {
         };
         if matches!(e.event, Event::SessionClosed) {
             self.gateway.hub.publish(e.clone());
-            crate::dream::d0::session_closed(
-                &self.config.sessions,
-                &e,
-                self.config.redactor.clone(),
-            );
-            crate::frontends::ir_scan::session_closed(
-                &self.config.sessions,
-                &e,
-                self.config.redactor.clone(),
-                self.gateway.hub.clone(),
-            );
+            // A confined trial may not start unobserved post-close Git/cache or
+            // advice jobs outside its pinned roots. Ordinary closes keep both.
+            if !self.tools.is_trial() {
+                crate::dream::d0::session_closed(
+                    &self.config.sessions,
+                    &e,
+                    self.config.redactor.clone(),
+                );
+                crate::frontends::ir_scan::session_closed(
+                    &self.config.sessions,
+                    &e,
+                    self.config.redactor.clone(),
+                    self.gateway.hub.clone(),
+                );
+            }
         } else {
             self.gateway.hub.publish(e);
         }

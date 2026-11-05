@@ -1,0 +1,61 @@
+{
+  "verify_label": "dream-wp7-final-default",
+  "executable_sha256": "sha256:8a49d403f64e98c912858d98c788f944e8d7193e2dd31f6eff7b545c6009ece1",
+  "observations": [
+    {
+      "mode": "initialization-only",
+      "child_exit_code": 0,
+      "cancelled": false,
+      "settled": true,
+      "measurement": {
+        "mode": "initialization-only",
+        "initialization_cpu_ns": 53875,
+        "poll_cpu_ns": [],
+        "owned_child_reaped": false,
+        "api_executed": false
+      }
+    },
+    {
+      "mode": "cold-api",
+      "child_exit_code": 0,
+      "cancelled": false,
+      "settled": true,
+      "measurement": {
+        "mode": "cold-api",
+        "initialization_cpu_ns": null,
+        "poll_cpu_ns": [
+          225083,
+          56125,
+          318167,
+          84000
+        ],
+        "first_poll_cpu_ns": 225083,
+        "raw_within_1ms": true,
+        "owned_child_reaped": true,
+        "api_executed": true,
+        "exit_code": 0
+      }
+    },
+    {
+      "mode": "ready",
+      "child_exit_code": 0,
+      "cancelled": false,
+      "settled": true,
+      "measurement": {
+        "mode": "ready",
+        "initialization_cpu_ns": 106791,
+        "poll_cpu_ns": [
+          103208,
+          61667,
+          108542,
+          94708
+        ],
+        "first_poll_cpu_ns": 103208,
+        "raw_within_1ms": true,
+        "owned_child_reaped": true,
+        "api_executed": true,
+        "exit_code": 0
+      }
+    }
+  ]
+}
