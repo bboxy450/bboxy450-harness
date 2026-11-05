@@ -172,3 +172,7 @@ and the exact shared checker copies. These checks do not replace upstream terms.
   in `src/dream/resolve.rs`. Upstream is licensed **MIT OR Apache-2.0**;
   this is dependency/API use, with no copied upstream implementation. Its own
   origin and license notices retain their original terms.
+
+- Dream C1 wire authority, canonical schema/hash corpus and isolated inspection worker
+  are project-owned implementations; keep this policy with extracted transport,
+  custody, scheduling and formal/process witnesses.

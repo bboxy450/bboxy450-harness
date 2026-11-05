@@ -277,3 +277,7 @@ verify-onboarding-routing:
 .PHONY: verify-clean-start
 verify-clean-start:
 	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-clean-start.py
+
+.PHONY: test-dream-c1
+test-dream-c1:
+	cargo test --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --test dream_c1
