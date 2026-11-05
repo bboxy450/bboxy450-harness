@@ -674,6 +674,217 @@ fn profile_load(b: bool) -> Model {
 }
 // Materialized fork: a finite fixed prefix, with parent appends and crashes
 // before the atomic publication. Actual rename/fsync/blob bytes are API witnesses.
+// d20261103136541: one old guard, one replacement, one bare duplicate.
+// Job ownership survives caller cancellation. Clone close/exec has NO fairness.
+fn store_writer_lease(mode: u8) -> Model {
+    let mut m = base::<12>(
+        "StoreWriterLease",
+        false,
+        &[
+            ("old_phase", 5, 0), // absent, opening job, Store, ending, released guard, gone
+            ("caller_cancelled", 1, 0),
+            ("duplicate", 2, 0),      // absent, open, closed
+            ("duplicate_kind", 2, 0), // none, fsync, inherited
+            ("kernel_owner", 2, 0),   // none, old, replacement
+            ("replacement", 3, 0),    // absent, live, dropped, unavailable
+            ("released", 1, 0),
+            ("unlock_failed", 1, 0),
+            ("outcome", 4, 0), // none, handoff, constructor error, abandoned result, Store drop
+            ("live_refused", 1, 0),
+            ("false_busy", 1, 0),
+            ("bad_mutation", 1, 0),
+        ],
+    );
+    let live_old = || eq(0, 1).or(eq(0, 2));
+    act(
+        &mut m,
+        "AcquireForOpeningJob",
+        all([eq(0, 0), eq(4, 0)]),
+        &[(0, Int(1)), (4, Int(1))],
+    );
+    act(&mut m, "CancelOpeningCaller", eq(1, 0), &[(1, Int(1))]);
+    for (kind, name) in [(1, "CloneForFsync"), (2, "InheritBeforeExec")] {
+        act(
+            &mut m,
+            name,
+            all([live_old(), eq(2, 0)]),
+            &[(2, Int(1)), (3, Int(kind))],
+        );
+    }
+    act(
+        &mut m,
+        "RefuseWhileGuardLive",
+        all([live_old(), eq(4, 1), eq(9, 0)]),
+        &[(9, Int(1))],
+    );
+    act(
+        &mut m,
+        "HandoffGuardToStore",
+        all([eq(0, 1), eq(1, 0)]),
+        &[(0, Int(2)), (8, Int(1))],
+    );
+    act(
+        &mut m,
+        "ConstructorFailsAfterAcquisition",
+        eq(0, 1),
+        &[(0, Int(3)), (8, Int(2))],
+    );
+    act(
+        &mut m,
+        "AbandonedOpeningJobFinishes",
+        all([eq(0, 1), eq(1, 1)]),
+        &[(0, Int(3)), (8, Int(3))],
+    );
+    act(
+        &mut m,
+        "DropStoreGuard",
+        eq(0, 2),
+        &[(0, Int(3)), (8, Int(4))],
+    );
+    act(
+        &mut m,
+        "CheckedUnlockFailsKeepsLiveGuard",
+        all([live_old(), eq(7, 0)]),
+        &[(7, Int(1))],
+    );
+    let success = m.actions.len();
+    // Broken missing-unlock control claims release but leaves its OFD locked.
+    act(
+        &mut m,
+        "SuccessfulExplicitUnlock",
+        all([eq(0, 3), if mode == 1 { eq(2, 1) } else { Bool(true) }]),
+        &[
+            (0, Int(if mode == 1 { 5 } else { 4 })),
+            (4, if mode == 1 { Var(4) } else { Int(0) }),
+            (6, Int(1)),
+            (7, Int(0)),
+        ],
+    );
+    let success_without_duplicate = m.actions.len();
+    act(
+        &mut m,
+        "MissingUnlockButLastFileCloses",
+        all([Bool(mode == 1), eq(0, 3), eq(2, 1).negate()]),
+        &[(0, Int(5)), (4, Int(0)), (6, Int(1)), (7, Int(0))],
+    );
+    let failure = m.actions.len();
+    act(
+        &mut m,
+        "DropUnlockFailsUnavailable",
+        eq(0, 3),
+        &[(0, Int(5)), (4, Int(0)), (6, Int(0)), (7, Int(1))],
+    );
+    // On failure, last-close clears the old lock only if no duplicate remains.
+    // Split actions retain the exact finite descriptor condition.
+    m.actions[failure].guard = all([eq(0, 3), eq(2, 1).negate()]);
+    act(
+        &mut m,
+        "DropUnlockFailsWithDuplicate",
+        all([eq(0, 3), eq(2, 1)]),
+        &[(0, Int(5)), (6, Int(0)), (7, Int(1))],
+    );
+    let failure_duplicate = m.actions.len() - 1;
+    act(
+        &mut m,
+        "DestroyOldReleasedGuard",
+        eq(0, 4),
+        &[(0, Int(5)), (4, if mode == 3 { Int(0) } else { Var(4) })],
+    );
+    act(
+        &mut m,
+        "IdempotentOldRelease",
+        all([eq(0, 4), eq(5, 1)]),
+        &[(4, if mode == 3 { Int(0) } else { Var(4) })],
+    );
+    act(
+        &mut m,
+        "CloseDuplicateWhileOldLive",
+        all([live_old(), eq(2, 1)]),
+        &[(2, Int(2)), (4, if mode == 2 { Int(0) } else { Var(4) })],
+    );
+    act(
+        &mut m,
+        "LastOldDescriptorCloses",
+        all([eq(0, 5), eq(2, 1), eq(4, 1)]),
+        &[(2, Int(2)), (4, Int(0))],
+    );
+    act(
+        &mut m,
+        "OldDescriptorClosesWhileReplacementLives",
+        all([eq(0, 5), eq(2, 1), eq(4, 1).negate()]),
+        &[(2, Int(2)), (4, if mode == 3 { Int(0) } else { Var(4) })],
+    );
+    act(
+        &mut m,
+        "ReplacementAcquiresBeforeOldExec",
+        all([eq(0, 0).negate(), eq(5, 0), eq(4, 0)]),
+        &[(5, Int(1)), (4, Int(2))],
+    );
+    act(
+        &mut m,
+        "ObserveFalseBusyAfterSuccessfulRelease",
+        all([eq(6, 1), eq(4, 1), eq(5, 0)]),
+        &[(5, Int(3)), (10, Int(1))],
+    );
+    act(
+        &mut m,
+        "ObserveUnavailableFailedUnlock",
+        all([eq(7, 1), eq(0, 5), eq(4, 1), eq(5, 0)]),
+        &[(5, Int(3))],
+    );
+    act(
+        &mut m,
+        "MutateThroughMatchingGuard",
+        all([live_old(), eq(4, 1)]),
+        &[(11, Int(0))],
+    );
+    act(
+        &mut m,
+        "MutationAfterPrematureRelease",
+        all([live_old(), eq(4, 1).negate()]),
+        &[(11, Int(1))],
+    );
+    act(
+        &mut m,
+        "ReplacementDropsItsOwnGuard",
+        eq(5, 1),
+        &[(5, Int(2)), (4, Int(0))],
+    );
+    safe(
+        &mut m,
+        "NoConcurrentLiveWriters",
+        live_old().and(eq(5, 1)).negate(),
+    );
+    safe(&mut m, "MutationRequiresMatchingGuardAndLease", eq(11, 0));
+    safe(&mut m, "NoFalseBusyAfterSuccessfulRelease", eq(10, 0));
+    safe(
+        &mut m,
+        "OldReleaseCannotClearReplacementLease",
+        eq(5, 1).negate().or(eq(4, 2)),
+    );
+    progress(
+        &mut m,
+        "EndingGuardSettlesAsReleasedOrUnavailable",
+        eq(0, 3),
+        eq(0, 4).or(eq(0, 5)),
+        vec![
+            success,
+            success_without_duplicate,
+            failure,
+            failure_duplicate,
+        ],
+    );
+    if mode == 1 {
+        m.name = "BrokenHarnessStoreWriterLeaseMissing".into();
+    }
+    if mode == 2 {
+        m.name = "BrokenHarnessStoreWriterLeasePremature".into();
+    }
+    if mode == 3 {
+        m.name = "BrokenHarnessStoreWriterLeaseStale".into();
+    }
+    m
+}
 fn fork_materialize(b: bool) -> Model {
     let mut m = base::<8>(
         "ForkMaterialize",
@@ -1016,6 +1227,179 @@ fn seat_shutdown(mode: u8) -> Model {
         1 => m.name = "BrokenHarnessSeatShutdownSingleKill".into(),
         2 => m.name = "BrokenHarnessSeatShutdownBlockedOutput".into(),
         _ => {}
+    }
+    m
+}
+// Decision d20261103136528: one queued spawn, caller/drop/deadline races,
+// one exclusive owner through worker -> result -> caller/retirement -> reap.
+// Existing ProcessLifecycle separately owns member/signalling/PID fencing.
+fn process_spawn_admission(mode: u8) -> Model {
+    let mut m = base::<8>(
+        "ProcessSpawnAdmission",
+        false,
+        &[
+            ("caller", 2, 0),    // live, locally cancelled, dropped
+            ("admission", 8, 8), // fresh=8; queued, admitted, result, caller, retiring, retired, reaped, refused
+            ("child", 3, 0),     // none, running, killed/waitable, reaped
+            ("owner", 4, 0),     // none, worker, result, caller, retirement
+            ("reservation", 1, 0),
+            ("deadline", 1, 0),
+            ("returned", 1, 0), // return/drop is explicitly NOT a joined-cleanup assertion
+            ("late_admission", 1, 0),
+        ],
+    );
+    let cancelled = || eq(0, 0).negate().or(eq(5, 1));
+    act(
+        &mut m,
+        "QueueLiveRequest",
+        all([eq(1, 8), eq(0, 0), eq(5, 0)]),
+        &[(1, Int(0))],
+    );
+    let refuse_unstarted = m.actions.len();
+    act(
+        &mut m,
+        "RefuseBeforeQueue",
+        all([eq(1, 8), cancelled()]),
+        &[(1, Int(7)), (6, Int(1))],
+    );
+
+    act(&mut m, "CancelLocalOnly", eq(0, 0), &[(0, Int(1))]);
+    act(
+        &mut m,
+        "DropCaller",
+        eq(0, 2).negate(),
+        &[(0, Int(2)), (6, Int(1))],
+    );
+    act(&mut m, "DeadlineElapses", eq(5, 0), &[(5, Int(1))]);
+    let refuse = m.actions.len();
+    act(
+        &mut m,
+        "RefuseCancelledQueue",
+        all([eq(1, 0), cancelled()]),
+        &[(1, Int(7)), (6, Int(1))],
+    );
+    // No fairness of permit availability/service. Active queued work may wait.
+    act(
+        &mut m,
+        "AdmitLiveQueue",
+        all([eq(1, 0), eq(0, 0), eq(5, 0)]),
+        &[(1, Int(1)), (3, Int(1))],
+    );
+    act(
+        &mut m,
+        "AdmitCancelledQueueControl",
+        all([Bool(mode == 1), eq(1, 0), cancelled()]),
+        &[(1, Int(1)), (3, Int(1)), (7, Int(1))],
+    );
+    let spawn = m.actions.len();
+    act(
+        &mut m,
+        "SpawnFinishesOwned",
+        eq(1, 1),
+        &[(1, Int(2)), (2, Int(1)), (3, Int(2)), (4, Int(1))],
+    );
+    let failed = m.actions.len();
+    act(
+        &mut m,
+        "SpawnFailsWithoutChild",
+        eq(1, 1),
+        &[(1, Int(7)), (3, Int(0)), (6, Int(1))],
+    );
+    act(
+        &mut m,
+        "HandoffLiveResult",
+        all([eq(1, 2), eq(0, 0), eq(5, 0)]),
+        &[(1, Int(3)), (3, Int(3))],
+    );
+    let abandon = m.actions.len();
+    act(
+        &mut m,
+        "DropAbandonedResult",
+        all([eq(1, 2), cancelled()]),
+        &[(1, Int(4)), (3, Int(if mode == 2 { 0 } else { 4 }))],
+    );
+    let begin = m.actions.len();
+    act(
+        &mut m,
+        "RetireCancelledCaller",
+        all([eq(1, 3), cancelled()]),
+        &[(1, Int(4)), (3, Int(4))],
+    );
+    act(
+        &mut m,
+        "FinishNormalCaller",
+        all([eq(1, 3), eq(0, 0), eq(5, 0)]),
+        &[(1, Int(4)), (3, Int(4))],
+    );
+    act(
+        &mut m,
+        "ReturnBeforeCleanupJoins",
+        all([Var(1).lt(Int(6)), eq(1, 0).negate(), cancelled(), eq(6, 0)]),
+        &[(6, Int(1))],
+    );
+    let retire = m.actions.len();
+    act(
+        &mut m,
+        "KillAndRetireReservation",
+        all([eq(1, 4), eq(3, 4)]),
+        &[(1, Int(5)), (2, Int(2)), (4, Int(0))],
+    );
+    let reap = m.actions.len();
+    act(
+        &mut m,
+        "ReapThroughExistingOwner",
+        all([eq(1, 5), eq(3, 4)]),
+        &[(1, Int(6)), (2, Int(3)), (3, Int(0))],
+    );
+    act(&mut m, "ReturnSuccessfulJoin", eq(1, 6), &[(6, Int(1))]);
+    safe(&mut m, "NoLateQueuedAdmission", eq(7, 0));
+    safe(
+        &mut m,
+        "NoLostOwnedChild",
+        eq(2, 1).or(eq(2, 2)).negate().or(eq(3, 0).negate()),
+    );
+    safe(
+        &mut m,
+        "RunningChildKeepsReservation",
+        eq(2, 1).negate().or(eq(4, 1)),
+    );
+    safe(
+        &mut m,
+        "RetiredChildCannotBeSignalledByReservation",
+        eq(2, 2).or(eq(2, 3)).negate().or(eq(4, 0)),
+    );
+    progress(
+        &mut m,
+        "UnstartedCancellationReturnsWithoutService",
+        eq(1, 8).and(cancelled()),
+        eq(6, 1),
+        vec![refuse_unstarted],
+    );
+    progress(
+        &mut m,
+        "QueuedCancellationReturnsWithoutPermitFairness",
+        eq(1, 0).and(cancelled()),
+        eq(6, 1),
+        vec![refuse],
+    );
+    progress(
+        &mut m,
+        "CancelledAdmittedSpawnEventuallyReaps",
+        all([eq(1, 0).negate(), Var(1).lt(Int(6)), cancelled()]),
+        eq(1, 6).or(eq(1, 7)),
+        vec![spawn, failed, abandon, begin, retire, reap],
+    );
+    // Group fairness: one finishing action, one retirement action and reap each
+    // progress only under the stated eligible-service/cleanup assumptions.
+    m.weak_fair.push(vec![spawn, failed]);
+    m.weak_fair.push(vec![abandon, begin]);
+    m.weak_fair.push(vec![retire]);
+    m.weak_fair.push(vec![reap]);
+    if mode == 1 {
+        m.name = "BrokenHarnessProcessSpawnAdmissionLate".into();
+    }
+    if mode == 2 {
+        m.name = "BrokenHarnessProcessSpawnAdmissionOwner".into();
     }
     m
 }
@@ -5485,6 +5869,13 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
     registration.name = "BrokenHarnessSubscriberReplayRegistration".into();
     out.push((registration, "safety"));
     out.push((replay_tail(2), "safety"));
+    out.push((store_writer_lease(0), "pass"));
+    out.push((store_writer_lease(1), "safety"));
+    out.push((store_writer_lease(2), "safety"));
+    out.push((store_writer_lease(3), "safety"));
+    out.push((process_spawn_admission(0), "pass"));
+    out.push((process_spawn_admission(1), "safety"));
+    out.push((process_spawn_admission(2), "safety"));
     out.push((process_lifecycle(0), "pass"));
     out.push((process_lifecycle(1), "liveness"));
     out.push((process_lifecycle(2), "safety"));

@@ -759,3 +759,37 @@ frontend = "project"
 name = "BrokenHarnessDreamSealChild"
 expected = "safety"
 frontend = "project"
+[[model]]
+name = "HarnessProcessSpawnAdmission"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessProcessSpawnAdmissionLate"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessProcessSpawnAdmissionOwner"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessStoreWriterLease"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessStoreWriterLeaseMissing"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessStoreWriterLeasePremature"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessStoreWriterLeaseStale"
+expected = "safety"
+frontend = "project"

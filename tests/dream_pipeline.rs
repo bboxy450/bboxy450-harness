@@ -1277,3 +1277,59 @@ async fn synth_nfc_hashing_preserves_resolving_git_pin_spelling() {
     draft.validate_identity().unwrap();
     assert_eq!(before, f.source_bytes());
 }
+
+#[tokio::test]
+async fn synth_d0_process_spawn_poll_bound_witness() {
+    use std::future::Future;
+    fn cpu() -> u64 {
+        let mut t = std::mem::MaybeUninit::<libc::timespec>::uninit();
+        assert_eq!(
+            unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, t.as_mut_ptr()) },
+            0
+        );
+        let t = unsafe { t.assume_init() };
+        t.tv_sec as u64 * 1_000_000_000 + t.tv_nsec as u64
+    }
+    let own = tempfile::tempdir_in("/tmp").unwrap();
+    // Same run_inner/OwnedChild::spawn used by D0's private stdout capture.
+    // 3000 harmless arguments, 63000 UTF-8 bytes; one actual owned no-op child.
+    let args = vec!["bounded-d1-witness---".to_owned(); 3000];
+    assert_eq!(args.iter().map(String::len).sum::<usize>(), 63000);
+    let request = bboxy450_harness::process::Request {
+        program: "/usr/bin/true".into(),
+        args,
+        stdin: None,
+        cwd: own.path().into(),
+        timeout: std::time::Duration::from_secs(5),
+        spill_dir: own.path().into(),
+        cap: 1024,
+        redactor: Set::default(),
+    };
+    let mut future = Box::pin(bboxy450_harness::process::run(
+        request,
+        tokio_util::sync::CancellationToken::new(),
+    ));
+    let mut polls = Vec::new();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        std::future::poll_fn(|cx| {
+            let start = cpu();
+            let poll = future.as_mut().poll(cx);
+            polls.push(cpu() - start);
+            poll
+        }),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(result.code, Some(0)); // reap the real owned child before asserting
+    let first = polls[0];
+    eprintln!(
+        "owned no-op child reaped; first_poll_cpu_ns={first}; polls={}",
+        polls.len()
+    );
+    assert!(
+        first <= 1_000_000,
+        "synchronous owned spawn exceeded unchanged D0 1ms poll contract: {first}ns"
+    );
+}

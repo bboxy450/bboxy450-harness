@@ -305,6 +305,19 @@ impl Drop for Fixture {
             .args(["--kill", "gpg-agent"])
             .env("HOME", self.repo.home.path())
             .output();
+        if std::thread::panicking() {
+            // Retain ONLY this test's synthetic public repo/log/cache custody.
+            // Private disposable GPG keys are outside this directory and still drop.
+            if let Ok(empty) = tempfile::Builder::new()
+                .prefix("wp6-empty-")
+                .tempdir_in("/tmp")
+            {
+                let home = std::mem::replace(&mut self.repo.home, empty).keep();
+                let _ = std::fs::remove_file(home.join("git-signing"));
+                let _ = std::fs::remove_file(home.join("git-signing.pub"));
+                eprintln!("synthetic D1 failure custody: {}", home.display());
+            }
+        }
     }
 }
 pub fn sse(value: &Value) -> Vec<u8> {

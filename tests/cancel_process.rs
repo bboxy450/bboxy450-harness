@@ -232,3 +232,179 @@ async fn escaped_pipe_holder_cannot_stall_a_cancelled_turn() {
         }
     ));
 }
+
+#[tokio::test]
+async fn process_admission_public_queue_cancellation_and_deadline_are_observable() {
+    use bboxy450_harness::process::{Request, run};
+    use std::sync::{Arc, Condvar, Mutex};
+    type Gate = Arc<(Mutex<bool>, Condvar)>;
+    struct Release(Gate);
+    impl Drop for Release {
+        fn drop(&mut self) {
+            *self.0.0.lock().unwrap() = true;
+            self.0.1.notify_all();
+        }
+    }
+    let own = tempfile::tempdir_in("/tmp").unwrap();
+    let g = Arc::new((Mutex::new(false), Condvar::new()));
+    let release = Release(g.clone());
+    let mut workers = Vec::new();
+    for _ in 0..4 {
+        let g = g.clone();
+        let (send, ready) = tokio::sync::oneshot::channel();
+        workers.push(bbt_rt::handle().spawn(async move {
+            bboxy450_harness::runtime::blocking(move || {
+                send.send(()).unwrap();
+                let mut open = g.0.lock().unwrap();
+                while !*open {
+                    open = g.1.wait(open).unwrap();
+                }
+            })
+            .await
+        }));
+        tokio::time::timeout(Duration::from_secs(3), ready)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    let request = |budget| Request {
+        program: "/bin/sh".into(),
+        args: vec!["-c".into(), "printf unexpected > must-not-exist".into()],
+        stdin: None,
+        cwd: own.path().into(),
+        timeout: budget,
+        spill_dir: own.path().into(),
+        cap: 1024,
+        redactor: Default::default(),
+    };
+    let upstream = tokio_util::sync::CancellationToken::new();
+    let mut pending = Box::pin(run(request(Duration::from_secs(5)), upstream.clone()));
+    assert!(futures_util::poll!(pending.as_mut()).is_pending());
+    upstream.cancel();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), pending)
+            .await
+            .unwrap()
+            .unwrap_err()
+            .kind(),
+        std::io::ErrorKind::Interrupted
+    );
+    let upstream = tokio_util::sync::CancellationToken::new();
+    let mut abandoned = Box::pin(run(request(Duration::from_secs(5)), upstream.clone()));
+    assert!(futures_util::poll!(abandoned.as_mut()).is_pending());
+    drop(abandoned);
+    assert!(!upstream.is_cancelled());
+    assert_eq!(
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            run(request(Duration::from_millis(30)), upstream.clone())
+        )
+        .await
+        .unwrap()
+        .unwrap_err()
+        .kind(),
+        std::io::ErrorKind::TimedOut
+    );
+    assert!(!own.path().join("must-not-exist").exists());
+    // API results above occur while all permits are STILL held. Release is
+    // private fixture cleanup, not an admission dependency or timing shortcut.
+    drop(release);
+    for worker in workers {
+        worker.await.unwrap();
+    }
+    let result = run(
+        Request {
+            program: "/usr/bin/true".into(),
+            args: vec![],
+            stdin: None,
+            cwd: own.path().into(),
+            timeout: Duration::from_secs(3),
+            spill_dir: own.path().into(),
+            cap: 1024,
+            redactor: Default::default(),
+        },
+        upstream.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.code, Some(0));
+    assert!(group_dead(result.pgid as i32).await);
+    assert!(!upstream.is_cancelled());
+    assert!(!own.path().join("must-not-exist").exists());
+}
+#[tokio::test]
+#[ignore = "invoked as an owned private-environment process by the parent witness"]
+async fn process_admission_environment_child() {
+    let root = std::path::PathBuf::from(
+        std::env::var_os("DREAM_PRIVATE_ROOT").expect("private child root"),
+    );
+    let result = bboxy450_harness::process::run(
+        bboxy450_harness::process::Request {
+            program: "/usr/bin/env".into(),
+            args: vec![],
+            stdin: None,
+            cwd: root.clone(),
+            timeout: Duration::from_secs(3),
+            spill_dir: root,
+            cap: 8192,
+            redactor: Default::default(),
+        },
+        tokio_util::sync::CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.code, Some(0));
+    let text = String::from_utf8(result.bytes).unwrap();
+    assert!(!text.contains("BBOXY_"));
+    assert!(!text.contains("synthetic-admission-value"));
+    assert!(text.contains("DREAM_KEEP=quoted-private-data"));
+}
+#[tokio::test]
+async fn process_admission_preserves_environment_exclusion_in_real_child() {
+    use std::process::{Command, Stdio};
+    struct Child(std::process::Child);
+    impl Drop for Child {
+        fn drop(&mut self) {
+            if matches!(self.0.try_wait(), Ok(None)) {
+                let _ = self.0.kill();
+            }
+            let _ = self.0.wait();
+        }
+    }
+    let own = tempfile::tempdir_in("/tmp").unwrap();
+    let mut child = Child(
+        Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "process_admission_environment_child",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env_clear()
+            .env("HOME", own.path())
+            .env("TMPDIR", own.path())
+            .env("PATH", "/usr/bin:/bin")
+            .env("DREAM_PRIVATE_ROOT", own.path())
+            .env("DREAM_KEEP", "quoted-private-data")
+            .env(
+                "BBOXY_DREAM_ADMISSION_SENTINEL",
+                "synthetic-admission-value",
+            )
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap(),
+    );
+    let status = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Some(status) = child.0.try_wait().unwrap() {
+                break status;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("private environment child did not finish");
+    assert!(status.success());
+}
