@@ -178,29 +178,63 @@ impl SessionActor {
     ) -> std::io::Result<Self> {
         // Validate before VCS, Store, provider/profile mutation or MCP startup.
         let trial_profile = if let Some(capability) = launch.trial.clone() {
-            if launch.yolo || !launch.append_system_prompt.is_empty() || !launch.mcp_servers.is_empty() || !overrides.is_empty() || config.profile_error.is_some() {
+            if launch.yolo
+                || !launch.append_system_prompt.is_empty()
+                || !launch.mcp_servers.is_empty()
+                || !overrides.is_empty()
+                || config.profile_error.is_some()
+            {
                 return Err(std::io::Error::other("unsupported trial launch widening"));
             }
-            let cwd=config.meta.cwd.clone(); let sessions=config.sessions.clone(); let profiles=config.profiles.clone();
-            crate::runtime::blocking(move || capability.validate_launch(&cwd,&sessions,&profiles)).await?;
-            let profile=if let Some(name)=&config.meta.profile {
-                let path=Profile::file_in(&config.profiles,name).map_err(|_|std::io::Error::other("trial profile unavailable"))?;
-                Some(Profile::load(&path).await.map_err(|_|std::io::Error::other("trial profile unavailable"))?)
-            } else {None};
-            if profile.as_ref().is_some_and(|p| p.is_acp_agent() || !p.mcp_servers.is_empty() || p.model!=config.model) {
+            let cwd = config.meta.cwd.clone();
+            let sessions = config.sessions.clone();
+            let profiles = config.profiles.clone();
+            crate::runtime::blocking(move || {
+                capability.validate_launch(&cwd, &sessions, &profiles)
+            })
+            .await?;
+            let profile = if let Some(name) = &config.meta.profile {
+                let path = Profile::file_in(&config.profiles, name)
+                    .map_err(|_| std::io::Error::other("trial profile unavailable"))?;
+                Some(
+                    Profile::load(&path)
+                        .await
+                        .map_err(|_| std::io::Error::other("trial profile unavailable"))?,
+                )
+            } else {
+                None
+            };
+            if profile.as_ref().is_some_and(|p| {
+                p.is_acp_agent() || !p.mcp_servers.is_empty() || p.model != config.model
+            }) {
                 return Err(std::io::Error::other("unsupported trial profile/MCP"));
             }
-            config.policy=Policy::dream_trial();
+            config.policy = Policy::dream_trial();
             Some(profile)
-        } else {None};
+        } else {
+            None
+        };
         if launch.yolo {
             config.policy = Policy::allow_all(config.policy.on_unattended);
         }
         crate::vcs::capture_new_session(&mut config.meta, &config.sessions).await;
-        let mut store = if let Some(capability)=&launch.trial {
-            Store::open_trial(config.sessions.clone(),config.meta.clone(),Some(start),config.redactor.clone(),capability).await?
-        }else{
-            Store::open(config.sessions.clone(),config.meta.clone(),Some(start),config.redactor.clone()).await?
+        let mut store = if let Some(capability) = &launch.trial {
+            Store::open_trial(
+                config.sessions.clone(),
+                config.meta.clone(),
+                Some(start),
+                config.redactor.clone(),
+                capability,
+            )
+            .await?
+        } else {
+            Store::open(
+                config.sessions.clone(),
+                config.meta.clone(),
+                Some(start),
+                config.redactor.clone(),
+            )
+            .await?
         };
         if let Some(Envelope {
             event: Event::SessionStarted { meta },
@@ -299,7 +333,9 @@ impl SessionActor {
         let (control_tx, control) = mpsc::channel(256);
         let (output, internal) = mpsc::channel(256);
         let gateway = InProc::new(hub, work_tx, control_tx, start).with_notices(output.clone());
-        let profile = if let Some(profile) = trial_profile { profile } else if let Some(name) = &config.meta.profile {
+        let profile = if let Some(profile) = trial_profile {
+            profile
+        } else if let Some(name) = &config.meta.profile {
             match Profile::file_in(&config.profiles, name) {
                 Ok(path) => Profile::load(&path).await.ok(),
                 Err(_) => None,
@@ -347,7 +383,10 @@ impl SessionActor {
             work,
             control,
             config,
-            tools: launch.trial.clone().map_or_else(Registry::new, Registry::trial),
+            tools: launch
+                .trial
+                .clone()
+                .map_or_else(Registry::new, Registry::trial),
             generation: Arc::new(AtomicU64::new(0)),
             queue: VecDeque::new(),
             running: None,
@@ -529,13 +568,30 @@ impl SessionActor {
     async fn op(&mut self, admitted: crate::gateway::Admitted) -> std::io::Result<()> {
         let crate::gateway::Admitted { env, face } = admitted;
         let id = env.op_id;
-        if self.tools.is_trial() && match &env.op {
-            Op::SetProfile {..}|Op::Compact=>true,
-            Op::ResolveApproval {decision:ApprovalDecision::AllowAlways,..}=>true,
-            Op::UserTurn {blocks,mode}=>!matches!(mode,TurnMode::Queue) || self.running.is_some() || !self.queue.is_empty() || blocks.iter().any(|b|!matches!(b,InputBlock::Text{..})),
-            _=>false,
-        } {
-            return self.reject(id,Rejection::InvalidInput {detail:"trial context/profile widening refused".into()}).await;
+        if self.tools.is_trial()
+            && match &env.op {
+                Op::SetProfile { .. } | Op::Compact => true,
+                Op::ResolveApproval {
+                    decision: ApprovalDecision::AllowAlways,
+                    ..
+                } => true,
+                Op::UserTurn { blocks, mode } => {
+                    !matches!(mode, TurnMode::Queue)
+                        || self.running.is_some()
+                        || !self.queue.is_empty()
+                        || blocks.iter().any(|b| !matches!(b, InputBlock::Text { .. }))
+                }
+                _ => false,
+            }
+        {
+            return self
+                .reject(
+                    id,
+                    Rejection::InvalidInput {
+                        detail: "trial context/profile widening refused".into(),
+                    },
+                )
+                .await;
         }
         match env.op {
             Op::QueryInputCapabilities { request } => {
@@ -1648,35 +1704,162 @@ mod trial_launch_tests {
     use std::os::unix::fs::PermissionsExt;
     #[tokio::test]
     async fn trial_launch_prevents_all_mcp_origins_and_context_widening() {
-        let home=std::env::var_os("HOME");let temp=tempfile::tempdir().unwrap();
-        for name in ["repo","sessions","profiles","home"] {std::fs::create_dir(temp.path().join(name)).unwrap();std::fs::set_permissions(temp.path().join(name),std::fs::Permissions::from_mode(0o700)).unwrap();}
-        let root=temp.path().to_path_buf();let capability=crate::runtime::blocking(move ||crate::tools::TrialCapability::mint(root.join("repo"),root.join("sessions"),root.join("profiles"),root.join("home"))).await.unwrap();
-        let mut meta=SessionMeta {session:SessionId::new(),cwd:temp.path().join("repo"),profile:Some("scripted".into()),fork:None,protocol:PROTOCOL,harness:env!("CARGO_PKG_VERSION").into(),created_ms:0,vcs:Some(Vcs::default()),dream:None,source:None};
-        let config=Config {meta:meta.clone(),sessions:temp.path().join("sessions"),profiles:temp.path().join("profiles"),provider:Arc::new(crate::provider::ScriptedProvider::new(vec![])),model:"scripted".into(),policy:Policy::allow_all(crate::provider::profile::Unattended::Allow),redactor:Set::default(),max_rounds:2,profile_error:None};
-        let sentinel=temp.path().join("mcp-must-not-start");
-        let servers:crate::mcp::Servers=serde_json::from_value(serde_json::json!({"trap":{"command":"/bin/sh","args":["-c",format!("touch '{}'",sentinel.display())]}})).unwrap();
-        let profile=serde_json::json!({"name":"scripted","model":"scripted","endpoint":"http://127.0.0.1:1/v1","auto_compact":true});
-        for origin in 0..4 {
-            let mut launch=LaunchOptions {trial:Some(capability.clone()),..Default::default()};let mut overrides=Default::default();let mut p=profile.clone();
-            match origin {0=>p["mcpServers"]=serde_json::to_value(&servers).unwrap(),1=>launch.mcp_servers=servers.clone(),2=>overrides=servers.clone(),3=>launch.yolo=true,_=>unreachable!()}
-            std::fs::write(config.profiles.join("scripted.md"),format!("---\n{}---\n",serde_yaml::to_string(&p).unwrap())).unwrap();
-            assert!(SessionActor::load_with_mcp(config.clone(),OpId::new(),None,overrides,launch).await.is_err());
-            assert!(!sentinel.exists());assert!(!crate::store::log_path(&config.sessions,meta.session).exists(),"refused before Store effects");
+        let home = std::env::var_os("HOME");
+        let temp = tempfile::tempdir().unwrap();
+        for name in ["repo", "sessions", "profiles", "home"] {
+            std::fs::create_dir(temp.path().join(name)).unwrap();
+            std::fs::set_permissions(
+                temp.path().join(name),
+                std::fs::Permissions::from_mode(0o700),
+            )
+            .unwrap();
         }
-        std::fs::write(config.profiles.join("scripted.md"),format!("---\n{}---\n",serde_yaml::to_string(&profile).unwrap())).unwrap();
-        let actor=SessionActor::new(config.clone(),OpId::new(),None,Default::default(),LaunchOptions {trial:Some(capability.clone()),..Default::default()}).await.unwrap();
-        assert!(!actor.auto.enabled);assert!(actor.tools.is_trial());assert_eq!(actor.tools.definitions().len(),2);
-        let gateway=actor.gateway.clone();
+        let root = temp.path().to_path_buf();
+        let capability = crate::runtime::blocking(move || {
+            crate::tools::TrialCapability::mint(
+                root.join("repo"),
+                root.join("sessions"),
+                root.join("profiles"),
+                root.join("home"),
+            )
+        })
+        .await
+        .unwrap();
+        let mut meta = SessionMeta {
+            session: SessionId::new(),
+            cwd: temp.path().join("repo"),
+            profile: Some("scripted".into()),
+            fork: None,
+            protocol: PROTOCOL,
+            harness: env!("CARGO_PKG_VERSION").into(),
+            created_ms: 0,
+            vcs: Some(Vcs::default()),
+            dream: None,
+            source: None,
+        };
+        let config = Config {
+            meta: meta.clone(),
+            sessions: temp.path().join("sessions"),
+            profiles: temp.path().join("profiles"),
+            provider: Arc::new(crate::provider::ScriptedProvider::new(vec![])),
+            model: "scripted".into(),
+            policy: Policy::allow_all(crate::provider::profile::Unattended::Allow),
+            redactor: Set::default(),
+            max_rounds: 2,
+            profile_error: None,
+        };
+        let sentinel = temp.path().join("mcp-must-not-start");
+        let servers:crate::mcp::Servers=serde_json::from_value(serde_json::json!({"trap":{"command":"/bin/sh","args":["-c",format!("touch '{}'",sentinel.display())]}})).unwrap();
+        let profile = serde_json::json!({"name":"scripted","model":"scripted","endpoint":"http://127.0.0.1:1/v1","auto_compact":true});
+        for origin in 0..4 {
+            let mut launch = LaunchOptions {
+                trial: Some(capability.clone()),
+                ..Default::default()
+            };
+            let mut overrides = Default::default();
+            let mut p = profile.clone();
+            match origin {
+                0 => p["mcpServers"] = serde_json::to_value(&servers).unwrap(),
+                1 => launch.mcp_servers = servers.clone(),
+                2 => overrides = servers.clone(),
+                3 => launch.yolo = true,
+                _ => unreachable!(),
+            }
+            std::fs::write(
+                config.profiles.join("scripted.md"),
+                format!("---\n{}---\n", serde_yaml::to_string(&p).unwrap()),
+            )
+            .unwrap();
+            assert!(
+                SessionActor::load_with_mcp(config.clone(), OpId::new(), None, overrides, launch)
+                    .await
+                    .is_err()
+            );
+            assert!(!sentinel.exists());
+            assert!(
+                !crate::store::log_path(&config.sessions, meta.session).exists(),
+                "refused before Store effects"
+            );
+        }
+        std::fs::write(
+            config.profiles.join("scripted.md"),
+            format!("---\n{}---\n", serde_yaml::to_string(&profile).unwrap()),
+        )
+        .unwrap();
+        let actor = SessionActor::new(
+            config.clone(),
+            OpId::new(),
+            None,
+            Default::default(),
+            LaunchOptions {
+                trial: Some(capability.clone()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert!(!actor.auto.enabled);
+        assert!(actor.tools.is_trial());
+        assert_eq!(actor.tools.definitions().len(), 2);
+        let gateway = actor.gateway.clone();
         // Public gateway admissions and actual actor dispatch, rather than a
         // profile-name assertion, exercise post-start pinning.
-        let task=bbt_rt::handle().spawn(async move {actor.run().await});
-        let hello=gateway.hello();let mut sub=gateway.subscribe(crate::gateway::Subscribe {session:hello.meta.session,after:Some((hello.epoch,hello.head)),ephemeral:false}).unwrap();
-        for op in [Op::SetProfile{profile:"operator".into()},Op::Compact,Op::UserTurn{blocks:vec![InputBlock::Text{text:"steer".into()}],mode:TurnMode::Steer},Op::UserTurn{blocks:vec![InputBlock::Mention{path:temp.path().join("outside")}],mode:TurnMode::Queue},Op::ResolveApproval{approval:ItemId::new(),decision:ApprovalDecision::AllowAlways}] {
-            gateway.send(OpEnvelope {v:PROTOCOL,session:hello.meta.session,op_id:OpId::new(),op}).unwrap();
-            let event=tokio::time::timeout(std::time::Duration::from_secs(3),sub.recv()).await.unwrap().unwrap();assert!(matches!(event.event,Event::OpRejected{..}));
+        let task = bbt_rt::handle().spawn(async move { actor.run().await });
+        let hello = gateway.hello();
+        let mut sub = gateway
+            .subscribe(crate::gateway::Subscribe {
+                session: hello.meta.session,
+                after: Some((hello.epoch, hello.head)),
+                ephemeral: false,
+            })
+            .unwrap();
+        for op in [
+            Op::SetProfile {
+                profile: "operator".into(),
+            },
+            Op::Compact,
+            Op::UserTurn {
+                blocks: vec![InputBlock::Text {
+                    text: "steer".into(),
+                }],
+                mode: TurnMode::Steer,
+            },
+            Op::UserTurn {
+                blocks: vec![InputBlock::Mention {
+                    path: temp.path().join("outside"),
+                }],
+                mode: TurnMode::Queue,
+            },
+            Op::ResolveApproval {
+                approval: ItemId::new(),
+                decision: ApprovalDecision::AllowAlways,
+            },
+        ] {
+            gateway
+                .send(OpEnvelope {
+                    v: PROTOCOL,
+                    session: hello.meta.session,
+                    op_id: OpId::new(),
+                    op,
+                })
+                .unwrap();
+            let event = tokio::time::timeout(std::time::Duration::from_secs(3), sub.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(matches!(event.event, Event::OpRejected { .. }));
         }
-        stop(&gateway).await;task.await.unwrap().unwrap();capability.finish().await;assert!(!sentinel.exists());assert_eq!(home,std::env::var_os("HOME"));
+        stop(&gateway).await;
+        task.await.unwrap().unwrap();
+        capability.finish().await;
+        assert!(!sentinel.exists());
+        assert_eq!(home, std::env::var_os("HOME"));
         // Untrusted session/profile JSON cannot supply the opaque Rust capability.
-        meta.session=SessionId::new();let mut forged=serde_json::to_value(meta).unwrap();forged["trial"]=serde_json::json!(true);let parsed:SessionMeta=serde_json::from_value(forged).unwrap();assert_eq!(parsed.harness,env!("CARGO_PKG_VERSION"));assert!(LaunchOptions::default().trial.is_none());
+        meta.session = SessionId::new();
+        let mut forged = serde_json::to_value(meta).unwrap();
+        forged["trial"] = serde_json::json!(true);
+        let parsed: SessionMeta = serde_json::from_value(forged).unwrap();
+        assert_eq!(parsed.harness, env!("CARGO_PKG_VERSION"));
+        assert!(LaunchOptions::default().trial.is_none());
     }
 }

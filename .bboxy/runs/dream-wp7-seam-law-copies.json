@@ -1,0 +1,14 @@
+[
+  {
+    "path": ".bboxy/decisions/d20261103136594-dream-trial-engine-capability.md",
+    "sha256": "bf02360ef5e21116a200e84d18894debf18b983f2c420889197cf2295dd48070"
+  },
+  {
+    "path": ".bboxy/decisions/d20261103136597-dream-trial-derived-usage-proof.md",
+    "sha256": "776f01b603d7892704d9613673eed6d814e5328da5e54c5c9e3fd2a36ff38f3e"
+  },
+  {
+    "path": ".bboxy/decisions/d20261103136600-dream-trial-process-settlement.md",
+    "sha256": "c6e5a38bae5d913ba346370ddbccbb79ba32489830b1794551d3cddc5d2ca471"
+  }
+]

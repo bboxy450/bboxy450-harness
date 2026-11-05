@@ -1,0 +1,15 @@
+{
+  "state": "partial-before-stateful",
+  "pure_tests": 5,
+  "pure_command": "cargo test --offline --locked --test dream_pipeline trial_",
+  "pure_exit": 0,
+  "pure_log_sha256": "0b0ece8ab46c5af9f4470d3efb029530f63569b247f77bf04362768f2d4e3cf5",
+  "model_tests": 2,
+  "model_exit": 0,
+  "models_sha256": "4b2c54a0c0ececb564cfcb2848af1b741e97c3d6879e058ac2a508f6e97ef3a6",
+  "pending": [
+    "enforced adapter/continuation contract",
+    "retained CALL usage to Derived TrialRun binding",
+    "observable owned-process settlement"
+  ]
+}

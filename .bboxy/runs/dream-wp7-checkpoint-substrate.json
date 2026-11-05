@@ -1,0 +1,9 @@
+{
+  "command": "make test-ir && cargo test --offline --locked --features acp-agent --test protocol_golden --test ir_v1_corpus --test store_fork --test dream_replay",
+  "source": "13bad329445bfc19ece978dc6b43236fbcbca078",
+  "exit_code": 0,
+  "seconds": 12.948,
+  "log": ".bboxy/runs/dream-wp7-checkpoint-substrate.log",
+  "sha256": "b2551948a6e78591f26908af6df73b91c5ecadee528dfb7974f98c40a38d049b",
+  "partial": true
+}

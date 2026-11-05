@@ -1,0 +1,10 @@
+{
+  "command": "cargo test --test dream_pipeline trial && cargo test --test policy_gate && make test-formal && make test-formal-parity && make check-formal-evidence",
+  "source": "13bad329445bfc19ece978dc6b43236fbcbca078",
+  "exit_code": 0,
+  "seconds": 215.845,
+  "log": ".bboxy/runs/dream-wp7-checkpoint-primary.log",
+  "sha256": "2a0bf104312d04ade12b8f751308d66917cb4ca608cb23bf2a63051f95d0d4f6",
+  "partial": true,
+  "claim": "Pure observations and finite models only; no enforced trial execution or product conformance"
+}

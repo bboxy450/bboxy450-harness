@@ -331,7 +331,7 @@ async fn synth_emits_only_pending_proposed_with_shared_authored_laws(f: &Fixture
     let mut store = Store::open(root.clone(), meta, None, set.clone())
         .await
         .unwrap();
-    let ids = synth::append_pending(&mut store, &proposals, support::REPO, &set)
+    let ids = synth::append_pending(&mut store, &proposals, "fixture.invalid/dream/repo", &set)
         .await
         .unwrap();
     assert_eq!(ids.len(), 3);
@@ -648,7 +648,7 @@ async fn synth_private_home_cli_process_smoke_and_read_only_source() {
         .arg(&f.policy)
         .args([
             "--root",
-            &format!("{}={}", support::REPO, f.repo.path.display()),
+            &format!("{}={}", "fixture.invalid/dream/repo", f.repo.path.display()),
             "--scripted",
         ])
         .arg(path);
@@ -688,7 +688,7 @@ async fn synth_private_home_cli_process_smoke_and_read_only_source() {
         .arg(f.repo.home.path().join("absent-policy"))
         .args([
             "--root",
-            &format!("{}={}", support::REPO, f.repo.path.display()),
+            &format!("{}={}", "fixture.invalid/dream/repo", f.repo.path.display()),
             "--scripted",
         ])
         .arg("does-not-exist.sse");
@@ -711,7 +711,7 @@ async fn synth_private_home_cli_process_smoke_and_read_only_source() {
         .arg(&f.policy)
         .args([
             "--root",
-            &format!("{}={}", support::REPO, f.repo.path.display()),
+            &format!("{}={}", "fixture.invalid/dream/repo", f.repo.path.display()),
             "--profile",
             "no-live-credentials",
         ]);
@@ -741,7 +741,7 @@ async fn synth_private_home_cli_process_smoke_and_read_only_source() {
         .arg(&f.policy)
         .args([
             "--root",
-            &format!("{}={}", support::REPO, f.repo.path.display()),
+            &format!("{}={}", "fixture.invalid/dream/repo", f.repo.path.display()),
             "--scripted",
         ])
         .arg("does-not-exist.sse");
@@ -1168,9 +1168,14 @@ async fn synth_guard_deadline_after_finish_and_spend_controls() {
         .await
         .unwrap();
     let mut store = support::proposal_store(&f, scope).await;
-    synth::append_pending(&mut store, &proposals, support::REPO, &Set::default())
-        .await
-        .unwrap();
+    synth::append_pending(
+        &mut store,
+        &proposals,
+        "fixture.invalid/dream/repo",
+        &Set::default(),
+    )
+    .await
+    .unwrap();
     assert!(store.events.iter().any(|e|matches!(&e.event,Event::ItemCompleted{body:Item::MemoryWrite{record,op:MemoryOp::Pending,..},..} if record.root=="agents" && record.commit.is_none())));
     store.append(Event::SessionClosed, None).await.unwrap();
     bboxy450_harness::protocol::laws::check_authored(&store.events).unwrap();
@@ -1625,63 +1630,897 @@ fn trial_selection_is_canonical_held_out_and_not_arrival_order() {
 }
 
 struct TrialToy {
-    round:std::sync::atomic::AtomicUsize,
-    requests:std::sync::Arc<std::sync::Mutex<Vec<bboxy450_harness::provider::ModelRequest>>>,
+    round: std::sync::atomic::AtomicUsize,
+    requests: std::sync::Arc<std::sync::Mutex<Vec<bboxy450_harness::provider::ModelRequest>>>,
 }
 impl bboxy450_harness::provider::Provider for TrialToy {
-    fn id(&self)->&str {"scripted"}
-    fn caps(&self)->bboxy450_harness::provider::Caps {bboxy450_harness::provider::ScriptedProvider::new(vec![]).caps()}
-    fn stream(&self,req:bboxy450_harness::provider::ModelRequest,cancel:tokio_util::sync::CancellationToken)->std::pin::Pin<Box<dyn futures_core::Stream<Item=bboxy450_harness::provider::ModelEvent>+Send>> {
+    fn id(&self) -> &str {
+        "scripted"
+    }
+    fn caps(&self) -> bboxy450_harness::provider::Caps {
+        bboxy450_harness::provider::ScriptedProvider::new(vec![]).caps()
+    }
+    fn stream(
+        &self,
+        req: bboxy450_harness::provider::ModelRequest,
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> std::pin::Pin<
+        Box<dyn futures_core::Stream<Item = bboxy450_harness::provider::ModelEvent> + Send>,
+    > {
         use bboxy450_harness::provider::ScriptedProvider;
-        let round=self.round.fetch_add(1,std::sync::atomic::Ordering::SeqCst);let text=serde_json::to_string(&req.messages).unwrap();self.requests.lock().unwrap().push(req.clone());
-        let mut bytes=Vec::new();
-        if round==0 {
-            let write=text.contains("<trial-memory") || text.contains("CONTROL:");let name=if write {"write"}else{"read"};let args=if write {json!({"path":"fixed","content":"private fixture\n"})}else{json!({"path":"fixed"})};
+        let round = self.round.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let text = serde_json::to_string(&req.messages).unwrap();
+        self.requests.lock().unwrap().push(req.clone());
+        let mut bytes = Vec::new();
+        if round == 0 {
+            let write = text.contains("<trial-memory") || text.contains("CONTROL:");
+            let name = if write { "write" } else { "read" };
+            let args = if write {
+                json!({"path":"fixed","content":"private fixture\n"})
+            } else {
+                json!({"path":"fixed"})
+            };
             bytes.extend(format!("data: {}\n\n",json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"private-trial-tool","type":"function","function":{"name":name,"arguments":args.to_string()}}]},"finish_reason":null}]})).as_bytes());
-        }else{bytes.extend(format!("data: {}\n\n",json!({"choices":[{"delta":{"content":"Private trial done."},"finish_reason":null}]})).as_bytes());}
-        bytes.extend(format!("data: {}\n\n",json!({"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":10}})).as_bytes());
+        } else {
+            bytes.extend(format!("data: {}\n\n",json!({"choices":[{"delta":{"content":"Private trial done."},"finish_reason":null}]})).as_bytes());
+        }
+        bytes.extend(
+            format!(
+                "data: {}\n\n",
+                json!({"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":10}})
+            )
+            .as_bytes(),
+        );
         bytes.extend(format!("data: {}\n\ndata: [DONE]\n\n",json!({"choices":[{"delta":{},"finish_reason":if round==0 {"tool_calls"}else{"stop"}}]})).as_bytes());
-        ScriptedProvider::new(vec![bytes]).stream(req,cancel)
+        ScriptedProvider::new(vec![bytes]).stream(req, cancel)
     }
 }
 #[tokio::test]
 async fn trial_real_enforced_twenty_arms_fork_usage_verifier_and_pair_projection() {
-    use bboxy450_harness::dream::{trial,projection};use std::sync::{Arc,Mutex};
-    let (f,memory)=Box::pin(support::trial_fixture()).await;let before=f.source_bytes();let index=std::fs::read(f.repo.path.join(".git/index")).unwrap();let head=f.repo.git(&["rev-parse","HEAD"]);
-    let mut resolver=f.resolver(true).await;let plan=Box::pin(trial::prepare(&mut resolver,&f.episodes,&memory,env!("CARGO_PKG_VERSION"),&Set::default())).await.unwrap();
-    let requests=Arc::new(Mutex::new(vec![]));let captures=requests.clone();
-    let options=trial::Options {scratch_parent:f.repo.home.path().into(),retained_parent:f.repo.home.path().into(),claim_root:f.repo.home.path().join("trial-claims"),providers:Arc::new(move |_|Ok(Arc::new(TrialToy {round:Default::default(),requests:captures.clone()}))),redactor:Set::default(),turn_timeout:std::time::Duration::from_secs(10),verify_timeout:std::time::Duration::from_secs(3),token_cap:trial::TOKEN_CAP};
-    let mut operation=trial::start(plan,options,tokio_util::sync::CancellationToken::new());let result=tokio::time::timeout(std::time::Duration::from_secs(90),operation.result()).await.unwrap().unwrap();
-    assert!(matches!(result.trial(),Item::Trial {verdict:Verdict::Pass,episodes,controls,..} if episodes.len()==4 && controls.len()==2),"{}",serde_json::to_string(&result).unwrap());
-    assert_eq!(result.known_tokens(),4400);assert!(!result.quarantined());assert_eq!(before,f.source_bytes());assert_eq!(head,f.repo.git(&["rev-parse","HEAD"]));assert_eq!(index,std::fs::read(f.repo.path.join(".git/index")).unwrap());
-    let Item::Trial{entry,harness,episodes,controls,..}=result.trial() else{unreachable!()};
-    for run in episodes.iter().chain(controls).flat_map(|e|&e.runs) {
-        let log=&result.retained_logs()[&run.session];assert!(matches!(log.last().unwrap().event,Event::SessionClosed));
-        assert_eq!(run.usage.as_ref().unwrap().source,Some(NumberSource::Derived));assert_eq!(run.usage.as_ref().unwrap().input_tokens,200);
-        let Event::SessionStarted{meta}=&log[0].event else{panic!()};let (parent,cut)=meta.fork.unwrap();let source=&result.retained_logs()[&parent];
-        let recovered=log.iter().find(|e|matches!(e.event,Event::SessionRecovered{..})).unwrap();
-        assert_eq!(recovered.epoch,Epoch(2));assert!(matches!(recovered.event,Event::SessionRecovered{prior_epoch:Epoch(1),closed_items:0,closed_turns:1}));
-        let fresh=log.iter().find(|e|e.seq.is_some_and(|s|s>cut) && matches!(e.event,Event::TurnStarted{..})).unwrap();assert!(fresh.seq>recovered.seq);
-        assert!(log.iter().any(|e|e.seq.is_some_and(|s|s>cut && Some(s)<recovered.seq) && matches!(e.event,Event::TurnEnded{reason:StopReason::Interrupted,usage:None,..})));
+    use bboxy450_harness::dream::{projection, trial};
+    use std::sync::{Arc, Mutex};
+    let (f, memory) = Box::pin(support::trial_fixture()).await;
+    let before = f.source_bytes();
+    let index = std::fs::read(f.repo.path.join(".git/index")).unwrap();
+    let head = f.repo.git(&["rev-parse", "HEAD"]);
+    let mut resolver = f.resolver(true).await;
+    let plan = Box::pin(trial::prepare(
+        &mut resolver,
+        &f.episodes,
+        &memory,
+        env!("CARGO_PKG_VERSION"),
+        &Set::default(),
+    ))
+    .await
+    .unwrap();
+    let requests = Arc::new(Mutex::new(vec![]));
+    let captures = requests.clone();
+    let options = trial::Options {
+        scratch_parent: f.repo.home.path().into(),
+        retained_parent: f.repo.home.path().into(),
+        claim_root: f.repo.home.path().join("trial-claims"),
+        providers: Arc::new(move |_| {
+            Ok(Arc::new(TrialToy {
+                round: Default::default(),
+                requests: captures.clone(),
+            }))
+        }),
+        redactor: Set::default(),
+        turn_timeout: std::time::Duration::from_secs(10),
+        verify_timeout: std::time::Duration::from_secs(3),
+        token_cap: trial::TOKEN_CAP,
+    };
+    let mut operation = trial::start(plan, options, tokio_util::sync::CancellationToken::new());
+    let result = tokio::time::timeout(std::time::Duration::from_secs(90), operation.result())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        matches!(result.trial(),Item::Trial {verdict:Verdict::Pass,episodes,controls,..} if episodes.len()==4 && controls.len()==2),
+        "{}",
+        serde_json::to_string(&result).unwrap()
+    );
+    assert_eq!(result.known_tokens(), 4400);
+    assert!(!result.quarantined());
+    assert_eq!(before, f.source_bytes());
+    assert_eq!(head, f.repo.git(&["rev-parse", "HEAD"]));
+    assert_eq!(
+        index,
+        std::fs::read(f.repo.path.join(".git/index")).unwrap()
+    );
+    let Item::Trial {
+        entry,
+        harness,
+        episodes,
+        controls,
+        ..
+    } = result.trial()
+    else {
+        unreachable!()
+    };
+    for run in episodes.iter().chain(controls).flat_map(|e| &e.runs) {
+        let log = &result.retained_logs()[&run.session];
+        assert!(matches!(log.last().unwrap().event, Event::SessionClosed));
+        assert_eq!(
+            run.usage.as_ref().unwrap().source,
+            Some(NumberSource::Derived)
+        );
+        assert_eq!(run.usage.as_ref().unwrap().input_tokens, 200);
+        let Event::SessionStarted { meta } = &log[0].event else {
+            panic!()
+        };
+        let (parent, cut) = meta.fork.unwrap();
+        let source = &result.retained_logs()[&parent];
+        let recovered = log
+            .iter()
+            .find(|e| matches!(e.event, Event::SessionRecovered { .. }))
+            .unwrap();
+        assert_eq!(recovered.epoch, Epoch(2));
+        assert!(matches!(
+            recovered.event,
+            Event::SessionRecovered {
+                prior_epoch: Epoch(1),
+                closed_items: 0,
+                closed_turns: 1
+            }
+        ));
+        let fresh = log
+            .iter()
+            .find(|e| {
+                e.seq.is_some_and(|s| s > cut) && matches!(e.event, Event::TurnStarted { .. })
+            })
+            .unwrap();
+        assert!(fresh.seq > recovered.seq);
+        assert!(log.iter().any(
+            |e| e.seq.is_some_and(|s| s > cut && Some(s) < recovered.seq)
+                && matches!(
+                    e.event,
+                    Event::TurnEnded {
+                        reason: StopReason::Interrupted,
+                        usage: None,
+                        ..
+                    }
+                )
+        ));
 
-        for e in log.iter().filter(|e|e.seq.is_some_and(|s|s.0>1 && s<=cut)) {assert_eq!(e.wire_bytes().unwrap(),source.iter().find(|p|p.seq==e.seq).unwrap().wire_bytes().unwrap());}
+        for e in log
+            .iter()
+            .filter(|e| e.seq.is_some_and(|s| s.0 > 1 && s <= cut))
+        {
+            assert_eq!(
+                e.wire_bytes().unwrap(),
+                source
+                    .iter()
+                    .find(|p| p.seq == e.seq)
+                    .unwrap()
+                    .wire_bytes()
+                    .unwrap()
+            );
+        }
     }
-    assert!(projection::qualifying_trial(result.trial()).is_err(),"Derived requires retained proof");assert_eq!(trial::score_retained(result.trial(),result.retained_logs()).verdict,Verdict::Pass);
-    let mut meta=resolver.logs.values().flat_map(|l|l.first()).find_map(|e|if let Event::SessionStarted{meta}=&e.event {meta.dream.as_ref().map(|_|meta.clone())}else{None}).unwrap();meta.session=SessionId::new();meta.dream.as_mut().unwrap().phase=DreamPhase::Trial;
-    let mut store=Store::open(result.sessions(),meta,None,Set::default()).await.unwrap();trial::append(&mut store,&mut resolver,&result).await.unwrap();store.append(Event::SessionClosed,None).await.unwrap();
-    let mut logs=result.retained_logs().clone();logs.insert(store.session,store.events.clone());let union=projection::union(logs.values().flatten().cloned()).unwrap();let facts=projection::facts_with_logs(&union,&logs).unwrap();assert!(projection::Projection::build(&facts).unwrap().entries[entry].active(harness));
-    let requests=requests.lock().unwrap();assert_eq!(requests.len(),40);
-    let normalize=|request:&bboxy450_harness::provider::ModelRequest| {
-        let mut messages=request.messages.clone();
+    assert!(
+        projection::qualifying_trial(result.trial()).is_err(),
+        "Derived requires retained proof"
+    );
+    assert_eq!(
+        trial::score_retained(result.trial(), result.retained_logs()).verdict,
+        Verdict::Pass
+    );
+    let mut meta = resolver
+        .logs
+        .values()
+        .flat_map(|l| l.first())
+        .find_map(|e| {
+            if let Event::SessionStarted { meta } = &e.event {
+                meta.dream.as_ref().map(|_| meta.clone())
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    meta.session = SessionId::new();
+    meta.dream.as_mut().unwrap().phase = DreamPhase::Trial;
+    let mut store = Store::open(result.sessions(), meta, None, Set::default())
+        .await
+        .unwrap();
+    trial::append(&mut store, &mut resolver, &result)
+        .await
+        .unwrap();
+    store.append(Event::SessionClosed, None).await.unwrap();
+    let mut logs = result.retained_logs().clone();
+    logs.insert(store.session, store.events.clone());
+    let union = projection::union(logs.values().flatten().cloned()).unwrap();
+    let facts = projection::facts_with_logs(&union, &logs).unwrap();
+    assert!(projection::Projection::build(&facts).unwrap().entries[entry].active(harness));
+    // This phase has no final run/publication seal. P2 stays UNPROVEN, while
+    // retained Derived arithmetic must independently satisfy P5 in API and CLI.
+    trial_stage_p5(&f, &result.sessions(), None).await;
+    let target = episodes[0].runs[0].session;
+    let path = bboxy450_harness::store::log_path(&result.sessions(), target);
+    let exact = std::fs::read(&path).unwrap();
+    let mut changed = result.retained_logs()[&target].clone();
+    for e in &mut changed {
+        e.raw = None;
+    }
+    let usage = changed
+        .iter_mut()
+        .find_map(|e| {
+            if let Event::ItemCompleted {
+                body: Item::Usage { usage },
+                ..
+            } = &mut e.event
+            {
+                Some(usage)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    usage.input_tokens += 1;
+    std::fs::write(
+        &path,
+        changed
+            .iter()
+            .flat_map(|e| e.wire_bytes().unwrap())
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    trial_stage_p5(&f, &result.sessions(), Some("violation")).await;
+    std::fs::remove_file(&path).unwrap();
+    trial_stage_p5(&f, &result.sessions(), Some("unproven")).await;
+    std::fs::write(&path, exact).unwrap();
+    // A delayed successful observation cannot revive a globally terminal entry.
+    let Event::SessionStarted { mut meta } = store.events[0].event.clone() else {
+        panic!()
+    };
+    meta.session = SessionId::new();
+    let mut fenced = Store::open(result.sessions(), meta, None, Set::default())
+        .await
+        .unwrap();
+    support::trial_item(
+        &mut fenced,
+        None,
+        Item::MemoryState {
+            entry: entry.clone(),
+            state: EntryState::Expired,
+            harness: None,
+            reason: "private delayed-result fence".into(),
+            refs: vec![memory.clone()],
+        },
+        ItemStatus::Completed,
+    )
+    .await;
+    trial::append(&mut fenced, &mut resolver, &result)
+        .await
+        .unwrap();
+    assert!(!fenced.events.iter().any(|e| matches!(
+        e.event,
+        Event::ItemCompleted {
+            body: Item::MemoryState {
+                state: EntryState::Adopted,
+                ..
+            },
+            ..
+        }
+    )));
+    fenced.append(Event::SessionClosed, None).await.unwrap();
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 40);
+    let normalize = |request: &bboxy450_harness::provider::ModelRequest| {
+        let mut messages = request.messages.clone();
         for message in &mut messages {
-            if let Some(content)=message.get_mut("content") {
-                if let Some(blocks)=content.as_array_mut() {blocks.retain(|b|!b["text"].as_str().is_some_and(|text|text.starts_with("<trial-memory")));}
-                else if let Some(text)=content.as_str() && let Some((original,quote))=text.rsplit_once("\n<trial-memory ") && quote.ends_with("</trial-memory>") {*content=Value::String(original.to_owned());}
+            if let Some(content) = message.get_mut("content") {
+                if let Some(blocks) = content.as_array_mut() {
+                    blocks.retain(|b| {
+                        !b["text"]
+                            .as_str()
+                            .is_some_and(|text| text.starts_with("<trial-memory"))
+                    });
+                } else if let Some(text) = content.as_str()
+                    && let Some((original, quote)) = text.rsplit_once("\n<trial-memory ")
+                    && quote.ends_with("</trial-memory>")
+                {
+                    *content = Value::String(original.to_owned());
+                }
             }
         }
         messages
     };
-    for base in [0,8,16,24] {assert!(normalize(&requests[base])==normalize(&requests[base+2]),"repeat context differs");assert!(normalize(&requests[base])==normalize(&requests[base+4]),"arm context differs beyond the quoted block");assert!(normalize(&requests[base])==normalize(&requests[base+6]),"repeat context differs");}
-    for base in [32,36] {assert!(normalize(&requests[base])==normalize(&requests[base+2]),"control context differs beyond the quoted block");}
-    for req in requests.iter() {assert!(req.tools.iter().all(|t|matches!(t.name.as_str(),"read"|"write")));for message in &req.messages {if message["role"]=="system" || message["role"]=="developer" {assert!(!message.to_string().contains("trial-memory"));}}}
+    for base in [0, 8, 16, 24] {
+        assert!(
+            normalize(&requests[base]) == normalize(&requests[base + 2]),
+            "repeat context differs"
+        );
+        assert!(
+            normalize(&requests[base]) == normalize(&requests[base + 4]),
+            "arm context differs beyond the quoted block"
+        );
+        assert!(
+            normalize(&requests[base]) == normalize(&requests[base + 6]),
+            "repeat context differs"
+        );
+    }
+    for base in [32, 36] {
+        assert!(
+            normalize(&requests[base]) == normalize(&requests[base + 2]),
+            "control context differs beyond the quoted block"
+        );
+    }
+    for req in requests.iter() {
+        assert!(
+            req.tools
+                .iter()
+                .all(|t| matches!(t.name.as_str(), "read" | "write"))
+        );
+        for message in &req.messages {
+            if message["role"] == "system" || message["role"] == "developer" {
+                assert!(!message.to_string().contains("trial-memory"));
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn trial_prepare_declared_timing_failure_never_falls_back_to_eligible_absence() {
+    use bboxy450_harness::dream::trial;
+    let (f, memory) = Box::pin(support::trial_fixture_timing(|front| {
+        front["verify_result"]["elapsed_ms"] = json!(600_001);
+    }))
+    .await;
+    let before = f.source_bytes();
+    let mut resolver = f.resolver(true).await;
+    let result = Box::pin(trial::prepare(
+        &mut resolver,
+        &f.episodes,
+        &memory,
+        env!("CARGO_PKG_VERSION"),
+        &Set::default(),
+    ))
+    .await;
+    assert!(
+        result
+            .err()
+            .unwrap()
+            .0
+            .contains("original verification timing excluded")
+    );
+    assert_eq!(before, f.source_bytes());
+    assert!(
+        Box::pin(trial::prepare(
+            &mut resolver,
+            &f.episodes,
+            &memory,
+            "native-unsupported",
+            &Set::default()
+        ))
+        .await
+        .err()
+        .unwrap()
+        .0
+        .contains("isolation unavailable")
+    );
+    let mut meta = resolver
+        .logs
+        .values()
+        .filter_map(|l| l.first())
+        .find_map(|e| {
+            if let Event::SessionStarted { meta } = &e.event {
+                meta.dream.as_ref().map(|_| meta.clone())
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    meta.session = SessionId::new();
+    meta.dream.as_mut().unwrap().phase = DreamPhase::Trial;
+    let mut output = Store::open(f.sessions.clone(), meta, None, Set::default())
+        .await
+        .unwrap();
+    trial::defer(
+        &mut output,
+        &mut resolver,
+        &memory,
+        "native-unsupported",
+        bboxy450_harness::dream::entry::Invalid("native isolation unavailable"),
+    )
+    .await
+    .unwrap();
+    assert!(output.events.iter().any(|e|matches!(&e.event,Event::ItemCompleted{body:Item::Trial{harness,verdict:Verdict::Inconclusive,episodes,controls,..},..} if harness=="native-unsupported" && episodes.is_empty() && controls.is_empty())));
+    assert!(output.events.iter().any(|e| matches!(
+        e.event,
+        Event::ItemCompleted {
+            body: Item::MemoryState {
+                state: EntryState::Tested,
+                ..
+            },
+            ..
+        }
+    )));
+    assert!(!output.events.iter().any(|e| matches!(
+        e.event,
+        Event::ItemCompleted {
+            body: Item::MemoryState {
+                state: EntryState::Adopted | EntryState::Rejected,
+                ..
+            } | Item::Adoption { .. }
+                | Item::Recall { .. }
+                | Item::Receipt { .. },
+            ..
+        }
+    )));
+    output.append(Event::SessionClosed, None).await.unwrap();
+}
+
+struct TrialReply(bool);
+impl bboxy450_harness::provider::Provider for TrialReply {
+    fn id(&self) -> &str {
+        "scripted"
+    }
+    fn caps(&self) -> bboxy450_harness::provider::Caps {
+        bboxy450_harness::provider::ScriptedProvider::new(vec![]).caps()
+    }
+    fn stream(
+        &self,
+        request: bboxy450_harness::provider::ModelRequest,
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> std::pin::Pin<
+        Box<dyn futures_core::Stream<Item = bboxy450_harness::provider::ModelEvent> + Send>,
+    > {
+        let mut bytes = format!(
+            "data: {}\n\n",
+            json!({"choices":[{"delta":{"content":"Private bounded reply."},"finish_reason":null}]})
+        )
+        .into_bytes();
+        if self.0 {
+            bytes.extend(
+                format!(
+                    "data: {}\n\n",
+                    json!({"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":10}})
+                )
+                .as_bytes(),
+            );
+        }
+        bytes.extend(
+            format!(
+                "data: {}\n\ndata: [DONE]\n\n",
+                json!({"choices":[{"delta":{},"finish_reason":"stop"}]})
+            )
+            .as_bytes(),
+        );
+        bboxy450_harness::provider::ScriptedProvider::new(vec![bytes]).stream(request, cancel)
+    }
+}
+fn trial_options(
+    f: &Fixture,
+    provider: std::sync::Arc<dyn bboxy450_harness::provider::Provider>,
+) -> bboxy450_harness::dream::trial::Options {
+    bboxy450_harness::dream::trial::Options {
+        scratch_parent: f.repo.home.path().into(),
+        retained_parent: f.repo.home.path().into(),
+        claim_root: f.repo.home.path().join("trial-claims"),
+        providers: std::sync::Arc::new(move |_| Ok(provider.clone())),
+        redactor: Set::default(),
+        turn_timeout: std::time::Duration::from_secs(10),
+        verify_timeout: std::time::Duration::from_secs(3),
+        token_cap: 2_000_000,
+    }
+}
+async fn trial_plan(f: &Fixture, memory: &EvidenceRef) -> bboxy450_harness::dream::trial::Plan {
+    let mut resolver = f.resolver(true).await;
+    Box::pin(bboxy450_harness::dream::trial::prepare(
+        &mut resolver,
+        &f.episodes,
+        memory,
+        env!("CARGO_PKG_VERSION"),
+        &Set::default(),
+    ))
+    .await
+    .unwrap()
+}
+#[tokio::test]
+async fn trial_real_missing_usage_and_over_budget_are_not_zero_or_qualified() {
+    use bboxy450_harness::dream::trial;
+    use std::sync::Arc;
+    let (f, memory) = Box::pin(support::trial_fixture()).await;
+    let before = f.source_bytes();
+    for reported in [false, true] {
+        let mut options = trial_options(&f, Arc::new(TrialReply(reported)));
+        if reported {
+            options.token_cap = 1;
+        }
+        let mut operation = trial::start(
+            trial_plan(&f, &memory).await,
+            options,
+            tokio_util::sync::CancellationToken::new(),
+        );
+        let result = operation.result().await.unwrap();
+        assert!(matches!(
+            result.trial(),
+            Item::Trial {
+                verdict: Verdict::Inconclusive,
+                ..
+            }
+        ));
+        assert!(!result.quarantined());
+        assert_eq!(result.known_tokens(), if reported { 110 } else { 0 });
+        assert_eq!(
+            trial::score_retained(result.trial(), result.retained_logs()).verdict,
+            Verdict::Inconclusive
+        );
+        let Item::Trial { episodes, .. } = result.trial() else {
+            panic!()
+        };
+        assert_eq!(episodes.len(), 1);
+        assert_eq!(episodes[0].runs.len(), 1);
+        let run = &episodes[0].runs[0];
+        assert_eq!(run.verify_exit, if reported { None } else { Some(1) });
+        assert!(
+            result.retained_logs()[&run.session]
+                .iter()
+                .any(|e| matches!(e.event, Event::SessionClosed))
+        );
+        if !reported {
+            assert!(
+                run.usage
+                    .as_ref()
+                    .is_none_or(|u| !u.numbers().contains_key("input_tokens")),
+                "unreported counters cannot be passing zero"
+            );
+        }
+        let mut resolver = f.resolver(true).await;
+        let mut meta = resolver
+            .logs
+            .values()
+            .filter_map(|l| l.first())
+            .find_map(|e| {
+                if let Event::SessionStarted { meta } = &e.event {
+                    meta.dream.as_ref().map(|_| meta.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        meta.session = SessionId::new();
+        meta.dream.as_mut().unwrap().phase = DreamPhase::Trial;
+        let mut output = Store::open(result.sessions(), meta, None, Set::default())
+            .await
+            .unwrap();
+        trial::append(&mut output, &mut resolver, &result)
+            .await
+            .unwrap();
+        assert!(output.events.iter().any(|e| matches!(
+            e.event,
+            Event::ItemCompleted {
+                body: Item::MemoryState {
+                    state: EntryState::Tested,
+                    ..
+                },
+                ..
+            }
+        )));
+        assert!(!output.events.iter().any(|e| matches!(
+            e.event,
+            Event::ItemCompleted {
+                body: Item::MemoryState {
+                    state: EntryState::Adopted | EntryState::Rejected,
+                    ..
+                },
+                ..
+            }
+        )));
+        output.append(Event::SessionClosed, None).await.unwrap();
+    }
+    assert_eq!(before, f.source_bytes());
+}
+struct TrialHeld {
+    entered: std::sync::Arc<tokio::sync::Notify>,
+    dropped: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+struct TrialStreamDrop(std::sync::Arc<std::sync::atomic::AtomicBool>);
+impl Drop for TrialStreamDrop {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+impl bboxy450_harness::provider::Provider for TrialHeld {
+    fn id(&self) -> &str {
+        "scripted"
+    }
+    fn caps(&self) -> bboxy450_harness::provider::Caps {
+        bboxy450_harness::provider::ScriptedProvider::new(vec![]).caps()
+    }
+    fn stream(
+        &self,
+        _request: bboxy450_harness::provider::ModelRequest,
+        _cancel: tokio_util::sync::CancellationToken,
+    ) -> std::pin::Pin<
+        Box<dyn futures_core::Stream<Item = bboxy450_harness::provider::ModelEvent> + Send>,
+    > {
+        self.entered.notify_one();
+        let guard = TrialStreamDrop(self.dropped.clone());
+        Box::pin(futures_util::stream::unfold(guard, |guard| async move {
+            std::future::pending::<Option<(bboxy450_harness::provider::ModelEvent,TrialStreamDrop)>>().await.map(|(event,_)|(event,guard))
+        }))
+    }
+}
+#[tokio::test]
+async fn trial_real_busy_nonblocking_independent_entry_and_abandoned_result_closes() {
+    use bboxy450_harness::dream::{d0, fingerprint, trial};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    use tokio_util::sync::CancellationToken;
+    let (f, memory) = Box::pin(support::trial_fixture()).await;
+    let (other, other_memory) = Box::pin(support::trial_fixture()).await;
+    let first = trial_plan(&f, &memory).await;
+    let duplicate = trial_plan(&f, &memory).await;
+    let independent = trial_plan(&other, &other_memory).await;
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let dropped = Arc::new(AtomicBool::new(false));
+    let provider = Arc::new(TrialHeld {
+        entered: entered.clone(),
+        dropped: dropped.clone(),
+    });
+    let upstream = CancellationToken::new();
+    let mut operation = trial::start(first, trial_options(&f, provider), upstream.clone());
+    tokio::time::timeout(std::time::Duration::from_secs(5), entered.notified())
+        .await
+        .unwrap();
+    let mut busy = trial::start(
+        duplicate,
+        trial_options(&f, Arc::new(TrialReply(true))),
+        CancellationToken::new(),
+    );
+    let err = tokio::time::timeout(std::time::Duration::from_secs(1), busy.result())
+        .await
+        .unwrap()
+        .err()
+        .unwrap();
+    assert!(err.0.contains("busy; no waiting"));
+    let mut options = trial_options(&other, Arc::new(TrialReply(true)));
+    options.claim_root = f.repo.home.path().join("trial-claims");
+    options.token_cap = 1;
+    let mut second = trial::start(independent, options, CancellationToken::new());
+    let other_result = tokio::time::timeout(std::time::Duration::from_secs(5), second.result())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(other_result.known_tokens(), 110);
+    assert!(
+        !dropped.load(Ordering::SeqCst),
+        "independent work completed while first remains live"
+    );
+    let mut abandoned = Box::pin(operation.result());
+    assert!(futures_util::poll!(abandoned.as_mut()).is_pending());
+    drop(abandoned);
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), operation.result())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!upstream.is_cancelled());
+    assert!(dropped.load(Ordering::SeqCst));
+    assert!(!result.quarantined());
+    assert!(matches!(
+        result.trial(),
+        Item::Trial {
+            verdict: Verdict::Inconclusive,
+            ..
+        }
+    ));
+    assert!(operation.result().await.is_err());
+    let Item::Trial {
+        entry,
+        harness,
+        episodes,
+        ..
+    } = result.trial()
+    else {
+        panic!()
+    };
+    let run = &episodes[0].runs[0];
+    let log = &result.retained_logs()[&run.session];
+    assert!(matches!(log.last().unwrap().event, Event::SessionClosed));
+    assert!(log.iter().any(|e| matches!(
+        e.event,
+        Event::TurnEnded {
+            reason: StopReason::Interrupted,
+            ..
+        }
+    )));
+    let root = f.repo.home.path().join("trial-claims");
+    let hash = fingerprint::digest(format!("{entry}\0{harness}"));
+    let claim = bboxy450_harness::runtime::blocking(move || d0::Claim::acquire(&root, &hash))
+        .await
+        .unwrap();
+    assert!(
+        claim.is_some(),
+        "claim released only after actual closure and cleanup"
+    );
+}
+#[tokio::test]
+async fn trial_real_turn_deadline_closes_owned_continuation_and_preserves_upstream() {
+    use bboxy450_harness::dream::trial;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    use tokio_util::sync::CancellationToken;
+    let (f, memory) = Box::pin(support::trial_fixture()).await;
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let dropped = Arc::new(AtomicBool::new(false));
+    let mut options = trial_options(
+        &f,
+        Arc::new(TrialHeld {
+            entered: entered.clone(),
+            dropped: dropped.clone(),
+        }),
+    );
+    options.turn_timeout = std::time::Duration::from_secs(2);
+    let upstream = CancellationToken::new();
+    let mut operation = trial::start(trial_plan(&f, &memory).await, options, upstream.clone());
+    tokio::time::timeout(std::time::Duration::from_secs(2), entered.notified())
+        .await
+        .unwrap();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), operation.result())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!upstream.is_cancelled());
+    assert!(dropped.load(Ordering::SeqCst));
+    assert!(!result.quarantined());
+    assert!(matches!(
+        result.trial(),
+        Item::Trial {
+            verdict: Verdict::Inconclusive,
+            ..
+        }
+    ));
+    let Item::Trial { episodes, .. } = result.trial() else {
+        panic!()
+    };
+    assert_eq!(episodes[0].runs[0].verify_exit, None);
+    let log = &result.retained_logs()[&episodes[0].runs[0].session];
+    assert!(matches!(log.last().unwrap().event, Event::SessionClosed));
+    assert!(log.iter().any(|e| matches!(
+        e.event,
+        Event::TurnEnded {
+            reason: StopReason::Interrupted,
+            ..
+        }
+    )));
+}
+
+async fn trial_stage_p5(f: &Fixture, sessions: &std::path::Path, expected: Option<&str>) {
+    use bboxy450_harness::dream::{
+        audit,
+        resolve::{Resolver, Root},
+        trust::Trust,
+    };
+    let root = Root::open("fixture.invalid/dream/repo".into(), f.repo.path.clone())
+        .await
+        .unwrap();
+    let trust = Trust::load(f.policy.clone(), vec![f.repo.path.clone(), sessions.into()])
+        .await
+        .unwrap();
+    let mut resolver = Resolver::open(sessions.into(), vec![root])
+        .await
+        .unwrap()
+        .with_trust(trust);
+    let report = audit::run(&mut resolver, Set::default(), false, 0)
+        .await
+        .unwrap();
+    assert_eq!(
+        report.exit_code(),
+        1,
+        "unreceipted stage cannot claim complete audit success"
+    );
+    match expected {
+        Some(kind) => assert!(
+            report
+                .findings
+                .iter()
+                .any(|v| v.check == "P5" && v.kind == kind),
+            "{}",
+            serde_json::to_string(&report).unwrap()
+        ),
+        None => assert!(
+            !report.findings.iter().any(|v| v.check == "P5"),
+            "{}",
+            serde_json::to_string(&report).unwrap()
+        ),
+    }
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
+        .args(["dream", "audit", "--sessions"])
+        .arg(sessions)
+        .args([
+            "--root",
+            &format!("{}={}", "fixture.invalid/dream/repo", f.repo.path.display()),
+            "--trust-policy",
+        ])
+        .arg(&f.policy)
+        .arg("--json")
+        .current_dir(&f.repo.path)
+        .env_clear()
+        .env("PATH", "/opt/homebrew/bin:/usr/bin:/bin")
+        .env("HOME", f.repo.home.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let cli: Value = serde_json::from_slice(&output.stdout).expect("real audit CLI flushed JSON");
+    match expected {
+        Some(kind) => assert!(
+            cli["findings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v["check"] == "P5" && v["kind"] == kind)
+        ),
+        None => assert!(
+            !cli["findings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v["check"] == "P5")
+        ),
+    }
+}
+
+#[tokio::test]
+async fn trial_real_complete_failure_rejects_only_its_harness_pair() {
+    use bboxy450_harness::dream::{projection, trial};
+    use std::sync::Arc;
+    let (f, memory) = Box::pin(support::trial_fixture()).await;
+    let mut operation = trial::start(
+        trial_plan(&f, &memory).await,
+        trial_options(&f, Arc::new(TrialReply(true))),
+        tokio_util::sync::CancellationToken::new(),
+    );
+    let result = operation.result().await.unwrap();
+    assert!(
+        matches!(result.trial(),Item::Trial{verdict:Verdict::Fail,episodes,controls,..} if episodes.len()==4 && controls.len()==2)
+    );
+    assert_eq!(result.known_tokens(), 2200);
+    assert!(!result.quarantined());
+    let Item::Trial { entry, harness, .. } = result.trial() else {
+        panic!()
+    };
+    let mut resolver = f.resolver(true).await;
+    let mut meta = resolver
+        .logs
+        .values()
+        .filter_map(|l| l.first())
+        .find_map(|e| {
+            if let Event::SessionStarted { meta } = &e.event {
+                meta.dream.as_ref().map(|_| meta.clone())
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    meta.session = SessionId::new();
+    meta.dream.as_mut().unwrap().phase = DreamPhase::Trial;
+    let mut store = Store::open(result.sessions(), meta, None, Set::default())
+        .await
+        .unwrap();
+    trial::append(&mut store, &mut resolver, &result)
+        .await
+        .unwrap();
+    store.append(Event::SessionClosed, None).await.unwrap();
+    let mut logs = result.retained_logs().clone();
+    logs.insert(store.session, store.events.clone());
+    let facts = projection::facts_with_logs(
+        &projection::union(logs.values().flatten().cloned()).unwrap(),
+        &logs,
+    )
+    .unwrap();
+    let projection = projection::Projection::build(&facts).unwrap();
+    assert!(projection.entries[entry].pairs[harness].rejected);
+    assert!(!projection.entries[entry].active(harness));
+    assert!(
+        !projection.entries[entry]
+            .pairs
+            .contains_key("other-harness")
+    );
 }

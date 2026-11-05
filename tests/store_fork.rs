@@ -367,3 +367,53 @@ async fn corrupt_parent_blob_never_publishes_a_child_log() {
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
     assert!(!log_path(&root, child).exists());
 }
+
+#[tokio::test]
+async fn queued_trial_frontier_is_not_a_public_fork_permission() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("sessions");
+    let mut source = Store::open(
+        root.clone(),
+        support::meta(temp.path().into()),
+        None,
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    source
+        .append(
+            Event::ProfileChanged {
+                profile: "scripted".into(),
+                model: "scripted".into(),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    source
+        .append(
+            Event::TurnQueued {
+                turn: TurnId::new(),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    let cut = source.head();
+    let bytes = std::fs::read(log_path(&root, source.session)).unwrap();
+    let Event::SessionStarted { mut meta } = source.events[0].event.clone() else {
+        panic!()
+    };
+    meta.session = SessionId::new();
+    meta.fork = Some((source.session, cut));
+    assert!(
+        Store::open(root.clone(), meta.clone(), None, Default::default())
+            .await
+            .is_err()
+    );
+    assert!(!log_path(&root, meta.session).exists());
+    assert_eq!(
+        bytes,
+        std::fs::read(log_path(&root, source.session)).unwrap()
+    );
+}

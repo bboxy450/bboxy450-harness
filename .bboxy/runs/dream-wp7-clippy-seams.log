@@ -1,0 +1,42 @@
+    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+error: this function has too many arguments (8/7)
+   --> src/dream/trial.rs:531:5
+    |
+531 |     async fn command(&mut self,program:&str,args:Vec<String>,cwd:PathBuf,home:&Path,timeout:Duration,cancel:CancellationToken,set:&Set)->Result<crate::process::Output,entry::Invalid> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#too_many_arguments
+    = note: `-D clippy::too-many-arguments` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::too_many_arguments)]`
+
+error: this function has too many arguments (11/7)
+   --> src/dream/trial.rs:645:1
+    |
+645 | async fn run_arm(owner:&mut Owner,plan:&Plan,source:&Source,arm:Arm,options:&Options,sessions:&Path,profiles:&Path,home:&Path,root:&Path,remaining:u64,cancel:CancellationToken)->Result<(TrialRun,Vec<Envelope>,bool),entry::Invalid> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#too_many_arguments
+
+error: items after a test module
+   --> src/frontends/headless.rs:686:1
+    |
+686 |   mod tty_tests {
+    |   ^^^^^^^^^^^^^
+...
+747 | / pub(crate) async fn trial_continuation(
+748 | |     config:Config,
+749 | |     capability:crate::tools::TrialCapability,
+750 | |     blocks:Vec<InputBlock>,
+...   |
+753 | |     timeout:std::time::Duration,
+754 | | )->std::io::Result<(Vec<Envelope>,bool)> {
+    | |________________________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#items_after_test_module
+    = note: `-D clippy::items-after-test-module` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::items_after_test_module)]`
+    = help: move the items to before the test module was defined
+
+error: could not compile `bboxy450-harness` (lib) due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `bboxy450-harness` (lib test) due to 3 previous errors
