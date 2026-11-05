@@ -5,9 +5,17 @@
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 //! Deterministic, derived dream observations; never a second source of truth.
+pub mod audit;
 pub mod d0;
+pub mod deny;
+pub mod entry;
 pub mod fingerprint;
+pub mod graph;
 pub mod join;
+pub mod projection;
+pub mod receipt;
+pub mod resolve;
+pub mod trust;
 
 pub fn directory() -> std::io::Result<std::path::PathBuf> {
     std::env::var_os("HOME")
@@ -16,7 +24,11 @@ pub fn directory() -> std::io::Result<std::path::PathBuf> {
 }
 pub async fn cli(args: impl Iterator<Item = String>) -> Result<i32, String> {
     let mut args = args;
-    if args.next().as_deref() != Some("replay") {
+    let subcommand = args.next();
+    if let Some(subcommand @ ("audit" | "graph" | "why")) = subcommand.as_deref() {
+        return audit::cli(subcommand, args).await;
+    }
+    if subcommand.as_deref() != Some("replay") {
         eprintln!(
             "usage: bboxy450-harness dream replay [--sessions DIR] [--json] [--rebuild] PATH…"
         );

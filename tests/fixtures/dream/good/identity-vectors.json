@@ -1,0 +1,65 @@
+{
+  "_attribution": {
+    "project": "bboxy450-harness",
+    "source": "https://github.com/bboxy450/bboxy450-harness",
+    "license": "https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE",
+    "policy": "https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md"
+  },
+  "identity": {
+    "kind": "lesson",
+    "title": "NFC café",
+    "why": "Keep é and 한",
+    "how_to_apply": "Apply one exact pin.",
+    "evidence": [
+      {
+        "kind": "event",
+        "session": "01M00000000000000000000001",
+        "seq": 7,
+        "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "kind": "record",
+        "root": "github.com/example/repo",
+        "id": "01M00000000000000000000002",
+        "path": ".bboxy/decisions/d1-proof.md",
+        "commit": "2222222222222222222222222222222222222222",
+        "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    ],
+    "derived_from": [
+      "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+    ],
+    "revival": 0
+  },
+  "canonical": "{\"derived_from\":[\"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\"sha256:5555555555555555555555555555555555555555555555555555555555555555\"],\"evidence\":[{\"commit\":\"2222222222222222222222222222222222222222\",\"digest\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"id\":\"01M00000000000000000000002\",\"kind\":\"record\",\"path\":\".bboxy/decisions/d1-proof.md\",\"root\":\"github.com/example/repo\"},{\"digest\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"kind\":\"event\",\"seq\":7,\"session\":\"01M00000000000000000000001\"}],\"how_to_apply\":\"Apply one exact pin.\",\"kind\":\"lesson\",\"revival\":0,\"title\":\"NFC café\",\"why\":\"Keep é and 한\"}",
+  "entry": "sha256:303f27960be7be4594a92edfd07264d425dacf7c95cb41893971aa1548f18faa",
+  "revival": {
+    "kind": "lesson",
+    "title": "NFC café",
+    "why": "Keep é and 한",
+    "how_to_apply": "Apply one exact pin.",
+    "evidence": [
+      {
+        "kind": "event",
+        "session": "01M00000000000000000000001",
+        "seq": 7,
+        "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "kind": "record",
+        "root": "github.com/example/repo",
+        "id": "01M00000000000000000000002",
+        "path": ".bboxy/decisions/d1-proof.md",
+        "commit": "2222222222222222222222222222222222222222",
+        "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    ],
+    "derived_from": [
+      "sha256:303f27960be7be4594a92edfd07264d425dacf7c95cb41893971aa1548f18faa"
+    ],
+    "revival": 1
+  },
+  "revival_canonical": "{\"derived_from\":[\"sha256:303f27960be7be4594a92edfd07264d425dacf7c95cb41893971aa1548f18faa\"],\"evidence\":[{\"commit\":\"2222222222222222222222222222222222222222\",\"digest\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"id\":\"01M00000000000000000000002\",\"kind\":\"record\",\"path\":\".bboxy/decisions/d1-proof.md\",\"root\":\"github.com/example/repo\"},{\"digest\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"kind\":\"event\",\"seq\":7,\"session\":\"01M00000000000000000000001\"}],\"how_to_apply\":\"Apply one exact pin.\",\"kind\":\"lesson\",\"revival\":1,\"title\":\"NFC café\",\"why\":\"Keep é and 한\"}",
+  "revival_entry": "sha256:863990956315af6682e5cdb96a405c2337a1deea1de3ec846e5015fdcefdaabc"
+}
