@@ -13,66 +13,112 @@ pub const MAX_SAFE: u64 = (1u64 << 53) - 1;
 
 macro_rules! text_scalar {
     ($name:ident, $check:expr) => {
-        #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+        #[derive(
+            Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+        )]
         #[serde(try_from = "String", into = "String")]
         pub struct $name(pub String);
         impl TryFrom<String> for $name {
             type Error = &'static str;
             fn try_from(v: String) -> Result<Self, Self::Error> {
-                if ($check)(&v) { Ok(Self(v)) } else { Err(stringify!($name)) }
+                if ($check)(&v) {
+                    Ok(Self(v))
+                } else {
+                    Err(stringify!($name))
+                }
             }
         }
-        impl From<$name> for String { fn from(v: $name) -> Self { v.0 } }
+        impl From<$name> for String {
+            fn from(v: $name) -> Self {
+                v.0
+            }
+        }
     };
 }
-text_scalar!(Ulid, |s: &str| s.len() == 26 && s.parse::<ulid::Ulid>().is_ok_and(|id| id.to_string() == s));
-text_scalar!(Hex, |s: &str| s.len() == 64 && s.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)));
-text_scalar!(Id, |s: &str| !s.is_empty() && s.len() <= 256 && !s.contains('\0'));
-text_scalar!(Repo, |s: &str| !s.is_empty() && s.len() <= 4096 && !s.contains('\0'));
+text_scalar!(Ulid, |s: &str| s.len() == 26
+    && s.parse::<ulid::Ulid>().is_ok_and(|id| id.to_string() == s));
+text_scalar!(Hex, |s: &str| s.len() == 64
+    && s.bytes()
+        .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)));
+text_scalar!(Id, |s: &str| !s.is_empty()
+    && s.len() <= 256
+    && !s.contains('\0'));
+text_scalar!(Repo, |s: &str| !s.is_empty()
+    && s.len() <= 4096
+    && !s.contains('\0'));
 text_scalar!(Mime, |s: &str| s.len() <= 256 && !s.contains('\0'));
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(try_from = "u64", into = "u64")]
 pub struct Number(pub u64);
-impl TryFrom<u64> for Number { type Error = &'static str; fn try_from(n:u64)->Result<Self, Self::Error> { if n<=MAX_SAFE {Ok(Self(n))}else{Err("unsafe integer")} } }
-impl From<Number> for u64 { fn from(n:Number)->u64{n.0} }
+impl TryFrom<u64> for Number {
+    type Error = &'static str;
+    fn try_from(n: u64) -> Result<Self, Self::Error> {
+        if n <= MAX_SAFE {
+            Ok(Self(n))
+        } else {
+            Err("unsafe integer")
+        }
+    }
+}
+impl From<Number> for u64 {
+    fn from(n: Number) -> u64 {
+        n.0
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(try_from = "u64", into = "u64")]
 pub struct Version;
-impl TryFrom<u64> for Version {type Error=&'static str;fn try_from(n:u64)->Result<Self,Self::Error>{if n==1{Ok(Self)}else{Err("version")}}}
-impl From<Version> for u64 {fn from(_:Version)->u64{1}}
+impl TryFrom<u64> for Version {
+    type Error = &'static str;
+    fn try_from(n: u64) -> Result<Self, Self::Error> {
+        if n == 1 { Ok(Self) } else { Err("version") }
+    }
+}
+impl From<Version> for u64 {
+    fn from(_: Version) -> u64 {
+        1
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all="snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum Protocol {
-    #[serde(rename="bboxy.dream.c1/1")] V1,
+    #[serde(rename = "bboxy.dream.c1/1")]
+    V1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all="snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum Algorithm {
-    #[serde(rename="d0-c1/1")] D0C1,
+    #[serde(rename = "d0-c1/1")]
+    D0C1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all="snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum ManifestSchema {
-    #[serde(rename="bboxy.dream.c1.manifest/1")] V1,
+    #[serde(rename = "bboxy.dream.c1.manifest/1")]
+    V1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all="snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum ResultSchema {
-    #[serde(rename="bboxy.dream.c1.result/1")] V1,
+    #[serde(rename = "bboxy.dream.c1.result/1")]
+    V1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all="snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum PageSchema {
-    #[serde(rename="bboxy.dream.c1.page/1")] V1,
+    #[serde(rename = "bboxy.dream.c1.page/1")]
+    V1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all="snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum Trigger {
     Manual,
     SessionClosed,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all="snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum State {
     Deferred,
     Preparing,
@@ -87,7 +133,7 @@ pub enum State {
     Quarantined,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all="snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum Code {
     BadRequest,
     VersionMismatch,
@@ -111,7 +157,7 @@ pub enum Code {
     Deadline,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all="snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum Phase {
     Validate,
     Replay,
@@ -120,19 +166,19 @@ pub enum Phase {
     Settling,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all="snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum Outcome {
     Completed,
     Failed,
     Cancelled,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all="snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum Knowledge {
     NotRequested,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all="snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum Trust {
     NotEvaluated,
 }
@@ -349,27 +395,27 @@ pub struct Cancel {
     pub run_id: Ulid,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag="type",rename_all="snake_case",deny_unknown_fields)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkerIn {
     Start(Start),
     Activity(Activity),
     Cancel(WorkerCancel),
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag="type",rename_all="snake_case",deny_unknown_fields)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkerOut {
     Hello(Hello),
     Progress(Progress),
     Done(Done),
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Row {
     Episode(Episode),
     Cluster(Cluster),
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag="method",rename_all="snake_case",deny_unknown_fields)]
+#[serde(tag = "method", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Control {
     Inspect(Inspect),
     Status(Status),
@@ -377,56 +423,146 @@ pub enum Control {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
-pub enum ControlReply { Success(Success), Failure(Failure) }
+pub enum ControlReply {
+    Success(Box<Success>),
+    Failure(Failure),
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct Success { pub v:Version, pub ok:True, pub run:RunView, pub page:Option<Page> }
+pub struct Success {
+    pub v: Version,
+    pub ok: True,
+    pub run: RunView,
+    pub page: Option<Page>,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct Failure { pub v:Version, pub ok:False, pub error:Error }
+pub struct Failure {
+    pub v: Version,
+    pub ok: False,
+    pub error: Error,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(try_from="bool",into="bool")]
+#[serde(try_from = "bool", into = "bool")]
 pub struct True;
-impl TryFrom<bool> for True { type Error=&'static str;fn try_from(b:bool)->Result<Self,Self::Error>{if b==true {Ok(Self)}else{Err("reply discriminator")}} }
-impl From<True> for bool {fn from(_:True)->bool{true}}
+impl TryFrom<bool> for True {
+    type Error = &'static str;
+    fn try_from(b: bool) -> Result<Self, Self::Error> {
+        if b {
+            Ok(Self)
+        } else {
+            Err("reply discriminator")
+        }
+    }
+}
+impl From<True> for bool {
+    fn from(_: True) -> bool {
+        true
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(try_from="bool",into="bool")]
+#[serde(try_from = "bool", into = "bool")]
 pub struct False;
-impl TryFrom<bool> for False { type Error=&'static str;fn try_from(b:bool)->Result<Self,Self::Error>{if b==false {Ok(Self)}else{Err("reply discriminator")}} }
-impl From<False> for bool {fn from(_:False)->bool{false}}
+impl TryFrom<bool> for False {
+    type Error = &'static str;
+    fn try_from(b: bool) -> Result<Self, Self::Error> {
+        if !b {
+            Ok(Self)
+        } else {
+            Err("reply discriminator")
+        }
+    }
+}
+impl From<False> for bool {
+    fn from(_: False) -> bool {
+        false
+    }
+}
 #[derive(JsonSchema)]
 #[allow(dead_code)]
-struct Authority { control:Control, reply:ControlReply, manifest:Manifest, worker_in:WorkerIn, worker_out:WorkerOut, result:ResultDescriptor, page:Page }
-
-pub fn canonical<T: Serialize>(value:&T) -> std::result::Result<Vec<u8>,serde_json::Error> {
-    // serde_json's default Map is sorted; keep preserve_order disabled.
-    serde_json::to_vec(&serde_json::to_value(value)?)
+struct Authority {
+    control: Control,
+    reply: ControlReply,
+    manifest: Manifest,
+    worker_in: WorkerIn,
+    worker_out: WorkerOut,
+    result: ResultDescriptor,
+    page: Page,
 }
-pub fn hash(bytes:impl AsRef<[u8]>)->Hex { Hex(super::fingerprint::digest(bytes)) }
-pub fn schema()->Value {
-    let mut s=serde_json::to_value(schemars::schema_for!(Authority)).expect("schema");
-    let defs=s["$defs"].as_object_mut().expect("definitions");
-    for (name,min,max) in [("Number",0,MAX_SAFE),("Version",1,1)] {
-        defs.insert(name.into(),serde_json::json!({"type":"integer","minimum":min,"maximum":max}));
+
+pub fn canonical<T: Serialize>(value: &T) -> std::result::Result<Vec<u8>, serde_json::Error> {
+    // ACP can transitively enable serde_json/preserve_order. Sort recursively
+    // explicitly so feature unification never changes canonical bytes.
+    fn sorted(v: Value) -> Value {
+        match v {
+            Value::Object(map) => {
+                let mut pairs: Vec<_> = map.into_iter().collect();
+                pairs.sort_by(|a, b| a.0.cmp(&b.0));
+                Value::Object(pairs.into_iter().map(|(k, v)| (k, sorted(v))).collect())
+            }
+            Value::Array(values) => Value::Array(values.into_iter().map(sorted).collect()),
+            other => other,
+        }
     }
-    for (name,pattern,max) in [
-        ("Ulid","^[0-7][0-9A-HJKMNP-TV-Z]{25}$",26),
-        ("Hex","^[0-9a-f]{64}$",64),
-        ("Id","^[^\u{0000}]+$",256),
-        ("Repo","^[^\u{0000}]+$",4096),
-        ("Mime","^[^\u{0000}]*$",256)] {
-        defs.insert(name.into(),serde_json::json!({"type":"string","pattern":pattern,"maxLength":max}));
+    serde_json::to_vec(&sorted(serde_json::to_value(value)?))
+}
+pub fn hash(bytes: impl AsRef<[u8]>) -> Hex {
+    Hex(super::fingerprint::digest(bytes))
+}
+pub fn schema() -> Value {
+    let mut s = serde_json::to_value(schemars::schema_for!(Authority)).expect("schema");
+    let defs = s["$defs"].as_object_mut().expect("definitions");
+    for (name, min, max) in [("Number", 0, MAX_SAFE), ("Version", 1, 1)] {
+        defs.insert(
+            name.into(),
+            serde_json::json!({"type":"integer","minimum":min,"maximum":max}),
+        );
     }
-    defs.insert("True".into(),serde_json::json!({"const":true}));
-    defs.insert("False".into(),serde_json::json!({"const":false}));
-    fn limits(v:&mut Value) {match v {Value::Object(m)=>{if m.get("format").and_then(Value::as_str)==Some("uint32"){m.insert("maximum".into(),u32::MAX.into());} for x in m.values_mut(){limits(x)}},Value::Array(a)=>for x in a{limits(x)},_=>{}}}
+    for (name, pattern, max) in [
+        ("Ulid", "^[0-7][0-9A-HJKMNP-TV-Z]{25}$", 26),
+        ("Hex", "^[0-9a-f]{64}$", 64),
+        ("Id", "^[^\u{0000}]+$", 256),
+        ("Repo", "^[^\u{0000}]+$", 4096),
+        ("Mime", "^[^\u{0000}]*$", 256),
+    ] {
+        defs.insert(
+            name.into(),
+            serde_json::json!({"type":"string","pattern":pattern,"maxLength":max}),
+        );
+    }
+    defs.insert("True".into(), serde_json::json!({"const":true}));
+    defs.insert("False".into(), serde_json::json!({"const":false}));
+    fn limits(v: &mut Value) {
+        match v {
+            Value::Object(m) => {
+                if m.get("format").and_then(Value::as_str) == Some("uint32") {
+                    m.insert("maximum".into(), u32::MAX.into());
+                }
+                for x in m.values_mut() {
+                    limits(x)
+                }
+            }
+            Value::Array(a) => {
+                for x in a {
+                    limits(x)
+                }
+            }
+            _ => {}
+        }
+    }
     limits(&mut s);
     s
 }
-pub fn schema_bytes()->Vec<u8> { canonical(&schema()).expect("schema bytes") }
-pub fn schema_hash()->Hex { hash(schema_bytes()) }
+pub fn schema_bytes() -> Vec<u8> {
+    canonical(&schema()).expect("schema bytes")
+}
+pub fn schema_hash() -> Hex {
+    hash(schema_bytes())
+}
 /// Strict bounded framing; typed serde visitors reject duplicate/unknown fields.
-pub fn decode<T:serde::de::DeserializeOwned>(bytes:&[u8])->std::result::Result<T,Code>{
-    if bytes.len()>MAX_FRAME || bytes.is_empty() {return Err(Code::ResourceLimit)}
-    serde_json::from_slice(bytes).map_err(|_|Code::ProtocolError)
+pub fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> std::result::Result<T, Code> {
+    if bytes.len() > MAX_FRAME || bytes.is_empty() {
+        return Err(Code::ResourceLimit);
+    }
+    serde_json::from_slice(bytes).map_err(|_| Code::ProtocolError)
 }

@@ -274,9 +274,10 @@ impl Host {
         config.meta.fork = None;
         let entry = self.entry(session);
         let mut state = entry.lock().await;
-        let (gateway, task) = crate::import::watch::load(config, start, native, path)
-            .await
-            .map_err(|_| Refused::Closed)?;
+        let (gateway, task) =
+            crate::import::watch::load(config, start, native, path, self.launch.dream_owner)
+                .await
+                .map_err(|_| Refused::Closed)?;
         state.loaded = Some(Loaded {
             gateway: gateway.clone(),
             start,

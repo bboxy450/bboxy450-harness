@@ -5,14 +5,16 @@
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 //! Deterministic, derived dream observations; never a second source of truth.
-pub mod c1_wire;
 pub mod audit;
+pub mod c1;
+pub mod c1_wire;
 pub mod d0;
 pub mod deny;
 pub mod entry;
 pub mod fingerprint;
 pub mod flush;
 pub mod graph;
+pub mod inspect;
 pub mod join;
 pub mod lower;
 pub mod projection;
@@ -117,4 +119,33 @@ pub async fn cli(args: impl Iterator<Item = String>) -> Result<i32, String> {
             Ok(2)
         }
     }
+}
+
+// Counters are deliberately content-free; process witnesses observe actual hook entry.
+static LEGACY_D0_CLOSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static LEGACY_ADVICE_CLOSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[doc(hidden)]
+pub fn legacy_close_invocations() -> (u64, u64) {
+    use std::sync::atomic::Ordering::Acquire;
+    (
+        LEGACY_D0_CLOSES.load(Acquire),
+        LEGACY_ADVICE_CLOSES.load(Acquire),
+    )
+}
+/// One post-close owner for engine, ACP and imported watches. The durable close
+/// has already been published; managed C1 starts neither detached legacy job.
+pub(crate) fn session_closed(
+    owner: c1::DreamOwner,
+    sessions: &std::path::Path,
+    closed: &crate::protocol::Envelope,
+    redactor: crate::redact::Set,
+    hub: std::sync::Arc<crate::gateway::Hub>,
+) {
+    if !owner.legacy() || !matches!(closed.event, crate::protocol::Event::SessionClosed) {
+        return;
+    }
+    LEGACY_D0_CLOSES.fetch_add(1, std::sync::atomic::Ordering::Release);
+    d0::session_closed(sessions, closed, redactor.clone());
+    LEGACY_ADVICE_CLOSES.fetch_add(1, std::sync::atomic::Ordering::Release);
+    crate::frontends::ir_scan::session_closed(sessions, closed, redactor, hub);
 }

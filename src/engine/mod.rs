@@ -48,6 +48,7 @@ pub struct Config {
 /// Trusted process-launch settings, separate from profile/ACP server data.
 #[derive(Clone, Default)]
 pub struct LaunchOptions {
+    pub dream_owner: crate::dream::c1::DreamOwner,
     /// Explicit launcher approval intent; map to offered allow_once, never vendor flags.
     pub yolo: bool,
     pub append_system_prompt: String,
@@ -136,6 +137,7 @@ pub struct SessionActor {
     append_system_prompt: String,
     recall: Option<crate::dream::recall::Context>,
     launch_yolo: bool,
+    dream_owner: crate::dream::c1::DreamOwner,
 }
 impl SessionActor {
     pub async fn open(
@@ -421,6 +423,7 @@ impl SessionActor {
             window_warned,
             append_system_prompt: launch.append_system_prompt,
             launch_yolo: launch.yolo,
+            dream_owner: launch.dream_owner,
         };
         Ok(actor)
     }
@@ -438,12 +441,8 @@ impl SessionActor {
             // A confined trial may not start unobserved post-close Git/cache or
             // advice jobs outside its pinned roots. Ordinary closes keep both.
             if !self.tools.is_trial() {
-                crate::dream::d0::session_closed(
-                    &self.config.sessions,
-                    &e,
-                    self.config.redactor.clone(),
-                );
-                crate::frontends::ir_scan::session_closed(
+                crate::dream::session_closed(
+                    self.dream_owner,
                     &self.config.sessions,
                     &e,
                     self.config.redactor.clone(),

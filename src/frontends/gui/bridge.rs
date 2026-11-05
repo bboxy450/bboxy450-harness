@@ -1919,6 +1919,7 @@ mod gui_polish_tests {
             max_rounds: 2,
         })
         .with_launch(LaunchOptions {
+            dream_owner: crate::dream::c1::DreamOwner::Legacy,
             yolo: true,
             append_system_prompt: context.into(),
             mcp_servers: [("seat".into(), server)].into(),

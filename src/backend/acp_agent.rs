@@ -231,6 +231,7 @@ pub struct AcpAgentActor {
     handoff: Option<String>,
     recall: Option<crate::dream::recall::Context>,
     trial_recall_suppressed: bool,
+    dream_owner: crate::dream::c1::DreamOwner,
     cancel_grace: Duration,
     agent_turn_quiet: Duration,
     hide_idle: bool,
@@ -364,6 +365,7 @@ impl AcpAgentActor {
             handoff,
             recall,
             trial_recall_suppressed: launch.trial.is_some(),
+            dream_owner: launch.dream_owner,
             cancel_grace: cancel_grace(),
             agent_turn_quiet: agent_turn_quiet(),
             hide_idle: std::env::var("BBOXY450_ACP_IDLE_CONTROL").as_deref() == Ok("hide"),
@@ -412,12 +414,8 @@ impl AcpAgentActor {
         };
         if matches!(e.event, Event::SessionClosed) {
             self.gateway.hub.publish(e.clone());
-            crate::dream::d0::session_closed(
-                &self.config.sessions,
-                &e,
-                self.config.redactor.clone(),
-            );
-            crate::frontends::ir_scan::session_closed(
+            crate::dream::session_closed(
+                self.dream_owner,
                 &self.config.sessions,
                 &e,
                 self.config.redactor.clone(),

@@ -734,3 +734,27 @@ implementation_tests = ["tests/dream_recall.rs", "tests/formal_nonvacuity.rs"]
 assumptions = "One current caller-selected validated snapshot, exact opaque quote/pin, durable append before actual request, terminal/trial fences. Real private engine Provider and ACP stdio requests validate separate user/reference data, handoff order and retained Recall. Snapshot freshness beyond the observed cut and discovery/refresh belong to WP9; no global scan or cache authority at the hot request seam. Native exposure requires explicit retained publication timeline and actual documented Codex text citation; inferred never grants strength. Models do not prove vendor state, string parsing, bytes/crypto or OS durability."
 property = "InsertionRequiresDurableExactCurrentNonTrialPin"
 checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessDreamC1Inspection"
+title = "Dream C1 selected exact closed bytes and immutable results"
+models = ["HarnessDreamC1Inspection", "BrokenHarnessDreamC1InspectionClose", "BrokenHarnessDreamC1InspectionRaw", "BrokenHarnessDreamC1InspectionClobber", "BrokenHarnessDreamC1InspectionLegacyHook"]
+controls = [{name="BrokenHarnessDreamC1InspectionClose", expected="safety"}, {name="BrokenHarnessDreamC1InspectionRaw", expected="safety"}, {name="BrokenHarnessDreamC1InspectionClobber", expected="safety"}, {name="BrokenHarnessDreamC1InspectionLegacyHook",expected="safety"}]
+sources = ["src/dream/mod.rs", "src/engine/mod.rs", "src/backend/acp_agent.rs", "src/import/watch.rs", "src/protocol/laws.rs", "src/dream/c1_wire.rs", "src/dream/c1.rs", "src/dream/inspect.rs", "src/dream/d0.rs", "tests/formal/dream_c1.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/dream_c1.rs", "tests/dream_replay.rs", "tests/seat_process.rs"]
+assumptions = "Two selected source proofs, two work units, three monotonically increasing activity revisions, one immutable output, one independently exiting compute owner. Weak fairness of failure/deadline and settlement/Done actions; no IO-success or OS scheduling fairness. Bytes, serde/schema, fixed nofollow custody, chunk/allocation bounds, CPU/heap/RSS, wall deadlines and process reaping are implementation witnesses, not arbitrary Rust refinement. Compute exit abstracts a finished owned unit or consumer termination; a permanently held syscall is consumer quarantine, not a producer IO liveness proof. Native/fork source headers are explicitly unsupported in C1. Consumer admission, authority and root slots are consumer-owned. Native Java graph/state/transition/verdict parity remains mandatory."
+property = "Both source close and raw digest proofs precede validation, no page replacement, and result publication follows pages."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-dream-c1"]
+
+[[contract]]
+name = "HarnessDreamC1Worker"
+title = "Dream C1 foreground pause and compute settlement before Done"
+models = ["HarnessDreamC1Worker", "BrokenHarnessDreamC1WorkerForeground", "BrokenHarnessDreamC1WorkerEarlyDone", "BrokenHarnessDreamC1WorkerCancelledPublish"]
+controls = [{name="BrokenHarnessDreamC1WorkerForeground", expected="safety"}, {name="BrokenHarnessDreamC1WorkerEarlyDone", expected="safety"}, {name="BrokenHarnessDreamC1WorkerCancelledPublish", expected="safety"}]
+sources = ["src/dream/mod.rs", "src/engine/mod.rs", "src/backend/acp_agent.rs", "src/import/watch.rs", "src/protocol/laws.rs", "src/dream/c1_wire.rs", "src/dream/c1.rs", "src/dream/inspect.rs", "src/dream/d0.rs", "tests/formal/dream_c1.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/dream_c1.rs", "tests/dream_replay.rs", "tests/seat_process.rs"]
+assumptions = "Two selected source proofs, two work units, three monotonically increasing activity revisions, one immutable output, one independently exiting compute owner. Weak fairness of failure/deadline and settlement/Done actions; no IO-success or OS scheduling fairness. Bytes, serde/schema, fixed nofollow custody, chunk/allocation bounds, CPU/heap/RSS, wall deadlines and process reaping are implementation witnesses, not arbitrary Rust refinement. Compute exit abstracts a finished owned unit or consumer termination; a permanently held syscall is consumer quarantine, not a producer IO liveness proof. Native/fork source headers are explicitly unsupported in C1. Consumer admission, authority and root slots are consumer-owned. Native Java graph/state/transition/verdict parity remains mandatory."
+property = "No unit while foreground; Done follows real settlement; cancellation never starts new publication."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-dream-c1"]

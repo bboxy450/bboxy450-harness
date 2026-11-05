@@ -280,4 +280,6 @@ verify-clean-start:
 
 .PHONY: test-dream-c1
 test-dream-c1:
-	cargo test --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --test dream_c1
+	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::c1:: -- --test-threads=1
+	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::fingerprint:: -- --test-threads=1
+	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test dream_c1 --test dream_replay --test seat_process --test acp_launch_context -- --test-threads=1 --nocapture

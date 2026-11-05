@@ -1168,7 +1168,16 @@ fn process_close_child() {
             max_rounds: 2,
             profile_error: None,
         };
-        let host = Host::new(config);
+        let term_c1 = std::env::var("DREAM_TERM_C1").as_deref() == Ok("1");
+        let foreground_config = config.clone();
+        let host = Host::new(config).with_launch(bboxy450_harness::engine::LaunchOptions {
+            dream_owner: if term_c1 {
+                bboxy450_harness::dream::c1::DreamOwner::TermC1
+            } else {
+                bboxy450_harness::dream::c1::DreamOwner::Legacy
+            },
+            ..Default::default()
+        });
         let gateway = if kind == "watch" {
             host.watch(
                 Some(bboxy450_harness::import::Native::ClaudeCode),
@@ -1200,6 +1209,96 @@ fn process_close_child() {
             .await
             .unwrap();
         }
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let foreground = if term_c1 {
+            Some(bbt_rt::handle().spawn(async move {
+                let mut config = foreground_config;
+                config.meta.session = SessionId::new();
+                config.meta.profile = None;
+                config.meta.fork = None;
+                let session = config.meta.session;
+                let cwd = config.meta.cwd.clone();
+                let host = Host::new(config).with_launch(bboxy450_harness::engine::LaunchOptions {
+                    dream_owner: bboxy450_harness::dream::c1::DreamOwner::TermC1,
+                    ..Default::default()
+                });
+                let (g, _) = host
+                    .create(OpEnvelope {
+                        v: PROTOCOL,
+                        session,
+                        op_id: OpId::new(),
+                        op: Op::StartSession {
+                            cwd,
+                            profile: None,
+                            fork: None,
+                        },
+                    })
+                    .await
+                    .unwrap();
+                let mut sub = g
+                    .subscribe(bboxy450_harness::gateway::Subscribe {
+                        session,
+                        after: Some((g.hello().epoch, g.hello().head)),
+                        ephemeral: false,
+                    })
+                    .unwrap();
+                let mut ready = Some(ready_tx);
+                let mut times = Vec::new();
+                for _ in 0..200 {
+                    let at = std::time::Instant::now();
+                    g.send(OpEnvelope {
+                        v: PROTOCOL,
+                        session,
+                        op_id: OpId::new(),
+                        op: Op::UserTurn {
+                            blocks: vec![InputBlock::Text {
+                                text: "private foreground message".into(),
+                            }],
+                            mode: TurnMode::Queue,
+                        },
+                    })
+                    .unwrap();
+                    if let Some(tx) = ready.take() {
+                        let _ = tx.send(());
+                    }
+                    tokio::time::timeout(Duration::from_millis(250), async {
+                        loop {
+                            if let Some(e) = sub.recv().await
+                                && matches!(e.event, Event::TurnEnded { .. })
+                            {
+                                break;
+                            }
+                        }
+                    })
+                    .await
+                    .expect("foreground turn stalled behind close");
+                    times.push(at.elapsed().as_micros());
+                }
+                times.sort_unstable();
+                assert!(times[198] <= 100_000, "foreground p99 {:?}", times[198]);
+                assert!(times[199] <= 250_000);
+                g.send(OpEnvelope {
+                    v: PROTOCOL,
+                    session,
+                    op_id: OpId::new(),
+                    op: Op::Close,
+                })
+                .unwrap();
+                tokio::time::timeout(Duration::from_secs(2), host.join())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                eprintln!(
+                    "managed-close foreground rounds=200 p99_us={} max_us={}",
+                    times[198], times[199]
+                );
+            }))
+        } else {
+            None
+        };
+        if term_c1 {
+            ready_rx.await.unwrap();
+        }
         let id = gateway.session();
         gateway
             .send(OpEnvelope {
@@ -1224,6 +1323,28 @@ fn process_close_child() {
             .join(".bboxy450-harness/dream/d0")
             .join(fp::digest("github.com/fixture/dream"))
             .join(format!("{fingerprint}.json"));
+        if term_c1 {
+            let events = std::str::from_utf8(&before)
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str::<Envelope>(l).unwrap())
+                .collect::<Vec<_>>();
+            assert!(matches!(events.last().unwrap().event, Event::SessionClosed));
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            assert!(!path.exists(), "term-c1 still started legacy D0");
+            foreground.unwrap().await.unwrap();
+            assert_eq!(
+                bboxy450_harness::dream::legacy_close_invocations(),
+                (0, 0),
+                "managed close invoked a detached legacy owner"
+            );
+            assert!(
+                !home.join(".bboxy450-harness/ir-unknowns").exists(),
+                "managed close started IR advice"
+            );
+            assert_eq!(before, std::fs::read(log).unwrap());
+            return;
+        }
         tokio::time::timeout(Duration::from_secs(8), async {
             while !path.exists() {
                 tokio::task::yield_now().await;
@@ -1232,63 +1353,112 @@ fn process_close_child() {
         })
         .await
         .expect("D0AutomaticCloseHook: closed source never reached derived cache");
+        assert_eq!(bboxy450_harness::dream::legacy_close_invocations(), (1, 1));
         assert_eq!(before, std::fs::read(log).unwrap());
     });
 }
 #[test]
 fn engine_acp_and_watch_close_hooks_drive_the_real_detached_pipeline() {
-    for kind in ["engine", "acp", "watch"] {
-        let repo = Repo::new();
-        let input = if kind == "watch" {
-            native_input(repo.home.path(), &repo.path, "claude", false)
-        } else {
-            let path = repo.home.path().join("prepared.jsonl");
-            let bytes = write_log(&path, &repo.path, None, 1);
-            let mut events = std::str::from_utf8(&bytes)
-                .unwrap()
-                .lines()
-                .map(|l| serde_json::from_str::<Envelope>(l).unwrap())
-                .collect::<Vec<_>>();
-            events.pop();
-            let Event::SessionStarted { meta } = &mut events[0].event else {
-                panic!()
+    for term_c1 in [false, true] {
+        for kind in ["engine", "acp", "watch"] {
+            let repo = Repo::new();
+            let input = if kind == "watch" {
+                native_input(repo.home.path(), &repo.path, "claude", false)
+            } else {
+                let path = repo.home.path().join("prepared.jsonl");
+                let bytes = write_log(&path, &repo.path, None, 1);
+                let mut events = std::str::from_utf8(&bytes)
+                    .unwrap()
+                    .lines()
+                    .map(|l| serde_json::from_str::<Envelope>(l).unwrap())
+                    .collect::<Vec<_>>();
+                events.pop();
+                let Event::SessionStarted { meta } = &mut events[0].event else {
+                    panic!()
+                };
+                meta.profile = Some(if kind == "acp" { "fake" } else { "scripted" }.into());
+                let id = meta.session;
+                let sessions = repo.home.path().join("sessions");
+                std::fs::create_dir(&sessions).unwrap();
+                let target = sessions.join(format!("{id}.jsonl"));
+                if term_c1 {
+                    let blob=serde_json::to_vec(&serde_json::json!({"type":"private_future_kind","payload":"x".repeat(4*1024*1024)})).unwrap();
+                    let hash = fp::digest(&blob);
+                    let blobs = sessions.join(id.to_string()).join("blobs");
+                    std::fs::create_dir_all(&blobs).unwrap();
+                    std::fs::write(blobs.join(&hash), &blob).unwrap();
+                    let item = ItemId::new();
+                    let template = events.last().unwrap().clone();
+                    for event in [
+                        Event::ItemStarted {
+                            turn: None,
+                            item,
+                            kind: ItemKind::Native,
+                            parent: None,
+                            head: None,
+                        },
+                        Event::ItemCompleted {
+                            item,
+                            status: ItemStatus::Completed,
+                            body: Item::Native {
+                                provider: "fixture".into(),
+                                record_type: "large-json".into(),
+                                raw: serde_json::Value::Null,
+                                blob: Some(BlobRef {
+                                    sha256: hash.clone(),
+                                    len: blob.len() as u64,
+                                    mime: "application/json".into(),
+                                }),
+                            },
+                        },
+                    ] {
+                        let seq = Seq(events.len() as u64 + 1);
+                        events.push(Envelope {
+                            event,
+                            seq: Some(seq),
+                            at: seq,
+                            ts_ms: seq.0,
+                            ..template.clone()
+                        });
+                    }
+                    eprintln!("managed-close large JSON blob bytes={}", blob.len());
+                }
+                std::fs::write(
+                    &target,
+                    events
+                        .iter()
+                        .map(|e| serde_json::to_string(e).unwrap() + "\n")
+                        .collect::<String>(),
+                )
+                .unwrap();
+                target
             };
-            meta.profile = Some(if kind == "acp" { "fake" } else { "scripted" }.into());
-            let id = meta.session;
-            let sessions = repo.home.path().join("sessions");
-            std::fs::create_dir(&sessions).unwrap();
-            let target = sessions.join(format!("{id}.jsonl"));
-            std::fs::write(
-                &target,
-                events
-                    .iter()
-                    .map(|e| serde_json::to_string(e).unwrap() + "\n")
-                    .collect::<String>(),
-            )
-            .unwrap();
-            target
-        };
-        let profiles = repo.home.path().join("profiles");
-        std::fs::create_dir(&profiles).unwrap();
-        let fake =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/acp-agent/fake_agent.py");
-        std::fs::write(profiles.join("fake.md"),format!("---\nname: fake\nprovider: acp-agent\nagent:\n  command: [/usr/bin/python3, -I, {}, text]\non_unattended: deny\n---\n",fake.display())).unwrap();
-        let mut child = OwnedChild(
-            Command::new(std::env::current_exe().unwrap())
-                .args(["--exact", "process_close_child", "--ignored", "--nocapture"])
-                .env("HOME", repo.home.path())
-                .env("DREAM_CLOSE_KIND", kind)
-                .env("DREAM_CLOSE_CWD", &repo.path)
-                .env("DREAM_CLOSE_INPUT", input)
-                .env_remove("BBOXY_CAPABILITY")
-                .env_remove("BBOXY_CAPABILITY_FILE")
-                .env_remove("BBOXY_SEAT_ID")
-                .env_remove("BBOXY_SOCK")
-                .spawn()
-                .unwrap(),
-        );
-        let status = child.0.wait().unwrap();
-        assert!(status.success(), "{kind} automatic D0 close hook failed");
+            let profiles = repo.home.path().join("profiles");
+            std::fs::create_dir(&profiles).unwrap();
+            let fake = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/acp-agent/fake_agent.py");
+            std::fs::write(profiles.join("fake.md"),format!("---\nname: fake\nprovider: acp-agent\nagent:\n  command: [/usr/bin/python3, -I, {}, text]\non_unattended: deny\n---\n",fake.display())).unwrap();
+            let mut child = OwnedChild(
+                Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", "process_close_child", "--ignored", "--nocapture"])
+                    .env("HOME", repo.home.path())
+                    .env("DREAM_CLOSE_KIND", kind)
+                    .env("DREAM_TERM_C1", if term_c1 { "1" } else { "0" })
+                    .env("DREAM_CLOSE_CWD", &repo.path)
+                    .env("DREAM_CLOSE_INPUT", input)
+                    .env_remove("BBOXY_CAPABILITY")
+                    .env_remove("BBOXY_CAPABILITY_FILE")
+                    .env_remove("BBOXY_SEAT_ID")
+                    .env_remove("BBOXY_SOCK")
+                    .spawn()
+                    .unwrap(),
+            );
+            let status = child.0.wait().unwrap();
+            assert!(
+                status.success(),
+                "{kind} automatic D0 close hook failed, term-c1={term_c1}"
+            );
+        }
     }
 }
 
@@ -1351,4 +1521,67 @@ async fn native_canonical_input_redaction_and_content_versions_keep_old_custody(
     assert_eq!(public_logs(&sessions).len(), 3);
     assert_eq!(old, std::fs::read(one).unwrap());
     assert_eq!(two_bytes, std::fs::read(two).unwrap());
+}
+
+#[tokio::test]
+async fn selected_inspection_reuses_exact_d0_semantics_without_cache_or_task_join() {
+    let t = tempfile::tempdir_in("/private/tmp").unwrap();
+    let path = t.path().join("input.jsonl");
+    let bytes = write_log(&path, t.path(), None, 20);
+    let events = std::str::from_utf8(&bytes)
+        .unwrap()
+        .split_inclusive('\n')
+        .map(|l| Envelope::from_line(l).unwrap())
+        .collect::<Vec<_>>();
+    let Event::SessionStarted { meta } = &events[0].event else {
+        panic!()
+    };
+    let mut log = d0::ClosedLog::new(meta.clone());
+    let mut streaming = bboxy450_harness::dream::inspect::Transcript::default();
+    for e in &events {
+        streaming.observe(e).unwrap();
+        log.observe(e, &Set::default(), false).unwrap();
+    }
+    streaming.finish().unwrap();
+    laws::check_transcript(&events).unwrap();
+    let rows = d0::inspect_closed(vec![log], |f| f()).unwrap();
+    assert_eq!(
+        std::fs::read_dir(t.path()).unwrap().count(),
+        1,
+        "selected inspection wrote side effects"
+    );
+    let replay = d0::replay(
+        vec![path.clone()],
+        t.path().join("cache"),
+        false,
+        Set::default(),
+    )
+    .await
+    .unwrap();
+    let selected = rows
+        .iter()
+        .filter_map(|r| {
+            if let bboxy450_harness::dream::c1_wire::Row::Episode(e) = r {
+                Some(e)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(selected.len(), replay.episodes.len());
+    for e in &replay.episodes {
+        let EvidenceRef::Event { seq, digest, .. } = &e.origin else {
+            panic!()
+        };
+        let row = selected.iter().find(|r| r.origin.seq.0 == seq.0).unwrap();
+        assert_eq!(&row.origin.digest, digest);
+        assert_eq!(
+            row.fingerprints
+                .iter()
+                .map(|h| h.0.clone())
+                .collect::<std::collections::BTreeSet<_>>(),
+            e.fingerprints
+        );
+    }
+    assert_eq!(bytes, std::fs::read(path).unwrap());
 }

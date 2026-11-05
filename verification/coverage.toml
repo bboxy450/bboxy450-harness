@@ -8,6 +8,16 @@
 name = "bboxy450-harness"
 status = "contract-model"
 models = [
+    "BrokenHarnessDreamC1InspectionLegacyHook",
+    "HarnessDreamC1Inspection",
+    "BrokenHarnessDreamC1InspectionClose",
+    "BrokenHarnessDreamC1InspectionRaw",
+    "BrokenHarnessDreamC1InspectionClobber",
+    "HarnessDreamC1Worker",
+    "BrokenHarnessDreamC1WorkerForeground",
+    "BrokenHarnessDreamC1WorkerEarlyDone",
+    "BrokenHarnessDreamC1WorkerCancelledPublish",
+
     "HarnessDraftHandoff",
     "BrokenHarnessDraftHandoff",
     "HarnessUnrestrictedStartup",
@@ -93,6 +103,8 @@ models = [
 ]
 scope = "Finite two-turn/two-tool lifecycle; birth fencing A-B-A, unattended approval, FIFO control, bounded replay/lag/reset and Yarn arbitration. HTTP/TCP bytes, filesystem/process effects, wall-clock deadlines, secrecy and terminal bytes are witnessed by implementation tests; no arbitrary Rust refinement claim."
 sources = [
+    "src/dream/c1_wire.rs", "src/dream/c1.rs", "src/dream/inspect.rs",
+
     "src/frontends/gui/input.rs",
     "src/frontends/gui/attachments.rs",
     "src/store/intake.rs",

@@ -6878,8 +6878,19 @@ fn wp8_recall(mode: u8) -> Model {
     m
 }
 
+#[path="dream_c1.rs"]
+mod dream_c1;
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (dream_c1::inspection(0), "pass"),
+        (dream_c1::inspection(1), "safety"),
+        (dream_c1::inspection(2), "safety"),
+        (dream_c1::inspection(3), "safety"),
+        (dream_c1::inspection(4), "safety"),
+        (dream_c1::worker(0), "pass"),
+        (dream_c1::worker(1), "safety"),
+        (dream_c1::worker(2), "safety"),
+        (dream_c1::worker(3), "safety"),
         (unrestricted_startup(false), "pass"),
         (unrestricted_startup(true), "safety"),
         (draft_handoff(false), "pass"),

@@ -499,3 +499,31 @@ fn non_pty_spawn_does_not_keep_a_sibling_master_alive() {
         "non-PTY child retained a sibling master"
     );
 }
+
+#[test]
+fn term_c1_owner_is_typed_and_accepted_before_seat_bootstrap() {
+    let home = tempfile::tempdir_in("/private/tmp").unwrap();
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
+        .args(["seat", "--dream-owner", "term-c1", "--replay"])
+        .arg(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/ir-v1/minimal.jsonl"),
+        )
+        .env_clear()
+        .env("HOME", home.path())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .unwrap();
+    // The fixture path need not exist: argument validation must reach replay IO.
+    assert!(!String::from_utf8_lossy(&status.stderr).contains("dream-owner"));
+    let invalid = std::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
+        .args(["seat", "--dream-owner", "other"])
+        .env_clear()
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(!invalid.status.success());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("invalid dream owner"));
+}

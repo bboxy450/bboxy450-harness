@@ -1035,3 +1035,48 @@ frontend = "project"
 name = "BrokenHarnessUnrestrictedStartup"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamC1Inspection"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1InspectionClose"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1InspectionRaw"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1InspectionClobber"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamC1Worker"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1WorkerForeground"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1WorkerEarlyDone"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1WorkerCancelledPublish"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name="BrokenHarnessDreamC1InspectionLegacyHook"
+expected="safety"
+frontend="project"

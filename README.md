@@ -141,3 +141,40 @@ requests per invocation. Its redacted run summary distinguishes PASS, FAIL,
 SKIP and UNAVAILABLE. SKIP and UNAVAILABLE are never PASS.
 
 Credit and reuse policy: [ATTRIBUTION.md](ATTRIBUTION.md).
+
+## Closed-source Dream C1 worker
+
+The provisioned sibling executable exposes `dream inspect-c1 --job-dir ABSOLUTE_DIR`.
+It emits a capability Hello before opening the job directory, then accepts one
+matching Start over bounded JSONL pipes. The owner supplies a private 0700 job
+with 0600 snapshots at `input/<session>.jsonl`, referenced blobs at
+`input/<session>/blobs/<sha256>`, `input/manifest.json` committed last, and an
+existing private `output/` directory. Launch with a cleared environment, LANG
+and a private TMPDIR; no HOME, profile, seat capability or provider is needed.
+
+`src/dream/c1_wire.rs` owns the transport, generated schema and locked corpus in
+`tests/fixtures/dream-c1/`. Canonical hashing sorts keys recursively even when
+ACP enables serde_json's insertion-order feature. UTF-8 scalar byte limits and
+cross-field/order/cardinality rules require the DTO/worker validator as well as
+the structural JSON Schema (JSON Schema string lengths count characters).
+
+Selected immutable, terminal SessionClosed IR is validated incrementally,
+including exact original line pins, non-fork transcript laws and typed blob inventories.
+Native imports and SessionMeta.fork headers return unsupported_ir before source
+inspection; ordinary canonical fork support remains outside this C1 subset.
+Inspection shares D0 fingerprints and selected-corpus cost ranking; it performs
+no discovery, task join, shared cache write or inference. Results are canonical
+bounded pages, published without replacement before result.json. The worker
+uses nice +10/utility scheduling, measured ≤1 ms CPU units separated by ≥9 ms
+waits, an independent control owner, foreground pause and a wall deadline.
+Resource overruns fail the run; diagnostics report measured heap and RSS
+separately. Done follows compute settlement and successful exit remains part of
+the consumer's completion check.
+
+Managed seats pass `--dream-owner term-c1`. This typed ownership setting preserves
+durable SessionClosed and suppresses both legacy automatic D0 and automatic IR advice in engine, ACP and
+native-watch close paths. Standalone/manual replay retains its existing owner.
+`make test-dream-c1` runs private unit, wire/hash, process, large-input, legacy
+replay and seat witnesses; native/Java evidence uses `make test-formal-parity`.
+Consumer admission/authority, source retention, root/account slot limits and
+native frame/input performance are verified in bboxy450-term.

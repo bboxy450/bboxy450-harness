@@ -28,6 +28,7 @@ pub(crate) async fn load(
     start: OpId,
     native: Option<Native>,
     path: PathBuf,
+    dream_owner: crate::dream::c1::DreamOwner,
 ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
     let mut store = Store::open(
         config.sessions.clone(),
@@ -79,8 +80,7 @@ pub(crate) async fn load(
                         }
                         if handle(op, &mut store, &g.hub).await? {
                             if let Some(closed) = store.events.last() {
-                                crate::dream::d0::session_closed(&config.sessions, closed, config.redactor.clone());
-                                crate::frontends::ir_scan::session_closed(&config.sessions, closed,
+                                crate::dream::session_closed(dream_owner, &config.sessions, closed,
                                     config.redactor.clone(), g.hub.clone());
                             }
                             break;

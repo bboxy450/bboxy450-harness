@@ -144,6 +144,7 @@ impl Fixture {
     }
     fn host(&self, context: &str, servers: Servers) -> Host {
         Host::new(self.config.clone()).with_launch(LaunchOptions {
+            dream_owner: bboxy450_harness::dream::c1::DreamOwner::Legacy,
             yolo: false,
             append_system_prompt: context.into(),
             mcp_servers: servers,
@@ -431,6 +432,7 @@ async fn reopen_switch_and_generation_context() {
     let mut config = f.config.clone();
     config.sessions = sessions;
     let next = Host::new(config).with_launch(LaunchOptions {
+        dream_owner: bboxy450_harness::dream::c1::DreamOwner::Legacy,
         yolo: false,
         append_system_prompt: "generation two".into(),
         mcp_servers: Servers::new(),

@@ -241,20 +241,40 @@ fn read_log(path: PathBuf, redactor: Set) -> io::Result<Option<Log>> {
     laws::check_transcript(&projected)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid source transcript"))?;
     drop(projected);
-    let mut turns: Vec<Turn> = vec![];
-    let mut current = None;
-    let mut items = BTreeMap::new();
-    let mut calls = vec![];
+    let mut observed = ClosedLog::new(meta);
     for e in events {
+        observed.observe(&e, &redactor, true)?;
+    }
+    Ok(Some(observed.finish()))
+}
+/// Incremental D0 event accumulator. C1 never enters path discovery/task/cache replay.
+pub struct ClosedLog {
+    meta: SessionMeta,
+    turns: Vec<Turn>,
+    current: Option<usize>,
+    items: BTreeMap<ItemId, usize>,
+    calls: Vec<(String, serde_json::Value)>,
+}
+impl ClosedLog {
+    pub fn new(meta: SessionMeta) -> Self {
+        Self {
+            meta,
+            turns: vec![],
+            current: None,
+            items: BTreeMap::new(),
+            calls: vec![],
+        }
+    }
+    pub fn observe(&mut self, e: &Envelope, redactor: &Set, retain_calls: bool) -> io::Result<()> {
         let line = e
             .raw
             .as_deref()
             .ok_or_else(|| io::Error::other("missing retained line"))?;
         match &e.event {
             Event::TurnStarted { turn, .. } => {
-                current = Some(turns.len());
-                turns.push(Turn {
-                    origin: event_pin(&e, line)?,
+                self.current = Some(self.turns.len());
+                self.turns.push(Turn {
+                    origin: event_pin(e, line)?,
                     id: *turn,
                     first: e.ts_ms,
                     last: e.ts_ms,
@@ -270,15 +290,15 @@ fn read_log(path: PathBuf, redactor: Set) -> io::Result<Option<Log>> {
                 turn: Some(turn),
                 ..
             } => {
-                if let Some(i) = turns.iter().position(|t| t.id == *turn) {
-                    items.insert(*item, i);
+                if let Some(i) = self.turns.iter().position(|t| t.id == *turn) {
+                    self.items.insert(*item, i);
                 }
             }
             Event::ItemCompleted { item, status, body } => {
-                let Some(i) = items.get(item).copied().or(current) else {
-                    continue;
+                let Some(i) = self.items.remove(item).or(self.current) else {
+                    return Ok(());
                 };
-                let t = &mut turns[i];
+                let t = &mut self.turns[i];
                 t.last = t.last.max(e.ts_ms);
                 match body {
                     Item::ToolCall {
@@ -288,8 +308,10 @@ fn read_log(path: PathBuf, redactor: Set) -> io::Result<Option<Log>> {
                         ..
                     } => {
                         let input = serde_json::from_str::<serde_json::Value>(input_raw).ok();
-                        if let Some(input) = &input {
-                            calls.push((name.clone(), input.clone()));
+                        if let Some(input) = &input
+                            && retain_calls
+                        {
+                            self.calls.push((name.clone(), input.clone()));
                         }
                         let args = redactor.scrub(
                             &input
@@ -336,28 +358,42 @@ fn read_log(path: PathBuf, redactor: Set) -> io::Result<Option<Log>> {
                 reason,
                 usage,
             } => {
-                if let Some(t) = turns.iter_mut().find(|t| t.id == *turn) {
+                if let Some(t) = self.turns.iter_mut().find(|t| t.id == *turn) {
                     t.last = t.last.max(e.ts_ms);
                     t.usage = usage.clone();
                     if matches!(reason, StopReason::Quiet { .. }) {
                         t.patterns.insert(fp::digest("quiet-stop"));
                     }
-                    current = None;
+                    self.current = None;
                 }
             }
             _ => {}
         }
+
+        if !retain_calls
+            && (self.turns.len() > 4096 || self.turns.last().is_some_and(|t| t.patterns.len() > 32))
+        {
+            return Err(io::Error::other("resource limit"));
+        }
+        Ok(())
     }
-    for t in &mut turns {
-        for id in &t.denied {
-            if let Some(name) = t.tools.get(id) {
-                t.patterns
-                    .insert(fp::digest(format!("approval-denied:{name}")));
+    fn finish(mut self) -> Log {
+        for t in &mut self.turns {
+            for id in &t.denied {
+                if let Some(name) = t.tools.get(id) {
+                    t.patterns
+                        .insert(fp::digest(format!("approval-denied:{name}")));
+                }
             }
         }
+        Log {
+            meta: self.meta,
+            turns: self.turns,
+            calls: self.calls,
+        }
     }
-    Ok(Some(Log { meta, turns, calls }))
 }
+
 fn reported_cost(usage: &Usage) -> Option<(String, u64)> {
     let backend = usage.backend.as_ref()?;
     let model = usage.model.as_ref()?;
@@ -756,4 +792,134 @@ mod tests {
         .await;
         assert!(result.unwrap_err().to_string().contains("1ms CPU"));
     }
+}
+
+/// Inspect only already validated immutable selected inputs. No filesystem/task/cache access.
+pub fn inspect_closed(
+    logs: Vec<ClosedLog>,
+    mut unit: impl FnMut(&mut dyn FnMut() -> io::Result<()>) -> io::Result<()>,
+) -> io::Result<Vec<super::c1_wire::Row>> {
+    use super::c1_wire as w;
+    let mut rows = Vec::new();
+    let mut costs: BTreeMap<String, Vec<u64>> = BTreeMap::new();
+    let mut logs = logs;
+    for log in &logs {
+        for t in &log.turns {
+            if t.usage.is_some() {
+                unit(&mut || {
+                    if let Some((key, cost)) = t.usage.as_ref().and_then(reported_cost) {
+                        costs.entry(key).or_default().push(cost);
+                    }
+                    Ok(())
+                })?;
+            }
+        }
+    }
+    for values in costs.values_mut() {
+        unit(&mut || {
+            values.sort_unstable();
+            Ok(())
+        })?;
+    }
+    let mut clusters: BTreeMap<(String, String), Cluster> = BTreeMap::new();
+    for log in &mut logs {
+        let repo = log
+            .meta
+            .vcs
+            .as_ref()
+            .and_then(|v| v.repo.as_ref())
+            .ok_or_else(|| io::Error::other("missing selected repo"))?;
+        while let Some(t) = log.turns.pop() {
+            let mut owned = Some(t);
+            unit(&mut || {
+                let mut t = owned.take().unwrap();
+                for id in &t.denied {
+                    if let Some(name) = t.tools.get(id) {
+                        t.patterns
+                            .insert(fp::digest(format!("approval-denied:{name}")));
+                    }
+                }
+                if let Some((key, cost)) = t.usage.as_ref().and_then(reported_cost) {
+                    let values = &costs[&key];
+                    if cost > values[(values.len() * 95).div_ceil(100) - 1] {
+                        t.patterns.insert(fp::digest(format!("cost-outlier:{key}")));
+                    }
+                }
+                if t.patterns.len() > 32 || rows.len() >= 4096 {
+                    return Err(io::Error::other("resource limit"));
+                }
+                let EvidenceRef::Event {
+                    session,
+                    seq,
+                    digest,
+                } = &t.origin
+                else {
+                    return Err(io::Error::other("invalid pin"));
+                };
+                rows.push(w::Row::Episode(w::Episode {
+                    session: w::Ulid(log.meta.session.to_string()),
+                    turn: w::Ulid(t.id.to_string()),
+                    origin: w::Origin {
+                        session: w::Ulid(session.to_string()),
+                        seq: w::Number(seq.0),
+                        digest: digest.clone(),
+                    },
+                    fingerprints: t.patterns.iter().cloned().map(w::Hex).collect(),
+                    first_ms: w::Number(t.first),
+                    last_ms: w::Number(t.last),
+                }));
+                for fingerprint in &t.patterns {
+                    let key = (repo.clone(), fingerprint.clone());
+                    let c = clusters.entry(key).or_insert_with(|| Cluster {
+                        fingerprint: fingerprint.clone(),
+                        count: 0,
+                        episodes: vec![],
+                        first: t.first,
+                        last: t.last,
+                    });
+                    // One row per unique TurnStarted; validated sources have distinct sessions.
+                    c.count += 1;
+                    c.first = c.first.min(t.first);
+                    c.last = c.last.max(t.last);
+                }
+                Ok(())
+            })?;
+        }
+    }
+    unit(&mut || {
+        rows.sort_by(|a, b| match (a, b) {
+            (w::Row::Episode(a), w::Row::Episode(b)) => (
+                &a.session,
+                a.origin.seq,
+                &a.origin.digest,
+            )
+                .cmp(&(&b.session, b.origin.seq, &b.origin.digest)),
+            _ => std::cmp::Ordering::Equal,
+        });
+        Ok(())
+    })?;
+    for ((repo, fingerprint), c) in clusters {
+        let mut owned = Some((repo, fingerprint, c));
+        unit(&mut || {
+            let (repo, fingerprint, c) = owned.take().unwrap();
+            if rows.len() >= 4096 {
+                return Err(io::Error::other("resource limit"));
+            }
+            rows.push(w::Row::Cluster(w::Cluster {
+                repo: w::Repo(repo),
+                fingerprint: w::Hex(fingerprint),
+                count: c.count as u32,
+                first_ms: w::Number(c.first),
+                last_ms: w::Number(c.last),
+            }));
+            Ok(())
+        })?;
+    }
+    // Remaining retained metadata/cost tables are bounded but still measured.
+    unit(&mut || {
+        logs.clear();
+        costs.clear();
+        Ok(())
+    })?;
+    Ok(rows)
 }

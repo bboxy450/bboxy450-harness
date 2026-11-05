@@ -25,6 +25,10 @@ fn stop_cli(stop: &CancellationToken) {
     stop.cancel();
 }
 pub async fn cli() -> i32 {
+    let mut early = std::env::args().skip(1);
+    if early.next().as_deref() == Some("dream") && early.next().as_deref() == Some("inspect-c1") {
+        return crate::dream::c1::cli(early).await;
+    }
     let result=async {
         crate::process::install_shutdown_handlers().map_err(|_|"signal handler failed".to_string())?;
         let stop=CancellationToken::new();let ready=Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -73,6 +77,7 @@ async fn run_cli(
     let mut scripts = vec![];
     let mut resume = None;
     let mut yolo = false;
+    let mut dream_owner = crate::dream::c1::DreamOwner::Legacy;
     let mut max_rounds = 50;
     let mut append_system_prompt = String::new();
     let mut mcp_config = None;
@@ -129,6 +134,11 @@ async fn run_cli(
             "--resume" => resume = Some(args.next().ok_or("missing session")?),
             "--replay" => replay = Some(PathBuf::from(args.next().ok_or("missing replay path")?)),
             "--yolo" => yolo = true,
+            "--dream-owner" => {
+                dream_owner =
+                    crate::dream::c1::DreamOwner::parse(&args.next().ok_or("missing dream owner")?)
+                        .ok_or("invalid dream owner")?;
+            }
             "--append-system-prompt" => {
                 append_system_prompt = args.next().ok_or("missing system prompt text")?
             }
@@ -392,6 +402,7 @@ async fn run_cli(
     };
     let mut launch = tokio::select! {biased;_=stop.cancelled()=>return Ok(0),launch=read_launch(append_system_prompt,mcp_config)=>launch};
     launch.yolo = yolo;
+    launch.dream_owner = dream_owner;
     let host = Host::new(config.clone()).with_launch(launch);
     if acp {
         #[cfg(feature = "acp")]
