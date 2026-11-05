@@ -18,6 +18,7 @@ pub mod receipt;
 pub mod resolve;
 pub mod seal;
 pub mod synth;
+pub mod trial;
 pub mod trust;
 
 pub fn directory() -> std::io::Result<std::path::PathBuf> {

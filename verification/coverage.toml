@@ -65,6 +65,8 @@ models = [
     "HarnessProcessSpawnAdmission",
     "HarnessStoreWriterLease",
     "HarnessProcessAdmissionResult",
+    "HarnessDreamTrialClaims",
+    "HarnessDreamTrialOutcome",
 ]
 scope = "Finite two-turn/two-tool lifecycle; birth fencing A-B-A, unattended approval, FIFO control, bounded replay/lag/reset and Yarn arbitration. HTTP/TCP bytes, filesystem/process effects, wall-clock deadlines, secrecy and terminal bytes are witnessed by implementation tests; no arbitrary Rust refinement claim."
 sources = [
@@ -157,9 +159,9 @@ sources = [
     "src/dream/seal.rs",
     "src/dream/prompt.rs",
     "src/dream/synth.rs",
+    "src/dream/trial.rs",
 ]
 planned_sources = [
-    "src/dream/trial.rs",
     "src/dream/lower.rs",
     "src/dream/recall.rs",
 ]
@@ -223,4 +225,5 @@ implementation_only = [
     "Store writer lease (d20261103136541): one private non-Clone guard spans successful nonblocking acquisition, opening job/error/abandoned output, handoff and Store destruction. HarnessStoreWriterLease separately models old/replacement ownership, one inherited/fsync descriptor and successful/failed release with reachable missing/premature/stale controls. src/store.rs lease_tests and process.rs native pre-exec witness cover actual exclusion, checked/Drop errors, job abandonment, clone lifetime and replacement preservation; existing store_recovery/store_fork/ir_v1_corpus suites retain actual byte and fork custody. Supported successful kernel unlock is assumed for positive release; exceptional failure remains unavailable/best-effort, not certified release. General unsafe fork duplicating a Rust Store owner, arbitrary filesystem/kernel behavior and universal scheduling are not proved. Existing fork and process families stay unchanged.",
     "Process spawn admission (d20261103136528): HarnessProcessSpawnAdmission abstracts one queued request, local cancellation/drop/deadline, one exclusive worker/result/caller/retirement owner and one reservation through reap. Reachable late-queue and lost-owner controls are paired; tests/formal_nonvacuity.rs covers real queue/drop/handoff/return-before-cleanup states. src/process.rs spawn_admission_tests and tests/cancel_process.rs use held existing permits, private barriers/children and actual reap/environment witnesses; tests/dream_pipeline.rs retains the D0/owned-spawn CPU regression. Command bytes, actual CPU/OS scheduling, Tokio signals, cryptography and arbitrary timings remain implementation-only. API cancellation/return is not joined producer admission cleanup or a constructive seal; WP9 must independently observe/join it. The existing ProcessLifecycle family is unchanged and retains group/member/reap fencing.",
     "Admission result observations (d20261103136567): HarnessProcessAdmissionResult freezes observed cancellation/elapsed deadline/caller timer readiness/worker closure/received kind/returned class. Exact closed+elapsed+not-ready returns TimedOut; its old-mapping control returns Interrupted. src/process.rs private receive-helper tests and tests/cancel_process.rs cover priority/equality/explicit errors/live handoff/late owned packet kill-wait-reap and public refusal without execution. No new fairness, owner or queue; existing145 models stay unchanged. Concrete per-runtime timers/channels, exact clock sampling, arbitrary Rust/OS scheduling and cleanup progress are implementation witnesses, not refined/proved by this finite observation quotient. API refusal remains distinct from joined cleanup or producer seal.",
+    "WP7 partial checkpoint: trial.rs currently implements pure original-verify eligibility/accounting and exact thresholds@2 scoring through the existing shared qualifier. DreamTrialClaims/Outcome model planned per-candidate nonblocking claims, serial owned cleanup, exact pair/pin/terminal/isolation/usage admission with reachable global-lock/early-release/missing-gate controls. tests/dream_pipeline.rs trial cases currently cover pure values only; actual continuation/isolation, claim/cancellation and process conformance remain pending, not established by these models. No default/native adapter is yet approved as confined; the policy/Registry and Derived turn-usage interface gaps are routed to Oracle. Finite cleanup fairness is explicit and does not promise arbitrary OS/permit progress or prove filesystem/command enforcement.",
 ]

@@ -1681,3 +1681,95 @@ fn admission_result_observations_reach_the_closed_elapsed_not_ready_counterexamp
         );
     }
 }
+
+#[test]
+fn trial_claims_allow_independent_busy_and_hold_owned_cleanup() {
+    let m = model("HarnessDreamTrialClaims");
+    let checked = m.check(100_000).unwrap();
+    assert!(checked.violations.is_empty(), "{:?}", checked.violations);
+    let a = variable(&m, "claim_a");
+    let b = variable(&m, "claim_b");
+    let o = variable(&m, "owned_a");
+    let busy = variable(&m, "busy_a");
+    let caller = variable(&m, "caller_a");
+    assert!(
+        checked.states.iter().any(|s| s[a] == 1 && s[b] == 1),
+        "independent claims overlap"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[a] == 1 && s[o] == 1 && s[busy] == 1),
+        "busy response leaves owner running"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[a] == 1 && s[o] == 1 && s[caller] == 2),
+        "drop retains cleanup claim"
+    );
+    for (name, property) in [
+        (
+            "BrokenHarnessDreamTrialClaimsGlobal",
+            "IndependentClaimAvailable1",
+        ),
+        (
+            "BrokenHarnessDreamTrialClaimsEarlyRelease",
+            "OwnedArmKeepsClaim0",
+        ),
+    ] {
+        let bad = model(name).check(100_000).unwrap();
+        assert!(
+            bad.violations.iter().any(|v| v.property == property),
+            "{name} decisive control"
+        );
+    }
+}
+#[test]
+fn trial_outcomes_reach_uncertain_wrong_pair_late_terminal_and_real_completion() {
+    let m = model("HarnessDreamTrialOutcome");
+    let checked = m.check(100_000).unwrap();
+    assert!(checked.violations.is_empty(), "{:?}", checked.violations);
+    let r = variable(&m, "result");
+    let iso = variable(&m, "isolation");
+    let usage = variable(&m, "usage");
+    let term = variable(&m, "terminal");
+    let end = variable(&m, "ended");
+    let join = variable(&m, "cleanup");
+    assert!(checked.states.iter().any(|s| s[r] == 1
+        && s[iso] == 1
+        && s[usage] == 1
+        && s[end] == 1
+        && s[join] == 1));
+    assert!(
+        checked.states.iter().any(|s| s[r] == 3 && s[iso] == 2),
+        "unsupported means inconclusive before execution"
+    );
+    assert!(
+        checked.states.iter().any(|s| s[r] == 3 && s[usage] == 0),
+        "missing usage never passes"
+    );
+    assert!(
+        checked.states.iter().any(|s| s[r] == 4 && s[term] == 2),
+        "global terminal fences historical pass"
+    );
+    for suffix in [
+        "Isolation",
+        "Harness",
+        "Terminal",
+        "Usage",
+        "Entry",
+        "Cleanup",
+    ] {
+        let name = format!("BrokenHarnessDreamTrialOutcome{suffix}");
+        let bad = model(&name).check(100_000).unwrap();
+        assert!(
+            bad.violations
+                .iter()
+                .any(|v| v.property == "ActivePassRequiresObservedGates"),
+            "{name} missing same-property witness"
+        );
+    }
+}
