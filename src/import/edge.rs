@@ -224,3 +224,79 @@ pub fn remainder(native: Native, record: &Value) -> Value {
     }
     out
 }
+
+/// Promote only the written Codex citation syntax in actual assistant text. The
+/// timeline comes from validated retained publications, not a native JSON flag.
+/// Every other matching timeline is only inferred/uncertain exposure.
+pub(super) fn exposure(
+    native: Native,
+    record: &Value,
+    repo: Option<&str>,
+    cwd: Option<&str>,
+    timeline: &crate::dream::recall::Exposure,
+) -> Vec<crate::protocol::Item> {
+    use crate::protocol::{Item, RecallBasis, SinkKind};
+    if repo != Some(timeline.repo.as_str())
+        && !(repo.is_none() && cwd.is_some_and(|p| std::path::Path::new(p) == timeline.cwd))
+    {
+        return vec![];
+    }
+    let text = match native {
+        Native::Codex
+            if timeline.sink.kind == SinkKind::CodexExtension
+                && record.get("type").and_then(Value::as_str) == Some("response_item")
+                && record.pointer("/payload/type").and_then(Value::as_str) == Some("message")
+                && record.pointer("/payload/role").and_then(Value::as_str) == Some("assistant") =>
+        {
+            record
+                .pointer("/payload/content")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|b| b.get("text").and_then(Value::as_str))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+        }
+        Native::ClaudeCode
+            if timeline.sink.kind == SinkKind::ClaudeMemory
+                && record.get("type").and_then(Value::as_str) == Some("assistant") =>
+        {
+            Some(String::new())
+        }
+        _ => None,
+    };
+    let Some(text) = text else { return vec![] };
+    timeline
+        .entries
+        .iter()
+        .map(|(entry, record)| {
+            let short = entry.strip_prefix("sha256:").map(|h| &h[..12]);
+            let cited = short.is_some_and(|s| {
+                text.split("<oai-mem-citation>")
+                    .skip(1)
+                    .filter_map(|v| v.split_once("</oai-mem-citation>").map(|(v, _)| v))
+                    .any(|v| {
+                        let needle = format!("extensions/bboxy/resources/{s}.md");
+                        v.match_indices(&needle).any(|(i, _)| {
+                            v[i + needle.len()..].chars().next().is_none_or(|c| {
+                                c.is_whitespace()
+                                    || matches!(c, ':' | '|' | ']' | '"' | '\'' | '<' | ')')
+                            })
+                        })
+                    })
+            });
+            Item::Recall {
+                entry: entry.clone(),
+                record: Some(record.clone()),
+                sink: Some(timeline.sink.clone()),
+                block_digest: Some(timeline.digest.clone()),
+                basis: if cited {
+                    RecallBasis::Cited
+                } else {
+                    RecallBasis::Inferred
+                },
+            }
+        })
+        .collect()
+}

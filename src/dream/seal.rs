@@ -244,6 +244,18 @@ impl Owner {
         s.children.insert(child.id, child);
         Ok(())
     }
+    /// Read-only snapshot for the shared E interpreter before reserving the seal.
+    /// Outstanding admissions make a snapshot unavailable, just as they prevent freeze.
+    pub(crate) fn effects(&self) -> Proof<Vec<Effect>> {
+        let s = self
+            .0
+            .try_lock()
+            .map_err(|_| ProofError::Unproven("owner_busy"))?;
+        if s.frozen || s.inflight != 0 || s.incomplete {
+            return Err(ProofError::Unproven("inflight_or_unobserved_effect"));
+        }
+        Ok(s.effects.clone())
+    }
     pub fn freeze(
         &self,
         item: ItemId,

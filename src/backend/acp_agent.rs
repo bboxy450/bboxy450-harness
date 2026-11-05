@@ -229,6 +229,8 @@ pub struct AcpAgentActor {
     /// Earlier turns of this log (a reopened or forked session), handed to the next
     /// fresh agent with its first prompt: the agent's own context starts empty.
     handoff: Option<String>,
+    recall: Option<crate::dream::recall::Context>,
+    trial_recall_suppressed: bool,
     cancel_grace: Duration,
     agent_turn_quiet: Duration,
     hide_idle: bool,
@@ -241,12 +243,43 @@ pub struct AcpAgentActor {
 
 impl AcpAgentActor {
     pub(crate) async fn load(
+        config: Config,
+        start: OpId,
+        profile: crate::provider::profile::Profile,
+        overrides: crate::mcp::Servers,
+        launch: LaunchOptions,
+        notice: Option<String>,
+    ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
+        Self::load_inner(config, start, profile, overrides, launch, notice, None).await
+    }
+    /// Explicit caller-prepared reference; live loader discovery remains outside this adapter.
+    pub async fn load_with_recall(
+        config: Config,
+        start: OpId,
+        profile: crate::provider::profile::Profile,
+        launch: LaunchOptions,
+        recall: crate::dream::recall::Context,
+    ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
+        let recall = (recall.kind() == &SinkKind::AcpContext).then_some(recall);
+        Self::load_inner(
+            config,
+            start,
+            profile,
+            Default::default(),
+            launch,
+            None,
+            recall,
+        )
+        .await
+    }
+    async fn load_inner(
         mut config: Config,
         start: OpId,
         profile: crate::provider::profile::Profile,
         overrides: crate::mcp::Servers,
         launch: LaunchOptions,
         notice: Option<String>,
+        recall: Option<crate::dream::recall::Context>,
     ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
         let spec = profile.agent.clone().unwrap_or_default();
         let yolo = launch.yolo || profile.policy.as_deref() == Some("yolo");
@@ -329,6 +362,8 @@ impl AcpAgentActor {
             resolved: HashSet::new(),
             projected_ext: BTreeMap::new(),
             handoff,
+            recall,
+            trial_recall_suppressed: launch.trial.is_some(),
             cancel_grace: cancel_grace(),
             agent_turn_quiet: agent_turn_quiet(),
             hide_idle: std::env::var("BBOXY450_ACP_IDLE_CONTROL").as_deref() == Ok("hide"),
@@ -1172,6 +1207,22 @@ impl AcpAgentActor {
             prompt.push(json!({ "type": "text", "text": format!(
                 "Context: the conversation so far in this session, handed over from an earlier agent. \
                  Use it as background; the new request follows.\n\n{text}\n\n--- new request ---") }));
+        }
+        if let Some(recall) = self.recall.take() {
+            let from = self.store.events.len();
+            if let Ok(Some(block)) = recall
+                .append(
+                    &mut self.store,
+                    self.trial_recall_suppressed,
+                    &self.config.redactor,
+                )
+                .await
+            {
+                for event in &self.store.events[from..] {
+                    self.gateway.hub.publish(event.clone());
+                }
+                prompt.push(json!({"type":"text","text":block}));
+            }
         }
         for block in &r.blocks {
             if let InputBlock::Image { blob } = block {

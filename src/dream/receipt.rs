@@ -754,7 +754,7 @@ pub struct Domains {
     pub native_repos: BTreeMap<PathBuf, String>,
 }
 impl Domains {
-    fn sink_allowed(&self, path: &Path) -> bool {
+    pub(crate) fn sink_allowed(&self, path: &Path) -> bool {
         absolute(path)
             && self
                 .sink_roots
@@ -1283,35 +1283,24 @@ pub fn render_index(rows: &[(Candidate, super::entry::Record)], kind: &SinkKind)
     Ok(text.into_bytes())
 }
 
-pub async fn check_publication(
-    publication: &Accepted,
+/// Shared candidate builder: the consumer and producer use the SAME pin/rank math.
+/// This consumes a resolved causal cut, never a deserialized permission flag.
+pub(crate) async fn publication_candidates(
+    body: &Body,
+    facts: &[super::projection::Fact],
+    projection: &super::projection::Projection,
     resolver: &mut super::resolve::Resolver,
-    domains: &Domains,
     accepted_sessions: &BTreeSet<SessionId>,
-) -> Proof<Vec<String>> {
-    let body = &publication.body;
+    at: u64,
+) -> Proof<Vec<(Candidate, super::entry::Record)>> {
     let sink = body.sink.as_ref().ok_or(ProofError::Fail("missing_sink"))?;
     let harness = body
         .harness
         .as_ref()
         .filter(|s| !s.is_empty())
         .ok_or(ProofError::Fail("missing_harness"))?;
-    let selection = body
-        .selection
-        .as_ref()
-        .ok_or(ProofError::Unproven("missing_selection"))?;
-    if !matches!(
-        selection.thresholds.as_str(),
-        "dream-thresholds@1" | "dream-thresholds@2"
-    ) {
-        return Err(ProofError::Unproven("unknown_thresholds"));
-    }
-    let logs = resolver.logs.clone();
-    let b = body.clone();
-    let d = domains.clone();
-    let (facts, projection) = crate::runtime::blocking(move || cut_facts(&b, &logs, &d)).await?;
     let mut pins: BTreeMap<String, Vec<RecordPin>> = BTreeMap::new();
-    for fact in &facts {
+    for fact in facts {
         if let Item::MemoryWrite {
             entry,
             record,
@@ -1322,15 +1311,6 @@ pub async fn check_publication(
             pins.entry(entry.clone()).or_default().push(record.clone());
         }
     }
-    let at = resolver
-        .logs
-        .get(&body.run.session)
-        .and_then(|l| {
-            l.iter()
-                .find(|e| e.seq == Some(Seq(body.seal.as_ref().unwrap().own_prefix.through_seq)))
-        })
-        .map(|e| e.ts_ms)
-        .ok_or(ProofError::Unproven("lost_witness"))?;
     let mut expected = vec![];
     for (entry, pins) in pins {
         if !projection
@@ -1405,21 +1385,11 @@ pub async fn check_publication(
             .total_cmp(&a.0.rank)
             .then(a.0.entry.cmp(&b.0.entry))
     });
-    if selection.candidates.len() != expected.len() {
-        return Err(ProofError::Fail("candidate_subset"));
-    }
-    for (declared, (actual, _)) in selection.candidates.iter().zip(&expected) {
-        if declared.entry != actual.entry
-            || declared.record != actual.record
-            || !declared.rank.is_finite()
-            || declared.rank.to_bits() != actual.rank.to_bits()
-            || declared.lines != actual.lines
-            || declared.bytes != actual.bytes
-        {
-            return Err(ProofError::Fail("candidate_rank_pin"));
-        }
-    }
-    let limits = match sink.kind {
+    Ok(expected)
+}
+
+pub(crate) fn publication_budget(kind: &SinkKind) -> Proof<Budget> {
+    let (lines, bytes) = match kind {
         SinkKind::EngineContext | SinkKind::AcpContext => (u64::MAX, 8192),
         SinkKind::ClaudeMemory => (40, 6000),
         SinkKind::CodexExtension => (50, 64000),
@@ -1427,16 +1397,26 @@ pub async fn check_publication(
         SinkKind::Proposal => (50, 64000),
         _ => return Err(ProofError::Unproven("unknown_sink")),
     };
-    if selection.budget.lines > limits.0 || selection.budget.bytes > limits.1 {
+    Ok(Budget { lines, bytes })
+}
+
+pub(crate) fn publication_selection(
+    body: &Body,
+    expected: Vec<(Candidate, super::entry::Record)>,
+    budget: Budget,
+    at: u64,
+) -> Proof<(Selection, BTreeMap<PathBuf, Vec<u8>>)> {
+    let sink = body.sink.as_ref().ok_or(ProofError::Fail("missing_sink"))?;
+    let candidates = expected.iter().map(|(c, _)| c.clone()).collect();
+    let limits = publication_budget(&sink.kind)?;
+    if budget.lines > limits.lines || budget.bytes > limits.bytes {
         return Err(ProofError::Fail("sink_budget"));
     }
     let mut selected = vec![];
     let mut used = render_resources(&[], sink, body.run.session, at)?.0.len() as u64;
     let mut lines = 0;
     for (candidate, record) in expected {
-        if lines + candidate.lines <= selection.budget.lines
-            && used + candidate.bytes <= selection.budget.bytes
-        {
+        if lines + candidate.lines <= budget.lines && used + candidate.bytes <= budget.bytes {
             used += candidate.bytes;
             lines += candidate.lines;
             selected.push((candidate, record));
@@ -1446,31 +1426,40 @@ pub async fn check_publication(
         .iter()
         .map(|(c, _)| c.entry.clone())
         .collect::<Vec<_>>();
-    if ids != selection.selected {
-        return Err(ProofError::Fail("budget_subset"));
-    }
-    let (block, generated) = render_resources(&selected, sink, body.run.session, at)?;
-    if super::entry::digest(&block) != selection.block_digest {
-        return Err(ProofError::Fail("block_digest"));
-    }
-    let expected_generated = generated
+    let (block, files) = render_resources(&selected, sink, body.run.session, at)?;
+    let generated = files
         .iter()
         .map(|(path, bytes)| Generated {
             path: path.clone(),
             sha256: super::fingerprint::digest(bytes),
             len: bytes.len() as u64,
         })
-        .collect::<Vec<_>>();
-    let mut declared_generated = selection.generated.clone();
-    declared_generated.sort_by(|a, b| a.path.cmp(&b.path));
-    if declared_generated != expected_generated {
-        return Err(ProofError::Fail("generated_binding"));
-    }
+        .collect();
+    Ok((
+        Selection {
+            thresholds: "dream-thresholds@2".into(),
+            budget,
+            candidates,
+            selected: ids,
+            block_digest: super::entry::digest(&block),
+            generated,
+        },
+        files,
+    ))
+}
+
+pub(crate) fn publication_scope(
+    body: &Body,
+    resolver: &super::resolve::Resolver,
+    domains: &Domains,
+    selected: &[(Candidate, super::entry::Record)],
+    session_log: Option<&[Envelope]>,
+) -> Proof<()> {
+    let sink = body.sink.as_ref().ok_or(ProofError::Fail("missing_sink"))?;
     let target_repo = match sink.kind {
         SinkKind::EngineContext | SinkKind::AcpContext => {
-            let scope = resolver
-                .logs
-                .get(&body.run.session)
+            let scope = session_log
+                .or_else(|| resolver.logs.get(&body.run.session).map(Vec::as_slice))
                 .and_then(|log| {
                     log.iter().find_map(|e| {
                         if let Event::SessionStarted { meta } = &e.event {
@@ -1532,7 +1521,7 @@ pub async fn check_publication(
         _ => None,
     };
     if let Some(repo) = target_repo {
-        for (_, record) in &selected {
+        for (_, record) in selected {
             let scope = record.scope().map_err(|e| ProofError::Fail(e.0))?;
             if scope.level == ScopeLevel::Repo && !scope.repos.contains(&repo) {
                 return Err(ProofError::Fail("sink_scope"));
@@ -1547,6 +1536,88 @@ pub async fn check_publication(
             }
         }
     }
+    Ok(())
+}
+
+pub async fn check_publication(
+    publication: &Accepted,
+    resolver: &mut super::resolve::Resolver,
+    domains: &Domains,
+    accepted_sessions: &BTreeSet<SessionId>,
+) -> Proof<Vec<String>> {
+    let body = &publication.body;
+    let _sink = body.sink.as_ref().ok_or(ProofError::Fail("missing_sink"))?;
+    let _harness = body
+        .harness
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .ok_or(ProofError::Fail("missing_harness"))?;
+    let selection = body
+        .selection
+        .as_ref()
+        .ok_or(ProofError::Unproven("missing_selection"))?;
+    if !matches!(
+        selection.thresholds.as_str(),
+        "dream-thresholds@1" | "dream-thresholds@2"
+    ) {
+        return Err(ProofError::Unproven("unknown_thresholds"));
+    }
+    let logs = resolver.logs.clone();
+    let b = body.clone();
+    let d = domains.clone();
+    let (facts, projection) = crate::runtime::blocking(move || cut_facts(&b, &logs, &d)).await?;
+    let at = resolver
+        .logs
+        .get(&body.run.session)
+        .and_then(|l| {
+            l.iter()
+                .find(|e| e.seq == Some(Seq(body.seal.as_ref().unwrap().own_prefix.through_seq)))
+        })
+        .map(|e| e.ts_ms)
+        .ok_or(ProofError::Unproven("lost_witness"))?;
+    let expected =
+        publication_candidates(body, &facts, &projection, resolver, accepted_sessions, at).await?;
+    if selection.candidates.len() != expected.len() {
+        return Err(ProofError::Fail("candidate_subset"));
+    }
+    for (declared, (actual, _)) in selection.candidates.iter().zip(&expected) {
+        if declared.entry != actual.entry
+            || declared.record != actual.record
+            || !declared.rank.is_finite()
+            || declared.rank.to_bits() != actual.rank.to_bits()
+            || declared.lines != actual.lines
+            || declared.bytes != actual.bytes
+        {
+            return Err(ProofError::Fail("candidate_rank_pin"));
+        }
+    }
+    let (planned, generated) =
+        publication_selection(body, expected.clone(), selection.budget.clone(), at)?;
+    let ids = planned.selected.clone();
+    let selected = expected
+        .into_iter()
+        .filter(|(c, _)| ids.contains(&c.entry))
+        .collect::<Vec<_>>();
+    if ids != selection.selected {
+        return Err(ProofError::Fail("budget_subset"));
+    }
+    if planned.block_digest != selection.block_digest {
+        return Err(ProofError::Fail("block_digest"));
+    }
+    let expected_generated = generated
+        .iter()
+        .map(|(path, bytes)| Generated {
+            path: path.clone(),
+            sha256: super::fingerprint::digest(bytes),
+            len: bytes.len() as u64,
+        })
+        .collect::<Vec<_>>();
+    let mut declared_generated = selection.generated.clone();
+    declared_generated.sort_by(|a, b| a.path.cmp(&b.path));
+    if declared_generated != expected_generated {
+        return Err(ProofError::Fail("generated_binding"));
+    }
+    publication_scope(body, resolver, domains, &selected, None)?;
     let log = resolver
         .logs
         .get(&body.run.session)

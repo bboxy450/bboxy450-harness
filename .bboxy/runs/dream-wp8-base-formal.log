@@ -1,0 +1,69 @@
+command: make test-formal-native
+source: 09bf9e9702e24a1572117f6fabddc344abce8514
+FORMAL_OUT='/Users/feral/mydev/bboxy450-harness-dream-wp4/target/formal/models' cargo test --offline --locked --test formal_models --test formal_nonvacuity --test reactor_projection
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized] target(s) in 13.31s
+     Running tests/formal_models.rs (target/debug/deps/formal_models-5696f87142317b97)
+
+running 4 tests
+test models::embed_stop_control_reaches_a_stale_a_to_b_to_a_delivery ... ok
+test models::acp_agent_idle_quiet_and_queue_states_are_reachable_and_the_control_is_rejected ... ok
+test models::launch_controls_reach_named_forwarding_and_generation_failures ... ok
+test native_contracts_and_broken_controls ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.00s
+
+     Running tests/formal_nonvacuity.rs (target/debug/deps/formal_nonvacuity-42a4a46bc232cf65)
+
+running 39 tests
+test acked_steer_reaches_both_exactly_once_routes ... ok
+test cancellation_tag_changes_and_removing_the_fence_exposes_a_stale_apply ... ok
+test admission_result_observations_reach_the_closed_elapsed_not_ready_counterexample ... ok
+test agent_path_controls_witness_duplicate_probe_missing_deadline_and_child_env ... ok
+test acp_engine_emit_stays_enabled_with_a_full_writer ... ok
+test capability_bootstrap_covers_valid_and_degraded_faces_and_legacy_read_leaks ... ok
+test automatic_compaction_controls_violate_the_named_contracts ... ok
+test four_view_budget_defers_a_real_tail_and_the_missing_guard_exceeds_the_share ... ok
+test dream_seal_freeze_and_both_broken_controls_are_nonvacuous ... ok
+test dream_native_custody_never_pins_staging_and_reuses_complete_survivors ... ok
+test idle_status_reaches_durable_only_consumers_without_claiming_progress ... ok
+test leader_exit_is_not_group_exit_and_both_ownership_controls_are_real ... ok
+test models::embed_stop_control_reaches_a_stale_a_to_b_to_a_delivery ... ok
+test mcp_close_joins_members_even_when_term_is_ignored ... ok
+test acp_fifo_and_paused_writer_are_reachable_and_the_controls_are_real ... ok
+test models::acp_agent_idle_quiet_and_queue_states_are_reachable_and_the_control_is_rejected ... ok
+test native_import_controls_expose_duplicate_accounting_and_references_before_blobs ... ok
+test mcp_controls_reach_aba_deadlock_and_silent_inflight ... ok
+test process_spawn_admission_reaches_queue_races_handoff_and_owned_cleanup ... ok
+test shutdown_watch_covers_a_late_fork_and_output_blocked_physical_eof ... ok
+test reap_identity_is_retired_and_both_mcp_notifications_complete ... ok
+test socket_delivery_controls_duplicate_effect_and_retarget_across_session_births ... ok
+test stale_socket_intent_control_keeps_a_real_pending_owner_and_breaks_retirement ... ok
+test socket_lifecycle_controls_reach_restart_aba_cancel_duplicate_and_detach ... ok
+test control_producers_conserve_slots_and_consumers_return_them ... ok
+test store_writer_lease_has_real_error_abandonment_clone_and_replacement_witnesses ... ok
+test models::launch_controls_reach_named_forwarding_and_generation_failures ... ok
+test subscriber_model_can_lose_an_entire_epoch_and_rejects_both_old_rules ... ok
+test synchronous_hangup_kill_precedes_the_supervisors_unjoinable_exit ... ok
+test trial_claims_allow_independent_busy_and_hold_owned_cleanup ... ok
+test trial_queued_frontier_recovers_and_reopens_before_fresh_identity ... ok
+test trial_new_boundaries_have_positive_states_and_decisive_controls ... ok
+test seat_probes_and_stubborn_acp_agents_have_nonvacuous_controls ... ok
+test dream_d0_claim_union_crash_and_detached_caller_are_reachable ... ok
+test provider_controls_reach_retry_after_output_wrong_finish_and_double_ending ... ok
+test trial_outcomes_reach_uncertain_wrong_pair_late_terminal_and_real_completion ... ok
+test dream_sink_preserves_check_publish_races_and_labels_foreign_edits ... ok
+test dream_merge_explores_both_orders_and_independent_harnesses ... ok
+test dream_lifecycle_reaches_independent_harnesses_crash_and_revival ... ok
+
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.54s
+
+     Running tests/reactor_projection.rs (target/debug/deps/reactor_projection-4eebd6f4782001e3)
+
+running 1 test
+test every_readiness_mask_matches_shared_projection ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+python3 -I scripts/formal.py --native --target '/Users/feral/mydev/bboxy450-harness-dream-wp4/target/formal'
+formal: native 175 models; 1 crates inventoried

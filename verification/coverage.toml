@@ -8,6 +8,21 @@
 name = "bboxy450-harness"
 status = "contract-model"
 models = [
+    "HarnessDreamFlush",
+    "BrokenHarnessDreamFlushReplay",
+    "BrokenHarnessDreamFlushUncommitted",
+    "BrokenHarnessDreamFlushRoot",
+    "HarnessDreamPublication",
+    "BrokenHarnessDreamPublicationClobber",
+    "BrokenHarnessDreamPublicationLate",
+    "BrokenHarnessDreamPublicationSync",
+    "BrokenHarnessDreamPublicationAdoption",
+    "BrokenHarnessDreamPublicationAbandon",
+    "HarnessDreamRecall",
+    "BrokenHarnessDreamRecallAppend",
+    "BrokenHarnessDreamRecallPayload",
+    "BrokenHarnessDreamRecallTrial",
+    "BrokenHarnessDreamRecallTerminal",
     "HarnessAttachmentCapability",
     "HarnessAttachmentIntake",
     "HarnessOnboardingInstall",
@@ -149,6 +164,9 @@ sources = [
     "src/ir_scan.rs",
     "src/ir_scan/proposal.rs",
     "src/dream/mod.rs",
+    "src/dream/flush.rs",
+    "src/dream/lower.rs",
+    "src/dream/recall.rs",
     "src/dream/d0.rs",
     "src/dream/fingerprint.rs",
     "src/dream/join.rs",
@@ -165,11 +183,9 @@ sources = [
     "src/dream/synth.rs",
     "src/dream/trial.rs",
 ]
-planned_sources = [
-    "src/dream/lower.rs",
-    "src/dream/recall.rs",
-]
+planned_sources = []
 implementation_only = [
+    "WP8 flush/lower/recall sources are current. Real private Unix MCP write/commit/status, committed Git pins; descriptor no-follow immutable file publication, exact shared rendering/selection/E, caller-drop owner settlement and Store/blob publication/outer-run fixtures; separately compiled macOS libc call/result/byte-digest observer with clobber/ABA, wrong bytes, missing sync and hand race controls; shared Claude index skip, Codex full identity, missing Grok archive loader UNPROVEN; actual Engine Provider and ACP first-prompt/Recall and explicit native cited/inferred exposure witnesses are in tests/dream_sinks.rs and tests/dream_recall.rs. Three narrowly bounded finite families plus15 total good/broken models abstract one flush ticket, target/temp/hand writer/publication owner, and one Recall. They do not prove cryptography, kernel/allocator/Rust safety, hostile same-uid directory or mount relocation, universal scheduling/durability, vendor loading/forgetting or snapshot freshness beyond its observed cut. Live route/ticket restart retention, producer-policy installation, automatic discovery/current snapshot refresh and final run sealing remain caller/WP9; absent proof never yields effective adoption or Recall.",
     "Receipt IR carrier is a passive additive variant and a member of the existing fork referenced-blob collection, with no new lifecycle/arbitration/model semantics. tests/protocol_golden.rs and tests/ir_v1_corpus.rs witness receipt_kind, optional/defaulted fields, recursive Unknown writer rejection, unchanged old Adoption validity, real session receipt blobs, exact envelope bytes over Store/fork/Unix/headless, and missing/corrupt blob refusal. Receipt body interpretation, semantic audit, causal cuts, trust policy and producer approval are not proved by the fork quotient and remain with WP4.",
     "WP2 VCS metadata: src/vcs.rs reuses process::capture_stdout and its existing owned-process reservation, timeout, kill/drain/reap contracts; no new process owner, retry queue or lifecycle is introduced. tests/dream_vcs.rs exercises actual Git repo/no-origin/dirty/credential URL data, engine+ACP headers (including inherited Git Trace2 environment-secret controls), missing/failing Git, and deadline termination/reaping of a stalled Git group. tests/import_native.rs checks Claude branch-only/Codex partial/full native availability, unguessed absent fields, preserved unknown native Git fields and credential-free raw/ext projection; tests/cli_headless.rs checks no-repo metadata and byte-identical closed replay without invoking Git. A three-second shared query budget, 16KiB stdout cap and inherited bounded process cleanup constrain work; canonicalization runs on the existing permit-backed blocking helper. Git parsing, changing-checkout snapshot consistency (observations are not an atomic Git transaction), URL semantics, syscall scheduling, bytes, actual wall-clock bounds and external Git configuration behavior remain implementation-only; the inherited finite process models are not a Rust/Git refinement proof. Live-watch/reproject header promotion remains outside this WP2 scope; unknown native data is retained.",
     "Idle transport Status: HarnessSocketHeartbeat models the existing tick15 timer and unconditional routing across both item-ephemeral preferences, preserving semantic age and durable head through tick21. tests/gateway_unix.rs uses the real actor timer, UnixServer and ephemeral=false subscriber for >20 seconds, unchanged JSONL bytes and session/epoch checks; scripts/test-socket-heartbeat-control.py restores the old fan-out filter and requires the named missing-heartbeat assertion before restored green. A separately built term consumer probe can be supplied to that same witness. Atomic routing abstracts timer/receiver scheduling; no arbitrary OS fairness or real-time guarantee is proved.",

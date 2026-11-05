@@ -1,0 +1,100 @@
+command: cargo check --lib
+source: 0978382e0efd5fe161dd320bc656f78472a9a9c9
+    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+error[E0425]: cannot find function `now_ms` in module `crate::protocol`
+  --> src/dream/lower.rs:84:31
+   |
+84 |     let at = crate::protocol::now_ms();
+   |                               ^^^^^^ not found in `crate::protocol`
+   |
+help: consider importing this function
+   |
+ 9 + use crate::store::now_ms;
+   |
+help: if you import `now_ms`, refer to it directly
+   |
+84 -     let at = crate::protocol::now_ms();
+84 +     let at = now_ms();
+   |
+
+error[E0425]: cannot find function `instruction_path` in module `super::deny`
+   --> src/dream/lower.rs:227:50
+    |
+227 |         !domains.sink_allowed(p) || super::deny::instruction_path(p.to_str().unwrap_or(""))
+    |                                                  ^^^^^^^^^^^^^^^^
+    |
+   ::: src/dream/deny.rs:95:1
+    |
+ 95 | pub fn instruction_sink(path: &str) -> bool {
+    | ------------------------------------------- similarly named function `instruction_sink` defined here
+    |
+help: a function with a similar name exists
+    |
+227 -         !domains.sink_allowed(p) || super::deny::instruction_path(p.to_str().unwrap_or(""))
+227 +         !domains.sink_allowed(p) || super::deny::instruction_sink(p.to_str().unwrap_or(""))
+    |
+
+error[E0599]: no method named `clone` found for mutable reference `&mut resolve::Resolver` in the current scope
+   --> src/dream/lower.rs:119:32
+    |
+119 |     let mut current = resolver.clone();
+    |                                ^^^^^ method not found in `&mut resolve::Resolver`
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the trait `Clone` defines an item `clone`, but is explicitly unimplemented
+
+error[E0063]: missing fields `head` and `parent` in initializer of `protocol::Event`
+   --> src/dream/lower.rs:335:17
+    |
+335 |                 Event::ItemStarted {
+    |                 ^^^^^^^^^^^^^^^^^^ missing `head` and `parent`
+
+error[E0559]: variant `protocol::Event::ItemCompleted` has no field named `turn`
+   --> src/dream/lower.rs:376:21
+    |
+376 |                     turn: None,
+    |                     ^^^^ `protocol::Event::ItemCompleted` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0063]: missing fields `head` and `parent` in initializer of `protocol::Event`
+   --> src/dream/lower.rs:403:25
+    |
+403 |                         Event::ItemStarted {
+    |                         ^^^^^^^^^^^^^^^^^^ missing `head` and `parent`
+
+error[E0559]: variant `protocol::Event::ItemCompleted` has no field named `turn`
+   --> src/dream/lower.rs:415:29
+    |
+415 | ...                   turn: None,
+    |                       ^^^^ `protocol::Event::ItemCompleted` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0599]: no method named `is_err_or` found for enum `Result<T, E>` in the current scope
+   --> src/dream/lower.rs:555:10
+    |
+553 |       if file
+    |  ________-
+554 | |         .metadata()
+555 | |         .is_err_or(|m| !m.is_file() || m.nlink() != 1 || m.len() > limit as u64)
+    | |_________-^^^^^^^^^
+    |
+help: there is a method `is_err` with a similar name, but with different arguments
+   --> /Users/feral/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/result.rs:647:5
+    |
+647 |     pub const fn is_err(&self) -> bool {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `sink`
+    --> src/dream/receipt.rs:1549:9
+     |
+1549 |     let sink = body.sink.as_ref().ok_or(ProofError::Fail("missing_sink"))?;
+     |         ^^^^ help: if this is intentional, prefix it with an underscore: `_sink`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+Some errors have detailed explanations: E0063, E0425, E0559, E0599.
+For more information about an error, try `rustc --explain E0063`.
+warning: `bboxy450-harness` (lib) generated 1 warning
+error: could not compile `bboxy450-harness` (lib) due to 8 previous errors; 1 warning emitted

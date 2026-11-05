@@ -940,3 +940,78 @@ frontend = "project"
 name = "BrokenHarnessDreamTrialFrontierDuplicate"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamFlush"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamFlushReplay"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamFlushUncommitted"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamFlushRoot"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamPublication"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamPublicationClobber"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamPublicationLate"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamPublicationSync"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamPublicationAdoption"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamPublicationAbandon"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamRecall"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamRecallAppend"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamRecallPayload"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamRecallTrial"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamRecallTerminal"
+expected = "safety"
+frontend = "project"

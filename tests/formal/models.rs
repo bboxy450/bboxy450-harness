@@ -6582,12 +6582,323 @@ fn dream_trial_frontier(mode: u8) -> Model {
     m
 }
 
+// WP8 finite interfaces, before stateful implementation. One invocation/route,
+// one target, one external hand writer and zero/one delayed effect; no OS or IO
+// fairness is assumed. Runtime/transport/process witnesses remain separate.
+fn wp8_flush(mode: u8) -> Model {
+    let name = [
+        "DreamFlush",
+        "DreamFlushReplay",
+        "DreamFlushUncommitted",
+        "DreamFlushRoot",
+    ][mode as usize];
+    let mut m = base(
+        name,
+        mode != 0,
+        &[
+            ("phase", 6, 0),
+            ("write_calls", 2, 0),
+            ("committed", 1, 0),
+            ("wrong_root", 1, 0),
+            ("pinned", 1, 0),
+        ],
+    );
+    act(&mut m, "WriteOnce", eq(0, 0), &[(0, Int(1)), (1, Int(1))]);
+    act(&mut m, "QueryOriginalWrite", eq(0, 1), &[(0, Int(2))]);
+    act(&mut m, "CommitOnce", eq(0, 2), &[(0, Int(3))]);
+    act(
+        &mut m,
+        "QueryOriginalCommit",
+        eq(0, 3),
+        &[(0, Int(4)), (2, Int(1))],
+    );
+    act(
+        &mut m,
+        "CommitFailed",
+        eq(0, 3),
+        &[(0, Int(if mode == 2 { 4 } else { 6 }))],
+    );
+    act(&mut m, "UnavailableNoOp", eq(0, 0), &[(0, Int(6))]);
+    if mode == 1 {
+        act(
+            &mut m,
+            "ReplayUnknownWrite",
+            all([eq(0, 1), Var(1).lt(Int(2))]),
+            &[(1, Var(1).plus(Int(1)))],
+        );
+    }
+    if mode == 3 {
+        act(&mut m, "WrongRootReply", eq(0, 4), &[(3, Int(1))]);
+    }
+    let mut pin = eq(0, 4);
+    if mode != 2 {
+        pin = pin.and(eq(2, 1));
+    }
+    if mode != 3 {
+        pin = pin.and(eq(3, 0));
+    }
+    act(&mut m, "EmitCommittedPin", pin, &[(0, Int(5)), (4, Int(1))]);
+    safe(&mut m, "UnknownEffectsNeverRedispatched", Var(1).le(Int(1)));
+    safe(
+        &mut m,
+        "PinRequiresExactConfirmedCommit",
+        eq(4, 0).or(all([eq(2, 1), eq(3, 0), eq(0, 5)])),
+    );
+    m
+}
+fn wp8_publication(mode: u8) -> Model {
+    let name = [
+        "DreamPublication",
+        "DreamPublicationClobber",
+        "DreamPublicationLate",
+        "DreamPublicationSync",
+        "DreamPublicationAdoption",
+        "DreamPublicationAbandon",
+    ][mode as usize];
+    let mut m = base(
+        name,
+        mode != 0,
+        &[
+            ("phase", 8, 0),
+            ("target", 2, 0),
+            ("hand_written", 1, 0),
+            ("hand_preserved", 1, 1),
+            ("published", 1, 0),
+            ("dir_synced", 1, 0),
+            ("frozen", 1, 0),
+            ("source_mutated", 1, 0),
+            ("effective", 1, 0),
+            ("current", 1, 1),
+            ("approved", 1, 1),
+            ("inflight", 1, 0),
+            ("caller", 1, 1),
+            ("cancelled", 1, 0),
+            ("owner_retained", 1, 1),
+        ],
+    );
+    for (from, label) in [
+        (0, "Read"),
+        (1, "CreateOwnTemp"),
+        (2, "WriteOnce"),
+        (3, "FsyncTemp"),
+    ] {
+        act(&mut m, label, eq(0, from), &[(0, Int(from + 1))]);
+    }
+    act(
+        &mut m,
+        "HandWriteBetweenReadAndLink",
+        all([Int(0).lt(Var(0)), Var(0).le(Int(4)), eq(2, 0)]),
+        &[(1, Int(2)), (2, Int(1))],
+    );
+    act(
+        &mut m,
+        "LinkToAbsent",
+        all([eq(0, 4), eq(1, 0)]),
+        &[(0, Int(5)), (1, Int(1)), (4, Int(1))],
+    );
+    act(
+        &mut m,
+        "ConflictSkip",
+        all([eq(0, 4), eq(1, 2)]),
+        &[(0, Int(6))],
+    );
+    if mode == 1 {
+        act(
+            &mut m,
+            "BrokenOverwriteRename",
+            all([eq(0, 4), eq(1, 2)]),
+            &[(0, Int(5)), (1, Int(1)), (3, Int(0)), (4, Int(1))],
+        );
+    }
+    act(
+        &mut m,
+        "DirectorySync",
+        eq(0, 5),
+        &[(0, Int(6)), (5, Int(1))],
+    );
+    if mode == 3 {
+        act(&mut m, "OmitDirectorySync", eq(0, 5), &[(0, Int(6))]);
+    }
+    act(
+        &mut m,
+        "StartObservedWork",
+        all([Var(0).lt(Int(6)), eq(11, 0)]),
+        &[(11, Int(1))],
+    );
+    act(&mut m, "JoinObservedWork", eq(11, 1), &[(11, Int(0))]);
+    let mut freeze = all([eq(0, 6), eq(11, 0)]);
+    if mode != 3 {
+        freeze = freeze.and(eq(4, 0).or(eq(5, 1)));
+    }
+    act(&mut m, "FreezeReceipt", freeze, &[(0, Int(7)), (6, Int(1))]);
+    act(
+        &mut m,
+        "TerminalFence",
+        eq(9, 1),
+        &[(9, Int(0)), (8, Int(0))],
+    );
+    act(
+        &mut m,
+        "ApprovalUnavailable",
+        eq(10, 1),
+        &[(10, Int(0)), (8, Int(0))],
+    );
+    act(
+        &mut m,
+        "AdoptAfterDurableReceipt",
+        all([eq(0, 7), eq(4, 1), eq(5, 1), eq(9, 1), eq(10, 1)]),
+        &[(0, Int(8)), (8, Int(1))],
+    );
+    act(&mut m, "LabelSkipOrUnproven", eq(0, 7), &[(0, Int(8))]);
+    if mode == 4 {
+        act(
+            &mut m,
+            "BrokenFalseAdoption",
+            eq(0, 7),
+            &[(0, Int(8)), (8, Int(1))],
+        );
+    }
+    if mode == 2 {
+        act(&mut m, "BrokenLateSourceWrite", eq(6, 1), &[(7, Int(1))]);
+    }
+    act(
+        &mut m,
+        "CallerDropRequestsCancellation",
+        eq(12, 1),
+        &[(12, Int(0)), (13, Int(1))],
+    );
+    act(
+        &mut m,
+        "ReleaseOnlySettledOwner",
+        all([eq(0, 8), eq(11, 0)]),
+        &[(14, Int(0))],
+    );
+    if mode == 5 {
+        act(
+            &mut m,
+            "BrokenDropDestroysInflightOwner",
+            all([eq(12, 0), eq(11, 1)]),
+            &[(14, Int(0))],
+        );
+    }
+    safe(
+        &mut m,
+        "RetainOwnerUntilSettlement",
+        eq(11, 0).or(eq(14, 1)),
+    );
+    safe(&mut m, "NoHandClobber", eq(3, 1));
+    safe(&mut m, "FrozenHasNoLateSourceMutation", eq(7, 0));
+    safe(
+        &mut m,
+        "SuccessRequiresDirectorySync",
+        eq(6, 0).or(eq(4, 0)).or(eq(5, 1)),
+    );
+    safe(
+        &mut m,
+        "EffectiveAdoptionRequiresReceiptAndCurrency",
+        eq(8, 0).or(all([
+            eq(0, 8),
+            eq(4, 1),
+            eq(5, 1),
+            eq(6, 1),
+            eq(9, 1),
+            eq(10, 1),
+        ])),
+    );
+    m
+}
+fn wp8_recall(mode: u8) -> Model {
+    let name = [
+        "DreamRecall",
+        "DreamRecallAppend",
+        "DreamRecallPayload",
+        "DreamRecallTrial",
+        "DreamRecallTerminal",
+    ][mode as usize];
+    let mut m = base(
+        name,
+        mode != 0,
+        &[
+            ("phase", 4, 0),
+            ("pin_ok", 1, 1),
+            ("quoted_exact", 1, 1),
+            ("trial", 1, 0),
+            ("current", 1, 1),
+            ("logged", 1, 0),
+            ("injected", 1, 0),
+        ],
+    );
+    act(&mut m, "TrialLaunch", eq(0, 0), &[(3, Int(1))]);
+    act(&mut m, "InvalidatePin", eq(0, 0), &[(1, Int(0))]);
+    act(
+        &mut m,
+        "TerminalBeforeInsertion",
+        Var(0).lt(Int(2)),
+        &[(4, Int(0))],
+    );
+    act(
+        &mut m,
+        "AppendRecall",
+        eq(0, 0),
+        &[(0, Int(1)), (5, Int(1))],
+    );
+    act(&mut m, "AppendFailureOmits", eq(0, 0), &[(0, Int(4))]);
+    if mode == 1 {
+        act(&mut m, "BrokenAssumeAppend", eq(0, 0), &[(0, Int(1))]);
+    }
+    if mode == 2 {
+        act(&mut m, "ForgedPayload", eq(0, 0), &[(2, Int(0))]);
+    }
+    let mut guard = all([eq(0, 1), eq(1, 1)]);
+    if mode != 1 {
+        guard = guard.and(eq(5, 1));
+    }
+    if mode != 2 {
+        guard = guard.and(eq(2, 1));
+    }
+    if mode != 3 {
+        guard = guard.and(eq(3, 0));
+    }
+    if mode != 4 {
+        guard = guard.and(eq(4, 1));
+    }
+    act(
+        &mut m,
+        "InsertQuotedUserData",
+        guard,
+        &[(0, Int(2)), (6, Int(1))],
+    );
+    act(&mut m, "DispatchActualRequest", eq(0, 2), &[(0, Int(3))]);
+    act(&mut m, "OmitUnavailable", eq(0, 1), &[(0, Int(4))]);
+    safe(
+        &mut m,
+        "InsertionRequiresDurableExactCurrentNonTrialPin",
+        eq(6, 0).or(all([eq(1, 1), eq(2, 1), eq(3, 0), eq(4, 1), eq(5, 1)])),
+    );
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
         (unrestricted_startup(false), "pass"),
         (unrestricted_startup(true), "safety"),
         (draft_handoff(false), "pass"),
         (draft_handoff(true), "safety"),
+        (wp8_flush(0), "pass"),
+        (wp8_flush(1), "safety"),
+        (wp8_flush(2), "safety"),
+        (wp8_flush(3), "safety"),
+        (wp8_publication(0), "pass"),
+        (wp8_publication(1), "safety"),
+        (wp8_publication(2), "safety"),
+        (wp8_publication(3), "safety"),
+        (wp8_publication(4), "safety"),
+        (wp8_publication(5), "safety"),
+        (wp8_recall(0), "pass"),
+        (wp8_recall(1), "safety"),
+        (wp8_recall(2), "safety"),
+        (wp8_recall(3), "safety"),
+        (wp8_recall(4), "safety"),
         (dream_trial_frontier(0), "pass"),
         (dream_trial_frontier(1), "safety"),
         (dream_trial_frontier(2), "safety"),

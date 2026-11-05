@@ -1,0 +1,27 @@
+command: cargo check --lib --features acp-agent
+source: 0978382e0efd5fe161dd320bc656f78472a9a9c9
+    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+error[E0599]: no associated function or constant named `Codex` found for struct `protocol::Native` in the current scope
+    --> src/import/edge.rs:242:17
+     |
+ 242 |         Native::Codex
+     |                 ^^^^^ associated function or constant not found in `protocol::Native`
+     |
+    ::: src/protocol/mod.rs:1553:1
+     |
+1553 | pub struct Native {
+     | ----------------- associated function or constant `Codex` not found for this struct
+
+error[E0599]: no associated function or constant named `ClaudeCode` found for struct `protocol::Native` in the current scope
+    --> src/import/edge.rs:258:17
+     |
+ 258 |         Native::ClaudeCode
+     |                 ^^^^^^^^^^ associated function or constant not found in `protocol::Native`
+     |
+    ::: src/protocol/mod.rs:1553:1
+     |
+1553 | pub struct Native {
+     | ----------------- associated function or constant `ClaudeCode` not found for this struct
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `bboxy450-harness` (lib) due to 2 previous errors

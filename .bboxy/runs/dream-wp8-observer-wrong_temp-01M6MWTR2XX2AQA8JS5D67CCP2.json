@@ -1,0 +1,8 @@
+{
+  "fault": "wrong_temp",
+  "accepted_by_independent_observer": false,
+  "producer_declared_outcome": "published",
+  "raw_call_count": 30,
+  "raw_trace_sha256": "47b59c1238cb27fbb0e55d7856dbd4f00359aefda06871798eb88fed4b2c5ba2",
+  "raw_trace_retention": "private temporary directory; bytes and secret/transcript content never recorded"
+}

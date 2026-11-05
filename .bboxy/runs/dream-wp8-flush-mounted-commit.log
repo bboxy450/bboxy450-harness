@@ -1,0 +1,12 @@
+command: cargo test --test dream_sinks flush_real -- --nocapture
+source: 0978382e0efd5fe161dd320bc656f78472a9a9c9
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized] target(s) in 12.60s
+     Running tests/dream_sinks.rs (target/debug/deps/dream_sinks-98b09ad2f70a2b9a)
+
+running 2 tests
+test flush_real_mcp_lost_write_and_commit_query_original_before_created ... ok
+test flush_real_commit_failure_wrong_root_and_no_route_stay_ineligible ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.14s
+

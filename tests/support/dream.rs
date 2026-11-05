@@ -7,7 +7,7 @@
 //! Private D1 fixtures; real signature and process boundaries, no operator state.
 #![allow(dead_code)]
 #[path = "../fixtures/dream/good/support.rs"]
-mod good;
+pub(crate) mod good;
 use bboxy450_harness::{
     dream::{
         d0,

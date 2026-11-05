@@ -1,0 +1,50 @@
+command: cargo clippy --all-targets --all-features -- -D warnings
+source: 0978382e0efd5fe161dd320bc656f78472a9a9c9
+    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+error: file is loaded as a module multiple times: `tests/fixtures/dream/good/support.rs`
+  --> tests/dream_sinks.rs:9:1
+   |
+ 9 | / #[path = "fixtures/dream/good/support.rs"]
+10 | | mod good;
+   | |_________^ first loaded here
+   |
+  ::: tests/support/dream.rs:9:1
+   |
+ 9 | / #[path = "../fixtures/dream/good/support.rs"]
+10 | | mod good;
+   | |_________^ loaded again here
+   |
+   = help: replace all but one `mod` item with `use` items
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#duplicate_mod
+   = note: `-D clippy::duplicate-mod` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::duplicate_mod)]`
+
+error: this `if` can be collapsed into the outer `match`
+   --> tests/dream_sinks.rs:576:17
+    |
+576 | /                 if !rows.iter().any(|r| {
+577 | |                     r[0] == "link"
+578 | |                         && r[1] == "0"
+579 | |                         && Some(r[2]) == op["from"].as_str()
+...   |
+582 | |                     return false;
+583 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#collapsible_match
+    = note: `-D clippy::collapsible-match` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_match)]`
+help: collapse nested if block
+    |
+575 ~             "link_noreplace" if op["result"] == "ok"
+576 ~                 && !rows.iter().any(|r| {
+577 |                     r[0] == "link"
+...
+580 |                         && Some(r[3]) == op["to"].as_str()
+581 ~                 }) => {
+582 |                     return false;
+583 ~                 }
+    |
+
+error: could not compile `bboxy450-harness` (test "dream_sinks") due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
