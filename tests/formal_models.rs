@@ -402,14 +402,15 @@ fn pane_recovery_native_models_and_controls() {
         .unwrap_or_else(|_| "target/pane/formal".into()));
     std::fs::create_dir_all(&root).unwrap();
     let mut manifest = String::new();
-    for (model, expected) in [
-        (models::unrestricted_startup(false), "pass"),
-        (models::unrestricted_startup(true), "safety"),
-        (models::draft_handoff(false), "pass"),
-        (models::draft_handoff(true), "safety"),
-        (models::native_spill(false), "pass"),
-        (models::native_spill(true), "safety"),
-    ] {
+    let cases = models::corpus()
+        .into_iter()
+        .filter(|(model, _)| matches!(model.name.as_str(),
+            "HarnessUnrestrictedStartup" | "BrokenHarnessUnrestrictedStartup"
+            | "HarnessDraftHandoff" | "BrokenHarnessDraftHandoff"
+            | "HarnessNativeSpill" | "BrokenHarnessNativeSpill"))
+        .collect::<Vec<_>>();
+    assert_eq!(cases.len(), 6);
+    for (model, expected) in cases {
         export::export(model, expected, &root, &mut manifest).unwrap();
     }
     std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
