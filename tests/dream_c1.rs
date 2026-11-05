@@ -104,7 +104,7 @@ print('independent canonical vectors:',len(vectors))
 use bboxy450_harness::protocol::*;
 use std::{
     io::{BufRead, BufReader, Write},
-    os::unix::fs::PermissionsExt,
+    os::{fd::AsRawFd, unix::fs::PermissionsExt},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     time::{Duration, Instant},
 };
@@ -393,6 +393,46 @@ impl Worker {
             revision: w::Number(revision),
             foreground,
         }));
+    }
+    fn timed_paused_activity(&mut self, revision: u64, timeout: Duration) -> Option<Duration> {
+        // Call only after initial compute Paused is consumed, with exactly one
+        // request outstanding. An ignored stale revision must time out, proving
+        // the next old queued frame cannot stand in for this request.
+        assert!(self.output.buffer().is_empty());
+        let at = Instant::now();
+        self.activity(revision, true);
+        loop {
+            let left = timeout.checked_sub(at.elapsed())?;
+            let mut fd = libc::pollfd {
+                fd: self.output.get_ref().as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            let ready = unsafe {
+                libc::poll(
+                    &mut fd,
+                    1,
+                    left.as_millis().clamp(1, i32::MAX as u128) as i32,
+                )
+            };
+            if ready < 0 {
+                assert_eq!(
+                    std::io::Error::last_os_error().raw_os_error(),
+                    Some(libc::EINTR)
+                );
+                continue;
+            }
+            if ready == 0 {
+                return None;
+            }
+            match self.read() {
+                w::WorkerOut::Progress(p) if p.phase == w::Phase::Paused => {
+                    assert_eq!(p.bytes.0, 0);
+                    return Some(at.elapsed());
+                }
+                other => panic!("unexpected paused Activity response: {other:?}"),
+            }
+        }
     }
     fn reap_usage(&mut self) -> (std::process::ExitStatus, libc::rusage) {
         use std::os::unix::process::ExitStatusExt;
@@ -1304,6 +1344,25 @@ fn metric(metrics: &str, key: &str) -> u64 {
         .parse()
         .unwrap()
 }
+fn assert_finite_usage(metrics: &str, key: &str) {
+    assert_ne!(
+        metric(metrics, key),
+        u64::MAX,
+        "unavailable {key} accepted as finite"
+    );
+}
+#[test]
+fn unavailable_tail_usage_is_rejected_by_the_actual_metrics_gate() {
+    for key in [
+        "process_user_cpu_ns",
+        "process_system_cpu_ns",
+        "owner_thread_cpu_ns",
+    ] {
+        let invalid = format!("{key}={}", u64::MAX);
+        assert!(std::panic::catch_unwind(|| assert_finite_usage(&invalid, key)).is_err());
+        assert_finite_usage(&format!("{key}=1"), key);
+    }
+}
 fn assert_native_gate(metrics: &str) {
     let terminal = metrics
         .lines()
@@ -1322,6 +1381,13 @@ fn assert_native_gate(metrics: &str) {
     );
     assert!(metric(terminal, "captured_max_cpu_ns") <= metric(terminal, "inclusive_max_cpu_ns"));
     assert_eq!(metric(terminal, "remaining_debt_ns"), 0);
+    for key in [
+        "process_user_cpu_ns",
+        "process_system_cpu_ns",
+        "owner_thread_cpu_ns",
+    ] {
+        assert_finite_usage(terminal, key);
+    }
     assert!(metric(terminal, "process_user_cpu_ns") > 0);
     assert!(metric(terminal, "owner_thread_cpu_ns") > 0);
     for tag in ["compute_owner_create", "publish_noreplace"] {
@@ -1756,20 +1822,28 @@ fn four_ordinary_release_workers_complete_multi_mib_with_independent_control_and
         start.foreground = true;
         worker.start(&start);
     }
+    for worker in &mut workers {
+        match worker.read() {
+            w::WorkerOut::Progress(p) if p.phase == w::Phase::Paused => assert_eq!(p.bytes.0, 0),
+            other => panic!("missing initial compute Paused: {other:?}"),
+        }
+    }
+    // Causal negative: initial revision0 is ignored. The actual response timer
+    // must fail on silence, rather than consume a queued initial Paused frame.
+    assert!(
+        workers[0]
+            .timed_paused_activity(0, Duration::from_millis(25))
+            .is_none()
+    );
+    assert!(workers[0].child.try_wait().unwrap().is_none());
     let mut control_times = Vec::new();
     for revision in 1..=50 {
         for worker in &mut workers {
-            let at = Instant::now();
-            worker.activity(revision, true);
-            loop {
-                if let w::WorkerOut::Progress(p) = worker.read() {
-                    if p.phase == w::Phase::Paused {
-                        assert_eq!(p.bytes.0, 0);
-                        control_times.push(at.elapsed());
-                        break;
-                    }
-                }
-            }
+            control_times.push(
+                worker
+                    .timed_paused_activity(revision, Duration::from_millis(250))
+                    .expect("new Activity had no causally subsequent response"),
+            );
         }
     }
     control_times.sort();
@@ -1780,7 +1854,7 @@ fn four_ordinary_release_workers_complete_multi_mib_with_independent_control_and
         worker.activity(51, false);
     }
     eprintln!(
-        "four-ordinary-release actual_control_roundtrips=200 p99_us={} max_us={}",
+        "four-ordinary-release actual_control_roundtrips=200 initial_paused_drained=true ignored_revision_control=timeout p99_us={} max_us={}",
         control_times[198].as_micros(),
         control_times[199].as_micros()
     );

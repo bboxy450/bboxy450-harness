@@ -289,6 +289,31 @@ impl Drop for ControlTick<'_> {
         }
     }
 }
+fn owner_result<T>(a: &Accounting, at: u64, value: T, clock: impl FnOnce() -> u64) -> T {
+    let elapsed = interval(at, clock());
+    a.owner_cpu.store(elapsed, Ordering::Release);
+    if elapsed == u64::MAX {
+        a.clock_failed.store(true, Ordering::Release);
+    }
+    value
+}
+fn process_usage(
+    a: &Accounting,
+    control: &AtomicU64,
+    probe: impl FnOnce() -> Option<(u64, u64)>,
+) -> (u64, u64) {
+    match probe() {
+        Some((user, system)) if user != u64::MAX && system != u64::MAX => (user, system),
+        _ => {
+            a.clock_failed.store(true, Ordering::Release);
+            // The final telemetry sample follows Done; the outer early entry
+            // checks this sticky verdict and exits nonzero, so it cannot certify
+            // Completed even if the earlier frame was already delivered.
+            control.fetch_max(u64::MAX, Ordering::AcqRel);
+            (u64::MAX, u64::MAX)
+        }
+    }
+}
 struct TerminalMetrics {
     accounting: Arc<Accounting>,
     control: Arc<AtomicU64>,
@@ -316,14 +341,19 @@ impl Drop for TerminalMetrics {
                 load(&s.failures_with_effect)
             );
         }
-        let mut r = std::mem::MaybeUninit::<libc::rusage>::uninit();
-        let (user, system) = if unsafe { libc::getrusage(libc::RUSAGE_SELF, r.as_mut_ptr()) } == 0 {
+        let (user, system) = process_usage(a, &self.control, || {
+            let mut r = std::mem::MaybeUninit::<libc::rusage>::uninit();
+            if unsafe { libc::getrusage(libc::RUSAGE_SELF, r.as_mut_ptr()) } != 0 {
+                return None;
+            }
             let r = unsafe { r.assume_init() };
-            let ns = |t: libc::timeval| t.tv_sec as u64 * 1_000_000_000 + t.tv_usec as u64 * 1000;
-            (ns(r.ru_utime), ns(r.ru_stime))
-        } else {
-            (u64::MAX, u64::MAX)
-        };
+            let ns = |t: libc::timeval| {
+                let sec = u64::try_from(t.tv_sec).ok()?;
+                let usec = u64::try_from(t.tv_usec).ok().filter(|v| *v < 1_000_000)?;
+                sec.checked_mul(1_000_000_000)?.checked_add(usec * 1000)
+            };
+            Some((ns(r.ru_utime)?, ns(r.ru_stime)?))
+        });
         eprintln!(
             "dream-c1 cost_known={}",
             !a.clock_failed.load(Ordering::Acquire)
@@ -753,17 +783,17 @@ impl Budget {
 /// Settlement is mandatory after cancellation. These small cleanup units retain
 /// the same CPU/duty rule, independently of foreground/expensive admission flags.
 fn cleanup_unit(control: &Control, f: impl FnOnce()) {
+    cleanup_unit_clock(control, f, cpu_ns);
+}
+fn cleanup_unit_clock(control: &Control, f: impl FnOnce(), mut clock: impl FnMut() -> u64) {
     control.accounting.pay();
     let wall_at = Instant::now();
-    let at = cpu_ns();
+    let at = clock();
     f();
-    let end = cpu_ns();
-    // Missing cleanup clocks fail settlement rather than reporting zero work.
-    let elapsed = if at == u64::MAX || end == u64::MAX {
-        u64::MAX
-    } else {
-        end.saturating_sub(at)
-    };
+    let end = clock();
+    // Missing/reversed cleanup clocks retain unknown cost and fail settlement;
+    // mandatory bounded disposal still finishes before credit release.
+    let elapsed = interval(at, end);
     control.accounting.inclusive_wall_max.fetch_max(
         wall_at.elapsed().as_nanos().min(u64::MAX as u128) as u64,
         Ordering::AcqRel,
@@ -2279,6 +2309,16 @@ fn flat_control(bytes: &[u8]) -> Result<(), w::Code> {
     }
     Ok(())
 }
+fn settled_result(
+    control: &Control,
+    result: Result<Completed, w::Error>,
+) -> Result<Completed, w::Error> {
+    if let Some(code) = control.error() {
+        Err(w::Error { code, source: None })
+    } else {
+        result
+    }
+}
 type Active = (
     w::Start,
     Arc<Control>,
@@ -2329,10 +2369,7 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
                 source: None,
             }),
         };
-        owner_accounting
-            .owner_cpu
-            .store(interval(at, cpu_ns()), Ordering::Release);
-        result
+        owner_result(&owner_accounting, at, result, cpu_ns)
     };
     let setup_cpu = interval(bootstrap_at, cpu_ns());
     accounting.charge(setup_cpu, setup_cpu);
@@ -2566,11 +2603,7 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
                     code: w::Code::WorkerLost,
                     source: None,
                 }));
-                let result = if let Some(code) = c.error() {
-                    Err(w::Error { code, source: None })
-                } else {
-                    result
-                };
+                let result = settled_result(&c, result);
                 let (outcome, hash, pages, error, code) = match result {
                     Ok(r) => (w::Outcome::Completed, Some(r.hash), r.pages, None, 0),
                     Err(e) if e.code == w::Code::Cancelled => {
@@ -2885,6 +2918,111 @@ mod tests {
             stage.exists() && dest.exists(),
             "unknown effect evidence was removed"
         );
+    }
+    #[test]
+    fn reversed_cleanup_clock_retains_disposal_effect_and_sticky_unknown_cost() {
+        let control = budget(false).control;
+        let credit = control.memory.reserve(1024).unwrap();
+        let dropped = Arc::new(AtomicBool::new(false));
+        let mut value = Paced::new(
+            DropProbe {
+                remaining: 8,
+                control: control.clone(),
+                dropped: dropped.clone(),
+            },
+            &control,
+            disposal::Drain::drain_step,
+        );
+        let home = tempfile::tempdir().unwrap();
+        let stage = home.path().join("stage");
+        let output = home.path().join("page-000000.json");
+        std::fs::write(&stage, b"original-publication-effect").unwrap();
+        std::fs::hard_link(&stage, &output).unwrap();
+        let inode = std::fs::metadata(&output).unwrap().ino();
+        let mut clocks = [100, 99].into_iter();
+        cleanup_unit_clock(
+            &control,
+            || {
+                assert!(disposal::Drain::drain_step(&mut *value));
+            },
+            || clocks.next().unwrap(),
+        );
+        assert_eq!(control.error(), Some(w::Code::ResourceLimit));
+        assert!(control.accounting.clock_failed.load(Ordering::Acquire));
+        assert_eq!(
+            control.cleanup_max.load(Ordering::Acquire),
+            u64::MAX,
+            "reversed cost was certified as zero"
+        );
+        assert_eq!(control.cleanup_overruns.load(Ordering::Acquire), 1);
+        assert!(!dropped.load(Ordering::Acquire));
+        assert_eq!(control.memory.snapshot().0, 1024);
+        let mut b = budget(false);
+        b.control = control.clone();
+        assert_eq!(
+            b.unit(|| panic!("unknown cleanup cost admitted work")),
+            Err::<(), _>(w::Code::ResourceLimit)
+        );
+        drop(value);
+        assert!(dropped.load(Ordering::Acquire));
+        assert_eq!(control.memory.snapshot().0, 1024);
+        drop(credit);
+        assert_eq!(control.memory.snapshot().0, 0);
+        assert_eq!(std::fs::metadata(&output).unwrap().ino(), inode);
+        assert!(stage.exists());
+        assert!(
+            control.accounting.clock_failed.load(Ordering::Acquire),
+            "later real cleanup reset unknown cost"
+        );
+    }
+    #[test]
+    fn final_owner_clock_and_process_usage_fail_closed_after_actual_join() {
+        for end in [u64::MAX, 99] {
+            let control = budget(false).control;
+            let child_control = control.clone();
+            let handle = thread::Builder::new()
+                .stack_size(2 * 1024 * 1024)
+                .spawn(move || {
+                    // Only the final owner sample is injected; preceding accounting
+                    // and the actual returned owner/Completed value remain valid.
+                    owner_result(
+                        &child_control.accounting,
+                        100,
+                        Ok(Completed {
+                            hash: w::hash(b"owned result"),
+                            pages: 1,
+                        }),
+                        || end,
+                    )
+                })
+                .unwrap();
+            let result = handle.join().unwrap();
+            assert!(result.is_ok(), "tail probe lost the real returned result");
+            assert!(control.accounting.clock_failed.load(Ordering::Acquire));
+            assert_eq!(
+                control.accounting.owner_cpu.load(Ordering::Acquire),
+                u64::MAX
+            );
+            assert!(matches!(
+                settled_result(&control, result),
+                Err(w::Error {
+                    code: w::Code::ResourceLimit,
+                    ..
+                })
+            ));
+        }
+        let control = budget(false).control;
+        assert_eq!(
+            process_usage(&control.accounting, &control.reactor, || None),
+            (u64::MAX, u64::MAX)
+        );
+        assert!(control.accounting.clock_failed.load(Ordering::Acquire));
+        assert_eq!(
+            control.reactor.load(Ordering::Acquire),
+            u64::MAX,
+            "final usage failure could still exit zero"
+        );
+        assert_eq!(control.error(), Some(w::Code::ResourceLimit));
     }
     #[test]
     fn rest_is_after_span_and_strict_parser_control_cleanup_have_no_native_exemption() {
