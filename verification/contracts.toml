@@ -687,7 +687,7 @@ title = "Accepted edits survive disposal and replacement of an embedded face."
 models = ["HarnessDraftHandoff", "BrokenHarnessDraftHandoff"]
 controls = [{name="BrokenHarnessDraftHandoff", expected="safety"}]
 sources = ["src/frontends/gui/view.rs", "src/frontends/gui/input.rs", "tests/formal/models.rs"]
-implementation_tests = ["../bboxy450-term/src/rich_pane.rs"]
+implementation_tests = ["../bboxy450-term/crates/bboxy450-term/src/rich_pane.rs"]
 assumptions = "One accepted edit, old face visible/retired/released, one replacement and binary text identity. The worker drains the closed queue before resolving its per-seat ordered handoff. Fair queue scheduling is assumed; OS process crashes, persistence across UI restart, IME and attachment filesystem custody remain implementation-only. No Rust refinement proof."
 property = "A replacement that has acquired draft custody includes every accepted local edit."
 checks = ["make test-formal", "make test"]
