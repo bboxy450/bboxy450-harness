@@ -4037,8 +4037,80 @@ pub fn acp_controls(control: u8) -> Model {
     m
 }
 
+/// One input racing an active ACP prompt. Unknown transport outcomes may already
+/// have reached the agent, so only an explicit unconsumed result permits replay.
+pub fn acp_steering(control: u8) -> Model {
+    let mut m = base::<8>(
+        "AcpSteering",
+        control != 0,
+        &[
+            ("stage", 6, 0),
+            ("supported", 1, 0),
+            ("busy", 1, 1),
+            ("deliveries", 2, 0),
+            ("unknown", 1, 0),
+            ("cancelled", 1, 0),
+            ("steer_calls", 1, 0),
+            ("prompt_calls", 1, 0),
+        ],
+    );
+    if control != 0 {
+        m.name.push_str(if control == 1 { "Replay" } else { "Cancel" });
+    }
+    act(&mut m, "NegotiateSupported", eq(0, 0), &[(0, Int(1)), (1, Int(1))]);
+    act(&mut m, "NegotiateUnsupported", eq(0, 0), &[(0, Int(1))]);
+    act(&mut m, "ActivePromptEnds", eq(2, 1), &[(2, Int(0))]);
+    let route = m.actions.len();
+    act(
+        &mut m,
+        "SendSteering",
+        all([eq(0, 1), eq(1, 1), eq(2, 1)]),
+        &[(0, Int(2)), (6, Int(1)), (5, Int(i64::from(control == 2)))],
+    );
+    act(
+        &mut m,
+        "QueueUnsupportedOrIdle",
+        all([eq(0, 1), eq(1, 0).or(eq(2, 0))]),
+        &[(0, Int(4))],
+    );
+    let replies = m.actions.len();
+    act(&mut m, "Injected", eq(0, 2), &[(0, Int(3)), (3, Int(1))]);
+    act(&mut m, "ExplicitlyUnconsumed", eq(0, 2), &[(0, Int(4))]);
+    for consumed in 0..=1 {
+        act(
+            &mut m,
+            if consumed == 0 { "UnknownUnconsumed" } else { "UnknownAlreadyConsumed" },
+            eq(0, 2),
+            &[(0, Int(if control == 1 { 4 } else { 5 })), (3, Int(consumed)), (4, Int(1))],
+        );
+    }
+    let dispatch = m.actions.len();
+    act(
+        &mut m,
+        "NormalPrompt",
+        all([eq(0, 4), eq(2, 0)]),
+        &[(0, Int(6)), (3, Var(3).plus(Int(1))), (7, Int(1))],
+    );
+    safe(&mut m, "AtMostOneDelivery", Var(3).lt(Int(2)));
+    safe(&mut m, "NoCancelForSteering", eq(5, 0));
+    safe(&mut m, "NoReplayOfUnknown", eq(4, 0).or(eq(7, 0)));
+    progress(&mut m, "InputRouted", eq(0, 1), Int(1).lt(Var(0)), vec![route, route + 1]);
+    progress(
+        &mut m,
+        "SteeringSettles",
+        eq(0, 2),
+        Int(2).lt(Var(0)),
+        (replies..dispatch).collect(),
+    );
+    progress(&mut m, "IdleQueueDispatched", all([eq(0, 4), eq(2, 0)]), eq(0, 6), vec![dispatch]);
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (acp_steering(0), "pass"),
+        (acp_steering(1), "safety"),
+        (acp_steering(2), "safety"),
         (acp_controls(0), "pass"),
         (acp_controls(1), "safety"),
         (acp_controls(2), "safety"),

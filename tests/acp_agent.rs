@@ -166,6 +166,84 @@ fn ended(log: &[Envelope]) -> Vec<StopReason> {
         .collect()
 }
 
+async fn steering_setup(scenario: &str) -> (Fake, Subscription) {
+    let f = fake(scenario, Unattended::Allow).await;
+    let mut sub = subscribe(&f.gateway, false);
+    f.gateway
+        .send(support::prompt(&f.gateway, "first"))
+        .unwrap();
+    loop {
+        let event = next(&mut sub).await;
+        if matches!(&event.event, Event::ItemStarted { kind: ItemKind::AgentMessage, .. })
+        {
+            return (f, sub);
+        }
+    }
+}
+
+#[tokio::test]
+async fn steering_reaches_running_codex_and_claude_without_cancellation() {
+    for scenario in ["steering-codex", "steering-claude"] {
+        let (f, mut sub) = steering_setup(scenario).await;
+        let second = support::prompt(&f.gateway, "second");
+        let op = second.op_id;
+        f.gateway.send(second).unwrap();
+        let events = tokio::time::timeout(Duration::from_secs(2), until_end(&mut sub))
+            .await
+            .unwrap();
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e.event, Event::TurnQueued { .. }))
+        );
+        let log = close(f).await;
+        assert_eq!(ended(&log), vec![StopReason::EndTurn]);
+        assert!(log.iter().any(|e| e.cause == Some(op) && matches!(&e.event, Event::ItemCompleted { body: Item::UserMessage { blocks }, .. } if matches!(&blocks[..], [InputBlock::Text { text }] if text == "second"))));
+        assert!(completed(&log).iter().any(|(_, body)| matches!(body, Item::AgentMessage { markdown } if markdown.contains("STEERED"))));
+    }
+}
+
+#[tokio::test]
+async fn steering_falls_back_only_when_input_is_explicitly_unconsumed() {
+    for scenario in ["steering-idle", "steering-missing"] {
+        let (f, mut sub) = steering_setup(scenario).await;
+        f.gateway
+            .send(support::prompt(&f.gateway, "second"))
+            .unwrap();
+        until_end(&mut sub).await;
+        until_end(&mut sub).await;
+        let log = close(f).await;
+        assert_eq!(ended(&log), vec![StopReason::EndTurn, StopReason::EndTurn]);
+        assert_eq!(completed(&log).iter().filter(|(_, body)| matches!(body, Item::UserMessage { blocks } if matches!(&blocks[..], [InputBlock::Text { text }] if text == "second"))).count(), 1);
+        assert!(completed(&log).iter().any(|(_, body)| matches!(body, Item::AgentMessage { markdown } if markdown.contains("normal fallback delivered"))));
+    }
+}
+
+#[tokio::test]
+async fn steering_unknown_outcome_is_retained_without_replay() {
+    let (f, mut sub) = steering_setup("steering-unknown").await;
+    f.gateway
+        .send(support::prompt(&f.gateway, "second"))
+        .unwrap();
+    until_end(&mut sub).await;
+    let log = close(f).await;
+    assert_eq!(ended(&log), vec![StopReason::EndTurn]);
+    assert_eq!(
+        completed(&log)
+            .iter()
+            .filter(|(_, body)| matches!(body, Item::UserMessage { .. }))
+            .count(),
+        1
+    );
+    assert!(completed(&log).iter().any(|(_, body)| matches!(body, Item::Notice { text, .. } if text.starts_with("Steering delivery unknown"))));
+    assert!(log.iter().any(|e| {
+        e.ext
+            .get("acp")
+            .and_then(|v| v.pointer("/steering/input/0/text"))
+            .is_some_and(|v| v == "second")
+    }));
+}
+
 #[test]
 fn bare_agent_uses_login_shell_path_and_cached_fallback() {
     const CHILD: &str = "HARNESS_PATH_WITNESS";

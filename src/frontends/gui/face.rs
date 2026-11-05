@@ -1527,19 +1527,16 @@ pub fn prompt_bubble(body: c::Element, caption: &str, pending: bool, ink: &Ink) 
         ],
     );
     hstack(
-        vec![
-            spacer(),
-            c::Item {
-                element: bubble,
-                extent: c::Extent::Content {
-                    grow: 0.,
-                    shrink: 1.,
-                    min: 0.,
-                    max: None,
-                    max_fraction: Some(0.86),
-                },
+        vec![c::Item {
+            element: bubble,
+            extent: c::Extent::Content {
+                grow: 1.,
+                shrink: 1.,
+                min: 0.,
+                max: None,
+                max_fraction: None,
             },
-        ],
+        }],
         0.,
     )
 }

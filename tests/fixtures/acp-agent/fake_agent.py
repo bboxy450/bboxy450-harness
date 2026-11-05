@@ -82,6 +82,29 @@ def wake():
 
 
 def prompt(rid, text):
+    if SCENARIO.startswith("steering-"):
+        if "second" in text:
+            chunk("agent_message_chunk", "normal fallback delivered")
+            return "end_turn"
+        chunk("agent_message_chunk", "working; original prompt remains open")
+        while True:
+            message = read()
+            method = message.get("method")
+            if method == "session/cancel":
+                raise AssertionError("steering must not cancel the running prompt")
+            if method == "_session/steering":
+                assert message["params"]["_meta"]["steering"]["idleBehavior"] == "promptRequired"
+                assert "second" in " ".join(b.get("text", "") for b in message["params"]["prompt"])
+                if SCENARIO == "steering-missing":
+                    send({"jsonrpc":"2.0", "id":message["id"], "error":{"code":-32601,"message":"unsupported method"}})
+                elif SCENARIO == "steering-idle":
+                    send({"jsonrpc":"2.0", "id":message["id"], "result":{"outcome":"promptRequired","reason":"noRunningTurn"}})
+                elif SCENARIO == "steering-unknown":
+                    send({"jsonrpc":"2.0", "id":message["id"], "result":{"outcome":"failed"}})
+                else:
+                    send({"jsonrpc":"2.0", "id":message["id"], "result":{"outcome":"injected"}})
+                    chunk("agent_message_chunk", "STEERED; original prompt still owns completion")
+                return "end_turn"
     if SCENARIO == "gui-polish-mcp":
         for index, result in enumerate([
             {"content": [{"type": "text", "text": "# Real MCP result\n- first\n- second"}], "structuredContent": {"count": 2}},
@@ -184,7 +207,8 @@ while True:
     method, rid = m.get("method"), m.get("id")
     if method == "initialize":
         send({"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": 1, "agentCapabilities": {}, "authMethods": [],
-              "agentInfo": {"name": "fixture-agent", "version": "1.2.3"}}})
+              "agentInfo": {"name": "claude" if SCENARIO == "steering-claude" else "codex" if SCENARIO.startswith("steering-") else "fixture-agent", "version": "1.2.3"},
+              "_meta": {"steering": {"supported": SCENARIO.startswith("steering-")}}}})
     elif method == "session/new":
         result = {"sessionId": SESSION}
         if SCENARIO == "usage":
@@ -192,6 +216,7 @@ while True:
         send({"jsonrpc": "2.0", "id": rid, "result": result})
     elif method == "session/prompt":
         text = " ".join(b.get("text", "") for b in m["params"]["prompt"])
+        if SCENARIO.startswith("steering-"): text = m["params"]["prompt"][-1].get("text", "")
         stop = prompt(rid, text)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": stop}})
         if SCENARIO.startswith("wake") and not WOKE:

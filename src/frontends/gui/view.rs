@@ -725,8 +725,7 @@ impl HarnessView {
                     true,
                     ink,
                 );
-                let gutter = (((width - 860.) / 2.).max(0.) + 14. - 4.)
-                    .max(self.context().density.tokens().gap as f32);
+                let gutter = (14_f32 - 4.).max(self.context().density.tokens().gap as f32);
                 let mut element = named(
                     format!("pending/{}", prompt.op),
                     super::face::frame(
@@ -3236,8 +3235,7 @@ impl Preparer {
     ) -> Result<(), String> {
         let ctx = self.context();
         let ink = super::face::ink(ctx);
-        let gutter = (((prepared.width - 860.) / 2.).max(0.) + 14. - 4.)
-            .max(ctx.density.tokens().gap as f32);
+        let gutter = (14_f32 - 4.).max(ctx.density.tokens().gap as f32);
         let width = prepared.width - 2. * gutter - 8.;
         for prompt in prompts.values().filter(|p| {
             Some(p.session) == prepared.source.session && p.epoch == prepared.source.epoch
@@ -3246,7 +3244,7 @@ impl Preparer {
                 ItemId(prompt.op.0),
                 &prompt.text,
                 true,
-                (width * 0.86 - 26.).max(1.),
+                (width - 26.).max(1.),
                 self.zoom.scale(),
                 &self.metrics,
             )?;
@@ -3363,9 +3361,9 @@ impl Preparer {
                 continue;
             }
             let deps = folds.deps(model, id, self);
-            // .hx-feed: a centred 860 px column with 14 px padding; the row region
-            // adds its own 4 px inset, so the frame gutter carries the rest
-            let gutter = (((width - 860.) / 2.).max(0.) + 14. - 4.).max(gutter);
+            // Transcript rows fill their pane with 14 px side padding; the composer
+            // keeps its independent reading-width cap.
+            let gutter = (14_f32 - 4.).max(gutter);
             let content_width = width - 2. * gutter - 8.;
             let (element, rich) = self.face_row(
                 model,
@@ -3658,6 +3656,28 @@ pub(super) fn flat(element: &mut c::Element) {
 #[cfg(test)]
 mod onboarding_markdown_tests {
     use super::*;
+    #[tokio::test]
+    async fn transcript_fills_wide_and_three_column_panes() {
+        crate::runtime::blocking(move || {
+        let ctx = ui::Context::new(Theme::Light, Density::Cozy);
+        let ink = super::super::face::ink(ctx);
+        let metrics = Metrics::default();
+        for width in [280., 440., 960., 1600.] {
+            let mut model = Transcript::default();
+            for line in include_str!("../../../tests/fixtures/protocol/all-items.jsonl").lines() {
+                model.apply(&serde_json::from_str::<Envelope>(line).unwrap());
+            }
+            let prepared = Preparer::default().prepare(Arc::new(model), width).unwrap();
+            for row in prepared.rows.values() {
+                assert!(row.layout.rect.x <= 14., "centred row in {width}px pane: {:?}", row.layout.rect);
+                assert!(row.layout.rect.right() >= width - 14.);
+            }
+            let bubble = super::super::face::prompt_bubble(named("copy", label("short")), "YOU", false, &ink)
+                .layout(Rect::new(0., 0., width - 28., 80.), ctx, &metrics).unwrap();
+            assert!((bubble.children[0].rect.w - (width - 28.)).abs() < 0.1);
+        }
+        }).await;
+    }
     #[test]
     fn tool_header_and_reasoning_text_share_alignment() {
         let ctx = ui::Context::new(Theme::Light, Density::Cozy);

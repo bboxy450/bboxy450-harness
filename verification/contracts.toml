@@ -6,6 +6,17 @@
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 
 [[contract]]
+name = "HarnessAcpSteering"
+title = "Negotiated steering reaches an active prompt without cancellation or uncertain replay."
+models = ["HarnessAcpSteering", "BrokenHarnessAcpSteeringReplay", "BrokenHarnessAcpSteeringCancel"]
+controls = [{name="BrokenHarnessAcpSteeringReplay", expected="safety"}, {name="BrokenHarnessAcpSteeringCancel", expected="safety"}]
+sources = ["src/backend/acp_agent.rs", "src/frontends/gui/bridge.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/acp_agent.rs", "tests/fixtures/acp-agent/fake_agent.py"]
+assumptions = "One admitted input, one negotiated capability and one independently ending active prompt. Replies, deadlines and transport loss settle atomically; an unknown reply may already have delivered the input. Weak fairness of local routing, steering settlement and idle-queue dispatch; the agent need not end its active prompt. The real ten-second deadline, bootstrap fence, payload/image custody, persistent receipts, bounded multi-input queue and session identity are implementation-only; no Rust refinement proof."
+property = "At most one delivery; no steering cancellation; unknown outcomes never become normal prompts. Explicitly unconsumed input can use the normal queue. Accepted steering receipts survive a racing original prompt end."
+checks = ["make test-acp-steering", "make test-acp-steering-formal"]
+
+[[contract]]
 name = "HarnessNativeUsage"
 title = "Native usage counts each identified model call once across turn boundaries."
 models = ["HarnessNativeUsage", "BrokenHarnessNativeUsage", "BrokenHarnessNativeUsageScopes"]

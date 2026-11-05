@@ -112,7 +112,11 @@ pub(crate) async fn login_path() -> &'static OsStr {
         .await
 }
 
-pub(crate) async fn find_agent(program: &str, path: &OsStr, cwd: &Path) -> std::io::Result<PathBuf> {
+pub(crate) async fn find_agent(
+    program: &str,
+    path: &OsStr,
+    cwd: &Path,
+) -> std::io::Result<PathBuf> {
     for dir in std::env::split_paths(path) {
         let candidate = cwd.join(dir).join(program);
         if let Ok(meta) = tokio::fs::metadata(&candidate).await
@@ -140,6 +144,11 @@ enum Call {
         revision: u64,
     },
     Prompt,
+    Steer {
+        op: OpId,
+        blocks: Vec<InputBlock>,
+        deadline: Instant,
+    },
     Configure {
         op: OpId,
         revision: u64,
@@ -160,6 +169,7 @@ struct Agent {
     config_deadline: Option<Instant>,
     bootstrap_pending: bool,
     images_supported: bool,
+    steering_supported: bool,
     startup_deadline: Option<Instant>,
     next_id: u64,
     calls: HashMap<u64, Call>,
@@ -462,6 +472,7 @@ impl AcpAgentActor {
                     _ = sleep_until(quiet_at) => self.quiet_expired().await?,
                     _ = tick.tick() => {
                         self.gateway.hub.flush_deltas();
+                        self.expire_steering(Some(Instant::now())).await?;
                         if self.agent.as_ref().and_then(|a| a.config_deadline).is_some_and(|d| Instant::now() >= d) {
                             let a = self.agent.as_mut().unwrap();
                             a.config_deadline = None;
@@ -519,7 +530,7 @@ impl AcpAgentActor {
                         return Ok(false);
                     }
                 };
-                // ACP has no steering: a turn sent while another runs waits its turn
+                // Runtime capability negotiation covers Codex, Claude and other ACP adapters.
                 if blocks.is_empty() || blocks.iter().any(|b| matches!(b, InputBlock::Unknown(_))) {
                     self.reject(
                         id,
@@ -528,7 +539,15 @@ impl AcpAgentActor {
                         },
                     )
                     .await?;
-                } else if self.queue.len() >= 64 {
+                } else if self.queue.len()
+                    + self.agent.as_ref().map_or(0, |a| {
+                        a.calls
+                            .values()
+                            .filter(|c| matches!(c, Call::Steer { .. }))
+                            .count()
+                    })
+                    >= 64
+                {
                     self.reject(
                         id,
                         Rejection::InvalidInput {
@@ -536,10 +555,14 @@ impl AcpAgentActor {
                         },
                     )
                     .await?;
+                } else if self.running.is_some()
+                    && self.agent.as_ref().is_some_and(|a| {
+                        a.steering_supported && a.session.is_some() && !a.bootstrap_pending
+                    })
+                {
+                    self.steer(blocks, id).await?;
                 } else {
-                    let turn = TurnId::new();
-                    self.publish(Event::TurnQueued { turn }, Some(id)).await?;
-                    self.queue.push_back((turn, blocks, id));
+                    self.queue_input(blocks, id).await?;
                 }
             }
             Op::Interrupt { turn } => {
@@ -877,6 +900,112 @@ impl AcpAgentActor {
             Ok(())
         }
     }
+    async fn queue_input(&mut self, blocks: Vec<InputBlock>, op: OpId) -> std::io::Result<()> {
+        let turn = TurnId::new();
+        self.publish(Event::TurnQueued { turn }, Some(op)).await?;
+        self.queue.push_back((turn, blocks, op));
+        Ok(())
+    }
+    // Protocol: https://github.com/agentclientprotocol/codex-acp/blob/main/docs/steering.md
+    // Also implemented by claude-agent-acp; this is capability based, not vendor based.
+    async fn steer(&mut self, blocks: Vec<InputBlock>, op: OpId) -> std::io::Result<()> {
+        if blocks.iter().any(|b| matches!(b, InputBlock::Image { .. }))
+            && !self.agent.as_ref().is_some_and(|a| a.images_supported)
+        {
+            return self
+                .reject(
+                    op,
+                    Rejection::InvalidInput {
+                        detail: "Agent does not support image input".into(),
+                    },
+                )
+                .await;
+        }
+        let mut prompt = Vec::new();
+        for block in &blocks {
+            if let InputBlock::Image { blob } = block {
+                use base64::Engine as _;
+                prompt.push(json!({"type":"image", "data":base64::engine::general_purpose::STANDARD.encode(self.store.blobs.get(blob).await?), "mimeType":blob.mime}));
+            } else {
+                prompt.push(content_block(block));
+            }
+        }
+        let agent = self.agent.as_mut().expect("negotiated agent");
+        let params = json!({"sessionId":agent.session,"prompt":prompt,"_meta":{"steering":{"idleBehavior":"promptRequired"}}});
+        let sent = call(
+            agent,
+            Call::Steer {
+                op,
+                blocks,
+                deadline: Instant::now() + Duration::from_secs(10),
+            },
+            "_session/steering",
+            params,
+        );
+        if sent.is_err() {
+            self.agent_gone("ACP steering transport closed".into())
+                .await?;
+        }
+        Ok(())
+    }
+    async fn steering_receipt(
+        &mut self,
+        op: OpId,
+        blocks: Vec<InputBlock>,
+        delivered: bool,
+    ) -> std::io::Result<()> {
+        let body = if delivered {
+            Item::UserMessage {
+                blocks: blocks.clone(),
+            }
+        } else {
+            Item::Notice {
+                level: Level::Warn,
+                text: "Steering delivery unknown · inspect the agent before resending".into(),
+            }
+        };
+        let mut meta = json!({"steering":{"outcome":if delivered {"injected"} else {"unknown"}}});
+        if !delivered {
+            meta["steering"]["input"] = serde_json::to_value(blocks).expect("input serializes");
+        }
+        let item = ItemId::new();
+        // Unowned by a turn: its response may race the original turn's ending.
+        self.projected_ext.insert("acp".into(), meta.clone());
+        self.publish(
+            Event::ItemStarted {
+                turn: None,
+                item,
+                kind: body.kind(),
+                parent: None,
+                head: body.head(),
+            },
+            Some(op),
+        )
+        .await?;
+        self.projected_ext.insert("acp".into(), meta);
+        self.publish(
+            Event::ItemCompleted {
+                item,
+                status: ItemStatus::Completed,
+                body,
+            },
+            Some(op),
+        )
+        .await
+    }
+    async fn expire_steering(&mut self, now: Option<Instant>) -> std::io::Result<()> {
+        let expired: Vec<_> = self.agent.as_ref().map(|a| a.calls.iter().filter_map(|(id, call)|
+            matches!(call, Call::Steer { deadline, .. } if now.is_none_or(|now| now >= *deadline)).then_some(*id)
+        ).collect()).unwrap_or_default();
+        for id in expired {
+            if let Some(Call::Steer { op, blocks, .. }) =
+                self.agent.as_mut().and_then(|a| a.calls.remove(&id))
+            {
+                self.steering_receipt(op, blocks, false).await?;
+            }
+        }
+        Ok(())
+    }
     async fn send_prompt(&mut self) -> std::io::Result<()> {
         if self
             .agent
@@ -1161,6 +1290,7 @@ impl AcpAgentActor {
             config_deadline: None,
             bootstrap_pending: true,
             images_supported: false,
+            steering_supported: false,
             startup_deadline: Some(
                 Instant::now()
                     + std::env::var("BBOXY450_ACP_STARTUP_MS")
@@ -1192,6 +1322,7 @@ impl AcpAgentActor {
         self.wire = None;
     }
     async fn agent_gone(&mut self, why: String) -> std::io::Result<()> {
+        self.expire_steering(None).await?;
         // stdout can close before stderr is drained: give the agent's last words a moment
         if let Some(done) = self.agent.as_ref().map(|a| a.stderr_done.clone()) {
             let until = Instant::now() + Duration::from_millis(500);
@@ -1280,6 +1411,24 @@ impl AcpAgentActor {
         let Some(call_kind) = id.as_u64().and_then(|n| agent.calls.remove(&n)) else {
             return Ok(());
         };
+        if let Call::Steer { op, blocks, .. } = call_kind {
+            return match m.pointer("/result/outcome").and_then(Value::as_str) {
+                Some("injected" | "startedNewTurn") => {
+                    self.steering_receipt(op, blocks, true).await
+                }
+                Some("promptRequired")
+                    if m.pointer("/result/reason").and_then(Value::as_str)
+                        == Some("noRunningTurn") =>
+                {
+                    self.queue_input(blocks, op).await
+                }
+                _ if m.pointer("/error/code").and_then(Value::as_i64) == Some(-32601) => {
+                    self.agent.as_mut().unwrap().steering_supported = false;
+                    self.queue_input(blocks, op).await
+                }
+                _ => self.steering_receipt(op, blocks, false).await,
+            };
+        }
         if let Call::Configure {
             op,
             revision,
@@ -1392,6 +1541,10 @@ impl AcpAgentActor {
                 }
                 let cwd = self.config.meta.cwd.display().to_string();
                 let agent = self.agent.as_mut().expect("agent");
+                agent.steering_supported = result
+                    .pointer("/_meta/steering/supported")
+                    .and_then(Value::as_bool)
+                    == Some(true);
                 agent.images_supported = result
                     .pointer("/agentCapabilities/promptCapabilities/image")
                     .and_then(Value::as_bool)
@@ -1529,7 +1682,7 @@ impl AcpAgentActor {
                 self.publish_controls(None).await?;
                 self.send_prompt().await
             }
-            Call::Configure { .. } => unreachable!(),
+            Call::Configure { .. } | Call::Steer { .. } => unreachable!(),
             Call::Prompt => {
                 if result
                     .as_object()
@@ -2467,6 +2620,7 @@ fn call_name(c: &Call) -> &'static str {
         Call::NewSession => "session/new",
         Call::SetModel { .. } => "the model choice",
         Call::Prompt => "the prompt",
+        Call::Steer { .. } => "steering",
         Call::Configure { .. } => "session configuration",
     }
 }

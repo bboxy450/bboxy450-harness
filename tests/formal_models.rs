@@ -52,6 +52,28 @@ fn gui_polish_pending_native_models_and_controls() {
 }
 
 #[test]
+fn acp_steering_native_model_and_broken_controls() {
+    let root = std::path::PathBuf::from(
+        std::env::var("ACP_STEERING_FORMAL_OUT")
+            .unwrap_or_else(|_| "target/acp-steering/formal".into()),
+    );
+    std::fs::create_dir_all(&root).unwrap();
+    let mut manifest = String::new();
+    for (control, expected) in [(0, "pass"), (1, "safety"), (2, "safety")] {
+        let model = models::acp_steering(control);
+        if control == 0 {
+            let checked = model.check(100_000).unwrap();
+            assert!(checked.states.iter().any(|s| s[0] == 3 && s[2] == 1));
+            assert!(checked.states.iter().any(|s| s[0] == 3 && s[2] == 0));
+            assert!(checked.states.iter().any(|s| s[0] == 5 && s[3] == 1));
+            assert!(checked.states.iter().any(|s| s[0] == 6 && s[6] == 1));
+        }
+        export::export(model, expected, &root, &mut manifest).unwrap();
+    }
+    std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
+}
+
+#[test]
 fn acp_controls_native_model_and_broken_controls() {
     let root = std::path::PathBuf::from(
         std::env::var("ACP_CONTROLS_FORMAL_OUT")

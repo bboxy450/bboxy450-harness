@@ -108,6 +108,12 @@ impl PendingPrompt {
             {
                 self.status = "Ended · no durable message was recorded".into();
             }
+            Event::ItemCompleted {
+                body: Item::Notice { text, .. },
+                ..
+            } if event.cause == Some(self.op) && text.starts_with("Steering delivery unknown") => {
+                self.status = text.clone();
+            }
             Event::OpRejected { op, .. } if *op == self.op => {
                 self.status = "Rejected · message was not sent".into()
             }
@@ -952,6 +958,15 @@ fn apply_event(
                     mailbox.pending(op, false);
                 }
             }
+            Event::ItemCompleted {
+                body: Item::UserMessage { .. } | Item::Notice { .. },
+                ..
+            } if event
+                .cause
+                .is_some_and(|op| !owned.values().any(|owner| *owner == op)) =>
+            {
+                mailbox.pending(event.cause.unwrap(), false);
+            }
             Event::OpRejected { op, .. } => mailbox.pending(*op, false),
             _ => {}
         }
@@ -971,7 +986,7 @@ fn apply_event(
                     ..
                 }
                 | Event::ItemCompleted {
-                    body: Item::UserMessage { .. },
+                    body: Item::UserMessage { .. } | Item::Notice { .. },
                     ..
                 }
         )

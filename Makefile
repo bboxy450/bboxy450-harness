@@ -237,6 +237,14 @@ verify-profiles-pending:
 verify-acp-controls:
 	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/test-acp-controls.py
 
+.PHONY: test-acp-steering test-acp-steering-formal
+test-acp-steering:
+	cargo test --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features acp-agent --test acp_agent steering_ -- --test-threads=2
+
+test-acp-steering-formal:
+	ACP_STEERING_FORMAL_OUT='$(abspath $(TARGET_DIR))/acp-steering/formal' cargo test --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test formal_models acp_steering_native
+	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/check-acp-steering-models.py
+
 .PHONY: verify-harness-card-bounds
 verify-harness-card-bounds:
 	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-harness-card-bounds.py

@@ -321,7 +321,7 @@ impl Preparer {
                     id,
                     if text.is_empty() { "…" } else { &text },
                     true,
-                    (content_width * 0.86 - 26.).max(1.),
+                    (content_width - 26.).max(1.),
                     self.zoom.scale(),
                     &self.metrics,
                 )?;
@@ -478,7 +478,7 @@ impl Preparer {
                     id,
                     summary,
                     !live,
-                    content_width - 24.,
+                    content_width - 20.,
                     self.zoom.scale(),
                     &self.metrics,
                 )?;

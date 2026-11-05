@@ -12,6 +12,7 @@ models = [
     "HarnessAttachmentIntake",
     "HarnessOnboardingInstall",
     "HarnessAcpControls",
+    "HarnessAcpSteering",
     "HarnessGuiPendingPrompt",
     "HarnessLaunchContext",
     "HarnessSocketHeartbeat",
