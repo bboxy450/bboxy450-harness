@@ -687,6 +687,101 @@ fn selected(
     let mut length = 0;
     let mut last = None;
     let redactor = crate::redact::Set::default();
+    let memory = b.control.memory.clone();
+    macro_rules! observe_record {
+        ($event:expr,$typed:expr) => {{
+            let event = $event;
+            let typed = $typed;
+            inspect::validate_event(event, source, seq)?;
+            let refs = inspect::blobs(&event.event)?;
+            let mut payload = match &event.event {
+                Event::SessionStarted { .. }
+                | Event::ItemStarted { head: Some(_), .. }
+                | Event::TurnEnded { usage: Some(_), .. } => typed,
+                Event::ItemCompleted {
+                    body: crate::protocol::Item::ToolCall { input_raw, .. },
+                    ..
+                } => typed
+                    .checked_add(
+                        match storage::preflight(input_raw.as_bytes(), storage::WORK) {
+                            Ok(s) => s
+                                .typed(input_raw.len())?
+                                .checked_add(s.canonical()?)
+                                .ok_or(w::Code::ResourceLimit)?,
+                            Err(w::Code::MalformedIr) => input_raw.len() as u64,
+                            Err(e) => return Err(e),
+                        },
+                    )
+                    .ok_or(w::Code::ResourceLimit)?,
+                _ => 0,
+            };
+            if !refs.is_empty() {
+                payload = payload.max(typed);
+            }
+            // At most one new entry in each of twelve accumulator collections
+            // (turn sets/maps, item sets/maps, calls/denials/tools/patterns);
+            // two requested slots cover each Vec capacity's doubling bound.
+            // Doubled Vec
+            // requested capacities and fixed owner slots are declared here.
+            let delta = 24u64
+                .checked_mul(storage::slot())
+                .and_then(|n| n.checked_add(payload))
+                .ok_or(w::Code::ResourceLimit)?;
+            let retained = state_credit
+                .bytes
+                .checked_add(delta)
+                .ok_or(w::Code::ResourceLimit)?;
+            let next_credit = memory.reserve(
+                state_credit
+                    .bytes
+                    .checked_mul(2)
+                    .and_then(|n| n.checked_add(delta))
+                    .ok_or(w::Code::ResourceLimit)?,
+            )?;
+            let old = std::mem::replace(&mut state_credit, next_credit);
+            drop(old);
+            law.observe(event).map_err(|_| w::Code::MalformedIr)?;
+            if let Event::SessionStarted { meta } = &event.event {
+                *log = Some(d0::ClosedLog::new(meta.clone()));
+            }
+            for r in refs {
+                if r.sha256.len() != 64
+                    || w::Hex::try_from(r.sha256.clone()).is_err()
+                    || r.mime.len() > 256
+                    || r.len > w::MAX_SAFE
+                {
+                    return Err(w::Code::BlobMismatch);
+                }
+                if let Some(prior) = seen.insert(r.sha256.clone(), r.clone())
+                    && prior != *r
+                {
+                    return Err(w::Code::BlobMismatch);
+                }
+                if seen.len() > 1024 {
+                    return Err(w::Code::ResourceLimit);
+                }
+            }
+            last = Some((
+                matches!(event.event, Event::SessionClosed),
+                w::hash(&line[..line.len() - 1]),
+            ));
+            let is_tool = matches!(
+                &event.event,
+                Event::ItemCompleted {
+                    body: crate::protocol::Item::ToolCall { .. },
+                    ..
+                }
+            );
+            if !is_tool {
+                log.as_mut()
+                    .ok_or(w::Code::MalformedIr)?
+                    .observe(event, &redactor, false)
+                    .map_err(|_| w::Code::ResourceLimit)?;
+            }
+            state_credit.shrink(retained);
+            Ok::<bool, w::Code>(is_tool)
+        }};
+    }
     loop {
         let n = b.unit(|| {
             let n = file
@@ -705,6 +800,14 @@ fn selected(
         b.counters.bytes += n as u64;
         let mut pos = 0;
         while pos < n {
+            let mut deferred = Paced::new(None, &b.control, |v| {
+                v.take();
+                false
+            });
+            let mut complete = false;
+            let mut is_tool = false;
+            let mut shape = None;
+            let count = b.counters.envelopes;
             b.unit(|| {
                 let end = chunk[pos..n]
                     .iter()
@@ -716,124 +819,67 @@ fn selected(
                 }
                 line.extend_from_slice(&chunk[pos..end]);
                 pos = end;
-                Ok(())
-            })?;
-            if line.last() != Some(&b'\n') {
-                continue;
-            }
-            seq += 1;
-            let count = b.counters.envelopes;
-            let shape = b.unit(|| {
-                if count >= 65536 {
-                    return Err(w::Code::ResourceLimit);
-                }
-                std::str::from_utf8(&line).map_err(|_| w::Code::MalformedIr)?;
-                storage::preflight(&line, storage::WORK)
-            })?;
-            let typed = shape.typed(line.len())?;
-            let event = b.track(typed, || {
-                Envelope::from_line(std::str::from_utf8(&line).map_err(|_| w::Code::MalformedIr)?)
-                    .map_err(|_| w::Code::MalformedIr)
-            })?;
-            let mut deferred = Paced::new(Some(event), &b.control, |v| {
-                v.take();
-                false
-            });
-            let memory = b.control.memory.clone();
-            let is_tool = b.unit(|| {
-                let event = &deferred.as_ref().unwrap().value;
-                inspect::validate_event(event, source, seq)?;
-                let refs = inspect::blobs(&event.event)?;
-                let mut payload = match &event.event {
-                    Event::SessionStarted { .. }
-                    | Event::ItemStarted { head: Some(_), .. }
-                    | Event::TurnEnded { usage: Some(_), .. } => typed,
-                    Event::ItemCompleted {
-                        body: crate::protocol::Item::ToolCall { input_raw, .. },
-                        ..
-                    } => typed
-                        .checked_add(
-                            match storage::preflight(input_raw.as_bytes(), storage::WORK) {
-                                Ok(s) => s
-                                    .typed(input_raw.len())?
-                                    .checked_add(s.canonical()?)
-                                    .ok_or(w::Code::ResourceLimit)?,
-                                Err(w::Code::MalformedIr) => input_raw.len() as u64,
-                                Err(e) => return Err(e),
-                            },
-                        )
-                        .ok_or(w::Code::ResourceLimit)?,
-                    _ => 0,
-                };
-                if !refs.is_empty() {
-                    payload = payload.max(typed);
-                }
-                // At most one new entry in each of twelve accumulator collections
-                // (turn sets/maps, item sets/maps, calls/denials/tools/patterns);
-                // two requested slots cover each Vec capacity's doubling bound.
-                // Doubled Vec
-                // requested capacities and fixed owner slots are declared here.
-                let delta = 24u64
-                    .checked_mul(storage::slot())
-                    .and_then(|n| n.checked_add(payload))
-                    .ok_or(w::Code::ResourceLimit)?;
-                let retained = state_credit
-                    .bytes
-                    .checked_add(delta)
-                    .ok_or(w::Code::ResourceLimit)?;
-                let next_credit = memory.reserve(
-                    state_credit
-                        .bytes
-                        .checked_mul(2)
-                        .and_then(|n| n.checked_add(delta))
-                        .ok_or(w::Code::ResourceLimit)?,
-                )?;
-                let old = std::mem::replace(&mut state_credit, next_credit);
-                drop(old);
-                law.observe(event).map_err(|_| w::Code::MalformedIr)?;
-                if let Event::SessionStarted { meta } = &event.event {
-                    *log = Some(d0::ClosedLog::new(meta.clone()));
-                }
-                for r in refs {
-                    if r.sha256.len() != 64
-                        || w::Hex::try_from(r.sha256.clone()).is_err()
-                        || r.mime.len() > 256
-                        || r.len > w::MAX_SAFE
-                    {
-                        return Err(w::Code::BlobMismatch);
-                    }
-                    if let Some(prior) = seen.insert(r.sha256.clone(), r.clone())
-                        && prior != *r
-                    {
-                        return Err(w::Code::BlobMismatch);
-                    }
-                    if seen.len() > 1024 {
+                if line.last() == Some(&b'\n') {
+                    seq += 1;
+                    if count >= 65536 {
                         return Err(w::Code::ResourceLimit);
                     }
-                }
-                last = Some((
-                    matches!(event.event, Event::SessionClosed),
-                    w::hash(&line[..line.len() - 1]),
-                ));
-                let is_tool = matches!(
-                    &event.event,
-                    Event::ItemCompleted {
-                        body: crate::protocol::Item::ToolCall { .. },
-                        ..
+                    if line.len() <= 8192 {
+                        std::str::from_utf8(&line).map_err(|_| w::Code::MalformedIr)?;
+                        let checked = storage::preflight(&line, storage::WORK)?;
+                        shape = Some(checked);
+                        // Tiny, shallow records share one measured unit. This
+                        // avoids four timer-coalesced waits for tens of us CPU.
+                        if checked.values + checked.keys <= 128 {
+                            let typed = checked.typed(line.len())?;
+                            let credit = memory.reserve(typed)?;
+                            let event = Envelope::from_line(
+                                std::str::from_utf8(&line).map_err(|_| w::Code::MalformedIr)?,
+                            )
+                            .map_err(|_| w::Code::MalformedIr)?;
+                            is_tool = observe_record!(&event, typed)?;
+                            if is_tool {
+                                *deferred = Some(storage::Tracked {
+                                    value: event,
+                                    credit,
+                                });
+                            }
+                            complete = true;
+                            line.clear();
+                        }
                     }
-                );
-                if !is_tool {
-                    log.as_mut()
-                        .ok_or(w::Code::MalformedIr)?
-                        .observe(event, &redactor, false)
-                        .map_err(|_| w::Code::ResourceLimit)?;
-                    drop(deferred.take());
                 }
-                state_credit.shrink(retained);
-                line.clear();
-                Ok(is_tool)
+                Ok(())
             })?;
-            b.counters.envelopes += 1;
+            if !complete && line.last() == Some(&b'\n') {
+                let shape = match shape {
+                    Some(shape) => shape,
+                    None => b.unit(|| {
+                        std::str::from_utf8(&line).map_err(|_| w::Code::MalformedIr)?;
+                        storage::preflight(&line, storage::WORK)
+                    })?,
+                };
+                let typed = shape.typed(line.len())?;
+                let event = b.track(typed, || {
+                    Envelope::from_line(
+                        std::str::from_utf8(&line).map_err(|_| w::Code::MalformedIr)?,
+                    )
+                    .map_err(|_| w::Code::MalformedIr)
+                })?;
+                *deferred = Some(event);
+                is_tool = b.unit(|| {
+                    let tool = observe_record!(&deferred.as_ref().unwrap().value, typed)?;
+                    if !tool {
+                        drop(deferred.take());
+                    }
+                    line.clear();
+                    Ok(tool)
+                })?;
+                complete = true;
+            }
+            if complete {
+                b.counters.envelopes += 1;
+            }
             if is_tool {
                 if !b.normalization_ready {
                     b.unit(|| {
