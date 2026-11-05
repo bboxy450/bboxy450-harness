@@ -1022,3 +1022,242 @@ fn idle_status_reaches_durable_only_consumers_without_claiming_progress() {
     );
     assert!(bad.states.iter().any(|s| s[variable(&good, "clock")] == 21 && s[variable(&good, "transport_age")] == 21));
 }
+
+#[test]
+fn dream_sink_preserves_check_publish_races_and_labels_foreign_edits() {
+    let good = model("HarnessDreamSink").check(100_000).unwrap();
+    assert!(
+        good.violations.is_empty(),
+        "{:?}",
+        good.violations
+            .iter()
+            .map(|v| &v.property)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        good.states.iter().any(|s| s[4] == 2 && s[0] > s[6]),
+        "hand edit after the digest check must be reachable"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[4] == 3 && s[0] > s[6] && s[1] == s[2]),
+        "immutable publication preserves the hand edit in the race window"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[4] == 4 && s[9] == 2 && s[14] == 1 && s[15] == 0),
+        "no-replace collision must refuse rather than claim publication"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[15] == 1 && s[9] == 2 && s[12] == 0 && s[13] == 1),
+        "legitimate edit after publication must change the ownership label"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[0] == 2 && s[1] == 0 && s[5] == 3 && s[4] == 3),
+        "two invalidated reads, including ABA, leave the third attempt available"
+    );
+    for snapshot in 0..=3 {
+        assert!(good.states.iter().any(|s| s[15] == 1 && s[11] == snapshot));
+    }
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[15] == 1 && s[17] == 0 && s[19] == 1),
+        "crash after publication before Adoption must be reachable"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[15] == 1 && s[17] == 1 && s[19] == 2),
+        "restart can record a reachable existing publication"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[22] == 1 && s[4] == 4 && s[17] == 0 && s[15] == 0),
+        "a pre-existing shared index must skip with no false Adoption"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[17] == 1 && s[11] > 0 && s[16] == 0 && s[20] == 0),
+        "terminal entries must be omitted even when their old artifact remains"
+    );
+    for (mode, property) in [(2, "NoFalseAdoption"), (3, "ServedPinsValid")] {
+        let bad = model(if mode == 2 {
+            "BrokenHarnessDreamSinkAdoption"
+        } else {
+            "BrokenHarnessDreamSinkLoad"
+        })
+        .check(100_000)
+        .unwrap();
+        assert!(bad.violations.iter().any(|v| v.property == property));
+    }
+    let bad = model("BrokenHarnessDreamSink").check(100_000).unwrap();
+    assert!(
+        bad.violations
+            .iter()
+            .any(|v| v.property == "HandLinesPreserved")
+    );
+    assert!(
+        bad.states
+            .iter()
+            .any(|s| s[4] == 3 && s[0] > s[6] && s[1] != s[2])
+    );
+}
+
+#[test]
+fn dream_lifecycle_reaches_independent_harnesses_crash_and_revival() {
+    let graph = model("HarnessDreamLifecycle").check(100_000).unwrap();
+    assert!(graph.violations.is_empty());
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[5] == 2 && s[12] == 1 && s[13] == 3),
+        "one harness adopts while another remains inconclusive"
+    );
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[2] == 1 && s[5] == 2 && s[10] == 1)
+    );
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[0] == 1 && s[5] == 2 && s[10] == 2)
+    );
+    assert!(
+        graph.states.iter().any(|s| s[0] == 1 && s[19] == 1),
+        "the old adoption must survive global terminal and revival"
+    );
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[4] == 1 && s[5] == 2 && s[10] == 0 && s[11] == 0),
+        "global terminal overlays an adopted pair and lower removes its sink"
+    );
+    for (mode, property) in [
+        (1, "AdoptedHasSamePairPassA"),
+        (2, "GlobalTerminalFencesDelayedAdoption"),
+        (3, "AdoptedHasSamePairPassA"),
+    ] {
+        let bad = model(match mode {
+            1 => "BrokenHarnessDreamLifecycle",
+            2 => "BrokenHarnessDreamLifecycleFence",
+            _ => "BrokenHarnessDreamLifecyclePair",
+        })
+        .check(100_000)
+        .unwrap();
+        assert!(
+            bad.violations.iter().any(|v| v.property == property),
+            "{mode}: {property}"
+        );
+        if mode == 2 {
+            assert!(
+                bad.states
+                    .iter()
+                    .any(|s| s[0] == 1 && s[5] == 2 && s[8] == 1 && s[22] == 0),
+                "old passing completion must actually reach a new revival in the control"
+            );
+        }
+        if mode == 3 {
+            assert!(
+                bad.states
+                    .iter()
+                    .any(|s| s[7] == 1 && s[14] == 2 && s[8] == 2 && s[5] == 2),
+                "wrong harness trial pin must be rejected even when both harnesses passed"
+            );
+        }
+    }
+}
+
+#[test]
+fn dream_merge_explores_both_orders_and_independent_harnesses() {
+    let graph = model("HarnessDreamMerge").check(100_000).unwrap();
+    assert!(graph.violations.is_empty());
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[8] == 2 && s[9] == 3 && s[12] == 1),
+        "B rejection cannot erase A adoption"
+    );
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[2] == 2 && s[7] == 1 && s[8] == 5 && s[9] == 5 && s[12] == 1),
+        "an expiry in the other log fences an adoption"
+    );
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[4] == 1 && s[7] == 2 && s[8] == 6 && s[12] == 1),
+        "global terminal display uses fixed superseded-over-expired order"
+    );
+    // Extract the actual model's join table, without reimplementing max.
+    // A global terminal makes the pair display details irrelevant; this
+    // quotient has 25 independent pair states plus expiry and supersession.
+    let normalize = |a, b, g| if g == 0 { (a, b, g) } else { (0, 0, g) };
+    let mut joins = std::collections::BTreeMap::new();
+    for state in graph.states.iter().filter(|s| s[12] == 1) {
+        let key = (
+            normalize(state[2], state[3], state[4]),
+            normalize(state[5], state[6], state[7]),
+        );
+        let value = normalize(state[8], state[9], state[10]);
+        if let Some(previous) = joins.insert(key, value) {
+            assert_eq!(previous, value);
+        }
+    }
+    let mut domain = Vec::new();
+    for a in 0..=4 {
+        for b in 0..=4 {
+            domain.push((a, b, 0));
+        }
+    }
+    domain.extend([(0, 0, 1), (0, 0, 2)]);
+    assert_eq!(
+        joins.len(),
+        domain.len() * domain.len(),
+        "every quotient input pair must be reachable"
+    );
+    for &a in &domain {
+        assert_eq!(joins[&(a, a)], a, "idempotence");
+        for &b in &domain {
+            assert_eq!(joins[&(a, b)], joins[&(b, a)], "commutativity");
+            for &c in &domain {
+                assert_eq!(
+                    joins[&(joins[&(a, b)], c)],
+                    joins[&(a, joins[&(b, c)])],
+                    "associativity"
+                );
+            }
+        }
+    }
+    for mode in [1, 2] {
+        let bad = model(if mode == 1 {
+            "BrokenHarnessDreamMerge"
+        } else {
+            "BrokenHarnessDreamMergeHarness"
+        })
+        .check(100_000)
+        .unwrap();
+        assert!(
+            bad.violations
+                .iter()
+                .any(|v| v.property == "CommutativeIdempotentProjection")
+        );
+    }
+}
