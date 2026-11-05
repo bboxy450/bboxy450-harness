@@ -3759,31 +3759,33 @@ mod onboarding_markdown_tests {
     }
     #[test]
     fn header_dropdowns_fit_narrow_panes_and_keep_revision_fences() {
-        let mut model = Transcript::default();
-        model.session = Some(SessionId::new());
-        model.profile = Some(("codex".into(), "acp:codex-acp".into()));
-        model.agent_config = Some(AgentConfig {
-            instance: OpId::new(),
-            revision: 7,
-            pending: None,
-            status: "Confirmed by agent".into(),
-            options: ["model", "thought_level"]
-                .into_iter()
-                .map(|category| AgentOption {
-                    id: category.into(),
-                    name: category.into(),
-                    category: category.into(),
-                    current: "3".into(),
-                    legacy: false,
-                    choices: (0..8)
-                        .map(|i| AgentChoice {
-                            value: i.to_string(),
-                            name: format!("Choice {i}"),
-                        })
-                        .collect(),
-                })
-                .collect(),
-        });
+        let model = Transcript {
+            session: Some(SessionId::new()),
+            profile: Some(("codex".into(), "acp:codex-acp".into())),
+            agent_config: Some(AgentConfig {
+                instance: OpId::new(),
+                revision: 7,
+                pending: None,
+                status: "Confirmed by agent".into(),
+                options: ["model", "thought_level"]
+                    .into_iter()
+                    .map(|category| AgentOption {
+                        id: category.into(),
+                        name: category.into(),
+                        category: category.into(),
+                        current: "3".into(),
+                        legacy: false,
+                        choices: (0..8)
+                            .map(|i| AgentChoice {
+                                value: i.to_string(),
+                                name: format!("Choice {i}"),
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            }),
+            ..Default::default()
+        };
         let mut state = FrameState {
             ready: true,
             transcript: Arc::new(model),

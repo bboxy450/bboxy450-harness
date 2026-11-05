@@ -449,6 +449,12 @@ assumptions = "Birth0..2 denotes child/session A-B-A, revision0..2 denotes full 
 property = "ConfirmedHasCurrentChildAndOptionIdentity; UnknownNeverRedispatches; ConfigHasNoPromptEffect; LocalDeadlineSettlesPending under WF{deadline}."
 checks = ["make test-formal", "make test"]
 
+# Published TLC 0.1.1 compatibility: conditional updates in AttachmentIntake,
+# AttachmentCapability and OnboardingInstall are disjoint guarded cases with
+# unchanged human labels/state relation. WF(Complete) maps [3] -> [3,4];
+# installer Click split shifts WF(Reap) [2] -> [3]; capability has no fairness.
+# tests/formal_models.rs exhausts all 2688 declared good/broken/control states
+# against original conditional math; native/Java parity checks the exported cases.
 [[contract]]
 name = "HarnessAttachmentIntake"
 title = "Async composer intake cannot cross draft revisions or A-B-A view births."
