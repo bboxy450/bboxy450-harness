@@ -317,3 +317,10 @@ test-python-execute-boundaries: test-python-execute
 .PHONY: land
 land:
 	@set -eu; if [ -f ../../scripts/cache-env.sh ]; then . ../../scripts/cache-env.sh; fi; TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/land.py
+.PHONY: test-dream-mcp
+test-dream-mcp:
+	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::read_wire:: -- --test-threads=1
+	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::worker::tests -- --test-threads=1
+	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib selected_helper_process_tests -- --test-threads=1
+	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::read::helper_tests -- --test-threads=1
+	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test dream_read --test dream_audit_broken --test dream_trust --test dream_seal --test dream_sinks --test dream_recall -- --test-threads=1 --nocapture

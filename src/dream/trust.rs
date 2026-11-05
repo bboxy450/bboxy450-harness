@@ -353,6 +353,13 @@ pub(crate) fn selected_key_command(
     args: &[String],
     home: Option<&Path>,
 ) -> Result<(i32, Vec<u8>), Invalid> {
+    let result=selected_key_command_owned(path,args,home);
+    if let Err(error)=&result{super::resolve::helper_refusal(error.0);}
+    result
+}
+fn selected_key_command_owned(
+    path:&Path,args:&[String],home:Option<&Path>,
+)->Result<(i32,Vec<u8>),Invalid>{
     let home = home.ok_or(Invalid("selected private public key custody unavailable"))?;
     let action = args
         .iter()
@@ -384,9 +391,10 @@ pub(crate) fn selected_key_command(
         .key_bytes
         .get(physical)
         .ok_or(Invalid("selected public key bytes unavailable"))?;
-    if bytes.is_empty() || bytes.len() > 2 * 1024 * 1024 {
+    if bytes.is_empty() {
         return Err(Invalid("selected public key byte bound"));
     }
+    if bytes.len()>2*1024*1024{return Err(Invalid("resource_limit: selected public key byte bound"));}
     let mut pipe_args = args.to_vec();
     pipe_args[action + 1] = "-".into();
     super::resolve::selected_command_input(path, "gpg", &pipe_args, Some(home), Some(bytes))

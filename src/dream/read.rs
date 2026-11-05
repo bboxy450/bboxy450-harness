@@ -5,7 +5,7 @@
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 //! Closed, selected, verified-at-revision publication exporter. No live Recall effect.
-use super::{c1_wire as c, read_wire as w, worker::*};
+use super::{c1_wire as c, read_wire as w, resolve::HelperTicket, worker::*};
 use crate::protocol::{Envelope, Event, SessionId};
 use disposal::Drain;
 use sha2::{Digest, Sha256};
@@ -826,6 +826,19 @@ struct ProofClock {
     helper_clock: Option<u64>,
     helper_summary: Rc<RefCell<HelperSummary>>,
 }
+#[cfg(test)]
+impl Drop for ProofClock {
+    fn drop(&mut self) {
+        if Rc::strong_count(&self.helper_summary) == 1 {
+            self.helper_summary.borrow().emit();
+            eprintln!(
+                "dream-read helper_fixture_failure={:?} control={:?}",
+                *self.failure.borrow(),
+                self.budget.borrow().control.error()
+            );
+        }
+    }
+}
 #[derive(Default)]
 struct HelperSummary {
     cost_known: bool,
@@ -844,6 +857,15 @@ struct HelperSummary {
     inclusive_max_wall: u64,
     app_max_cpu: u64,
     creation_debt: u64,
+    retirement_count: u64,
+    retirement_pending_cpu: u64,
+    retirement_cpu: u64,
+    retirement_max_cpu: u64,
+    retirement_inclusive_max_cpu: u64,
+    retirement_unknown: u64,
+    retirement_conservative_debt: u64,
+    #[cfg(test)]
+    retirement_last_end: Option<Instant>,
     settled: u64,
     rolled_cpu: u64,
     reaped_rss: u64,
@@ -872,9 +894,19 @@ impl HelperSummary {
             self.app_max_cpu,
             self.creation_debt
         );
+        eprintln!(
+            "dream-read helper_retirement profile=read-helper-native/1 tag=application count={} pending_pipe_cpu_ns={} cpu_ns={} max_cpu_ns={} inclusive_max_cpu_ns={} unknown_clocks={} conservative_additional_debt_ns={}",
+            self.retirement_count,
+            self.retirement_pending_cpu,
+            self.retirement_cpu,
+            self.retirement_max_cpu,
+            self.retirement_inclusive_max_cpu,
+            self.retirement_unknown,
+            self.retirement_conservative_debt
+        );
         let m = &self.totals;
         eprintln!(
-            "dream-read helper_lifetime profile=read-helper-native/1 settled={} grants={} charge_ns={} max_charge_ns={} debt_ns={} controller_cpu_ns={} pipe_cpu_ns={} observed_direct_cpu_ns={} observed_descendant_cpu_ns={} rolled_descendant_cpu_ns={} reaped_rollup_cpu_ns={} descendants={} coverage_known={}",
+            "dream-read helper_lifetime profile=read-helper-native/1 settled={} grants={} charge_ns={} max_charge_ns={} debt_ns={} controller_cpu_ns={} pipe_cpu_ns={} observed_direct_cpu_ns={} observed_descendant_cpu_ns={} rolled_descendant_cpu_ns={} reaped_rollup_cpu_ns={} initial_kernel_cpu_ns={} descendants={} verified_descendants={} coverage_known={} first_failure_line={}",
             self.settled,
             m.grants,
             m.charged_ns,
@@ -886,8 +918,11 @@ impl HelperSummary {
             m.observed_descendant_cpu_ns,
             m.rolled_descendant_cpu_ns,
             self.rolled_cpu,
+            m.initial_kernel_cpu_ns,
             m.descendants,
-            m.coverage_known
+            m.verified_descendants,
+            m.coverage_known,
+            m.first_failure_line
         );
         eprintln!(
             "dream-read helper_memory profile=read-helper-native/1 simultaneous_group_rss_peak_bytes={} sum_separate_rss_peak_bytes={} reaped_rss_high_water_bytes={} mixed_main_heap_plus_group_rss_peak_bytes={} group_rss_limit_bytes={} mixed_limit_bytes={} native_heap_coverage=sampled_rss_not_allocator",
@@ -1024,7 +1059,10 @@ impl super::resolve::ProofPace for ProofClock {
                 }
             }
         }
-        if let Some(code) = code.or_else(|| control.error()) {
+        if let Some(code) = code
+            .or_else(|| *self.failure.borrow())
+            .or_else(|| control.error())
+        {
             *self.failure.borrow_mut() = Some(code);
             return Err(super::entry::Invalid("selected native creation refused"));
         }
@@ -1042,7 +1080,21 @@ impl super::resolve::ProofPace for ProofClock {
                 })
                 .ok_or(super::entry::Invalid("helper native custody mismatch"))?;
             h.ready = true;
-            h.debt_until = Instant::now();
+            h.debt_until = h.debt_until.max(Instant::now());
+            let kernel_debt = h
+                .metrics
+                .initial_kernel_cpu_ns
+                .checked_mul(9)
+                .ok_or(super::entry::Invalid("helper kernel debt overflow"))?;
+            h.metrics.debt_ns = h
+                .metrics
+                .debt_ns
+                .checked_add(kernel_debt)
+                .ok_or(super::entry::Invalid("helper kernel debt overflow"))?;
+            h.debt_until = h
+                .debt_until
+                .checked_add(Duration::from_nanos(kernel_debt))
+                .ok_or(super::entry::Invalid("helper kernel debt overflow"))?;
         }
         self.helper_clock = Some(cpu_ns());
         Ok(())
@@ -1072,7 +1124,7 @@ impl super::resolve::ProofPace for ProofClock {
     }
     fn helper_usage(
         &mut self,
-        pgid: i32,
+        ticket: HelperTicket,
         cpu_ns: u64,
         rss_bytes: u64,
     ) -> Result<(), super::entry::Invalid> {
@@ -1083,8 +1135,13 @@ impl super::resolve::ProofPace for ProofClock {
             .map_err(|_| super::entry::Invalid("helper custody unavailable"))?;
         let h = helper
             .as_mut()
-            .filter(|h| h.pgid == pgid)
+            .filter(|h| h.pgid == ticket.pgid && h.identity.ticket() == ticket)
             .ok_or(super::entry::Invalid("helper usage custody"))?;
+        if h.running {
+            // Usage follows actual wait4/group-gone. An unconfirmed stop keeps
+            // charging until this known endpoint rather than erasing its debt.
+            h.finish_grant(&control, 0);
+        }
         let mut summary = self.helper_summary.borrow_mut();
         summary.rolled_cpu = summary
             .rolled_cpu
@@ -1133,77 +1190,263 @@ impl super::resolve::ProofPace for ProofClock {
             return Err(super::entry::Invalid("helper owner limit"));
         }
         *helper = Some(super::c1::HelperGroup::attached(identity));
-        let h = helper.as_mut().unwrap();
-        if h.sample(&b.control) != Ok(true) {
-            h.ready = false;
-            *self.failure.borrow_mut() = Some(c::Code::SourceUnavailable);
-            return Err(super::entry::Invalid("helper was not born stopped"));
+        let waiting = Instant::now();
+        loop {
+            let h = helper.as_mut().unwrap();
+            match h.sample(&b.control) {
+                Ok(true) => break,
+                Ok(false)
+                    if h.initial_stop_pending
+                        && waiting.elapsed() < Duration::from_millis(25)
+                        && b.control.error().is_none() =>
+                {
+                    // START_SUSPENDED publishes BSD SSTOP before its kernel
+                    // tail is quiescent. No SIGSTOP substitute and no user CPU
+                    // is admitted; release control custody while waiting.
+                    drop(helper);
+                    std::thread::sleep(Duration::from_micros(100));
+                    helper = b.control.helper.lock().unwrap_or_else(|p| p.into_inner());
+                }
+                _ => {
+                    h.ready = false;
+                    *self.failure.borrow_mut() =
+                        Some(b.control.error().unwrap_or(c::Code::SourceUnavailable));
+                    return Err(super::entry::Invalid("helper was not born stopped"));
+                }
+            }
         }
         Ok(())
     }
-    fn helper_retire(&mut self, pgid: i32) -> Result<(), super::entry::Invalid> {
+    fn helper_retire(&mut self, ticket: HelperTicket) -> Result<(), super::entry::Invalid> {
+        let at = cpu_ns();
         let control = self.budget.borrow().control.clone();
-        let mut helper = control.helper.lock().unwrap_or_else(|poisoned| {
-            control.cancel.store(4, Ordering::Release);
-            poisoned.into_inner()
-        });
+        let (mut helper, poisoned) = match control.helper.lock() {
+            Ok(helper) => (helper, false),
+            Err(poisoned) => (poisoned.into_inner(), true),
+        };
         let h = helper
             .as_mut()
-            .filter(|h| h.pgid == pgid)
+            .filter(|h| h.pgid == ticket.pgid && h.identity.ticket() == ticket)
             .ok_or(super::entry::Invalid("helper custody mismatch"))?;
+        // A stale same-number hook must not consume the current owner's clock,
+        // change readiness, or acquire even its retirement signaling rights.
+        if poisoned {
+            let _ = control
+                .cancel
+                .compare_exchange(0, 4, Ordering::AcqRel, Ordering::Acquire);
+        }
+        let pending = self.helper_clock.take().and_then(|previous| {
+            at.checked_sub(previous)
+                .filter(|_| at != u64::MAX && previous != u64::MAX)
+        });
         h.ready = false;
+        h.retiring = true; // stop controller signals before final native effects
+        let mut refusal = if pending.is_none() {
+            Some(c::Code::SourceUnavailable)
+        } else if pending.is_some_and(|used| used > 1_000_000) {
+            Some(c::Code::ResourceLimit)
+        } else {
+            None
+        };
+        let mut prefix_charged = Some(0u64);
+        if let Some(pending) = pending {
+            h.metrics.pipe_cpu_ns = h.metrics.pipe_cpu_ns.saturating_add(pending);
+            if h.running {
+                // The final pipe tail belongs to this still-runnable grant and
+                // must enter its whole charge before finish_grant closes it.
+                h.lane_cpu = h.lane_cpu.saturating_add(pending);
+            } else if h.metrics.grants != 0 {
+                // A controller may have confirmed stop between the last poll
+                // and this owner handoff. Conservatively reconcile that tail
+                // into the prior grant envelope; never silently omit it.
+                h.metrics.charged_ns = h.metrics.charged_ns.saturating_add(pending);
+                h.metrics.max_charge_ns = h.metrics.max_charge_ns.saturating_add(pending);
+                if h.metrics.max_charge_ns > 1_000_000 {
+                    refusal.get_or_insert(c::Code::ResourceLimit);
+                }
+            }
+        }
         // Retirement precedes the owner's last group kill and wait4. If a
         // refusal arrived during a runnable grant, retain its entire observed
         // wall/CPU excess rather than calling the interval stopped or free.
-        if h.running {
-            let at = cpu_ns();
-            unsafe {
-                libc::kill(-pgid, libc::SIGSTOP);
-            }
-            if h.sample(&control) == Ok(true) {
-                let end = cpu_ns();
-                let used = end
-                    .checked_sub(at)
-                    .filter(|_| at != u64::MAX && end != u64::MAX)
-                    .unwrap_or(u64::MAX);
-                h.finish_grant(&control, used);
-            } else {
-                // No fabricated stop acknowledgement: retain the full unknown
-                // grant and refuse trust while the pinned owner kills/reaps it.
-                let wall = u64::try_from(h.changed.elapsed().as_nanos()).unwrap_or(u64::MAX);
-                let charge = wall
-                    .checked_mul(h.identity.expected_members as u64)
-                    .and_then(|n| n.checked_add(h.lane_cpu))
-                    .unwrap_or(u64::MAX);
-                h.metrics.charged_ns = h.metrics.charged_ns.saturating_add(charge);
-                h.metrics.max_charge_ns = h.metrics.max_charge_ns.max(charge);
-                h.metrics.coverage_known = false;
-                if self.failure.borrow().is_none() {
-                    *self.failure.borrow_mut() =
-                        Some(control.error().unwrap_or(c::Code::SourceUnavailable));
+        let native = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if h.running {
+                let stop_at = cpu_ns();
+                unsafe {
+                    libc::kill(-ticket.pgid, libc::SIGSTOP);
                 }
+                if h.sample(&control) == Ok(true) {
+                    let stopped_at = cpu_ns();
+                    prefix_charged = stopped_at
+                        .checked_sub(stop_at)
+                        .filter(|_| stop_at != u64::MAX && stopped_at != u64::MAX);
+                    if let Some(used) = prefix_charged {
+                        h.finish_grant(&control, used);
+                    } else {
+                        h.metrics.coverage_known = false;
+                        refusal.get_or_insert(c::Code::SourceUnavailable);
+                    }
+                } else {
+                    // Preserve the pending grant until the actual wait4 and
+                    // group-gone endpoint; a successful SIGSTOP is no ack.
+                    h.metrics.coverage_known = false;
+                    refusal.get_or_insert(c::Code::SourceUnavailable);
+                }
+            } else if h.sample(&control) != Ok(true) {
+                h.metrics.coverage_known = false;
+                refusal.get_or_insert(c::Code::SourceUnavailable);
             }
-        } else if h.sample(&control) != Ok(true) {
+            if h.retire_members().is_err() {
+                h.metrics.coverage_known = false;
+                refusal.get_or_insert(c::Code::SourceUnavailable);
+            }
+        }));
+        if native.is_err() {
             h.metrics.coverage_known = false;
-            if self.failure.borrow().is_none() {
-                *self.failure.borrow_mut() =
-                    Some(control.error().unwrap_or(c::Code::SourceUnavailable));
+            refusal.get_or_insert(c::Code::SourceUnavailable);
+        }
+        let end = cpu_ns();
+        let ended = Instant::now();
+        let retirement = end
+            .checked_sub(at)
+            .filter(|_| at != u64::MAX && end != u64::MAX);
+        let inclusive =
+            pending.and_then(|pending| retirement.and_then(|used| pending.checked_add(used)));
+        let remaining = retirement
+            .and_then(|used| prefix_charged.and_then(|charged| used.checked_sub(charged)));
+        let known = inclusive.is_some() && remaining.is_some();
+        let raw = inclusive.unwrap_or(u64::MAX);
+        self.helper_clock = known.then_some(end);
+        {
+            let mut summary = self.helper_summary.borrow_mut();
+            summary.retirement_count = summary.retirement_count.saturating_add(1);
+            summary.retirement_pending_cpu = summary
+                .retirement_pending_cpu
+                .saturating_add(pending.unwrap_or(u64::MAX));
+            summary.retirement_cpu = summary
+                .retirement_cpu
+                .saturating_add(retirement.unwrap_or(u64::MAX));
+            summary.retirement_max_cpu = summary
+                .retirement_max_cpu
+                .max(retirement.unwrap_or(u64::MAX));
+            summary.retirement_inclusive_max_cpu = summary.retirement_inclusive_max_cpu.max(raw);
+            summary.retirement_unknown =
+                summary.retirement_unknown.saturating_add(u64::from(!known));
+            summary.cost_known &= known;
+            #[cfg(test)]
+            {
+                summary.retirement_last_end = Some(ended);
             }
         }
-        h.retiring = true;
+        let mut b = self.budget.borrow_mut();
+        b.max_unit = b.max_unit.max(raw);
+        if let Some(cpu) = inclusive.filter(|_| known) {
+            if let Some(total) = b.counters.cpu.checked_add(cpu) {
+                b.counters.cpu = total;
+            } else {
+                refusal.get_or_insert(c::Code::SourceUnavailable);
+            }
+            if cpu > 1_000_000 {
+                b.overruns = b.overruns.saturating_add(1);
+                refusal.get_or_insert(c::Code::ResourceLimit);
+            }
+            // finish_grant already counted its measured stop/sample prefix as
+            // controller CPU. Book only the uncounted retirement remainder.
+            let uncounted = remaining.unwrap();
+            h.metrics.pipe_cpu_ns = h.metrics.pipe_cpu_ns.saturating_add(uncounted);
+            if h.running {
+                h.lane_cpu = h.lane_cpu.saturating_add(uncounted);
+            }
+            // This entire ordinary span gets a post-end rest. It is explicitly
+            // conservative additional debt when a prefix also belonged to the
+            // final group grant; observed CPU itself is never counted twice.
+            let debt = cpu.max(1_000_000).checked_mul(9);
+            let until = debt.and_then(|debt| {
+                h.debt_until
+                    .max(ended)
+                    .checked_add(Duration::from_nanos(debt))
+            });
+            if let (Some(debt), Some(until)) = (debt, until) {
+                h.metrics.debt_ns = h.metrics.debt_ns.saturating_add(debt);
+                h.debt_until = until;
+                let mut summary = self.helper_summary.borrow_mut();
+                summary.retirement_conservative_debt =
+                    summary.retirement_conservative_debt.saturating_add(debt);
+            } else {
+                refusal.get_or_insert(c::Code::SourceUnavailable);
+            }
+        } else {
+            h.metrics.coverage_known = false;
+            h.metrics.pipe_cpu_ns = u64::MAX; // unknown, never an invented zero
+            refusal.get_or_insert(c::Code::SourceUnavailable);
+        }
+        let first_failure = self.failure.borrow().as_ref().copied();
+        if let Some(code) = first_failure.or_else(|| control.error()).or(refusal) {
+            if self.failure.borrow().is_none() {
+                *self.failure.borrow_mut() = Some(code);
+            }
+            let stop = match code {
+                c::Code::Cancelled => Some(1),
+                c::Code::Deadline => Some(2),
+                c::Code::ProtocolError => Some(3),
+                c::Code::ResourceLimit => Some(4),
+                c::Code::SourceUnavailable => Some(5),
+                _ => None,
+            };
+            if let Some(stop) = stop {
+                let _ =
+                    control
+                        .cancel
+                        .compare_exchange(0, stop, Ordering::AcqRel, Ordering::Acquire);
+            }
+            return Err(super::entry::Invalid(
+                "helper retirement application scope refused",
+            ));
+        }
         Ok(())
     }
-    fn helper_detach(&mut self, pgid: i32) -> Result<(), super::entry::Invalid> {
+    fn helper_detach(&mut self, ticket: HelperTicket) -> Result<(), super::entry::Invalid> {
         let b = self.budget.borrow();
-        let mut helper = b.control.helper.lock().unwrap_or_else(|poisoned| {
-            b.control.cancel.store(4, Ordering::Release);
-            poisoned.into_inner()
-        });
+        let (mut helper, poisoned) = match b.control.helper.lock() {
+            Ok(helper) => (helper, false),
+            Err(poisoned) => (poisoned.into_inner(), true),
+        };
         if !helper
             .as_ref()
-            .is_some_and(|h| h.pgid == pgid && h.retiring)
+            .is_some_and(|h| h.pgid == ticket.pgid && h.identity.ticket() == ticket && h.retiring)
         {
             return Err(super::entry::Invalid("helper settlement mismatch"));
+        }
+        if poisoned {
+            let _ = b
+                .control
+                .cancel
+                .compare_exchange(0, 4, Ordering::AcqRel, Ordering::Acquire);
+        }
+        loop {
+            // Unknown physical exit retains this original owner/slot. Status
+            // and cancellation remain on the independent control owner; no
+            // further work, output certification or PID-based signal occurs.
+            drop(helper);
+            let mut exited = false;
+            cleanup_unit(&b.control, || {
+                let current = b.control.helper.lock().unwrap_or_else(|p| p.into_inner());
+                exited = current.as_ref().is_some_and(|h| {
+                    h.pgid == ticket.pgid
+                        && h.identity.ticket() == ticket
+                        && h.retiring
+                        && h.retired_members_exited()
+                });
+            });
+            helper = b.control.helper.lock().unwrap_or_else(|p| p.into_inner());
+            if !helper.as_ref().is_some_and(|h| {
+                h.pgid == ticket.pgid && h.identity.ticket() == ticket && h.retiring
+            }) {
+                return Err(super::entry::Invalid("helper quarantine custody changed"));
+            }
+            if exited {
+                break;
+            }
         }
         let mut h = helper.take().unwrap();
         drop(helper);
@@ -1217,6 +1460,7 @@ impl super::resolve::ProofPace for ProofClock {
         }
         if h.identity.expected_members == 2
             && (h.metrics.descendants != 1
+                || h.metrics.verified_descendants != 1
                 || h.metrics.rolled_descendant_cpu_ns < h.metrics.observed_descendant_cpu_ns)
         {
             h.metrics.coverage_known = false;
@@ -1249,11 +1493,20 @@ impl super::resolve::ProofPace for ProofClock {
         m.separate_rss_sum = m.separate_rss_sum.max(h.metrics.separate_rss_sum);
         m.mixed_heap_rss_peak = m.mixed_heap_rss_peak.max(h.metrics.mixed_heap_rss_peak);
         m.descendants = m.descendants.saturating_add(h.metrics.descendants);
+        m.verified_descendants = m
+            .verified_descendants
+            .saturating_add(h.metrics.verified_descendants);
+        m.initial_kernel_cpu_ns = m
+            .initial_kernel_cpu_ns
+            .saturating_add(h.metrics.initial_kernel_cpu_ns);
+        if m.first_failure_line == 0 {
+            m.first_failure_line = h.metrics.first_failure_line;
+        }
         m.coverage_known &= h.metrics.coverage_known;
         self.helper_clock = None;
         Ok(())
     }
-    fn helper_poll(&mut self, pgid: i32) -> Result<(), super::entry::Invalid> {
+    fn helper_poll(&mut self, ticket: HelperTicket) -> Result<(), super::entry::Invalid> {
         let b = self.budget.borrow();
         let mut helper = b
             .control
@@ -1262,7 +1515,7 @@ impl super::resolve::ProofPace for ProofClock {
             .map_err(|_| super::entry::Invalid("helper custody unavailable"))?;
         let h = helper
             .as_mut()
-            .filter(|h| h.pgid == pgid)
+            .filter(|h| h.pgid == ticket.pgid && h.identity.ticket() == ticket)
             .ok_or(super::entry::Invalid("helper custody mismatch"))?;
         let now = cpu_ns();
         let used = self
@@ -1291,6 +1544,7 @@ impl super::resolve::ProofPace for ProofClock {
                 .ok_or(super::entry::Invalid("helper pipe debt overflow"))?;
             h.debt_until = h
                 .debt_until
+                .max(Instant::now())
                 .checked_add(Duration::from_nanos(debt))
                 .ok_or(super::entry::Invalid("helper pipe debt overflow"))?;
         }
@@ -2207,7 +2461,7 @@ mod helper_tests {
         assert_eq!(summary.borrow().creation_debt, 18_000_000);
     }
     #[test]
-    fn cancellation_does_not_reset_creation_debt() {
+    fn cancellation_does_not_reset_failed_creation_debt() {
         let (mut clock, summary, control) = owner();
         control.cancel.store(1, Ordering::Release);
         let at = Instant::now();
@@ -2218,7 +2472,10 @@ mod helper_tests {
         );
         assert!(at.elapsed() >= Duration::from_millis(9));
         assert_eq!(summary.borrow().creation_debt, 9_000_000);
-        assert_eq!(*clock.failure.borrow(), Some(c::Code::Cancelled));
+        // This span reports a real no-effect ENOENT; cancellation cannot erase
+        // that verdict or its debt, and the independent cancel flag survives.
+        assert_eq!(*clock.failure.borrow(), Some(c::Code::SourceUnavailable));
+        assert_eq!(control.cancel.load(Ordering::Acquire), 1);
     }
     #[test]
     fn native_clock_loss_retains_unknown_raw_cost_without_zero_certification() {
@@ -2231,6 +2488,49 @@ mod helper_tests {
         assert!(!summary.borrow().cost_known);
         assert_eq!(summary.borrow().inclusive_max_cpu, u64::MAX);
         assert_eq!(*clock.failure.borrow(), Some(c::Code::SourceUnavailable));
+    }
+    #[test]
+    fn native_cpu_limit_retains_raw_cost_and_debt() {
+        let (mut clock, summary, _) = owner();
+        let value = span(2_000_001, 2_000_001, 0);
+        assert!(clock.native_created(value).is_err());
+        assert_eq!(*clock.failure.borrow(), Some(c::Code::ResourceLimit));
+        let summary = summary.borrow();
+        assert!(summary.cost_known);
+        assert_eq!(summary.native_max_cpu, 2_000_001);
+        assert_eq!(summary.inclusive_max_cpu, 2_000_001);
+        assert_eq!(summary.app_max_cpu, 0);
+        assert_eq!(summary.creation_debt, 18_000_009);
+    }
+    #[test]
+    fn native_wall_limit_retains_raw_cost_and_debt() {
+        let (mut clock, summary, _) = owner();
+        let mut value = span(100_000, 200_000, 100_000);
+        value.wall_ns = 25_000_001;
+        value.inclusive_wall_ns = 25_100_001;
+        assert!(clock.native_created(value).is_err());
+        assert_eq!(*clock.failure.borrow(), Some(c::Code::ResourceLimit));
+        let summary = summary.borrow();
+        assert!(summary.cost_known);
+        assert_eq!(summary.native_max_wall, 25_000_001);
+        assert_eq!(summary.inclusive_max_wall, 25_100_001);
+        assert_eq!(summary.native_max_cpu, 100_000);
+        assert_eq!(summary.creation_debt, 9_000_000);
+    }
+    #[test]
+    fn native_inclusive_limit_retains_raw_cost_and_debt() {
+        let (mut clock, summary, _) = owner();
+        // Independent raw-inclusive guard input: both constituent guard values
+        // stay at their limits, so removing only raw3ms changes the verdict.
+        let value = span(2_000_000, 3_000_001, 1_000_000);
+        assert!(clock.native_created(value).is_err());
+        assert_eq!(*clock.failure.borrow(), Some(c::Code::ResourceLimit));
+        let summary = summary.borrow();
+        assert!(summary.cost_known);
+        assert_eq!(summary.native_max_cpu, 2_000_000);
+        assert_eq!(summary.app_max_cpu, 1_000_000);
+        assert_eq!(summary.inclusive_max_cpu, 3_000_001);
+        assert_eq!(summary.creation_debt, 27_000_009);
     }
     #[test]
     fn creation_cap_is_consumed_for_implicit_descendant_without_refund() {
@@ -2248,6 +2548,313 @@ mod helper_tests {
         }
         assert!(super::super::resolve::helper_creation_reserve(1).is_err());
         drop(scope);
+    }
+    #[cfg(target_os = "macos")]
+    struct RetirementChild(std::process::Child);
+    #[cfg(target_os = "macos")]
+    impl Drop for RetirementChild {
+        fn drop(&mut self) {
+            // Only the exact private child created below, retained unreaped.
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    #[cfg(target_os = "macos")]
+    fn retirement_child(control: &Arc<Control>) -> (RetirementChild, i32) {
+        use std::os::unix::process::CommandExt;
+        let child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let child = RetirementChild(child);
+        let pid = child.0.id() as i32;
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGSTOP) }, 0);
+        let until = Instant::now() + Duration::from_secs(1);
+        let info = loop {
+            let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
+            let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+            assert_eq!(
+                unsafe {
+                    libc::proc_pidinfo(
+                        pid,
+                        libc::PROC_PIDTBSDINFO,
+                        0,
+                        info.as_mut_ptr().cast(),
+                        size,
+                    )
+                },
+                size
+            );
+            let info = unsafe { info.assume_init() };
+            if info.pbi_status == 4 {
+                break info;
+            }
+            assert!(
+                Instant::now() < until,
+                "own private child must actually stop"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        assert_eq!(info.pbi_pgid, pid as u32);
+        let identity = super::super::resolve::HelperIdentity {
+            sequence: 1,
+            pid,
+            pgid: pid,
+            start_identity: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec,
+            expected_members: 1,
+            image: std::fs::canonicalize("/bin/sleep").unwrap(),
+            descendant_image: None,
+        };
+        *control.helper.lock().unwrap() = Some(super::super::c1::HelperGroup::attached(identity));
+        (child, pid)
+    }
+    #[cfg(target_os = "macos")]
+    fn retirement_ticket(control: &Arc<Control>) -> HelperTicket {
+        control
+            .helper
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .identity
+            .ticket()
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn retirement_application_rest_starts_after_actual_span_despite_saved_idle() {
+        let (mut clock, summary, control) = owner();
+        let (_child, pid) = retirement_child(&control);
+        std::thread::sleep(Duration::from_millis(25));
+        clock.helper_clock = Some(cpu_ns());
+        clock.helper_retire(retirement_ticket(&control)).unwrap();
+        let summary = summary.borrow();
+        assert_eq!(summary.retirement_count, 1);
+        assert_eq!(summary.retirement_unknown, 0);
+        assert!(summary.retirement_inclusive_max_cpu <= 1_000_000);
+        let required = summary.retirement_inclusive_max_cpu.max(1_000_000) * 9;
+        assert_eq!(summary.retirement_conservative_debt, required);
+        let helper = control.helper.lock().unwrap();
+        let helper = helper.as_ref().unwrap();
+        assert!(helper.retiring && !helper.ready);
+        assert!(
+            helper.debt_until
+                >= summary.retirement_last_end.unwrap() + Duration::from_nanos(required)
+        );
+        assert_eq!(
+            summary.creations, 0,
+            "ordinary retirement never gets a native label"
+        );
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn retirement_pipe_tail_enforces_application_limit_and_preserves_first_cancel() {
+        for cancelled in [false, true] {
+            let (mut clock, summary, control) = owner();
+            let (_child, pid) = retirement_child(&control);
+            let start = cpu_ns();
+            clock.helper_clock = Some(start);
+            while cpu_ns().saturating_sub(start) < 2_000_000 {
+                std::hint::black_box(cpu_ns());
+            }
+            if cancelled {
+                control.cancel.store(1, Ordering::Release);
+            }
+            assert!(clock.helper_retire(retirement_ticket(&control)).is_err());
+            let summary = summary.borrow();
+            assert!(summary.retirement_pending_cpu >= 2_000_000);
+            assert!(summary.retirement_inclusive_max_cpu >= 2_000_000);
+            assert_eq!(summary.creations, 0);
+            let b = clock.budget.borrow();
+            assert!(b.max_unit >= 2_000_000 && b.overruns != 0);
+            assert!(b.counters.cpu >= summary.retirement_inclusive_max_cpu);
+            let code = if cancelled {
+                c::Code::Cancelled
+            } else {
+                c::Code::ResourceLimit
+            };
+            assert_eq!(*clock.failure.borrow(), Some(code));
+            assert_eq!(
+                control.cancel.load(Ordering::Acquire),
+                if cancelled { 1 } else { 4 }
+            );
+            let helper = control.helper.lock().unwrap();
+            let helper = helper.as_ref().unwrap();
+            assert!(helper.metrics.pipe_cpu_ns >= 2_000_000 && helper.retiring);
+            assert!(
+                helper.debt_until
+                    >= summary.retirement_last_end.unwrap()
+                        + Duration::from_nanos(summary.retirement_conservative_debt)
+            );
+        }
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn retirement_unknown_clock_keeps_raw_unknown_and_owned_quarantine() {
+        let (mut clock, summary, control) = owner();
+        let (_child, pid) = retirement_child(&control);
+        let known_debt = Instant::now() + Duration::from_millis(17);
+        control.helper.lock().unwrap().as_mut().unwrap().debt_until = known_debt;
+        clock.helper_clock = Some(u64::MAX);
+        assert!(clock.helper_retire(retirement_ticket(&control)).is_err());
+        let summary = summary.borrow();
+        assert!(!summary.cost_known);
+        assert_eq!(summary.retirement_pending_cpu, u64::MAX);
+        assert_eq!(summary.retirement_inclusive_max_cpu, u64::MAX);
+        assert_eq!(summary.retirement_unknown, 1);
+        assert_eq!(
+            summary.retirement_conservative_debt, 0,
+            "no fabricated finite payment for unknown CPU"
+        );
+        assert_eq!(*clock.failure.borrow(), Some(c::Code::SourceUnavailable));
+        let helper = control.helper.lock().unwrap();
+        let helper = helper.as_ref().unwrap();
+        assert!(helper.retiring && !helper.ready && !helper.metrics.coverage_known);
+        assert_eq!(helper.metrics.pipe_cpu_ns, u64::MAX);
+        assert!(helper.debt_until >= known_debt);
+    }
+
+    #[cfg(target_os = "macos")]
+    fn reap_private_child(child: &mut RetirementChild, pid: i32) {
+        assert_eq!(child.0.id(), pid as u32);
+        child.0.kill().unwrap();
+        assert!(!child.0.wait().unwrap().success());
+        // Child::wait records the actual reap, so its Drop cannot signal a
+        // later process that happens to reuse this numeric identity.
+        assert!(child.0.try_wait().unwrap().is_some());
+        assert_eq!(unsafe { libc::kill(-pid, 0) }, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH)
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn same_numeric_group_rejects_stale_ticket_before_every_custody_effect() {
+        let (mut clock, summary, control) = owner();
+        let (mut child, pid) = retirement_child(&control);
+        let ticket = retirement_ticket(&control);
+        let stale = [
+            HelperTicket {
+                sequence: ticket.sequence.checked_add(1).unwrap(),
+                ..ticket
+            },
+            HelperTicket {
+                start_identity: ticket.start_identity.checked_add(1).unwrap(),
+                ..ticket
+            },
+            HelperTicket {
+                pid: ticket.pid.checked_add(1).unwrap(),
+                ..ticket
+            },
+            HelperTicket {
+                pgid: ticket.pgid.checked_add(1).unwrap(),
+                ..ticket
+            },
+        ];
+        let checkpoint = cpu_ns();
+        clock.helper_clock = Some(checkpoint);
+        for stale in stale {
+            assert!(clock.helper_poll(stale).is_err());
+            assert!(clock.helper_usage(stale, 17, 19).is_err());
+            assert!(clock.helper_retire(stale).is_err());
+            assert_eq!(clock.helper_clock, Some(checkpoint));
+            assert!(clock.failure.borrow().is_none());
+            assert_eq!(control.cancel.load(Ordering::Acquire), 0);
+            assert_eq!(summary.borrow().retirement_count, 0);
+            assert_eq!(summary.borrow().rolled_cpu, 0);
+            let helper = control.helper.lock().unwrap();
+            let helper = helper.as_ref().unwrap();
+            assert_eq!(helper.identity.ticket(), ticket);
+            assert!(!helper.retiring && !helper.running && !helper.ready);
+            assert_eq!(helper.metrics.pipe_cpu_ns, 0);
+            assert_eq!(helper.metrics.charged_ns, 0);
+            assert_eq!(helper.metrics.debt_ns, 0);
+        }
+        assert!(child.0.try_wait().unwrap().is_none());
+
+        // Detach's independent incarnation guard is exercised with retirement
+        // already true, so its refusal cannot be attributed to that state gate.
+        clock.helper_clock = Some(cpu_ns());
+        let _ = clock.helper_retire(ticket);
+        let debt = control.helper.lock().unwrap().as_ref().unwrap().debt_until;
+        for stale in stale {
+            assert!(clock.helper_detach(stale).is_err());
+            let helper = control.helper.lock().unwrap();
+            let helper = helper.as_ref().unwrap();
+            assert_eq!(helper.identity.ticket(), ticket);
+            assert!(helper.retiring);
+            assert_eq!(helper.debt_until, debt);
+            assert_eq!(summary.borrow().settled, 0);
+        }
+        assert!(child.0.try_wait().unwrap().is_none());
+        reap_private_child(&mut child, pid);
+        clock.helper_detach(ticket).unwrap();
+        assert!(control.helper.lock().unwrap().is_none());
+        assert_eq!(summary.borrow().settled, 1);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn main_proof_before_refuses_even_stopped_owned_helper_until_real_reap() {
+        let (mut clock, summary, control) = owner();
+        let (mut child, pid) = retirement_child(&control);
+        assert!(child.0.try_wait().unwrap().is_none());
+        let error = clock.before().unwrap_err();
+        assert_eq!(error.0, "main proof overlaps helper owner");
+        assert_eq!(*clock.failure.borrow(), Some(c::Code::SourceUnavailable));
+        assert!(clock.started.is_none() && clock.epoch.is_none());
+        assert_eq!(clock.steps, 0);
+        assert_eq!(clock.budget.borrow().counters.cpu, 0);
+        assert_eq!(summary.borrow().settled, 0);
+        assert_eq!(control.helper.lock().unwrap().as_ref().unwrap().pgid, pid);
+
+        clock.helper_clock = Some(cpu_ns());
+        assert!(clock.helper_retire(retirement_ticket(&control)).is_err());
+        assert!(control.helper.lock().unwrap().as_ref().unwrap().retiring);
+        assert!(child.0.try_wait().unwrap().is_none());
+        assert_eq!(summary.borrow().settled, 0);
+        reap_private_child(&mut child, pid);
+        clock.helper_detach(retirement_ticket(&control)).unwrap();
+        assert!(control.helper.lock().unwrap().is_none());
+        assert_eq!(summary.borrow().settled, 1);
+        assert!(
+            clock.before().is_err(),
+            "refusal cannot certify new proof work"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn work_credit_exhaustion_preserves_control_cancel_and_owned_child_settlement() {
+        let (mut clock, summary, control) = owner();
+        let (mut child, pid) = retirement_child(&control);
+        // Exhaust declared work custody, without allocating a test-sized heap
+        // or borrowing the protected control/opaque-native allocations.
+        let work = control.memory.reserve(storage::WORK).unwrap();
+        assert!(clock.reserve(1).is_err());
+        assert_eq!(*clock.failure.borrow(), Some(c::Code::ResourceLimit));
+        assert_eq!(control.memory.snapshot().0, storage::WORK);
+        assert!(clock.credits.borrow().is_empty());
+
+        control.cancel.store(1, Ordering::Release);
+        assert_eq!(control.error(), Some(c::Code::Cancelled));
+        clock.helper_clock = Some(cpu_ns());
+        assert!(clock.helper_retire(retirement_ticket(&control)).is_err());
+        assert!(control.helper.lock().unwrap().as_ref().unwrap().retiring);
+        assert_eq!(control.cancel.load(Ordering::Acquire), 1);
+        assert_eq!(control.memory.snapshot().0, storage::WORK);
+        assert_eq!(summary.borrow().settled, 0);
+        reap_private_child(&mut child, pid);
+        clock.helper_detach(retirement_ticket(&control)).unwrap();
+        assert!(control.helper.lock().unwrap().is_none());
+        assert_eq!(summary.borrow().settled, 1);
+        assert_eq!(control.memory.snapshot().0, storage::WORK);
+        assert_eq!(*clock.failure.borrow(), Some(c::Code::ResourceLimit));
+        assert_eq!(control.cancel.load(Ordering::Acquire), 1);
+        drop(work);
+        assert_eq!(control.memory.snapshot().0, 0);
     }
 }
 fn validate_git_config(

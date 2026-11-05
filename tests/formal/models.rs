@@ -1675,8 +1675,18 @@ pub fn scroll_stick(b: bool) -> Model {
         eq(1, 0),
         &[(1, Int(1)), (2, Var(0))],
     );
-    act(&mut m, "ResumeView", Bool(true), &[(1, Int(1)), (2, Var(0))]);
-    act(&mut m, "ScrollInsidePanel", Var(4).lt(Int(3)), &[(4, Var(4).plus(Int(1)))]);
+    act(
+        &mut m,
+        "ResumeView",
+        Bool(true),
+        &[(1, Int(1)), (2, Var(0))],
+    );
+    act(
+        &mut m,
+        "ScrollInsidePanel",
+        Var(4).lt(Int(3)),
+        &[(4, Var(4).plus(Int(1)))],
+    );
     safe(
         &mut m,
         "TailShownWhileFollowing",
@@ -4450,9 +4460,15 @@ pub fn acp_steering(control: u8) -> Model {
         ],
     );
     if control != 0 {
-        m.name.push_str(if control == 1 { "Replay" } else { "Cancel" });
+        m.name
+            .push_str(if control == 1 { "Replay" } else { "Cancel" });
     }
-    act(&mut m, "NegotiateSupported", eq(0, 0), &[(0, Int(1)), (1, Int(1))]);
+    act(
+        &mut m,
+        "NegotiateSupported",
+        eq(0, 0),
+        &[(0, Int(1)), (1, Int(1))],
+    );
     act(&mut m, "NegotiateUnsupported", eq(0, 0), &[(0, Int(1))]);
     act(&mut m, "ActivePromptEnds", eq(2, 1), &[(2, Int(0))]);
     let route = m.actions.len();
@@ -4474,9 +4490,17 @@ pub fn acp_steering(control: u8) -> Model {
     for consumed in 0..=1 {
         act(
             &mut m,
-            if consumed == 0 { "UnknownUnconsumed" } else { "UnknownAlreadyConsumed" },
+            if consumed == 0 {
+                "UnknownUnconsumed"
+            } else {
+                "UnknownAlreadyConsumed"
+            },
             eq(0, 2),
-            &[(0, Int(if control == 1 { 4 } else { 5 })), (3, Int(consumed)), (4, Int(1))],
+            &[
+                (0, Int(if control == 1 { 4 } else { 5 })),
+                (3, Int(consumed)),
+                (4, Int(1)),
+            ],
         );
     }
     let dispatch = m.actions.len();
@@ -4489,7 +4513,13 @@ pub fn acp_steering(control: u8) -> Model {
     safe(&mut m, "AtMostOneDelivery", Var(3).lt(Int(2)));
     safe(&mut m, "NoCancelForSteering", eq(5, 0));
     safe(&mut m, "NoReplayOfUnknown", eq(4, 0).or(eq(7, 0)));
-    progress(&mut m, "InputRouted", eq(0, 1), Int(1).lt(Var(0)), vec![route, route + 1]);
+    progress(
+        &mut m,
+        "InputRouted",
+        eq(0, 1),
+        Int(1).lt(Var(0)),
+        vec![route, route + 1],
+    );
     progress(
         &mut m,
         "SteeringSettles",
@@ -4497,7 +4527,13 @@ pub fn acp_steering(control: u8) -> Model {
         Int(2).lt(Var(0)),
         (replies..dispatch).collect(),
     );
-    progress(&mut m, "IdleQueueDispatched", all([eq(0, 4), eq(2, 0)]), eq(0, 6), vec![dispatch]);
+    progress(
+        &mut m,
+        "IdleQueueDispatched",
+        all([eq(0, 4), eq(2, 0)]),
+        eq(0, 6),
+        vec![dispatch],
+    );
     m
 }
 
@@ -6880,8 +6916,10 @@ fn wp8_recall(mode: u8) -> Model {
     m
 }
 
-#[path="dream_c1.rs"]
+#[path = "dream_c1.rs"]
 mod dream_c1;
+#[path = "dream_read.rs"]
+mod dream_read;
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
         (dream_c1::bootstrap_entry(0), "pass"),
@@ -6919,6 +6957,40 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (dream_c1::quantum_debt(9), "safety"),
         (dream_c1::quantum_debt(10), "safety"),
         (dream_c1::quantum_debt(11), "safety"),
+        (dream_read::helper(0), "pass"),
+        (dream_read::helper(1), "safety"),
+        (dream_read::helper(2), "safety"),
+        (dream_read::helper(3), "safety"),
+        (dream_read::helper(4), "safety"),
+        (dream_read::helper(5), "safety"),
+        (dream_read::helper(6), "safety"),
+        (dream_read::helper(7), "safety"),
+        (dream_read::helper(8), "safety"),
+        (dream_read::helper(9), "safety"),
+        (dream_read::helper(10), "safety"),
+        (dream_read::helper(11), "safety"),
+        (dream_read::helper(12), "safety"),
+        (dream_read::helper(13), "safety"),
+        (dream_read::helper(14), "safety"),
+        (dream_read::helper(15), "safety"),
+        (dream_read::helper(16), "safety"),
+        (dream_read::helper(17), "safety"),
+        (dream_read::helper(18), "safety"),
+        (dream_read::helper(19), "safety"),
+        (dream_read::helper(20), "safety"),
+        (dream_read::helper(21), "safety"),
+        (dream_read::eligibility(0), "pass"),
+        (dream_read::eligibility(1), "safety"),
+        (dream_read::eligibility(2), "safety"),
+        (dream_read::eligibility(3), "safety"),
+        (dream_read::ownership(0), "pass"),
+        (dream_read::ownership(1), "safety"),
+        (dream_read::ownership(2), "safety"),
+        (dream_read::ownership(3), "safety"),
+        (dream_read::ownership(4), "safety"),
+        (dream_read::snapshot(0), "pass"),
+        (dream_read::snapshot(1), "safety"),
+        (dream_read::snapshot(2), "safety"),
         (dream_c1::returned_owner(0), "pass"),
         (dream_c1::returned_owner(1), "safety"),
         (dream_c1::returned_owner(2), "safety"),
@@ -7449,27 +7521,71 @@ pub fn onboarding_install(b: bool) -> Model {
 
 /// A replacement face acquires the seat's draft only after queued edits drain.
 pub fn draft_handoff(b: bool) -> Model {
-    let mut m = base::<5>("DraftHandoff", b, &[
-        ("old_phase", 2, 0), // visible, retired, released
-        ("queued_edit", 1, 1),
-        ("draft_text", 1, 0),
-        ("replacement_open", 1, 0),
-        ("replacement_text", 1, 0),
-    ]);
+    let mut m = base::<5>(
+        "DraftHandoff",
+        b,
+        &[
+            ("old_phase", 2, 0), // visible, retired, released
+            ("queued_edit", 1, 1),
+            ("draft_text", 1, 0),
+            ("replacement_open", 1, 0),
+            ("replacement_text", 1, 0),
+        ],
+    );
     act(&mut m, "Detach", eq(0, 0), &[(0, Int(1))]);
-    act(&mut m, "DrainAcceptedEdit", all([eq(0, 1), eq(1, 1)]), &[(1, Int(0)), (2, Int(1))]);
-    act(&mut m, "ReleaseCustody", all([eq(0, 1), if b { Bool(true) } else { eq(1, 0) }]), &[(0, Int(2))]);
-    act(&mut m, "Reopen", all([eq(0, 2), eq(3, 0)]), &[(3, Int(1)), (4, Var(2))]);
+    act(
+        &mut m,
+        "DrainAcceptedEdit",
+        all([eq(0, 1), eq(1, 1)]),
+        &[(1, Int(0)), (2, Int(1))],
+    );
+    act(
+        &mut m,
+        "ReleaseCustody",
+        all([eq(0, 1), if b { Bool(true) } else { eq(1, 0) }]),
+        &[(0, Int(2))],
+    );
+    act(
+        &mut m,
+        "Reopen",
+        all([eq(0, 2), eq(3, 0)]),
+        &[(3, Int(1)), (4, Var(2))],
+    );
     safe(&mut m, "AcceptedEditSurvivesReopen", eq(3, 0).or(eq(4, 1)));
     m
 }
 pub fn unrestricted_startup(b: bool) -> Model {
-    let mut m = base::<3>("UnrestrictedStartup", b,
-        &[("phase", 3, 0), ("mode_confirmed", 1, 0), ("prompt_sent", 1, 0)]);
-    act(&mut m, "RequestAdvertisedFullAccess", eq(0, 0), &[(0, Int(1))]);
-    act(&mut m, "AgentConfirmsFullAccess", eq(0, 1), &[(0, Int(2)), (1, Int(1))]);
-    act(&mut m, "SendPrompt", if b {eq(0, 1).or(eq(0, 2))} else {eq(0, 2)},
-        &[(0, Int(3)), (2, Int(1))]);
-    safe(&mut m, "FullAccessConfirmedBeforePrompt", eq(2, 0).or(eq(1, 1)));
+    let mut m = base::<3>(
+        "UnrestrictedStartup",
+        b,
+        &[
+            ("phase", 3, 0),
+            ("mode_confirmed", 1, 0),
+            ("prompt_sent", 1, 0),
+        ],
+    );
+    act(
+        &mut m,
+        "RequestAdvertisedFullAccess",
+        eq(0, 0),
+        &[(0, Int(1))],
+    );
+    act(
+        &mut m,
+        "AgentConfirmsFullAccess",
+        eq(0, 1),
+        &[(0, Int(2)), (1, Int(1))],
+    );
+    act(
+        &mut m,
+        "SendPrompt",
+        if b { eq(0, 1).or(eq(0, 2)) } else { eq(0, 2) },
+        &[(0, Int(3)), (2, Int(1))],
+    );
+    safe(
+        &mut m,
+        "FullAccessConfirmedBeforePrompt",
+        eq(2, 0).or(eq(1, 1)),
+    );
     m
 }

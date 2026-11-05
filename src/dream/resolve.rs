@@ -24,90 +24,332 @@ pub(crate) struct SelectedBindings {
     pub artifacts: BTreeMap<PathBuf, Vec<u8>>,
     pub keys: BTreeMap<PathBuf, PathBuf>,
     pub key_bytes: BTreeMap<PathBuf, Vec<u8>>,
-    pub prepared_tools: Option<PreparedTools>,
     pub scratch: Option<PathBuf>,
 }
 #[derive(Clone, Debug)]
 pub(crate) struct HelperIdentity {
-    pub sequence: u16, pub pid: i32, pub pgid: i32, pub start_identity: u64,
-    pub expected_members: u8, pub image: PathBuf, pub descendant_image: Option<PathBuf>,
+    pub sequence: u16,
+    pub pid: i32,
+    pub pgid: i32,
+    pub start_identity: u64,
+    pub expected_members: u8,
+    pub image: PathBuf,
+    pub descendant_image: Option<PathBuf>,
+}
+/// Affine helper hooks carry only fixed-size original-effect custody. Copying
+/// this ticket never clones executable paths or transfers signaling authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HelperTicket {
+    pub pid: i32,
+    pub pgid: i32,
+    pub start_identity: u64,
+    pub sequence: u16,
+}
+impl HelperIdentity {
+    pub(crate) fn ticket(&self) -> HelperTicket {
+        HelperTicket {
+            pid: self.pid,
+            pgid: self.pgid,
+            start_identity: self.start_identity,
+            sequence: self.sequence,
+        }
+    }
 }
 #[derive(Clone, Debug)]
 pub(crate) struct NativeCreation {
-    pub identity: Option<HelperIdentity>, pub rawerrno: i32, pub sequence: u16, pub cpu_ns: u64, pub wall_ns: u64,
-    pub inclusive_cpu_ns: u64, pub inclusive_wall_ns: u64, pub app_cpu_ns: u64, pub credits: u16,
+    pub identity: Option<HelperIdentity>,
+    pub rawerrno: i32,
+    pub sequence: u16,
+    pub cpu_ns: u64,
+    pub wall_ns: u64,
+    pub inclusive_cpu_ns: u64,
+    pub inclusive_wall_ns: u64,
+    pub app_cpu_ns: u64,
+    pub credits: u16,
 }
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PreparedExecutable { pub absolute_path: PathBuf, pub sha256: String, pub build: String, pub features: Vec<String> }
+pub struct PreparedExecutable {
+    pub absolute_path: PathBuf,
+    pub sha256: String,
+    pub build: String,
+    pub features: Vec<String>,
+}
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PreparedOs { pub release: String, pub arch: String }
+pub struct PreparedOs {
+    pub release: String,
+    pub arch: String,
+}
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CapabilityReceipt { pub probe_source_sha256: String, pub probe_exe_sha256: String, pub evidence_sha256: String, pub features: Vec<String> }
+pub struct CapabilityReceipt {
+    pub probe_source_sha256: String,
+    pub probe_exe_sha256: String,
+    pub evidence_sha256: String,
+    pub features: Vec<String>,
+}
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PreparedTools { pub schema: String, pub source_sha256: String, pub os: PreparedOs, pub git: PreparedExecutable, pub gpg: PreparedExecutable, pub capability: CapabilityReceipt }
+pub struct PreparedTools {
+    pub schema: String,
+    pub source_sha256: String,
+    pub os: PreparedOs,
+    pub git: PreparedExecutable,
+    pub gpg: PreparedExecutable,
+    pub capability: CapabilityReceipt,
+}
+impl super::c1::disposal::Drain for PreparedTools {
+    fn drain_step(&mut self) -> bool {
+        self.git.features.pop().is_some()
+            || self.gpg.features.pop().is_some()
+            || self.capability.features.pop().is_some()
+    }
+}
 /// Exact compiled adapter sources; host provisioning binds this implementation.
 pub fn provision_source_sha256() -> String {
+    provision_source_hash(false).expect("unpaced source hashing is infallible")
+}
+fn provision_source_hash(paced: bool) -> Result<String, Invalid> {
     use sha2::{Digest, Sha256};
-    let mut hash = Sha256::new(); hash.update(b"bboxy.dream.proof-tools/source/1\0");
-    for (name, bytes) in [("resolve.rs",include_bytes!("resolve.rs").as_slice()),("trust.rs",include_bytes!("trust.rs").as_slice()),("c1.rs",include_bytes!("c1.rs").as_slice()),("read.rs",include_bytes!("read.rs").as_slice())] {
-        hash.update(name.as_bytes()); hash.update([0]); hash.update((bytes.len() as u64).to_le_bytes());
-        for chunk in bytes.chunks(16*1024) { hash.update(chunk); }
+    let mut hash = Sha256::new();
+    hash.update(b"bboxy.dream.proof-tools/source/1\0");
+    for (name, bytes) in [
+        ("resolve.rs", include_bytes!("resolve.rs").as_slice()),
+        ("trust.rs", include_bytes!("trust.rs").as_slice()),
+        ("c1.rs", include_bytes!("c1.rs").as_slice()),
+        ("read.rs", include_bytes!("read.rs").as_slice()),
+    ] {
+        hash.update(name.as_bytes());
+        hash.update([0]);
+        hash.update((bytes.len() as u64).to_le_bytes());
+        for chunk in bytes.chunks(16 * 1024) {
+            if paced {
+                checkpoint()?;
+            }
+            hash.update(chunk);
+        }
     }
-    format!("{:x}",hash.finalize())
+    Ok(format!("{:x}", hash.finalize()))
 }
-fn valid_hex(value: &str) -> bool { value.len()==64 && value.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) }
-fn tool_features(actual: &[String], required: &[&str]) -> bool { actual.len()<=32 && actual.iter().all(|v|!v.is_empty()&&v.len()<=128&&!v.contains('\0')) && required.iter().all(|v|actual.iter().any(|s|s==v)) }
-fn current_release() -> Result<String,Invalid> {
-    let mut value=std::mem::MaybeUninit::<libc::utsname>::zeroed();
-    if unsafe{libc::uname(value.as_mut_ptr())}!=0 {return Err(Invalid("helper host unavailable"));}
-    let value=unsafe{value.assume_init()};
-    unsafe{std::ffi::CStr::from_ptr(value.release.as_ptr())}.to_str().map(str::to_owned).map_err(|_|Invalid("helper host unavailable"))
+fn valid_hex(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
-fn hash_prepared_image(path:&Path)->Result<String,Invalid> {
-    use std::{io::Read,os::unix::fs::{MetadataExt,OpenOptionsExt}};
-    use sha2::{Digest,Sha256};
-    if !path.is_absolute() || path.as_os_str().as_encoded_bytes().len()>4096 || path.components().any(|c|!matches!(c,Component::RootDir|Component::Normal(_))) || path.as_os_str().as_encoded_bytes().iter().any(|b| b.is_ascii_whitespace() || b"'\"`$;|&<>".contains(b)) {return Err(Invalid("helper image path unavailable"));}
+fn tool_features(actual: &[String], required: &[&str]) -> bool {
+    actual.len() <= 32
+        && actual
+            .iter()
+            .all(|v| !v.is_empty() && v.len() <= 128 && !v.contains('\0'))
+        && required.iter().all(|v| actual.iter().any(|s| s == v))
+}
+fn current_release() -> Result<String, Invalid> {
+    let mut value = std::mem::MaybeUninit::<libc::utsname>::zeroed();
+    if unsafe { libc::uname(value.as_mut_ptr()) } != 0 {
+        return Err(Invalid("helper host unavailable"));
+    }
+    let value = unsafe { value.assume_init() };
+    unsafe { std::ffi::CStr::from_ptr(value.release.as_ptr()) }
+        .to_str()
+        .map(str::to_owned)
+        .map_err(|_| Invalid("helper host unavailable"))
+}
+fn hash_prepared_image(path: &Path) -> Result<String, Invalid> {
+    use sha2::{Digest, Sha256};
+    use std::{
+        io::Read,
+        os::unix::fs::{MetadataExt, OpenOptionsExt},
+    };
+    if !path.is_absolute()
+        || path.as_os_str().as_encoded_bytes().len() > 4096
+        || path
+            .components()
+            .any(|c| !matches!(c, Component::RootDir | Component::Normal(_)))
+        || path
+            .as_os_str()
+            .as_encoded_bytes()
+            .iter()
+            .any(|b| b.is_ascii_whitespace() || b"'\"`$;|&<>".contains(b))
+    {
+        return Err(Invalid("helper image path unavailable"));
+    }
     checkpoint()?;
-    let mut file=std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW|libc::O_NONBLOCK|libc::O_CLOEXEC).open(path).map_err(|_|Invalid("helper image unavailable"))?;
-    let before=file.metadata().map_err(|_|Invalid("helper image unavailable"))?;
-    if !before.is_file() || before.mode()&0o022!=0 || before.mode()&0o111==0 || before.nlink()!=1 || before.len()>64*1024*1024 || ![0,unsafe{libc::geteuid()}].contains(&before.uid()) {return Err(Invalid("helper image custody unavailable"));}
-    let mut hash=Sha256::new();let mut chunk=[0;16*1024];
-    loop {checkpoint()?;let n=file.read(&mut chunk).map_err(|_|Invalid("helper image read unavailable"))?;if n==0{break;}hash.update(&chunk[..n]);}
-    let after=file.metadata().map_err(|_|Invalid("helper image unavailable"))?;
-    if before.dev()!=after.dev()||before.ino()!=after.ino()||before.len()!=after.len()||before.mtime()!=after.mtime()||before.mtime_nsec()!=after.mtime_nsec(){return Err(Invalid("helper image changed"));}
-    let digest=format!("{:x}",hash.finalize());
-    SELECTED.with(|slot|{let mut slot=slot.borrow_mut();if let Some(owner)=slot.as_mut(){if !owner.tool_guards.iter().any(|g|g.path==path){owner.tool_guards.push(ToolGuard{file,path:path.to_owned(),metadata:after,expected:digest.clone()});}}});
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(path)
+        .map_err(|_| Invalid("helper image unavailable"))?;
+    let before = file
+        .metadata()
+        .map_err(|_| Invalid("helper image unavailable"))?;
+    if !before.is_file()
+        || before.mode() & 0o022 != 0
+        || before.mode() & 0o111 == 0
+        || before.mode() & 0o6000 != 0
+        || before.len() > 64 * 1024 * 1024
+        || ![0, unsafe { libc::geteuid() }].contains(&before.uid())
+    {
+        return Err(Invalid("helper image custody unavailable"));
+    }
+    let mut hash = Sha256::new();
+    let mut chunk = [0; 16 * 1024];
+    loop {
+        checkpoint()?;
+        let n = file
+            .read(&mut chunk)
+            .map_err(|_| Invalid("helper image read unavailable"))?;
+        if n == 0 {
+            break;
+        }
+        hash.update(&chunk[..n]);
+    }
+    let after = file
+        .metadata()
+        .map_err(|_| Invalid("helper image unavailable"))?;
+    if !same_tool(&before, &after) {
+        return Err(Invalid("source_changed: helper image"));
+    }
+    let digest = format!("{:x}", hash.finalize());
+    SELECTED.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if let Some(owner) = slot.as_mut() {
+            if !owner.tool_guards.iter().any(|g| g.path == path) {
+                owner.tool_guards.push(ToolGuard {
+                    file,
+                    path: path.to_owned(),
+                    metadata: after,
+                    expected: digest.clone(),
+                });
+            }
+        }
+    });
     Ok(digest)
 }
-pub(crate) fn helper_refusal(reason:&'static str){SELECTED.with(|slot|{if let Some(owner)=slot.borrow_mut().as_mut(){owner.pace.helper_refused(reason);}});}
-pub(crate) fn prepared_tools() -> Result<PreparedTools,Invalid> {
-    let result=load_prepared_tools();if let Err(error)=&result{helper_refusal(error.0);}result
+pub(crate) fn helper_refusal(reason: &'static str) {
+    SELECTED.with(|slot| {
+        if let Some(owner) = slot.borrow_mut().as_mut() {
+            owner.pace.helper_refused(reason);
+        }
+    });
 }
-fn load_prepared_tools() -> Result<PreparedTools,Invalid> {
-    if let Some(tools)=SELECTED.with(|slot|slot.borrow().as_ref().and_then(|o|o.tools.clone())) {return Ok(tools);}
-    use std::{io::Read,os::unix::fs::{MetadataExt,OpenOptionsExt}};
-    let path=std::env::var_os("BBOXY_DREAM_HELPER_PROVISION").map(PathBuf::from).ok_or(Invalid("helper provision unavailable"))?;
-    let expected=std::env::var("BBOXY_DREAM_HELPER_PROVISION_SHA256").map_err(|_|Invalid("helper provision unavailable"))?;
-    if !path.is_absolute()||!valid_hex(&expected){return Err(Invalid("helper provision unavailable"));}
-    checkpoint()?;
-    let mut file=std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW|libc::O_NONBLOCK|libc::O_CLOEXEC).open(&path).map_err(|_|Invalid("helper provision unavailable"))?;
-    let meta=file.metadata().map_err(|_|Invalid("helper provision unavailable"))?;
-    if !meta.is_file()||meta.uid()!=unsafe{libc::geteuid()}||meta.mode()&0o077!=0||meta.nlink()!=1||meta.len()>32*1024{return Err(Invalid("helper provision custody unavailable"));}
-    let mut raw=Vec::new();file.by_ref().take(32*1024+1).read_to_end(&mut raw).map_err(|_|Invalid("helper provision unavailable"))?;
-    if super::fingerprint::digest(&raw)!=expected{return Err(Invalid("helper provision changed"));}
-    let shape=super::c1::storage::preflight(&raw,super::c1::storage::WORK).map_err(|_|Invalid("resource_limit: helper provision bound"))?;
-    let _ = shape; // typed strict32KiB DTO is covered by the precharged metadata arena
-    SELECTED.with(|slot|slot.borrow_mut().as_mut().unwrap().tool_guards.push(ToolGuard{file,path:path.clone(),metadata:meta,expected:expected.clone()}));
-    let tools:PreparedTools=serde_json::from_slice(&raw).map_err(|_|Invalid("helper provision schema unavailable"))?;
-    if tools.schema!="bboxy.dream.proof-tools/1"||tools.source_sha256!=provision_source_sha256()||tools.os.release!=current_release()?||tools.os.arch!=std::env::consts::ARCH||tools.capability.probe_source_sha256!=super::fingerprint::digest(include_bytes!("../../tests/fixtures/dream-read/proof-helper-probe.c"))||![&tools.capability.probe_exe_sha256,&tools.capability.evidence_sha256].into_iter().all(|v|valid_hex(v))||!tool_features(&tools.capability.features,&["darwin-start-suspended","setpgroup","cloexec-default","birth-identity","group-members-2","descendant-cpu-rollup","git-gpg-fixed-argv"]) {return Err(Invalid("helper capability proof unavailable"));}
-    for (tool,features) in [(&tools.git,&["git-readonly","openpgp-verify-absolute-gpg"][..]),(&tools.gpg,&["public-key-stdin","no-autostart"][..])] {
-        if !valid_hex(&tool.sha256)||tool.build.is_empty()||tool.build.len()>4096||!tool_features(&tool.features,features)||hash_prepared_image(&tool.absolute_path)?!=tool.sha256{return Err(Invalid("helper image proof unavailable"));}
+pub(crate) fn prepared_tools() -> Result<PreparedTools, Invalid> {
+    let result = load_prepared_tools();
+    if let Err(error) = &result {
+        helper_refusal(error.0);
     }
-    SELECTED.with(|slot|slot.borrow_mut().as_mut().unwrap().tools=Some(tools.clone()));
+    result
+}
+fn load_prepared_tools() -> Result<PreparedTools, Invalid> {
+    if let Some(tools) = SELECTED.with(|slot| slot.borrow().as_ref().and_then(|o| o.tools.clone()))
+    {
+        return Ok(tools);
+    }
+    use std::{
+        io::Read,
+        os::unix::fs::{MetadataExt, OpenOptionsExt},
+    };
+    let path = std::env::var_os("BBOXY_DREAM_HELPER_PROVISION")
+        .map(PathBuf::from)
+        .ok_or(Invalid("helper provision unavailable"))?;
+    let expected = std::env::var("BBOXY_DREAM_HELPER_PROVISION_SHA256")
+        .map_err(|_| Invalid("helper provision unavailable"))?;
+    if !path.is_absolute() || !valid_hex(&expected) {
+        return Err(Invalid("helper provision unavailable"));
+    }
+    checkpoint()?;
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(&path)
+        .map_err(|_| Invalid("helper provision unavailable"))?;
+    let meta = file
+        .metadata()
+        .map_err(|_| Invalid("helper provision unavailable"))?;
+    if !meta.is_file()
+        || meta.uid() != unsafe { libc::geteuid() }
+        || meta.mode() & 0o077 != 0
+        || meta.nlink() != 1
+        || meta.len() > 32 * 1024
+    {
+        return Err(Invalid("helper provision custody unavailable"));
+    }
+    let mut raw = Vec::new();
+    file.by_ref()
+        .take(32 * 1024 + 1)
+        .read_to_end(&mut raw)
+        .map_err(|_| Invalid("helper provision unavailable"))?;
+    if super::fingerprint::digest(&raw) != expected {
+        return Err(Invalid("source_changed: helper provision"));
+    }
+    let shape = super::c1::storage::preflight(&raw, super::c1::storage::WORK)
+        .map_err(|_| Invalid("resource_limit: helper provision bound"))?;
+    let _ = shape; // typed strict32KiB DTO is covered by the precharged metadata arena
+    SELECTED.with(|slot| {
+        slot.borrow_mut()
+            .as_mut()
+            .unwrap()
+            .tool_guards
+            .push(ToolGuard {
+                file,
+                path: path.clone(),
+                metadata: meta,
+                expected: expected.clone(),
+            })
+    });
+    let tools: PreparedTools =
+        serde_json::from_slice(&raw).map_err(|_| Invalid("helper provision schema unavailable"))?;
+    if tools.schema != "bboxy.dream.proof-tools/1"
+        || tools.source_sha256 != provision_source_hash(true)?
+        || tools.os.release != current_release()?
+        || tools.os.arch != std::env::consts::ARCH
+        || tools.capability.probe_source_sha256
+            != super::fingerprint::digest(include_bytes!(
+                "../../tests/fixtures/dream-read/proof-helper-probe.c"
+            ))
+        || ![
+            &tools.capability.probe_exe_sha256,
+            &tools.capability.evidence_sha256,
+        ]
+        .into_iter()
+        .all(|v| valid_hex(v))
+        || !tool_features(
+            &tools.capability.features,
+            &[
+                "darwin-start-suspended",
+                "setpgroup",
+                "cloexec-default",
+                "birth-identity",
+                "group-members-2",
+                "descendant-cpu-rollup",
+                "git-gpg-fixed-argv",
+                "git-fork-before-gpg-exec",
+                "single-threaded-helpers",
+                "mach-timebase-cpu-ns",
+                "audit-token-signals",
+            ],
+        )
+    {
+        return Err(Invalid("helper capability proof unavailable"));
+    }
+    for (tool, features) in [
+        (
+            &tools.git,
+            &["git-readonly", "openpgp-verify-absolute-gpg"][..],
+        ),
+        (&tools.gpg, &["public-key-stdin", "no-autostart"][..]),
+    ] {
+        if !valid_hex(&tool.sha256)
+            || tool.build.is_empty()
+            || tool.build.len() > 4096
+            || !tool_features(&tool.features, features)
+            || hash_prepared_image(&tool.absolute_path)? != tool.sha256
+        {
+            return Err(Invalid("helper image proof unavailable"));
+        }
+    }
+    SELECTED.with(|slot| slot.borrow_mut().as_mut().unwrap().tools = Some(tools.clone()));
     Ok(tools)
 }
 /// The caller owns the single low-priority worker and its existing C1 budget.
@@ -125,31 +367,120 @@ pub(crate) trait ProofPace {
     fn helper_attach(&mut self, identity: HelperIdentity) -> Result<(), Invalid>;
     fn native_created(&mut self, span: NativeCreation) -> Result<(), Invalid>;
     fn helper_refused(&mut self, _reason: &'static str) {}
-    fn helper_poll(&mut self, pgid: i32) -> Result<(), Invalid>;
+    fn helper_poll(&mut self, ticket: HelperTicket) -> Result<(), Invalid>;
     /// Stop controller signals before the pinned leader is reaped, then perform
     /// the last group kill while that leader still prevents pgid reuse.
-    fn helper_retire(&mut self, pgid: i32) -> Result<(), Invalid>;
-    fn helper_detach(&mut self, pgid: i32) -> Result<(), Invalid>;
-    fn helper_usage(&mut self, pgid: i32, cpu_ns: u64, rss_bytes: u64) -> Result<(), Invalid>;
+    fn helper_retire(&mut self, ticket: HelperTicket) -> Result<(), Invalid>;
+    fn helper_detach(&mut self, ticket: HelperTicket) -> Result<(), Invalid>;
+    fn helper_usage(
+        &mut self,
+        ticket: HelperTicket,
+        cpu_ns: u64,
+        rss_bytes: u64,
+    ) -> Result<(), Invalid>;
     /// Drain with the C1 cleanup lane even after cancellation or a failed clock.
     fn cleanup(&mut self, step: &mut dyn FnMut() -> bool);
 }
-struct ToolGuard { file:std::fs::File, path:PathBuf, metadata:std::fs::Metadata, expected:String }
-fn same_tool(a:&std::fs::Metadata,b:&std::fs::Metadata)->bool { use std::os::unix::fs::MetadataExt; a.dev()==b.dev()&&a.ino()==b.ino()&&a.len()==b.len()&&a.mtime()==b.mtime()&&a.mtime_nsec()==b.mtime_nsec()&&a.ctime()==b.ctime()&&a.ctime_nsec()==b.ctime_nsec()&&a.nlink()==b.nlink() }
-fn check_tool_guards()->Result<(),Invalid> {
-    SELECTED.with(|slot|{let slot=slot.borrow();let owner=slot.as_ref().ok_or(Invalid("helper owner unavailable"))?;for guard in &owner.tool_guards {let file=guard.file.metadata().map_err(|_|Invalid("source_changed: helper image"))?;let path=std::fs::symlink_metadata(&guard.path).map_err(|_|Invalid("source_changed: helper image"))?;if !same_tool(&guard.metadata,&file)||!same_tool(&file,&path){return Err(Invalid("source_changed: helper image/provision"));}}Ok(())})
+struct ToolGuard {
+    file: std::fs::File,
+    path: PathBuf,
+    metadata: std::fs::Metadata,
+    expected: String,
 }
-pub(crate) fn revalidate_prepared_tools()->Result<(),Invalid> {
+fn same_tool(a: &std::fs::Metadata, b: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    a.dev() == b.dev()
+        && a.ino() == b.ino()
+        && a.len() == b.len()
+        && a.mtime() == b.mtime()
+        && a.mtime_nsec() == b.mtime_nsec()
+        && a.ctime() == b.ctime()
+        && a.ctime_nsec() == b.ctime_nsec()
+        && a.nlink() == b.nlink()
+}
+fn check_tool_guards() -> Result<(), Invalid> {
+    SELECTED.with(|slot| {
+        let slot = slot.borrow();
+        let owner = slot.as_ref().ok_or(Invalid("helper owner unavailable"))?;
+        for guard in &owner.tool_guards {
+            let file = guard
+                .file
+                .metadata()
+                .map_err(|_| Invalid("source_changed: helper image"))?;
+            let path = std::fs::symlink_metadata(&guard.path)
+                .map_err(|_| Invalid("source_changed: helper image"))?;
+            if !same_tool(&guard.metadata, &file) || !same_tool(&file, &path) {
+                return Err(Invalid("source_changed: helper image/provision"));
+            }
+        }
+        Ok(())
+    })
+}
+pub(crate) fn revalidate_prepared_tools() -> Result<(), Invalid> {
     check_tool_guards()?;
-    let tools=SELECTED.with(|slot|slot.borrow().as_ref().and_then(|owner|owner.tools.clone()));
-    if let Some(tools)=tools {
-        for image in [&tools.git,&tools.gpg] { if hash_prepared_image(&image.absolute_path)?!=image.sha256{return Err(Invalid("source_changed: helper image"));} }
-        let provision=SELECTED.with(|slot|slot.borrow().as_ref().and_then(|owner|owner.tool_guards.first().map(|g|(g.path.clone(),g.expected.clone()))));
-        if let Some((path,expected))=provision {use std::io::Read;let mut file=std::fs::File::open(path).map_err(|_|Invalid("source_changed: helper provision"))?;let mut bytes=Vec::new();file.take(32*1024+1).read_to_end(&mut bytes).map_err(|_|Invalid("source_changed: helper provision"))?;if super::fingerprint::digest(&bytes)!=expected{return Err(Invalid("source_changed: helper provision"));}}
+    let tools = SELECTED.with(|slot| slot.borrow().as_ref().and_then(|owner| owner.tools.clone()));
+    if let Some(tools) = tools {
+        for image in [&tools.git, &tools.gpg] {
+            if hash_prepared_image(&image.absolute_path)? != image.sha256 {
+                return Err(Invalid("source_changed: helper image"));
+            }
+        }
+        let provision = SELECTED.with(|slot| {
+            slot.borrow().as_ref().and_then(|owner| {
+                owner
+                    .tool_guards
+                    .first()
+                    .map(|g| (g.metadata.len(), g.expected.clone()))
+            })
+        });
+        if let Some((length, expected)) = provision {
+            use sha2::{Digest, Sha256};
+            use std::os::unix::fs::FileExt;
+            let mut hash = Sha256::new();
+            let mut offset = 0u64;
+            let mut chunk = [0; 16 * 1024];
+            while offset < length {
+                checkpoint()?;
+                let amount = ((length - offset) as usize).min(chunk.len());
+                let n = SELECTED.with(|slot| {
+                    let slot = slot.borrow();
+                    let guard = slot
+                        .as_ref()
+                        .and_then(|owner| owner.tool_guards.first())
+                        .ok_or(Invalid("source_changed: helper provision"))?;
+                    guard
+                        .file
+                        .read_at(&mut chunk[..amount], offset)
+                        .map_err(|_| Invalid("source_changed: helper provision"))
+                })?;
+                if n == 0 {
+                    return Err(Invalid("source_changed: helper provision"));
+                }
+                hash.update(&chunk[..n]);
+                offset += n as u64;
+            }
+            if format!("{:x}", hash.finalize()) != expected {
+                return Err(Invalid("source_changed: helper provision"));
+            }
+        }
     }
     check_tool_guards()
 }
-pub(crate) fn admit_policy_branches(branches:impl IntoIterator<Item=String>)->Result<(),Invalid>{SELECTED.with(|slot|{let mut slot=slot.borrow_mut();let owner=slot.as_mut().ok_or(Invalid("helper owner unavailable"))?;for branch in branches{if owner.policy_branches.len()>=32{return Err(Invalid("helper policy branch bound"));}owner.policy_branches.insert(branch);}Ok(())})}
+pub(crate) fn admit_policy_branches(
+    branches: impl IntoIterator<Item = String>,
+) -> Result<(), Invalid> {
+    SELECTED.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let owner = slot.as_mut().ok_or(Invalid("helper owner unavailable"))?;
+        for branch in branches {
+            if owner.policy_branches.len() >= 32 {
+                return Err(Invalid("helper policy branch bound"));
+            }
+            owner.policy_branches.insert(branch);
+        }
+        Ok(())
+    })
+}
 struct SelectedOwner {
     bindings: Arc<SelectedBindings>,
     pace: Box<dyn ProofPace>,
@@ -198,17 +529,30 @@ impl SelectedScope {
 }
 impl Drop for SelectedScope {
     fn drop(&mut self) {
-        if let Err(_) = super::trust::cleanup_selected_scratch() { eprintln!("dream-read helper_scratch_cleanup=unproven"); }
+        if let Err(_) = super::trust::cleanup_selected_scratch() {
+            helper_refusal("helper scratch cleanup unproven");
+            eprintln!("dream-read helper_scratch_cleanup=unproven");
+        }
         let owner = SELECTED.with(|slot| slot.borrow_mut().take());
         if let Some(mut owner) = owner {
             owner.pace.cleanup(&mut || {
-                owner.git_cache.pop_first().is_some() || owner.trust_cache.pop_first().is_some() || owner.tool_guards.pop().is_some() || owner.policy_branches.pop_first().is_some()
+                owner.git_cache.pop_first().is_some()
+                    || owner.trust_cache.pop_first().is_some()
+                    || owner.tool_guards.pop().is_some()
+                    || owner.policy_branches.pop_first().is_some()
+                    || owner
+                        .tools
+                        .as_mut()
+                        .is_some_and(super::c1::disposal::Drain::drain_step)
+                    || owner.tools.take().is_some()
             });
             owner.helper_profile.emit();
         }
     }
 }
-pub(crate) fn helper_active()->bool { SELECTED.with(|slot|slot.borrow().as_ref().is_some_and(|o|o.helper_active)) }
+pub(crate) fn helper_active() -> bool {
+    SELECTED.with(|slot| slot.borrow().as_ref().is_some_and(|o| o.helper_active))
+}
 pub(crate) fn selected() -> bool {
     SELECTED.with(|slot| slot.borrow().is_some())
 }
@@ -392,7 +736,7 @@ pub(crate) fn cleanup_steps(step: &mut dyn FnMut() -> bool) {
         }
     });
 }
-fn helper_hook(pgid: i32, action: u8) -> Result<(), Invalid> {
+fn helper_hook(ticket: HelperTicket, action: u8) -> Result<(), Invalid> {
     SELECTED.with(|slot| {
         let mut slot = slot.borrow_mut();
         let owner = slot
@@ -400,15 +744,15 @@ fn helper_hook(pgid: i32, action: u8) -> Result<(), Invalid> {
             .ok_or(Invalid("selected helper owner unavailable"))?;
         match action {
             0 => Err(Invalid("helper identity required")),
-            1 => owner.pace.helper_poll(pgid),
-            2 => owner.pace.helper_retire(pgid),
-            _ => owner.pace.helper_detach(pgid),
+            1 => owner.pace.helper_poll(ticket),
+            2 => owner.pace.helper_retire(ticket),
+            _ => owner.pace.helper_detach(ticket),
         }
     })
 }
 /// Observe completion without reaping. The direct leader pins its process-group
 /// identity until controller retirement and the final group signal have finished.
-fn helper_exited(pid: i32) -> Result<bool, Invalid> {
+pub(crate) fn helper_exited(pid: i32) -> Result<bool, Invalid> {
     let mut info = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
     let code = unsafe {
         libc::waitid(
@@ -479,202 +823,686 @@ fn pure_git(program: &str, args: &[String], home: Option<&Path>) -> bool {
         _ => false,
     }
 }
-fn git_cache_get(cwd: &Path, args: &[String]) -> Option<Vec<u8>> {
-    SELECTED.with(|slot| {
+fn git_cache_get(cwd: &Path, args: &[String]) -> Result<Option<Vec<u8>>, Invalid> {
+    checkpoint()?;
+    let key = (cwd.to_owned(), args.to_vec());
+    let length = SELECTED.with(|slot| {
         slot.borrow()
-            .as_ref()?
-            .git_cache
-            .get(&(cwd.to_owned(), args.to_vec()))
-            .cloned()
-    })
+            .as_ref()
+            .and_then(|owner| owner.git_cache.get(&key).map(Vec::len))
+    });
+    let Some(length) = length else {
+        return Ok(None);
+    };
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(length)
+        .map_err(|_| Invalid("resource_limit: helper cache capture"))?;
+    while bytes.len() < length {
+        checkpoint()?;
+        let offset = bytes.len();
+        let end = (offset + 16 * 1024).min(length);
+        SELECTED.with(|slot| {
+            let slot = slot.borrow();
+            let source = slot
+                .as_ref()
+                .and_then(|owner| owner.git_cache.get(&key))
+                .ok_or(Invalid("helper cache custody unavailable"))?;
+            bytes.extend_from_slice(&source[offset..end]);
+            Ok(())
+        })?;
+    }
+    Ok(Some(bytes))
 }
-fn git_cache_put(cwd: &Path, args: &[String], bytes: &[u8]) {
+fn git_cache_put(cwd: &Path, args: &[String], bytes: &[u8]) -> Result<(), Invalid> {
     const CACHE: usize = 8 * 1024 * 1024;
+    checkpoint()?;
+    let key = (cwd.to_owned(), args.to_vec());
+    let size = bytes
+        .len()
+        .saturating_add(cwd.as_os_str().as_encoded_bytes().len())
+        .saturating_add(args.iter().map(String::len).sum::<usize>());
+    let admitted = SELECTED.with(|slot| {
+        slot.borrow().as_ref().is_some_and(|owner| {
+            !owner.git_cache.contains_key(&key)
+                && owner.git_cache.len() < 256
+                && owner.git_cache_bytes.saturating_add(size) <= CACHE
+        })
+    });
+    if !admitted {
+        return Ok(());
+    }
+    let mut owned = Vec::new();
+    owned
+        .try_reserve_exact(bytes.len())
+        .map_err(|_| Invalid("resource_limit: helper cache reservation"))?;
+    for chunk in bytes.chunks(16 * 1024) {
+        checkpoint()?;
+        owned.extend_from_slice(chunk);
+    }
     SELECTED.with(|slot| {
         let mut slot = slot.borrow_mut();
-        let Some(owner) = slot.as_mut() else {
-            return;
-        };
-        let key_bytes = cwd
-            .as_os_str()
-            .as_encoded_bytes()
-            .len()
-            .saturating_add(args.iter().map(String::len).sum::<usize>());
-        let size = bytes.len().saturating_add(key_bytes);
-        if owner.git_cache.len() >= 256 || owner.git_cache_bytes.saturating_add(size) > CACHE {
-            return;
-        }
-        owner
-            .git_cache
-            .insert((cwd.to_owned(), args.to_vec()), bytes.to_vec());
+        let owner = slot
+            .as_mut()
+            .ok_or(Invalid("helper cache custody unavailable"))?;
+        owner.git_cache.insert(key, owned);
         owner.git_cache_bytes += size;
-    });
+        Ok(())
+    })
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
-enum HelperPhase { Prepare, Spawn, RetainStop, Postspawn, FirstPoll, RawInclusive }
-const HELPER_PHASE_NAMES: [&str; 6] = ["prepare", "exact_spawn", "retain_stop", "postspawn", "first_poll", "raw_inclusive"];
+enum HelperPhase {
+    Prepare,
+    Spawn,
+    RetainStop,
+    Postspawn,
+    FirstPoll,
+    RawInclusive,
+}
+const HELPER_PHASE_NAMES: [&str; 6] = [
+    "prepare",
+    "exact_spawn",
+    "retain_stop",
+    "postspawn",
+    "first_poll",
+    "raw_inclusive",
+];
 #[derive(Clone, Copy, Default)]
-struct HelperSample { count: u64, cpu_total: u64, cpu_max: u64, wall_total: u64, wall_max: u64, unknown: u64 }
+struct HelperSample {
+    count: u64,
+    cpu_total: u64,
+    cpu_max: u64,
+    wall_total: u64,
+    wall_max: u64,
+    unknown: u64,
+}
 #[derive(Default)]
-struct HelperProfile { phases: [HelperSample; 6] }
+struct HelperProfile {
+    phases: [HelperSample; 6],
+}
 #[derive(Clone, Copy)]
-struct HelperStamp { cpu: u64, wall: std::time::Instant }
+struct HelperStamp {
+    cpu: u64,
+    wall: std::time::Instant,
+}
 #[cfg(test)]
 thread_local! { static FAIL_HELPER_CLOCK: std::cell::Cell<Option<HelperPhase>> = const { std::cell::Cell::new(None) }; }
+#[cfg(test)]
+thread_local! { static FAIL_HELPER_ERRNO: std::cell::Cell<Option<i32>> = const { std::cell::Cell::new(None) }; }
 fn helper_stamp(phase: HelperPhase, end: bool) -> HelperStamp {
     let cpu = super::c1::cpu_ns();
     #[cfg(test)]
     let cpu = FAIL_HELPER_CLOCK.with(|failure| {
-        if end && failure.get() == Some(phase) { failure.set(None); u64::MAX } else { cpu }
+        if end && failure.get() == Some(phase) {
+            failure.set(None);
+            u64::MAX
+        } else {
+            cpu
+        }
     });
     #[cfg(not(test))]
     let _ = (phase, end);
-    HelperStamp { cpu, wall: std::time::Instant::now() }
+    HelperStamp {
+        cpu,
+        wall: std::time::Instant::now(),
+    }
 }
 impl HelperProfile {
-    fn record(&mut self, phase: HelperPhase, start: HelperStamp, end: HelperStamp) -> Result<(), Invalid> {
+    fn record(
+        &mut self,
+        phase: HelperPhase,
+        start: HelperStamp,
+        end: HelperStamp,
+    ) -> Result<(), Invalid> {
         let sample = &mut self.phases[phase as usize];
         sample.count = sample.count.saturating_add(1);
-        let wall = u64::try_from(end.wall.saturating_duration_since(start.wall).as_nanos()).unwrap_or(u64::MAX);
-        sample.wall_total = sample.wall_total.saturating_add(wall); sample.wall_max = sample.wall_max.max(wall);
-        let cpu = if start.cpu == u64::MAX || end.cpu == u64::MAX { None } else { end.cpu.checked_sub(start.cpu) };
-        let Some(cpu) = cpu else { sample.unknown = sample.unknown.saturating_add(1); return Err(Invalid("selected helper phase clock unavailable")); };
-        sample.cpu_total = sample.cpu_total.saturating_add(cpu); sample.cpu_max = sample.cpu_max.max(cpu);
+        let wall = u64::try_from(end.wall.saturating_duration_since(start.wall).as_nanos())
+            .unwrap_or(u64::MAX);
+        sample.wall_total = sample.wall_total.saturating_add(wall);
+        sample.wall_max = sample.wall_max.max(wall);
+        let cpu = if start.cpu == u64::MAX || end.cpu == u64::MAX {
+            None
+        } else {
+            end.cpu.checked_sub(start.cpu)
+        };
+        let Some(cpu) = cpu else {
+            sample.unknown = sample.unknown.saturating_add(1);
+            return Err(Invalid("selected helper phase clock unavailable"));
+        };
+        sample.cpu_total = sample.cpu_total.saturating_add(cpu);
+        sample.cpu_max = sample.cpu_max.max(cpu);
         // Raw inclusive is an observation across explicit waits, never a unit
         // exemption. Every actual ordinary phase and combined spawn+stop still
         // passes the unchanged1ms C1 clock boundary.
-        let limit = if phase == HelperPhase::Spawn { 2_000_000 } else { 1_000_000 };
-        if phase != HelperPhase::RawInclusive && cpu > limit { return Err(Invalid("resource_limit: selected helper phase CPU bound")); }
-        if phase == HelperPhase::Spawn && wall > 25_000_000 { return Err(Invalid("resource_limit: selected helper native wall bound")); }
+        let limit = if phase == HelperPhase::Spawn {
+            2_000_000
+        } else {
+            1_000_000
+        };
+        if phase != HelperPhase::RawInclusive && cpu > limit {
+            return Err(Invalid("resource_limit: selected helper phase CPU bound"));
+        }
+        if phase == HelperPhase::Spawn && wall > 25_000_000 {
+            return Err(Invalid("resource_limit: selected helper native wall bound"));
+        }
         Ok(())
     }
     fn emit(&self) {
         for (index, sample) in self.phases.iter().enumerate() {
-            if sample.count == 0 { continue; }
-            eprintln!("dream-read helper_phase={} count={} cpu_total_ns={} cpu_max_ns={} wall_total_ns={} wall_max_ns={} unknown_clocks={}", HELPER_PHASE_NAMES[index], sample.count, sample.cpu_total, sample.cpu_max, sample.wall_total, sample.wall_max, sample.unknown);
+            if sample.count == 0 {
+                continue;
+            }
+            eprintln!(
+                "dream-read helper_phase={} count={} cpu_total_ns={} cpu_max_ns={} wall_total_ns={} wall_max_ns={} unknown_clocks={}",
+                HELPER_PHASE_NAMES[index],
+                sample.count,
+                sample.cpu_total,
+                sample.cpu_max,
+                sample.wall_total,
+                sample.wall_max,
+                sample.unknown
+            );
         }
     }
 }
 fn helper_record(phase: HelperPhase, start: HelperStamp, end: HelperStamp) -> Result<(), Invalid> {
-    SELECTED.with(|slot| slot.borrow_mut().as_mut().ok_or(Invalid("selected helper owner unavailable"))?.helper_profile.record(phase, start, end))
-}
-fn helper_boundary() -> Result<(), Invalid> {
-    SELECTED.with(|slot| slot.borrow_mut().as_mut().ok_or(Invalid("selected helper owner unavailable"))?.pace.boundary())
-}
-fn helper_after() -> Result<(), Invalid> {
-    SELECTED.with(|slot| slot.borrow_mut().as_mut().ok_or(Invalid("selected helper owner unavailable"))?.pace.after())
-}
-struct ToolRequest { image: PathBuf, args: Vec<String>, expected_members: u8, descendant: Option<PathBuf> }
-fn git_object(value:&str)->bool { entry::valid_commit(value) || value.strip_suffix("^{tree}").is_some_and(entry::valid_commit) || value.split_once(':').is_some_and(|(commit,path)|entry::valid_commit(commit)&&repository_path(path).is_ok()) }
-fn git_ref(value:&str)->bool { value=="refs/remotes/origin/main" || SELECTED.with(|slot|slot.borrow().as_ref().is_some_and(|owner|owner.policy_branches.contains(value))) }
-
-fn admitted_request(program:&str,args:&[String],home:Option<&Path>,input:Option<&[u8]>)->Result<ToolRequest,Invalid> {
-    #[cfg(test)]
-    if program=="/bin/sh" {return Ok(ToolRequest{image:PathBuf::from(program),args:args.to_vec(),expected_members:1,descendant:None});}
-    let tools=prepared_tools()?;
-    if args.len()>63 || args.iter().try_fold(0usize,|n,v|n.checked_add(v.len()+1)).is_none_or(|n|n>32*1024){return Err(Invalid("resource_limit: helper argv bound"));}
-    let mut args=args.to_vec();
-    if program=="gpg" || Path::new(program)==tools.gpg.absolute_path {
-        let action=args.iter().position(|v|matches!(v.as_str(),"--show-keys"|"--import")).ok_or(Invalid("helper argument unavailable"))?;
-        if ["--no-options","--no-autostart","--batch","--no-tty"].iter().any(|required|args[..action].iter().filter(|v|v==required).count()!=1)||input.is_none()||home.is_none()||action+2!=args.len()||args.last().map(String::as_str)!=Some("-")||args[..action].iter().any(|v|!matches!(v.as_str(),"--no-options"|"--no-autostart"|"--batch"|"--no-tty"|"--with-colons")){return Err(Invalid("helper argument unavailable"));}
-        return Ok(ToolRequest{image:tools.gpg.absolute_path,args,expected_members:1,descendant:None});
-    }
-    if program!="git"&&Path::new(program)!=tools.git.absolute_path||input.is_some(){return Err(Invalid("helper image not approved"));}
-    let mut at=0;
-    while let Some(arg)=args.get(at) {
-        if matches!(arg.as_str(),"--no-pager"|"--no-optional-locks"){at+=1;continue;}
-        if arg!="-c"{break;}
-        let value=args.get_mut(at+1).ok_or(Invalid("helper argument unavailable"))?;
-        if value=="gpg.program=gpg"||value=="gpg.openpgp.program=gpg" {
-            let key=value.split('=').next().unwrap();*value=format!("{key}={}",tools.gpg.absolute_path.display());
-        } else if !matches!(value.as_str(),"core.fsmonitor=false"|"core.hooksPath=/dev/null"|"credential.helper="|"protocol.allow=never"|"gpg.format=openpgp") && *value!=format!("gpg.program={}",tools.gpg.absolute_path.display()) && *value!=format!("gpg.openpgp.program={}",tools.gpg.absolute_path.display()) {return Err(Invalid("helper Git configuration unavailable"));}
-        at+=2;
-    }
-    if ["--no-pager","--no-optional-locks","core.fsmonitor=false","core.hooksPath=/dev/null","credential.helper=","protocol.allow=never"].iter().any(|required|args[..at].iter().filter(|v|v==required).count()!=1){return Err(Invalid("helper isolation flags unavailable"));}
-    let rest=&args[at..];let words=rest.iter().map(String::as_str).collect::<Vec<_>>();
-    let signature=matches!(words.as_slice(),["log","-1","--format=%G?%x00%GF%x00%GP",commit] if entry::valid_commit(commit));
-    let accepted=signature || match words.as_slice() {
-        ["rev-parse","--show-toplevel"|"--is-bare-repository"]=>true,
-        ["rev-parse","--verify",reference]=>git_ref(reference),
-        ["rev-parse",object]=>git_object(object),
-        ["cat-file","-t",commit]=>entry::valid_commit(commit),
-        ["merge-base","--is-ancestor",commit,main]=>entry::valid_commit(commit)&&entry::valid_commit(main),
-        ["ls-tree","-z",commit,"--",path]=>entry::valid_commit(commit)&&repository_path(path.trim_end_matches('/')).is_ok(),
-        ["show",object]=>git_object(object)&&object.contains(':'),
-        ["rev-list","-1",commit,"--",path]=>entry::valid_commit(commit)&&repository_path(path).is_ok(),
-        ["config","--get","remote.origin.url"]=>true,
-        _=>false,
-    };
-    if !accepted||signature&&home.is_none(){return Err(Invalid("helper Git command unavailable"));}
-    if signature {
-        for key in ["gpg.program","gpg.openpgp.program"] {
-            if !args[..at].iter().any(|v|v==&format!("{key}={}",tools.gpg.absolute_path.display())){return Err(Invalid("helper fixed signature verifier unavailable"));}
-        }
-    }
-    Ok(ToolRequest{image:tools.git.absolute_path,args,expected_members:if signature{2}else{1},descendant:signature.then_some(tools.gpg.absolute_path)})
-}
-pub(crate) fn helper_creation_reserve(cost:u16)->Result<u16,Invalid> {
     SELECTED.with(|slot| {
-        let mut slot=slot.borrow_mut();let owner=slot.as_mut().ok_or(Invalid("helper owner unavailable"))?;
-        let next=owner.attempts.checked_add(cost).filter(|next|*next<=256).ok_or(Invalid("resource_limit: helper creation cap"))?;
-        owner.attempts=next;Ok(next)
+        slot.borrow_mut()
+            .as_mut()
+            .ok_or(Invalid("selected helper owner unavailable"))?
+            .helper_profile
+            .record(phase, start, end)
     })
 }
-#[cfg(target_os="macos")]
+fn helper_boundary() -> Result<(), Invalid> {
+    SELECTED.with(|slot| {
+        slot.borrow_mut()
+            .as_mut()
+            .ok_or(Invalid("selected helper owner unavailable"))?
+            .pace
+            .boundary()
+    })
+}
+fn helper_after() -> Result<(), Invalid> {
+    SELECTED.with(|slot| {
+        slot.borrow_mut()
+            .as_mut()
+            .ok_or(Invalid("selected helper owner unavailable"))?
+            .pace
+            .after()
+    })
+}
+struct ToolRequest {
+    image: PathBuf,
+    args: Vec<String>,
+    expected_members: u8,
+    descendant: Option<PathBuf>,
+}
+fn git_object(value: &str) -> bool {
+    entry::valid_commit(value)
+        || value
+            .strip_suffix("^{tree}")
+            .is_some_and(entry::valid_commit)
+        || value.split_once(':').is_some_and(|(commit, path)| {
+            entry::valid_commit(commit) && repository_path(path).is_ok()
+        })
+}
+fn git_ref(value: &str) -> bool {
+    value == "refs/remotes/origin/main"
+        || SELECTED.with(|slot| {
+            slot.borrow()
+                .as_ref()
+                .is_some_and(|owner| owner.policy_branches.contains(value))
+        })
+}
+
+fn admitted_request(
+    program: &str,
+    args: &[String],
+    home: Option<&Path>,
+    input: Option<&[u8]>,
+) -> Result<ToolRequest, Invalid> {
+    #[cfg(test)]
+    if program == "/bin/sh" {
+        let descendant = if args.iter().any(|s| s.contains("/bin/cat")) {
+            Some("/bin/cat")
+        } else if args.iter().any(|s| s.contains("/bin/sleep")) {
+            Some("/bin/sleep")
+        } else {
+            None
+        };
+        return Ok(ToolRequest {
+            image: std::fs::canonicalize(program)
+                .map_err(|_| Invalid("private fixture image unavailable"))?,
+            args: args.to_vec(),
+            expected_members: if descendant.is_some() { 2 } else { 1 },
+            descendant: descendant
+                .map(|path| {
+                    std::fs::canonicalize(path)
+                        .map_err(|_| Invalid("private fixture image unavailable"))
+                })
+                .transpose()?,
+        });
+    }
+    #[cfg(test)]
+    if program == "gpg" {
+        return Ok(ToolRequest {
+            image: std::fs::canonicalize("/opt/homebrew/bin/gpg")
+                .map_err(|_| Invalid("private fixture image unavailable"))?,
+            args: args.to_vec(),
+            expected_members: 1,
+            descendant: None,
+        });
+    }
+    let tools = prepared_tools()?;
+    if args.len() > 63
+        || args
+            .iter()
+            .try_fold(0usize, |n, v| n.checked_add(v.len() + 1))
+            .is_none_or(|n| n > 32 * 1024)
+    {
+        return Err(Invalid("resource_limit: helper argv bound"));
+    }
+    let mut args = args.to_vec();
+    if program == "gpg" || Path::new(program) == tools.gpg.absolute_path {
+        let action = args
+            .iter()
+            .position(|v| matches!(v.as_str(), "--show-keys" | "--import"))
+            .ok_or(Invalid("helper argument unavailable"))?;
+        if ["--no-options", "--no-autostart", "--batch", "--no-tty"]
+            .iter()
+            .any(|required| args[..action].iter().filter(|v| v == required).count() != 1)
+            || input.is_none()
+            || home.is_none()
+            || action + 2 != args.len()
+            || args.last().map(String::as_str) != Some("-")
+            || args[..action].iter().any(|v| {
+                !matches!(
+                    v.as_str(),
+                    "--no-options" | "--no-autostart" | "--batch" | "--no-tty" | "--with-colons"
+                )
+            })
+        {
+            return Err(Invalid("helper argument unavailable"));
+        }
+        return Ok(ToolRequest {
+            image: tools.gpg.absolute_path,
+            args,
+            expected_members: 1,
+            descendant: None,
+        });
+    }
+    if program != "git" && Path::new(program) != tools.git.absolute_path || input.is_some() {
+        return Err(Invalid("helper image not approved"));
+    }
+    let mut at = 0;
+    while let Some(arg) = args.get(at) {
+        if matches!(arg.as_str(), "--no-pager" | "--no-optional-locks") {
+            at += 1;
+            continue;
+        }
+        if arg != "-c" {
+            break;
+        }
+        let value = args
+            .get_mut(at + 1)
+            .ok_or(Invalid("helper argument unavailable"))?;
+        if value == "gpg.program=gpg" || value == "gpg.openpgp.program=gpg" {
+            let key = value.split('=').next().unwrap();
+            *value = format!("{key}={}", tools.gpg.absolute_path.display());
+        } else if !matches!(
+            value.as_str(),
+            "core.fsmonitor=false"
+                | "core.hooksPath=/dev/null"
+                | "credential.helper="
+                | "protocol.allow=never"
+                | "gpg.format=openpgp"
+        ) && *value != format!("gpg.program={}", tools.gpg.absolute_path.display())
+            && *value != format!("gpg.openpgp.program={}", tools.gpg.absolute_path.display())
+        {
+            return Err(Invalid("helper Git configuration unavailable"));
+        }
+        at += 2;
+    }
+    if [
+        "--no-pager",
+        "--no-optional-locks",
+        "core.fsmonitor=false",
+        "core.hooksPath=/dev/null",
+        "credential.helper=",
+        "protocol.allow=never",
+    ]
+    .iter()
+    .any(|required| args[..at].iter().filter(|v| v == required).count() != 1)
+    {
+        return Err(Invalid("helper isolation flags unavailable"));
+    }
+    let rest = &args[at..];
+    let words = rest.iter().map(String::as_str).collect::<Vec<_>>();
+    let signature = matches!(words.as_slice(),["log","-1","--format=%G?%x00%GF%x00%GP",commit] if entry::valid_commit(commit));
+    let accepted = signature
+        || match words.as_slice() {
+            ["rev-parse", "--show-toplevel" | "--is-bare-repository"] => true,
+            ["rev-parse", "--verify", reference] => git_ref(reference),
+            ["rev-parse", object] => git_object(object),
+            ["cat-file", "-t", commit] => entry::valid_commit(commit),
+            ["merge-base", "--is-ancestor", commit, main] => {
+                entry::valid_commit(commit) && entry::valid_commit(main)
+            }
+            ["ls-tree", "-z", commit, "--", path] => {
+                entry::valid_commit(commit) && repository_path(path.trim_end_matches('/')).is_ok()
+            }
+            ["show", object] => git_object(object) && object.contains(':'),
+            ["rev-list", "-1", commit, "--", path] => {
+                entry::valid_commit(commit) && repository_path(path).is_ok()
+            }
+            ["config", "--get", "remote.origin.url"] => true,
+            _ => false,
+        };
+    if !accepted || signature && home.is_none() {
+        return Err(Invalid("helper Git command unavailable"));
+    }
+    if signature {
+        for key in ["gpg.program", "gpg.openpgp.program"] {
+            if !args[..at]
+                .iter()
+                .any(|v| v == &format!("{key}={}", tools.gpg.absolute_path.display()))
+            {
+                return Err(Invalid("helper fixed signature verifier unavailable"));
+            }
+        }
+    }
+    Ok(ToolRequest {
+        image: tools.git.absolute_path,
+        args,
+        expected_members: if signature { 2 } else { 1 },
+        descendant: signature.then_some(tools.gpg.absolute_path),
+    })
+}
+pub(crate) fn helper_creation_reserve(cost: u16) -> Result<u16, Invalid> {
+    SELECTED.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let owner = slot.as_mut().ok_or(Invalid("helper owner unavailable"))?;
+        let next = owner
+            .attempts
+            .checked_add(cost)
+            .filter(|next| *next <= 256)
+            .ok_or(Invalid("resource_limit: helper creation cap"))?;
+        owner.attempts = next;
+        Ok(next)
+    })
+}
+#[cfg(target_os = "macos")]
 struct NativeSpawn {
-    image:std::ffi::CString, args:Vec<std::ffi::CString>, env:Vec<std::ffi::CString>,
-    argv:Vec<*mut libc::c_char>, envp:Vec<*mut libc::c_char>,
-    actions:libc::posix_spawn_file_actions_t, attr:libc::posix_spawnattr_t,
-    actions_live:bool, attr_live:bool, input:Option<(std::fs::File,std::fs::File)>, output:Option<(std::fs::File,std::fs::File)>,
+    image: std::ffi::CString,
+    args: Vec<std::ffi::CString>,
+    env: Vec<std::ffi::CString>,
+    argv: Vec<*mut libc::c_char>,
+    envp: Vec<*mut libc::c_char>,
+    actions: libc::posix_spawn_file_actions_t,
+    attr: libc::posix_spawnattr_t,
+    actions_live: bool,
+    attr_live: bool,
+    input: Option<(std::fs::File, std::fs::File)>,
+    output: Option<(std::fs::File, std::fs::File)>,
 }
-#[cfg(target_os="macos")]
-impl Drop for NativeSpawn {fn drop(&mut self){unsafe{if self.actions_live{libc::posix_spawn_file_actions_destroy(&mut self.actions);}if self.attr_live{libc::posix_spawnattr_destroy(&mut self.attr);}}}}
-#[cfg(target_os="macos")]
-fn native_pipe()->Result<(std::fs::File,std::fs::File),Invalid>{
-    use std::os::fd::{FromRawFd,AsRawFd};let mut descriptors=[-1;2];
-    if unsafe{libc::pipe(descriptors.as_mut_ptr())}!=0{return Err(Invalid("helper pipe unavailable"));}
-    let a=unsafe{std::fs::File::from_raw_fd(descriptors[0])};let b=unsafe{std::fs::File::from_raw_fd(descriptors[1])};
-    for file in [&a,&b]{if unsafe{libc::fcntl(file.as_raw_fd(),libc::F_SETFD,libc::FD_CLOEXEC)}<0{return Err(Invalid("helper pipe unavailable"));}}
-    Ok((a,b))
+#[cfg(target_os = "macos")]
+impl Drop for NativeSpawn {
+    fn drop(&mut self) {
+        unsafe {
+            if self.actions_live {
+                libc::posix_spawn_file_actions_destroy(&mut self.actions);
+            }
+            if self.attr_live {
+                libc::posix_spawnattr_destroy(&mut self.attr);
+            }
+        }
+    }
 }
-#[cfg(target_os="macos")]
+#[cfg(target_os = "macos")]
+fn native_pipe() -> Result<(std::fs::File, std::fs::File), Invalid> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+    let mut descriptors = [-1; 2];
+    if unsafe { libc::pipe(descriptors.as_mut_ptr()) } != 0 {
+        return Err(Invalid("helper pipe unavailable"));
+    }
+    let a = unsafe { std::fs::File::from_raw_fd(descriptors[0]) };
+    let b = unsafe { std::fs::File::from_raw_fd(descriptors[1]) };
+    for file in [&a, &b] {
+        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) } < 0 {
+            return Err(Invalid("helper pipe unavailable"));
+        }
+    }
+    Ok((a, b))
+}
+#[cfg(target_os = "macos")]
 impl NativeSpawn {
-    fn prepare(request:&ToolRequest,cwd:&Path,home:Option<&Path>,input:bool)->Result<Self,Invalid>{
+    fn prepare(
+        request: &ToolRequest,
+        cwd: &Path,
+        home: Option<&Path>,
+        input: bool,
+    ) -> Result<Self, Invalid> {
         use std::os::fd::AsRawFd;
-        let mut environment=vec!["GIT_CONFIG_NOSYSTEM=1".to_owned(),"GIT_CONFIG_GLOBAL=/dev/null".into(),"GIT_TERMINAL_PROMPT=0".into(),"GIT_ASKPASS=/usr/bin/false".into(),"SSH_ASKPASS=/usr/bin/false".into(),"LC_ALL=C".into(),"LANG=C".into()];
-        let scratch=bindings().and_then(|bindings|bindings.scratch.clone()).ok_or(Invalid("helper private scratch unavailable"))?;
-        let private=&scratch;
-        environment.push(format!("HOME={}",private.display()));environment.push(format!("TMPDIR={}",private.display()));
-        if let Some(home)=home{environment.push(format!("GNUPGHOME={}",home.display()));}
-        if request.args.len()+1>64||environment.len()>16||request.args.iter().map(String::len).sum::<usize>()+environment.iter().map(String::len).sum::<usize>()+request.image.as_os_str().as_encoded_bytes().len()>32*1024{return Err(Invalid("resource_limit: helper argv environment bound"));}
-        let image=std::ffi::CString::new(request.image.as_os_str().as_encoded_bytes()).map_err(|_|Invalid("helper image unavailable"))?;
-        let mut args=vec![image.clone()];for value in &request.args{args.push(std::ffi::CString::new(value.as_bytes()).map_err(|_|Invalid("helper argv unavailable"))?);}
-        let env=environment.iter().map(|s|std::ffi::CString::new(s.as_bytes()).map_err(|_|Invalid("helper environment unavailable"))).collect::<Result<Vec<_>,_>>()?;
-        let mut prepared=Self{image,args,env,argv:vec![],envp:vec![],actions:unsafe{std::mem::zeroed()},attr:unsafe{std::mem::zeroed()},actions_live:false,attr_live:false,input:if input{Some(native_pipe()?)}else{None},output:Some(native_pipe()?)};
-        if unsafe{libc::posix_spawn_file_actions_init(&mut prepared.actions)}!=0{return Err(Invalid("helper spawn preparation unavailable"));}prepared.actions_live=true;
-        if unsafe{libc::posix_spawnattr_init(&mut prepared.attr)}!=0{return Err(Invalid("helper spawn preparation unavailable"));}prepared.attr_live=true;
-        let cwd=std::ffi::CString::new(cwd.as_os_str().as_encoded_bytes()).map_err(|_|Invalid("helper cwd unavailable"))?;
-        let null=c"/dev/null";
-        let mut codes=vec![unsafe{libc::posix_spawnattr_setpgroup(&mut prepared.attr,0)},unsafe{libc::posix_spawnattr_setflags(&mut prepared.attr,(libc::POSIX_SPAWN_START_SUSPENDED|libc::POSIX_SPAWN_SETPGROUP|libc::POSIX_SPAWN_CLOEXEC_DEFAULT) as i16)},unsafe{libc::posix_spawn_file_actions_addchdir_np(&mut prepared.actions,cwd.as_ptr())},unsafe{libc::posix_spawn_file_actions_adddup2(&mut prepared.actions,prepared.output.as_ref().unwrap().1.as_raw_fd(),1)},unsafe{libc::posix_spawn_file_actions_addopen(&mut prepared.actions,2,null.as_ptr(),libc::O_WRONLY,0)}];
-        if let Some((read,_))=&prepared.input{codes.push(unsafe{libc::posix_spawn_file_actions_adddup2(&mut prepared.actions,read.as_raw_fd(),0)});}else{codes.push(unsafe{libc::posix_spawn_file_actions_addopen(&mut prepared.actions,0,null.as_ptr(),libc::O_RDONLY,0)});}
-        if codes.iter().any(|code|*code!=0){return Err(Invalid("helper spawn preparation unavailable"));}
-        prepared.argv=prepared.args.iter().map(|s|s.as_ptr().cast_mut()).chain(std::iter::once(std::ptr::null_mut())).collect();
-        prepared.envp=prepared.env.iter().map(|s|s.as_ptr().cast_mut()).chain(std::iter::once(std::ptr::null_mut())).collect();
+        let mut environment = vec![
+            "GIT_CONFIG_NOSYSTEM=1".to_owned(),
+            "GIT_CONFIG_GLOBAL=/dev/null".into(),
+            "GIT_TERMINAL_PROMPT=0".into(),
+            "GIT_ASKPASS=/usr/bin/false".into(),
+            "SSH_ASKPASS=/usr/bin/false".into(),
+            "LC_ALL=C".into(),
+            "LANG=C".into(),
+        ];
+        let scratch = bindings()
+            .and_then(|bindings| bindings.scratch.clone())
+            .ok_or(Invalid("helper private scratch unavailable"))?;
+        let private = &scratch;
+        environment.push(format!("HOME={}", private.display()));
+        environment.push(format!("TMPDIR={}", private.display()));
+        if let Some(home) = home {
+            environment.push(format!("GNUPGHOME={}", home.display()));
+        }
+        let argument_bytes = request.args.iter().chain(environment.iter()).fold(
+            request
+                .image
+                .as_os_str()
+                .as_encoded_bytes()
+                .len()
+                .checked_add(1),
+            |total, value| {
+                total.and_then(|total| {
+                    value
+                        .len()
+                        .checked_add(1)
+                        .and_then(|length| total.checked_add(length))
+                })
+            },
+        );
+        if request.args.len() + 1 > 64
+            || environment.len() > 16
+            || argument_bytes.is_none_or(|length| length > 32 * 1024)
+        {
+            return Err(Invalid("resource_limit: helper argv environment bound"));
+        }
+        let image = std::ffi::CString::new(request.image.as_os_str().as_encoded_bytes())
+            .map_err(|_| Invalid("helper image unavailable"))?;
+        let mut args = vec![image.clone()];
+        for value in &request.args {
+            args.push(
+                std::ffi::CString::new(value.as_bytes())
+                    .map_err(|_| Invalid("helper argv unavailable"))?,
+            );
+        }
+        let env = environment
+            .iter()
+            .map(|s| {
+                std::ffi::CString::new(s.as_bytes())
+                    .map_err(|_| Invalid("helper environment unavailable"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut prepared = Self {
+            image,
+            args,
+            env,
+            argv: vec![],
+            envp: vec![],
+            actions: unsafe { std::mem::zeroed() },
+            attr: unsafe { std::mem::zeroed() },
+            actions_live: false,
+            attr_live: false,
+            input: if input { Some(native_pipe()?) } else { None },
+            output: Some(native_pipe()?),
+        };
+        if unsafe { libc::posix_spawn_file_actions_init(&mut prepared.actions) } != 0 {
+            return Err(Invalid("helper spawn preparation unavailable"));
+        }
+        prepared.actions_live = true;
+        if unsafe { libc::posix_spawnattr_init(&mut prepared.attr) } != 0 {
+            return Err(Invalid("helper spawn preparation unavailable"));
+        }
+        prepared.attr_live = true;
+        let cwd = std::ffi::CString::new(cwd.as_os_str().as_encoded_bytes())
+            .map_err(|_| Invalid("helper cwd unavailable"))?;
+        let null = c"/dev/null";
+        let mut codes = vec![
+            unsafe { libc::posix_spawnattr_setpgroup(&mut prepared.attr, 0) },
+            unsafe {
+                libc::posix_spawnattr_setflags(
+                    &mut prepared.attr,
+                    (libc::POSIX_SPAWN_START_SUSPENDED
+                        | libc::POSIX_SPAWN_SETPGROUP
+                        | libc::POSIX_SPAWN_CLOEXEC_DEFAULT) as i16,
+                )
+            },
+            unsafe {
+                libc::posix_spawn_file_actions_addchdir_np(&mut prepared.actions, cwd.as_ptr())
+            },
+            unsafe {
+                libc::posix_spawn_file_actions_adddup2(
+                    &mut prepared.actions,
+                    prepared.output.as_ref().unwrap().1.as_raw_fd(),
+                    1,
+                )
+            },
+            unsafe {
+                libc::posix_spawn_file_actions_addopen(
+                    &mut prepared.actions,
+                    2,
+                    null.as_ptr(),
+                    libc::O_WRONLY,
+                    0,
+                )
+            },
+        ];
+        if let Some((read, _)) = &prepared.input {
+            codes.push(unsafe {
+                libc::posix_spawn_file_actions_adddup2(&mut prepared.actions, read.as_raw_fd(), 0)
+            });
+        } else {
+            codes.push(unsafe {
+                libc::posix_spawn_file_actions_addopen(
+                    &mut prepared.actions,
+                    0,
+                    null.as_ptr(),
+                    libc::O_RDONLY,
+                    0,
+                )
+            });
+        }
+        if codes.iter().any(|code| *code != 0) {
+            return Err(Invalid("helper spawn preparation unavailable"));
+        }
+        prepared.argv = prepared
+            .args
+            .iter()
+            .map(|s| s.as_ptr().cast_mut())
+            .chain(std::iter::once(std::ptr::null_mut()))
+            .collect();
+        prepared.envp = prepared
+            .env
+            .iter()
+            .map(|s| s.as_ptr().cast_mut())
+            .chain(std::iter::once(std::ptr::null_mut()))
+            .collect();
         Ok(prepared)
     }
-    fn create(&self,pid:&mut i32)->i32 {unsafe{libc::posix_spawn(pid,self.image.as_ptr(),&self.actions,&self.attr,self.argv.as_ptr(),self.envp.as_ptr())}}
+    fn create(&self, pid: &mut i32) -> i32 {
+        let code = unsafe {
+            libc::posix_spawn(
+                pid,
+                self.image.as_ptr(),
+                &self.actions,
+                &self.attr,
+                self.argv.as_ptr(),
+                self.envp.as_ptr(),
+            )
+        };
+        #[cfg(test)]
+        let code = FAIL_HELPER_ERRNO.with(|failure| {
+            if code == 0 && *pid > 0 {
+                failure.take().unwrap_or(code)
+            } else {
+                code
+            }
+        });
+        code
+    }
 }
-#[cfg(target_os="macos")]
+#[cfg(target_os = "macos")]
 impl super::c1::disposal::Drain for NativeSpawn {
-    fn drain_step(&mut self)->bool { self.args.pop().is_some() || self.env.pop().is_some() || self.argv.pop().is_some() || self.envp.pop().is_some() }
+    fn drain_step(&mut self) -> bool {
+        self.args.pop().is_some()
+            || self.env.pop().is_some()
+            || self.argv.pop().is_some()
+            || self.envp.pop().is_some()
+    }
 }
-fn helper_birth(pid:i32)->Result<u64,Invalid>{
-    #[cfg(target_os="macos")]{let mut info=std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();let size=std::mem::size_of::<libc::proc_bsdinfo>();if unsafe{libc::proc_pidinfo(pid,libc::PROC_PIDTBSDINFO,0,info.as_mut_ptr().cast(),size as i32)}!=size as i32{return Err(Invalid("helper birth unavailable"));}let info=unsafe{info.assume_init()};if info.pbi_pid!=pid as u32||info.pbi_pgid!=pid as u32{return Err(Invalid("helper group unavailable"));}info.pbi_start_tvsec.checked_mul(1_000_000).and_then(|v|v.checked_add(info.pbi_start_tvusec)).ok_or(Invalid("helper birth unavailable"))}
-    #[cfg(not(target_os="macos"))]{let _=pid;Err(Invalid("prepared helper unavailable on host"))}
+fn helper_birth(pid: i32) -> Result<u64, Invalid> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+        let size = std::mem::size_of::<libc::proc_bsdinfo>();
+        if unsafe {
+            libc::proc_pidinfo(
+                pid,
+                libc::PROC_PIDTBSDINFO,
+                0,
+                info.as_mut_ptr().cast(),
+                size as i32,
+            )
+        } != size as i32
+        {
+            return Err(Invalid("helper birth unavailable"));
+        }
+        let info = unsafe { info.assume_init() };
+        if info.pbi_pid != pid as u32
+            || info.pbi_pgid != pid as u32
+            || info.pbi_ppid != unsafe { libc::getpid() } as u32
+        {
+            return Err(Invalid("helper group unavailable"));
+        }
+        info.pbi_start_tvsec
+            .checked_mul(1_000_000)
+            .and_then(|v| v.checked_add(info.pbi_start_tvusec))
+            .ok_or(Invalid("helper birth unavailable"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = pid;
+        Err(Invalid("prepared helper unavailable on host"))
+    }
 }
-fn span_cpu(start:HelperStamp,end:HelperStamp)->u64{if start.cpu==u64::MAX||end.cpu==u64::MAX{u64::MAX}else{end.cpu.checked_sub(start.cpu).unwrap_or(u64::MAX)}}
-fn span_wall(start:HelperStamp,end:HelperStamp)->u64{u64::try_from(end.wall.saturating_duration_since(start.wall).as_nanos()).unwrap_or(u64::MAX)}
+fn span_cpu(start: HelperStamp, end: HelperStamp) -> u64 {
+    if start.cpu == u64::MAX || end.cpu == u64::MAX {
+        u64::MAX
+    } else {
+        end.cpu.checked_sub(start.cpu).unwrap_or(u64::MAX)
+    }
+}
+fn span_wall(start: HelperStamp, end: HelperStamp) -> u64 {
+    u64::try_from(end.wall.saturating_duration_since(start.wall).as_nanos()).unwrap_or(u64::MAX)
+}
 fn helper_catch<T>(f: impl FnOnce() -> Result<T, Invalid>) -> Result<T, Invalid> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
         .unwrap_or(Err(Invalid("selected helper owner panicked")))
@@ -696,105 +1524,344 @@ pub(crate) fn selected_command_input(
     home: Option<&Path>,
     input: Option<&[u8]>,
 ) -> Result<(i32, Vec<u8>), Invalid> {
-    let result=selected_command_input_owned(cwd,program,args,home,input);
-    if let Err(error)=&result { helper_refusal(error.0); }
+    let result = selected_command_input_owned(cwd, program, args, home, input);
+    if let Err(error) = &result {
+        helper_refusal(error.0);
+    }
     result
 }
 fn selected_command_input_owned(
-    cwd:&Path,program:&str,args:&[String],home:Option<&Path>,input:Option<&[u8]>,
-)->Result<(i32,Vec<u8>),Invalid>{
+    cwd: &Path,
+    program: &str,
+    args: &[String],
+    home: Option<&Path>,
+    input: Option<&[u8]>,
+) -> Result<(i32, Vec<u8>), Invalid> {
     use std::io::{Read, Write};
     use std::os::fd::AsRawFd;
-    #[cfg(not(target_os="macos"))]
-    { let _=(cwd,program,args,home,input);return Err(Invalid("prepared native helpers unavailable on host")); }
-    #[cfg(target_os="macos")]
-    let (mut prepared,request,sequence,cost,inclusive,spawn,spawn_end,pid,native_code) = {
-        if input.is_some_and(|v|v.len()>2*1024*1024){return Err(Invalid("resource_limit: helper input bound"));}
-        let request=admitted_request(program,args,home,input)?;
-        helper_boundary()?;
-        let inclusive=helper_stamp(HelperPhase::RawInclusive,false);
-        let prepare=helper_stamp(HelperPhase::Prepare,false);
-        let prepared=ProofOwned::new(NativeSpawn::prepare(&request,cwd,home,input.is_some())?);
-        let cost=request.expected_members as u16;
-        let sequence=helper_creation_reserve(cost)?;
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (cwd, program, args, home, input);
+        return Err(Invalid("prepared native helpers unavailable on host"));
+    }
+    #[cfg(target_os = "macos")]
+    let (
+        mut prepared,
+        request,
+        sequence,
+        cost,
+        inclusive,
+        spawn,
+        spawn_end,
+        pid,
+        native_code,
+        mut bytes,
+    ) = {
+        if input.is_some_and(|v| v.len() > 2 * 1024 * 1024) {
+            return Err(Invalid("resource_limit: helper input bound"));
+        }
+        let request = admitted_request(program, args, home, input)?;
         check_tool_guards()?;
-        helper_record(HelperPhase::Prepare,prepare,helper_stamp(HelperPhase::Prepare,true))?;
-        helper_after()?; // ordinary proof clock PAUSED before native purpose span
-        let sequence=sequence; // admitted before effect, never refunded
-        let inclusive=HelperStamp{cpu:super::c1::cpu_ns(),wall:std::time::Instant::now()};
-        let spawn=helper_stamp(HelperPhase::Spawn,false);
-        let mut pid=0;
-        let native_code=prepared.create(&mut pid); // exact prepared native call; no application wrapper
-        let spawn_end=helper_stamp(HelperPhase::Spawn,true);
-        (prepared,request,sequence,cost,inclusive,spawn,spawn_end,pid,native_code)
+        let cacheable = input.is_none() && pure_git(program, args, home);
+        if cacheable && let Some(bytes) = git_cache_get(cwd, args)? {
+            helper_boundary()?;
+            return Ok((0, bytes));
+        }
+        helper_boundary()?;
+        let prepare = helper_stamp(HelperPhase::Prepare, false);
+        let prepared = ProofOwned::new(NativeSpawn::prepare(&request, cwd, home, input.is_some())?);
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(2 * 1024 * 1024)
+            .map_err(|_| Invalid("resource_limit: helper capture reservation"))?;
+        let cost = request.expected_members as u16;
+        let sequence = helper_creation_reserve(cost)?;
+        helper_record(
+            HelperPhase::Prepare,
+            prepare,
+            helper_stamp(HelperPhase::Prepare, true),
+        )?;
+        helper_boundary()?; // pay complete ordinary preparation rest before native purpose
+        helper_after()?; // suspend the fresh ordinary clock; helper IO stays separate
+        let inclusive = HelperStamp {
+            cpu: super::c1::cpu_ns(),
+            wall: std::time::Instant::now(),
+        };
+        check_tool_guards()?; // immediate pre-effect identity revalidation belongs to app span
+        let spawn = helper_stamp(HelperPhase::Spawn, false);
+        let mut pid = 0;
+        let native_code = prepared.create(&mut pid); // exact prepared native call; no application wrapper
+        let spawn_end = helper_stamp(HelperPhase::Spawn, true);
+        (
+            prepared,
+            request,
+            sequence,
+            cost,
+            inclusive,
+            spawn,
+            spawn_end,
+            pid,
+            native_code,
+            bytes,
+        )
     };
-    #[cfg(target_os="macos")]
-    let pgid=pid; // kernel START_SUSPENDED retains the typed positive effect before verdict
-    #[cfg(target_os="macos")]
-    if pid<=0 {
-        let raw=helper_stamp(HelperPhase::RawInclusive,true);
-        let cpu=span_cpu(spawn,spawn_end);let total=span_cpu(inclusive,raw);
-        let span=NativeCreation{identity:None,rawerrno:native_code,sequence,cpu_ns:cpu,wall_ns:span_wall(spawn,spawn_end),inclusive_cpu_ns:total,inclusive_wall_ns:span_wall(inclusive,raw),app_cpu_ns:total.checked_sub(cpu).unwrap_or(u64::MAX),credits:cost};
-        let _=helper_record(HelperPhase::Spawn,spawn,spawn_end);let _=helper_record(HelperPhase::RawInclusive,inclusive,raw);
-        SELECTED.with(|slot|slot.borrow_mut().as_mut().unwrap().pace.native_created(span))?;
+    #[cfg(target_os = "macos")]
+    let pgid = pid; // kernel START_SUSPENDED retains the typed positive effect before verdict
+    #[cfg(target_os = "macos")]
+    if pid <= 0 {
+        let raw = helper_stamp(HelperPhase::RawInclusive, true);
+        let cpu = span_cpu(spawn, spawn_end);
+        let total = span_cpu(inclusive, raw);
+        let span = NativeCreation {
+            identity: None,
+            rawerrno: native_code,
+            sequence,
+            cpu_ns: cpu,
+            wall_ns: span_wall(spawn, spawn_end),
+            inclusive_cpu_ns: total,
+            inclusive_wall_ns: span_wall(inclusive, raw),
+            app_cpu_ns: total.checked_sub(cpu).unwrap_or(u64::MAX),
+            credits: cost,
+        };
+        let _ = helper_record(HelperPhase::Spawn, spawn, spawn_end);
+        let _ = helper_record(HelperPhase::RawInclusive, inclusive, raw);
+        SELECTED.with(|slot| {
+            slot.borrow_mut()
+                .as_mut()
+                .unwrap()
+                .pace
+                .native_created(span)
+        })?;
         return Err(Invalid("prepared helper native creation failed"));
     }
-    SELECTED.with(|slot|slot.borrow_mut().as_mut().unwrap().helper_active=true);
-    const OUTPUT:usize=2*1024*1024;
-    let mut bytes=Vec::new(); // capture capacity was admitted before creation by host
-    let mut pipe=None;
-    let mut stdin=None;
-    let mut sent=0usize;
-    let mut chunk=[0;4096];
-    let mut inclusive_recorded=false;
-    let mut first_poll=true;
-    let observed=helper_catch(|| {
-        let app=spawn_end;
-        let birth=helper_birth(pgid); // PID remains retained and kernel-suspended even on failure
-        let identity=HelperIdentity{sequence,pid,pgid,start_identity:birth.clone().unwrap_or(0),expected_members:request.expected_members,image:request.image.clone(),descendant_image:request.descendant.clone()};
-        let attached=SELECTED.with(|slot|slot.borrow_mut().as_mut().unwrap().pace.helper_attach(identity.clone()));
-        if let Some((read,write))=prepared.output.take(){pipe=Some(read);drop(write);}
-        if let Some((read,write))=prepared.input.take(){stdin=Some(write);drop(read);}
-        for fd in pipe.iter().chain(stdin.iter()) {
-            let flags=unsafe{libc::fcntl(fd.as_raw_fd(),libc::F_GETFL)};
-            if flags<0||unsafe{libc::fcntl(fd.as_raw_fd(),libc::F_SETFL,flags|libc::O_NONBLOCK)}<0{return Err(Invalid("helper pipe setup unavailable"));}
+    SELECTED.with(|slot| slot.borrow_mut().as_mut().unwrap().helper_active = true);
+    const OUTPUT: usize = 2 * 1024 * 1024;
+    let mut pipe = None;
+    let mut stdin = None;
+    let mut sent = 0usize;
+    let mut chunk = [0; 4096];
+    let mut inclusive_recorded = false;
+    let mut exact_recorded = false;
+    let mut app_recorded = false;
+    let mut native_notified = false;
+    let mut retained_identity = None;
+    let mut retained_ticket = HelperTicket {
+        pid,
+        pgid,
+        start_identity: 0,
+        sequence,
+    };
+    let mut first_poll = true;
+    let observed = helper_catch(|| {
+        let app = spawn_end;
+        let birth = helper_birth(pgid); // PID remains retained and kernel-suspended even on failure
+        let identity = HelperIdentity {
+            sequence,
+            pid,
+            pgid,
+            start_identity: birth.clone().unwrap_or(0),
+            expected_members: request.expected_members,
+            image: request.image.clone(),
+            descendant_image: request.descendant.clone(),
+        };
+        retained_ticket = identity.ticket();
+        retained_identity = Some(identity.clone());
+        let attached = SELECTED.with(|slot| {
+            slot.borrow_mut()
+                .as_mut()
+                .unwrap()
+                .pace
+                .helper_attach(identity.clone())
+        });
+        if let Some((read, write)) = prepared.output.take() {
+            pipe = Some(read);
+            drop(write);
         }
-        bytes.try_reserve_exact(OUTPUT).map_err(|_|Invalid("resource_limit: helper capture reservation"))?;
-        let end=helper_stamp(HelperPhase::RawInclusive,true);
-        let native_cpu=span_cpu(spawn,spawn_end);let total=span_cpu(inclusive,end);
-        let native=NativeCreation{identity:Some(identity),rawerrno:native_code,sequence,cpu_ns:native_cpu,wall_ns:span_wall(spawn,spawn_end),inclusive_cpu_ns:total,inclusive_wall_ns:span_wall(inclusive,end),app_cpu_ns:total.checked_sub(native_cpu).unwrap_or(u64::MAX),credits:cost};
-        let exact=helper_record(HelperPhase::Spawn,spawn,spawn_end);
-        let app_profile=helper_record(HelperPhase::Postspawn,app,end);
-        let raw=helper_record(HelperPhase::RawInclusive,inclusive,end);inclusive_recorded=true;
-        let admitted=SELECTED.with(|slot|slot.borrow_mut().as_mut().unwrap().pace.native_created(native));
-        birth?;attached?;exact?;app_profile?;raw?;admitted?;if native_code!=0{return Err(Invalid("helper creation returned failure with effect"));}
+        if let Some((read, write)) = prepared.input.take() {
+            stdin = Some(write);
+            drop(read);
+        }
+        for fd in pipe.iter().chain(stdin.iter()) {
+            let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
+            if flags < 0
+                || unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) }
+                    < 0
+            {
+                return Err(Invalid("helper pipe setup unavailable"));
+            }
+        }
+        let end = helper_stamp(HelperPhase::RawInclusive, true);
+        let native_cpu = span_cpu(spawn, spawn_end);
+        let total = span_cpu(inclusive, end);
+        let native = NativeCreation {
+            identity: Some(identity),
+            rawerrno: native_code,
+            sequence,
+            cpu_ns: native_cpu,
+            wall_ns: span_wall(spawn, spawn_end),
+            inclusive_cpu_ns: total,
+            inclusive_wall_ns: span_wall(inclusive, end),
+            app_cpu_ns: total.checked_sub(native_cpu).unwrap_or(u64::MAX),
+            credits: cost,
+        };
+        exact_recorded = true;
+        let exact = helper_record(HelperPhase::Spawn, spawn, spawn_end);
+        app_recorded = true;
+        let app_profile = helper_record(HelperPhase::Postspawn, app, end);
+        let raw = helper_record(HelperPhase::RawInclusive, inclusive, end);
+        inclusive_recorded = true;
+        if let Some(error) = birth
+            .as_ref()
+            .err()
+            .or(attached.as_ref().err())
+            .or(exact.as_ref().err())
+            .or(app_profile.as_ref().err())
+            .or(raw.as_ref().err())
+        {
+            helper_refusal(error.0);
+        }
+        // Mark before invoking the effect-accounting hook: an unwinding hook
+        // must never cause an ambiguous native effect to be accounted twice.
+        native_notified = true;
+        let admitted = SELECTED.with(|slot| {
+            slot.borrow_mut()
+                .as_mut()
+                .unwrap()
+                .pace
+                .native_created(native)
+        });
+        birth?;
+        attached?;
+        exact?;
+        app_profile?;
+        raw?;
+        admitted?;
+        if native_code != 0 {
+            return Err(Invalid("helper creation returned failure with effect"));
+        }
         // Only the controller's helper_poll charges pipe CPU and waits on group
         // stop/debt. No ordinary proof clock/parser work runs while helper active.
-        let pipe=pipe.as_mut().ok_or(Invalid("helper output pipe unavailable"))?;
+        let pipe = pipe
+            .as_mut()
+            .ok_or(Invalid("helper output pipe unavailable"))?;
         loop {
-            helper_hook(pgid,1)?;
-            let poll=helper_stamp(HelperPhase::FirstPoll,false);
-            if let Some(input)=input {
-                if sent==input.len(){stdin.take();}
-                else if let Some(stdin)=stdin.as_mut(){let end=(sent+4096).min(input.len());match stdin.write(&input[sent..end]){Ok(0)=>return Err(Invalid("helper stdin stalled")),Ok(n)=>sent+=n,Err(e)if matches!(e.kind(),std::io::ErrorKind::WouldBlock|std::io::ErrorKind::Interrupted)=>{},Err(_)=>return Err(Invalid("helper stdin unavailable")),}}
-                if sent==input.len(){stdin.take();}
+            helper_hook(retained_ticket, 1)?;
+            let poll = helper_stamp(HelperPhase::FirstPoll, false);
+            if let Some(input) = input {
+                if sent == input.len() {
+                    stdin.take();
+                } else if let Some(stdin) = stdin.as_mut() {
+                    let end = (sent + 4096).min(input.len());
+                    match stdin.write(&input[sent..end]) {
+                        Ok(0) => return Err(Invalid("helper stdin stalled")),
+                        Ok(n) => sent += n,
+                        Err(e)
+                            if matches!(
+                                e.kind(),
+                                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                            ) => {}
+                        Err(_) => return Err(Invalid("helper stdin unavailable")),
+                    }
+                }
+                if sent == input.len() {
+                    stdin.take();
+                }
             }
-            match pipe.read(&mut chunk){Ok(n)=>{if bytes.len()+n>OUTPUT{return Err(Invalid("resource_limit: helper output bound"));}bytes.extend_from_slice(&chunk[..n]);},Err(e)if matches!(e.kind(),std::io::ErrorKind::WouldBlock|std::io::ErrorKind::Interrupted)=>{},Err(_)=>return Err(Invalid("helper output unavailable")),}
-            let exited=helper_exited(pgid)?;
-            if first_poll{first_poll=false;helper_record(HelperPhase::FirstPoll,poll,helper_stamp(HelperPhase::FirstPoll,true))?;}
-            if exited{return Ok(());}
+            match pipe.read(&mut chunk) {
+                Ok(n) => {
+                    if bytes.len() + n > OUTPUT {
+                        return Err(Invalid("resource_limit: helper output bound"));
+                    }
+                    bytes.extend_from_slice(&chunk[..n]);
+                }
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                    ) => {}
+                Err(_) => return Err(Invalid("helper output unavailable")),
+            }
+            let exited = helper_exited(pgid)?;
+            if first_poll {
+                first_poll = false;
+                helper_record(
+                    HelperPhase::FirstPoll,
+                    poll,
+                    helper_stamp(HelperPhase::FirstPoll, true),
+                )?;
+            }
+            if exited {
+                return Ok(());
+            }
         }
     });
-    if !inclusive_recorded {let _=helper_record(HelperPhase::RawInclusive,inclusive,helper_stamp(HelperPhase::RawInclusive,true));}
+    if !native_notified {
+        // Setup/registration can fail or panic after the positive suspended PID
+        // exists. Account that retained effect exactly once before retirement;
+        // the failure is installed first so accounting cannot grant execution.
+        let _ = helper_catch(|| {
+            helper_refusal("selected helper setup after effect failed");
+            Ok(())
+        });
+        let identity = retained_identity.or_else(|| {
+            Some(HelperIdentity {
+                sequence,
+                pid,
+                pgid,
+                start_identity: 0,
+                expected_members: request.expected_members,
+                image: request.image.clone(),
+                descendant_image: request.descendant.clone(),
+            })
+        });
+        let end = helper_stamp(HelperPhase::RawInclusive, true);
+        let native_cpu = span_cpu(spawn, spawn_end);
+        let total = span_cpu(inclusive, end);
+        if !exact_recorded {
+            let _ = helper_record(HelperPhase::Spawn, spawn, spawn_end);
+        }
+        if !app_recorded {
+            let _ = helper_record(HelperPhase::Postspawn, spawn_end, end);
+        }
+        let _ = helper_record(HelperPhase::RawInclusive, inclusive, end);
+        inclusive_recorded = true;
+        let native = NativeCreation {
+            identity,
+            rawerrno: native_code,
+            sequence,
+            cpu_ns: native_cpu,
+            wall_ns: span_wall(spawn, spawn_end),
+            inclusive_cpu_ns: total,
+            inclusive_wall_ns: span_wall(inclusive, end),
+            app_cpu_ns: total.checked_sub(native_cpu).unwrap_or(u64::MAX),
+            credits: cost,
+        };
+        let _ = helper_catch(|| {
+            SELECTED.with(|slot| {
+                slot.borrow_mut()
+                    .as_mut()
+                    .unwrap()
+                    .pace
+                    .native_created(native)
+            })
+        });
+    }
+    if !inclusive_recorded {
+        let _ = helper_record(
+            HelperPhase::RawInclusive,
+            inclusive,
+            helper_stamp(HelperPhase::RawInclusive, true),
+        );
+    }
     stdin.take(); // close the owned writer on success, refusal or unwind
     // Never use Child::try_wait here: it could reap the leader while the control
     // owner still holds permission to signal this pgid. Retire is serialized by
     // that owner with its independent stop/continue/kill controller.
-    let mut retired = helper_catch(|| helper_hook(pgid, 2));
+    let mut retired = helper_catch(|| helper_hook(retained_ticket, 2));
     if retired.is_err() {
         // Retirement is idempotent for this still-pinned exact leader; retry a
         // one-shot hook panic before any reap. Original failure still refuses.
-        let _ = helper_catch(|| helper_hook(pgid, 2))
+        let _ = helper_catch(|| helper_hook(retained_ticket, 2))
             .map(|_| retired = Err(Invalid("selected helper retirement recovered")));
     }
     unsafe {
@@ -884,25 +1951,27 @@ fn selected_command_input_owned(
     let rss = usage.ru_maxrss as u64;
     #[cfg(not(target_os = "macos"))]
     let rss = (usage.ru_maxrss as u64).saturating_mul(1024);
-    let measured = if status.is_some() {
+    let measured = if status.is_some() && group_gone {
         helper_catch(|| {
             SELECTED.with(|slot| {
                 slot.borrow_mut()
                     .as_mut()
                     .ok_or(Invalid("selected helper owner unavailable"))?
                     .pace
-                    .helper_usage(pgid, cpu, rss)
+                    .helper_usage(retained_ticket, cpu, rss)
             })
         })
     } else {
         Err(Invalid("selected helper usage unavailable"))
     };
-    if group_gone && status.is_some() { SELECTED.with(|slot|slot.borrow_mut().as_mut().unwrap().helper_active=false); }
     let detached = if group_gone && status.is_some() {
-        helper_catch(|| helper_hook(pgid, 3))
+        helper_catch(|| helper_hook(retained_ticket, 3))
     } else {
         Err(Invalid("selected helper settlement unproven"))
     };
+    if detached.is_ok() {
+        SELECTED.with(|slot| slot.borrow_mut().as_mut().unwrap().helper_active = false);
+    }
     let resumed = helper_catch(helper_boundary);
     observed?;
     retired?;
@@ -940,6 +2009,10 @@ fn selected_command_input_owned(
     bytes.shrink_to_fit();
     helper_boundary()?;
     let code = status.ok_or(Invalid("selected helper direct join unavailable"))?;
+    if code == 0 && input.is_none() && pure_git(program, args, home) {
+        git_cache_put(cwd, args, &bytes)?;
+        checkpoint()?;
+    }
 
     Ok((code, bytes))
 }
@@ -2288,7 +3361,7 @@ mod selected_helper_process_tests {
     // Project-owned private process/API witnesses. Keep the policy with reuse:
     // https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
     use super::*;
-    use crate::dream::c1::{self, Control, HelperGroup, storage};
+    use crate::dream::c1::{self, Control, storage};
     use std::sync::{
         Mutex,
         atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
@@ -2306,18 +3379,18 @@ mod selected_helper_process_tests {
     struct State {
         control: Arc<Control>,
         groups: Mutex<Vec<i32>>,
+        tickets: Mutex<Vec<HelperTicket>>,
         paused: AtomicBool,
         stale_rejected: AtomicBool,
+        native_calls: AtomicU64,
+        failed_positive_effect: AtomicBool,
         panic_at: Mutex<PanicAt>,
         marker: PathBuf,
         pause_on_attach: bool,
     }
     struct Pace {
         state: Arc<State>,
-        _credit: storage::Credit,
-    }
-    fn stopped() -> Invalid {
-        Invalid("private helper control stopped")
+        inner: Box<dyn ProofPace>,
     }
     impl Pace {
         fn take_panic(&self, point: PanicAt) -> bool {
@@ -2335,60 +3408,48 @@ mod selected_helper_process_tests {
         }
     }
     impl ProofPace for Pace {
-        fn reserve(&mut self, _: u64) -> Result<(), Invalid> {
-            Ok(())
+        fn reserve(&mut self, bytes: u64) -> Result<(), Invalid> {
+            self.inner.reserve(bytes)
         }
         fn before(&mut self) -> Result<(), Invalid> {
-            if self.state.marker.exists() && self.take_panic(PanicAt::Before) {
-                panic!("private proof checkpoint panic");
-            }
-            loop {
-                if self.state.control.error().is_some() {
-                    return Err(stopped());
-                }
-                if !self.state.control.foreground.load(Ordering::Acquire) {
-                    return Ok(());
-                }
-                self.state.paused.store(true, Ordering::Release);
-                std::thread::sleep(Duration::from_micros(100));
-            }
+            self.inner.before()
         }
         fn after(&mut self) -> Result<(), Invalid> {
-            if self.state.control.error().is_some() {
-                Err(stopped())
-            } else {
-                Ok(())
-            }
+            self.inner.after()
         }
-        fn helper_attach(&mut self, pgid: i32) -> Result<(), Invalid> {
-            let mut group = self
-                .state
-                .control
-                .helper
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            if pgid <= 0 || group.is_some() {
-                return Err(stopped());
+        fn boundary(&mut self) -> Result<(), Invalid> {
+            self.inner.boundary()
+        }
+        fn helper_refused(&mut self, reason: &'static str) {
+            self.inner.helper_refused(reason)
+        }
+        fn native_created(&mut self, span: NativeCreation) -> Result<(), Invalid> {
+            self.state.native_calls.fetch_add(1, Ordering::AcqRel);
+            if span.rawerrno != 0 && span.identity.is_some() {
+                self.state
+                    .failed_positive_effect
+                    .store(true, Ordering::Release);
             }
-            unsafe {
-                libc::kill(-pgid, libc::SIGSTOP);
-            }
-            *group = Some(HelperGroup {
-                pgid,
-                running: false,
-                retiring: false,
-                changed: Instant::now(),
-            });
-            drop(group);
+            self.inner.native_created(span)
+        }
+        fn helper_attach(&mut self, identity: HelperIdentity) -> Result<(), Invalid> {
+            let pgid = identity.pgid;
+            let ticket = identity.ticket();
+            let result = self.inner.helper_attach(identity);
+            self.state.groups.lock().unwrap().push(pgid);
+            self.state.tickets.lock().unwrap().push(ticket);
             if self.state.pause_on_attach {
                 self.state.control.foreground.store(true, Ordering::Release);
             }
-            let previous = self.state.groups.lock().unwrap().last().copied();
+            let previous = {
+                let tickets = self.state.tickets.lock().unwrap();
+                tickets.iter().rev().nth(1).copied()
+            };
             if let Some(previous) = previous {
-                assert_ne!(previous, pgid, "distinct owned group generation");
-                assert!(self.helper_poll(previous).is_err());
-                assert!(self.helper_retire(previous).is_err());
-                assert!(self.helper_detach(previous).is_err());
+                assert_ne!(previous.pgid, pgid);
+                assert!(self.inner.helper_poll(previous).is_err());
+                assert!(self.inner.helper_retire(previous).is_err());
+                assert!(self.inner.helper_detach(previous).is_err());
                 assert_eq!(
                     self.state
                         .control
@@ -2402,64 +3463,31 @@ mod selected_helper_process_tests {
                 );
                 self.state.stale_rejected.store(true, Ordering::Release);
             }
-            self.state.groups.lock().unwrap().push(pgid);
             if self.take_panic(PanicAt::Attach) {
                 panic!("private helper registration panic");
             }
-            Ok(())
+            result
         }
-        fn helper_poll(&mut self, pgid: i32) -> Result<(), Invalid> {
-            let group = self
-                .state
-                .control
-                .helper
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            if group.as_ref().is_none_or(|g| g.pgid != pgid) || self.state.control.error().is_some()
-            {
-                Err(stopped())
-            } else {
-                Ok(())
+        fn helper_poll(&mut self, ticket: HelperTicket) -> Result<(), Invalid> {
+            let result = self.inner.helper_poll(ticket);
+            if result.is_ok() && self.state.marker.exists() && self.take_panic(PanicAt::Before) {
+                panic!("private helper IO checkpoint panic");
             }
+            result
         }
-        fn helper_retire(&mut self, pgid: i32) -> Result<(), Invalid> {
-            let mut group = self
-                .state
-                .control
-                .helper
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            let group = group
-                .as_mut()
-                .filter(|g| g.pgid == pgid)
-                .ok_or_else(stopped)?;
-            group.retiring = true;
-            Ok(())
+        fn helper_retire(&mut self, ticket: HelperTicket) -> Result<(), Invalid> {
+            self.inner.helper_retire(ticket)
         }
-        fn helper_detach(&mut self, pgid: i32) -> Result<(), Invalid> {
-            let mut group = self
-                .state
-                .control
-                .helper
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            if group.as_ref().is_none_or(|g| g.pgid != pgid || !g.retiring) {
-                return Err(stopped());
-            }
-            if unsafe { libc::kill(-pgid, 0) } == 0
-                || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
-            {
-                return Err(stopped());
-            }
-            group.take();
-            Ok(())
+        fn helper_detach(&mut self, ticket: HelperTicket) -> Result<(), Invalid> {
+            self.inner.helper_detach(ticket)
         }
-        fn helper_usage(&mut self, _: i32, _: u64, rss: u64) -> Result<(), Invalid> {
-            if rss > storage::HELPERS {
-                Err(stopped())
-            } else {
-                Ok(())
-            }
+        fn helper_usage(
+            &mut self,
+            ticket: HelperTicket,
+            cpu: u64,
+            rss: u64,
+        ) -> Result<(), Invalid> {
+            self.inner.helper_usage(ticket, cpu, rss)
         }
         fn cleanup(&mut self, step: &mut dyn FnMut() -> bool) {
             let active = self
@@ -2472,18 +3500,7 @@ mod selected_helper_process_tests {
             if active && self.take_panic(PanicAt::Cleanup) {
                 panic!("private helper cleanup panic");
             }
-            let mut more = true;
-            while more {
-                c1::cleanup_unit(&self.state.control, || {
-                    let at = c1::cpu_ns();
-                    for _ in 0..64 {
-                        more = step();
-                        if !more || c1::cpu_ns().saturating_sub(at) >= 200_000 {
-                            break;
-                        }
-                    }
-                });
-            }
+            self.inner.cleanup(step)
         }
     }
     struct Run {
@@ -2528,12 +3545,17 @@ mod selected_helper_process_tests {
         }
         fn start_with(
             cwd: &Path,
-            bindings: SelectedBindings,
+            mut bindings: SelectedBindings,
             pause: bool,
             panic_at: PanicAt,
             deadline: Duration,
             job: impl FnOnce(&Path) -> Result<Vec<Vec<u8>>, Invalid> + Send + 'static,
         ) -> Self {
+            let scratch = cwd.join("proof-scratch");
+            std::fs::create_dir(&scratch).unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&scratch, std::fs::Permissions::from_mode(0o700)).unwrap();
+            bindings.scratch = Some(scratch);
             let control = Arc::new(Control {
                 cancel: AtomicU8::new(0),
                 foreground: AtomicBool::new(false),
@@ -2548,8 +3570,11 @@ mod selected_helper_process_tests {
             let state = Arc::new(State {
                 control,
                 groups: Mutex::new(vec![]),
+                tickets: Mutex::new(vec![]),
                 paused: AtomicBool::new(false),
                 stale_rejected: AtomicBool::new(false),
+                native_calls: AtomicU64::new(0),
+                failed_positive_effect: AtomicBool::new(false),
                 panic_at: Mutex::new(panic_at),
                 marker: cwd.join("ready"),
                 pause_on_attach: pause,
@@ -2559,6 +3584,8 @@ mod selected_helper_process_tests {
             let tick_stop = stop.clone();
             let controller = std::thread::spawn(move || {
                 while !tick_stop.load(Ordering::Acquire) {
+                    let marker = tick_state.control.helper_controller_marker();
+                    let at = c1::cpu_ns();
                     tick_state.control.helper_tick();
                     let runnable = tick_state
                         .control
@@ -2569,8 +3596,21 @@ mod selected_helper_process_tests {
                         .is_some_and(|group| group.running && !group.retiring);
                     // Match the real control owner: active helper quantum is
                     // polled directly; timer sleeps occur only while stopped.
+                    let paused = tick_state.control.foreground.load(Ordering::Acquire)
+                        && tick_state
+                            .control
+                            .helper
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .is_some();
+                    if paused {
+                        tick_state.paused.store(true, Ordering::Release);
+                    }
+                    tick_state
+                        .control
+                        .helper_account_controller(marker, c1::cpu_ns().saturating_sub(at));
                     if !runnable {
-                        std::thread::sleep(Duration::from_micros(100));
+                        std::thread::sleep(Duration::from_millis(1));
                     }
                 }
             });
@@ -2578,16 +3618,12 @@ mod selected_helper_process_tests {
             let worker_state = state.clone();
             let cwd = cwd.to_owned();
             let owner = std::thread::spawn(move || {
-                let credit = worker_state
-                    .control
-                    .memory
-                    .reserve(10 * 1024 * 1024)
-                    .unwrap();
+                let inner = crate::dream::read::helper_fixture_clock(worker_state.control.clone());
                 let _scope = SelectedScope::enter(
                     Arc::new(bindings),
                     Box::new(Pace {
                         state: worker_state,
-                        _credit: credit,
+                        inner,
                     }),
                 )
                 .unwrap();
@@ -2653,10 +3689,22 @@ mod selected_helper_process_tests {
     fn stopped_group(pgid: i32) -> bool {
         let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
         let size = std::mem::size_of::<libc::proc_bsdinfo>();
-        let got = unsafe { libc::proc_pidinfo(pgid, libc::PROC_PIDTBSDINFO, 0, info.as_mut_ptr().cast(), size as i32) };
-        if got != size as i32 { return false; }
+        let got = unsafe {
+            libc::proc_pidinfo(
+                pgid,
+                libc::PROC_PIDTBSDINFO,
+                0,
+                info.as_mut_ptr().cast(),
+                size as i32,
+            )
+        };
+        if got != size as i32 {
+            return false;
+        }
         let info = unsafe { info.assume_init() };
-        info.pbi_pid == pgid as u32 && info.pbi_pgid == pgid as u32 && info.pbi_status == libc::SSTOP
+        info.pbi_pid == pgid as u32
+            && info.pbi_pgid == pgid as u32
+            && info.pbi_status == libc::SSTOP
     }
     #[cfg(not(target_os = "macos"))]
     fn stopped_group(pgid: i32) -> bool {
@@ -2676,7 +3724,7 @@ mod selected_helper_process_tests {
         let home = tempfile::tempdir().unwrap();
         let run = Run::start(
             home.path(),
-            vec!["printf ready > ready; while :; do printf x >> ticks; sleep 0.001; done"],
+            vec!["printf ready > ready; while :; do printf x >> ticks; done"],
             true,
             PanicAt::None,
             Duration::from_secs(5),
@@ -2713,7 +3761,7 @@ mod selected_helper_process_tests {
         let home = tempfile::tempdir().unwrap();
         let run = Run::start(
             home.path(),
-            vec!["printf unexpected > ready; sleep 30"],
+            vec!["printf unexpected > ready; /bin/sleep 30; exit 0"],
             true,
             PanicAt::None,
             Duration::from_millis(150),
@@ -2745,21 +3793,28 @@ mod selected_helper_process_tests {
             let home = tempfile::tempdir().unwrap();
             let run = Run::start(
                 home.path(),
-                vec![
-                    "sleep 30 & printf '%s' $! > descendant; printf ready > ready; while :; do sleep 1; done",
-                ],
+                vec!["/bin/sleep 30 & printf '%s' $! > descendant; printf ready > ready; wait"],
                 false,
                 point,
                 Duration::from_secs(5),
             );
-            let descendant_pid = || std::fs::read_to_string(home.path().join("descendant"))
-                .ok().and_then(|text| text.trim().parse::<i32>().ok()).filter(|pid| *pid > 0);
+            let descendant_pid = || {
+                std::fs::read_to_string(home.path().join("descendant"))
+                    .ok()
+                    .and_then(|text| text.trim().parse::<i32>().ok())
+                    .filter(|pid| *pid > 0)
+            };
             if point == PanicAt::Cleanup {
                 run.wait(|| descendant_pid().is_some());
                 run.state.control.cancel.store(1, Ordering::Release);
             }
             let state = run.state.clone();
             assert!(run.finish().is_err());
+            assert_eq!(
+                state.native_calls.load(Ordering::Acquire),
+                1,
+                "failed post-spawn owner accounts its retained effect exactly once"
+            );
             assert!(
                 *state.panic_at.lock().unwrap_or_else(|e| e.into_inner()) == PanicAt::None,
                 "panic witness must execute its injected fault"
@@ -2867,7 +3922,7 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
                 let (code, output) = selected_command_input(
                     cwd,
                     "/bin/sh",
-                    &["-c".into(), "/bin/cat".into()],
+                    &["-c".into(), "/bin/cat; exit 0".into()],
                     None,
                     Some(&input),
                 )?;
@@ -2894,7 +3949,10 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
                 selected_command_input(
                     cwd,
                     "/bin/sh",
-                    &["-c".into(), "printf ready > ready; /bin/sleep 30".into()],
+                    &[
+                        "-c".into(),
+                        "printf ready > ready; /bin/sleep 30; exit 0".into(),
+                    ],
                     None,
                     Some(&input),
                 )
@@ -2921,13 +3979,64 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
     #[test]
     fn unknown_spawn_clock_refuses_after_retained_effect_actually_settles() {
         let home = tempfile::tempdir().unwrap();
-        let run = Run::start_with(home.path(), SelectedBindings::default(), false, PanicAt::None, Duration::from_secs(5), move |cwd| {
-            FAIL_HELPER_CLOCK.with(|failure| failure.set(Some(HelperPhase::Spawn)));
-            selected_command(cwd, "/bin/sh", &["-c".into(), "/bin/sleep 30".into()], None).map(|(_, bytes)| vec![bytes])
-        });
+        let run = Run::start_with(
+            home.path(),
+            SelectedBindings::default(),
+            false,
+            PanicAt::None,
+            Duration::from_secs(5),
+            move |cwd| {
+                FAIL_HELPER_CLOCK.with(|failure| failure.set(Some(HelperPhase::Spawn)));
+                selected_command(cwd, "/bin/sh", &["-c".into(), "/bin/sleep 30".into()], None)
+                    .map(|(_, bytes)| vec![bytes])
+            },
+        );
         let state = run.state.clone();
         assert!(run.finish().is_err());
-        assert_eq!(state.groups.lock().unwrap().len(), 1, "failed clock retains and registers the real spawned effect for cleanup");
+        assert_eq!(
+            state.groups.lock().unwrap().len(),
+            1,
+            "failed clock retains and registers the real spawned effect for cleanup"
+        );
+        assert_eq!(state.native_calls.load(Ordering::Acquire), 1);
     }
 
+    #[test]
+    fn nonzero_native_errno_with_positive_pid_retains_effect_until_actual_settlement() {
+        let home = tempfile::tempdir().unwrap();
+        let run = Run::start_with(
+            home.path(),
+            SelectedBindings::default(),
+            false,
+            PanicAt::None,
+            Duration::from_secs(5),
+            move |cwd| {
+                FAIL_HELPER_ERRNO.with(|failure| failure.set(Some(libc::EIO)));
+                selected_command(
+                    cwd,
+                    "/bin/sh",
+                    &["-c".into(), "printf untrusted > ready".into()],
+                    None,
+                )
+                .map(|(_, bytes)| vec![bytes])
+            },
+        );
+        let state = run.state.clone();
+        assert!(run.finish().is_err());
+        assert_eq!(
+            state.groups.lock().unwrap().len(),
+            1,
+            "positive native effect stays registered for exact owned cleanup"
+        );
+        assert_eq!(
+            state.native_calls.load(Ordering::Acquire),
+            1,
+            "native effect must never be retried or accounted twice"
+        );
+        assert!(state.failed_positive_effect.load(Ordering::Acquire));
+        assert!(
+            !home.path().join("ready").exists(),
+            "a failed suspended creation receives no executable grant"
+        );
+    }
 }
