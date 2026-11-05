@@ -1,0 +1,90 @@
+command: cargo test --offline --locked --lib --features acp,test-fixtures
+source: fe1c4e89491d83a7b5c144fc994e0e1fcdefafb8
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized] target(s) in 9.26s
+     Running unittests src/lib.rs (target/debug/deps/bboxy450_harness-d924ee6f08a5e836)
+
+running 68 tests
+test dream::resolve::tests::hashbrown_record_cache_bench ... ignored, explicit release-mode measurement, never a CI timing threshold
+test capability::tests::foreign_owned_file_is_refused_before_read ... ok
+test dream::fingerprint::tests::digest_is_the_exact_sha256_string_vector ... ok
+test capability::tests::unsafe_shape_refusals_never_reveal_the_path_or_value ... ok
+test dream::join::tests::joins_require_task_tools_and_bounded_id_number_or_path_tokens ... ok
+test capability::tests::canonical_file_is_bounded_and_reading_preserves_it ... ok
+test dream::join::tests::verdicts_use_recorded_results_and_keep_exact_pins ... ok
+test dream::resolve::tests::record_cache_matches_all_fields_and_exact_option_identity ... ok
+test dream::d0::tests::inline_cpu_broken_control_is_rejected_by_the_actual_poll_budget ... ok
+test dream::trial::timing_tests::original_timing_absence_is_distinct_from_unavailable_or_legacy_units ... ok
+test dream::fingerprint::tests::normalization_masks_unstable_values_before_hashing ... ok
+test dream::trial::timing_tests::original_timing_exact_milliseconds_strict_json_and_binding_controls ... ok
+test dream::trial::input_tests::inherited_input_uses_common_deny_without_rewriting_source_or_model_identity ... ok
+test dream::resolve::tests::record_cache_random_seeds_preserve_canonical_observable_records ... ok
+test frontends::gui::anim::tests::curves_pass_through_the_corners_and_pop_overshoots ... ok
+test frontends::gui::anim::tests::delayed_entrance_waits_at_from ... ok
+test frontends::gui::anim::tests::loops_keep_the_clock_awake_only_while_asked ... ok
+test frontends::gui::anim::tests::settled_and_reduced_answer_end_states_without_frames ... ok
+test frontends::gui::anim::tests::spring_settles_near_the_web_time_constant_without_overshoot ... ok
+test frontends::gui::anim::tests::tween_retargets_from_the_current_value_and_never_snaps_back ... ok
+test engine::trial_launch_tests::trial_launch_prevents_all_mcp_origins_and_context_widening ... ok
+test frontends::gui::anim::tests::two_missed_frames_fall_flat_until_idle ... ok
+test frontends::gui::anim::tests::untouched_ids_are_forgotten_and_return_at_their_end_state ... ok
+test frontends::gui::zoom::tests::steps_clamp_and_snap ... ok
+test frontends::headless::tty_tests::physical_eof_is_distinct_from_cooked_control_d ... ok
+test gateway::admission_tests::held_capacity_returns_busy_without_an_actor_or_runtime ... ok
+test frontends::gui::zoom::tests::settings_round_trip_and_keep_other_keys ... ok
+test mcp::source_tests::launcher_provenance_cannot_come_from_server_json_and_overrides_once ... ok
+test process::ownership_tests::automatic_sigchld_reaping_is_refused_before_spawn ... ok
+test mcp::source_tests::reserved_reference_is_a_typed_config_error_before_resolution ... ok
+test process::ownership_tests::reaped_group_drop_never_signals_a_reused_identity ... ok
+test process::ownership_tests::released_registration_does_not_clear_a_reused_slot ... ok
+test dream::resolve::tests::record_cache_collisions_resize_duplicates_and_clear ... ok
+test process::settlement_tests::observed_early_io_error_retires_the_actual_same_owner ... ok
+test process::ownership_tests::echild_after_owned_reap_never_leaves_a_signal_target ... ok
+test process::settlement_tests::observed_never_polled_live_and_lost_ack_are_distinct ... ok
+test frontends::acp::tests::admission_lag_replays_the_durable_prompt_before_next_input ... ok
+test process::spawn_admission_tests::closed_elapsed_result_beats_a_not_ready_caller_timer ... ok
+test engine::hardening_tests::crashed_closes_from_the_durable_head_not_runtime_identity ... ok
+test process::settlement_tests::observed_queued_refusal_does_not_wait_for_four_busy_permits ... ok
+test process::spawn_admission_tests::abandonment_during_admission_and_after_spawn_retains_reaping_owner ... ok
+test process::spawn_admission_tests::result_observations_preserve_priority_cutoff_and_explicit_errors ... ok
+test frontends::acp::tests::agent_turn_fixture_exports_its_heading_and_work_without_a_prompt ... ok
+test process::settlement_tests::observed_late_spawn_keeps_resources_while_an_independent_operation_finishes ... ok
+test redact::ordered_tests::held_tails_keep_arrival_order_and_cross_stream_secrets_are_scrubbed ... ok
+test process::spawn_admission_tests::queued_cancel_drop_and_deadline_do_not_need_permit_service ... ok
+test process::spawn_admission_tests::unreceived_owned_result_and_normal_handoff_are_not_owner_loss ... ok
+test store::fork::controls::reserializing_fork_fails_byte_identity ... ok
+test process::spawn_admission_tests::result_observation_hands_off_live_and_reaps_late_owned_packets ... ok
+test store::lease_tests::actual_store_parse_error_releases_its_acquired_lease ... ok
+test engine::hardening_tests::launch_context_is_in_the_first_scripted_request_stable_prefix ... ok
+test store::lease_tests::checked_unlock_failure_and_stale_released_guard_preserve_exact_generation ... ok
+test store::lease_tests::exceptional_drop_unlock_failure_is_nonpanicking_and_unavailable ... ok
+test frontends::acp::tests::real_stream_with_forced_ephemeral_drops_repairs_from_completion_and_snapshot ... ok
+test process::spawn_admission_tests::store_writer_release_during_owned_spawn_diagnostic ... ok
+test store::durability_controls::writer_durability_on_read_refuses_a_forward_compatible_log ... ok
+test store::lease_tests::bare_fsync_clone_and_session_closed_keep_the_live_store_exclusive ... ok
+test tools::trial_tests::confined_registry_rejects_escapes_links_special_files_and_forged_allow ... ok
+test tools::trial_tests::confined_real_write_read_and_descriptor_substitution_preserve_external_bytes ... ok
+test tools::trial_tests::trial_mcp_rebinding_cannot_widen_definitions_or_entry_point ... ok
+test provider::anthropic_parser::tests::utf8_tool_input_and_signed_reasoning_survive_every_single_byte_split ... ok
+test store::trial_frontier_tests::queued_trial_exact_future_prefix_blobs_epoch_and_parent_independence ... ok
+test store::trial_frontier_tests::queued_trial_crash_after_prefix_and_partial_suffix_recovers_once ... ok
+test store::trial_frontier_tests::queued_trial_cancelled_or_error_open_keeps_lease_until_real_drop_and_recovers ... ok
+test store::trial_frontier_tests::queued_trial_refuses_active_open_malformed_and_missing_blob_before_child ... ok
+test dream::trial::timing_tests::original_timing_reads_only_task_root_commit_regular_git_blob_never_tip ... ok
+test engine::hardening_tests::a_b_a_is_fenced_by_birth_not_identity ... ok
+test store::lease_tests::post_acquisition_error_and_abandoned_job_output_destroy_the_guard ... FAILED
+
+failures:
+
+---- store::lease_tests::post_acquisition_error_and_abandoned_job_output_destroy_the_guard stdout ----
+
+thread 'store::lease_tests::post_acquisition_error_and_abandoned_job_output_destroy_the_guard' (194530389) panicked at src/store.rs:868:14:
+called `Result::unwrap()` on an `Err` value: Elapsed(())
+
+
+failures:
+    store::lease_tests::post_acquisition_error_and_abandoned_job_output_destroy_the_guard
+
+test result: FAILED. 66 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 3.17s
+
+error: test failed, to rerun pass `--lib`

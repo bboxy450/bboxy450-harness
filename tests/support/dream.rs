@@ -674,3 +674,81 @@ pub async fn trial_item(store: &mut Store, turn: Option<TurnId>, body: Item, sta
         .await
         .unwrap();
 }
+
+// d20261103136610: each phase has a fresh process/OnceLock. No warmup child,
+// selected minimum or test-order dependence substitutes for the ready witness.
+pub async fn process_poll_modes() {
+    use bboxy450_harness::process::{Request, SettlementStatus, observe_capture};
+    let executable = std::env::current_exe().unwrap();
+    let mut observations = vec![];
+    for mode in ["initialization-only", "cold-api", "ready"] {
+        let private = tempfile::Builder::new()
+            .prefix("wp7-poll-")
+            .tempdir_in("/tmp")
+            .unwrap();
+        let args = vec![
+            "-i".into(),
+            format!("HOME={}", private.path().display()),
+            format!("TMPDIR={}", private.path().display()),
+            "PATH=/usr/bin:/bin".into(),
+            format!("DREAM_WP7_CPU_MODE={mode}"),
+            executable.to_string_lossy().into_owned(),
+            "--exact".into(),
+            "synth_d0_process_spawn_poll_bound_witness".into(),
+            "--nocapture".into(),
+        ];
+        let mut operation = observe_capture(
+            Request {
+                program: "/usr/bin/env".into(),
+                args,
+                stdin: None,
+                cwd: private.path().into(),
+                timeout: std::time::Duration::from_secs(30),
+                spill_dir: private.path().join("unused"),
+                cap: 64 * 1024,
+                redactor: Set::default(),
+            },
+            tokio_util::sync::CancellationToken::new(),
+        );
+        let settlement = operation.settlement();
+        let result = operation.result().await;
+        let status = settlement.wait().await;
+        let row = match result {
+            Ok(output) => {
+                let text = String::from_utf8_lossy(&output.bytes);
+                let measurement = text.lines().find_map(|line| {
+                    line.split_once("dream-wp7-poll:")
+                        .and_then(|(_, j)| serde_json::from_str::<Value>(j).ok())
+                });
+                json!({"mode":mode,"child_exit_code":output.code,"cancelled":output.cancelled,"settled":status==SettlementStatus::Confirmed,"measurement":measurement})
+            }
+            Err(error) => {
+                json!({"mode":mode,"child_exit_code":null,"settled":status==SettlementStatus::Confirmed,"error":error.to_string()})
+            }
+        };
+        println!("dream-wp7-poll-child:{row}");
+        observations.push(row);
+    }
+    let record = json!({"verify_label":std::env::var("DREAM_WP7_VERIFY_LABEL").ok(),"executable_sha256":bboxy450_harness::dream::entry::digest(std::fs::read(executable).unwrap()),"observations":observations});
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(".bboxy/runs")
+        .join(format!("dream-wp7-poll-modes-{}.json", ulid::Ulid::new()));
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .unwrap();
+    file.write_all(&serde_json::to_vec_pretty(&record).unwrap())
+        .unwrap();
+    file.write_all(b"\n").unwrap();
+    assert!(
+        observations.iter().all(|r| r["child_exit_code"] == 0
+            && r["settled"] == true
+            && r["cancelled"].as_bool() != Some(true)
+            && r["measurement"]["mode"] == r["mode"]),
+        "fresh mode failed; ALL observations retained at {}: {}",
+        path.display(),
+        record
+    );
+}
