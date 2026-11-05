@@ -8,6 +8,20 @@
 name = "bboxy450-harness"
 status = "contract-model"
 models = [
+    "HarnessDreamFlush",
+    "BrokenHarnessDreamFlushReplay",
+    "BrokenHarnessDreamFlushUncommitted",
+    "BrokenHarnessDreamFlushRoot",
+    "HarnessDreamPublication",
+    "BrokenHarnessDreamPublicationClobber",
+    "BrokenHarnessDreamPublicationLate",
+    "BrokenHarnessDreamPublicationSync",
+    "BrokenHarnessDreamPublicationAdoption",
+    "HarnessDreamRecall",
+    "BrokenHarnessDreamRecallAppend",
+    "BrokenHarnessDreamRecallPayload",
+    "BrokenHarnessDreamRecallTrial",
+    "BrokenHarnessDreamRecallTerminal",
     "HarnessDreamTrialFrontier", "HarnessDreamTrialCapability", "HarnessDreamTrialUsage", "HarnessDreamTrialSettlement", "HarnessDreamTrialClaims",
     "HarnessDreamTrialOutcome",
     "HarnessProcessAdmissionResult",

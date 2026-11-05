@@ -1855,3 +1855,30 @@ fn trial_queued_frontier_recovers_and_reopens_before_fresh_identity() {
         );
     }
 }
+
+#[test]
+fn wp8_owned_boundaries_reach_positive_and_broken_scenarios() {
+    for (family, phase, controls) in [
+        ("Flush", 5, vec!["Replay", "Uncommitted", "Root"]),
+        (
+            "Publication",
+            8,
+            vec!["Clobber", "Late", "Sync", "Adoption"],
+        ),
+        ("Recall", 3, vec!["Append", "Payload", "Trial", "Terminal"]),
+    ] {
+        let m = model(&format!("HarnessDream{family}"));
+        let c = m.check(100_000).unwrap();
+        assert!(c.violations.is_empty(), "{family}: {:?}", c.violations);
+        let p = variable(&m, "phase");
+        assert!(
+            c.states.iter().any(|s| s[p] == phase),
+            "{family} positive unreachable"
+        );
+        for suffix in controls {
+            let name = format!("BrokenHarnessDream{family}{suffix}");
+            let bad = model(&name).check(100_000).unwrap();
+            assert!(!bad.violations.is_empty(), "{name} control vacuous");
+        }
+    }
+}

@@ -611,3 +611,36 @@ implementation_tests = ["tests/formal_nonvacuity.rs", "src/store.rs", "tests/dre
 assumptions = "One frontier quiescent/queued-only/active/open/malformed, zero/one/two pending queues, one publication and one crash/reopen, separate lease/epoch reservation/recovery/actor/fresh-usage actions. Local recovery WF includes explicit persistence-unavailable disposition; no arbitrary syscall completion or repeated-crash progress. Opaque trial capability alone selects the internal queued-only classifier; synthetic Interrupted endings validate a clone only, while copied raw prefix/blobs remain exact. Store reserves epoch2 under the existing WriterLease and ordinary recovery closes each inherited queue once before actor exposure. Twenty actual engine continuations and Store units cover future/ext/CRLF/blob identity, source deletion, prefix/partial-recovery crash, malformed/active/open/missing-blob refusal, unpolled and deterministically abandoned/error opening after epoch reservation, actual lease-release acknowledgement and epoch3 recovery. Public store_fork test preserves ordinary queued-frontier rejection. Exact bytes, no-replace/fsync/kernel lease correctness are implementation witnesses; no receipt or arbitrary Rust conformance follows."
 property = "OnlyAcceptedFrontier; InheritedBytesUnchanged; NoActorBeforeRecovery; EachQueueEndsOnce; FreshSuccessHasFreshIdentity; LocalRecoverySettles under stated local fairness. Controls accept active/open work, expose prefix early, rewrite inherited bytes, count inherited recovery as success or duplicate an interrupted ending."
 checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessDreamFlush"
+title = "WP8 Flush owned boundary"
+models = ["HarnessDreamFlush", "BrokenHarnessDreamFlushReplay", "BrokenHarnessDreamFlushUncommitted", "BrokenHarnessDreamFlushRoot"]
+controls = [{name="BrokenHarnessDreamFlushReplay",expected="safety"}, {name="BrokenHarnessDreamFlushUncommitted",expected="safety"}, {name="BrokenHarnessDreamFlushRoot",expected="safety"}]
+sources = ["tests/formal/models.rs"]
+implementation_tests = ["tests/formal_nonvacuity.rs"]
+assumptions = "One caller-authenticated route and pending memory; original uncertain write/commit operations are queried, never replayed; only matching confirmed committed pins become eligible. No external service/transport fairness or KB signature/byte proof follows. Runtime implementation and real transport witnesses pending."
+property = "PinRequiresExactConfirmedCommit"
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessDreamPublication"
+title = "WP8 Publication owned boundary"
+models = ["HarnessDreamPublication", "BrokenHarnessDreamPublicationClobber", "BrokenHarnessDreamPublicationLate", "BrokenHarnessDreamPublicationSync", "BrokenHarnessDreamPublicationAdoption"]
+controls = [{name="BrokenHarnessDreamPublicationClobber",expected="safety"}, {name="BrokenHarnessDreamPublicationLate",expected="safety"}, {name="BrokenHarnessDreamPublicationSync",expected="safety"}, {name="BrokenHarnessDreamPublicationAdoption",expected="safety"}]
+sources = ["tests/formal/models.rs"]
+implementation_tests = ["tests/formal_nonvacuity.rs"]
+assumptions = "One publication, one owned temp/target and one concurrent hand writer; separate write/fsync/link/directory-sync/freeze/receipt/adoption plus observed work and terminal/approval loss. No unconditional IO/OS fairness. Existing shared E/seal/source receipt law remains authoritative. Real independent syscall/byte observer and API/process witnesses pending."
+property = "NoHandClobber; FrozenHasNoLateSourceMutation; SuccessRequiresDirectorySync; EffectiveAdoptionRequiresReceiptAndCurrency"
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessDreamRecall"
+title = "WP8 Recall owned boundary"
+models = ["HarnessDreamRecall", "BrokenHarnessDreamRecallAppend", "BrokenHarnessDreamRecallPayload", "BrokenHarnessDreamRecallTrial", "BrokenHarnessDreamRecallTerminal"]
+controls = [{name="BrokenHarnessDreamRecallAppend",expected="safety"}, {name="BrokenHarnessDreamRecallPayload",expected="safety"}, {name="BrokenHarnessDreamRecallTrial",expected="safety"}, {name="BrokenHarnessDreamRecallTerminal",expected="safety"}]
+sources = ["tests/formal/models.rs"]
+implementation_tests = ["tests/formal_nonvacuity.rs"]
+assumptions = "One exact pinned quote and request, separate durable append/insertion/dispatch, one failed append, terminal/pin invalidation and trial gate. No model-use claim, global log freshness, filesystem bytes or arbitrary callback fairness. Real Engine/ACP/import witnesses pending."
+property = "InsertionRequiresDurableExactCurrentNonTrialPin"
+checks = ["make test-formal", "make test"]
