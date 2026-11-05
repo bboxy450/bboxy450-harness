@@ -489,10 +489,9 @@ impl HarnessView {
             .and_then(|root| find(root, "transcript"))
             .filter(|n| contains(n.rect, at))
             .and_then(|n| panel(n, at))
+            && self.shift_panel(&key, delta)
         {
-            if self.shift_panel(&key, delta) {
-                return true;
-            }
+            return true;
         }
         if self
             .scroll
