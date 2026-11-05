@@ -233,7 +233,10 @@ before its own diagnostic emission. Final C1 control/process totals cover that
 emission and read-end retirement. Four fixed admissions is the current profile;
 no repeated-native or source work is hidden as control. Private approved test
 fixtures alone expose an actual prepermit allocation mutation; the same marker
-checker rejects it. The ordinary positive worker never enables that mutation.
+checker rejects it. This deliberately invalid artifact is revoked without a grant;
+its actual allocation marker is required through bounded settlement/reap, even
+if original readiness expired. Silence is not the causal witness and no later
+marker certifies readiness. The ordinary positive worker never enables that mutation.
 
 The unchanged `ResultDescriptor.max_poll_cpu_ns` captures the raw inclusive
 maximum **before descriptor serialization/hash/write/publication**. It includes

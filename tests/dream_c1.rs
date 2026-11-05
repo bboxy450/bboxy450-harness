@@ -322,6 +322,18 @@ fn parent_rest(cpu: u64, end: Instant) {
         std::thread::sleep(left);
     }
 }
+fn parent_interval(start: u64, end: u64) -> u64 {
+    assert_ne!(start, u64::MAX, "unavailable parent entry clock");
+    assert_ne!(end, u64::MAX, "unavailable parent ending clock");
+    end.checked_sub(start).expect("reversed parent clock")
+}
+#[test]
+fn unavailable_or_reversed_parent_samples_never_become_zero_cost() {
+    for (start, end) in [(u64::MAX, u64::MAX), (100, u64::MAX), (100, 99)] {
+        assert!(std::panic::catch_unwind(|| parent_interval(start, end)).is_err());
+    }
+    assert_eq!(parent_interval(100, 101), 1);
+}
 fn approved_runner() -> &'static (std::path::PathBuf, w::Hex) {
     use sha2::{Digest, Sha256};
     use std::os::unix::fs::MetadataExt;
@@ -368,13 +380,13 @@ fn approved_runner() -> &'static (std::path::PathBuf, w::Hex) {
         let before = stamp(&path);
         let mut file = std::fs::File::open(&path).unwrap();
         let mut digest = Sha256::new();
-        let mut buf = [0; 65536];
+        let mut buf = [0; 16384];
         use std::io::Read;
         loop {
             let at = parent_cpu();
             let n = file.read(&mut buf).unwrap();
             digest.update(&buf[..n]);
-            let used = parent_cpu().checked_sub(at).unwrap();
+            let used = parent_interval(at, parent_cpu());
             let end = Instant::now();
             assert!(used <= 1_000_000);
             parent_rest(used, end);
@@ -505,7 +517,7 @@ impl HeldWorker {
                 }
             });
         }
-        let prepare_used = parent_cpu().checked_sub(prepare_at).unwrap();
+        let prepare_used = parent_interval(prepare_at, parent_cpu());
         let prepare_end = Instant::now();
         assert!(prepare_used <= 1_000_000);
         parent_rest(prepare_used, prepare_end);
@@ -588,7 +600,9 @@ impl HeldWorker {
             .checked_add(boot::WINDOW_NS)
             .unwrap();
         result.permit.deadline_ns = result.readiness_ns;
-        result.marker = result.read_waiting();
+        if !bypass {
+            result.marker = result.read_waiting();
+        }
         result
     }
     fn read_waiting(&mut self) -> String {
@@ -682,7 +696,7 @@ impl HeldWorker {
             bootstrap_lease: self.lease.take(),
             job_deadline: self.job_deadline,
         };
-        let setup_cpu = parent_cpu().checked_sub(setup_at).unwrap();
+        let setup_cpu = parent_interval(setup_at, parent_cpu());
         let end = Instant::now();
         assert!(setup_cpu <= 1_000_000);
         parent_rest(setup_cpu, end);
@@ -700,7 +714,7 @@ impl HeldWorker {
             )
         };
         assert_eq!(wrote, 128);
-        assert!(parent_cpu().checked_sub(grant_at).unwrap() <= 1_000_000);
+        assert!(parent_interval(grant_at, parent_cpu()) <= 1_000_000);
         let remaining = self
             .readiness_ns
             .checked_sub(boot::monotonic_ns().unwrap())
@@ -812,7 +826,7 @@ impl Worker {
         self.send(&w::WorkerIn::Start(start.clone()));
         self.start = Some(start);
         assert!(
-            parent_cpu().checked_sub(at).unwrap() <= 1_000_000,
+            parent_interval(at, parent_cpu()) <= 1_000_000,
             "whole final Start control exceeds1ms"
         );
     }
@@ -2363,14 +2377,17 @@ fn bootstrap_earliest_gate_bypass_control_rejects_actual_prepermit_allocation() 
     let binary = std::path::PathBuf::from(env!("CARGO_BIN_EXE_bboxy450-harness"));
     let mut source = std::fs::File::open(&binary).unwrap();
     let mut sha = Sha256::new();
-    let mut buf = [0; 65536];
+    let mut buf = [0; 16384];
     loop {
         let at = parent_cpu();
         let n = source.read(&mut buf).unwrap();
         sha.update(&buf[..n]);
-        let cpu = parent_cpu().checked_sub(at).unwrap();
+        let cpu = parent_interval(at, parent_cpu());
         let end = Instant::now();
-        assert!(cpu <= 1_000_000);
+        assert!(
+            cpu <= 1_000_000,
+            "binary approval chunk len={n} cpu_ns={cpu}"
+        );
         parent_rest(cpu, end);
         if n == 0 {
             break;
@@ -2389,6 +2406,25 @@ fn bootstrap_earliest_gate_bypass_control_rejects_actual_prepermit_allocation() 
     let path = root.path().join(ulid::Ulid::new().to_string());
     let nonce = w::Ulid(ulid::Ulid::new().to_string());
     let mut held = HeldWorker::spawn_on(&path, &nonce, None, true, &binary, &digest, true);
+    // This is a deliberately invalid artifact, never a positive readiness
+    // candidate. Revoke immediately, then retain/reap its actual effect. A cold
+    // loader may not reach entry within250ms; that never grants extra readiness.
+    // The negative still requires the actual source-bound allocation marker,
+    // rather than treating silence/timeout as proof of a causal bypass.
+    drop(held.lease.take());
+    drop(held.child.as_mut().unwrap().stdin.take());
+    settle_owned(held.child.as_mut().unwrap());
+    let status = held.child.as_mut().unwrap().try_wait().unwrap().unwrap();
+    assert_eq!(status.code(), Some(2));
+    if let Ok(cpu) = held.launch_verdict() {
+        parent_rest(cpu, held.birth_end);
+    }
+    let stderr = held.child.as_mut().unwrap().stderr.take().unwrap();
+    stderr.take(1024).read_to_string(&mut held.marker).unwrap();
+    eprintln!(
+        "bootstrap-bypass causal_witness_cutoff=actual_reap readiness_certified=false grant_count=0 marker={}",
+        held.marker.trim()
+    );
     assert!(
         held.marker.contains("argv_admissions=1"),
         "mutant did not execute its controlled allocation"
@@ -2398,11 +2434,6 @@ fn bootstrap_earliest_gate_bypass_control_rejects_actual_prepermit_allocation() 
         "actual earliest-gate checker accepted the causal bypass"
     );
     let pid = held.child.as_ref().unwrap().id();
-    drop(held.lease.take());
-    let child = held.child.as_mut().unwrap();
-    drop(child.stdin.take());
-    settle_owned(child);
-    assert_eq!(child.wait().unwrap().code(), Some(2));
     assert!(!path.exists());
     eprintln!(
         "bootstrap-earliest-causal-control actual_reaped_pid={pid} rejected_prepermit_allocation=true"

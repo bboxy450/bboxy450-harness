@@ -138,6 +138,13 @@ fn interval(a: u64, b: u64) -> u64 {
         b - a
     }
 }
+fn observed_interval(a: &Accounting, start: u64, end: u64) -> u64 {
+    let used = interval(start, end);
+    if used == u64::MAX {
+        a.clock_failed.store(true, Ordering::Release);
+    }
+    used
+}
 /// The returned owner/effect NEVER lives behind the verdict Result. Even a bad
 /// ending clock returns the real handle/status to the caller before refusal.
 struct NativeOutcome<T> {
@@ -206,7 +213,7 @@ fn native_call_clock<T>(
     let has_effect = effect(&value);
     let span_end = cpu();
     let span_wall = span_wall_start.elapsed().as_nanos().min(u64::MAX as u128) as u64;
-    let native_cpu = interval(call_start, call_end);
+    let native_cpu = observed_interval(a, call_start, call_end);
     let native_wall = match wall_end.checked_duration_since(wall_start) {
         Some(d) => d.as_nanos().min(u64::MAX as u128) as u64,
         None => {
@@ -214,9 +221,10 @@ fn native_call_clock<T>(
             u64::MAX
         }
     };
-    let inclusive = interval(span_start, span_end);
+    let inclusive = observed_interval(a, span_start, span_end);
     // Separate measured application subintervals; inclusive CPU stays RAW.
-    let app = interval(span_start, call_start).saturating_add(interval(call_end, span_end));
+    let app = observed_interval(a, span_start, call_start)
+        .saturating_add(observed_interval(a, call_end, span_end));
     let stats = &a.native[kind as usize];
     stats.count.fetch_add(1, Ordering::AcqRel);
     if native_cpu != u64::MAX {
@@ -267,9 +275,13 @@ struct ControlTick<'a> {
 }
 impl ControlTick<'_> {
     fn part(&mut self, index: usize) {
-        let end = cpu_ns();
-        self.accounting.control_parts[index]
-            .fetch_max(interval(self.part_at, end), Ordering::AcqRel);
+        self.part_sample(index, cpu_ns());
+    }
+    fn part_sample(&mut self, index: usize, end: u64) {
+        self.accounting.control_parts[index].fetch_max(
+            observed_interval(self.accounting, self.part_at, end),
+            Ordering::AcqRel,
+        );
         self.part_at = end;
     }
 }
@@ -521,7 +533,7 @@ async fn observe_reactor<T>(
         let used = if start == u64::MAX || end == u64::MAX {
             u64::MAX
         } else {
-            end.saturating_sub(start)
+            interval(start, end)
         };
         maximum.fetch_max(used, Ordering::AcqRel);
         poll
@@ -530,12 +542,7 @@ async fn observe_reactor<T>(
     (result, maximum.load(Ordering::Acquire))
 }
 fn cpu_ns() -> u64 {
-    let mut t = std::mem::MaybeUninit::<libc::timespec>::uninit();
-    if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, t.as_mut_ptr()) } != 0 {
-        return u64::MAX;
-    }
-    let t = unsafe { t.assume_init() };
-    t.tv_sec as u64 * 1_000_000_000 + t.tv_nsec as u64
+    bootstrap::prelude_clock().unwrap_or(u64::MAX)
 }
 #[cfg(target_os = "macos")]
 fn heaps() -> (u64, u64) {
@@ -866,13 +873,19 @@ impl<T> Drop for Paced<T> {
         while self.value.is_some() {
             cleanup_unit(&self.control, || {
                 let start = cpu_ns();
+                if start == u64::MAX {
+                    self.control
+                        .accounting
+                        .clock_failed
+                        .store(true, Ordering::Release);
+                }
                 // The finite entry bound also applies if the CPU clock fails.
                 for _ in 0..1024 {
                     if !(self.step)(self.value.as_mut().unwrap()) {
                         drop(self.value.take());
                         break;
                     }
-                    if cpu_ns().saturating_sub(start) >= 400_000 {
+                    if observed_interval(&self.control.accounting, start, cpu_ns()) >= 400_000 {
                         break;
                     }
                 }
@@ -2712,7 +2725,7 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>, mut gate: bootstrap::Gate) -> i32
         }
         tick_guard.part(3);
         drop(tick_guard);
-        let elapsed = interval(tick, cpu_ns());
+        let elapsed = observed_interval(&accounting, tick, cpu_ns());
         accounting
             .inclusive_max
             .fetch_max(elapsed, Ordering::AcqRel);
@@ -2854,6 +2867,81 @@ mod tests {
                 "native-owner-failure mode={failure} actual_join=true clock_fixture=true effect=present"
             );
         }
+    }
+    #[test]
+    fn intermediate_clock_failure_is_sticky_with_finite_outer_samples_and_real_effects() {
+        for samples in [
+            [0, 10, u64::MAX, 100],
+            [0, 10, 9, 100],
+            [20, 10, 50, 100],
+            [0, 10, 50, 49],
+        ] {
+            let a = Accounting::new();
+            let (tx, rx) = std::sync::mpsc::channel();
+            let mut samples = samples.into_iter();
+            let out = native_call_clock(
+                &a,
+                NativeKind::ComputeOwnerCreate,
+                || {
+                    thread::Builder::new()
+                        .stack_size(2 * 1024 * 1024)
+                        .spawn(move || rx.recv().unwrap())
+                },
+                |result| result.is_ok(),
+                || samples.next().unwrap(),
+                Instant::now,
+            )
+            .unwrap();
+            assert_eq!(out.verdict, Err(w::Code::ResourceLimit));
+            assert!(a.clock_failed.load(Ordering::Acquire));
+            assert_ne!(
+                a.inclusive_max.load(Ordering::Acquire),
+                u64::MAX,
+                "this witness requires finite outer inclusive samples"
+            );
+            let actual_owner = out.value.unwrap();
+            tx.send(()).unwrap();
+            actual_owner.join().unwrap();
+            assert_eq!(a.native[0].effects.load(Ordering::Acquire), 1);
+            assert_eq!(a.native[0].failures_with_effect.load(Ordering::Acquire), 1);
+            a.pay();
+        }
+        for end in [u64::MAX, 99] {
+            let control = budget(false).control;
+            let at = cpu_ns();
+            let mut tick = ControlTick {
+                at,
+                part_at: 100,
+                accounting: &control.accounting,
+                max: &control.reactor,
+            };
+            tick.part_sample(0, end);
+            drop(tick); // actual outer samples remain finite
+            assert!(control.accounting.clock_failed.load(Ordering::Acquire));
+            assert_eq!(
+                control.accounting.control_parts[0].load(Ordering::Acquire),
+                u64::MAX
+            );
+            assert_eq!(control.error(), Some(w::Code::ResourceLimit));
+        }
+        let control = budget(false).control;
+        let mut value = vec![1];
+        let mut outer = [100, 200].into_iter();
+        cleanup_unit_clock(
+            &control,
+            || {
+                assert_eq!(value.pop(), Some(1)); // real disposal effect retained
+                observed_interval(&control.accounting, 100, u64::MAX);
+            },
+            || outer.next().unwrap(),
+        );
+        assert!(value.is_empty());
+        assert_eq!(control.cleanup_max.load(Ordering::Acquire), 100);
+        assert!(control.accounting.clock_failed.load(Ordering::Acquire));
+        assert_eq!(control.error(), Some(w::Code::ResourceLimit));
+        let a = Accounting::new();
+        assert_eq!(observed_interval(&a, 100, u64::MAX), u64::MAX);
+        assert!(a.clock_failed.load(Ordering::Acquire)); // final post-drop sample
     }
     #[test]
     fn publication_effect_survives_timing_failure_and_missing_entry_clock_never_executes() {
