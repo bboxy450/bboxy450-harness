@@ -1026,6 +1026,34 @@ async fn actual_store_fork_is_explicitly_unsupported_and_parent_rows_never_pass(
         );
         private_file(&job.source(), &bytes);
         job.commit_manifest();
+        if mode == 0
+            && let Some(path) = std::env::var_os("DREAM_C1_EXPORT_FORK_BUNDLE")
+        {
+            let path = std::path::PathBuf::from(path);
+            assert!(path.is_absolute());
+            private_dir(&path);
+            private_dir(&path.join("sessions"));
+            private_file(
+                &path
+                    .join("sessions")
+                    .join(format!("{}.jsonl", child_meta.session)),
+                &original,
+            );
+            private_file(
+                &path.join("manifest.json"),
+                &w::canonical(&job.manifest).unwrap(),
+            );
+            eprintln!(
+                "real-Store fork_export={} session={} repo={} ir_len={} ir_sha256={} closed_seq={} closed_line_sha256={}",
+                path.display(),
+                child_meta.session,
+                job.manifest.sources[0].repo.0,
+                original.len(),
+                job.manifest.sources[0].sha256.0,
+                job.manifest.sources[0].closed_seq.0,
+                job.manifest.sources[0].closed_line_sha256.0
+            );
+        }
         let mut worker = job.launch();
         worker.start(&job.start);
         let (done, metrics) = worker.done();

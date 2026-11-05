@@ -305,6 +305,33 @@ impl ClosedLog {
         false
     }
     pub fn observe(&mut self, e: &Envelope, redactor: &Set, retain_calls: bool) -> io::Result<()> {
+        self.observe_inner(e, redactor, retain_calls, None)
+    }
+    /// C1 supplies the exact raw-line digest from its bounded streaming hasher.
+    /// Legacy callers keep deriving their pin from the retained original line.
+    pub(crate) fn observe_pinned(
+        &mut self,
+        e: &Envelope,
+        redactor: &Set,
+        retain_calls: bool,
+        digest: &str,
+    ) -> io::Result<()> {
+        if digest.len() != 64
+            || !digest
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err(io::Error::other("invalid selected raw-line digest"));
+        }
+        self.observe_inner(e, redactor, retain_calls, Some(digest))
+    }
+    fn observe_inner(
+        &mut self,
+        e: &Envelope,
+        redactor: &Set,
+        retain_calls: bool,
+        digest: Option<&str>,
+    ) -> io::Result<()> {
         let line = e
             .raw
             .as_deref()
@@ -314,7 +341,16 @@ impl ClosedLog {
                 self.current = Some(self.turns.len());
                 self.turns.try_reserve(1).map_err(io::Error::other)?;
                 self.turns.push(Turn {
-                    origin: event_pin(e, line)?,
+                    origin: match digest {
+                        Some(digest) => EvidenceRef::Event {
+                            session: e.session,
+                            seq: e
+                                .seq
+                                .ok_or_else(|| io::Error::other("missing durable sequence"))?,
+                            digest: format!("sha256:{digest}"),
+                        },
+                        None => event_pin(e, line)?,
+                    },
                     id: *turn,
                     first: e.ts_ms,
                     last: e.ts_ms,

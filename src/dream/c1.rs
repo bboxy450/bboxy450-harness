@@ -654,6 +654,9 @@ fn selected(
         return Err(w::Code::SourceChanged);
     }
     let mut hasher = Sha256::new();
+    let _line_hash_credit = b.control.memory.reserve(512)?;
+    let mut line_hasher = Sha256::new();
+    let mut line_digest = w::hash([]);
     let mut chunk = [0u8; CHUNK];
     let line = b.track(w::MAX_FRAME as u64, || {
         let mut v = Vec::new();
@@ -763,7 +766,7 @@ fn selected(
             }
             last = Some((
                 matches!(event.event, Event::SessionClosed),
-                w::hash(&line[..line.len() - 1]),
+                line_digest.clone(),
             ));
             let is_tool = matches!(
                 &event.event,
@@ -775,7 +778,7 @@ fn selected(
             if !is_tool {
                 log.as_mut()
                     .ok_or(w::Code::MalformedIr)?
-                    .observe(event, &redactor, false)
+                    .observe_pinned(event, &redactor, false, &line_digest.0)
                     .map_err(|_| w::Code::ResourceLimit)?;
             }
             state_credit.shrink(retained);
@@ -817,9 +820,13 @@ fn selected(
                 if line.len() + end - pos > w::MAX_FRAME {
                     return Err(w::Code::ResourceLimit);
                 }
-                line.extend_from_slice(&chunk[pos..end]);
+                let part = &chunk[pos..end];
+                let hashed = part.len() - usize::from(part.last() == Some(&b'\n'));
+                line_hasher.update(&part[..hashed]);
+                line.extend_from_slice(part);
                 pos = end;
                 if line.last() == Some(&b'\n') {
+                    line_digest = w::Hex(format!("{:x}", line_hasher.finalize_reset()));
                     seq += 1;
                     if count >= 65536 {
                         return Err(w::Code::ResourceLimit);
@@ -869,12 +876,15 @@ fn selected(
                 *deferred = Some(event);
                 is_tool = b.unit(|| {
                     let tool = observe_record!(&deferred.as_ref().unwrap().value, typed)?;
-                    if !tool {
-                        drop(deferred.take());
-                    }
                     line.clear();
                     Ok(tool)
                 })?;
+                if !is_tool {
+                    b.cleanup(|| {
+                        drop(deferred.take());
+                        Ok(())
+                    })?;
+                }
                 complete = true;
             }
             if complete {
@@ -900,7 +910,7 @@ fn selected(
                     let event = deferred.take().unwrap();
                     log.as_mut()
                         .ok_or(w::Code::MalformedIr)?
-                        .observe(&event, &redactor, false)
+                        .observe_pinned(&event, &redactor, false, &line_digest.0)
                         .map_err(|_| w::Code::ResourceLimit)?;
                     drop(event);
                     Ok(())
