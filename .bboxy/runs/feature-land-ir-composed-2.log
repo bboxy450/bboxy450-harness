@@ -1,0 +1,45 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp6)
+    Finished `test` profile [unoptimized] target(s) in 13.00s
+     Running tests/gui_bridge.rs (target/debug/deps/gui_bridge-0d6cd89a11e4abff)
+
+running 11 tests
+test message_ids_are_deterministic_and_namespaced ... ok
+test unix_bridge_unavailable_connect_is_cancelled_without_ui_io ... ok
+test seat_alias_refuses_files_symlinks_and_live_owners ... ok
+test standalone_start_resolves_profile_and_missing_profile_keeps_notice ... ok
+test background_subscription_and_detach_preserves_run ... ok
+test gui_polish_identical_mid_turn_prompts_become_one_durable_row_each ... ok
+test unix_bridge_dispatches_off_thread_and_detach_keeps_its_turn ... ok
+test stale_unknown_dispatch_does_not_hold_detach_on_the_replacement_session ... ok
+test unix_and_inproc_views_equal_every_ir_v1_fixture ... ok
+test rendered_approval_actions_use_control_lane ... ok
+test arbitrary_seat_address_reconnects_across_aba_without_retargeting_intent ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.05s
+
+     Running tests/gui_chrome.rs (target/debug/deps/gui_chrome-8486f1398d24db61)
+
+running 7 tests
+test rim_activity_follows_run_ask_error_and_idle ... ok
+test zoom_steps_and_clamps_on_the_ten_percent_grid ... ok
+test title_bar_is_drawn_with_the_crumb_and_hits_follow_the_tree ... ok
+test zoom_pill_shows_the_percent_then_fades ... FAILED
+test composer_rim_reads_the_session ... ok
+test zoom_scales_every_text_size_and_the_layout_reflows ... ok
+test reflow_keeps_the_anchored_row ... ok
+
+failures:
+
+---- zoom_pill_shows_the_percent_then_fades stdout ----
+
+thread 'zoom_pill_shows_the_percent_then_fades' (195469370) panicked at tests/gui_chrome.rs:374:5:
+a timed wake ends the hold: Some(0.0)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    zoom_pill_shows_the_percent_then_fades
+
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `--test gui_chrome`

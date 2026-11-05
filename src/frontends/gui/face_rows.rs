@@ -729,6 +729,15 @@ impl Preparer {
             Item::Subagent { session, .. } => {
                 f::notice(&format!("Session: {session}"), &Level::Info, &ink)
             }
+            Item::MemoryWrite { .. }
+            | Item::MemoryState { .. }
+            | Item::Trial { .. }
+            | Item::Adoption { .. }
+            | Item::Recall { .. } => f::notice(
+                &row.body.extension_text().unwrap_or_default(),
+                &Level::Info,
+                &ink,
+            ),
             Item::Unknown(raw) => f::notice(
                 &format!("Unsupported item: {}", unknown_tag(raw)),
                 &Level::Info,

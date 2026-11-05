@@ -4380,14 +4380,22 @@ pub fn attachment_intake(b: bool) -> Model {
         &[(0, Var(0).plus(Int(1)))],
     );
     let current = Var(0).eq(Var(2)).and(Var(1).eq(Var(3)));
-    let crossed = if b {
-        Expr::Ite(Box::new(current), Box::new(Var(5)), Box::new(Int(1)))
-    } else {
-        Var(5)
-    };
-    act(&mut m, "Complete", eq(4, 1), &[(4, Int(0)), (5, crossed)]);
+    // The two disjoint cases retain Complete's human label. Weak fairness is
+    // on their union, exactly the original Complete action's enabling set.
+    act(
+        &mut m,
+        "Complete",
+        eq(4, 1).and(current.clone()),
+        &[(4, Int(0)), (5, Var(5))],
+    );
+    act(
+        &mut m,
+        "Complete",
+        eq(4, 1).and(current.negate()),
+        &[(4, Int(0)), (5, if b { Int(1) } else { Var(5) })],
+    );
     safe(&mut m, "NoCrossDraftOrBirth", eq(5, 0));
-    progress(&mut m, "IntakeSettles", eq(4, 1), eq(4, 0), vec![3]);
+    progress(&mut m, "IntakeSettles", eq(4, 1), eq(4, 0), vec![3, 4]);
     m
 }
 
@@ -4414,18 +4422,26 @@ pub fn attachment_capability(b: bool) -> Model {
         Var(0).lt(Int(2)),
         &[(0, Var(0).plus(Int(1))), (3, Int(3))],
     );
+    let current = Var(1).eq(Var(0));
     act(
         &mut m,
         "LiveResponse",
-        eq(2, 1),
-        &[(2, Int(0)), (3, Var(1).eq(Var(0)).ite(Var(0), Var(3)))],
+        eq(2, 1).and(current.clone()),
+        &[(2, Int(0)), (3, Var(0))],
+    );
+    act(
+        &mut m,
+        "LiveResponse",
+        eq(2, 1).and(current.negate()),
+        &[(2, Int(0)), (3, Var(3))],
     );
     let valid = Var(3).eq(Var(0));
+    act(&mut m, "SendImage", valid.clone(), &[(4, Var(4))]);
     act(
         &mut m,
         "SendImage",
-        if b { Bool(true) } else { valid.clone() },
-        &[(4, valid.ite(Var(4), Int(1)))],
+        Bool(b).and(valid.negate()),
+        &[(4, Int(1))],
     );
     act(&mut m, "SendText", Bool(true), &[]);
     // RPC outcomes are not user intents or custody grants, even after reconnect.
@@ -4465,27 +4481,26 @@ pub fn onboarding_install(b: bool) -> Model {
         ],
     );
     m.check_deadlock = false;
-    m.actions.push(Action::new(
-        "Click",
-        Var(0).lt(Int(3)).and(if b {
-            Var(2).lt(Int(2))
-        } else {
-            Var(2).eq(Int(0))
-        }),
-        vec![
-            (0, Var(0).plus(Int(1))),
-            (1, Var(0).plus(Int(1))),
-            (2, Var(2).plus(Int(1))),
-            (
-                3,
-                Expr::Ite(
-                    Box::new(Var(3).eq(Int(0))),
-                    Box::new(Var(0).plus(Int(1))),
-                    Box::new(Var(3)),
-                ),
-            ),
-        ],
-    ));
+    let clickable = Var(0).lt(Int(3)).and(if b {
+        Var(2).lt(Int(2))
+    } else {
+        Var(2).eq(Int(0))
+    });
+    for (empty, next_old) in [(true, Var(0).plus(Int(1))), (false, Var(3))] {
+        let old_empty = Var(3).eq(Int(0));
+        m.actions.push(Action::new(
+            "Click",
+            clickable
+                .clone()
+                .and(if empty { old_empty } else { old_empty.negate() }),
+            vec![
+                (0, Var(0).plus(Int(1))),
+                (1, Var(0).plus(Int(1))),
+                (2, Var(2).plus(Int(1))),
+                (3, next_old),
+            ],
+        ));
+    }
     m.actions
         .push(Action::new("Cancel", Var(2).eq(Int(1)), vec![(4, Int(1))]));
     m.actions.push(Action::new(
@@ -4514,6 +4529,7 @@ pub fn onboarding_install(b: bool) -> Model {
         request: Var(2).eq(Int(1)),
         response: Var(2).eq(Int(0)),
     });
-    m.weak_fair.push(vec![2]);
+    // Click split at index 0 shifts Cancel to 2 and Reap to 3.
+    m.weak_fair.push(vec![3]);
     m
 }

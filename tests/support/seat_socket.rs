@@ -414,7 +414,7 @@ fn gui_socket_worker() {
         use tokio::io::AsyncBufReadExt;
         let root = PathBuf::from(std::env::var_os("HOME").unwrap()).join(".bboxy450-harness");
         let config = Config {
-            meta: SessionMeta { source: None, session: SessionId::new(), cwd: root.clone(), profile: Some("scripted".into()), fork: None, protocol: PROTOCOL, harness: env!("CARGO_PKG_VERSION").into(), created_ms: 0 },
+            meta: SessionMeta { vcs: None, dream: None, source: None, session: SessionId::new(), cwd: root.clone(), profile: Some("scripted".into()), fork: None, protocol: PROTOCOL, harness: env!("CARGO_PKG_VERSION").into(), created_ms: 0 },
             sessions: root.join("sessions"), profiles: root.join("profiles"), provider: Arc::new(ScriptedProvider::new(vec![include_bytes!("../fixtures/sse/text.sse").to_vec()])), model: "scripted".into(), profile_error: None, policy: Policy::new(Unattended::Deny), redactor: Set::default(), max_rounds: 50,
         };
         let mut bridge = Bridge::new(Arc::new(Wake));

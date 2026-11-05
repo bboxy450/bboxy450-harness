@@ -1,0 +1,6 @@
+{
+  "command": "cargo test --all-features --test gui_motion --test usage_report",
+  "exit_code": 0,
+  "log": "target/feature-land-ir/composed-rest.log",
+  "sha256": "fbbb1a9e04f9630759ac59a6cf0ceb2ed46e6cab20c591b9f875c847189a5424"
+}

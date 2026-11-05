@@ -15,6 +15,7 @@ implementation_tests = ["tests/acp_agent.rs", "tests/fixtures/acp-agent/fake_age
 assumptions = "One admitted input, one negotiated capability and one independently ending active prompt. Replies, deadlines and transport loss settle atomically; an unknown reply may already have delivered the input. Weak fairness of local routing, steering settlement and idle-queue dispatch; the agent need not end its active prompt. The real ten-second deadline, bootstrap fence, payload/image custody, persistent receipts, bounded multi-input queue and session identity are implementation-only; no Rust refinement proof."
 property = "At most one delivery; no steering cancellation; unknown outcomes never become normal prompts. Explicitly unconsumed input can use the normal queue. Accepted steering receipts survive a racing original prompt end."
 checks = ["make test-formal", "make test"]
+additional_checks = ["make test-acp-steering", "make test-acp-steering-formal"]
 
 [[contract]]
 name = "HarnessNativeUsage"
@@ -450,6 +451,12 @@ assumptions = "Birth0..2 denotes child/session A-B-A, revision0..2 denotes full 
 property = "ConfirmedHasCurrentChildAndOptionIdentity; UnknownNeverRedispatches; ConfigHasNoPromptEffect; LocalDeadlineSettlesPending under WF{deadline}."
 checks = ["make test-formal", "make test"]
 
+# Published TLC 0.1.1 compatibility: conditional updates in AttachmentIntake,
+# AttachmentCapability and OnboardingInstall are disjoint guarded cases with
+# unchanged human labels/state relation. WF(Complete) maps [3] -> [3,4];
+# installer Click split shifts WF(Reap) [2] -> [3]; capability has no fairness.
+# tests/formal_models.rs exhausts all 2688 declared good/broken/control states
+# against original conditional math; native/Java parity checks the exported cases.
 [[contract]]
 name = "HarnessAttachmentIntake"
 title = "Async composer intake cannot cross draft revisions or A-B-A view births."

@@ -1,0 +1,13 @@
+{
+  "base": "0ab55023228a7f7f49305c9c08f5bdbcfb39c10f",
+  "contracts_rows_identical": true,
+  "incompatible_checks": [
+    {
+      "name": "HarnessAcpSteering",
+      "checks": [
+        "make test-acp-steering",
+        "make test-acp-steering-formal"
+      ]
+    }
+  ]
+}

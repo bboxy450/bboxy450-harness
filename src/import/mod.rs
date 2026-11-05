@@ -934,6 +934,8 @@ pub async fn import_file_with_redactor(
         )
     }));
     let meta = SessionMeta {
+        vcs: None,
+        dream: None,
         source: Some(Source {
             harness: native.label().into(),
             native_id: records.iter().find_map(|r| {

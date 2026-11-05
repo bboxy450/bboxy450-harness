@@ -1,0 +1,17 @@
+{
+  "observed": "2026-11-05T01:09:55.823976+00:00",
+  "source": "4786fd837c1ebc873d7c8089c4b529c24b4167be",
+  "absent_build_outputs": [
+    "target/feature-land-ir",
+    "target/formal",
+    "target/wp6-checks"
+  ],
+  "durable_source_log": {
+    "path": ".bboxy/runs/feature-land-ir-revision1-source-primary.log",
+    "sha256": "0c89269cbf33d7a01713af7f1d5f5cc6870a5d542cddeca2620177e034b20732"
+  },
+  "durable_source_archive": "verification/evidence/eea0220b71085526e96e6e0ba6b18803e06210c516fff48cd6b3952a919fae46/evidence.json",
+  "prior_wp6_formal_archive_retained": true,
+  "executor_deleted_paths": [],
+  "cause": "external actor unproven; disappearance observed only"
+}

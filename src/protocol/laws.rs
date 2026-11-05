@@ -316,6 +316,13 @@ pub fn check_authored(events: &[Envelope]) -> Result<(), LawViolation> {
                 detail: "writer emitted an Unknown variant".into(),
             });
         }
+        if e.v.major == 1 && e.v.minor >= 3 {
+            check_dream_structure(&e.event).map_err(|detail| LawViolation {
+                line: i + 1,
+                law: "dream-structure",
+                detail: detail.into(),
+            })?;
+        }
         if e.seq.is_some() != e.event.is_durable() {
             return Err(LawViolation {
                 line: i + 1,
@@ -376,12 +383,39 @@ fn item_unknown(item: &Item) -> bool {
         Item::Notice { level, .. } => level.is_unknown(),
         Item::SystemMessage { role, .. } => role.is_unknown(),
         Item::Usage { usage } => usage_unknown(usage),
+        Item::MemoryWrite { op, evidence, .. } => {
+            op.is_unknown() || evidence.iter().any(EvidenceRef::is_unknown)
+        }
+        Item::MemoryState { state, refs, .. } => {
+            state.is_unknown() || refs.iter().any(EvidenceRef::is_unknown)
+        }
+        Item::Trial {
+            episodes,
+            controls,
+            verdict,
+            ..
+        } => {
+            verdict.is_unknown()
+                || episodes.iter().chain(controls).any(|episode| {
+                    episode.origin.is_unknown()
+                        || episode.runs.iter().any(|run| {
+                            run.arm.is_unknown() || run.usage.as_ref().is_some_and(usage_unknown)
+                        })
+                })
+        }
+        Item::Adoption { sink, .. } => sink.kind.is_unknown(),
+        Item::Recall { sink, basis, .. } => {
+            basis.is_unknown() || sink.as_ref().is_some_and(|s| s.kind.is_unknown())
+        }
         _ => false,
     }
 }
 fn event_unknown(event: &Event) -> bool {
     match event {
         Event::Unknown(_) => true,
+        Event::SessionStarted { meta } => meta.dream.as_ref().is_some_and(|dream| {
+            dream.phase.is_unknown() || dream.trigger.is_unknown() || dream.scope.level.is_unknown()
+        }),
         Event::ItemStarted { kind, head, .. } => {
             kind.is_unknown()
                 || matches!(
@@ -461,4 +495,155 @@ fn check_usage(usage: &Usage) -> Result<(), &'static str> {
         }
     }
     Ok(())
+}
+
+// Presence/default checks only. Resolving hashes, commits, publication timelines,
+// qualifying trials and per-harness projections belongs to the dream auditor.
+fn check_dream_structure(event: &Event) -> Result<(), &'static str> {
+    fn pin(pin: &RecordPin, committed: bool) -> bool {
+        !pin.root.is_empty()
+            && !pin.path.is_empty()
+            && !pin.digest.is_empty()
+            && (!committed || pin.commit.as_ref().is_some_and(|s| !s.is_empty()))
+    }
+    fn evidence(reference: &EvidenceRef) -> bool {
+        match reference {
+            EvidenceRef::Event {
+                session,
+                seq,
+                digest,
+            } => *session != empty_session() && seq.0 != 0 && !digest.is_empty(),
+            EvidenceRef::Record {
+                root,
+                id,
+                path,
+                commit,
+                digest,
+            } => [root, id, path, commit, digest]
+                .iter()
+                .all(|s| !s.is_empty()),
+            EvidenceRef::Unknown(_) => false,
+        }
+    }
+    if let Event::SessionStarted { meta } = event
+        && let Some(dream) = &meta.dream
+    {
+        let trigger = match &dream.trigger {
+            Trigger::SessionClosed { session } => *session != empty_session(),
+            Trigger::Quota {
+                provider,
+                resets_at,
+            } => !provider.is_empty() && *resets_at != 0,
+            Trigger::Operator { .. } => true,
+            Trigger::Dream { entry } => !entry.is_empty(),
+            Trigger::Schedule { name } => !name.is_empty(),
+            Trigger::Unknown(_) => false,
+        };
+        if !trigger
+            || dream.scope.repos.is_empty()
+            || dream.scope.repos.iter().any(String::is_empty)
+        {
+            return Err("dream metadata has missing trigger or scope fields");
+        }
+    }
+    let Event::ItemCompleted {
+        body,
+        status: ItemStatus::Completed,
+        ..
+    } = event
+    else {
+        return Ok(());
+    };
+    let valid = match body {
+        Item::MemoryWrite {
+            entry,
+            op,
+            record,
+            evidence: refs,
+            draft,
+        } => {
+            !entry.is_empty()
+                && pin(record, *op != MemoryOp::Pending)
+                && !refs.is_empty()
+                && refs.iter().all(evidence)
+                && (*op != MemoryOp::Pending || draft.is_some())
+        }
+        Item::MemoryState {
+            entry,
+            state,
+            harness,
+            refs,
+            ..
+        } => {
+            let per_harness = matches!(
+                state,
+                EntryState::Tested
+                    | EntryState::Adopted
+                    | EntryState::Rejected
+                    | EntryState::Retired
+            );
+            !entry.is_empty()
+                && refs.iter().all(evidence)
+                && if per_harness {
+                    harness.as_ref().is_some_and(|h| !h.is_empty())
+                } else {
+                    harness.is_none()
+                }
+        }
+        Item::Trial {
+            entry,
+            harness,
+            thresholds,
+            episodes,
+            controls,
+            ..
+        } => {
+            for episode in episodes.iter().chain(controls) {
+                if !evidence(&episode.origin)
+                    || episode.runs.iter().any(|r| r.session == empty_session())
+                {
+                    return Err("trial episode has missing source or run identity");
+                }
+                for run in &episode.runs {
+                    if let Some(usage) = &run.usage {
+                        check_usage(usage)?;
+                    }
+                }
+            }
+            !entry.is_empty() && !harness.is_empty() && !thresholds.is_empty()
+        }
+        Item::Adoption {
+            entry,
+            harness,
+            sink,
+            block_digest,
+            record,
+        } => {
+            !entry.is_empty()
+                && !harness.is_empty()
+                && !sink.path.is_empty()
+                && !block_digest.is_empty()
+                && record.as_ref().is_some_and(|p| pin(p, true))
+        }
+        Item::Recall {
+            entry,
+            sink,
+            basis,
+            record,
+            block_digest,
+        } => {
+            let pinned = matches!(basis, RecallBasis::Reported | RecallBasis::Cited);
+            !entry.is_empty()
+                && sink.as_ref().is_none_or(|s| !s.path.is_empty())
+                && record.as_ref().is_none_or(|p| pin(p, pinned))
+                && block_digest.as_ref().is_none_or(|d| !d.is_empty())
+                && (!pinned || (record.is_some() && block_digest.is_some()))
+        }
+        _ => true,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err("dream item has missing/default identity, revision pin, draft or harness fields")
+    }
 }

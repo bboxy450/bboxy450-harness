@@ -63,6 +63,8 @@ fn transcript(rows: &[ViewItem]) -> Transcript {
             harness: env!("CARGO_PKG_VERSION").into(),
             created_ms: 0,
             source: None,
+            vcs: None,
+            dream: None,
         }),
         profile: Some(("nemotron".into(), "nemotron-3-nano".into())),
         ..Default::default()

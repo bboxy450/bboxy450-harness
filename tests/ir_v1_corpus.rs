@@ -385,3 +385,348 @@ async fn agent_turn_fixture_renders_in_the_rich_face_without_a_user_bubble() {
     })
     .await;
 }
+
+const DREAM_CORPUS: [&str; 3] = [
+    include_str!("fixtures/ir-v1/v1.3-dream-session.jsonl"),
+    include_str!("fixtures/ir-v1/v1.3-recall.jsonl"),
+    include_str!("fixtures/ir-v1/v1.3-vcs.jsonl"),
+];
+
+#[test]
+fn dream_shapes_are_typed_durable_and_roundtrip() {
+    let mut kinds = std::collections::BTreeSet::new();
+    for text in DREAM_CORPUS {
+        let events: Vec<_> = text
+            .split_inclusive('\n')
+            .map(|line| {
+                let e = Envelope::from_line(line).unwrap();
+                assert_eq!(e.v, Version { major: 1, minor: 3 });
+                assert_eq!(e.wire_bytes().unwrap(), line.as_bytes());
+                let typed = serde_json::to_value(&e).unwrap();
+                assert_eq!(
+                    typed,
+                    serde_json::from_str::<serde_json::Value>(line).unwrap()
+                );
+                assert_eq!(serde_json::from_value::<Envelope>(typed).unwrap(), e);
+                assert!(e.event.is_durable());
+                if let Event::ItemCompleted { body, .. } = &e.event {
+                    assert!(!body.kind().is_unknown());
+                    kinds.insert(format!("{:?}", body.kind()));
+                    if matches!(
+                        body,
+                        Item::MemoryWrite { .. }
+                            | Item::MemoryState { .. }
+                            | Item::Trial { .. }
+                            | Item::Adoption { .. }
+                            | Item::Recall { .. }
+                    ) {
+                        assert_eq!(
+                            serde_json::from_str::<serde_json::Value>(
+                                &body.extension_text().unwrap()
+                            )
+                            .unwrap(),
+                            serde_json::to_value(body).unwrap()
+                        );
+                    }
+                }
+                e
+            })
+            .collect();
+        laws::check_authored(&events).unwrap();
+    }
+    for expected in ["MemoryWrite", "MemoryState", "Trial", "Adoption", "Recall"] {
+        assert!(kinds.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn dream_nested_unknowns_survive_readers_and_are_refused_by_writers() {
+    use serde_json::json;
+    // Mutate one typed boundary at a time. Opaque drafts are intentionally exempt.
+    let cases = [
+        (0, "session_started", "/event/meta/dream/phase"),
+        (0, "session_started", "/event/meta/dream/trigger"),
+        (0, "session_started", "/event/meta/dream/scope/level"),
+        (0, "memory_write", "/event/body/op"),
+        (0, "memory_write", "/event/body/evidence/0"),
+        (0, "memory_state", "/event/body/state"),
+        (0, "memory_state", "/event/body/refs/0"),
+        (0, "trial", "/event/body/verdict"),
+        (0, "trial", "/event/body/episodes/0/origin"),
+        (0, "trial", "/event/body/episodes/0/runs/0/arm"),
+        (0, "trial", "/event/body/controls/0/origin"),
+        (0, "trial", "/event/body/controls/0/runs/0/arm"),
+        (0, "adoption", "/event/body/sink/kind"),
+        (1, "recall", "/event/body/basis"),
+        (1, "recall", "/event/body/sink/kind"),
+    ];
+    for (corpus, kind, pointer) in cases {
+        let mut raw: Vec<serde_json::Value> = DREAM_CORPUS[corpus]
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let index = raw
+            .iter()
+            .position(|e| e["event"]["type"] == kind || e["event"]["body"]["kind"] == kind)
+            .unwrap();
+        let future = json!({"kind":"future_value","payload":{"keep":[42]}});
+        *raw[index].pointer_mut(pointer).unwrap() = future.clone();
+        let events: Vec<Envelope> = raw
+            .iter()
+            .cloned()
+            .map(|value| serde_json::from_value(value).unwrap())
+            .collect();
+        let serialized = serde_json::to_value(&events[index]).unwrap();
+        assert_eq!(
+            serialized.pointer(pointer),
+            Some(&future),
+            "{kind} {pointer}"
+        );
+        laws::check_transcript(&events).unwrap();
+        assert_eq!(
+            laws::check_authored(&events).unwrap_err().law,
+            "authorship",
+            "{kind} {pointer}"
+        );
+    }
+    let mut raw: Vec<serde_json::Value> = DREAM_CORPUS[0]
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let write = raw
+        .iter_mut()
+        .find(|e| e["event"]["body"]["kind"] == "memory_write")
+        .unwrap();
+    write["event"]["body"]["draft"] =
+        json!({"op":"future_value","nested":{"kind":"unknown","type":"unknown"}});
+    let events: Vec<Envelope> = raw
+        .into_iter()
+        .map(|value| serde_json::from_value(value).unwrap())
+        .collect();
+    laws::check_authored(&events).unwrap();
+}
+
+#[tokio::test]
+async fn dream_corpus_smoke_open_replay_fork_and_headless_keep_bytes() {
+    for text in DREAM_CORPUS {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("sessions");
+        std::fs::create_dir_all(&root).unwrap();
+        let events: Vec<_> = text
+            .split_inclusive('\n')
+            .map(|l| Envelope::from_line(l).unwrap())
+            .collect();
+        let Event::SessionStarted { meta } = &events[0].event else {
+            panic!("missing session")
+        };
+        let path = log_path(&root, meta.session);
+        std::fs::write(&path, text).unwrap();
+        let parent = Store::open(root.clone(), meta.clone(), None, Default::default())
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), text.as_bytes());
+        for (actual, expected) in parent.events.iter().zip(text.split_inclusive('\n')) {
+            assert_eq!(actual.wire_bytes().unwrap(), expected.as_bytes());
+        }
+        drop(parent);
+        let replay = Store::replay_closed(root.clone(), meta.session)
+            .await
+            .unwrap();
+        assert_eq!(replay, events);
+        let mut child_meta = meta.clone();
+        child_meta.session = SessionId::new();
+        child_meta.fork = Some((meta.session, Seq(events.len() as u64 - 1)));
+        let mut child = Store::open(root.clone(), child_meta, None, Default::default())
+            .await
+            .unwrap();
+        for (actual, expected) in child
+            .events
+            .iter()
+            .skip(1)
+            .zip(text.split_inclusive('\n').skip(1))
+        {
+            assert_eq!(actual.wire_bytes().unwrap(), expected.as_bytes());
+        }
+        child.append(Event::SessionClosed, None).await.unwrap();
+        laws::check_transcript(&child.events).unwrap();
+        drop(child);
+        let parent_session = meta.session.to_string();
+        for args in [
+            vec!["check-transcript", path.to_str().unwrap()],
+            vec!["seat", "--replay", path.to_str().unwrap()],
+            vec![
+                "--json",
+                "--resume",
+                &parent_session,
+                "--sessions",
+                root.to_str().unwrap(),
+            ],
+        ] {
+            let output = std::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
+                .env("HOME", temp.path())
+                .env_remove("BBOXY_CAPABILITY")
+                .env_remove("BBOXY_CAPABILITY_FILE")
+                .env_remove("BBOXY_SEAT_ID")
+                .args(&args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            if args[0] == "--json" {
+                assert_eq!(output.stdout, text.as_bytes());
+            } else if args[0] == "seat" {
+                let rendered = String::from_utf8_lossy(&output.stdout);
+                for kind in [
+                    "memory_write",
+                    "memory_state",
+                    "trial",
+                    "adoption",
+                    "recall",
+                ] {
+                    if text.contains(&format!("\"kind\":\"{kind}\"")) {
+                        assert!(rendered.contains(kind), "seat dropped {kind}: {rendered}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn dream_event_digest_pins_the_exact_retained_line_without_lf() {
+    use sha2::{Digest as _, Sha256};
+    let lines: Vec<_> = DREAM_CORPUS[0].split_inclusive('\n').collect();
+    let first = Envelope::from_line(lines[0]).unwrap();
+    let bytes = first.wire_bytes().unwrap();
+    let expected: Digest = format!(
+        "sha256:{:x}",
+        Sha256::digest(bytes.strip_suffix(b"\n").unwrap())
+    );
+    let write: Envelope = serde_json::from_str(lines[2]).unwrap();
+    let Event::ItemCompleted {
+        body: Item::MemoryWrite {
+            evidence, entry, ..
+        },
+        ..
+    } = write.event
+    else {
+        panic!("missing write")
+    };
+    let Event::SessionStarted { meta } = first.event else {
+        panic!("missing session")
+    };
+    assert!(
+        matches!(&evidence[0], EvidenceRef::Event { session, seq: Seq(1), digest } if *session == meta.session && digest == &expected)
+    );
+    let _: EntryId = entry;
+}
+
+#[test]
+fn trial_usage_unknown_is_checked_in_both_arms_and_controls() {
+    for collection in ["episodes", "controls"] {
+        let mut raw: Vec<serde_json::Value> = DREAM_CORPUS[0]
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let trial = raw
+            .iter_mut()
+            .find(|e| e["event"]["body"]["kind"] == "trial")
+            .unwrap();
+        trial["event"]["body"][collection][0]["runs"][0]["usage"] = serde_json::json!({
+            "input_tokens":0,"output_tokens":0,"cached_input_tokens":null,
+            "reasoning_tokens":null,"cost_micros_usd":null,"scope":"future_scope"
+        });
+        let events: Vec<Envelope> = raw
+            .into_iter()
+            .map(|value| serde_json::from_value(value).unwrap())
+            .collect();
+        laws::check_transcript(&events).unwrap();
+        assert_eq!(laws::check_authored(&events).unwrap_err().law, "authorship");
+    }
+}
+
+#[test]
+fn authored_dream_pins_and_harness_presence_are_structural_checks() {
+    let cases = [
+        (0, "memory_write", "/event/body/record/commit"),
+        (0, "adoption", "/event/body/record"),
+        (0, "adoption", "/event/body/record/commit"),
+        (1, "recall", "/event/body/record"),
+        (1, "recall", "/event/body/block_digest"),
+    ];
+    for (corpus, kind, pointer) in cases {
+        let mut raw: Vec<serde_json::Value> = DREAM_CORPUS[corpus]
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let row = raw
+            .iter_mut()
+            .find(|e| {
+                e["event"]["body"]["kind"] == kind
+                    && (kind != "memory_write" || e["event"]["body"]["op"] == "created")
+            })
+            .unwrap();
+        *row.pointer_mut(pointer).unwrap() = serde_json::Value::Null;
+        let events: Vec<Envelope> = raw
+            .into_iter()
+            .map(|v| serde_json::from_value(v).unwrap())
+            .collect();
+        laws::check_transcript(&events).unwrap();
+        assert_eq!(
+            laws::check_authored(&events).unwrap_err().law,
+            "dream-structure",
+            "{kind} {pointer}"
+        );
+    }
+    let mut raw: Vec<serde_json::Value> = DREAM_CORPUS[0]
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let adopted = raw
+        .iter_mut()
+        .find(|e| e["event"]["body"]["state"] == "adopted")
+        .unwrap();
+    adopted["event"]["body"]["harness"] = serde_json::Value::Null;
+    let events: Vec<Envelope> = raw
+        .into_iter()
+        .map(|v| serde_json::from_value(v).unwrap())
+        .collect();
+    assert_eq!(
+        laws::check_authored(&events).unwrap_err().law,
+        "dream-structure"
+    );
+}
+
+#[test]
+fn incomplete_new_items_remain_readable_but_cannot_be_authored() {
+    for (corpus, kind) in [
+        (0, "memory_write"),
+        (0, "memory_state"),
+        (0, "trial"),
+        (0, "adoption"),
+        (1, "recall"),
+    ] {
+        let mut raw: Vec<serde_json::Value> = DREAM_CORPUS[corpus]
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let row = raw
+            .iter_mut()
+            .find(|e| e["event"]["body"]["kind"] == kind)
+            .unwrap();
+        row["event"]["body"] = serde_json::json!({"kind":kind});
+        let events: Vec<Envelope> = raw
+            .into_iter()
+            .map(|v| serde_json::from_value(v).unwrap())
+            .collect();
+        laws::check_transcript(&events).unwrap();
+        assert_eq!(
+            laws::check_authored(&events).unwrap_err().law,
+            "authorship",
+            "{kind}"
+        );
+    }
+}

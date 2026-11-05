@@ -1,0 +1,39 @@
+    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp6)
+error: field assignment outside of initializer for an instance created with Default::default()
+    --> src/frontends/gui/view.rs:3763:9
+     |
+3763 |         model.session = Some(SessionId::new());
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+note: consider initializing the variable with `frontends::gui::model::Transcript { session: Some(SessionId::new()), profile: Some(("codex".into(), "acp:codex-acp".into())), agent_config: Some(AgentConfig {
+                  instance: OpId::new(),
+                  revision: 7,
+                  pending: None,
+                  status: "Confirmed by agent".into(),
+                  options: ["model", "thought_level"]
+                      .into_iter()
+                      .map(|category| AgentOption {
+                          id: category.into(),
+                          name: category.into(),
+                          category: category.into(),
+                          current: "3".into(),
+                          legacy: false,
+                          choices: (0..8)
+                              .map(|i| AgentChoice {
+                                  value: i.to_string(),
+                                  name: format!("Choice {i}"),
+                              })
+                              .collect(),
+                      })
+                      .collect(),
+              }), ..Default::default() }` and removing relevant reassignments
+    --> src/frontends/gui/view.rs:3762:9
+     |
+3762 |         let mut model = Transcript::default();
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#field_reassign_with_default
+     = note: `-D clippy::field-reassign-with-default` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::field_reassign_with_default)]`
+
+error: could not compile `bboxy450-harness` (lib test) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...

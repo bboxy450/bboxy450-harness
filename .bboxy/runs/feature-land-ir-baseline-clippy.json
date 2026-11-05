@@ -1,0 +1,7 @@
+{
+  "source": "0ab55023228a7f7f49305c9c08f5bdbcfb39c10f",
+  "command": "cargo clippy --all-targets --all-features -- -D warnings",
+  "exit_code": 101,
+  "log": "target/feature-land-ir/baseline-clippy.log",
+  "sha256": "2cc26116656420e90c9e12f16a5b1aa683ce4441659ba01cc5c918290feab4b8"
+}

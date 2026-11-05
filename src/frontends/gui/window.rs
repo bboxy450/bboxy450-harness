@@ -830,6 +830,8 @@ fn config_at_home(options: &Options, home: Option<std::ffi::OsString>) -> Result
     let redactor = Set::default();
     Ok(Config {
         meta: SessionMeta {
+            vcs: None,
+            dream: None,
             source: None,
             session,
             cwd: options.cwd.clone(),
