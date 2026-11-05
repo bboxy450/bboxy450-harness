@@ -1,0 +1,1637 @@
+{
+  "binding_case_count": 8,
+  "binding_cases": [
+    {
+      "binding_canonical_json": "{\"context\":null,\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAZ\",\"probe\":true,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+      "binding_sha256": "bc42f754b0ef803e896364ce08288a1ce533a4f4064392d237343ab9df8036ea",
+      "expect": "valid",
+      "inputs": {
+        "context": null,
+        "incarnation": 7,
+        "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+        "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAZ",
+        "probe": true,
+        "profile": "dream-bootstrap/1",
+        "purpose": "inspect-c1",
+        "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "name": "probe-null",
+      "reason": "every probe serializes explicit context:null"
+    },
+    {
+      "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+      "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": "valid",
+      "inputs": {
+        "context": {
+          "account": "fixture",
+          "account_epoch": 1,
+          "generation": 1,
+          "grant_epoch": 1,
+          "provider": "fixture",
+          "provider_epoch": 1,
+          "root": "fixture",
+          "root_revision": 1,
+          "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "swarm_revision": 1,
+          "workspace": "fixture",
+          "workspace_revision": 1
+        },
+        "incarnation": 7,
+        "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+        "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+        "probe": false,
+        "profile": "dream-bootstrap/1",
+        "purpose": "inspect-c1",
+        "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "name": "work-full",
+      "reason": "work requires a complete current public Context"
+    },
+    {
+      "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAZ\",\"probe\":true,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+      "binding_sha256": "960c2d1cbaa13d8cab977bd1d257d5fd670131b2327ac37dc2f8a6bfa3e2a7ef",
+      "expect": "invalid",
+      "inputs": {
+        "context": {
+          "account": "fixture",
+          "account_epoch": 1,
+          "generation": 1,
+          "grant_epoch": 1,
+          "provider": "fixture",
+          "provider_epoch": 1,
+          "root": "fixture",
+          "root_revision": 1,
+          "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "swarm_revision": 1,
+          "workspace": "fixture",
+          "workspace_revision": 1
+        },
+        "incarnation": 7,
+        "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+        "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAZ",
+        "probe": true,
+        "profile": "dream-bootstrap/1",
+        "purpose": "inspect-c1",
+        "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "name": "probe-nonnull",
+      "reason": "probe must never carry fixture/prior-seat/current Context"
+    },
+    {
+      "binding_canonical_json": "{\"context\":{},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAZ\",\"probe\":true,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+      "binding_sha256": "6d62a7f541c03effab51332e4631fd5d8ccad33abf1c8228dcc83779fd8f4b5e",
+      "expect": "invalid",
+      "inputs": {
+        "context": {},
+        "incarnation": 7,
+        "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+        "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAZ",
+        "probe": true,
+        "profile": "dream-bootstrap/1",
+        "purpose": "inspect-c1",
+        "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "name": "probe-empty-context",
+      "reason": "empty object is not context:null"
+    },
+    {
+      "binding_canonical_json": "{\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAZ\",\"probe\":true,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+      "binding_sha256": "8efd27a28b10056d78199185901615e64a3217e60ba124fa7f5daf7e459f8d18",
+      "expect": "invalid",
+      "inputs": {
+        "incarnation": 7,
+        "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+        "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAZ",
+        "probe": true,
+        "profile": "dream-bootstrap/1",
+        "purpose": "inspect-c1",
+        "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "name": "probe-missing-context",
+      "reason": "probe context must be explicit null, never omitted"
+    },
+    {
+      "binding_canonical_json": "{\"context\":null,\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+      "binding_sha256": "dc4f076d2519febca945c7d53a532e3fff850b563f71c178a8b19c622174bee6",
+      "expect": "invalid",
+      "inputs": {
+        "context": null,
+        "incarnation": 7,
+        "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+        "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+        "probe": false,
+        "profile": "dream-bootstrap/1",
+        "purpose": "inspect-c1",
+        "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "name": "work-null-context",
+      "reason": "null Context must be refused before work birth"
+    },
+    {
+      "binding_canonical_json": "{\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+      "binding_sha256": "ee799e70c4726c53c912f9a2c71834908d5167c6edcb6bf005c078b6cbb74def",
+      "expect": "invalid",
+      "inputs": {
+        "incarnation": 7,
+        "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+        "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+        "probe": false,
+        "profile": "dream-bootstrap/1",
+        "purpose": "inspect-c1",
+        "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "name": "work-missing-context",
+      "reason": "omitted Context must be refused before work birth"
+    },
+    {
+      "binding_canonical_json": "{\"context\":{},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+      "binding_sha256": "4a19f42c9f8da1eed5cc17bfb50a62780d9b5ec716bbe26b6ae082b3b4f9b448",
+      "expect": "invalid",
+      "inputs": {
+        "context": {},
+        "incarnation": 7,
+        "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+        "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+        "probe": false,
+        "profile": "dream-bootstrap/1",
+        "purpose": "inspect-c1",
+        "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "name": "work-empty-context",
+      "reason": "work Context must include every canonical C1 field"
+    }
+  ],
+  "case_count": 34,
+  "cases": [
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "binding_file": "valid/inspect.binding.json",
+      "binding_hash_file": "valid/inspect.binding.sha256",
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "valid",
+        "identity": "match",
+        "reason": "valid static vector"
+      },
+      "file": "valid/inspect.bin",
+      "name": "inspect",
+      "record_sha256": "129c45738916ff6d5ffab100bd73b782b37509f3ac73b7b4726965859d1ed951"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "binding_file": "valid/inspect.binding.json",
+      "binding_hash_file": "valid/inspect.binding.sha256",
+      "environment": "1:0007:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "valid",
+        "identity": "match",
+        "reason": "decimal descriptor leading zeroes denote the same fd 7"
+      },
+      "file": "valid/inspect.bin",
+      "name": "inspect-env-leading-zero",
+      "record_sha256": "129c45738916ff6d5ffab100bd73b782b37509f3ac73b7b4726965859d1ed951"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":null,\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAZ\",\"probe\":true,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "bc42f754b0ef803e896364ce08288a1ce533a4f4064392d237343ab9df8036ea",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": null,
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAZ",
+          "probe": true,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "binding_file": "valid/inspect-probe.binding.json",
+      "binding_hash_file": "valid/inspect-probe.binding.sha256",
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:bc42f754b0ef803e896364ce08288a1ce533a4f4064392d237343ab9df8036ea",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "valid",
+        "identity": "match",
+        "reason": "valid static vector"
+      },
+      "file": "valid/inspect-probe.bin",
+      "name": "inspect-probe",
+      "record_sha256": "40ccef3e8675939d87a739b0dc69cf522c71f846a2c402ee133c0c8914454d57"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FB0\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"read-prepare\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "ce8688814d5da329acd6b1546882cc28a31b51b79ae9e0169d32c157a56a4cc9",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FB0",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "read-prepare",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "binding_file": "valid/read-prepare.binding.json",
+      "binding_hash_file": "valid/read-prepare.binding.sha256",
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:ce8688814d5da329acd6b1546882cc28a31b51b79ae9e0169d32c157a56a4cc9",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "valid",
+        "identity": "match",
+        "reason": "valid static vector"
+      },
+      "file": "valid/read-prepare.bin",
+      "name": "read-prepare",
+      "record_sha256": "3b19f79c0c43330e740883bbbcac6074ebeb63ea6ebb8261613e1da05454f789"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "invalid",
+        "environment_format": "valid",
+        "identity": "not_checked",
+        "reason": "wrong eight-byte magic"
+      },
+      "file": "invalid/magic.bin",
+      "name": "magic",
+      "record_sha256": "cc2cdf7add5083002a484f59d335be71157aea4d404d6d47eb918a4e5aa2b73f"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "invalid",
+        "environment_format": "valid",
+        "identity": "not_checked",
+        "reason": "purpose must be 1 or 2"
+      },
+      "file": "invalid/purpose-zero.bin",
+      "name": "purpose-zero",
+      "record_sha256": "fedf809de0e5db7e435bc262844342f850ae5384c39130633cd16c05582b5ceb"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "invalid",
+        "environment_format": "valid",
+        "identity": "not_checked",
+        "reason": "unknown purpose"
+      },
+      "file": "invalid/purpose-three.bin",
+      "name": "purpose-three",
+      "record_sha256": "5155b84c99ee7b06cc9f24416833f30cf150363212dd9ac7c0f7756a43dfa7c1"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "invalid",
+        "environment_format": "valid",
+        "identity": "not_checked",
+        "reason": "probe is one byte 0 or 1"
+      },
+      "file": "invalid/probe-two.bin",
+      "name": "probe-two",
+      "record_sha256": "49e9fd2f3d9bc68dc72e3c85d5f331737d08b7b22b7848bceb04b243cdf92aaa"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "invalid",
+        "environment_format": "valid",
+        "identity": "not_checked",
+        "reason": "leading reserved range starts at byte 10"
+      },
+      "file": "invalid/reserved-first.bin",
+      "name": "reserved-first",
+      "record_sha256": "ef7716210668cc8f8101d80df10dcbfea872cf334c349b4905c6aa2074a6bd88"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "invalid",
+        "environment_format": "valid",
+        "identity": "not_checked",
+        "reason": "leading reserved range ends before byte 16"
+      },
+      "file": "invalid/reserved-last.bin",
+      "name": "reserved-last",
+      "record_sha256": "f8a490a9a67b115e259ae00c482b7d97500214a4f4911868e9e77fce719da84e"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "invalid",
+        "environment_format": "valid",
+        "identity": "not_checked",
+        "reason": "trailing reserved range starts at byte 120"
+      },
+      "file": "invalid/tail-first.bin",
+      "name": "tail-first",
+      "record_sha256": "cba9f53f67a88bfc9079b536cbfa893173f722c32d2ed072a704ede6e57c1542"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "invalid",
+        "environment_format": "valid",
+        "identity": "not_checked",
+        "reason": "trailing reserved range includes byte 127"
+      },
+      "file": "invalid/tail-last.bin",
+      "name": "tail-last",
+      "record_sha256": "841e8dfb4e2b62533a5f2954df70f9f975f9ebf84e30c94a18f79b411c30a73f"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "invalid",
+        "environment_format": "valid",
+        "identity": "not_checked",
+        "reason": "incarnation must be nonzero"
+      },
+      "file": "invalid/incarnation-zero.bin",
+      "name": "incarnation-zero",
+      "record_sha256": "d989504c4f1d734b77d68ff98b8376cc913fef2f1f9326d2db4d8b6c68198267"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "invalid",
+        "environment_format": "valid",
+        "identity": "not_checked",
+        "reason": "sequence must equal 1"
+      },
+      "file": "invalid/sequence-zero.bin",
+      "name": "sequence-zero",
+      "record_sha256": "379cc01497829e872003731c081466a0209ae4d07cbd54e9ff63c2cbac2f75de"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "invalid",
+        "environment_format": "valid",
+        "identity": "not_checked",
+        "reason": "sequence must equal 1"
+      },
+      "file": "invalid/sequence-two.bin",
+      "name": "sequence-two",
+      "record_sha256": "2931ef4a24f20e999b8e2792081513ca1bc07e488bffa1658302e6713ab885a7"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "invalid",
+        "environment_format": "valid",
+        "identity": "not_checked",
+        "reason": "127 bytes cannot be accepted"
+      },
+      "file": "invalid/truncated.bin",
+      "name": "truncated",
+      "record_sha256": "bf7cf1539fc089b841f2432cb58630bbf238fd1ed9cfd03240c5c541814d6bce"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "invalid",
+        "environment_format": "valid",
+        "identity": "not_checked",
+        "reason": "129 bytes cannot be accepted"
+      },
+      "file": "invalid/extra.bin",
+      "name": "extra",
+      "record_sha256": "fad788693cb3a647764b16ae56d1d9e9c9162df9caebfcd6974cc6c7a767d26b"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAZ:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "valid",
+        "identity": "mismatch",
+        "reason": "valid env birth belongs to another launch"
+      },
+      "file": "invalid/stale-env-birth.bin",
+      "name": "stale-env-birth",
+      "record_sha256": "129c45738916ff6d5ffab100bd73b782b37509f3ac73b7b4726965859d1ed951"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "valid",
+        "identity": "mismatch",
+        "reason": "valid env hash differs from record and canonical binding"
+      },
+      "file": "invalid/env-binding.bin",
+      "name": "env-binding",
+      "record_sha256": "129c45738916ff6d5ffab100bd73b782b37509f3ac73b7b4726965859d1ed951"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "valid",
+        "identity": "mismatch",
+        "reason": "record binding differs from immutable inputs"
+      },
+      "file": "invalid/record-binding.bin",
+      "name": "record-binding",
+      "record_sha256": "4ce4d0fff619f97093fc095e46f9759bf96665f9ada97140557ccd60d93dd801"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "valid",
+        "identity": "mismatch",
+        "reason": "well-formed record contains wrong run identity"
+      },
+      "file": "invalid/wrong-run.bin",
+      "name": "wrong-run",
+      "record_sha256": "809ba460b47f4f627ac28d835833ca21caca486f5eb66c2b97055a13d85a30d5"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "valid",
+        "identity": "mismatch",
+        "reason": "well-formed record contains wrong nonce identity"
+      },
+      "file": "invalid/wrong-nonce.bin",
+      "name": "wrong-nonce",
+      "record_sha256": "a92ebf7aaa09daf99d81df2932330862c11c1d16d1a7176be963fc58db1e72a4"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "valid",
+        "identity": "mismatch",
+        "reason": "well-formed read-prepare record does not match inspect binding"
+      },
+      "file": "invalid/wrong-purpose.bin",
+      "name": "wrong-purpose",
+      "record_sha256": "f7480411dac9869c7b2ebc48a13ae7b2f9bbbbdce793704925d818e764e3a586"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "valid",
+        "identity": "mismatch",
+        "reason": "well-formed probe bit does not match inspect binding"
+      },
+      "file": "invalid/wrong-probe.bin",
+      "name": "wrong-probe",
+      "record_sha256": "786fc7b9185da18fb4202155c166c3f4da3f7bce7eeef333cb0fd3d437e81b67"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "valid",
+        "identity": "mismatch",
+        "reason": "nonzero incarnation differs from original operation"
+      },
+      "file": "invalid/wrong-incarnation.bin",
+      "name": "wrong-incarnation",
+      "record_sha256": "86c6dea11ebc2f55080293ce18108278694ef029870c52cfe6c2db737b4362ac"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "2:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "invalid",
+        "identity": "not_checked",
+        "reason": "environment grammar fails independently of valid binary"
+      },
+      "file": "invalid/env-version.bin",
+      "name": "env-version",
+      "record_sha256": "129c45738916ff6d5ffab100bd73b782b37509f3ac73b7b4726965859d1ed951"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:2:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "invalid",
+        "identity": "not_checked",
+        "reason": "environment grammar fails independently of valid binary"
+      },
+      "file": "invalid/env-fd-low.bin",
+      "name": "env-fd-low",
+      "record_sha256": "129c45738916ff6d5ffab100bd73b782b37509f3ac73b7b4726965859d1ed951"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:65536:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "invalid",
+        "identity": "not_checked",
+        "reason": "environment grammar fails independently of valid binary"
+      },
+      "file": "invalid/env-fd-high.bin",
+      "name": "env-fd-high",
+      "record_sha256": "129c45738916ff6d5ffab100bd73b782b37509f3ac73b7b4726965859d1ed951"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:+7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "invalid",
+        "identity": "not_checked",
+        "reason": "environment grammar fails independently of valid binary"
+      },
+      "file": "invalid/env-fd-sign.bin",
+      "name": "env-fd-sign",
+      "record_sha256": "129c45738916ff6d5ffab100bd73b782b37509f3ac73b7b4726965859d1ed951"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2:extra",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "invalid",
+        "identity": "not_checked",
+        "reason": "environment grammar fails independently of valid binary"
+      },
+      "file": "invalid/env-extra.bin",
+      "name": "env-extra",
+      "record_sha256": "129c45738916ff6d5ffab100bd73b782b37509f3ac73b7b4726965859d1ed951"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01ARZ3NDEKTSV4RRFFQ69G5FAV:8BB2BD8B3516350587C042BBBB25AC91DC6111818F8CED369E686E9D15872EE2",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "invalid",
+        "identity": "not_checked",
+        "reason": "environment grammar fails independently of valid binary"
+      },
+      "file": "invalid/env-upper-hash.bin",
+      "name": "env-upper-hash",
+      "record_sha256": "129c45738916ff6d5ffab100bd73b782b37509f3ac73b7b4726965859d1ed951"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:01arz3ndektsv4rrffq69g5fav:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "invalid",
+        "identity": "not_checked",
+        "reason": "environment grammar fails independently of valid binary"
+      },
+      "file": "invalid/env-lower-birth.bin",
+      "name": "env-lower-birth",
+      "record_sha256": "129c45738916ff6d5ffab100bd73b782b37509f3ac73b7b4726965859d1ed951"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7:8ZZZZZZZZZZZZZZZZZZZZZZZZZ:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "invalid",
+        "identity": "not_checked",
+        "reason": "environment grammar fails independently of valid binary"
+      },
+      "file": "invalid/env-overflow-birth.bin",
+      "name": "env-overflow-birth",
+      "record_sha256": "129c45738916ff6d5ffab100bd73b782b37509f3ac73b7b4726965859d1ed951"
+    },
+    {
+      "authority": {
+        "binding_canonical_json": "{\"context\":{\"account\":\"fixture\",\"account_epoch\":1,\"generation\":1,\"grant_epoch\":1,\"provider\":\"fixture\",\"provider_epoch\":1,\"root\":\"fixture\",\"root_revision\":1,\"seat\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"swarm_revision\":1,\"workspace\":\"fixture\",\"workspace_revision\":1},\"incarnation\":7,\"nonce\":\"01ARZ3NDEKTSV4RRFFQ69G5FAX\",\"op_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAY\",\"probe\":false,\"profile\":\"dream-bootstrap/1\",\"purpose\":\"inspect-c1\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAW\",\"worker_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+        "binding_sha256": "8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+        "birth": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fd": 7,
+        "inputs": {
+          "context": {
+            "account": "fixture",
+            "account_epoch": 1,
+            "generation": 1,
+            "grant_epoch": 1,
+            "provider": "fixture",
+            "provider_epoch": 1,
+            "root": "fixture",
+            "root_revision": 1,
+            "seat": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "swarm_revision": 1,
+            "workspace": "fixture",
+            "workspace_revision": 1
+          },
+          "incarnation": 7,
+          "nonce": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          "op_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+          "probe": false,
+          "profile": "dream-bootstrap/1",
+          "purpose": "inspect-c1",
+          "run_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          "worker_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "environment": "1:7777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777:01ARZ3NDEKTSV4RRFFQ69G5FAV:8bb2bd8b3516350587c042bbbb25ac91dc6111818f8ced369e686e9d15872ee2",
+      "expect": {
+        "binary_format": "valid",
+        "environment_format": "invalid",
+        "identity": "not_checked",
+        "reason": "environment grammar fails independently of valid binary"
+      },
+      "file": "invalid/env-overlength.bin",
+      "name": "env-overlength",
+      "record_sha256": "129c45738916ff6d5ffab100bd73b782b37509f3ac73b7b4726965859d1ed951"
+    }
+  ],
+  "profile": "dream-bootstrap/1",
+  "record_bytes": 128,
+  "static_deadline_ns": 72623859790382856
+}

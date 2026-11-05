@@ -8,6 +8,24 @@
 name = "bboxy450-harness"
 status = "contract-model"
 models = [
+    "BrokenHarnessDreamC1BootstrapHandoffProbeStart",
+    "BrokenHarnessDreamC1BootstrapHandoffNullWork",
+    "BrokenHarnessDreamC1BootstrapHandoffControlCost",
+    "BrokenHarnessDreamC1BootstrapHandoffControlPayload",
+    "BrokenHarnessDreamC1BootstrapHandoffAdmissionRetry",
+    "HarnessDreamC1BootstrapHandoff",
+    "BrokenHarnessDreamC1BootstrapHandoffEarliestGate",
+    "BrokenHarnessDreamC1BootstrapHandoffParentOverlap",
+    "BrokenHarnessDreamC1BootstrapHandoffUnpaidGrant",
+    "BrokenHarnessDreamC1BootstrapHandoffUnknownCostGrant",
+    "BrokenHarnessDreamC1BootstrapHandoffDebtReset",
+    "BrokenHarnessDreamC1BootstrapHandoffStaleGrantABA",
+    "BrokenHarnessDreamC1BootstrapHandoffDuplicateGrant",
+    "BrokenHarnessDreamC1BootstrapHandoffRevokedLease",
+    "BrokenHarnessDreamC1BootstrapHandoffUnknownBirthRelease",
+    "BrokenHarnessDreamC1BootstrapHandoffUnknownBirthRetry",
+    "BrokenHarnessDreamC1BootstrapHandoffUnpaidHello",
+    "BrokenHarnessDreamC1BootstrapHandoffUnpaidStart",
     "HarnessDreamC1QuantumDebt",
     "BrokenHarnessDreamC1QuantumDebtUnpaidRest",
     "BrokenHarnessDreamC1QuantumDebtFakeNativeApp",
@@ -124,8 +142,9 @@ models = [
     "HarnessDreamTrialUsage",
     "HarnessDreamTrialSettlement",
 ]
-scope = "C1QuantumDebt additionally projects two named jobs/owners onto one two-call run versus an independently held peer, three A1/B2/A3 revisions, app CPU0..2/native CPU0..3/inclusive CPU0..3 and post-end debt0..27 abstract ms. No OS-return fairness or arbitrary Rust refinement is claimed. Finite two-turn/two-tool lifecycle; birth fencing A-B-A, unattended approval, FIFO control, bounded replay/lag/reset and Yarn arbitration. HTTP/TCP bytes, filesystem/process effects, wall-clock deadlines, secrecy and terminal bytes are witnessed by implementation tests; no arbitrary Rust refinement claim."
+scope = "Bootstrap profiles distinguish source-free probe=true/context=null from real work with full prepared context; probes permanently disallow Start/source and actor proof. Permit/Start final parent callbacks have two total attempts, known control CPU0..1ms only, with unknown/>1ms refusal; prepared public proof is an external <=7*16KiB assumption, never synthesized actor authority or payload/native work. C1BootstrapHandoff adds one parent/child birth, fixed one-attempt permit and three pre-argv/channel/Builder spans; parent/child debt0..27, absent/owned/unknown effects and A1/B2/A3 pipe/nonce incarnation fencing. Bootstrap native return/delivery/exit remains external without fairness; fixed128-byte protocol and actual process gates remain implementation witnesses. C1QuantumDebt additionally projects two named jobs/owners onto one two-call run versus an independently held peer, three A1/B2/A3 revisions, app CPU0..2/native CPU0..3/inclusive CPU0..3 and post-end debt0..27 abstract ms. No OS-return fairness or arbitrary Rust refinement is claimed. Finite two-turn/two-tool lifecycle; birth fencing A-B-A, unattended approval, FIFO control, bounded replay/lag/reset and Yarn arbitration. HTTP/TCP bytes, filesystem/process effects, wall-clock deadlines, secrecy and terminal bytes are witnessed by implementation tests; no arbitrary Rust refinement claim."
 sources = [
+    "src/dream/bootstrap.rs",
     "src/dream/c1_wire.rs", "src/dream/c1.rs", "src/dream/inspect.rs",
 
     "src/frontends/gui/input.rs",

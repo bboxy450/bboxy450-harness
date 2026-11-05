@@ -1191,3 +1191,93 @@ frontend = "project"
 name = "BrokenHarnessDreamC1QuantumDebtEarlyPresent"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamC1BootstrapHandoff"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapHandoffEarliestGate"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapHandoffParentOverlap"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapHandoffUnpaidGrant"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapHandoffUnknownCostGrant"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapHandoffDebtReset"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapHandoffStaleGrantABA"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapHandoffDuplicateGrant"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapHandoffRevokedLease"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapHandoffUnknownBirthRelease"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapHandoffUnknownBirthRetry"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapHandoffUnpaidHello"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapHandoffUnpaidStart"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapHandoffProbeStart"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapHandoffNullWork"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapHandoffControlCost"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapHandoffControlPayload"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapHandoffAdmissionRetry"
+expected = "safety"
+frontend = "project"

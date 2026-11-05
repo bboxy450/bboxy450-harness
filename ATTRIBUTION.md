@@ -185,3 +185,8 @@ and the exact shared checker copies. These checks do not replace upstream terms.
   and C1QuantumDebt causal witnesses are project-owned. Keep the canonical
   source and this absolute policy URL with extracts:
   https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+
+- The private dream-bootstrap/1 fixed permit, bounded earliest-entry/lease checks,
+  canonical binding/layout vectors, independent checker and causal process/formal
+  witnesses are project-owned. Keep this origin and policy beside extracts:
+  https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.

@@ -5,7 +5,7 @@
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 //! Canonical transport corpus, independent hashes and private worker witnesses.
-use bboxy450_harness::dream::c1_wire as w;
+use bboxy450_harness::dream::{bootstrap as boot, c1_wire as w};
 use std::path::Path;
 fn root() -> &'static Path {
     Path::new(concat!(
@@ -297,7 +297,464 @@ impl Job {
         private_file(&self.path.join("input/manifest.json"), &bytes);
     }
     fn launch(&self) -> Worker {
-        Worker::launch(&self.path)
+        Worker::launch(
+            &self.path,
+            &self.start.nonce,
+            Some(&self.manifest.context),
+            false,
+        )
+    }
+}
+fn parent_cpu() -> u64 {
+    let mut t = std::mem::MaybeUninit::<libc::timespec>::uninit();
+    if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, t.as_mut_ptr()) } != 0 {
+        return u64::MAX;
+    }
+    let t = unsafe { t.assume_init() };
+    (t.tv_sec as u64)
+        .checked_mul(1_000_000_000)
+        .and_then(|n| n.checked_add(t.tv_nsec as u64))
+        .unwrap_or(u64::MAX)
+}
+fn parent_rest(cpu: u64, end: Instant) {
+    let owed = Duration::from_nanos(9 * cpu.max(1_000_000));
+    if let Some(left) = owed.checked_sub(end.elapsed()) {
+        std::thread::sleep(left);
+    }
+}
+fn approved_runner() -> &'static (std::path::PathBuf, w::Hex) {
+    use sha2::{Digest, Sha256};
+    use std::os::unix::fs::MetadataExt;
+    type Stamp = (u64, u64, u64, i64, i64, i64, i64);
+    static STAMP: std::sync::OnceLock<Stamp> = std::sync::OnceLock::new();
+    let stamp = |p: &Path| {
+        let m = std::fs::symlink_metadata(p).unwrap();
+        assert!(m.is_file() && !m.file_type().is_symlink());
+        (
+            m.dev(),
+            m.ino(),
+            m.len(),
+            m.mtime(),
+            m.mtime_nsec(),
+            m.ctime(),
+            m.ctime_nsec(),
+        )
+    };
+    static APPROVED: std::sync::OnceLock<(std::path::PathBuf, w::Hex)> = std::sync::OnceLock::new();
+    let approved = APPROVED.get_or_init(|| {
+        let path = std::path::PathBuf::from(
+            std::env::var_os("DREAM_C1_RUNNER")
+                .expect("gate requires explicit preapproved ordinary worker"),
+        );
+        let folder = path.parent().unwrap();
+        assert_eq!(
+            std::fs::read(folder.join("bootstrap-support.txt")).unwrap(),
+            b"dream-bootstrap/1\n"
+        );
+        let receipts = std::fs::read_to_string(folder.join("hashes.txt")).unwrap();
+        let expected = receipts
+            .lines()
+            .find(|l| {
+                l.split_whitespace()
+                    .last()
+                    .is_some_and(|p| p.ends_with("/worker"))
+            })
+            .unwrap()
+            .split_whitespace()
+            .next()
+            .unwrap();
+        // Provisioning verification precedes every birth; streaming bounded
+        // hashing/rest happens once, never an executable capability probe.
+        let before = stamp(&path);
+        let mut file = std::fs::File::open(&path).unwrap();
+        let mut digest = Sha256::new();
+        let mut buf = [0; 65536];
+        use std::io::Read;
+        loop {
+            let at = parent_cpu();
+            let n = file.read(&mut buf).unwrap();
+            digest.update(&buf[..n]);
+            let used = parent_cpu().checked_sub(at).unwrap();
+            let end = Instant::now();
+            assert!(used <= 1_000_000);
+            parent_rest(used, end);
+            if n == 0 {
+                break;
+            }
+        }
+        let hash = format!("{:x}", digest.finalize());
+        assert_eq!(hash, expected, "unapproved candidate must not execute");
+        assert_eq!(
+            stamp(&path),
+            before,
+            "artifact changed during pre-birth approval"
+        );
+        STAMP.set(before).unwrap();
+        (path, w::Hex(hash))
+    });
+    assert_eq!(
+        stamp(&approved.0),
+        *STAMP.get().unwrap(),
+        "approved artifact identity changed before birth"
+    );
+    approved
+}
+fn pipe_files() -> (std::fs::File, std::fs::File) {
+    use std::os::fd::FromRawFd;
+    let mut p = [-1; 2];
+    assert_eq!(unsafe { libc::pipe(p.as_mut_ptr()) }, 0);
+    for fd in p {
+        assert_eq!(
+            unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) },
+            0
+        );
+        let f = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        assert_eq!(
+            unsafe { libc::fcntl(fd, libc::F_SETFL, f | libc::O_NONBLOCK) },
+            0
+        );
+    }
+    unsafe {
+        (
+            std::fs::File::from_raw_fd(p[0]),
+            std::fs::File::from_raw_fd(p[1]),
+        )
+    }
+}
+struct HeldWorker {
+    child: Option<Child>,
+    lease: Option<std::fs::File>,
+    permit: boot::Permit,
+    birth_end: Instant,
+    launched: Instant,
+    readiness_ns: u64,
+    native_cpu: Option<u64>,
+    native_wall: Duration,
+    marker: String,
+    expected_schema: w::Hex,
+    prepared: Option<Command>,
+    frozen_binding: [u8; 32],
+    job_deadline: Instant,
+}
+impl HeldWorker {
+    fn spawn(path: &Path, nonce: &w::Ulid, context: Option<&w::Context>, probe: bool) -> Self {
+        let (runner, worker_hash) = approved_runner();
+        Self::spawn_on(path, nonce, context, probe, runner, worker_hash, false)
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn spawn_on(
+        path: &Path,
+        nonce: &w::Ulid,
+        context: Option<&w::Context>,
+        probe: bool,
+        runner: &Path,
+        worker_hash: &w::Hex,
+        bypass: bool,
+    ) -> Self {
+        use std::os::unix::process::CommandExt;
+        let job_deadline = Instant::now() + Duration::from_secs(30);
+        let prepare_at = parent_cpu();
+        let expected_schema = w::schema_hash();
+        let (read, write) = pipe_files();
+        let fd = read.as_raw_fd();
+        let birth = ulid::Ulid::new();
+        let run = w::Ulid(path.file_name().unwrap().to_str().unwrap().into());
+        // Validate fixed identities during preparation, before a Child exists.
+        let run_bytes = boot::ulid(run.0.as_bytes()).unwrap();
+        let nonce_bytes = boot::ulid(nonce.0.as_bytes()).unwrap();
+        let op = w::Ulid(ulid::Ulid::new().to_string());
+        static INCARNATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let incarnation = INCARNATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let binding = boot::Binding::new(
+            boot::Purpose::InspectC1,
+            probe,
+            &op,
+            &run,
+            nonce,
+            incarnation,
+            context,
+            worker_hash,
+        )
+        .unwrap();
+        let hash = w::hash(binding.bytes().unwrap());
+        let raw_binding: [u8; 32] = (0..32)
+            .map(|i| u8::from_str_radix(&hash.0[i * 2..i * 2 + 2], 16).unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let mut command = Command::new(runner);
+        command
+            .args(["dream", "inspect-c1", "--job-dir"])
+            .arg(path)
+            .env_clear()
+            .env("LANG", "C.UTF-8")
+            .env("TMPDIR", path)
+            .env(boot::ENV, format!("1:{fd}:{birth}:{}", hash.0))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if bypass {
+            command.env("BBOXY_DREAM_BOOTSTRAP_TEST_BYPASS", "1");
+        }
+        unsafe {
+            command.pre_exec(move || {
+                if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
+                    Err(std::io::Error::last_os_error())
+                } else {
+                    Ok(())
+                }
+            });
+        }
+        let prepare_used = parent_cpu().checked_sub(prepare_at).unwrap();
+        let prepare_end = Instant::now();
+        assert!(prepare_used <= 1_000_000);
+        parent_rest(prepare_used, prepare_end);
+        let launched = Instant::now();
+        let native_at = parent_cpu();
+        assert_ne!(
+            native_at,
+            u64::MAX,
+            "missing entry clock must not create child"
+        );
+        let wall_at = Instant::now();
+        // Retain actual Child before evaluating the ending native clock/verdict.
+        let child = command.spawn().unwrap();
+        let native_wall = wall_at.elapsed();
+        let spawn_return_ns = boot::monotonic_ns();
+        let end_cpu = parent_cpu();
+        let birth_end = Instant::now();
+        let readiness_ns = 0;
+        let inherited_read_number = read.as_raw_fd();
+        let mut result = Self {
+            child: Some(child),
+            lease: Some(write),
+            permit: boot::Permit {
+                purpose: boot::Purpose::InspectC1,
+                probe,
+                birth: birth.to_bytes(),
+                run_id: run_bytes,
+                nonce: nonce_bytes,
+                binding: raw_binding,
+                incarnation,
+                sequence: 1,
+                deadline_ns: readiness_ns,
+            },
+            birth_end,
+            launched,
+            readiness_ns,
+            native_cpu: if end_cpu == u64::MAX {
+                None
+            } else {
+                end_cpu.checked_sub(native_at)
+            },
+            native_wall,
+            marker: String::new(),
+            expected_schema,
+            prepared: Some(command),
+            frozen_binding: raw_binding,
+            job_deadline,
+        };
+        assert_ne!(
+            inherited_read_number,
+            result
+                .child
+                .as_ref()
+                .unwrap()
+                .stderr
+                .as_ref()
+                .unwrap()
+                .as_raw_fd()
+        );
+        if bypass {
+            eprintln!(
+                "bootstrap-fd-debug pid={} gate_read_fd={inherited_read_number} gate_write_fd={} stderr_read_fd={}",
+                result.child.as_ref().unwrap().id(),
+                result.lease.as_ref().unwrap().as_raw_fd(),
+                result
+                    .child
+                    .as_ref()
+                    .unwrap()
+                    .stderr
+                    .as_ref()
+                    .unwrap()
+                    .as_raw_fd()
+            );
+        }
+        drop(read);
+        // The actual child/write lease is now retained even if readiness clock
+        // capture fails. No timing verdict can lose the returned process.
+        result.readiness_ns = spawn_return_ns
+            .unwrap()
+            .checked_add(boot::WINDOW_NS)
+            .unwrap();
+        result.permit.deadline_ns = result.readiness_ns;
+        result.marker = result.read_waiting();
+        result
+    }
+    fn read_waiting(&mut self) -> String {
+        let stderr = self
+            .child
+            .as_ref()
+            .unwrap()
+            .stderr
+            .as_ref()
+            .unwrap()
+            .as_raw_fd();
+        let mut bytes = [0u8; 256];
+        let mut n = 0;
+        while n < bytes.len() {
+            let left = self
+                .readiness_ns
+                .checked_sub(boot::monotonic_ns().unwrap())
+                .expect("original readiness expired");
+            let mut fd = libc::pollfd {
+                fd: stderr,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            let polled = unsafe { libc::poll(&mut fd, 1, left.div_ceil(1_000_000) as i32) };
+            assert!(
+                polled > 0,
+                "missing source-bound wait marker pid={} state={:?} native_cpu={:?} native_wall_ns={} lifetime_ms={} stderr_fd={stderr} partial={:?}",
+                self.child.as_ref().unwrap().id(),
+                self.child.as_mut().unwrap().try_wait(),
+                self.native_cpu,
+                self.native_wall.as_nanos(),
+                self.launched.elapsed().as_millis(),
+                &bytes[..n]
+            );
+            let count =
+                unsafe { libc::read(stderr, bytes[n..].as_mut_ptr().cast(), bytes.len() - n) };
+            assert!(count > 0, "bootstrap refused before wait marker");
+            n += count as usize;
+            if bytes[..n].ends_with(b"\n") {
+                break;
+            }
+        }
+        String::from_utf8(bytes[..n].to_vec()).unwrap()
+    }
+    fn waiting_verdict(&self) -> Result<(), &'static str> {
+        if self.marker.trim()
+            == "dream-bootstrap state=waiting profile=dream-bootstrap/1 argv_admissions=0 channel_admissions=0 owner_admissions=0"
+        {
+            Ok(())
+        } else {
+            Err("controlled bootstrap span preceded permit")
+        }
+    }
+    fn launch_verdict(&self) -> Result<u64, &'static str> {
+        let cpu = self.native_cpu.ok_or("unknown native birth cost")?;
+        if cpu > 2_000_000 || self.native_wall > Duration::from_millis(25) {
+            return Err("native birth allocation");
+        }
+        Ok(cpu)
+    }
+    fn grant_verdict(&self) -> Result<(), &'static str> {
+        if self.permit.binding != self.frozen_binding {
+            return Err("original launch binding changed");
+        }
+        if boot::monotonic_ns().map_err(|_| "unknown readiness")? >= self.readiness_ns {
+            return Err("original readiness expired");
+        }
+        Ok(())
+    }
+    fn release(mut self) -> Worker {
+        self.waiting_verdict()
+            .expect("earliest controlled admission violation");
+        assert!(self.child.as_mut().unwrap().try_wait().unwrap().is_none());
+        let cpu = self
+            .launch_verdict()
+            .expect("native birth verdict refused grant");
+        parent_rest(cpu, self.birth_end);
+        let setup_at = parent_cpu();
+        drop(self.prepared.take());
+        let mut child = self.child.take().unwrap();
+        let input = child.stdin.take();
+        let output = BufReader::new(child.stdout.take().unwrap());
+        let mut worker = Worker {
+            child,
+            input,
+            output,
+            start: None,
+            sequence: 0,
+            reaped: false,
+            launched: self.launched,
+            bootstrap_lease: self.lease.take(),
+            job_deadline: self.job_deadline,
+        };
+        let setup_cpu = parent_cpu().checked_sub(setup_at).unwrap();
+        let end = Instant::now();
+        assert!(setup_cpu <= 1_000_000);
+        parent_rest(setup_cpu, end);
+        // Exactly one after-debt control guard/encode/transfer/write. Worker
+        // already owns the lease+actual Child, including any partial-write or
+        // later ending-clock refusal; Drop closes it before real settlement.
+        let grant_at = parent_cpu();
+        self.grant_verdict().expect("handoff refused");
+        let bytes = boot::encode(&self.permit);
+        let wrote = unsafe {
+            libc::write(
+                worker.bootstrap_lease.as_ref().unwrap().as_raw_fd(),
+                bytes.as_ptr().cast(),
+                bytes.len(),
+            )
+        };
+        assert_eq!(wrote, 128);
+        assert!(parent_cpu().checked_sub(grant_at).unwrap() <= 1_000_000);
+        let remaining = self
+            .readiness_ns
+            .checked_sub(boot::monotonic_ns().unwrap())
+            .expect("readiness not reset by grant");
+        let mut p = libc::pollfd {
+            fd: worker.output.get_ref().as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        assert!(
+            unsafe { libc::poll(&mut p, 1, remaining.div_ceil(1_000_000) as i32) } > 0,
+            "Hello readiness exceeded"
+        );
+        match worker.read() {
+            w::WorkerOut::Hello(h) => {
+                assert_eq!(h.schema_sha256, self.expected_schema);
+                assert_eq!(h.ir_major, 1);
+                assert_eq!(h.ir_minor_max, 3);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(
+            boot::monotonic_ns().unwrap() < self.readiness_ns,
+            "qualifying Hello exceeded original readiness"
+        );
+        drop(worker.bootstrap_lease.take());
+        worker
+    }
+}
+fn settle_owned(child: &mut Child) {
+    let until = Instant::now() + Duration::from_secs(2);
+    while child.try_wait().unwrap().is_none() && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    if child.try_wait().unwrap().is_some() {
+        return;
+    }
+    assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+    let until = Instant::now() + Duration::from_secs(2);
+    while child.try_wait().unwrap().is_none() && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    if child.try_wait().unwrap().is_none() {
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+}
+impl Drop for HeldWorker {
+    fn drop(&mut self) {
+        drop(self.lease.take());
+        if let Some(child) = self.child.as_mut() {
+            drop(child.stdin.take());
+            settle_owned(child);
+        }
     }
 }
 struct Worker {
@@ -308,44 +765,12 @@ struct Worker {
     sequence: u64,
     reaped: bool,
     launched: Instant,
+    bootstrap_lease: Option<std::fs::File>,
+    job_deadline: Instant,
 }
 impl Worker {
-    fn launch(path: &Path) -> Self {
-        let launched = Instant::now();
-        let mut child = Command::new(
-            std::env::var_os("DREAM_C1_RUNNER")
-                .unwrap_or_else(|| env!("CARGO_BIN_EXE_bboxy450-harness").into()),
-        )
-        .args(["dream", "inspect-c1", "--job-dir"])
-        .arg(path)
-        .env_clear()
-        .env("LANG", "C.UTF-8")
-        .env("TMPDIR", path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-        let input = child.stdin.take();
-        let output = BufReader::new(child.stdout.take().unwrap());
-        let mut w = Self {
-            child,
-            input,
-            output,
-            start: None,
-            sequence: 0,
-            reaped: false,
-            launched,
-        };
-        match w.read() {
-            w::WorkerOut::Hello(h) => {
-                assert_eq!(h.schema_sha256, w::schema_hash());
-                assert_eq!(h.ir_major, 1);
-                assert_eq!(h.ir_minor_max, 3);
-            }
-            other => panic!("{other:?}"),
-        };
-        w
+    fn launch(path: &Path, nonce: &w::Ulid, context: Option<&w::Context>, probe: bool) -> Self {
+        HeldWorker::spawn(path, nonce, context, probe).release()
     }
     fn read(&mut self) -> w::WorkerOut {
         let mut b = Vec::new();
@@ -373,8 +798,23 @@ impl Worker {
         self.input.as_mut().unwrap().write_all(&b).unwrap();
     }
     fn start(&mut self, s: &w::Start) {
-        self.send(&w::WorkerIn::Start(s.clone()));
-        self.start = Some(s.clone());
+        let at = parent_cpu();
+        let mut start = s.clone();
+        if (1..=30000).contains(&start.timeout_ms) {
+            let remaining = self
+                .job_deadline
+                .checked_duration_since(Instant::now())
+                .expect("original job deadline expired before Start")
+                .as_millis();
+            assert!(remaining > 0);
+            start.timeout_ms = start.timeout_ms.min(remaining as u32);
+        }
+        self.send(&w::WorkerIn::Start(start.clone()));
+        self.start = Some(start);
+        assert!(
+            parent_cpu().checked_sub(at).unwrap() <= 1_000_000,
+            "whole final Start control exceeds1ms"
+        );
     }
     fn cancel(&mut self) {
         let s = self.start.clone().unwrap();
@@ -502,6 +942,7 @@ impl Worker {
             .read_to_string(&mut metrics)
             .unwrap();
         assert!(metrics.len() <= 16 * 1024);
+        assert!(metrics.contains("dream-bootstrap state=paid_hello profile=dream-bootstrap/1"));
         let ns = |t: libc::timeval| t.tv_sec as u64 * 1_000_000_000 + t.tv_usec as u64 * 1000;
         let user = ns(usage.ru_utime);
         let system = ns(usage.ru_stime);
@@ -520,9 +961,10 @@ impl Worker {
 }
 impl Drop for Worker {
     fn drop(&mut self) {
-        if !self.reaped && self.child.try_wait().unwrap().is_none() {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
+        if !self.reaped {
+            drop(self.bootstrap_lease.take());
+            drop(self.input.take());
+            settle_owned(&mut self.child);
         }
     }
 }
@@ -568,7 +1010,8 @@ fn complete(job: &Job) -> (w::ResultDescriptor, Vec<w::Row>, String) {
 fn hello_precedes_all_source_access_and_private_bootstrap() {
     let root = tempfile::Builder::new().tempdir_in("/private/tmp").unwrap();
     let path = root.path().join(ulid::Ulid::new().to_string());
-    let mut worker = Worker::launch(&path);
+    let nonce = w::Ulid(ulid::Ulid::new().to_string());
+    let mut worker = Worker::launch(&path, &nonce, None, true);
     drop(worker.input.take());
     assert!(worker.child.wait().unwrap().success());
     let mut metrics = String::new();
@@ -1816,7 +2259,12 @@ async fn real_store_multi_mib_ir_and_typed_blob_bundle() {
 #[test]
 fn four_ordinary_release_workers_complete_multi_mib_with_independent_control_and_reap() {
     let jobs: Vec<_> = (0..4)
-        .map(|_| Job::new(40, 60 * 1024, false, false))
+        .map(|i| {
+            let mut job = Job::new(40, 60 * 1024, false, false);
+            job.manifest.context.root = w::Id(format!("fixture-root-{}", i / 2));
+            job.commit_manifest();
+            job
+        })
         .collect();
     assert!(jobs.iter().all(|j| j.bytes.len() > 2 * 1024 * 1024));
     let mut workers: Vec<_> = jobs.iter().map(Job::launch).collect();
@@ -1902,4 +2350,61 @@ fn four_ordinary_release_workers_complete_multi_mib_with_independent_control_and
         assert_eq!(done.pages, 1);
         eprintln!("four-ordinary-release job={i} reaped=true {metrics}");
     }
+}
+
+#[path = "fixtures/dream-bootstrap/process.rs"]
+mod bootstrap_process;
+
+#[cfg(feature = "test-fixtures")]
+#[test]
+fn bootstrap_earliest_gate_bypass_control_rejects_actual_prepermit_allocation() {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let binary = std::path::PathBuf::from(env!("CARGO_BIN_EXE_bboxy450-harness"));
+    let mut source = std::fs::File::open(&binary).unwrap();
+    let mut sha = Sha256::new();
+    let mut buf = [0; 65536];
+    loop {
+        let at = parent_cpu();
+        let n = source.read(&mut buf).unwrap();
+        sha.update(&buf[..n]);
+        let cpu = parent_cpu().checked_sub(at).unwrap();
+        let end = Instant::now();
+        assert!(cpu <= 1_000_000);
+        parent_rest(cpu, end);
+        if n == 0 {
+            break;
+        }
+    }
+    let digest = w::Hex(format!("{:x}", sha.finalize()));
+    // Cargo supplies this exact fixture binary from the current source/features;
+    // declare its hash/profile before birth. It is never a managed capability
+    // candidate or a substitute for the ordinary-release positive artifact.
+    eprintln!(
+        "bootstrap-causal-artifact profile=dream-bootstrap/1 features=test-fixtures kind=earliest-bypass sha256={} binary={}",
+        digest.0,
+        binary.display()
+    );
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join(ulid::Ulid::new().to_string());
+    let nonce = w::Ulid(ulid::Ulid::new().to_string());
+    let mut held = HeldWorker::spawn_on(&path, &nonce, None, true, &binary, &digest, true);
+    assert!(
+        held.marker.contains("argv_admissions=1"),
+        "mutant did not execute its controlled allocation"
+    );
+    assert!(
+        held.waiting_verdict().is_err(),
+        "actual earliest-gate checker accepted the causal bypass"
+    );
+    let pid = held.child.as_ref().unwrap().id();
+    drop(held.lease.take());
+    let child = held.child.as_mut().unwrap();
+    drop(child.stdin.take());
+    settle_owned(child);
+    assert_eq!(child.wait().unwrap().code(), Some(2));
+    assert!(!path.exists());
+    eprintln!(
+        "bootstrap-earliest-causal-control actual_reaped_pid={pid} rejected_prepermit_allocation=true"
+    );
 }

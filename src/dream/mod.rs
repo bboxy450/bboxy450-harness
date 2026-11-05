@@ -6,6 +6,7 @@
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 //! Deterministic, derived dream observations; never a second source of truth.
 pub mod audit;
+pub mod bootstrap;
 pub mod c1;
 pub mod c1_wire;
 pub mod d0;

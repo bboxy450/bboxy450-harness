@@ -194,6 +194,47 @@ credits are released. Cancel/error teardown also uses paced units. Done follows 
 compute settlement and successful exit remains part of
 the consumer's completion check.
 
+Managed C1 additionally requires the private `dream-bootstrap/1` admission
+before the first owned argv/path/Arc allocation. Its sole extra cleared env entry
+is `BBOXY_DREAM_BOOTSTRAP=1:N:birth:binding`, where N is the uniquely inherited
+read-only anonymous pipe. The producer-owned fixed128-byte authority and independent
+Rust/Python binding vectors live in `src/dream/bootstrap.rs` and
+`tests/fixtures/dream-bootstrap/`. No worker JSON/schema/version changed.
+
+Parent prepares the exact original binding/command/pipe, retains the returned
+Child before clock verdicts, and repays launch/setup debt before its ONE permit
+write. Its writer stays open as the revocation lease through paid-bootstrap Hello.
+Child's fixed source-free control prelude uses at most1KiB declared state inside
+the existing protected2MiB; it performs no hashing/JSON/source/provider discovery.
+Only after a valid live permit can argv, channels and the sole compute owner run.
+Lease/identity/deadline checks bracket each admission and follow every debt wait;
+EOF/HUP/extra bytes refuse another span while retaining/joining any actual owner.
+The read end retires only after bootstrap debt is paid. Parent then prepares/pays
+and sends the existing bound Start. Probe=true binds explicit context:null and
+permanently rejects Start; real jobs require complete public context before birth.
+The opaque child binding comparison does not recompute or replace host authority.
+
+Readiness stays min(child entry+250ms, original parent spawn-return readiness,
+original job deadline), never restarted at grant or partial reads. At most4 permit
+reads/4 interrupted waits are admitted. Nonblocking descriptor I/O prevents a
+second reader/full stderr pipe from hanging the prelude. Darwin pipe reader and
+writer inode stamps differ; retain each endpoint's own fullu64 stamp and the
+constructor-linked custody, never assume endpoint inode equality or put them in
+public wire numbers. Darwin is the implemented worker entry; GNU Linux recognizes
+and refuses it before runtime through borrowed startup arguments. No additional
+platform execution guarantee is claimed; late async C1 entry refuses.
+
+Bounded bootstrap diagnostic profile (duration units ns): `dream-bootstrap
+state=waiting profile=dream-bootstrap/1` has `argv_admissions=0`,
+`channel_admissions=0`, `owner_admissions=0` before the first controlled span.
+`state=paid_hello` has those three counts plus `frame_admissions`, `permit_reads`,
+`control_cpu_ns`, `control_max_cpu_ns`, after all expensive bootstrap debt and
+before its own diagnostic emission. Final C1 control/process totals cover that
+emission and read-end retirement. Four fixed admissions is the current profile;
+no repeated-native or source work is hidden as control. Private approved test
+fixtures alone expose an actual prepermit allocation mutation; the same marker
+checker rejects it. The ordinary positive worker never enables that mutation.
+
 The unchanged `ResultDescriptor.max_poll_cpu_ns` captures the raw inclusive
 maximum **before descriptor serialization/hash/write/publication**. It includes
 native calls already observed and cannot certify its own later publication.

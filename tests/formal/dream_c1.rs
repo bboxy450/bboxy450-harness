@@ -856,3 +856,435 @@ fn quantum_debt_outcomes_and_controls_are_causally_reachable() {
         }
     }
 }
+
+/// Earliest private bootstrap handoff. One parent/child birth, one fixed permit,
+/// three controlled child spans (argv, channel, Builder), and A1/B2/A3 identities.
+/// Span-local costs are forgotten only after their post-end debt is paid; effect,
+/// incarnation, grant-attempt and custody state survive. CPU/debt are abstract ms.
+/// Native return, permit delivery and actual exit have no fairness assumption.
+/// The 128-byte record, FD/token/parser/deadline and process markers are witnesses,
+/// not refinements established by this finite model.
+pub fn bootstrap_handoff(control: u8) -> Model {
+    let suffix = match control {
+        1 => "EarliestGate", 2 => "ParentOverlap", 3 => "UnpaidGrant",
+        4 => "UnknownCostGrant", 5 => "DebtReset", 6 => "StaleGrantABA",
+        7 => "DuplicateGrant", 8 => "RevokedLease", 9 => "UnknownBirthRelease",
+        10 => "UnknownBirthRetry", 11 => "UnpaidHello", 12 => "UnpaidStart",
+        13 => "ProbeStart", 14 => "NullWork", 15 => "ControlCost",
+        16 => "ControlPayload", 17 => "AdmissionRetry", _ => "",
+    };
+    let mut m = base(&format!("DreamC1BootstrapHandoff{suffix}"), control != 0, &[
+        ("phase", 17, 0), ("birth", 2, 0), ("retained_birth", 2, 0),
+        ("child_attempts", 2, 0), ("permit", 3, 0), ("permit_attempts", 2, 0),
+        ("birth_epoch", 2, 0), ("epoch", 2, 0), ("permit_epoch", 2, 0),
+        ("permit_pipe", 2, 0), ("permit_nonce", 2, 0), ("pipe", 2, 0), ("nonce", 2, 0),
+        ("cost_known", 1, 0), ("parent_debt", 27, 0), ("child_debt", 27, 0),
+        ("span_cpu", 3, 0),
+        // parent/childBootstrap/parentPrepare/childWork/settlement/none
+        ("expensive_owner", 5, 0), ("slot", 1, 1), ("waiting", 1, 0),
+        ("bootstrapped", 1, 0), ("hello", 1, 0), ("start", 1, 0),
+        ("exited", 1, 0), ("settled", 1, 0), ("foreground", 1, 0),
+        ("cancel", 1, 0), ("lease", 1, 0), ("bootstrap_span", 3, 0),
+        ("compute_owner", 2, 0), ("parent_active", 1, 0), ("child_active", 1, 0),
+        ("quarantined", 1, 0), ("admission_valid", 1, 1),
+        ("grant_parent_debt", 27, 0), ("grant_cost_known", 1, 1),
+        ("reset_without_rest", 1, 0), ("early_class", 3, 0), ("control_seen", 1, 0),
+        ("hello_child_debt", 27, 0), ("start_parent_debt", 27, 0),
+        ("birth_inflight", 1, 0), ("child_inflight", 1, 0),
+        ("profile", 2, 0), // unselected/probe=true/work probe=false
+        ("full_context", 1, 0), // null/full; probe remains null permanently
+        ("prepared_actor_proof", 1, 0), // external frozen-proof assumption, not authentication proof
+        ("admission_attempts", 3, 0), ("admission_stage", 3, 0), // none/permit/Start/refused
+        ("admission_cost_known", 1, 0), ("admission_cpu", 2, 0),
+        ("admission_payload", 1, 0), ("prepared_proof_chunks", 7, 0),
+        ("source_access", 1, 0),
+    ]);
+    act(&mut m, "SelectSourceFreeProbeNullContext", all([eq(0, 0), eq(43, 0)]),
+        &[(43, Int(1)), (44, Int(0))]);
+    act(&mut m, "SelectRealJobFullContext", all([eq(0, 0), eq(43, 0)]),
+        &[(43, Int(2)), (44, Int(1))]);
+    if control == 14 {
+        act(&mut m, "SelectRealJobWithNullContext", all([eq(0, 0), eq(43, 0)]),
+            &[(43, Int(2)), (44, Int(0))]);
+    }
+    let profile_authorized = eq(43, 1).and(eq(44, 0)).and(eq(45, 0))
+        .or(all([eq(43, 2), eq(44, 1), eq(45, 1)]));
+    let work_authorized = all([eq(43, 2), eq(44, 1), eq(45, 1)]);
+    let mut local_fair = vec![];
+    let controls = m.actions.len();
+    act(&mut m, "IndependentControl", eq(38, 0), &[(38, Int(1))]);
+    m.weak_fair.push(vec![controls]);
+    m.responses.push(Response { name: "ControlsDoNotWaitForBootstrapOrDebt".into(),
+        request: Bool(true), response: eq(38, 1) });
+    act(&mut m, "Prepare", all([eq(0, 0), eq(3, 0), eq(26, 0), eq(43, 0).negate()]),
+        &[(0, Int(1)), (3, Int(1)), (27, Int(1)), (30, Int(1)), (41, Int(1)), (6, Var(7))]);
+    // The actual OS outcome enters retained owned state before a clock/debt or
+    // cancellation verdict. Missing cost cannot be turned into a valid permit.
+    for birth in 0..=2 {
+        for cost in 0..=3 {
+            act(&mut m, &format!("BirthRetainEffect{birth}Cost{cost}"), eq(0, 1),
+                &[(0, Int(2)), (1, Int(birth)), (2, Int(birth)),
+                    (13, Int(1)), (16, Int(cost)), (30, Int(0)), (41, Int(0))]);
+        }
+        act(&mut m, &format!("BirthRetainEffect{birth}MissingCost"), eq(0, 1),
+            &[(0, Int(2)), (1, Int(birth)), (2, Int(birth)),
+                (13, Int(0)), (16, Int(3)), (30, Int(0)), (41, Int(0))]);
+    }
+    for cost in 0..=3 {
+        local_fair.push(m.actions.len());
+        act(&mut m, &format!("ParentVerdictCost{cost}"), all([eq(0, 2), eq(16, cost), eq(13, 1)]),
+            &[(0, Int(3)), (14, Int(9 * cost.max(1))), (17, Int(5))]);
+    }
+    local_fair.push(m.actions.len());
+    act(&mut m, "ParentVerdictMissingCost", all([eq(0, 2), eq(13, 0)]),
+        &[(0, Int(3)), (14, Int(27)), (17, Int(5)), (26, Int(1)), (32, Int(1))]);
+    local_fair.push(m.actions.len());
+    act(&mut m, "PayParent", all([eq(0, 3), Int(0).lt(Var(14))]),
+        &[(0, Int(4)), (14, Int(0)), (16, Int(0)), (19, Int(1))]);
+    let current = all([Var(6).eq(Var(7)), Var(11).eq(Var(7)), Var(12).eq(Var(7))]);
+    // This observes availability of the already prepared, public-only frozen
+    // proof. It does not model SQLite/raw-proof IO or establish actor authority.
+    // Exact provenance, <=7*16KiB preparation and its measured callback are real
+    // consumer fixtures; probe never requests or receives an actor proof.
+    act(&mut m, "ObservePreparedPublicActorProof", all([eq(0, 4), eq(43, 2), eq(44, 1),
+        eq(45, 0), eq(46, 0), eq(26, 0)]), &[(45, Int(1)), (51, Int(7))]);
+    for (known, cpu) in [(1, 0), (1, 1), (1, 2), (0, 0)] {
+        let accepted = control == 15 || (known == 1 && cpu <= 1);
+        let mut updates = vec![(46, Int(1)), (47, Int(if accepted { 1 } else { 3 })),
+            (48, Int(known)), (49, Int(cpu)), (50, Int(0))];
+        if !accepted { updates.push((26, Int(1))); }
+        act(&mut m, &format!("FinalPermitAdmissionKnown{known}Cpu{cpu}"),
+            all([eq(0, 4), eq(1, 1), eq(13, 1), eq(14, 0), eq(15, 0), eq(46, 0),
+                eq(27, 1), eq(26, 0), eq(25, 0), current.clone(), profile_authorized.clone()]), &updates);
+    }
+    let grant_guard = all([eq(0, 4), eq(1, 1), eq(13, 1), eq(14, 0), eq(15, 0),
+        eq(4, 0), eq(5, 0), eq(17, 5), eq(27, 1), eq(26, 0), eq(25, 0),
+        eq(46, 1), eq(47, 1), current.clone(), profile_authorized.clone()]);
+    for permit in 1..=2 {
+        act(&mut m, if permit == 1 { "GrantPartialOnce" } else { "Grant" }, grant_guard.clone(),
+            &[(4, Int(permit)), (5, Int(1)), (8, Var(7)), (9, Var(11)), (10, Var(12)),
+                (34, Var(14)), (35, Var(13)), (48, Int(1)), (49, Int(0))]);
+    }
+    let permit_current = all([eq(4, 2), Var(8).eq(Var(7)), Var(9).eq(Var(11)),
+        Var(10).eq(Var(12)), current.clone()]);
+    act(&mut m, "ReadGrant", all([eq(0, 4), eq(5, 1), eq(13, 1), eq(14, 0),
+        eq(17, 5), eq(27, 1), eq(26, 0), eq(25, 0), permit_current.clone(), profile_authorized.clone()]),
+        &[(0, Int(5)), (17, Int(1)), (19, Int(0))]);
+    // The lease is rechecked at EVERY controlled span, including after each rest.
+    // A closed/extra/HUP/EOF lease never becomes valid merely because cost was paid.
+    for span in 0..3 {
+        act(&mut m, &format!("ChildSpan{}", ["Argv", "Channel", "Builder"][span]),
+            all([eq(0, 5), eq(17, 1), eq(28, span as i64), eq(14, 0), eq(15, 0), eq(13, 1),
+                eq(27, 1), eq(26, 0), eq(25, 0), permit_current.clone(), profile_authorized.clone()]),
+            &[(0, Int(6)), (31, Int(1)), (42, Int(1)), (33, Int(1))]);
+        let costs: &[i64] = if span == 2 { &[1, 3] } else { &[1] };
+        let effects: &[i64] = if span == 2 { &[0, 1, 2] } else { &[0] };
+        for &cost in costs {
+            for &effect in effects {
+                let mut updates = vec![(0, Int(7)), (16, Int(cost)), (31, Int(0)), (42, Int(0))];
+                if span == 2 { updates.push((29, Int(effect))); }
+                act(&mut m, &format!("RetainChildSpan{span}Effect{effect}Cost{cost}"),
+                    all([eq(0, 6), eq(28, span as i64)]), &updates);
+            }
+        }
+        for cost in 1..=3 {
+            local_fair.push(m.actions.len());
+            let mut updates = vec![(0, Int(8)), (15, Int(9 * cost)), (28, Int(span as i64 + 1))];
+            if span == 2 { updates.push((20, Int(1))); }
+            act(&mut m, &format!("ChildVerdict{span}Cost{cost}"),
+                all([eq(0, 7), eq(28, span as i64), eq(16, cost),
+                    if span == 2 { eq(29, 1) } else { Bool(true) }]), &updates);
+            if span == 2 {
+                local_fair.push(m.actions.len());
+                act(&mut m, &format!("ChildVerdictRejectedEffectCost{cost}"),
+                    all([eq(0, 7), eq(28, 2), eq(16, cost), eq(29, 1).negate()]),
+                    &[(0, Int(8)), (15, Int(9 * cost)), (28, Int(3)), (26, Int(1))]);
+            }
+        }
+    }
+    local_fair.push(m.actions.len());
+    act(&mut m, "PayChild", all([eq(0, 8), Int(0).lt(Var(15))]),
+        &[(0, Int(5)), (15, Int(0)), (16, Int(0))]);
+    act(&mut m, "Hello", all([eq(0, 5), eq(17, 1), eq(28, 3), eq(20, 1), eq(29, 1),
+        eq(14, 0), eq(15, 0), eq(27, 1), eq(26, 0), eq(25, 0), permit_current.clone(), profile_authorized.clone()]),
+        &[(0, Int(9)), (21, Int(1)), (17, Int(2)), (39, Var(15))]);
+    for cost in 0..=3 {
+        act(&mut m, &format!("ParentPrepareCost{cost}"),
+            all([eq(0, 9), eq(17, 2), eq(21, 1), eq(14, 0), eq(15, 0), eq(26, 0), eq(25, 0), current.clone(), work_authorized.clone()]),
+            &[(0, Int(10)), (14, Int(9 * cost.max(1))), (16, Int(cost))]);
+    }
+    local_fair.push(m.actions.len());
+    act(&mut m, "PayParentPrepare", all([eq(0, 10), Int(0).lt(Var(14))]),
+        &[(0, Int(11)), (14, Int(0)), (16, Int(0))]);
+    for (known, cpu) in [(1, 0), (1, 1), (1, 2), (0, 0)] {
+        let accepted = control == 15 || (known == 1 && cpu <= 1);
+        let mut updates = vec![(46, Int(2)), (47, Int(if accepted { 2 } else { 3 })),
+            (48, Int(known)), (49, Int(cpu)), (50, Int(0))];
+        if !accepted { updates.push((26, Int(1))); }
+        act(&mut m, &format!("FinalStartAdmissionKnown{known}Cpu{cpu}"),
+            all([eq(0, 11), eq(14, 0), eq(15, 0), eq(46, 1), eq(47, 1), eq(26, 0),
+                eq(25, 0), eq(27, 1), permit_current.clone(), work_authorized.clone()]), &updates);
+    }
+    act(&mut m, "PaidStart", all([eq(0, 11), eq(17, 2), eq(21, 1), eq(14, 0), eq(15, 0),
+        eq(26, 0), eq(25, 0), eq(46, 2), eq(47, 2), permit_current.clone(), work_authorized.clone()]),
+        &[(0, Int(12)), (22, Int(1)), (17, Int(3)), (40, Var(14)), (48, Int(1)), (49, Int(0))]);
+    act(&mut m, "ChildWork", all([eq(0, 12), eq(17, 3), eq(14, 0), eq(15, 0), eq(26, 0),
+        eq(25, 0), current.clone(), work_authorized.clone()]),
+        &[(0, Int(17)), (31, Int(1)), (42, Int(1)), (52, Int(1))]);
+    // A bounded application span has local completion fairness; this does not
+    // add fairness to process/Builder native returns or external delivery/exit.
+    local_fair.push(m.actions.len());
+    act(&mut m, "ReturnChildWork", eq(0, 17),
+        &[(0, Int(13)), (31, Int(0)), (42, Int(0)), (15, Int(9))]);
+    local_fair.push(m.actions.len());
+    act(&mut m, "PayChildWork", all([eq(0, 13), eq(15, 9)]),
+        &[(0, Int(14)), (15, Int(0)), (17, Int(4))]);
+    // Revoke/EOF are independent of native return, delivery or either debt lane.
+    for event in ["RevokeClose", "RevokeExtraByte", "RevokeHup", "EOF"] {
+        act(&mut m, event, all([eq(23, 0), eq(24, 0), eq(27, 1)]),
+            &[(4, Int(3)), (27, Int(0)), (26, Int(1))]);
+    }
+    let cancel = m.actions.len();
+    act(&mut m, "CancelOrDeadline", all([eq(26, 0), eq(23, 0), eq(24, 0)]), &[(26, Int(1))]);
+    m.weak_fair.push(vec![cancel]);
+    for epoch in 0..2 {
+        let updates = vec![(7, Int(epoch + 1)), (11, Int(epoch + 1)), (12, Int(epoch + 1)),
+            (4, Int(3)), (27, Int(0)), (26, Int(1))];
+        let restart = all([eq(7, epoch), Int(0).lt(Var(0)), eq(23, 0), eq(24, 0)]);
+        act(&mut m, &format!("RestartA1B2A3_{epoch}"),
+            restart.clone().and(if control == 5 { all([eq(14, 0), eq(15, 0)]) } else { Bool(true) }), &updates);
+        if control == 5 {
+            let mut reset = updates;
+            reset.extend([(14, Int(0)), (15, Int(0)), (36, Int(1))]);
+            act(&mut m, &format!("RestartDropsActualUnpaidDebt{epoch}"),
+                restart.and(Int(0).lt(Var(14)).or(Int(0).lt(Var(15)))), &reset);
+        }
+    }
+    for fg in 0..2 {
+        act(&mut m, &format!("BootstrapForeground{fg}"),
+            all([Int(3).lt(Var(0)), Var(0).lt(Int(13))]), &[(25, Int(fg))]);
+    }
+    local_fair.push(m.actions.len());
+    act(&mut m, "RefuseAndSettle", all([eq(26, 1), eq(41, 0), eq(42, 0),
+        eq(14, 0), eq(15, 0), eq(30, 0), eq(31, 0), Var(0).lt(Int(14))]),
+        &[(0, Int(14)), (17, Int(4)), (19, Int(0))]);
+    local_fair.push(m.actions.len());
+    act(&mut m, "QuarantineWithheldBirthOrComputeOrExit", all([eq(26, 1), eq(32, 0), eq(23, 0), eq(24, 0)]),
+        &[(32, Int(1))]);
+    // External fenced evidence, never a timeout or a closed pipe, establishes exit.
+    act(&mut m, "ObserveExit", all([eq(0, 14), eq(1, 1), eq(14, 0), eq(15, 0),
+        eq(41, 0), eq(42, 0)]), &[(0, Int(15)), (23, Int(1)), (29, Int(0)), (17, Int(5))]);
+    local_fair.push(m.actions.len());
+    act(&mut m, "SettleAbsentBirth", all([eq(0, 14), eq(1, 0), eq(41, 0)]),
+        &[(0, Int(16)), (24, Int(1)), (18, Int(0)), (17, Int(5))]);
+    local_fair.push(m.actions.len());
+    act(&mut m, "SettleAfterActualExit", all([eq(0, 15), eq(23, 1)]),
+        &[(0, Int(16)), (24, Int(1)), (18, Int(0))]);
+    if control == 1 {
+        for class in 1..=3 {
+            let mut updates = vec![(0, Int(6)), (37, Int(class)), (33, Int(0)),
+                (31, Int(1)), (42, Int(1)), (28, Int(class - 1)), (17, Int(1))];
+            if class == 3 { updates.push((29, Int(1))); }
+            act(&mut m, &format!("BypassEarliest{}Gate", ["Argv", "Channel", "Builder"][(class - 1) as usize]),
+                all([eq(0, 4), eq(1, 1), eq(4, 0), eq(14, 0)]), &updates);
+        }
+    }
+    if control == 2 {
+        act(&mut m, "OverlapParentPrepareWithChildBootstrap", eq(31, 1),
+            &[(30, Int(1)), (14, Int(9)), (17, Int(2))]);
+    }
+    if control == 3 || control == 4 {
+        let cost_gate = if control == 4 { eq(13, 0) } else { eq(13, 1) };
+        act(&mut m, "GrantBeforeKnownParentCostAndDebt", all([eq(0, 3), eq(1, 1), eq(5, 0), cost_gate]),
+            &[(0, Int(4)), (4, Int(2)), (5, Int(1)), (8, Var(7)), (9, Var(11)), (10, Var(12)),
+                (34, Var(14)), (35, Var(13))]);
+    }
+    if control == 6 {
+        act(&mut m, "ReuseA1GrantPipeNonceAfterA3", all([eq(7, 2), eq(1, 1), eq(5, 1), eq(8, 0)]),
+            &[(4, Int(2)), (0, Int(6)), (31, Int(1)), (42, Int(1)), (33, Int(0))]);
+    }
+    if control == 7 {
+        act(&mut m, "RepeatSinglePermitWriteAttempt", eq(5, 1), &[(5, Int(2))]);
+    }
+    if control == 8 {
+        act(&mut m, "IgnoreClosedExtraOrHupLeaseAfterRest", all([eq(0, 5), eq(27, 0),
+            Var(28).lt(Int(3)), eq(15, 0)]), &[(0, Int(6)), (31, Int(1)), (42, Int(1)), (33, Int(0))]);
+    }
+    if control == 9 {
+        act(&mut m, "ReleaseUnknownBirthWithoutExit", all([eq(1, 2), eq(18, 1)]), &[(18, Int(0))]);
+    }
+    if control == 10 {
+        act(&mut m, "RetryPossiblyCompletedUnknownBirth", all([eq(1, 2), eq(3, 1)]),
+            &[(3, Int(2)), (0, Int(1)), (41, Int(1)), (30, Int(1)), (17, Int(0))]);
+    }
+    if control == 11 {
+        act(&mut m, "HelloBeforeBootstrapRestPaid", all([eq(0, 8), eq(28, 3), eq(20, 1), Int(0).lt(Var(15))]),
+            &[(0, Int(9)), (21, Int(1)), (39, Var(15)), (17, Int(2))]);
+    }
+    if control == 12 {
+        act(&mut m, "StartBeforeParentPrepareRestPaid", all([eq(0, 10), Int(0).lt(Var(14))]),
+            &[(0, Int(12)), (22, Int(1)), (40, Var(14)), (17, Int(3))]);
+    }
+    if control == 13 {
+        act(&mut m, "StartProbeDespiteMatchingIncarnationIds", all([eq(0, 9), eq(43, 1),
+            eq(44, 0), eq(14, 0), eq(15, 0), eq(26, 0), permit_current.clone()]),
+            &[(0, Int(12)), (22, Int(1)), (17, Int(3))]);
+        act(&mut m, "ReadSourceAfterForbiddenProbeStart", all([eq(0, 12), eq(43, 1), eq(22, 1)]),
+            &[(52, Int(1))]);
+    }
+    if control == 14 {
+        act(&mut m, "GrantNullWorkByAmbientFallback", all([eq(0, 4), eq(43, 2), eq(44, 0),
+            eq(1, 1), eq(13, 1), eq(14, 0), eq(5, 0), eq(26, 0), current.clone()]),
+            &[(4, Int(2)), (5, Int(1)), (8, Var(7)), (9, Var(11)), (10, Var(12)),
+                (34, Int(0)), (35, Int(1)), (46, Int(1)), (47, Int(1)), (48, Int(1))]);
+    }
+    if control == 16 {
+        act(&mut m, "RunPayloadOrNativeInsideControlAdmission", all([eq(0, 4), eq(1, 1),
+            eq(13, 1), eq(14, 0), eq(15, 0), eq(46, 0), eq(26, 0), eq(27, 1),
+            work_authorized.clone(), current.clone()]),
+            &[(46, Int(1)), (47, Int(1)), (48, Int(1)), (49, Int(1)), (50, Int(1))]);
+    }
+    if control == 17 {
+        act(&mut m, "RetryFinalAdmissionAfterTwoAttempts", eq(46, 2), &[(46, Int(3))]);
+    }
+    safe(&mut m, "ProbePermanentlyForbidsStartSourceAndActorProof", eq(43, 1).negate()
+        .or(all([eq(44, 0), eq(45, 0), eq(22, 0), eq(52, 0)])));
+    safe(&mut m, "RealWorkNeverFallsBackFromNullContext", all([eq(43, 2), Int(0).lt(Var(5))]).negate()
+        .or(all([eq(44, 1), eq(45, 1)])));
+    safe(&mut m, "WorkSourceRequiresFullContextAndStart", eq(52, 0).or(all([eq(43, 2), eq(44, 1), eq(45, 1), eq(22, 1)])));
+    safe(&mut m, "FinalParentAdmissionIsKnownOneMsControl", eq(47, 1).or(eq(47, 2)).negate()
+        .or(all([eq(48, 1), Var(49).le(Int(1))])));
+    safe(&mut m, "FinalParentAdmissionHasNoPayloadOrNativeWork", eq(50, 0));
+    safe(&mut m, "FinalParentAdmissionHasAtMostTwoAttempts", Var(46).le(Int(2)));
+    safe(&mut m, "EveryControlledBootstrapSpanRequiresCurrentPaidPermit", eq(33, 1));
+    safe(&mut m, "ParentAndChildNeverOverlapExpensiveSpans", eq(30, 0).or(eq(31, 0)));
+    safe(&mut m, "GrantRequiresPaidParentDebt", eq(5, 0).or(eq(34, 0)));
+    safe(&mut m, "GrantRequiresKnownParentCost", eq(5, 0).or(eq(35, 1)));
+    safe(&mut m, "RestartNeverResetsUnpaidDebt", eq(36, 0));
+    safe(&mut m, "ValidGrantIsBoundToIncarnationPipeAndNonce", eq(4, 2).negate().or(all([
+        Var(8).eq(Var(7)), Var(9).eq(Var(11)), Var(10).eq(Var(12)), Var(6).eq(Var(7))])));
+    safe(&mut m, "SinglePermitAttempt", Var(5).le(Int(1)));
+    safe(&mut m, "SingleChildAttemptNoUnknownEffectRetry", Var(3).le(Int(1)));
+    safe(&mut m, "UnknownBirthRetainsItsSlot", eq(1, 2).negate().or(eq(18, 1)));
+    safe(&mut m, "BirthEffectSurvivesParentVerdict", Var(1).eq(Var(2)));
+    safe(&mut m, "HelloOnlyAfterPaidBootstrapDebt", eq(21, 0).or(all([eq(39, 0), eq(20, 1)])));
+    safe(&mut m, "StartOnlyAfterPaidParentPreparation", eq(22, 0).or(all([eq(40, 0), eq(21, 1)])));
+    safe(&mut m, "CustodyReleaseRequiresAbsentBirthOrActualExit", eq(18, 1).or(all([
+        eq(24, 1), eq(1, 0).or(eq(23, 1)), eq(41, 0), eq(42, 0)])));
+    m.responses.push(Response { name: "CancelledBootstrapSettlesOrHonestlyQuarantines".into(),
+        request: eq(26, 1), response: eq(24, 1).or(eq(32, 1)) });
+    m.weak_fair.push(local_fair);
+    m
+}
+
+#[test]
+fn bootstrap_handoff_earliest_gate_effects_and_controls_are_causal() {
+    let good = bootstrap_handoff(0);
+    let checked = good.check(100_000).unwrap();
+    assert!(checked.violations.is_empty(), "{:?}", checked.violations);
+    assert!(checked.states.iter().any(|s| s[22] == 1 && s[14] == 0 && s[15] == 0 && s[29] == 1),
+        "a paid current grant must reach Start with an actual compute owner");
+    assert!(checked.states.iter().any(|s| s[24] == 1 && s[23] == 1), "actual child exit must settle");
+    assert!(checked.states.iter().any(|s| s[43] == 1 && s[44] == 0 && s[45] == 0
+        && s[21] == 1 && s[22] == 0 && s[52] == 0 && s[23] == 1 && s[24] == 1),
+        "a null-context source-free probe must emit Hello and settle by actual exit without actor proof");
+    let eof = good.actions.iter().position(|action| action.name == "EOF").unwrap();
+    assert!(checked.edges.iter().enumerate().any(|(from, edges)| checked.states[from][43] == 1
+        && checked.states[from][21] == 1 && edges.iter().any(|edge| edge.action == eof)),
+        "physical EOF must remain an enabled probe transition after Hello");
+    assert!(checked.states.iter().any(|s| s[43] == 2 && s[44] == 1 && s[45] == 1
+        && s[22] == 1 && s[52] == 1 && s[46] == 2 && s[51] == 7),
+        "real source work requires full prepared context and both final admission attempts");
+    for attempts in 1..=2 {
+        for failure in 0..=1 {
+            assert!(checked.states.iter().any(|s| s[46] == attempts && s[47] == 3 && s[22] == 0
+                && s[26] == 1 && if failure == 0 { s[48] == 0 } else { s[49] == 2 }),
+                "unknown clocks and control CPU>1ms must refuse independently at permit and Start");
+        }
+    }
+    for birth in 0..=2 {
+        assert!(checked.states.iter().any(|s| s[0] == 2 && s[1] == birth && s[2] == birth),
+            "all typed birth effects must be retained before parent verdict");
+    }
+    assert!(checked.states.iter().any(|s| s[0] == 2 && s[1] == 1 && s[6] == 0 && s[7] == 2 && s[26] == 1),
+        "a delayed native birth from A1 must retain its original incarnation after B2/A3");
+    assert!(checked.states.iter().any(|s| s[1] == 2 && s[32] == 1 && s[18] == 1 && s[38] == 1),
+        "unknown birth must quarantine with its slot while independent control progresses");
+    assert!(checked.states.iter().any(|s| s[4] == 1 && s[5] == 1 && s[21] == 0),
+        "a partial one-shot permit cannot bootstrap or emit Hello");
+    for span in 0..3 {
+        assert!(checked.states.iter().any(|s| s[0] == 5 && s[28] == span && s[27] == 0 && s[26] == 1),
+            "lease revocation must remain reachable before every span, including after rest");
+    }
+    for (mode, property) in [
+        (1, "EveryControlledBootstrapSpanRequiresCurrentPaidPermit"),
+        (2, "ParentAndChildNeverOverlapExpensiveSpans"),
+        (3, "GrantRequiresPaidParentDebt"), (4, "GrantRequiresKnownParentCost"),
+        (5, "RestartNeverResetsUnpaidDebt"), (6, "ValidGrantIsBoundToIncarnationPipeAndNonce"),
+        (7, "SinglePermitAttempt"), (8, "EveryControlledBootstrapSpanRequiresCurrentPaidPermit"),
+        (9, "UnknownBirthRetainsItsSlot"), (10, "SingleChildAttemptNoUnknownEffectRetry"),
+        (11, "HelloOnlyAfterPaidBootstrapDebt"), (12, "StartOnlyAfterPaidParentPreparation"),
+        (13, "ProbePermanentlyForbidsStartSourceAndActorProof"),
+        (14, "RealWorkNeverFallsBackFromNullContext"),
+        (15, "FinalParentAdmissionIsKnownOneMsControl"),
+        (16, "FinalParentAdmissionHasNoPayloadOrNativeWork"),
+        (17, "FinalParentAdmissionHasAtMostTwoAttempts"),
+    ] {
+        let bad = bootstrap_handoff(mode).check(100_000).unwrap();
+        assert!(bad.violations.iter().any(|v| v.property == property),
+            "bootstrap control{mode} must violate its own causal property {property}");
+        if mode == 1 {
+            for class in 1..=3 {
+                assert!(bad.states.iter().any(|s| s[37] == class && s[33] == 0),
+                    "argv/channel/Builder gates must each be bypassed by the control");
+            }
+            assert!(bad.states.iter().any(|s| s[37] == 3 && s[29] == 1 && s[4] == 0),
+                "a mistimed Builder still leaves an actual owned compute effect");
+        }
+        if mode == 2 {
+            for phase in [6, 17] {
+                assert!(bad.states.iter().any(|s| s[0] == phase && s[30] == 1 && s[31] == 1),
+                    "parent overlap must execute during both bootstrap and admitted child work");
+            }
+        }
+        if mode == 5 {
+            assert!(bad.states.iter().any(|s| s[36] == 1 && s[14] == 0 && s[15] == 0),
+                "the restart control must actually erase an unpaid cost, not only label one");
+        }
+        if mode == 6 {
+            assert!(bad.states.iter().any(|s| s[7] == 2 && s[8] == 0 && s[9] == 0
+                && s[10] == 0 && s[31] == 1 && s[33] == 0),
+                "the stale grant must actually start a controlled span using A1 pipe/nonce at A3");
+        }
+        if mode == 10 {
+            assert!(bad.states.iter().any(|s| s[1] == 2 && s[3] == 2 && s[41] == 1),
+                "unknown-effect retry must actually re-enter native birth while retaining old uncertainty");
+        }
+        if mode == 13 {
+            assert!(bad.states.iter().any(|s| s[43] == 1 && s[44] == 0 && s[45] == 0
+                && s[22] == 1 && s[52] == 1 && s[6] == s[7] && s[9] == s[11] && s[10] == s[12]),
+                "matching incarnation/pipe/nonce must not authorize probe Start or source fallback");
+        }
+        if mode == 14 {
+            assert!(bad.states.iter().any(|s| s[43] == 2 && s[44] == 0 && s[45] == 0 && s[4] == 2),
+                "the null-work control must actually issue a grant without inventing actor proof");
+        }
+        if mode == 15 {
+            for failure in 0..=1 {
+                assert!(bad.states.iter().any(|s| (s[47] == 1 || s[47] == 2)
+                    && if failure == 0 { s[48] == 0 } else { s[49] == 2 }),
+                    "the control must actually approve unknown clock and CPU>1ms outcomes");
+            }
+        }
+        if mode == 16 {
+            assert!(bad.states.iter().any(|s| s[50] == 1 && s[49] == 1 && s[47] == 1),
+                "payload/native work remains forbidden even when hidden within a fast control callback");
+        }
+        if mode == 8 {
+            for span in 0..3 {
+                assert!(bad.states.iter().any(|s| s[28] == span && s[27] == 0 && s[33] == 0),
+                    "revoked-lease control must execute every bootstrap span");
+            }
+        }
+    }
+}

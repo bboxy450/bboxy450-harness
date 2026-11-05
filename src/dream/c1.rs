@@ -5,7 +5,7 @@
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 //! Private non-seat C1 worker. No shared blocking pool, HOME, provider or discovery.
-use super::{c1_wire as w, d0, inspect};
+use super::{bootstrap, c1_wire as w, d0, inspect};
 use crate::protocol::{Envelope, Event};
 use sha2::{Digest, Sha256};
 use std::{
@@ -403,23 +403,75 @@ impl DreamOwner {
 /// Strict executable-only dispatch before the shared Tokio runtime exists.
 /// Darwin exposes borrowed argv/env pointers, so recognition allocates no argv Vec.
 pub fn early_worker_entry() -> Option<i32> {
+    // Samples precede borrowed recognition; failed samples only refuse the
+    // recognized managed worker, leaving ordinary launch selection unchanged.
+    let prelude_sample = bootstrap::prelude_clock();
+    let entry_sample = bootstrap::monotonic_ns();
+    let Some((argc, argv)) = bootstrap::arguments() else {
+        return if unsafe { bootstrap::environment(bootstrap::ENV.as_bytes()) }
+            .ok()
+            .flatten()
+            .is_some()
+        {
+            Some(2)
+        } else {
+            None
+        };
+    };
+    if argc < 3 {
+        return None;
+    }
+    let arg = |i, max| unsafe { bootstrap::borrowed(*argv.add(i), max) };
+    if arg(1, 5).ok() != Some(b"dream".as_slice())
+        || arg(2, 10).ok() != Some(b"inspect-c1".as_slice())
+    {
+        return None;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (prelude_sample, entry_sample);
+        return Some(2);
+    }
     #[cfg(target_os = "macos")]
     {
         use std::os::unix::ffi::OsStringExt;
-        let argc = unsafe { *libc::_NSGetArgc() };
-        let argv = unsafe { *libc::_NSGetArgv() };
-        if argc < 3 {
-            return None;
-        }
-        let arg = |i: usize| unsafe { std::ffi::CStr::from_ptr(*argv.add(i)) }.to_bytes();
-        if arg(1) != b"dream" || arg(2) != b"inspect-c1" {
-            return None;
-        }
-        if argc != 5 || arg(3) != b"--job-dir" {
+        let prelude_at = match prelude_sample {
+            Ok(n) => n,
+            Err(_) => return Some(1),
+        };
+        let entry_ns = match entry_sample {
+            Ok(n) => n,
+            Err(_) => return Some(1),
+        };
+        if argc != 5 || arg(3, 9).ok() != Some(b"--job-dir".as_slice()) {
             return Some(2);
         }
-        let raw = arg(4);
-        if raw.len() > 4096 || raw.first() != Some(&b'/') {
+        let raw = match arg(4, 4096) {
+            Ok(raw) if raw.first() == Some(&b'/') => raw,
+            _ => return Some(2),
+        };
+        let basename = raw.rsplit(|c| *c == b'/').next().unwrap();
+        let t = match unsafe { bootstrap::environment(bootstrap::ENV.as_bytes()) }
+            .ok()
+            .flatten()
+            .and_then(|b| bootstrap::token(b).ok())
+        {
+            Some(t) => t,
+            None => return Some(2),
+        };
+        let mut gate = match unsafe {
+            bootstrap::Gate::wait(
+                t,
+                bootstrap::Purpose::InspectC1,
+                basename,
+                entry_ns,
+                prelude_at,
+            )
+        } {
+            Ok(gate) => gate,
+            Err(_) => return Some(2),
+        };
+        if gate.admit(0).is_err() {
             return Some(2);
         }
         let argv_at = cpu_ns();
@@ -436,7 +488,10 @@ pub fn early_worker_entry() -> Option<i32> {
             return Some(1);
         }
         thread::sleep(Duration::from_nanos(9 * argv_cpu.max(UNIT_NS)));
-        let code = run(path, maximum.clone());
+        if gate.check().is_err() {
+            return Some(2);
+        }
+        let code = run(path, maximum.clone(), gate);
         let code = if maximum.load(Ordering::Acquire) > UNIT_NS {
             1
         } else {
@@ -448,27 +503,12 @@ pub fn early_worker_entry() -> Option<i32> {
         );
         Some(code)
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        None
-    }
 }
-/// Dispatch before cwd/HOME/profile/capability initialization. Join happens off reactor.
-pub async fn cli(mut args: impl Iterator<Item = String>) -> i32 {
-    if args.next().as_deref() != Some("--job-dir") {
-        return 2;
-    }
-    let Some(path) = args.next().map(PathBuf::from) else {
-        return 2;
-    };
-    if args.next().is_some() || !path.is_absolute() {
-        return 2;
-    }
-    let reactor = Arc::new(AtomicU64::new(0));
-    let (code, maximum) = observe_reactor(serve(path, reactor.clone()), reactor).await;
-    eprintln!("dream-c1 reactor_max_cpu_ns={maximum}");
-    if maximum > UNIT_NS { 1 } else { code }
+/// A late async entry cannot satisfy the pre-runtime gate. No ungated fallback.
+pub async fn cli(_args: impl Iterator<Item = String>) -> i32 {
+    2
 }
+#[cfg(test)]
 async fn observe_reactor<T>(
     future: impl std::future::Future<Output = T>,
     maximum: Arc<AtomicU64>,
@@ -488,24 +528,6 @@ async fn observe_reactor<T>(
     })
     .await;
     (result, maximum.load(Ordering::Acquire))
-}
-async fn serve(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    let Ok(owner) = thread::Builder::new()
-        .name("dream-c1-control".into())
-        .spawn(move || {
-            let _ = tx.send(run(path, reactor));
-        })
-    else {
-        return 1;
-    };
-    // Compute joins on its control owner. Observe control-thread exit before
-    // joining the already-finished handle; no wait/reap syscall on the reactor.
-    let code = rx.await.unwrap_or(1);
-    while !owner.is_finished() {
-        tokio::time::sleep(Duration::from_millis(1)).await;
-    }
-    if owner.join().is_err() { 1 } else { code }
 }
 fn cpu_ns() -> u64 {
     let mut t = std::mem::MaybeUninit::<libc::timespec>::uninit();
@@ -2346,7 +2368,25 @@ impl Drop for ParkedOwner {
         }
     }
 }
-fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
+fn bootstrap_failure(
+    error: bootstrap::Error,
+    usage: bootstrap::Usage,
+    accounting: &Accounting,
+    reactor: &AtomicU64,
+) -> i32 {
+    bootstrap::merge_usage(usage, reactor, &accounting.control_cpu);
+    if error == bootstrap::Error::Clock {
+        accounting.clock_failed.store(true, Ordering::Release);
+        reactor.fetch_max(u64::MAX, Ordering::AcqRel);
+    } else if error == bootstrap::Error::Limit {
+        accounting.resource_failed.store(true, Ordering::Release);
+    }
+    2
+}
+fn run(path: PathBuf, reactor: Arc<AtomicU64>, mut gate: bootstrap::Gate) -> i32 {
+    if gate.admit(1).is_err() {
+        return 2;
+    }
     let bootstrap_at = cpu_ns();
     let accounting = Arc::new(Accounting::new());
     let _terminal = TerminalMetrics {
@@ -2376,6 +2416,10 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
     if setup_cpu > UNIT_NS {
         return 1;
     }
+    accounting.pay();
+    if let Err(e) = gate.admit(2) {
+        return bootstrap_failure(e, gate.usage, &accounting, &reactor);
+    }
     let created = match native_call(
         &accounting,
         NativeKind::ComputeOwnerCreate,
@@ -2395,6 +2439,9 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
     }
     // Bootstrap native debt is fully paid BEFORE Hello or first work.
     accounting.pay();
+    if let Err(e) = gate.admit(3) {
+        return bootstrap_failure(e, gate.usage, &accounting, &reactor);
+    }
     let setup_at = cpu_ns();
     if nonblocking(0).is_err() || nonblocking(1).is_err() {
         return 2;
@@ -2436,6 +2483,12 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
         return 1;
     }
     accounting.pay();
+    let (permit, bootstrap_usage) = match gate.retire() {
+        Ok(p) => p,
+        Err(e) => return bootstrap_failure(e, gate.usage, &accounting, &reactor),
+    };
+    drop(gate);
+    bootstrap::merge_usage(bootstrap_usage, &reactor, &accounting.control_cpu);
     loop {
         let mut fds = [
             libc::pollfd {
@@ -2484,6 +2537,11 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
                         match (msg, &mut state) {
                             (Ok(w::WorkerIn::Start(s)), None)
                                 if exit.is_none()
+                                    && !permit.probe
+                                    && bootstrap::ulid(s.run_id.0.as_bytes()).ok()
+                                        == Some(permit.run_id)
+                                    && bootstrap::ulid(s.nonce.0.as_bytes()).ok()
+                                        == Some(permit.nonce)
                                     && (1..=30000).contains(&s.timeout_ms)
                                     && path.file_name().and_then(|n| n.to_str())
                                         == Some(s.run_id.0.as_str()) =>
@@ -3242,7 +3300,14 @@ mod tests {
         }
         let c = b.control.clone();
         let lane = b.progress.clone();
-        let h = thread::spawn(move || b.unit(|| panic!("foreground unit admitted")));
+        let (entered, ready) = std::sync::mpsc::channel();
+        let h = thread::spawn(move || {
+            entered.send(()).unwrap();
+            b.unit(|| panic!("foreground unit admitted"))
+        });
+        ready
+            .recv_timeout(Duration::from_millis(250))
+            .expect("test owner did not enter");
         let until = Instant::now() + Duration::from_millis(100);
         loop {
             if let Some(p) = lane.pop() {

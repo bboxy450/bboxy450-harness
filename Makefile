@@ -280,15 +280,20 @@ verify-clean-start:
 
 .PHONY: test-dream-c1
 test-dream-c1:
+	python3 -I tests/fixtures/dream-bootstrap/check.py
 	cargo build --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --bin bboxy450-harness
 	mkdir -p '$(TARGET_DIR)/dream-c1-native-profile'
 	cp '$(TARGET_DIR)/release/bboxy450-harness' '$(TARGET_DIR)/dream-c1-native-profile/worker'
+	printf '%s\n' 'dream-bootstrap/1' > '$(TARGET_DIR)/dream-c1-native-profile/bootstrap-support.txt'
 	git rev-parse HEAD > '$(TARGET_DIR)/dream-c1-native-profile/source-commit.txt'
 	rustc -Vv > '$(TARGET_DIR)/dream-c1-native-profile/compiler.txt'
-	shasum -a 256 src/dream/c1.rs tests/dream_c1.rs Cargo.toml Cargo.lock '$(TARGET_DIR)/dream-c1-native-profile/worker' > '$(TARGET_DIR)/dream-c1-native-profile/hashes.txt'
+	shasum -a 256 src/dream/c1.rs src/dream/bootstrap.rs tests/fixtures/dream-bootstrap/vectors.json tests/dream_c1.rs Cargo.toml Cargo.lock '$(TARGET_DIR)/dream-c1-native-profile/worker' > '$(TARGET_DIR)/dream-c1-native-profile/hashes.txt'
+	python3 -I -c 'import hashlib,pathlib,shutil,sys; p=pathlib.Path(sys.argv[1]); h=hashlib.sha256(p.read_bytes()).hexdigest(); d=p.with_name("worker-"+h); shutil.copy2(p,d); print("approved bootstrap artifact",d,h)' '$(TARGET_DIR)/dream-c1-native-profile/worker'
+	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::bootstrap:: -- --test-threads=1
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::c1:: -- --test-threads=1
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::fingerprint:: -- --test-threads=1
 	DREAM_C1_RUNNER='$(abspath $(TARGET_DIR))/dream-c1-native-profile/worker' cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test dream_c1 --test dream_replay --test seat_process --test acp_launch_context -- --test-threads=1 --nocapture
+	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features test-fixtures --test dream_c1 bootstrap_earliest_gate_bypass_control -- --test-threads=1 --nocapture
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features test-fixtures --test seat_process dream_c1_retained -- --test-threads=1 --nocapture
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features test-fixtures --lib frontends::headless::dream_c1_fixture_environment_tests:: -- --test-threads=1
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib mcp::source_tests:: -- --test-threads=1
