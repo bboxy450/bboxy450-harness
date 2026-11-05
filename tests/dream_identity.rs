@@ -432,3 +432,144 @@ async fn a_non_custody_jsonl_file_is_not_a_silently_green_empty_corpus() {
     std::fs::write(root.path().join("transient.jsonl"), "{}\n").unwrap();
     assert!(Resolver::open(root.path().into(), vec![]).await.is_err());
 }
+
+#[tokio::test]
+async fn resolver_cache_reuses_exact_arcs_preserves_options_and_retries_failures() {
+    use bboxy450_harness::dream::resolve::{Resolver, Root};
+    use std::sync::Arc;
+    let fixture = Repository::new();
+    let sessions = fixture.home.path().join("cache-sessions");
+    std::fs::create_dir(&sessions).unwrap();
+    let root = Root::open("fixture.invalid/dream/repo".into(), fixture.path.clone())
+        .await
+        .unwrap();
+    // Each resolver creates an independent RandomState. Cache order/seed is private.
+    let mut left = Resolver::open(sessions.clone(), vec![root.clone()])
+        .await
+        .unwrap();
+    let mut right = Resolver::open(sessions, vec![root]).await.unwrap();
+    let pin = fixture.pin();
+    let mut pins = vec![pin.clone()];
+    let mut no_id = pin.clone();
+    no_id.id = None;
+    pins.push(no_id);
+    let mut live = pin.clone();
+    live.commit = None;
+    pins.push(live.clone());
+    live.id = None;
+    pins.push(live);
+    let mut alias = pin.clone();
+    alias.path = "decisions/my proof.md".into();
+    pins.push(alias);
+    let mut canonical = std::collections::BTreeMap::new();
+    let mut arcs = vec![];
+    for pin in &pins {
+        let record = left.record(pin).await.unwrap();
+        assert!(Arc::ptr_eq(&record, &left.record(pin).await.unwrap()));
+        assert_eq!(record.pin, *pin);
+        assert_eq!(record.record.bytes, fixture.bytes);
+        assert!(record.signature_valid && !record.trusted);
+        canonical.insert(
+            serde_json::to_string(pin).unwrap(),
+            record.record.bytes.clone(),
+        );
+        arcs.push(record);
+    }
+    for i in 0..arcs.len() {
+        for j in 0..i {
+            assert!(!Arc::ptr_eq(&arcs[i], &arcs[j]));
+        }
+    }
+    let mut other = std::collections::BTreeMap::new();
+    for pin in pins.iter().rev() {
+        let record = right.record(pin).await.unwrap();
+        other.insert(
+            serde_json::to_string(&record.pin).unwrap(),
+            record.record.bytes.clone(),
+        );
+    }
+    assert_eq!(
+        serde_json::to_vec(&canonical).unwrap(),
+        serde_json::to_vec(&other).unwrap()
+    );
+    for field in 0..7 {
+        let mut bad = pin.clone();
+        match field {
+            0 => bad.root.push_str("-unmounted"),
+            1 => bad.path = ".bboxy/../escape.md".into(),
+            2 => bad.id = Some("different".into()),
+            3 => bad.commit = Some("0".repeat(40)),
+            4 => bad.digest = format!("sha256:{}", "0".repeat(64)),
+            5 => bad.id = Some(String::new()),
+            _ => bad.commit = Some(String::new()),
+        }
+        assert!(left.record(&bad).await.is_err(), "bad field {field}");
+        assert!(Arc::ptr_eq(&arcs[0], &left.record(&pin).await.unwrap()));
+    }
+    let mut retry = pin.clone();
+    retry.commit = None;
+    retry.path = ".bboxy/decisions/cache-retry.md".into();
+    assert!(left.record(&retry).await.is_err());
+    std::fs::write(fixture.path.join(&retry.path), &fixture.bytes).unwrap();
+    let recovered = left.record(&retry).await.unwrap();
+    assert!(Arc::ptr_eq(&recovered, &left.record(&retry).await.unwrap()));
+}
+
+#[allow(dead_code)]
+#[path = "fixtures/dream/trust/fixture.rs"]
+mod trust_fixture;
+
+#[tokio::test]
+async fn resolver_trust_transition_discards_cached_classification() {
+    use bboxy450_harness::{
+        dream::resolve::{Resolver, Root},
+        protocol::{EvidenceRef, RecordPin},
+    };
+    use std::sync::Arc;
+    let mut fixture = trust_fixture::Fixture::new();
+    let EvidenceRef::Record {
+        root,
+        id,
+        path,
+        commit,
+        digest,
+    } = fixture.pin.clone()
+    else {
+        unreachable!()
+    };
+    let pin = RecordPin {
+        root,
+        id: Some(id),
+        path,
+        commit: Some(commit),
+        digest,
+    };
+    let sessions = fixture.repo.home.path().join("cache-sessions");
+    std::fs::create_dir(&sessions).unwrap();
+    let root = Root::open(pin.root.clone(), fixture.repo.path.clone())
+        .await
+        .unwrap();
+    let mut resolver = Resolver::open(sessions, vec![root]).await.unwrap();
+    let before = resolver.record(&pin).await.unwrap();
+    assert!(before.signature_valid && !before.trusted);
+    resolver = resolver.with_trust(fixture.load().await.unwrap());
+    let allowed = resolver.record(&pin).await.unwrap();
+    assert!(allowed.signature_valid && allowed.trusted);
+    assert!(!Arc::ptr_eq(&before, &allowed));
+    assert!(Arc::ptr_eq(&allowed, &resolver.record(&pin).await.unwrap()));
+    let mut unidentified = pin.clone();
+    unidentified.id = None;
+    let no_id = resolver.record(&unidentified).await.unwrap();
+    assert!(no_id.signature_valid && !no_id.trusted);
+    assert!(!Arc::ptr_eq(&allowed, &no_id));
+    assert!(Arc::ptr_eq(&allowed, &resolver.record(&pin).await.unwrap()));
+    fixture.value["git_signers"][0]["revoked_after"] =
+        json!(fixture.repo.git(&["rev-parse", "HEAD^"]));
+    fixture.write();
+    resolver = resolver.with_trust(fixture.load().await.unwrap());
+    let revoked = resolver.record(&pin).await.unwrap();
+    assert!(revoked.signature_valid && !revoked.trusted);
+    assert!(!Arc::ptr_eq(&allowed, &revoked));
+    assert_eq!(before.record.bytes, allowed.record.bytes);
+    assert_eq!(allowed.record.bytes, revoked.record.bytes);
+}

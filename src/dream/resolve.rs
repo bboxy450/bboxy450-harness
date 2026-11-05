@@ -9,7 +9,8 @@ use super::entry::{self, Invalid, Record};
 use crate::protocol::*;
 use serde_json::Value;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, hash_map::RandomState},
+    hash::BuildHasher,
     path::{Component, Path, PathBuf},
     sync::Arc,
 };
@@ -272,11 +273,48 @@ pub struct ResolvedRecord {
     pub trusted: bool,
     pub signature_valid: bool,
 }
+// Safe API use of hashbrown (MIT OR Apache-2.0), https://github.com/rust-lang/hashbrown.
+// Store only the Arc: the immutable record already owns the complete pin.
+// No cache iteration escapes into canonical output. Production uses RandomState;
+// the private generic only permits collision/rehash tests without weakening it.
+#[derive(Default)]
+struct RecordCache<S = RandomState> {
+    table: hashbrown::HashTable<Arc<ResolvedRecord>>,
+    hash_builder: S,
+}
+fn record_hash<S: BuildHasher>(builder: &S, pin: &RecordPin) -> u64 {
+    // Hash's tuple/string/Option encodings preserve field boundaries and None/Some.
+    builder.hash_one((&pin.root, &pin.path, &pin.id, &pin.commit, &pin.digest))
+}
+impl<S: BuildHasher> RecordCache<S> {
+    fn get(&self, pin: &RecordPin) -> Option<&Arc<ResolvedRecord>> {
+        self.table
+            .find(record_hash(&self.hash_builder, pin), |record| {
+                record.pin == *pin
+            })
+    }
+    fn insert(&mut self, record: Arc<ResolvedRecord>) -> Arc<ResolvedRecord> {
+        let builder = &self.hash_builder;
+        self.table
+            .entry(
+                record_hash(builder, &record.pin),
+                |cached| cached.pin == record.pin,
+                |cached| record_hash(builder, &cached.pin),
+            )
+            .or_insert(record)
+            .get()
+            .clone()
+    }
+    fn clear(&mut self) {
+        self.table.clear();
+    }
+}
+
 pub struct Resolver {
     pub roots: BTreeMap<String, Root>,
     pub sessions: PathBuf,
     pub logs: Arc<BTreeMap<SessionId, Vec<Envelope>>>,
-    records: BTreeMap<String, Arc<ResolvedRecord>>,
+    records: RecordCache,
     trust: Option<Arc<super::trust::Trust>>,
     receipt_domains: Option<super::receipt::Domains>,
     catalogues: BTreeMap<(String, String), Vec<String>>,
@@ -343,7 +381,7 @@ impl Resolver {
             roots: mounted,
             sessions,
             logs: Arc::new(logs),
-            records: BTreeMap::new(),
+            records: RecordCache::default(),
             trust: None,
             receipt_domains: None,
             catalogues: BTreeMap::new(),
@@ -448,8 +486,7 @@ impl Resolver {
         if !entry::valid_digest(&pin.digest) || !safe_path(&pin.path) {
             return Err(Invalid("invalid memory record pin"));
         }
-        let key = serde_json::to_string(pin).map_err(|_| Invalid("record pin encoding"))?;
-        if let Some(record) = self.records.get(&key) {
+        if let Some(record) = self.records.get(pin) {
             return Ok(record.clone());
         }
         let root = self
@@ -553,8 +590,7 @@ impl Resolver {
             trusted,
             signature_valid,
         });
-        self.records.insert(key, result.clone());
-        Ok(result)
+        Ok(self.records.insert(result))
     }
     pub async fn evidence(&mut self, pin: &EvidenceRef) -> Result<bool, Invalid> {
         match pin {
@@ -777,5 +813,229 @@ impl Resolver {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::hash::{BuildHasherDefault, Hasher};
+
+    fn pin(n: usize) -> RecordPin {
+        RecordPin {
+            root: format!("fixture.invalid/dream/repository-{}", n % 16),
+            path: format!(".bboxy/memories/lesson-{n}.md"),
+            id: Some(format!("record-{n}")),
+            commit: Some(format!("{n:040x}")),
+            digest: format!("sha256:{n:064x}"),
+        }
+    }
+    fn resolved(pin: RecordPin, marker: usize, trusted: bool) -> Arc<ResolvedRecord> {
+        Arc::new(ResolvedRecord {
+            pin,
+            record: Record {
+                front: json!({"marker":marker}),
+                yaml: serde_yaml::Value::Null,
+                body: format!("synthetic record {marker}"),
+                bytes: format!("synthetic bytes {marker}").into_bytes(),
+            },
+            signature_valid: trusted,
+            trusted,
+        })
+    }
+
+    #[test]
+    fn record_cache_matches_all_fields_and_exact_option_identity() {
+        let mut base = pin(0);
+        base.id = None;
+        base.commit = None;
+        let mut pins = vec![base.clone()];
+        for field in 0..5 {
+            let mut different = base.clone();
+            match field {
+                0 => different.root.push_str("-other"),
+                1 => different.path.push_str(".other"),
+                2 => different.id = Some(String::new()),
+                3 => different.commit = Some(String::new()),
+                _ => different.digest.push('1'),
+            }
+            pins.push(different);
+        }
+        for value in ["one", "two"] {
+            let mut id = base.clone();
+            id.id = Some(value.into());
+            pins.push(id);
+            let mut commit = base.clone();
+            commit.commit = Some(value.into());
+            pins.push(commit);
+        }
+        let mut cache = RecordCache {
+            table: hashbrown::HashTable::new(),
+            hash_builder: BuildHasherDefault::<Collide>::default(),
+        };
+        let records = pins
+            .into_iter()
+            .enumerate()
+            .map(|(i, p)| resolved(p, i, false))
+            .collect::<Vec<_>>();
+        for record in &records {
+            cache.insert(record.clone());
+        }
+        assert_eq!(cache.table.len(), records.len());
+        for record in records {
+            let hit = cache.get(&record.pin).unwrap();
+            assert!(Arc::ptr_eq(hit, &record));
+            assert_eq!(hit.record.bytes, record.record.bytes);
+        }
+        assert!(cache.get(&pin(99)).is_none());
+    }
+
+    // Deliberate collision control, used only in this private test module.
+    #[derive(Default)]
+    struct Collide;
+    impl Hasher for Collide {
+        fn finish(&self) -> u64 {
+            7
+        }
+        fn write(&mut self, _: &[u8]) {}
+    }
+    fn exercise_growth<S: BuildHasher>(hash_builder: S) -> Vec<String> {
+        let mut cache = RecordCache {
+            table: hashbrown::HashTable::new(),
+            hash_builder,
+        };
+        let records = (0..512)
+            .map(|i| resolved(pin(i), i, true))
+            .collect::<Vec<_>>();
+        let mut growths = 0;
+        let mut capacity = cache.table.capacity();
+        for record in &records {
+            assert!(Arc::ptr_eq(&cache.insert(record.clone()), record));
+            if cache.table.capacity() != capacity {
+                growths += 1;
+                capacity = cache.table.capacity();
+            }
+        }
+        assert!(growths > 1, "exercise actual resize/rehash callbacks");
+        let mut canonical = vec![];
+        for i in (0..512).map(|n| (n * 37) % 512) {
+            let record = cache.get(&records[i].pin).unwrap();
+            assert!(Arc::ptr_eq(record, &records[i]));
+            canonical.push(
+                serde_json::to_string(&(
+                    &record.pin,
+                    &record.record.front,
+                    &record.record.bytes,
+                    record.trusted,
+                    record.signature_valid,
+                ))
+                .unwrap(),
+            );
+        }
+        let contradictory = resolved(records[0].pin.clone(), 9999, false);
+        assert!(Arc::ptr_eq(
+            &cache.insert(contradictory.clone()),
+            &records[0]
+        ));
+        assert_eq!(cache.table.len(), records.len());
+        assert!(cache.get(&records[0].pin).unwrap().trusted);
+        cache.clear();
+        assert_eq!(cache.table.len(), 0);
+        assert!(records.iter().all(|r| cache.get(&r.pin).is_none()));
+        assert!(Arc::ptr_eq(
+            &cache.insert(contradictory.clone()),
+            &contradictory
+        ));
+        assert!(!cache.get(&contradictory.pin).unwrap().trusted);
+        canonical.sort();
+        canonical
+    }
+    #[test]
+    fn record_cache_collisions_resize_duplicates_and_clear() {
+        let colliding = exercise_growth(BuildHasherDefault::<Collide>::default());
+        let seeded = exercise_growth(RandomState::new());
+        assert_eq!(
+            colliding, seeded,
+            "collisions never choose the wrong complete pin"
+        );
+    }
+    #[test]
+    fn record_cache_random_seeds_preserve_canonical_observable_records() {
+        assert_eq!(
+            exercise_growth(RandomState::new()),
+            exercise_growth(RandomState::new())
+        );
+    }
+
+    /// Bounded lookup kernel only: no filesystem, signatures, resolver validation or IO.
+    #[test]
+    #[ignore = "explicit release-mode measurement, never a CI timing threshold"]
+    fn hashbrown_record_cache_bench() {
+        use std::{hint::black_box, time::Instant};
+        const RECORDS: usize = 4096;
+        const LOOKUPS: usize = 262144;
+        const SAMPLES: usize = 7;
+        let pins = (0..RECORDS).map(pin).collect::<Vec<_>>();
+        let mut old = BTreeMap::new();
+        let mut new: RecordCache = RecordCache::default();
+        for (i, pin) in pins.iter().enumerate() {
+            let record = resolved(pin.clone(), i, false);
+            old.insert(serde_json::to_string(pin).unwrap(), record.clone());
+            new.insert(record);
+        }
+        let payload = old.keys().map(String::len).sum::<usize>();
+        let old_sample = |count: usize| {
+            let start = Instant::now();
+            for n in 0..count {
+                let key = serde_json::to_string(black_box(&pins[(n * 17) % RECORDS])).unwrap();
+                black_box(old.get(&key).unwrap().clone());
+            }
+            start.elapsed().as_nanos()
+        };
+        let new_sample = |count: usize| {
+            let start = Instant::now();
+            for n in 0..count {
+                black_box(
+                    new.get(black_box(&pins[(n * 17) % RECORDS]))
+                        .unwrap()
+                        .clone(),
+                );
+            }
+            start.elapsed().as_nanos()
+        };
+        old_sample(16384);
+        new_sample(16384);
+        let mut old_ns = vec![];
+        let mut new_ns = vec![];
+        for sample in 0..SAMPLES {
+            if sample % 2 == 0 {
+                old_ns.push(old_sample(LOOKUPS));
+                new_ns.push(new_sample(LOOKUPS));
+            } else {
+                new_ns.push(new_sample(LOOKUPS));
+                old_ns.push(old_sample(LOOKUPS));
+            }
+        }
+        let median = |values: &[u128]| {
+            let mut v = values.to_vec();
+            v.sort();
+            v[v.len() / 2]
+        };
+        println!(
+            "hashbrown_record_cache_bench {}",
+            json!({
+                "records":RECORDS,"debug_assertions":cfg!(debug_assertions),"lookups_per_sample_per_path":LOOKUPS,"samples":SAMPLES,
+                "warmup_lookups_per_path":16384,"sample_order":"alternating old/new",
+                "old_serde_btree_ns":old_ns,"new_hash_table_ns":new_ns,
+                "old_median_ns_per_lookup":median(&old_ns) as f64 / LOOKUPS as f64,
+                "new_median_ns_per_lookup":median(&new_ns) as f64 / LOOKUPS as f64,
+                "old_over_new_median_ratio":median(&old_ns) as f64 / median(&new_ns) as f64,
+                "old_duplicate_serialized_key_payload_bytes":payload,
+                "new_duplicate_key_payload_bytes":0,
+                "old_serialized_key_bytes_per_sample":payload*(LOOKUPS/RECORDS),
+                "limits":"cache kernel; payload lengths exclude node/bucket/capacity/allocator overhead; not end-to-end or process memory"
+            })
+        );
     }
 }
