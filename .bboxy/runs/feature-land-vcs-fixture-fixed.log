@@ -1,0 +1,25 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp6)
+    Finished `test` profile [unoptimized] target(s) in 0.74s
+     Running tests/dream_vcs.rs (target/debug/deps/dream_vcs-58649dc2cfc76c8e)
+
+running 8 tests
+test normalization_is_shared_and_discards_remote_authentication ... ok
+test missing_origin_uses_real_toplevel_and_no_repository_stays_absent ... ok
+test real_git_capture_records_origin_branch_commit_clean_and_dirty ... ok
+test missing_git_and_git_errors_degrade_without_failing_a_turn ... ok
+test incomplete_git_status_never_claims_a_clean_checkout ... ok
+test engine_and_acp_headers_capture_without_persisting_remote_credentials ... ok
+test changed_submodule_worktree_and_gitlink_are_dirty_in_actual_headers ... ok
+test stalled_git_is_bounded_and_its_owned_children_are_reaped ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.18s
+
+    Finished `test` profile [unoptimized] target(s) in 0.18s
+     Running tests/cli_headless.rs (target/debug/deps/cli_headless-c272e968b5f0b8a8)
+
+running 2 tests
+test closed_json_replay_does_not_resolve_credentials_or_change_the_log ... ok
+test binary_emits_protocol_and_edits_unattended ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.67s
+

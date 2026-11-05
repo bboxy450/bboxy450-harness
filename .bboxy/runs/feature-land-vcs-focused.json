@@ -1,0 +1,8 @@
+{
+  "source": "9eef3a0fb966b1d20b600390d085fb3760692428",
+  "command": "cargo test --features acp --test dream_vcs && cargo test --test cli_headless",
+  "exit_code": 101,
+  "log": ".bboxy/runs/feature-land-vcs-focused.log",
+  "sha256": "f414b9a02521508b0967936628bcef02231b823bd2772b3600d0a104bbc30fd4",
+  "seconds": 14.615720748901367
+}
