@@ -1,0 +1,25 @@
+{
+  "source": "24525ba6c586d811a97540278223e967ce3f5ed8",
+  "full_default_exit_code": 101,
+  "full_default_log_sha256": "e26554445d77f646114b0f97bed258b16d03c4b181902c5e78c9ff5c163038a3",
+  "failure": "unchanged gateway_host test aborted with default-stack overflow",
+  "repair": "heap-pin the new run_inner_observed compatibility-layer future; no request/ownership/deadline/stack-limit/test assertion change",
+  "future_bytes_before": {
+    "host_open": 43856,
+    "host_create": 45344,
+    "engine_open": 41424,
+    "store_open": 7392,
+    "process_run": 35792
+  },
+  "future_bytes_after": {
+    "host_open": 16528,
+    "host_create": 18016,
+    "engine_open": 13456,
+    "store_open": 7392,
+    "process_run": 552
+  },
+  "targeted_gateway_tests": 4,
+  "targeted_exit_code": 0,
+  "targeted_log_sha256": "deef692e64607c563acd6893c440a069c737ac10c764aac85451f0e8925979a5",
+  "limit": "Rust future-value layout is diagnostic, not total stack/process memory or arbitrary Rust safety proof; fresh full gates required"
+}
