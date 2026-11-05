@@ -6131,8 +6131,144 @@ fn dream_trial_outcome(mode: u8) -> Model {
     );
     m
 }
+// WP7 finite syscall-capability quotient: no kernel/Hasher/OS proof. A checked
+// descriptor survives pathname substitution; root, leaf type, generation and
+// execution denial remain separate facts. No external same-user root relocation.
+fn dream_trial_capability(mode: u8) -> Model {
+    let mut m = base::<10>("DreamTrialCapability", mode != 0, &[
+        ("phase", 4, 0), ("operand", 6, 0), ("root", 1, 1),
+        ("live", 1, 1), ("fd_safe", 1, 0), ("substituted", 1, 0),
+        ("forged_allow", 1, 0), ("outside", 1, 0), ("executed", 1, 0),("effect",1,0),
+    ]);
+    if mode != 0 { m.name = format!("BrokenHarnessDreamTrialCapability{}", ["", "Reopen", "Permit", "Exec"][mode as usize]); }
+    for operand in 1..=6 { act(&mut m, "ChooseOperand", eq(0,0), &[(0,Int(1)),(1,Int(operand))]); }
+    act(&mut m, "WrongRoot", eq(0,1), &[(2,Int(0))]);
+    act(&mut m, "CancelOrStale", eq(0,1), &[(3,Int(0))]);
+    act(&mut m, "ForgedPermit", eq(0,1), &[(6,Int(1))]);
+    let valid = all([eq(1,1),eq(2,1),eq(3,1)]);
+    act(&mut m, "OpenCheckedDescriptor", eq(0,1).and(valid.clone()), &[(0,Int(2)),(4,Int(1))]);
+    if mode == 2 {act(&mut m,"ForgedOpen",all([eq(0,1),eq(6,1),valid.clone().negate()]),&[(0,Int(2)),(4,Int(0))]);}
+    act(&mut m,"CancelAfterOpen",eq(0,2),&[(3,Int(0))]);
+    act(&mut m,"RefuseStaleEffect",all([eq(0,2),eq(3,0)]),&[(0,Int(4))]);
+    act(&mut m, "SubstitutePathAfterOpen", eq(0,2), &[(5,Int(1))]);
+    let bad=eq(4,0).or(if mode==1 {eq(5,1)} else {Bool(false)});
+    act(&mut m,"ConfinedEffect",all([eq(0,2),eq(3,1),bad.clone().negate()]),&[(0,Int(3)),(9,Int(1))]);
+    act(&mut m,"EscapedEffect",all([eq(0,2),eq(3,1),bad]),&[(0,Int(3)),(7,Int(1)),(9,Int(1))]);
+    act(&mut m, "DenyExecMcp", all([eq(0,1),eq(1,6)]), &[(0,Int(3)),(8,Int(i64::from(mode == 3)))]);
+    act(&mut m, "RejectUnsupported", eq(0,1).and(valid.negate()), &[(0,Int(4))]);
+    act(&mut m, "JoinTools", eq(0,3), &[(0,Int(4))]);
+    safe(&mut m,"NoOutsideReadWrite",eq(7,0));
+    safe(&mut m,"NoExecOrMcp",eq(8,0));
+    safe(&mut m,"NoStaleEffects",eq(9,0).or(eq(3,1)));
+    m
+}
+// The opaque proof binds retained target-turn leaves, homogeneous known basis,
+// exact aggregate and the current run. No arithmetic/byte/call-completeness proof.
+fn dream_trial_usage(mode: u8) -> Model {
+    let mut m = base::<7>("DreamTrialUsage", mode != 0, &[
+        ("phase",3,0),("rows",3,0),("basis",3,0),("aggregate_matches",1,0),
+        ("proof",1,0),("run_matches",1,1),("qualified",1,0),
+    ]);
+    if mode != 0 {m.name=format!("BrokenHarnessDreamTrialUsage{}",["","Join","Blind","Basis"][mode as usize]);}
+    for rows in 1..=3 {for basis in 1..=3 {for matches in 0..=1 {
+        act(&mut m,"RetainCut",eq(0,0),&[(0,Int(1)),(1,Int(rows)),(2,Int(basis)),(3,Int(matches))]);
+    }}}
+    let valid=all([if mode==1 {Bool(true)} else {eq(1,1)},if mode==3 {Bool(true)} else {eq(2,1)},eq(3,1)]);
+    act(&mut m,"CheckTargetLeavesAndSum",eq(0,1).and(valid),&[(0,Int(2)),(4,Int(1))]);
+    act(&mut m,"CopiedProofChangedRun",eq(0,2),&[(5,Int(0))]);
+    act(&mut m,"Qualify",eq(0,2).and(if mode==2 {Bool(true)} else {all([eq(4,1),eq(5,1)])}),&[(0,Int(3)),(6,Int(1))]);
+    if mode==2 {act(&mut m,"BlindDerivedTag",eq(0,1),&[(0,Int(3)),(6,Int(1))]);}
+    safe(&mut m,"QualificationRequiresBoundTargetProof",eq(6,0).or(all([eq(4,1),eq(1,1),eq(2,1),eq(3,1),eq(5,1)])));
+    m
+}
+// Result responsiveness is independent of settlement. No fairness of native
+// spawn/wait is assumed; explicit no-child or successful owned reap is needed.
+fn dream_trial_settlement(mode: u8) -> Model {
+    let mut m=base::<7>("DreamTrialSettlement",mode!=0,&[
+        ("phase",5,0),("result",2,0),("caller_dropped",1,0),
+        ("observer",2,0),("child",2,0),("resources",1,1),("admission_closed",1,0),
+    ]);
+    if mode!=0 {m.name=format!("BrokenHarnessDreamTrialSettlement{}",["","Err","Channel","Late"][mode as usize]);}
+    act(&mut m,"AdmitNativeSpawn",eq(0,0),&[(0,Int(1))]);
+    act(&mut m,"ExplicitQueuedRefusal",eq(0,0),&[(0,Int(5)),(1,Int(1)),(6,Int(1))]);
+    act(&mut m,"ResultDeadline",all([Var(0).lt(Int(4)),eq(1,0)]),&[(1,Int(1))]);
+    act(&mut m,"CallerDrop",eq(2,0),&[(2,Int(1))]);
+    act(&mut m,"LateSpawnPacket",eq(0,1),&[(0,Int(2)),(4,Int(1))]);
+    act(&mut m,"DeliverResult",all([eq(0,2),eq(1,0)]),&[(1,Int(2))]);
+    act(&mut m,"RetireSameOwner",eq(0,2),&[(0,Int(3)),(6,Int(1))]);
+    act(&mut m,"SuccessfulFencedWaitAndIoJoin",eq(0,3),&[(0,Int(4)),(4,Int(2))]);
+    act(&mut m,"LostAcknowledgement",eq(3,0),&[(3,Int(2))]);
+    act(&mut m,"ConfirmExplicitCompletion",all([eq(3,0),eq(6,1),eq(0,4).or(eq(0,5))]),&[(3,Int(1))]);
+    act(&mut m,"ReleaseOwnedScratchClaim",eq(3,1),&[(5,Int(0))]);
+    if mode==1 {act(&mut m,"ReleaseOnErr",eq(1,1),&[(5,Int(0))]);}
+    if mode==2 {act(&mut m,"ChannelClosedIsNotAcknowledgement",eq(3,2),&[(3,Int(1))]);}
+    if mode==3 {act(&mut m,"ReleaseBeforeLateSpawn",eq(0,1),&[(5,Int(0))]);}
+    let settled=all([eq(6,1),eq(0,4).or(eq(0,5)),eq(4,1).negate()]);
+    safe(&mut m,"ConfirmedMeansJoinedOwnership",eq(3,1).negate().or(settled.clone()));
+    safe(&mut m,"PendingOwnsResources",eq(5,1).or(settled.and(eq(3,1))));
+    m
+}
+
+// Internal opaque-capability fork: quiescent or never-started queued frontier.
+// Exact bytes, syscalls and crash points require the real Store witnesses.
+fn dream_trial_frontier(mode:u8)->Model {
+    let mut m=base::<12>("DreamTrialFrontier",mode!=0,&[
+        ("phase",10,0),("frontier",5,0),("pending",2,0),("prefix",1,0),
+        ("same_bytes",1,1),("lease",1,0),("epoch",3,0),("ended_a",2,0),
+        ("ended_b",1,0),("crashed",1,0),("fresh",1,0),("success",1,0),
+    ]);
+    if mode!=0 {m.name=format!("BrokenHarnessDreamTrialFrontier{}",["","Active","Early","Bytes","Inherited","Duplicate"][mode as usize]);}
+    for frontier in 1..=5 {for pending in if frontier==2 {1..=2}else{0..=0} {
+        act(&mut m,"ObservePinnedCut",eq(0,0),&[(0,Int(1)),(1,Int(frontier)),(2,Int(pending))]);
+    }}
+    let valid=if mode==1 {Var(1).le(Int(4))}else{Var(1).le(Int(2))};
+    act(&mut m,"ClassifyWithCompleteValidationView",eq(0,1).and(valid),&[(0,Int(2)),(5,Int(1))]);
+    act(&mut m,"PublishExactRawPrefix",eq(0,2),&[(0,Int(3)),(3,Int(1)),(6,Int(1)),(4,Int(i64::from(mode!=3)))]);
+    let mut fair=vec![];
+    fair.push(m.actions.len());act(&mut m,"QuiescentReady",all([eq(0,3),eq(2,0)]),&[(0,Int(5))]);
+    fair.push(m.actions.len());act(&mut m,"ReserveChildEpochTwo",all([eq(0,3),Int(0).lt(Var(2))]),&[(0,Int(4)),(6,Int(2))]);
+    fair.push(m.actions.len());act(&mut m,"InterruptQueueAOnce",all([eq(0,4),Int(0).lt(Var(2)),eq(7,0)]),&[(7,Int(1))]);
+    fair.push(m.actions.len());act(&mut m,"InterruptQueueBOnce",all([eq(0,4),eq(2,2),eq(8,0)]),&[(8,Int(1))]);
+    let recovered=all([eq(2,0).or(eq(7,1)),Var(2).lt(Int(2)).or(eq(8,1))]);
+    fair.push(m.actions.len());act(&mut m,"PersistRecoveryBeforeExposure",eq(0,4).and(recovered.clone()),&[(0,Int(5))]);
+    act(&mut m,"CrashAfterPrefixOrPartialSuffix",all([eq(9,0),eq(0,3).or(eq(0,4)).or(eq(0,5))]),&[(0,Int(9)),(5,Int(0)),(9,Int(1))]);
+    fair.push(m.actions.len());act(&mut m,"OrdinaryReopenReservesNextEpoch",eq(0,9),&[(0,Int(4)),(5,Int(1)),(6,Var(6).plus(Int(1)))]);
+    fair.push(m.actions.len());act(&mut m,"PersistenceUnavailable",eq(0,3).or(eq(0,4)),&[(0,Int(10))]);
+    act(&mut m,"ExposeActor",eq(0,5),&[(0,Int(6))]);
+    act(&mut m,"FreshContinuationOnly",eq(0,6),&[(0,Int(7)),(10,Int(1))]);
+    act(&mut m,"MatchFreshTurnUsage",eq(0,7),&[(0,Int(8)),(11,Int(1))]);
+    if mode==2 {act(&mut m,"ExposePublishedPrefixEarly",eq(0,3).and(eq(2,2)),&[(0,Int(6))]);}
+    if mode==4 {act(&mut m,"CountInheritedRecoveryAsSuccess",all([eq(0,4),eq(7,1)]),&[(11,Int(1))]);}
+    if mode==5 {act(&mut m,"DuplicateInterruptedEnding",all([eq(0,4),eq(7,1)]),&[(7,Int(2))]);}
+    safe(&mut m,"OnlyAcceptedFrontier",eq(3,0).or(Var(1).le(Int(2))));
+    safe(&mut m,"InheritedBytesUnchanged",eq(4,1));
+    safe(&mut m,"NoActorBeforeRecovery",Var(0).lt(Int(6)).or(eq(0,9)).or(eq(0,10)).or(all([recovered,eq(5,1),eq(2,0).or(Int(1).lt(Var(6)))])));
+    safe(&mut m,"EachQueueEndsOnce",Var(7).le(Int(1)));
+    safe(&mut m,"FreshSuccessHasFreshIdentity",eq(11,0).or(all([eq(10,1),eq(0,8)])));
+    progress(&mut m,"LocalRecoverySettles",eq(0,3).or(eq(0,4)).or(eq(0,9)),eq(0,5).or(eq(0,6)).or(eq(0,7)).or(eq(0,8)).or(eq(0,10)),fair);
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (dream_trial_frontier(0), "pass"),
+        (dream_trial_frontier(1), "safety"),
+        (dream_trial_frontier(2), "safety"),
+        (dream_trial_frontier(3), "safety"),
+        (dream_trial_frontier(4), "safety"),
+        (dream_trial_frontier(5), "safety"),
+        (dream_trial_capability(0), "pass"),
+        (dream_trial_capability(1), "safety"),
+        (dream_trial_capability(2), "safety"),
+        (dream_trial_capability(3), "safety"),
+        (dream_trial_usage(0), "pass"),
+        (dream_trial_usage(1), "safety"),
+        (dream_trial_usage(2), "safety"),
+        (dream_trial_usage(3), "safety"),
+        (dream_trial_settlement(0), "pass"),
+        (dream_trial_settlement(1), "safety"),
+        (dream_trial_settlement(2), "safety"),
+        (dream_trial_settlement(3), "safety"),
         (dream_trial_claims(0), "pass"),
         (dream_trial_claims(1), "safety"),
         (dream_trial_claims(2), "safety"),

@@ -40,6 +40,7 @@ pub struct Definition {
 #[derive(Clone)]
 pub struct Registry {
     defs: Arc<Vec<Definition>>,
+    trial: Option<TrialCapability>,
     mcp: Arc<BTreeMap<String, crate::mcp::Binding>>,
     readers: Arc<Semaphore>,
     exclusive: Arc<RwLock<()>>,
@@ -161,17 +162,26 @@ impl Registry {
         }
         Self {
             defs: Arc::new(defs),
+            trial: None,
             mcp: Arc::default(),
             readers: Arc::new(Semaphore::new(4)),
             exclusive: Arc::new(RwLock::new(())),
             paths: Arc::default(),
         }
     }
+    pub(crate) fn trial(capability: TrialCapability) -> Self {
+        let mut registry = Self::new();
+        registry.defs = Arc::new(registry.defs.iter().filter(|d| matches!(d.wire.name.as_str(), "read" | "write")).cloned().map(|mut d| { if d.wire.name == "read" { d.wire.description="Read a confined UTF-8 regular file (50 KiB preview)".into();d.wire.parameters=json!({"type":"object","additionalProperties":false,"properties":{"path":{"type":"string"}},"required":["path"]}); } d }).collect());
+        registry.trial = Some(capability);
+        registry
+    }
+    pub(crate) fn is_trial(&self) -> bool { self.trial.is_some() }
     pub(crate) fn with_mcp(
         &self,
         defs: Vec<Definition>,
         bindings: BTreeMap<String, crate::mcp::Binding>,
     ) -> Self {
+        if self.trial.is_some() { return self.clone(); }
         let mut registry = self.clone();
         let mut all = self.defs.as_ref().clone();
         all.extend(defs);
@@ -202,6 +212,9 @@ impl Registry {
         permit: Option<Permit>,
         output: Option<crate::process::OutputSink>,
     ) -> ToolOutput {
+        if let Some(capability) = &self.trial {
+            return capability.run(name, args, ctx, permit).await;
+        }
         let Some(def) = self.get(name) else {
             return ToolOutput::error(format!("unknown tool {name}"));
         };
@@ -633,5 +646,210 @@ fn file_tool(name: &str, args: &Value, ctx: &Context) -> Result<(String, Vec<Ite
             Ok((output, vec![]))
         }
         _ => Err("unknown file tool".into()),
+    }
+}
+
+
+// Trial-only descriptor capability. Application confinement of the advertised
+// read/write builtins, not an OS sandbox for malicious Rust providers or same-uid
+// external root relocation/mount injection. Minted by trusted trial orchestration.
+#[derive(Clone)]
+pub struct TrialCapability(Arc<TrialRoot>);
+struct TrialRoot {
+    fd: std::fs::File,
+    cwd: PathBuf,
+    sessions: PathBuf,
+    profiles: PathBuf,
+    home: PathBuf,
+    gate: Arc<Mutex<()>>,
+    closed: std::sync::atomic::AtomicBool,
+    #[cfg(test)]
+    after_parent:std::sync::Mutex<Option<Box<dyn FnOnce()+Send>>>,
+}
+const TRIAL_FILE_LIMIT: usize = 1024 * 1024;
+impl TrialCapability {
+    pub(crate) fn mint(cwd: PathBuf, sessions: PathBuf, profiles: PathBuf, home: PathBuf) -> std::io::Result<Self> {
+        use std::os::unix::fs::OpenOptionsExt;
+        assert_off_rt_worker();
+        for path in [&cwd,&sessions,&profiles,&home] { private_trial_dir(path)?; }
+        let fd=std::fs::OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY|libc::O_NOFOLLOW|libc::O_CLOEXEC|libc::O_NONBLOCK).open(&cwd)?;
+        Ok(Self(Arc::new(TrialRoot {fd,cwd,sessions,profiles,home,gate:Arc::new(Mutex::new(())),closed:std::sync::atomic::AtomicBool::new(false),#[cfg(test)] after_parent:std::sync::Mutex::new(None)})))
+    }
+    pub(crate) fn validate_launch(&self,cwd:&Path,sessions:&Path,profiles:&Path)->std::io::Result<()> {
+        use std::os::unix::fs::MetadataExt;
+        assert_off_rt_worker();
+        if self.0.closed.load(Ordering::Acquire) || cwd!=self.0.cwd || sessions!=self.0.sessions || profiles!=self.0.profiles {return Err(std::io::Error::other("trial launch roots mismatch"));}
+        for path in [&self.0.cwd,&self.0.sessions,&self.0.profiles,&self.0.home] {private_trial_dir(path)?;}
+        let a=self.0.fd.metadata()?;let b=std::fs::symlink_metadata(cwd)?;
+        if a.dev()!=b.dev() || a.ino()!=b.ino(){return Err(std::io::Error::other("trial root identity changed"));} Ok(())
+    }
+    /// Prevent new admissions, then join the serial descriptor work, including a
+    /// blocking closure whose original future was dropped. No child is spawned.
+    pub(crate) async fn finish(&self) {
+        self.0.closed.store(true,Ordering::Release);
+        let _joined=self.0.gate.lock().await;
+    }
+    pub(crate) async fn verifier_preflight(&self)->Result<bool,String> {
+        let guard=self.0.gate.clone().lock_owned().await;
+        let this=self.clone();
+        blocking(move || {let _guard=guard; this.open_file("fixed",false,false).map(|f|f.is_some())}).await
+    }
+    async fn run(&self,name:&str,args:Value,ctx:Context,permit:Option<Permit>)->ToolOutput {
+        if !matches!(name,"read"|"write") {return ToolOutput::error("trial denies exec, MCP, network and unsupported tools");}
+        if args.as_object().is_none_or(|o|o.keys().any(|k| k!="path" && !(name=="write" && k=="content"))) {return ToolOutput::error("unsupported trial tool arguments");}
+        if name=="write" && !permit.is_some_and(|p|p.tool==name && p.generation==ctx.generation) {return ToolOutput::error("policy denied this tool");}
+        if ctx.cwd!=self.0.cwd {return ToolOutput::error("trial cwd mismatch");}
+        let cap=self.clone();let name=name.to_owned();
+        let guard=self.0.gate.clone().lock_owned().await;
+        let redactor=ctx.redactor.clone();
+        let result=blocking(move || -> Result<(String,Vec<Item>),String> {
+            let _guard=guard;
+            assert_off_rt_worker();
+            let fence=||if cap.0.closed.load(Ordering::Acquire) || ctx.cancel.is_cancelled() || ctx.current_generation.load(Ordering::Acquire)!=ctx.generation {Err("cancelled or stale trial tool".to_string())} else {Ok(())};
+            fence()?;
+            let path=text(&args,"path")?;
+            if crate::dream::deny::value(&json!(path),&ctx.redactor).is_err() {return Err("unsafe trial path".into());}
+            if name=="read" {
+                let file=cap.open_file(path,false,false)?.ok_or("file does not exist")?;
+                let content=trial_read(&file)?;
+                fence()?;
+                let preview=if content.len()>50*1024 {format!("{}\n[trial read truncated at 50 KiB]",truncate(&content,50*1024))}else{content};
+                return Ok((preview,vec![]));
+            }
+            let content=text(&args,"content")?;
+            if content.len()>TRIAL_FILE_LIMIT {return Err("trial file exceeds bound".into());}
+            // Existing file opened non-destructively and checked before mutation.
+            let (mut file,existed)=cap.write_file(path,fence)?;
+            let before=trial_read(&file)?;
+            fence()?;
+            use std::io::{Seek,Write};
+            file.rewind().map_err(|_|"trial seek failed")?;
+            file.write_all(content.as_bytes()).map_err(|_|"trial write failed")?;
+            file.set_len(content.len() as u64).map_err(|_|"trial truncate failed")?;
+            let unified=trial_safe_text(&diff(Path::new(path),&before,content),&ctx.redactor);
+            Ok((truncate(&unified,50*1024),vec![Item::FileChange {path:PathBuf::from(path),change:if existed {ChangeKind::Modify} else {ChangeKind::Add},unified:truncate(&unified,50*1024)}]))
+        }).await;
+        match result {Ok((text,changes))=>ToolOutput {output:vec![OutputBlock::Text{text:trial_safe_text(&text,&redactor)}],changes,spill:None,terminal:None,pgid:None,failed:false},Err(e)=>ToolOutput::error(redactor.scrub(&e))}
+    }
+    fn parent(&self,path:&str)->Result<(std::fs::File,std::ffi::CString),String> {
+        use std::path::Component;
+        let components=Path::new(path).components().map(|c|match c {Component::Normal(n) if !n.as_encoded_bytes().eq_ignore_ascii_case(b".git")=>std::ffi::CString::new(n.as_encoded_bytes()).map_err(|_|"invalid trial path".to_string()),_=>Err("trial path must be relative normal components".into())}).collect::<Result<Vec<_>,_>>()?;
+        if components.is_empty() || path.as_bytes().contains(&0) || path.split('/').any(|p|p=="." || p.is_empty()) {return Err("invalid trial path".into());}
+        let mut fd=self.0.fd.try_clone().map_err(|_|"trial root unavailable")?;
+        for component in &components[..components.len()-1] {fd=trial_openat(&fd,component,libc::O_RDONLY|libc::O_DIRECTORY,0).map_err(|_|"trial component refused")?;}
+        #[cfg(test)]
+        if let Some(hook)=self.0.after_parent.lock().unwrap().take() {hook();}
+        Ok((fd,components.last().unwrap().clone()))
+    }
+    fn write_file(&self,path:&str,before_create:impl FnOnce()->Result<(),String>)->Result<(std::fs::File,bool),String> {
+        let (parent,name)=self.parent(path)?;
+        let (file,existed)=match trial_openat(&parent,&name,libc::O_RDWR,0) {
+            Ok(file)=>(file,true),
+            Err(e) if e.kind()==std::io::ErrorKind::NotFound=>{before_create()?;(trial_openat(&parent,&name,libc::O_CREAT|libc::O_EXCL|libc::O_RDWR,0o600).map_err(|_|"trial exclusive create refused")?,false)},
+            Err(_)=>return Err("trial file refused".into()),
+        };
+        trial_regular(&file)?;Ok((file,existed))
+    }
+    pub(crate) fn validate_store(&self,cwd:&Path,sessions:&Path)->std::io::Result<()> {
+        self.validate_launch(cwd,sessions,&self.0.profiles)
+    }
+    fn open_file(&self,path:&str,write:bool,create:bool)->Result<Option<std::fs::File>,String> {
+        let (parent,name)=self.parent(path)?;
+        let flags=if create {libc::O_CREAT|libc::O_EXCL|libc::O_RDWR} else if write {libc::O_RDWR} else {libc::O_RDONLY};
+        let file=match trial_openat(&parent,&name,flags,0o600) {Ok(file)=>file,Err(e) if !create && e.kind()==std::io::ErrorKind::NotFound=>return Ok(None),Err(_)=>return Err("trial file refused".into())};
+        trial_regular(&file)?;Ok(Some(file))
+    }
+}
+fn trial_safe_text(text:&str,set:&Set)->String {
+    match crate::dream::deny::model_input(json!(text),set) {Value::String(text)=>text,_=>unreachable!("model_input preserves string shape")}
+}
+fn private_trial_dir(path:&Path)->std::io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let m=std::fs::symlink_metadata(path)?;
+    if !m.is_dir() || m.file_type().is_symlink() || m.uid()!=unsafe {libc::geteuid()} || m.mode()&0o077!=0 {return Err(std::io::Error::other("trial directory is not private and owned"));} Ok(())
+}
+fn trial_openat(parent:&std::fs::File,name:&std::ffi::CStr,flags:i32,mode:libc::mode_t)->std::io::Result<std::fs::File> {
+    use std::os::fd::{AsRawFd,FromRawFd};
+    // SAFETY: owned parent remains live; NUL-terminated component, no-follow,
+    // nonblocking and close-on-exec on EVERY opened descriptor. No path reopen.
+    let fd=unsafe {libc::openat(parent.as_raw_fd(),name.as_ptr(),flags|libc::O_NOFOLLOW|libc::O_NONBLOCK|libc::O_CLOEXEC,mode as libc::c_uint)};
+    if fd<0 {Err(std::io::Error::last_os_error())} else {Ok(unsafe {std::fs::File::from_raw_fd(fd)})}
+}
+fn trial_regular(file:&std::fs::File)->Result<(),String> {
+    use std::os::unix::fs::MetadataExt;
+    let m=file.metadata().map_err(|_|"trial metadata failed")?;
+    if !m.is_file() || m.nlink()!=1 || m.len()>TRIAL_FILE_LIMIT as u64 {return Err("trial requires bounded single-link regular file".into());} Ok(())
+}
+fn trial_read(file:&std::fs::File)->Result<String,String> {
+    use std::io::Read;
+    trial_regular(file)?;
+    let mut bytes=Vec::new();file.take((TRIAL_FILE_LIMIT+1) as u64).read_to_end(&mut bytes).map_err(|_|"trial read failed")?;
+    if bytes.len()>TRIAL_FILE_LIMIT {return Err("trial file exceeds bound".into());}
+    String::from_utf8(bytes).map_err(|_|"trial file is not UTF-8".into())
+}
+
+#[cfg(test)]
+mod trial_tests {
+    use super::*;
+    use std::os::unix::fs::{PermissionsExt,symlink};
+    async fn fixture()->(tempfile::TempDir,TrialCapability,Context) {
+        let temp=tempfile::tempdir().unwrap();
+        let root=temp.path().to_path_buf();
+        for name in ["repo","sessions","profiles","home"] {std::fs::create_dir(root.join(name)).unwrap();std::fs::set_permissions(root.join(name),std::fs::Permissions::from_mode(0o700)).unwrap();}
+        let cap=blocking(move || TrialCapability::mint(root.join("repo"),root.join("sessions"),root.join("profiles"),root.join("home"))).await.unwrap();
+        let context=Context {cwd:temp.path().join("repo"),blobs:Blobs {dir:temp.path().join("blobs"),redactor:Set::default()},redactor:Set::default(),generation:1,current_generation:Arc::new(AtomicU64::new(1)),cancel:CancellationToken::new()};
+        (temp,cap,context)
+    }
+    #[tokio::test]
+    async fn confined_registry_rejects_escapes_links_special_files_and_forged_allow() {
+        let (temp,cap,ctx)=fixture().await;let registry=Registry::trial(cap.clone());
+        let outside=temp.path().join("sentinel");std::fs::write(&outside,"private").unwrap();
+        std::fs::create_dir(ctx.cwd.join("nested")).unwrap();
+        symlink(temp.path(),ctx.cwd.join("link")).unwrap();symlink(&outside,ctx.cwd.join("leaf")).unwrap();
+        std::fs::hard_link(&outside,ctx.cwd.join("hard")).unwrap();
+        let fifo=std::ffi::CString::new(ctx.cwd.join("fifo").as_os_str().as_encoded_bytes()).unwrap();assert_eq!(unsafe {libc::mkfifo(fifo.as_ptr(),0o600)},0);
+        let permit=||Some(Permit::approval("write".into(),1));
+        for path in ["../sentinel",outside.to_str().unwrap(),"link/sentinel","leaf","hard","fifo",".git/config","nested/../x"] {
+            assert!(registry.run("read",json!({"path":path}),ctx.clone(),None).await.failed,"read {path}");
+            assert!(registry.run("write",json!({"path":path,"content":"escape"}),ctx.clone(),permit()).await.failed,"write {path}");
+        }
+        for name in ["exec","bash","network","install","git push","cargo publish","gh","apply_patch","mcp_fake"] {
+            assert!(registry.run(name,json!({"program":"sh","command":"touch escaped","edits":[{"path":"safe","oldText":"","newText":"yes"},{"path":"../sentinel","oldText":"private","newText":"escape"}]}),ctx.clone(),Some(Permit::approval(name.into(),1))).await.failed);
+        }
+        assert!(!ctx.cwd.join("safe").exists());
+        let mut wrong=ctx.clone();wrong.cwd=temp.path().to_path_buf();assert!(registry.run("write",json!({"path":"sentinel","content":"escape"}),wrong,permit()).await.failed);
+        ctx.current_generation.store(2,Ordering::Release);assert!(registry.run("write",json!({"path":"fixed","content":"yes"}),ctx.clone(),permit()).await.failed);ctx.current_generation.store(1,Ordering::Release);
+        ctx.cancel.cancel();assert!(registry.run("write",json!({"path":"fixed","content":"yes"}),ctx.clone(),permit()).await.failed);
+        assert_eq!(std::fs::read_to_string(outside).unwrap(),"private");assert!(!ctx.cwd.join("fixed").exists());cap.finish().await;
+    }
+    #[tokio::test]
+    async fn confined_real_write_read_and_descriptor_substitution_preserve_external_bytes() {
+        let (temp,cap,ctx)=fixture().await;let registry=Registry::trial(cap.clone());
+        assert_eq!(registry.definitions().iter().map(|d|d.wire.name.as_str()).collect::<Vec<_>>(),["read","write"]);
+        assert!(!registry.run("write",json!({"path":"fixed","content":"private result"}),ctx.clone(),Some(Permit::approval("write".into(),1))).await.failed);
+        let read=registry.run("read",json!({"path":"fixed"}),ctx.clone(),None).await;assert!(!read.failed);assert!(matches!(&read.output[0],OutputBlock::Text{text} if text=="private result"));
+        // Actual openat-parent descriptor survives replacing its pathname with a
+        // symlink; a reopened cwd.join would write the external private sentinel.
+        std::fs::create_dir(ctx.cwd.join("nested")).unwrap();let outside=temp.path().join("outside");std::fs::create_dir(&outside).unwrap();std::fs::write(outside.join("victim"),"private").unwrap();
+        let root=ctx.cwd.clone();let outside_copy=outside.clone();
+        *cap.0.after_parent.lock().unwrap()=Some(Box::new(move || {
+            std::fs::rename(root.join("nested"),root.join("retained")).unwrap();symlink(outside_copy,root.join("nested")).unwrap();
+        }));
+        let write=registry.run("write",json!({"path":"nested/victim","content":"owned"}),ctx.clone(),Some(Permit::approval("write".into(),1))).await;
+        assert!(!write.failed);
+        assert_eq!(std::fs::read_to_string(outside.join("victim")).unwrap(),"private");assert_eq!(std::fs::read_to_string(ctx.cwd.join("retained/victim")).unwrap(),"owned");
+        let generation=ctx.current_generation.clone();
+        *cap.0.after_parent.lock().unwrap()=Some(Box::new(move ||{generation.store(2,Ordering::Release);}));
+        assert!(registry.run("write",json!({"path":"stale-create","content":"must not exist"}),ctx.clone(),Some(Permit::approval("write".into(),1))).await.failed);
+        assert!(!ctx.cwd.join("stale-create").exists());ctx.current_generation.store(1,Ordering::Release);
+        cap.finish().await;assert!(registry.run("write",json!({"path":"fixed","content":"late"}),ctx.clone(),Some(Permit::approval("write".into(),1))).await.failed);
+        assert_eq!(std::fs::read_to_string(ctx.cwd.join("fixed")).unwrap(),"private result");
+    }
+    #[tokio::test]
+    async fn trial_mcp_rebinding_cannot_widen_definitions_or_entry_point() {
+        let (_temp,cap,ctx)=fixture().await;let base=Registry::trial(cap);
+        let rebound=base.with_mcp(Registry::new().definitions().to_vec(),BTreeMap::new());
+        assert_eq!(rebound.definitions().len(),2);
+        assert!(rebound.run("exec",json!({"program":"touch","args":["escape"]}),ctx,Some(Permit::approval("exec".into(),1))).await.failed);
     }
 }

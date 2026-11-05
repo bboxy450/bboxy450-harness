@@ -17,6 +17,157 @@ pub struct Fact {
     pub seq: Seq,
     pub at: u64,
     pub body: Item,
+    #[serde(skip)]
+    checked_usage: Option<Result<CheckedTrialUsage, UsageProofError>>,
+}
+
+/// Missing custody differs from a known contradiction; neither qualifies.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UsageProofError { Unavailable(&'static str), Mismatch(&'static str) }
+impl UsageProofError {
+    pub fn detail(&self)->&'static str {match self {Self::Unavailable(s)|Self::Mismatch(s)=>s}}
+}
+#[derive(Clone, Debug)]
+struct CheckedRunUsage {
+    session:SessionId,
+    aggregate:Usage,
+    basis:NumberSource,
+    // Exact retained custody/turn binding is kept, never serialized as authority.
+    _turn:TurnId,
+    _fork:(SessionId,Seq),
+    _digests:Vec<String>,
+}
+#[derive(Clone, Debug)]
+pub(crate) struct CheckedTrialUsage {item:Item,runs:BTreeMap<SessionId,CheckedRunUsage>}
+impl CheckedTrialUsage {
+    pub(crate) fn basis(&self,item:&Item,run:&TrialRun)->Option<NumberSource> {
+        if self.item!=*item {return None;}
+        let proof=self.runs.get(&run.session)?;
+        (run.usage.as_ref()==Some(&proof.aggregate) && run.session==proof.session).then(||proof.basis.clone())
+    }
+}
+impl Fact {
+    /// Synthetic/legacy facts carry NO forged proof. A Derived fact needs actual
+    /// closed retained logs through facts_with_logs at its consumer's causal cut.
+    pub fn unproved(pin:EvidenceRef,session:SessionId,seq:Seq,at:u64,body:Item)->Self {
+        Self {pin,session,seq,at,body,checked_usage:None}
+    }
+    pub fn usage_error(&self)->Option<UsageProofError> {
+        if !has_derived(&self.body) && self.checked_usage.is_none() {return None;}
+        match &self.checked_usage {
+            Some(Ok(proof)) if proof.item==self.body=>None,
+            Some(Ok(_))=>Some(UsageProofError::Mismatch("changed trial after usage proof")),
+            Some(Err(e))=>Some(e.clone()),
+            None=>Some(UsageProofError::Unavailable("derived trial usage proof unavailable")),
+        }
+    }
+    pub fn qualifying_trial(&self)->Result<i64,Invalid> {qualifying_trial_context(&self.body,self.checked_usage.as_ref())}
+    pub fn trial_gain(&self)->Result<i64,Invalid> {
+        checked_context(&self.body,self.checked_usage.as_ref())?;
+        trial_gain_math(&self.body)
+    }
+}
+fn has_derived(item:&Item)->bool {
+    matches!(item,Item::Trial{episodes,controls,..} if episodes.iter().chain(controls).flat_map(|e|&e.runs).any(|r|r.usage.as_ref().is_some_and(|u|u.source==Some(NumberSource::Derived))))
+}
+fn checked_context<'a>(item:&Item,proof:Option<&'a Result<CheckedTrialUsage,UsageProofError>>)->Result<Option<&'a CheckedTrialUsage>,Invalid> {
+    match proof {
+        Some(Ok(proof)) if proof.item==*item=>Ok(Some(proof)),
+        Some(Ok(_))=>Err(Invalid("changed trial after usage proof")),
+        Some(Err(UsageProofError::Mismatch(s)))=>Err(Invalid(s)),
+        None if !has_derived(item)=>Ok(None),
+        _=>Err(Invalid("derived trial usage proof unavailable")),
+    }
+}
+/// Supply ONLY the selected retained logs/cut. Never fetch later/global custody.
+pub fn facts_with_logs(envelopes:&[Envelope],logs:&BTreeMap<SessionId,Vec<Envelope>>)->Result<Vec<Fact>,Invalid> {
+    let mut facts=facts(envelopes)?;
+    for fact in &mut facts {
+        if matches!(fact.body,Item::Trial{..}) {fact.checked_usage=Some(check_trial_usage(&fact.body,logs));}
+    }
+    Ok(facts)
+}
+pub(crate) fn check_trial_usage(item:&Item,logs:&BTreeMap<SessionId,Vec<Envelope>>)->Result<CheckedTrialUsage,UsageProofError> {
+    use UsageProofError::*;
+    let Item::Trial{episodes,controls,..}=item else {return Err(Mismatch("not a trial"));};
+    let mut runs=BTreeMap::new();let mut basis=None;
+    for run in episodes.iter().chain(controls).flat_map(|e|&e.runs) {
+        let retained_derived=logs.get(&run.session).is_some_and(|log| {
+            let cut=log.first().and_then(|e|if let Event::SessionStarted{meta}=&e.event {meta.fork.map(|f|f.1)}else{None});
+            log.iter().any(|e|e.seq.is_some_and(|s|cut.is_some_and(|c|s>c)) && matches!(&e.event,Event::TurnEnded{usage:Some(u),..} if u.source==Some(NumberSource::Derived)))
+        });
+        if retained_derived && run.usage.as_ref().is_none_or(|u|u.source!=Some(NumberSource::Derived)) {return Err(Mismatch("trial aggregate source differs from retained derived turn"));}
+        if run.usage.as_ref().is_some_and(|u|u.source==Some(NumberSource::Derived)) {
+            let proof=check_run_usage(run,logs)?;
+            let key=(proof.basis.clone(),proof.aggregate.backend.clone(),proof.aggregate.model.clone());
+            if basis.as_ref().is_some_and(|b|b!=&key) {return Err(Mismatch("incomparable retained call basis"));}
+            basis=Some(key);
+            if runs.insert(run.session,proof).is_some() {return Err(Mismatch("duplicate derived run session"));}
+        }
+    }
+    Ok(CheckedTrialUsage {item:item.clone(),runs})
+}
+/// The decoded view must still agree with its retained line. This is codec
+/// custody, not signer authorization or proof of unlogged external behavior.
+pub(crate) fn retained_bytes(log:&[Envelope])->Result<(),UsageProofError> {
+    use UsageProofError::*;
+    for e in log {
+        let bytes=e.wire_bytes().map_err(|_|Unavailable("derived event bytes unavailable"))?;
+        let text=std::str::from_utf8(&bytes).map_err(|_|Mismatch("derived event bytes invalid"))?;
+        let parsed=Envelope::from_line(text).map_err(|_|Mismatch("derived event bytes invalid"))?;
+        if serde_json::to_value(e).ok()!=serde_json::to_value(parsed).ok() {return Err(Mismatch("derived event differs from retained bytes"));}
+    }
+    Ok(())
+}
+fn check_run_usage(run:&TrialRun,logs:&BTreeMap<SessionId,Vec<Envelope>>)->Result<CheckedRunUsage,UsageProofError> {
+    use UsageProofError::*;
+    let log=logs.get(&run.session).ok_or(Unavailable("derived run log unavailable"))?;
+    retained_bytes(log)?;
+    let Some(Envelope {session,event:Event::SessionStarted{meta},..})=log.first() else {return Err(Unavailable("derived run header unavailable"));};
+    if *session!=run.session || meta.session!=run.session {return Err(Mismatch("derived run session mismatch"));}
+    if !log.last().is_some_and(|e|matches!(e.event,Event::SessionClosed)) {return Err(Unavailable("derived run is not closed"));}
+    let Some(fork)=meta.fork else {return Err(Unavailable("derived continuation fork unavailable"));};
+    let parent=logs.get(&fork.0).ok_or(Unavailable("derived parent custody unavailable"))?;
+    let prefix=parent.iter().filter(|e|e.seq.is_some_and(|seq|seq.0>1 && seq<=fork.1) && !matches!(e.event,Event::SessionClosed)).collect::<Vec<_>>();
+    let inherited=log.iter().filter(|e|e.seq.is_some_and(|seq|seq.0>1 && seq<=fork.1)).collect::<Vec<_>>();
+    if fork.1.0<2 || !parent.iter().any(|e|e.seq==Some(fork.1)) {return Err(Unavailable("derived fork cut unavailable"));}
+    if prefix.len()!=inherited.len() || prefix.iter().zip(&inherited).any(|(a,b)|a.wire_bytes().ok()!=b.wire_bytes().ok()) {return Err(Mismatch("derived fork prefix mismatch"));}
+    let mut projected=log.clone();for e in &mut projected {e.project_into(meta);}
+    if crate::protocol::laws::check_transcript(&projected).is_err() {return Err(Mismatch("derived run transcript contradiction"));}
+    let continuation=log.iter().filter(|e|e.seq.is_some_and(|s|s>fork.1)).collect::<Vec<_>>();
+    if continuation.iter().any(|e|e.session!=run.session) {return Err(Mismatch("foreign derived continuation event"));}
+    let starts=continuation.iter().filter_map(|e|if let Event::TurnStarted{turn,..}=e.event {Some((turn,e.seq))} else {None}).collect::<Vec<_>>();
+    let [(turn,start)]=starts.as_slice() else {return Err(if starts.is_empty(){Unavailable("derived target turn unavailable")}else{Mismatch("ambiguous derived target turn")});};
+    let ends=continuation.iter().filter_map(|e|if let Event::TurnEnded{turn:t,usage,..}=&e.event {(*t==*turn).then_some((*t,e.seq,usage))} else {None}).collect::<Vec<_>>();
+    let [(ended,end,Some(aggregate))]=ends.as_slice() else {return Err(Unavailable("derived target end unavailable"));};
+    if ended!=turn || end<=start {return Err(Mismatch("derived target turn mismatch"));}
+    let aggregate: &Usage=aggregate;
+    if run.usage.as_ref()!=Some(aggregate) {return Err(Mismatch("derived TrialRun aggregate mismatch"));}
+    let mut pending=BTreeMap::new();let mut completed=BTreeSet::new();let mut leaves=Vec::new();let mut basis=None;
+    for e in &continuation {
+        if e.seq<=*start || e.seq>=*end {continue;}
+        match &e.event {
+            Event::ItemStarted{item,turn:t,kind:ItemKind::Usage,..}=>{
+                if *t!=Some(*turn) || pending.insert(*item,()).is_some() || completed.contains(item) {return Err(Mismatch("derived call identity mismatch"));}
+            }
+            Event::ItemCompleted{item,status,body:Item::Usage{usage}}=>{
+                if pending.remove(item).is_none() || !completed.insert(*item) {return Err(Mismatch("duplicate or unjoined derived call"));}
+                if usage.scope!=Some(UsageScope::Call) {continue;}
+                if *status!=ItemStatus::Completed {return Err(Unavailable("incomplete derived call"));}
+                let source=match usage.source {Some(NumberSource::Reported)=>NumberSource::Reported,Some(NumberSource::Estimated)=>NumberSource::Estimated,_=>return Err(Unavailable("unknown derived call basis"))};
+                if !usage.numbers().contains_key("input_tokens") || !usage.numbers().contains_key("output_tokens") || usage.backend.as_ref().is_none_or(|b|b.name.is_empty() || matches!(b.kind,BackendKind::Unknown(_))) || usage.model.as_ref().is_none_or(|s|s.is_empty()) {return Err(Unavailable("missing derived call counters/identity"));}
+                let key=(source,usage.backend.clone(),usage.model.clone());
+                if basis.as_ref().is_some_and(|b|b!=&key) {return Err(Mismatch("mixed derived call basis/backend/model"));}
+                basis=Some(key);leaves.push(usage.clone());
+            }
+            _=>{}
+        }
+    }
+    if leaves.is_empty() || !pending.is_empty() {return Err(Unavailable("derived call leaves unavailable"));}
+    let sum=Usage::sum_calls(&leaves).map_err(|_|Unavailable("derived call sum overflow"))?.ok_or(Unavailable("derived sum unavailable"))?;
+    if sum!=*aggregate {return Err(Mismatch("derived TurnEnded aggregate mismatch"));}
+    let digests=log.iter().map(|e|e.wire_bytes().map(|bytes|super::entry::digest(bytes.strip_suffix(b"\n").unwrap_or(&bytes))).map_err(|_|Unavailable("derived event bytes unavailable"))).collect::<Result<Vec<_>,_>>()?;
+    Ok(CheckedRunUsage {session:run.session,aggregate:sum,basis:basis.unwrap().0,_turn:*turn,_fork:fork,_digests:digests})
 }
 
 /// The union key is durable identity, not an arrival index or wall clock.
@@ -65,6 +216,7 @@ pub fn facts(envelopes: &[Envelope]) -> Result<Vec<Fact>, Invalid> {
                         seq,
                         at: envelope.ts_ms,
                         body: body.clone(),
+                        checked_usage: None,
                     }),
             )
         })
@@ -255,7 +407,7 @@ impl Projection {
                                             "adoption borrows another entry/harness trial",
                                         ));
                                     }
-                                    qualifying_trial(&trial.body)?;
+                                    trial.qualifying_trial()?;
                                     pins.insert(
                                         serde_json::to_string(pin)
                                             .map_err(|_| Invalid("trial pin encoding"))?,
@@ -289,7 +441,9 @@ impl Projection {
 }
 
 /// Both recorded threshold revisions share numeric gates; scheduling is not reinterpreted.
-pub fn qualifying_trial(item: &Item) -> Result<i64, Invalid> {
+pub fn qualifying_trial(item: &Item) -> Result<i64, Invalid> {qualifying_trial_context(item,None)}
+pub(crate) fn qualifying_trial_context(item:&Item,context:Option<&Result<CheckedTrialUsage,UsageProofError>>)->Result<i64,Invalid> {
+    let context=checked_context(item,context)?;
     let Item::Trial {
         thresholds,
         episodes,
@@ -348,6 +502,11 @@ pub fn qualifying_trial(item: &Item) -> Result<i64, Invalid> {
                 let source = match usage.source {
                     Some(NumberSource::Reported) => "reported",
                     Some(NumberSource::Estimated) => "estimated",
+                    Some(NumberSource::Derived) => {
+                        let proof=context.and_then(|c|c.runs.get(&run.session)).ok_or(Invalid("derived trial usage proof unavailable"))?;
+                        if proof.session!=run.session || proof.aggregate!=*usage {return Err(Invalid("changed derived run after proof"));}
+                        match proof.basis {NumberSource::Reported=>"reported",NumberSource::Estimated=>"estimated",_=>return Err(Invalid("invalid checked basis"))}
+                    }
                     _ => return Err(Invalid("unknown trial usage source")),
                 };
                 let key = (
@@ -410,6 +569,9 @@ pub fn qualifying_trial(item: &Item) -> Result<i64, Invalid> {
 /// Net held-out verification gain includes failed trials. Cost/control/adoption gates
 /// do not erase negative observations from the optional graph strength calculation.
 pub fn trial_gain(item: &Item) -> Result<i64, Invalid> {
+    checked_context(item,None)?;trial_gain_math(item)
+}
+fn trial_gain_math(item:&Item)->Result<i64,Invalid> {
     let Item::Trial {
         episodes,
         thresholds,

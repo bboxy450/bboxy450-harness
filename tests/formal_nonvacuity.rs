@@ -1773,3 +1773,34 @@ fn trial_outcomes_reach_uncertain_wrong_pair_late_terminal_and_real_completion()
         );
     }
 }
+
+#[test]
+fn trial_new_boundaries_have_positive_states_and_decisive_controls() {
+    for (family, positive_var, positive_value, controls, property) in [
+        ("Capability", "phase", 3, vec!["Reopen","Permit","Exec"], ""),
+        ("Usage", "qualified", 1, vec!["Join","Blind","Basis"], "QualificationRequiresBoundTargetProof"),
+        ("Settlement", "observer", 1, vec!["Err","Channel","Late"], ""),
+    ] {
+        let m=model(&format!("HarnessDreamTrial{family}"));
+        let c=m.check(100_000).unwrap();
+        assert!(c.violations.is_empty(),"{family}: {:?}",c.violations);
+        let v=variable(&m,positive_var);
+        assert!(c.states.iter().any(|s|s[v]==positive_value),"{family} positive unreachable");
+        for suffix in controls {
+            let name=format!("BrokenHarnessDreamTrial{family}{suffix}");
+            let bad=model(&name).check(100_000).unwrap();
+            assert!(bad.violations.iter().any(|v|property.is_empty() || v.property==property),"{name} control vacuous");
+        }
+    }
+}
+
+#[test]
+fn trial_queued_frontier_recovers_and_reopens_before_fresh_identity() {
+    let m=model("HarnessDreamTrialFrontier");let c=m.check(100_000).unwrap();assert!(c.violations.is_empty(),"{:?}",c.violations);
+    let phase=variable(&m,"phase");let pending=variable(&m,"pending");let crash=variable(&m,"crashed");let epoch=variable(&m,"epoch");
+    assert!(c.states.iter().any(|s|s[phase]==8 && s[pending]==2 && s[crash]==1 && s[epoch]==3));
+    assert!(c.states.iter().any(|s|s[phase]==10),"unavailable is explicit");
+    for (suffix,property) in [("Active","OnlyAcceptedFrontier"),("Early","NoActorBeforeRecovery"),("Bytes","InheritedBytesUnchanged"),("Inherited","FreshSuccessHasFreshIdentity"),("Duplicate","EachQueueEndsOnce")] {
+        let bad=model(&format!("BrokenHarnessDreamTrialFrontier{suffix}")).check(100_000).unwrap();assert!(bad.violations.iter().any(|v|v.property==property),"{suffix}: {:?}",bad.violations);
+    }
+}

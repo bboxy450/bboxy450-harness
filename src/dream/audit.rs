@@ -169,7 +169,14 @@ pub async fn run(
             return Ok(audit);
         }
     };
-    let facts = Arc::new(crate::runtime::blocking(move || projection::facts(&envelopes)).await?);
+    let retained=resolver.logs.clone();
+    let facts = Arc::new(crate::runtime::blocking(move || projection::facts_with_logs(&envelopes,&retained)).await?);
+    for fact in facts.iter() {
+        if let Some(error)=fact.usage_error() {match error {
+            projection::UsageProofError::Unavailable(s)=>audit.unproven("P5",s),
+            projection::UsageProofError::Mismatch(s)=>audit.reject("P5",s),
+        }}
+    }
     for meta in metas.values() {
         if (meta.harness == "dream" || meta.dream.is_some())
             && meta
@@ -318,6 +325,7 @@ pub async fn run(
     let source = facts.clone();
     match crate::runtime::blocking(move || Projection::build(&source)).await {
         Ok(projection) => audit.projection = projection,
+        Err(error) if error.0=="derived trial usage proof unavailable"=>audit.unproven("P5",error.0),
         Err(error) => audit.reject("P5", error.0),
     }
     let mut adjacency: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();

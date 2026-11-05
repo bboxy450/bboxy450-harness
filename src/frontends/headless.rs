@@ -685,6 +685,72 @@ fn seat_command(command: &str, root: &std::path::Path) -> (Option<Op>, String) {
     }
 }
 
+struct TrialCloseGuard(Option<crate::gateway::InProc>);
+impl Drop for TrialCloseGuard {
+    fn drop(&mut self) {
+        if let Some(gateway)=self.0.take() {
+            for op in [Op::Interrupt{turn:None},Op::Close] {let _=gateway.send(OpEnvelope {v:PROTOCOL,session:gateway.hello().meta.session,op_id:OpId::new(),op});}
+        }
+    }
+}
+/// Trial continuation uses the ordinary actor/Store/fork/provider path, with the
+/// opaque capability supplied only by trusted scratch orchestration. No native
+/// handoff, extra instruction authority, live profile lookup or recall is added.
+pub(crate) async fn trial_continuation(
+    config:Config,
+    capability:crate::tools::TrialCapability,
+    blocks:Vec<InputBlock>,
+    cancel:CancellationToken,
+    token_budget:u64,
+    deadline:tokio::time::Instant,
+)->std::io::Result<(Vec<Envelope>,bool,bool,Option<tokio::time::Instant>)> {
+    let path=crate::store::log_path(&config.sessions,config.meta.session);
+    let fork=config.meta.fork.map(|f|f.1).unwrap_or(Seq(0));
+    let (gateway,task)=crate::engine::SessionActor::load_with_mcp(config,OpId::new(),None,Default::default(),LaunchOptions {trial:Some(capability.clone()),..Default::default()}).await?;
+    let mut close_guard=TrialCloseGuard(Some(gateway.clone()));
+    let hello=gateway.hello();
+    let mut sub=gateway.subscribe(Subscribe {session:hello.meta.session,after:Some((hello.epoch,hello.head)),ephemeral:false}).map_err(|_|std::io::Error::other("trial subscription refused"))?;
+    let send=|op|gateway.send(OpEnvelope {v:PROTOCOL,session:hello.meta.session,op_id:OpId::new(),op});
+    let admitted=!cancel.is_cancelled() && tokio::time::Instant::now()<deadline && send(Op::UserTurn {blocks,mode:TurnMode::Queue}).is_ok();
+    let mut ended_at=None;
+    let mut valid=admitted;let mut seen=std::collections::BTreeSet::new();let mut spend=Some(0u64);
+    if admitted {loop {
+        let event=tokio::select! {biased;
+            _=cancel.cancelled()=>{valid=false;None},
+            _=tokio::time::sleep_until(deadline)=>{valid=false;None},
+            e=sub.recv()=>e,
+        };
+        let Some(event)=event else {valid=false;break;};
+        if event.seq.is_none_or(|s|s<=fork) {continue;}
+        match event.event {
+            Event::ItemCompleted {item,body:Item::Usage{usage},..} if usage.scope==Some(UsageScope::Call) && seen.insert(item)=>{
+                let n=usage.numbers();spend=spend.zip(n.get("input_tokens").copied()).and_then(|(a,b)|a.checked_add(b)).zip(n.get("output_tokens").copied()).and_then(|(a,b)|a.checked_add(b));
+                if spend.is_none_or(|n|n>token_budget) {valid=false;break;}
+            }
+            Event::TurnEnded {reason,..}=>{ended_at=Some(tokio::time::Instant::now());valid &= matches!(reason,StopReason::EndTurn);break;}
+            Event::OpRejected {..}|Event::SessionClosed=>{valid=false;break;}
+            _=>{}
+        }
+    }}
+    if !valid {let _=send(Op::Interrupt {turn:None});}
+    let _=send(Op::Close);
+    // Never abort this ownership/closure join at a caller deadline. The trial's
+    // local retirement owner retains scratch and claim if its caller abandons it.
+    let joined=task.await.map_err(std::io::Error::other).and_then(|r|r);
+    capability.finish().await;
+    close_guard.0=None;
+    valid &= joined.is_ok();
+    let events=crate::runtime::blocking(move || {
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::io::Read;
+        let mut file=std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW|libc::O_CLOEXEC|libc::O_NONBLOCK).open(path)?;
+        let mut text=String::new();file.read_to_string(&mut text)?;
+        text.split_inclusive('\n').map(|line|Envelope::from_line(line).map_err(std::io::Error::other)).collect::<std::io::Result<Vec<_>>>()
+    }).await?;
+    let settled=joined.is_ok() && events.last().is_some_and(|e|matches!(e.event,Event::SessionClosed));
+    Ok((events,valid,settled,ended_at))
+}
+
 #[cfg(test)]
 mod tty_tests {
     use super::*;

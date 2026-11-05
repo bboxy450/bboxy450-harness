@@ -169,7 +169,14 @@ impl Store {
         cause: Option<OpId>,
         redactor: Set,
     ) -> io::Result<Self> {
-        Self::open_impl(root, meta, cause, redactor, false, None).await
+        Self::open_impl(root, meta, cause, redactor, false, None, fork::Frontier::Quiescent).await
+    }
+    /// Internal queued-frontier extension, gated by the trusted pinned launch
+    /// capability rather than an IR/profile/public StartSession boolean.
+    pub(crate) async fn open_trial(root:PathBuf,meta:SessionMeta,cause:Option<OpId>,redactor:Set,capability:&crate::tools::TrialCapability)->io::Result<Self> {
+        let cap=capability.clone();let cwd=meta.cwd.clone();let sessions=root.clone();
+        blocking(move ||cap.validate_store(&cwd,&sessions)).await?;
+        Self::open_impl(root,meta,cause,redactor,false,None,fork::Frontier::TrialQueued).await
     }
     /// Opt-in private native-import staging only. Existing opens keep their clocks.
     pub(crate) async fn open_import_staging(
@@ -179,7 +186,7 @@ impl Store {
         initial_at: u64,
         ext: BTreeMap<String, serde_json::Value>,
     ) -> io::Result<Self> {
-        Self::open_impl(root, meta, None, redactor, false, Some((initial_at, ext))).await
+        Self::open_impl(root, meta, None, redactor, false, Some((initial_at, ext)),fork::Frontier::Quiescent).await
     }
     async fn open_impl(
         root: PathBuf,
@@ -188,18 +195,22 @@ impl Store {
         redactor: Set,
         _restore_writer_durability: bool,
         initial: Option<(u64, BTreeMap<String, serde_json::Value>)>,
+        frontier:fork::Frontier,
     ) -> io::Result<Self> {
         let session = meta.session;
         let path = root.join(format!("{session}.jsonl"));
         let r = redactor.clone();
         let fork_root = root.clone();
         let fork_meta = redactor.sanitize(&meta).map_err(io::Error::other)?;
-        let (file, events, created_fork, epoch) = blocking(move || -> io::Result<_> {
+        let (file, events, created_fork, queued_fork, epoch) = blocking(move || -> io::Result<_> {
             std::fs::create_dir_all(path.parent().unwrap())?;
             let created_fork = !path.exists() && fork_meta.fork.is_some();
-            if created_fork {
-                fork::materialize(&fork_root, &path, &fork_meta, cause)?;
-            }
+            let queued_fork=if created_fork {
+                match frontier {
+                    fork::Frontier::Quiescent=>{fork::materialize(&fork_root,&path,&fork_meta,cause)?;false},
+                    fork::Frontier::TrialQueued=>fork::materialize_frontier(&fork_root,&path,&fork_meta,cause,frontier)?,
+                }
+            }else{false};
             let f = OpenOptions::new()
                 .read(true)
                 .append(true)
@@ -252,17 +263,17 @@ impl Store {
             let epoch = if closed {
                 observed
             } else if created_fork {
-                1
+                if queued_fork {2}else{1}
             } else {
                 read_epoch(&fork_root.join(session.to_string()))?
                     .max(observed)
                     .checked_add(1)
                     .ok_or_else(|| io::Error::other("epoch exhausted"))?
             };
-            if !closed && !created_fork {
+            if !closed && (!created_fork || queued_fork) {
                 write_epoch(&fork_root.join(session.to_string()), epoch)?;
             }
-            Ok((f, events, created_fork, Epoch(epoch)))
+            Ok((f, events, created_fork, queued_fork, Epoch(epoch)))
         })
         .await?;
         let closed = events
@@ -291,7 +302,7 @@ impl Store {
             } else {
                 store.append(Event::SessionStarted { meta }, cause).await?;
             }
-        } else if !store.closed && !created_fork {
+        } else if !store.closed && (!created_fork || queued_fork) {
             store.recover().await?;
         }
         Ok(store)
@@ -578,6 +589,7 @@ mod durability_controls {
             Default::default(),
             true,
             None,
+            fork::Frontier::Quiescent,
         )
         .await;
         assert!(
@@ -814,5 +826,61 @@ mod lease_tests {
         assert!(Store::open(root, meta, None, Set::default()).await.is_err());
         drop(lease(&path));
         assert_eq!(std::fs::read(path).unwrap(), b"synthetic invalid JSON\n");
+    }
+}
+
+#[cfg(test)]
+mod trial_frontier_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    async fn fixture()->(tempfile::TempDir,crate::tools::TrialCapability,SessionMeta,Vec<TurnId>,Seq,BlobRef) {
+        let temp=tempfile::tempdir().unwrap();for name in ["repo","sessions","profiles","home"] {std::fs::create_dir(temp.path().join(name)).unwrap();std::fs::set_permissions(temp.path().join(name),std::fs::Permissions::from_mode(0o700)).unwrap();}
+        let root=temp.path().to_path_buf();let capability=blocking(move ||crate::tools::TrialCapability::mint(root.join("repo"),root.join("sessions"),root.join("profiles"),root.join("home"))).await.unwrap();
+        let meta=SessionMeta {session:SessionId::new(),cwd:temp.path().join("repo"),profile:None,fork:None,protocol:PROTOCOL,harness:env!("CARGO_PKG_VERSION").into(),created_ms:0,vcs:None,dream:None,source:None};
+        let mut parent=Store::open(temp.path().join("sessions"),meta.clone(),None,Set::default()).await.unwrap();parent.append(Event::ProfileChanged{profile:"scripted".into(),model:"scripted".into()},None).await.unwrap();
+        let blob=parent.blobs.put(b"private inherited blob".to_vec(),"image/png").await.unwrap();let item=ItemId::new();parent.append(Event::ItemStarted{turn:None,item,kind:ItemKind::Image,parent:None,head:None},None).await.unwrap();parent.append(Event::ItemCompleted{item,status:ItemStatus::Completed,body:Item::Image{mime:"image/png".into(),blob:blob.clone()}},None).await.unwrap();drop(parent);
+        let mut bytes=std::fs::read(log_path(&temp.path().join("sessions"),meta.session)).unwrap();
+        // Retained future-writer fixture, deliberately bypassing the current
+        // authored writer. Unknown event/ext fields and CRLF must pass through.
+        let future=serde_json::json!({"v":PROTOCOL,"session":meta.session,"epoch":1,"seq":5,"at":5,"ts_ms":0,"provider_future":{"kept":[1,2]},"event":{"type":"future_marker","opaque":{"kept":true}}});bytes.extend(format!("  {future}\r\n").as_bytes());
+        let turns=vec![TurnId::new(),TurnId::new()];for (i,turn) in turns.iter().enumerate() {let seq=Seq(6+i as u64);let event=Envelope {raw:None,ext:Default::default(),native:None,v:PROTOCOL,session:meta.session,epoch:Epoch(1),seq:Some(seq),at:seq,ts_ms:0,cause:None,event:Event::TurnQueued{turn:*turn}};bytes.extend(event.wire_bytes().unwrap());}
+        std::fs::write(log_path(&temp.path().join("sessions"),meta.session),bytes).unwrap();(temp,capability,meta,turns,Seq(7),blob)
+    }
+    fn child(meta:&SessionMeta,cut:Seq)->SessionMeta {let mut child=meta.clone();child.session=SessionId::new();child.fork=Some((meta.session,cut));child}
+    #[tokio::test]
+    async fn queued_trial_exact_future_prefix_blobs_epoch_and_parent_independence() {
+        let (temp,capability,parent,turns,cut,blob)=fixture().await;let root=temp.path().join("sessions");let source=std::fs::read(log_path(&root,parent.session)).unwrap();let meta=child(&parent,cut);
+        let unpolled=Box::pin(Store::open_trial(root.clone(),meta.clone(),None,Set::default(),&capability));drop(unpolled);assert!(!log_path(&root,meta.session).exists());
+        let store=Store::open_trial(root.clone(),meta.clone(),None,Set::default(),&capability).await.unwrap();assert_eq!(store.epoch,Epoch(2));assert_eq!(store.head(),Seq(10));
+        assert!(matches!(store.events.last().unwrap().event,Event::SessionRecovered{prior_epoch:Epoch(1),closed_items:0,closed_turns:2}));
+        for turn in &turns {assert_eq!(store.events.iter().filter(|e|matches!(e.event,Event::TurnEnded{turn:t,reason:StopReason::Interrupted,usage:None} if t==*turn)).count(),1);}
+        let copied=std::fs::read(log_path(&root,meta.session)).unwrap();let original=source.split_inclusive(|b|*b==b'\n').skip(1).collect::<Vec<_>>();let inherited=copied.split_inclusive(|b|*b==b'\n').skip(1).take(6).collect::<Vec<_>>();assert_eq!(original,inherited);assert_eq!(source,std::fs::read(log_path(&root,parent.session)).unwrap());
+        let target=store.blobs.dir.join(&blob.sha256);std::fs::remove_file(root.join(parent.session.to_string()).join("blobs").join(&blob.sha256)).unwrap();std::fs::remove_file(log_path(&root,parent.session)).unwrap();assert_eq!(std::fs::read(target).unwrap(),b"private inherited blob");drop(store);
+        let reopened=Store::open(root.clone(),meta.clone(),None,Set::default()).await.unwrap();assert_eq!(reopened.epoch,Epoch(3));assert!(matches!(reopened.events.last().unwrap().event,Event::SessionRecovered{closed_items:0,closed_turns:0,..}));for turn in turns {assert_eq!(reopened.events.iter().filter(|e|matches!(e.event,Event::TurnEnded{turn:t,..} if t==turn)).count(),1);}
+    }
+    #[tokio::test]
+    async fn queued_trial_crash_after_prefix_and_partial_suffix_recovers_once() {
+        for partial in [false,true] {
+            let (temp,_capability,parent,turns,cut,_blob)=fixture().await;let root=temp.path().join("sessions");let meta=child(&parent,cut);let path=log_path(&root,meta.session);let m=meta.clone();let r=root.clone();
+            blocking(move ||fork::materialize_frontier(&r,&path,&m,None,fork::Frontier::TrialQueued)).await.unwrap();
+            if partial {
+                let r=root.clone();let m=meta.clone();let turn=turns[0];blocking(move || {
+                    use std::io::Write;write_epoch(&r.join(m.session.to_string()),2).unwrap();let seq=Seq(cut.0+1);let event=Envelope {raw:None,ext:Default::default(),native:None,v:PROTOCOL,session:m.session,epoch:Epoch(2),seq:Some(seq),at:seq,ts_ms:0,cause:None,event:Event::TurnEnded{turn,reason:StopReason::Interrupted,usage:None}};let mut file=OpenOptions::new().append(true).open(log_path(&r,m.session)).unwrap();file.write_all(&event.wire_bytes().unwrap()).unwrap();crate::runtime::sync_all(&file).unwrap();
+                }).await;
+            }
+            let store=Store::open(root,meta,None,Set::default()).await.unwrap();assert_eq!(store.epoch,Epoch(if partial {3}else{2}));assert!(matches!(store.events.last().unwrap().event,Event::SessionRecovered{closed_items:0,closed_turns,..} if closed_turns==if partial{1}else{2}));
+            for turn in turns {assert_eq!(store.events.iter().filter(|e|matches!(e.event,Event::TurnEnded{turn:t,..} if t==turn)).count(),1);}
+        }
+    }
+    #[tokio::test]
+    async fn queued_trial_refuses_active_open_malformed_and_missing_blob_before_child() {
+        for mode in 0..6 {
+            let (temp,capability,parent,turns,cut,blob)=fixture().await;let root=temp.path().join("sessions");let path=log_path(&root,parent.session);let mut bytes=std::fs::read(&path).unwrap();let meta=child(&parent,cut);let mut target_cut=cut;
+            if mode==5 {std::fs::remove_file(root.join(parent.session.to_string()).join("blobs").join(&blob.sha256)).unwrap();}else{
+                let event=match mode {0=>Event::TurnStarted{turn:turns[0],model:None,origin:None},1=>Event::ItemStarted{turn:None,item:ItemId::new(),kind:ItemKind::Notice,parent:None,head:None},2=>Event::TurnQueued{turn:turns[0]},3=>Event::SessionClosed,4=>Event::ProfileChanged{profile:"scripted".into(),model:"scripted".into()},_=>unreachable!()};
+                let seq=Seq(cut.0+if mode==4 {2}else{1});let event=Envelope {raw:None,ext:Default::default(),native:None,v:PROTOCOL,session:parent.session,epoch:Epoch(1),seq:Some(seq),at:seq,ts_ms:0,cause:None,event};bytes.extend(event.wire_bytes().unwrap());std::fs::write(path,bytes).unwrap();target_cut=Seq(cut.0+1);
+            }
+            let mut meta=meta;meta.fork=Some((parent.session,target_cut));assert!(Store::open_trial(root.clone(),meta.clone(),None,Set::default(),&capability).await.is_err(),"mode {mode}");assert!(!log_path(&root,meta.session).exists(),"mode {mode}");
+        }
     }
 }

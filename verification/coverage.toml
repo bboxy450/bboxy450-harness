@@ -67,6 +67,10 @@ models = [
     "HarnessProcessAdmissionResult",
     "HarnessDreamTrialClaims",
     "HarnessDreamTrialOutcome",
+    "HarnessDreamTrialFrontier",
+    "HarnessDreamTrialCapability",
+    "HarnessDreamTrialUsage",
+    "HarnessDreamTrialSettlement",
 ]
 scope = "Finite two-turn/two-tool lifecycle; birth fencing A-B-A, unattended approval, FIFO control, bounded replay/lag/reset and Yarn arbitration. HTTP/TCP bytes, filesystem/process effects, wall-clock deadlines, secrecy and terminal bytes are witnessed by implementation tests; no arbitrary Rust refinement claim."
 sources = [

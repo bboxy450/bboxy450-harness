@@ -633,3 +633,49 @@ implementation_tests = ["tests/formal_nonvacuity.rs", "tests/dream_pipeline.rs"]
 assumptions = "WP7 partial checkpoint; actual enforced execution/output fencing pending. One result with lifecycle phase, unknown/enforced/failed isolation and usage, observed turn end/cleanup, exact/wrong entry and harness, pair/global terminal, cancellation/drop, over-cap flag, score result and active/historical pass. Mixed usage cannot become known again. Numeric4/2/2/2M/30min/10min thresholds have pure math/observation coverage, not real-time interpretation in this quotient. No fairness is added. Isolation here is an abstract observation, not an enforcement boolean/API or proof of sandboxing; real argument/path/private-identity and process witnesses remain mandatory. Existing per-harness monotone projection supplies terminal semantics; no receipt/seal authority follows from a pass."
 property = "ActivePassRequiresObservedGates; NoTerminalActivePass. Unsupported before execution and missing observations stay Inconclusive; exact pair/pin required and later terminal fences historical pass. Each omitted gate reaches the same safety violation."
 checks = ["make test-formal", "make test"]
+[[contract]]
+name = "HarnessDreamTrialCapability"
+title = "WP7 Capability boundary"
+models = ["HarnessDreamTrialCapability", "BrokenHarnessDreamTrialCapabilityReopen", "BrokenHarnessDreamTrialCapabilityPermit", "BrokenHarnessDreamTrialCapabilityExec"]
+controls = [{name="BrokenHarnessDreamTrialCapabilityReopen",expected="safety"},{name="BrokenHarnessDreamTrialCapabilityPermit",expected="safety"},{name="BrokenHarnessDreamTrialCapabilityExec",expected="safety"}]
+sources = ["src/tools.rs", "tests/formal/models.rs", ".bboxy/decisions/d20261103136594-dream-trial-engine-capability.md"]
+implementation_tests = ["tests/formal_nonvacuity.rs"]
+assumptions = "Checked root/operand/generation, descriptor-safe target, pathname substitution and forged Allow. Local serial tools only; no fairness. Syscalls and arbitrary same-user external directory relocation/provider code are not modeled. Actual descriptor/race/MCP/escape witnesses are required; implementation pending."
+property = "NoOutsideReadWrite; NoExecOrMcp"
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessDreamTrialUsage"
+title = "WP7 Usage boundary"
+models = ["HarnessDreamTrialUsage", "BrokenHarnessDreamTrialUsageJoin", "BrokenHarnessDreamTrialUsageBlind", "BrokenHarnessDreamTrialUsageBasis"]
+controls = [{name="BrokenHarnessDreamTrialUsageJoin",expected="safety"},{name="BrokenHarnessDreamTrialUsageBlind",expected="safety"},{name="BrokenHarnessDreamTrialUsageBasis",expected="safety"}]
+sources = ["src/dream/projection.rs", "tests/formal/models.rs", ".bboxy/decisions/d20261103136597-dream-trial-derived-usage-proof.md"]
+implementation_tests = ["tests/formal_nonvacuity.rs"]
+assumptions = "Target/old/foreign rows, homogeneous/missing/mixed basis, exact aggregate, opaque proof and current run identity; no fairness. Finite identity predicates do not prove transcript bytes, numeric aggregation or complete call logging. Actual retained engine/API witnesses required; implementation pending."
+property = "QualificationRequiresBoundTargetProof"
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessDreamTrialSettlement"
+title = "WP7 Settlement boundary"
+models = ["HarnessDreamTrialSettlement", "BrokenHarnessDreamTrialSettlementErr", "BrokenHarnessDreamTrialSettlementChannel", "BrokenHarnessDreamTrialSettlementLate"]
+controls = [{name="BrokenHarnessDreamTrialSettlementErr",expected="safety"},{name="BrokenHarnessDreamTrialSettlementChannel",expected="safety"},{name="BrokenHarnessDreamTrialSettlementLate",expected="safety"}]
+sources = ["src/process.rs", "tests/formal/models.rs", ".bboxy/decisions/d20261103136600-dream-trial-process-settlement.md"]
+implementation_tests = ["tests/formal_nonvacuity.rs"]
+assumptions = "One operation, queued/native/packet/retiring/reaped/no-child, result, caller drop, observer pending/confirmed/lost, child and scratch/claim ownership. No native timing/fairness promise. Explicit completion is distinct from channel loss/Err. Actual barrier, child reap, IO and independent operation witnesses required; implementation pending."
+property = "ConfirmedMeansJoinedOwnership; PendingOwnsResources"
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessDreamTrialFrontier"
+title = "Opaque trial queued-only fork retires inherited queues before fresh continuation"
+spec_record = "01M6MA2TRBKW5RTYSFVVD1FMDD"
+spec_digest = "98b67f00c960a4a8052c6970adf05138598b9439091ba65c7bde637528a2e82f"
+spec_sections = "A-D queued frontier, exact bytes, epoch recovery and fresh usage"
+models = ["HarnessDreamTrialFrontier", "BrokenHarnessDreamTrialFrontierActive", "BrokenHarnessDreamTrialFrontierEarly", "BrokenHarnessDreamTrialFrontierBytes", "BrokenHarnessDreamTrialFrontierInherited", "BrokenHarnessDreamTrialFrontierDuplicate"]
+controls = [{name="BrokenHarnessDreamTrialFrontierActive",expected="safety"},{name="BrokenHarnessDreamTrialFrontierEarly",expected="safety"},{name="BrokenHarnessDreamTrialFrontierBytes",expected="safety"},{name="BrokenHarnessDreamTrialFrontierInherited",expected="safety"},{name="BrokenHarnessDreamTrialFrontierDuplicate",expected="safety"}]
+sources = ["src/store/fork.rs", "src/store.rs", "src/engine/mod.rs", "src/frontends/headless.rs", "src/dream/trial.rs", "src/dream/projection.rs", "tests/formal/models.rs", ".bboxy/decisions/d20261103136603-dream-trial-queued-frontier-fork.md"]
+implementation_tests = ["tests/formal_nonvacuity.rs", "tests/dream_pipeline.rs", "tests/dream_graph.rs", "tests/store_fork.rs"]
+assumptions = "One frontier quiescent/queued-only/active/open/malformed, zero/one/two pending queues, one publication and one crash/reopen, separate lease/epoch reservation/recovery/actor/fresh-usage actions. Local recovery WF includes explicit persistence-unavailable disposition; no arbitrary syscall completion or repeated-crash progress is proved. Real exact raw-line/blob bytes, fsync/no-replace, kernel lease and next epoch use ordinary Store code. Twenty actual private engine continuations exercise queued-only epoch2 retirement before a fresh turn and Derived usage. Additional boundary/crash/process fixtures remain pending at this checkpoint; no full conformance or receipt authority is claimed. Existing public quiescent fork, lease and all pre-WP7 models are unchanged."
+property = "OnlyAcceptedFrontier; InheritedBytesUnchanged; NoActorBeforeRecovery; EachQueueEndsOnce; FreshSuccessHasFreshIdentity; LocalRecoverySettles under stated local fairness. Controls accept active/open work, expose prefix early, rewrite inherited bytes, count inherited recovery as success or duplicate an interrupted ending."
+checks = ["make test-formal", "make test"]
