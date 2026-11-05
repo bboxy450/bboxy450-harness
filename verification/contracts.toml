@@ -6,6 +6,7 @@
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 
 [[contract]]
+<<<<<<< HEAD
 name = "HarnessAcpSteering"
 title = "Negotiated steering reaches an active prompt without cancellation or uncertain replay."
 models = ["HarnessAcpSteering", "BrokenHarnessAcpSteeringReplay", "BrokenHarnessAcpSteeringCancel"]
@@ -16,6 +17,54 @@ assumptions = "One admitted input, one negotiated capability and one independent
 property = "At most one delivery; no steering cancellation; unknown outcomes never become normal prompts. Explicitly unconsumed input can use the normal queue. Accepted steering receipts survive a racing original prompt end."
 checks = ["make test-formal", "make test"]
 additional_checks = ["make test-acp-steering", "make test-acp-steering-formal"]
+=======
+name = "HarnessDreamLifecycle"
+spec_record = "01M6J5WGRKN1SDGC6R0F79N5N7"
+spec_digest = "1fa101d85b19fb0db99f9e22e2c5a2f63db556e4a6de2bcac79cc6b7672650da"
+spec_sections = "8, 12.1, 12.2; fetched 2026-11-04T03:09:12.729Z"
+title = "Per-harness dream trial pins, entry-global terminal fences, crash and revival"
+models = ["HarnessDreamLifecycle", "BrokenHarnessDreamLifecycle", "BrokenHarnessDreamLifecycleFence", "BrokenHarnessDreamLifecyclePair"]
+controls = [{name="BrokenHarnessDreamLifecycle", expected="safety"}, {name="BrokenHarnessDreamLifecycleFence", expected="safety"}, {name="BrokenHarnessDreamLifecyclePair", expected="safety"}]
+sources = ["tests/formal/models.rs", ".bboxy/specs/dream-log.md"]
+implementation_tests = ["tests/formal_nonvacuity.rs", "tests/formal/models.rs", "tests/protocol_laws.rs", "tests/store_recovery.rs"]
+planned_sources = ["src/dream/projection.rs", "src/dream/trial.rs", "src/dream/recall.rs"]
+pending_implementation_tests = ["tests/dream_pipeline.rs", "tests/dream_audit_broken.rs", "tests/dream_recall.rs"]
+assumptions = "Independent models against dream-log sections 8 and 12 (2026-11-04 refinement), before src/dream exists. Exact finite native/Java graphs and verdicts are compared; no arbitrary Rust refinement claim. Existing log/API tests witness only substrate, not new dream implementation. Planned paths and pending dream process witnesses must be refreshed after implementation. Two entries (one original and one revival), two harnesses, one crash/restart, one held passing adoption. Proposed/Superseded/Expired are global; tested/adopted/rejected/retired are per-pair. Trial pins encode both entry birth and harness; content revision/known threshold validity are assumed. Terminal original is archived before allocating its distinct revival. Previous pair ranks cannot decrease. Load revalidates current pairs; lifecycle changes invalidate the cached view, while old native artifact bytes may remain. One trial outcome per pair/revision; numeric expiry/retirement eligibility and log-record granularity are abstract predicates. Weak fairness only of eligible trial-outcome groups and Restart; eligibility is admitted, never a promise that unavailable quota/root progresses. Native/vendor forgetting, real trial reruns/record durability and deadlines remain implementation-only."
+property = "AdoptedHasSamePairPassA/B; GlobalTerminalFencesDelayedAdoption; StateMonotoneA/B; SinkSubsetAdoptedA/B after Lower; ServedSubsetCurrentlyAdoptedA/B; RevivalNewId; ProposedLeavesA/B under WF(trial completions), CrashEventuallyRestarts under WF(Restart). Controls bypass pass, accept stale/global-terminal completion, or borrow another harness trial."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessDreamMerge"
+spec_record = "01M6J5WGRKN1SDGC6R0F79N5N7"
+spec_digest = "1fa101d85b19fb0db99f9e22e2c5a2f63db556e4a6de2bcac79cc6b7672650da"
+spec_sections = "8, 12.1, 12.2; fetched 2026-11-04T03:09:12.729Z"
+title = "Dream union projection converges independently for two harnesses without arrival clocks"
+models = ["HarnessDreamMerge", "BrokenHarnessDreamMerge", "BrokenHarnessDreamMergeHarness"]
+controls = [{name="BrokenHarnessDreamMerge", expected="safety"}, {name="BrokenHarnessDreamMergeHarness", expected="safety"}]
+sources = ["tests/formal/models.rs", ".bboxy/specs/dream-log.md"]
+implementation_tests = ["tests/formal_nonvacuity.rs", "tests/formal/models.rs", "tests/store_fork.rs", "tests/store_recovery.rs"]
+planned_sources = ["src/dream/projection.rs", "src/dream/graph.rs", "src/dream/join.rs"]
+pending_implementation_tests = ["tests/dream_graph.rs", "tests/dream_audit_broken.rs"]
+assumptions = "Independent models against dream-log sections 8 and 12 (2026-11-04 refinement), before src/dream exists. Exact finite native/Java graphs and verdicts are compared; no arbitrary Rust refinement claim. Existing log/API tests witness only substrate, not new dream implementation. Planned paths and pending dream process witnesses must be refreshed after implementation. One entry, two harnesses, two logs with zero to three writes each. Every write may choose either pair state or an entry-global expiry/supersession. A log is represented by the lossless sufficient statistic for projection: component-wise maximum of validated facts; absent/proposed0, tested1, adopted2, rejected3, retired4; global expired1/superseded2. Exact event byte custody/dedup by (session,seq), invalid-transition rejection and conflicting digest detection remain implementation-only. Duplicate/Reorder are explicit stuttering actions on this quotient; both ordered joins reach the same projection, including duplicate merges and global domination. Observation begins after finite writes stop. Weak fairness of observing both logs and Merge guarantees convergence; no writer/wall-clock fairness. Associativity follows the same component join; this is a bounded projection model, not a byte-set implementation proof."
+property = "CommutativeIdempotentProjection (component join, fixed terminal display and global fencing); BothLogsEventuallyObserved and ConvergesOnceWritesStop under WF(observe/merge). Controls overwrite by last arrival or apply a B rejection to A."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessDreamSink"
+spec_record = "01M6J5WGRKN1SDGC6R0F79N5N7"
+spec_digest = "1fa101d85b19fb0db99f9e22e2c5a2f63db556e4a6de2bcac79cc6b7672650da"
+spec_sections = "8, 12.1, 12.2; fetched 2026-11-04T03:09:12.729Z"
+title = "Immutable no-replace dream publication preserves hand writes and only serves eligible recorded pins"
+models = ["HarnessDreamSink", "BrokenHarnessDreamSink", "BrokenHarnessDreamSinkAdoption", "BrokenHarnessDreamSinkLoad"]
+controls = [{name="BrokenHarnessDreamSink", expected="safety"}, {name="BrokenHarnessDreamSinkAdoption", expected="safety"}, {name="BrokenHarnessDreamSinkLoad", expected="safety"}]
+sources = ["tests/formal/models.rs", ".bboxy/specs/dream-log.md", ".bboxy/interfaces/dream-sinks.md"]
+implementation_tests = ["tests/formal_nonvacuity.rs", "tests/formal/models.rs", "tests/store_recovery.rs"]
+planned_sources = ["src/dream/lower.rs", "src/dream/recall.rs"]
+pending_implementation_tests = ["tests/dream_sinks.rs", "tests/dream_recall.rs", "tests/dream_pipeline.rs"]
+assumptions = "Independent models against dream-log sections 8 and 12 (2026-11-04 refinement), before src/dream exists. Exact finite native/Java graphs and verdicts are compared; no arbitrary Rust refinement claim. Existing log/API tests witness only substrate, not new dream implementation. Planned paths and pending dream process witnesses must be refreshed after implementation. Two hand writes total (shared append/edit, target creation or ownership takeover), two distinct adoption arrivals, active/selected sets0..3, three read attempts, one immutable target, one crash/restart and one idempotent grouped Adoption receipt. Read, digest Check and publication are separate atomic actions; HandEdit remains enabled between Check and Publish. Hand byte identities and write versions are distinct, including ABA. The selected subset is nondeterministic within the active set; byte budgets/ranking remain implementation-only. Safe publication is atomic no-replace into a distinct dream-owned target; availability of this syscall and complete fsynced temporary bytes are assumptions, not a kernel proof. Pre-existing shared index/foreign target skips with Notice. Loader reachability precedes Adoption, and active pairs are rechecked at recording/load. Legitimate generated-file edits change ownership, invalidate the view and preserve bytes. A publication surviving crash may later be reached/recorded, exactly once. Weak fairness only of local worker steps and Restart; no hand-writer, vendor-loader or IO fairness. Native retained exposure is not current recall or forgetting."
+property = "HandLinesPreserved; PublishedBlockEqualsAdoptedSnapshot; PinnedOutputUncorrupted; ChangedOwnershipLabeled; NoFalseAdoption; ServedPinsValid; RegenerateSettlesWithoutHandWriterFairness / succeeds-or-explicit-skip under WF(worker), SinkCrashEventuallyRestarts under WF(Restart). Controls restore stale shared overwrite-rename, record before actual publication or load stale/unrecorded pins."
+checks = ["make test-formal", "make test"]
+>>>>>>> cbe16da8 (Model dream lifecycle, merge and immutable sink contracts)
 
 [[contract]]
 name = "HarnessNativeUsage"

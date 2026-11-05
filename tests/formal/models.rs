@@ -4115,8 +4115,789 @@ pub fn acp_steering(control: u8) -> Model {
     m
 }
 
+// Project-owned dream-log §8 / memory-graph §4 contract models.
+// Origin: https://github.com/bboxy450/bboxy450-harness
+// Reuse credit policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+fn dream_lifecycle(mode: u8) -> Model {
+    // Refined contract: Proposed, Superseded and Expired are entry-global;
+    // Tested/Adopted/Rejected/Retired belong to (entry,harness). Trial pins
+    // contain the entry birth; harness identity is represented by its slot.
+    let mut m = base::<25>(
+        "DreamLifecycle",
+        mode != 0,
+        &[
+            ("entry", 1, 0),
+            ("entry_id", 1, 0),
+            ("crash", 2, 0),
+            ("proposed", 1, 0),
+            ("global_terminal", 2, 0),
+            ("state_a", 4, 0),
+            ("trial_a", 3, 0),
+            ("pass_a", 4, 0),
+            ("adopt_pin_a", 4, 0),
+            ("previous_a", 4, 0),
+            ("sink_a", 2, 0),
+            ("dirty_a", 1, 1),
+            ("state_b", 4, 0),
+            ("trial_b", 3, 0),
+            ("pass_b", 4, 0),
+            ("adopt_pin_b", 4, 0),
+            ("previous_b", 4, 0),
+            ("sink_b", 2, 0),
+            ("dirty_b", 1, 1),
+            ("held_entry", 2, 0),
+            ("held_pass", 4, 0),
+            ("archived_terminal", 1, 0),
+            ("adopt_global_at_apply", 2, 0),
+            ("served_a", 2, 0),
+            ("served_b", 2, 0),
+        ],
+    );
+    if mode == 2 {
+        m.name = "BrokenHarnessDreamLifecycleFence".into();
+    }
+    if mode == 3 {
+        m.name = "BrokenHarnessDreamLifecyclePair".into();
+    }
+    // Pair states: proposed0, tested1, adopted2, rejected3, retired4.
+    // The entry-global terminal overlays both harness projections.
+    let live = eq(2, 1).negate();
+    let open = all([live.clone(), eq(3, 1), eq(4, 0)]);
+    act(
+        &mut m,
+        "Propose",
+        all([live.clone(), eq(3, 0)]),
+        &[(3, Int(1))],
+    );
+    for s in [5, 12] {
+        let h = if s == 5 { "A" } else { "B" };
+        let other_pass = if s == 5 { 14 } else { 7 };
+        let pair_pin = Var(0).plus(Var(0)).plus(Int(if s == 5 { 1 } else { 2 }));
+        let mut trials = Vec::new();
+        for (verdict, name) in [(1, "Pass"), (2, "Fail"), (3, "Inconclusive")] {
+            trials.push(m.actions.len());
+            act(
+                &mut m,
+                &format!("Trial{name}{h}"),
+                all([open.clone(), eq(s, 0)]),
+                &[
+                    (s, Int(1)),
+                    (s + 1, Int(verdict)),
+                    (
+                        s + 2,
+                        if verdict == 1 {
+                            pair_pin.clone()
+                        } else {
+                            Int(0)
+                        },
+                    ),
+                    (s + 4, Var(s)),
+                    (s + 6, Int(1)),
+                ],
+            );
+        }
+        let admission = match mode {
+            1 => eq(s, 0).or(eq(s, 1)),
+            3 => all([eq(s, 1), eq(s + 1, 1).or(Int(0).lt(Var(other_pass)))]),
+            _ => all([eq(s, 1), eq(s + 1, 1)]),
+        };
+        act(
+            &mut m,
+            &format!("Adopt{h}"),
+            all([open.clone(), admission]),
+            &[
+                (s, Int(2)),
+                (s + 3, Var(if mode == 3 { other_pass } else { s + 2 })),
+                (s + 4, Var(s)),
+                (s + 6, Int(1)),
+                (22, Var(4)),
+            ],
+        );
+        act(
+            &mut m,
+            &format!("Reject{h}"),
+            all([open.clone(), eq(s, 1), eq(s + 1, 2)]),
+            &[(s, Int(3)), (s + 4, Var(s)), (s + 6, Int(1))],
+        );
+        act(
+            &mut m,
+            &format!("Retire{h}"),
+            all([open.clone(), eq(s, 2)]),
+            &[(s, Int(4)), (s + 4, Var(s)), (s + 6, Int(1))],
+        );
+        for adopted in [false, true] {
+            let effective = all([eq(3, 1), eq(4, 0), eq(s, 2)]);
+            act(
+                &mut m,
+                &format!("Lower{h}Adopted{adopted}"),
+                all([
+                    live.clone(),
+                    if adopted {
+                        effective.clone()
+                    } else {
+                        effective.clone().negate()
+                    },
+                ]),
+                &[
+                    (s + 5, if adopted { Var(0).plus(Int(1)) } else { Int(0) }),
+                    (s + 6, Int(0)),
+                ],
+            );
+            if adopted {
+                safe(
+                    &mut m,
+                    &format!("AdoptedHasSamePairPass{h}"),
+                    effective.negate().or(all([
+                        Var(s + 2).eq(pair_pin.clone()),
+                        Var(s + 3).eq(Var(s + 2)),
+                    ])),
+                );
+            }
+        }
+        safe(&mut m, &format!("StateMonotone{h}"), Var(s + 4).le(Var(s)));
+        safe(
+            &mut m,
+            &format!("SinkSubsetAdopted{h}"),
+            eq(s + 6, 1).or(
+                all([eq(4, 0), eq(s, 2), Var(s + 5).eq(Var(0).plus(Int(1)))])
+                    .or(all([eq(4, 0).negate().or(eq(s, 2).negate()), eq(s + 5, 0)])),
+            ),
+        );
+        progress(
+            &mut m,
+            &format!("ProposedLeaves{h}"),
+            all([eq(3, 1), eq(4, 0), eq(s, 0)]),
+            eq(3, 0).or(eq(4, 0).negate()).or(eq(s, 0).negate()),
+            trials,
+        );
+    }
+    act(
+        &mut m,
+        "HoldPassingAdoptionA",
+        all([open.clone(), eq(5, 1), eq(6, 1), eq(19, 0)]),
+        &[(19, Var(0).plus(Int(1))), (20, Var(7))],
+    );
+    act(
+        &mut m,
+        "ApplyHeldAdoptionA",
+        all([
+            live.clone(),
+            Int(0).lt(Var(19)),
+            if mode == 2 {
+                Bool(true)
+            } else {
+                all([open.clone(), eq(5, 1), Var(19).eq(Var(0).plus(Int(1)))])
+            },
+        ]),
+        &[
+            (5, Int(2)),
+            (8, Var(20)),
+            (9, Var(5)),
+            (11, Int(1)),
+            (19, Int(0)),
+            (22, Var(4)),
+        ],
+    );
+    act(
+        &mut m,
+        "DiscardStaleAdoption",
+        all([
+            Int(0).lt(Var(19)),
+            eq(4, 0)
+                .negate()
+                .or(Var(19).eq(Var(0).plus(Int(1))).negate()),
+        ]),
+        &[(19, Int(0))],
+    );
+    for (terminal, name) in [(1, "Supersede"), (2, "Expire")] {
+        act(
+            &mut m,
+            name,
+            open.clone(),
+            &[(4, Int(terminal)), (11, Int(1)), (18, Int(1))],
+        );
+    }
+    act(&mut m, "Crash", eq(2, 0), &[(2, Int(1))]);
+    let restart = m.actions.len();
+    act(&mut m, "Restart", eq(2, 1), &[(2, Int(2))]);
+    progress(
+        &mut m,
+        "CrashEventuallyRestarts",
+        eq(2, 1),
+        eq(2, 2),
+        vec![restart],
+    );
+    act(
+        &mut m,
+        "ReviveNewId",
+        all([
+            live,
+            eq(0, 0),
+            eq(3, 1),
+            eq(4, 0)
+                .negate()
+                .or(all([Int(3).le(Var(5)), Int(3).le(Var(12))])),
+        ]),
+        &[
+            (0, Int(1)),
+            (1, Int(1)),
+            (3, Int(0)),
+            (4, Int(0)),
+            (21, Int(1)),
+            (5, Int(0)),
+            (6, Int(0)),
+            (7, Int(0)),
+            (8, Int(0)),
+            (9, Int(0)),
+            (11, Int(1)),
+            (12, Int(0)),
+            (13, Int(0)),
+            (14, Int(0)),
+            (15, Int(0)),
+            (16, Int(0)),
+            (18, Int(1)),
+        ],
+    );
+    for (pair, sink, served, h) in [(5, 10, 23, "A"), (12, 17, 24, "B")] {
+        let eligible = all([eq(4, 0), eq(pair, 2), Var(sink).eq(Var(0).plus(Int(1)))]);
+        act(
+            &mut m,
+            &format!("LoadCurrent{h}"),
+            all([eq(2, 1).negate(), eligible.clone()]),
+            &[(served, Var(0).plus(Int(1)))],
+        );
+        act(
+            &mut m,
+            &format!("OmitStale{h}"),
+            eligible.clone().negate(),
+            &[(served, Int(0))],
+        );
+        safe(
+            &mut m,
+            &format!("ServedSubsetCurrentlyAdopted{h}"),
+            eq(served, 0).or(all([eligible, Var(served).eq(Var(0).plus(Int(1)))])),
+        );
+    }
+    // A request's view is invalidated by lifecycle changes; an old physical
+    // artifact may remain, but the next load must revalidate the active pair.
+    for action in &mut m.actions {
+        for (pair, served) in [(5, 23), (12, 24)] {
+            if action
+                .updates
+                .iter()
+                .any(|(field, _)| [0, 4, pair].contains(field))
+            {
+                action.updates.push((served, Int(0)));
+            }
+        }
+    }
+    safe(
+        &mut m,
+        "RevivalNewId",
+        eq(0, 0).or(all([eq(1, 1), eq(21, 1)])),
+    );
+    safe(&mut m, "GlobalTerminalFencesDelayedAdoption", eq(22, 0));
+    m
+}
+
+fn dream_merge(mode: u8) -> Model {
+    // The union's lossless sufficient statistic for this projection is the
+    // component-wise max of validated (entry,harness) states and global
+    // terminal facts. Duplicate/reordered envelopes cannot change that join.
+    // No timestamp, wall clock or arrival-order winner exists in the state.
+    let mut m = base::<13>(
+        "DreamMerge",
+        mode != 0,
+        &[
+            ("writes_a", 3, 0),
+            ("writes_b", 3, 0),
+            ("log_a_pair_a", 4, 0),
+            ("log_a_pair_b", 4, 0),
+            ("log_a_global", 2, 0),
+            ("log_b_pair_a", 4, 0),
+            ("log_b_pair_b", 4, 0),
+            ("log_b_global", 2, 0),
+            ("projection_a", 6, 0),
+            ("projection_b", 6, 0),
+            ("projection_global", 2, 0),
+            ("observed", 3, 0),
+            ("merged", 1, 0),
+        ],
+    );
+    if mode == 2 {
+        m.name = "BrokenHarnessDreamMergeHarness".into();
+    }
+    for writer in 0..2 {
+        let offset = 2 + writer * 3;
+        act(
+            &mut m,
+            &format!("WriteProposed{writer}"),
+            Var(writer).lt(Int(3)),
+            &[(writer, Var(writer).plus(Int(1)))],
+        );
+        for component in 0..3 {
+            for state in 1..=if component == 2 { 2 } else { 4 } {
+                for advances in [false, true] {
+                    let field = offset + component;
+                    act(
+                        &mut m,
+                        &format!("Write{writer}Component{component}State{state}Advance{advances}"),
+                        all([
+                            Var(writer).lt(Int(3)),
+                            if advances {
+                                Var(field).lt(Int(state))
+                            } else {
+                                Int(state).le(Var(field))
+                            },
+                        ]),
+                        &[
+                            (writer, Var(writer).plus(Int(1))),
+                            (field, if advances { Int(state) } else { Var(field) }),
+                        ],
+                    );
+                }
+            }
+        }
+        act(
+            &mut m,
+            &format!("StopWriter{writer}"),
+            Var(writer).lt(Int(3)),
+            &[(writer, Int(3))],
+        );
+    }
+    let stopped = all([eq(0, 3), eq(1, 3)]);
+    let mut observe = Vec::new();
+    for (before, after, name) in [
+        (0, 1, "ObserveA"),
+        (2, 3, "ObserveAAfterB"),
+        (0, 2, "ObserveB"),
+        (1, 3, "ObserveBAfterA"),
+    ] {
+        observe.push(m.actions.len());
+        act(
+            &mut m,
+            name,
+            all([stopped.clone(), eq(11, before)]),
+            &[(11, Int(after))],
+        );
+    }
+    act(&mut m, "DuplicateEnvelope", eq(11, 3), &[]);
+    act(&mut m, "ReorderObservedEnvelopes", eq(11, 3), &[]);
+    let mut merges = Vec::new();
+    for (first, second) in [(2, 5), (5, 2)] {
+        for winners in 0..8 {
+            let mut guard = vec![eq(11, 3)];
+            let mut selected = [0; 3];
+            for (component, selected_field) in selected.iter_mut().enumerate() {
+                let (left, right) = (first + component, second + component);
+                let right_wins = winners & (1 << component) != 0;
+                guard.push(if right_wins {
+                    Var(left).lt(Var(right))
+                } else {
+                    Var(right).le(Var(left))
+                });
+                *selected_field = if mode == 1 || right_wins { right } else { left };
+            }
+            for global in 0..=2 {
+                for cross in [false, true] {
+                    merges.push(m.actions.len());
+                    let mut g = guard.clone();
+                    g.push(eq(selected[2], global));
+                    g.push(if cross {
+                        Int(3).le(Var(selected[1]))
+                    } else {
+                        Var(selected[1]).lt(Int(3))
+                    });
+                    act(
+                        &mut m,
+                        &format!(
+                            "Merge{first}Then{second}Winners{winners}Global{global}Cross{cross}"
+                        ),
+                        all(g),
+                        &[
+                            (
+                                8,
+                                if global != 0 {
+                                    Int(4 + global)
+                                } else {
+                                    Var(if mode == 2 && cross {
+                                        selected[1]
+                                    } else {
+                                        selected[0]
+                                    })
+                                },
+                            ),
+                            (
+                                9,
+                                if global != 0 {
+                                    Int(4 + global)
+                                } else {
+                                    Var(selected[1])
+                                },
+                            ),
+                            (10, Var(selected[2])),
+                            (12, Int(1)),
+                        ],
+                    );
+                }
+            }
+        }
+    }
+    let maximum = |out, left, right| {
+        all([Var(right).le(Var(left)), Var(out).eq(Var(left))])
+            .or(all([Var(left).lt(Var(right)), Var(out).eq(Var(right))]))
+    };
+    safe(
+        &mut m,
+        "CommutativeIdempotentProjection",
+        eq(12, 0).or(all([
+            maximum(10, 4, 7),
+            eq(10, 0)
+                .negate()
+                .or(all([maximum(8, 2, 5), maximum(9, 3, 6)])),
+            eq(10, 1).negate().or(all([eq(8, 5), eq(9, 5)])),
+            eq(10, 2).negate().or(all([eq(8, 6), eq(9, 6)])),
+        ])),
+    );
+    progress(
+        &mut m,
+        "BothLogsEventuallyObserved",
+        stopped.clone(),
+        eq(11, 3),
+        observe,
+    );
+    progress(
+        &mut m,
+        "ConvergesOnceWritesStop",
+        stopped,
+        eq(12, 1),
+        merges,
+    );
+    m
+}
+
+fn dream_sink(mode: u8) -> Model {
+    // Safe mode publishes a new dream-owned immutable artifact with an
+    // atomic no-replace operation. It never renames over the shared index.
+    // Broken mode performs the old shared-file read/check/rename sequence.
+    // Hand bytes are finite content identities, separate from write versions:
+    // the second hand edit can return to the original bytes (ABA).
+    let mut m = base::<23>(
+        "DreamSink",
+        mode != 0,
+        &[
+            ("hand_writes", 2, 0),
+            ("hand_bytes", 2, 0),
+            ("expected_hand", 2, 0),
+            ("adopted", 3, 0),
+            ("phase", 4, 0),
+            ("attempt", 3, 0),
+            ("read_version", 2, 0),
+            ("read_hand", 2, 0),
+            ("read_adopted", 3, 0),
+            ("artifact_owner", 2, 0),
+            ("artifact_bytes", 3, 0),
+            ("artifact_pin", 3, 0),
+            ("valid", 1, 0),
+            ("ownership_changed", 1, 0),
+            ("notice", 1, 0),
+            ("published", 1, 0),
+            ("active", 3, 0),
+            ("recorded", 1, 0),
+            ("reachable", 1, 0),
+            ("crash", 2, 0),
+            ("served", 3, 0),
+            ("record_active", 3, 0),
+            ("shared_index", 1, 0),
+        ],
+    );
+    if mode == 2 {
+        m.name = "BrokenHarnessDreamSinkAdoption".into();
+    }
+    if mode == 3 {
+        m.name = "BrokenHarnessDreamSinkLoad".into();
+    }
+    // Finite membership relation for two-entry selected/active sets.
+    let subset = |small, large| {
+        all([eq(small, 0)
+            .or(eq(small, 1).and(eq(large, 1).or(eq(large, 3))))
+            .or(eq(small, 2).and(eq(large, 2).or(eq(large, 3))))
+            .or(eq(small, 3).and(eq(large, 3)))])
+    };
+    // adopted is a two-entry bitset, not a count: either adoption can arrive first.
+    for (before, after) in [(0, 1), (0, 2), (1, 3), (2, 3)] {
+        act(
+            &mut m,
+            &format!("Adopt{before}To{after}"),
+            eq(3, before),
+            &[
+                (3, Int(after)),
+                (16, Var(16).plus(Int(after - before))),
+                (20, Int(0)),
+            ],
+        );
+    }
+    for (before, after) in [(1, 0), (2, 0), (3, 1), (3, 2)] {
+        act(
+            &mut m,
+            &format!("Retire{before}To{after}"),
+            eq(16, before),
+            &[(16, Int(after)), (20, Int(0))],
+        );
+    }
+    act(
+        &mut m,
+        "SharedIndexAlreadyExists",
+        eq(4, 0),
+        &[(22, Int(1))],
+    );
+    for (step, bytes, name) in [
+        (0, 1, "HandAppend"),
+        (1, 0, "HandEditABA"),
+        (1, 2, "HandEditNew"),
+    ] {
+        act(
+            &mut m,
+            name,
+            eq(0, step),
+            &[(0, Int(step + 1)), (1, Int(bytes)), (2, Int(bytes))],
+        );
+    }
+    let mut worker = Vec::new();
+    for selected in 0..=3 {
+        worker.push(m.actions.len());
+        let eligible = match selected {
+            0 => Bool(true),
+            1 => eq(16, 1).or(eq(16, 3)),
+            2 => eq(16, 2).or(eq(16, 3)),
+            _ => eq(16, 3),
+        };
+        act(
+            &mut m,
+            &format!("ReadSnapshotSubset{selected}"),
+            all([eq(4, 0), Var(5).lt(Int(3)), eligible]),
+            &[
+                (4, Int(1)),
+                (5, Var(5).plus(Int(1))),
+                (6, Var(0)),
+                (7, Var(1)),
+                (8, Int(selected)),
+            ],
+        );
+    }
+    worker.push(m.actions.len());
+    act(
+        &mut m,
+        "CheckDigest",
+        all([eq(4, 1), Var(7).eq(Var(1))]),
+        &[(4, Int(2))],
+    );
+    for exhausted in [false, true] {
+        worker.push(m.actions.len());
+        act(
+            &mut m,
+            &format!("RetryExhausted{exhausted}"),
+            all([
+                eq(4, 1),
+                Var(7).eq(Var(1)).negate(),
+                if exhausted {
+                    eq(5, 3)
+                } else {
+                    Var(5).lt(Int(3))
+                },
+            ]),
+            &[
+                (4, Int(if exhausted { 4 } else { 0 })),
+                (14, Int(i64::from(exhausted))),
+            ],
+        );
+    }
+    // This is the critical interleaving: the hand writer runs AFTER CheckDigest.
+    // No-replace creates a different immutable path; the shared bytes stay live.
+    worker.push(m.actions.len());
+    let mut publication = vec![
+        (4, Int(3)),
+        (9, Int(1)),
+        (10, Var(8)),
+        (11, Var(8)),
+        (12, Int(1)),
+        (15, Int(1)),
+    ];
+    if mode == 1 {
+        publication.push((1, Var(7)));
+    }
+    act(
+        &mut m,
+        "PublishNoReplace",
+        all([eq(4, 2), eq(9, 0), eq(22, 0)]),
+        &publication,
+    );
+    worker.push(m.actions.len());
+    act(
+        &mut m,
+        "SharedIndexSkip",
+        all([eq(4, 2), eq(22, 1)]),
+        &[(4, Int(4)), (14, Int(1))],
+    );
+    act(
+        &mut m,
+        "HandCreatesTargetAfterCheck",
+        all([eq(4, 2), eq(9, 0), Var(0).lt(Int(2))]),
+        &[
+            (9, Int(2)),
+            (10, Int(3)),
+            (13, Int(1)),
+            (0, Var(0).plus(Int(1))),
+        ],
+    );
+    worker.push(m.actions.len());
+    act(
+        &mut m,
+        "NoReplaceConflictNotice",
+        all([eq(4, 2), eq(9, 2)]),
+        &[(4, Int(4)), (14, Int(1)), (12, Int(0))],
+    );
+    // Hand editing a published artifact is legitimate. The pinned IR remains
+    // immutable, but the file is now foreign; never claim its digest is valid.
+    for bytes in 0..=3 {
+        act(
+            &mut m,
+            &format!("HandTakesOwnershipBytes{bytes}"),
+            all([eq(9, 1), Var(0).lt(Int(2))]),
+            &[
+                (9, Int(2)),
+                (10, Int(bytes)),
+                (12, Int(0)),
+                (13, Int(1)),
+                (0, Var(0).plus(Int(1))),
+                (20, Int(0)),
+            ],
+        );
+    }
+    act(
+        &mut m,
+        "LoaderReachesPublication",
+        all([eq(15, 1), eq(9, 1), eq(12, 1), eq(22, 0)]),
+        &[(18, Int(1))],
+    );
+    act(
+        &mut m,
+        "RecordAdoption",
+        if mode == 2 {
+            eq(4, 1)
+        } else {
+            all([
+                eq(15, 1),
+                eq(18, 1),
+                eq(9, 1),
+                eq(12, 1),
+                Int(0).lt(Var(11)),
+                subset(11, 16),
+            ])
+        },
+        &[(17, Int(1)), (21, Var(16))],
+    );
+    m.actions.last_mut().unwrap().guard = m.actions.last().unwrap().guard.clone().and(eq(17, 0));
+    act(&mut m, "ReplayAdoptionReceipt", eq(17, 1), &[]);
+    act(
+        &mut m,
+        "LoadEligiblePins",
+        all([eq(17, 1), eq(9, 1), eq(12, 1), subset(11, 16)]),
+        &[(20, Var(11))],
+    );
+    act(
+        &mut m,
+        "LoadMissingOrStale",
+        eq(17, 0)
+            .or(eq(9, 1).negate())
+            .or(eq(12, 0))
+            .or(subset(11, 16).negate()),
+        &[(20, if mode == 3 { Var(11) } else { Int(0) })],
+    );
+    safe(
+        &mut m,
+        "NoFalseAdoption",
+        eq(17, 0).or(all([eq(15, 1), eq(18, 1), subset(11, 21)])),
+    );
+    safe(
+        &mut m,
+        "ServedPinsValid",
+        eq(20, 0).or(all([
+            eq(17, 1),
+            eq(9, 1),
+            eq(12, 1),
+            subset(20, 16),
+            Var(20).eq(Var(11)),
+        ])),
+    );
+    // The dream worker can crash at every writer stage. Published artifacts
+    // survive; recording is idempotent and only follows loader reachability.
+    for action in &mut m.actions {
+        if !action.name.starts_with("Hand")
+            && !action.name.starts_with("Adopt")
+            && !action.name.starts_with("Retire")
+        {
+            action.guard = action.guard.clone().and(eq(19, 1).negate());
+        }
+    }
+    act(&mut m, "Crash", eq(19, 0), &[(19, Int(1))]);
+    let restart = m.actions.len();
+    act(&mut m, "Restart", eq(19, 1), &[(19, Int(2))]);
+    progress(
+        &mut m,
+        "SinkCrashEventuallyRestarts",
+        eq(19, 1),
+        eq(19, 2),
+        vec![restart],
+    );
+    safe(&mut m, "HandLinesPreserved", Var(1).eq(Var(2)));
+    safe(
+        &mut m,
+        "PublishedBlockEqualsAdoptedSnapshot",
+        eq(15, 0).or(Var(11).eq(Var(8))),
+    );
+    safe(
+        &mut m,
+        "PinnedOutputUncorrupted",
+        eq(12, 0).or(all([eq(9, 1), Var(10).eq(Var(11)), eq(15, 1)])),
+    );
+    safe(
+        &mut m,
+        "ChangedOwnershipLabeled",
+        eq(9, 2).negate().or(all([eq(13, 1), eq(12, 0)])),
+    );
+    progress(
+        &mut m,
+        "RegenerateSettlesWithoutHandWriterFairness",
+        Bool(true),
+        eq(4, 3).or(eq(4, 4)),
+        worker.clone(),
+    );
+    // A no-replace collision is an explicit Notice, never a successful claim.
+    // With at most two hand writes there cannot be three digest conflicts.
+    progress(
+        &mut m,
+        "RegenerateSucceedsOrOwnershipConflict",
+        Bool(true),
+        eq(4, 3).or(eq(14, 1)),
+        worker,
+    );
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (dream_sink(0), "pass"),
+        (dream_sink(1), "safety"),
+        (dream_sink(2), "safety"),
+        (dream_sink(3), "safety"),
+        (dream_lifecycle(0), "pass"),
+        (dream_lifecycle(1), "safety"),
+        (dream_lifecycle(2), "safety"),
+        (dream_lifecycle(3), "safety"),
+        (dream_merge(0), "pass"),
+        (dream_merge(1), "safety"),
+        (dream_merge(2), "safety"),
         (scroll_resume_control(), "safety"),
         (acp_steering(0), "pass"),
         (acp_steering(1), "safety"),
@@ -4285,6 +5066,187 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
     }
     out.push((projected, "pass"));
     out
+}
+
+#[test]
+fn dream_sink_preserves_check_publish_races_and_labels_foreign_edits() {
+    let good = dream_sink(0).check(100_000).unwrap();
+    assert!(
+        good.violations.is_empty(),
+        "{:?}",
+        good.violations
+            .iter()
+            .map(|v| &v.property)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        good.states.iter().any(|s| s[4] == 2 && s[0] > s[6]),
+        "hand edit after the digest check must be reachable"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[4] == 3 && s[0] > s[6] && s[1] == s[2]),
+        "immutable publication preserves the hand edit in the race window"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[4] == 4 && s[9] == 2 && s[14] == 1 && s[15] == 0),
+        "no-replace collision must refuse rather than claim publication"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[15] == 1 && s[9] == 2 && s[12] == 0 && s[13] == 1),
+        "legitimate edit after publication must change the ownership label"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[0] == 2 && s[1] == 0 && s[5] == 3 && s[4] == 3),
+        "two invalidated reads, including ABA, leave the third attempt available"
+    );
+    for snapshot in 0..=3 {
+        assert!(good.states.iter().any(|s| s[15] == 1 && s[11] == snapshot));
+    }
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[15] == 1 && s[17] == 0 && s[19] == 1),
+        "crash after publication before Adoption must be reachable"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[15] == 1 && s[17] == 1 && s[19] == 2),
+        "restart can record a reachable existing publication"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[22] == 1 && s[4] == 4 && s[17] == 0 && s[15] == 0),
+        "a pre-existing shared index must skip with no false Adoption"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[17] == 1 && s[11] > 0 && s[16] == 0 && s[20] == 0),
+        "terminal entries must be omitted even when their old artifact remains"
+    );
+    for (mode, property) in [(2, "NoFalseAdoption"), (3, "ServedPinsValid")] {
+        let bad = dream_sink(mode).check(100_000).unwrap();
+        assert!(bad.violations.iter().any(|v| v.property == property));
+    }
+    let bad = dream_sink(1).check(100_000).unwrap();
+    assert!(
+        bad.violations
+            .iter()
+            .any(|v| v.property == "HandLinesPreserved")
+    );
+    assert!(
+        bad.states
+            .iter()
+            .any(|s| s[4] == 3 && s[0] > s[6] && s[1] != s[2])
+    );
+}
+
+#[test]
+fn dream_lifecycle_reaches_independent_harnesses_crash_and_revival() {
+    let graph = dream_lifecycle(0).check(100_000).unwrap();
+    assert!(graph.violations.is_empty());
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[5] == 2 && s[12] == 1 && s[13] == 3),
+        "one harness adopts while another remains inconclusive"
+    );
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[2] == 1 && s[5] == 2 && s[10] == 1)
+    );
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[0] == 1 && s[5] == 2 && s[10] == 2)
+    );
+    assert!(
+        graph.states.iter().any(|s| s[0] == 1 && s[19] == 1),
+        "the old adoption must survive global terminal and revival"
+    );
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[4] == 1 && s[5] == 2 && s[10] == 0 && s[11] == 0),
+        "global terminal overlays an adopted pair and lower removes its sink"
+    );
+    for (mode, property) in [
+        (1, "AdoptedHasSamePairPassA"),
+        (2, "GlobalTerminalFencesDelayedAdoption"),
+        (3, "AdoptedHasSamePairPassA"),
+    ] {
+        let bad = dream_lifecycle(mode).check(100_000).unwrap();
+        assert!(
+            bad.violations.iter().any(|v| v.property == property),
+            "{mode}: {property}"
+        );
+        if mode == 2 {
+            assert!(
+                bad.states
+                    .iter()
+                    .any(|s| s[0] == 1 && s[5] == 2 && s[8] == 1 && s[22] == 0),
+                "old passing completion must actually reach a new revival in the control"
+            );
+        }
+        if mode == 3 {
+            assert!(
+                bad.states
+                    .iter()
+                    .any(|s| s[7] == 1 && s[14] == 2 && s[8] == 2 && s[5] == 2),
+                "wrong harness trial pin must be rejected even when both harnesses passed"
+            );
+        }
+    }
+}
+
+#[test]
+fn dream_merge_explores_both_orders_and_independent_harnesses() {
+    let graph = dream_merge(0).check(100_000).unwrap();
+    assert!(graph.violations.is_empty());
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[8] == 2 && s[9] == 3 && s[12] == 1),
+        "B rejection cannot erase A adoption"
+    );
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[2] == 2 && s[7] == 1 && s[8] == 5 && s[9] == 5 && s[12] == 1),
+        "an expiry in the other log fences an adoption"
+    );
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[4] == 1 && s[7] == 2 && s[8] == 6 && s[12] == 1),
+        "global terminal display uses fixed superseded-over-expired order"
+    );
+    for mode in [1, 2] {
+        let bad = dream_merge(mode).check(100_000).unwrap();
+        assert!(
+            bad.violations
+                .iter()
+                .any(|v| v.property == "CommutativeIdempotentProjection")
+        );
+    }
 }
 
 #[test]
