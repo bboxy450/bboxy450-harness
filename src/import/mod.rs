@@ -104,8 +104,39 @@ pub fn native_identity(record: &Value) -> Option<crate::protocol::Native> {
     })
 }
 
+pub const MATERIALIZER_REVISION: u32 = 1;
+/// SHA256(ASCII "bboxy450-native-id-v1", NUL, namespace[32], domain_len_u64be,
+/// domain_utf8 || ordinal_u64be), first 16 bytes as an existing ULID-shaped ID.
+pub fn materialized_id(namespace: &[u8; 32], domain: &str, ordinal: u64) -> ulid::Ulid {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(b"bboxy450-native-id-v1");
+    hash.update([0u8]);
+    hash.update(namespace);
+    hash.update((domain.len() as u64).to_be_bytes());
+    hash.update(domain.as_bytes());
+    hash.update(ordinal.to_be_bytes());
+    let digest = hash.finalize();
+    ulid::Ulid::from(u128::from_be_bytes(
+        digest[..16].try_into().expect("SHA256 width"),
+    ))
+}
+struct DeterministicIds {
+    namespace: [u8; 32],
+    ordinals: BTreeMap<&'static str, u64>,
+}
+impl DeterministicIds {
+    fn next(&mut self, domain: &'static str) -> ulid::Ulid {
+        let ordinal = self.ordinals.entry(domain).or_default();
+        let id = materialized_id(&self.namespace, domain, *ordinal);
+        *ordinal += 1;
+        id
+    }
+}
+
 /// The streaming projection of one native session.
 pub struct Projector {
+    deterministic_ids: Option<DeterministicIds>,
     native: Native,
     turn: Option<TurnId>,
     tools: BTreeMap<String, OpenTool>,
@@ -128,6 +159,7 @@ pub struct Projector {
 impl Projector {
     pub fn new(native: Native) -> Self {
         Self {
+            deterministic_ids: None,
             native,
             turn: None,
             tools: BTreeMap::new(),
@@ -144,6 +176,32 @@ impl Projector {
             #[cfg(feature = "test-fixtures")]
             restore_drop: false,
         }
+    }
+    fn deterministic(native: Native, namespace: [u8; 32]) -> Self {
+        let mut p = Self::new(native);
+        p.deterministic_ids = Some(DeterministicIds {
+            namespace,
+            ordinals: BTreeMap::new(),
+        });
+        p
+    }
+    fn item_id(&mut self) -> ItemId {
+        self.deterministic_ids
+            .as_mut()
+            .map(|ids| ItemId(ids.next("item")))
+            .unwrap_or_default()
+    }
+    fn turn_id(&mut self) -> TurnId {
+        self.deterministic_ids
+            .as_mut()
+            .map(|ids| TurnId(ids.next("turn")))
+            .unwrap_or_default()
+    }
+    fn generated_call_id(&mut self) -> String {
+        self.deterministic_ids
+            .as_mut()
+            .map(|ids| ids.next("call").to_string())
+            .unwrap_or_else(|| ItemId::new().to_string())
     }
     pub fn push(&mut self, record: &Value) -> Vec<Event> {
         if let Some(observed) = edge::vcs(self.native, record) {
@@ -215,14 +273,14 @@ impl Projector {
             })
             .collect()
     }
-    fn native_record(&self, record: &Value, out: &mut Vec<Event>) {
+    fn native_record(&mut self, record: &Value, out: &mut Vec<Event>) {
         #[cfg(feature = "test-fixtures")]
         if self.restore_drop {
             return;
         }
         let record = edge::sanitized_record(self.native, record);
         if out.iter().any(|e| matches!(e, Event::ItemCompleted { body: Item::Native { raw, .. }, .. } if raw == &record)) { return; }
-        let item = ItemId::new();
+        let item = self.item_id();
         out.push(Event::ItemStarted {
             turn: self.turn,
             item,
@@ -258,7 +316,7 @@ impl Projector {
         if let Some(t) = self.turn {
             return t;
         }
-        let turn = TurnId::new();
+        let turn = self.turn_id();
         out.push(Event::TurnQueued { turn });
         out.push(Event::TurnStarted {
             turn,
@@ -414,7 +472,7 @@ impl Projector {
             // Cumulative counters can span models; the current model is not a
             // billed identity for all preceding calls.
             usage.context_window = window;
-            let item = ItemId::new();
+            let item = self.item_id();
             out.push(Event::ItemStarted {
                 turn: self.turn,
                 item,
@@ -435,7 +493,7 @@ impl Projector {
     }
     fn record(&mut self, body: Item, out: &mut Vec<Event>) {
         let turn = self.begin_turn(out);
-        let item = ItemId::new();
+        let item = self.item_id();
         out.push(Event::ItemStarted {
             turn: Some(turn),
             item,
@@ -455,9 +513,9 @@ impl Projector {
             return;
         }
         let t = OpenTool {
-            item: ItemId::new(),
+            item: self.item_id(),
             call_id: if call_id.is_empty() {
-                ItemId::new().to_string()
+                self.generated_call_id()
             } else {
                 call_id.to_owned()
             },
@@ -1043,4 +1101,465 @@ pub fn rfc3339_ms(s: &str) -> Option<u64> {
     let days = era * 146_097 + doe - 719_468;
     let secs = days * 86_400 + h * 3600 + mi * 60 + sec - offset;
     u64::try_from(secs * 1000 + ms).ok()
+}
+
+// Opt-in deterministic native custody, d20261103136344 (revision 1).
+// Existing import/watch/reproject use Projector::new and unchanged default clocks.
+// Origin/policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+pub const MAX_NATIVE_SNAPSHOT_BYTES: u64 = 16 * 1024 * 1024;
+pub const MAX_NATIVE_RECORDS: usize = 10_000;
+const MAX_NATIVE_CUSTODY_BYTES: u64 = 128 * 1024 * 1024;
+pub struct NativeSource {
+    file: std::fs::File,
+    path: std::path::PathBuf,
+    identity: [u64; 7],
+}
+pub struct NativeSnapshot {
+    pub native: Native,
+    pub namespace: [u8; 32],
+    pub input_digest: String,
+    records: Vec<Value>,
+}
+fn native_identity_stat(meta: &std::fs::Metadata) -> [u64; 7] {
+    use std::os::unix::fs::MetadataExt;
+    [
+        meta.dev(),
+        meta.ino(),
+        meta.len(),
+        meta.mtime() as u64,
+        meta.mtime_nsec() as u64,
+        meta.ctime() as u64,
+        meta.ctime_nsec() as u64,
+    ]
+}
+pub async fn open_native_source(path: std::path::PathBuf) -> std::io::Result<NativeSource> {
+    crate::runtime::blocking(move || {
+        use std::{io, os::unix::fs::OpenOptionsExt};
+        crate::runtime::assert_off_rt_worker();
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+            .open(&path)?;
+        let meta = file.metadata()?;
+        if !meta.is_file() || meta.len() > MAX_NATIVE_SNAPSHOT_BYTES {
+            return Err(io::Error::other(
+                "native snapshot is not a bounded regular file",
+            ));
+        }
+        Ok(NativeSource {
+            file,
+            path,
+            identity: native_identity_stat(&meta),
+        })
+    })
+    .await
+}
+pub async fn snapshot_native(
+    mut source: NativeSource,
+    set: crate::redact::Set,
+) -> std::io::Result<NativeSnapshot> {
+    crate::runtime::blocking(move || {
+        use std::io::{self,Read};use sha2::{Digest,Sha256};crate::runtime::assert_off_rt_worker();
+        let mut bytes=zeroize::Zeroizing::new(Vec::new());source.file.by_ref().take(MAX_NATIVE_SNAPSHOT_BYTES+1).read_to_end(&mut bytes)?;
+        let after=source.file.metadata()?;let pathmeta=std::fs::symlink_metadata(&source.path)?;
+        if bytes.len() as u64>MAX_NATIVE_SNAPSHOT_BYTES||!pathmeta.is_file()||source.identity!=native_identity_stat(&after)||source.identity!=native_identity_stat(&pathmeta)||after.len()!=bytes.len() as u64 {
+            return Err(io::Error::other("native snapshot changed during capture"));
+        }
+        let text=std::str::from_utf8(&bytes).map_err(|_|io::Error::other("native snapshot is not UTF-8"))?;
+        let mut records=Vec::new();
+        for line in text.lines().filter(|line|!line.trim().is_empty()) {
+            if records.len()>=MAX_NATIVE_RECORDS{return Err(io::Error::other("native snapshot record bound exceeded"));}
+            records.push(serde_json::from_str::<Value>(line).map_err(|_|io::Error::other("malformed or incomplete native record"))?);
+        }
+        let native=records.iter().take(8).find_map(Native::sniff).ok_or_else(||io::Error::other("unrecognized native snapshot"))?;
+        let mut records=records.into_iter().map(|r|set.value(edge::sanitized_record(native,&r))).collect::<Vec<_>>();
+        // Hash and project the same canonical sequence, including object order.
+        for record in &mut records {record.sort_all_objects();}
+        let mut canonical=serde_json::to_value(&records)?;canonical.sort_all_objects();
+        let input_digest=format!("{:x}",Sha256::digest(serde_json::to_vec(&canonical)?));
+        let mut versioned=serde_json::json!({"native":native.label(),"parser_revision":PARSER_REVISION,"materializer_revision":MATERIALIZER_REVISION,
+            "protocol":PROTOCOL,"writer_package":env!("CARGO_PKG_VERSION"),"input_digest":input_digest});versioned.sort_all_objects();
+        // Fixed encoding: domain bytes including NUL, u64be byte length, canonical JSON.
+        let encoded=serde_json::to_vec(&versioned)?;let mut hash=Sha256::new();hash.update(b"bboxy450-native-namespace-v1");hash.update([0u8]);hash.update((encoded.len() as u64).to_be_bytes());hash.update(encoded);
+        Ok(NativeSnapshot{native,namespace:hash.finalize().into(),input_digest,records})
+    }).await
+}
+struct NativeProjection {
+    meta: SessionMeta,
+    events: Vec<(Projected, u64)>,
+    ext: BTreeMap<String, Value>,
+    first: u64,
+    last: u64,
+}
+fn project_native(snapshot: NativeSnapshot) -> NativeProjection {
+    crate::runtime::assert_off_rt_worker();
+    let NativeSnapshot {
+        native,
+        namespace,
+        input_digest,
+        records,
+    } = snapshot;
+    let source_id = records.iter().find_map(|r| {
+        r.get("sessionId")
+            .or_else(|| r.pointer("/payload/id"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    });
+    let clock = |r: &Value| {
+        r.get("timestamp")
+            .and_then(Value::as_str)
+            .and_then(rfc3339_ms)
+            .unwrap_or(0)
+    };
+    let first = records.first().map(clock).unwrap_or(0);
+    let last = records.last().map(clock).unwrap_or(0);
+    let mut p = Projector::deterministic(native, namespace);
+    let mut events = Vec::new();
+    for record in records {
+        // A missing record clock is unknown zero, never an invented historical time.
+        p.ts_ms = None;
+        let projected = p.project(&record);
+        let at = p.ts_ms.unwrap_or(0);
+        events.extend(projected.into_iter().map(|event| (event, at)));
+    }
+    events.extend(p.finish(StopReason::Interrupted).into_iter().map(|event| {
+        (
+            Projected {
+                event,
+                native: None,
+                ext: BTreeMap::new(),
+            },
+            last,
+        )
+    }));
+    let meta = SessionMeta {
+        session: SessionId(materialized_id(&namespace, "session", 0)),
+        cwd: p.cwd.unwrap_or_else(|| "/".into()).into(),
+        vcs: p.vcs,
+        dream: None,
+        source: Some(Source {
+            harness: native.label().into(),
+            native_id: source_id,
+            version: p.native_version,
+            parser_revision: Some(PARSER_REVISION),
+        }),
+        profile: Some(native.label().into()),
+        fork: None,
+        protocol: PROTOCOL,
+        harness: env!("CARGO_PKG_VERSION").into(),
+        created_ms: first,
+    };
+    let ext = BTreeMap::from([(
+        "native_materialization".into(),
+        serde_json::json!({"namespace":namespace.iter().map(|b|format!("{b:02x}")).collect::<String>(),"input_digest":input_digest,
+        "materializer_revision":MATERIALIZER_REVISION,"parser_revision":PARSER_REVISION,"writer_package":env!("CARGO_PKG_VERSION"),"closure":"snapshot_eof","native_process_completion":"unproven"}),
+    )]);
+    NativeProjection {
+        meta,
+        events,
+        ext,
+        first,
+        last,
+    }
+}
+struct NativeBundle {
+    log: Vec<u8>,
+    blobs: BTreeMap<String, Vec<u8>>,
+}
+/// A private complete stage still owns its nonblocking namespace claim. Only
+/// publish() can expose custody; dropping/crashing a stage advertises no pins.
+pub struct NativeStage {
+    pub session: SessionId,
+    pub namespace: String,
+    pub staging: std::path::PathBuf,
+    sessions: std::path::PathBuf,
+    bundle: NativeBundle,
+    _claim: crate::dream::d0::Claim,
+}
+fn native_directory(path: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(path)?;
+    if !std::fs::symlink_metadata(path)?.is_dir() {
+        return Err(std::io::Error::other("unsafe native custody directory"));
+    }
+    Ok(())
+}
+fn read_native_regular(path: &std::path::Path) -> std::io::Result<Vec<u8>> {
+    use std::{
+        io::{self, Read},
+        os::unix::fs::OpenOptionsExt,
+    };
+    let f = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(path)?;
+    if !f.metadata()?.is_file() || f.metadata()?.len() > MAX_NATIVE_CUSTODY_BYTES {
+        return Err(io::Error::other("unsafe native custody file"));
+    }
+    let mut bytes = Vec::new();
+    f.take(MAX_NATIVE_CUSTODY_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_NATIVE_CUSTODY_BYTES {
+        return Err(io::Error::other("native custody size bound exceeded"));
+    }
+    Ok(bytes)
+}
+fn native_bundle(root: &std::path::Path, session: SessionId) -> std::io::Result<NativeBundle> {
+    use sha2::{Digest, Sha256};
+    use std::io;
+    crate::runtime::assert_off_rt_worker();
+    let log = read_native_regular(&crate::store::log_path(root, session))?;
+    if !log.ends_with(b"\n") {
+        return Err(io::Error::other("incomplete native custody log"));
+    }
+    let events = log
+        .split_inclusive(|b| *b == b'\n')
+        .map(|line| {
+            Envelope::from_line(std::str::from_utf8(line).map_err(io::Error::other)?)
+                .map_err(io::Error::other)
+        })
+        .collect::<io::Result<Vec<_>>>()?;
+    if !matches!(events.last().map(|e| &e.event), Some(Event::SessionClosed))
+        || events
+            .iter()
+            .any(|e| e.session != session || e.epoch != Epoch(1))
+    {
+        return Err(io::Error::other("native custody identity/closure mismatch"));
+    }
+    crate::protocol::laws::check_authored(&events)
+        .map_err(|_| io::Error::other("invalid authored native custody"))?;
+    let mut blobs = BTreeMap::new();
+    let directory = root.join(session.to_string()).join("blobs");
+    if directory.exists() {
+        if !std::fs::symlink_metadata(&directory)?.is_dir() {
+            return Err(io::Error::other("unsafe native blob directory"));
+        }
+        for file in std::fs::read_dir(&directory)? {
+            let file = file?;
+            let name = file
+                .file_name()
+                .into_string()
+                .map_err(|_| io::Error::other("invalid native blob name"))?;
+            let bytes = read_native_regular(&file.path())?;
+            if name.len() != 64
+                || !name.bytes().all(|c| c.is_ascii_hexdigit())
+                || format!("{:x}", Sha256::digest(&bytes)) != name
+            {
+                return Err(io::Error::other("invalid native blob hash"));
+            }
+            blobs.insert(name, bytes);
+        }
+    }
+    // Typed blob positions and shared spill preview markers must all resolve.
+    fn check(value: &Value, blobs: &BTreeMap<String, Vec<u8>>) -> io::Result<()> {
+        if let Value::Object(o) = value {
+            if o.len() == 3
+                && o.contains_key("sha256")
+                && o.contains_key("len")
+                && o.contains_key("mime")
+            {
+                let b: BlobRef = serde_json::from_value(value.clone())?;
+                if blobs
+                    .get(&b.sha256)
+                    .is_none_or(|bytes| bytes.len() as u64 != b.len)
+                {
+                    return Err(io::Error::other("native blob reference does not resolve"));
+                }
+                return Ok(());
+            }
+            for (key, v) in o {
+                if key != "raw" {
+                    check(v, blobs)?;
+                }
+            }
+        } else if let Value::Array(a) = value {
+            for v in a {
+                check(v, blobs)?;
+            }
+        } else if let Some(text) = value.as_str() {
+            static MARKER: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+            for c in MARKER
+                .get_or_init(|| {
+                    regex::Regex::new(r"\[full content: blob ([0-9a-f]{64}) \(([0-9]+) bytes\)\]")
+                        .unwrap()
+                })
+                .captures_iter(text)
+            {
+                let len = c[2].parse::<usize>().map_err(io::Error::other)?;
+                if blobs.get(&c[1]).is_none_or(|bytes| bytes.len() != len) {
+                    return Err(io::Error::other("native preview blob does not resolve"));
+                }
+            }
+        }
+        Ok(())
+    }
+    for e in &events {
+        if let Event::ItemCompleted { body, .. } = &e.event {
+            check(&serde_json::to_value(body)?, &blobs)?;
+        }
+        for value in e.ext.values() {
+            if value.get("$preview").is_some()
+                && let Some(blob) = value.get("$blob")
+            {
+                check(blob, &blobs)?;
+            }
+        }
+    }
+    Ok(NativeBundle { log, blobs })
+}
+pub async fn stage_native(
+    snapshot: NativeSnapshot,
+    sessions: std::path::PathBuf,
+    redactor: crate::redact::Set,
+) -> std::io::Result<Option<NativeStage>> {
+    use std::io;
+    let namespace = snapshot
+        .namespace
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    let claim_root = sessions.join(".native-custody");
+    let name = namespace.clone();
+    let session_root = sessions.clone();
+    let Some(claim) = crate::runtime::blocking(move || {
+        native_directory(&session_root)?;
+        crate::dream::d0::Claim::acquire(&claim_root, &name)
+    })
+    .await?
+    else {
+        return Ok(None);
+    };
+    let projection = crate::runtime::blocking(move || project_native(snapshot)).await;
+    let session = projection.meta.session;
+    let root = sessions.clone();
+    let staging = crate::runtime::blocking(move || {
+        use std::os::unix::fs::DirBuilderExt;
+        crate::runtime::assert_off_rt_worker();
+        native_directory(&root)?;
+        let path = root.join(format!(".native-stage-{}", ulid::Ulid::new()));
+        std::fs::DirBuilder::new().mode(0o700).create(&path)?;
+        Ok::<_, io::Error>(path)
+    })
+    .await?;
+    let mut store = crate::store::Store::open_import_staging(
+        staging.clone(),
+        projection.meta,
+        redactor,
+        projection.first,
+        projection.ext,
+    )
+    .await?;
+    let label = store.events[0].event.clone();
+    let Event::SessionStarted { meta } = label else {
+        return Err(io::Error::other("missing native initial envelope"));
+    };
+    let native = meta
+        .source
+        .as_ref()
+        .ok_or_else(|| io::Error::other("missing native source"))?
+        .harness
+        .clone();
+    store
+        .append_at(
+            Event::ProfileChanged {
+                profile: native.clone(),
+                model: native,
+            },
+            None,
+            projection.first,
+        )
+        .await?;
+    for (event, at) in projection.events {
+        spill::append_projected_staging(&mut store, event.event, at, event.native, event.ext)
+            .await?;
+        tokio::task::yield_now().await;
+    }
+    store
+        .append_at(Event::SessionClosed, None, projection.last)
+        .await?;
+    drop(store);
+    let path = staging.clone();
+    let bundle = crate::runtime::blocking(move || native_bundle(&path, session)).await?;
+    Ok(Some(NativeStage {
+        session,
+        namespace,
+        staging,
+        sessions,
+        bundle,
+        _claim: claim,
+    }))
+}
+impl NativeStage {
+    pub async fn publish(self) -> std::io::Result<std::path::PathBuf> {
+        crate::runtime::blocking(move || {
+            use std::io;
+            crate::runtime::assert_off_rt_worker();
+            let target = crate::store::log_path(&self.sessions, self.session);
+            let validate = || -> io::Result<()> {
+                let actual = native_bundle(&self.sessions, self.session)?;
+                if actual.log != self.bundle.log
+                    || self
+                        .bundle
+                        .blobs
+                        .iter()
+                        .any(|(name, bytes)| actual.blobs.get(name) != Some(bytes))
+                {
+                    return Err(io::Error::other("conflicting native custody bytes"));
+                }
+                Ok(())
+            };
+            match std::fs::symlink_metadata(&target) {
+                Ok(_) => {
+                    validate()?;
+                    let _ = std::fs::remove_dir_all(&self.staging);
+                    return Ok(target);
+                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e),
+            }
+            let session_dir = self.sessions.join(self.session.to_string());
+            native_directory(&session_dir)?;
+            let blobs = session_dir.join("blobs");
+            native_directory(&blobs)?;
+            for (name, bytes) in &self.bundle.blobs {
+                let source = self
+                    .staging
+                    .join(self.session.to_string())
+                    .join("blobs")
+                    .join(name);
+                let destination = blobs.join(name);
+                match crate::store::publish_no_replace(&source, &destination) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+                    Err(e) => return Err(e),
+                }
+                if read_native_regular(&destination)? != *bytes {
+                    return Err(io::Error::other("conflicting native custody blob"));
+                }
+            }
+            crate::runtime::sync_all(&std::fs::File::open(&blobs)?)?;
+            crate::runtime::sync_all(&std::fs::File::open(&session_dir)?)?;
+            let source = crate::store::log_path(&self.staging, self.session);
+            match crate::store::publish_no_replace(&source, &target) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(e) => return Err(e),
+            }
+            crate::runtime::sync_all(&std::fs::File::open(&self.sessions)?)?;
+            validate()?;
+            let _ = std::fs::remove_dir_all(&self.staging);
+            Ok(target)
+        })
+        .await
+    }
+}
+pub async fn materialize_native(
+    path: std::path::PathBuf,
+    sessions: std::path::PathBuf,
+    redactor: crate::redact::Set,
+) -> std::io::Result<Option<std::path::PathBuf>> {
+    let snapshot = snapshot_native(open_native_source(path).await?, redactor.clone()).await?;
+    match stage_native(snapshot, sessions, redactor).await? {
+        Some(stage) => stage.publish().await.map(Some),
+        None => Ok(None),
+    }
 }

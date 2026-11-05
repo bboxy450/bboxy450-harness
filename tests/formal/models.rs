@@ -4885,8 +4885,362 @@ fn dream_sink(mode: u8) -> Model {
     m
 }
 
+// D0: two workers, two shards, two opaque pins; A targets shard0 and B
+// chooses shard0/1 (symmetry reduction). One crash and one explicit replay.
+// IO may stall forever. Only caller return and post-publication release are WF;
+// no promise that skipped/stalled observations are eventually cached. OS flock,
+// atomic rename/fsync and byte identity need the real process witnesses.
+// Origin/policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+fn dream_d0(mode: u8) -> Model {
+    let mut m = base::<19>(
+        "DreamD0",
+        mode != 0,
+        &[
+            ("cache0", 3, 0),
+            ("cache1", 3, 0),
+            ("count0", 2, 0),
+            ("count1", 2, 0),
+            ("committed0", 3, 0),
+            ("committed1", 3, 0),
+            ("owner0", 2, 0),
+            ("owner1", 2, 0),
+            ("phaseA", 9, 0),
+            ("phaseB", 9, 0),
+            ("shardB", 1, 0),
+            ("readA", 3, 0),
+            ("readB", 3, 0),
+            ("unionA", 3, 0),
+            ("unionB", 3, 0),
+            ("callerA", 1, 0),
+            ("callerB", 1, 0),
+            ("crashes", 1, 0),
+            ("replays", 1, 0),
+        ],
+    );
+    if mode == 2 {
+        m.name = "BrokenHarnessDreamD0Blocking".into();
+    }
+    let held = |phase| all([Int(1).lt(Var(phase)), Var(phase).lt(Int(6))]);
+    act(&mut m, "DispatchA", eq(8, 0), &[(8, Int(1))]);
+    for shard in 0..=1 {
+        act(
+            &mut m,
+            &format!("DispatchB{shard}"),
+            eq(9, 0),
+            &[(9, Int(1)), (10, Int(shard))],
+        );
+    }
+    for worker in 0..2 {
+        let phase = 8 + worker;
+        let pin = 1_i64 << worker;
+        let caller = 15 + worker;
+        let returned = m.actions.len();
+        act(
+            &mut m,
+            &format!("ReturnCaller{worker}"),
+            all([
+                Int(0).lt(Var(phase)),
+                eq(caller, 0),
+                if mode == 2 {
+                    Var(phase).lt(Int(9))
+                } else {
+                    Bool(true)
+                },
+            ]),
+            &[(caller, Int(1))],
+        );
+        progress(
+            &mut m,
+            &format!("DetachedCaller{worker}"),
+            Int(0).lt(Var(phase)),
+            eq(caller, 1),
+            vec![returned],
+        );
+        for shard in 0..=1 {
+            if worker == 0 && shard == 1 {
+                continue;
+            }
+            let target = if worker == 0 {
+                Bool(true)
+            } else {
+                eq(10, shard as i64)
+            };
+            let owner = 6 + shard;
+            act(
+                &mut m,
+                &format!("Acquire{worker}Shard{shard}"),
+                all([target.clone(), eq(phase, 1), eq(owner, 0)]),
+                &[(owner, Int(worker as i64 + 1)), (phase, Int(2))],
+            );
+            act(
+                &mut m,
+                &format!("Busy{}{}", worker, shard),
+                all([target.clone(), eq(phase, 1), Int(0).lt(Var(owner))]),
+                &[(phase, Int(if mode == 2 { 9 } else { 7 }))],
+            );
+            if mode == 2 {
+                act(
+                    &mut m,
+                    "BlockingAcquireUnsticksOnlyAfterOwnerExits",
+                    all([target.clone(), eq(phase, 9), eq(owner, 0)]),
+                    &[(phase, Int(1))],
+                );
+            }
+            act(
+                &mut m,
+                &format!("Read{worker}Shard{shard}"),
+                all([target.clone(), eq(phase, 2)]),
+                &[(11 + worker, Var(shard)), (phase, Int(3))],
+            );
+            for prior in 0_i64..=3 {
+                act(
+                    &mut m,
+                    &format!("Union{worker}Shard{shard}Prior{prior}"),
+                    all([target.clone(), eq(phase, 3), eq(11 + worker, prior)]),
+                    &[
+                        (13 + worker, Int(if mode == 1 { pin } else { prior | pin })),
+                        (phase, Int(4)),
+                    ],
+                );
+                for ready in 0_i64..=3 {
+                    act(
+                        &mut m,
+                        &format!("Publish{worker}Shard{shard}Ledger{prior}Ready{ready}"),
+                        all([
+                            target.clone(),
+                            eq(phase, 4),
+                            eq(4 + shard, prior),
+                            eq(13 + worker, ready),
+                        ]),
+                        &[
+                            (shard, Int(ready)),
+                            (2 + shard, Int(ready.count_ones() as i64)),
+                            (4 + shard, Int(prior | pin)),
+                            (phase, Int(5)),
+                        ],
+                    );
+                }
+            }
+            let released = m.actions.len();
+            act(
+                &mut m,
+                &format!("Release{worker}Shard{shard}"),
+                all([target.clone(), eq(phase, 5)]),
+                &[(owner, Int(0)), (phase, Int(6))],
+            );
+            m.weak_fair.push(vec![released]);
+            act(
+                &mut m,
+                &format!("CrashRelease{worker}Shard{shard}"),
+                all([target.clone(), held(phase), eq(17, 0)]),
+                &[(owner, Int(0)), (phase, Int(8)), (17, Int(1))],
+            );
+            safe(
+                &mut m,
+                &format!("ClaimOwnsWorker{worker}Shard{shard}"),
+                target
+                    .clone()
+                    .and(held(phase))
+                    .eq(Bool(false))
+                    .or(eq(owner, worker as i64 + 1)),
+            );
+        }
+        act(
+            &mut m,
+            &format!("ExplicitDuplicateReplay{worker}"),
+            all([eq(18, 0), eq(phase, 6).or(eq(phase, 7)).or(eq(phase, 8))]),
+            &[
+                (phase, Int(1)),
+                (11 + worker, Int(0)),
+                (13 + worker, Int(0)),
+                (18, Int(1)),
+            ],
+        );
+    }
+    safe(
+        &mut m,
+        "SameShardExclusive",
+        held(8).and(held(9)).eq(Bool(false)).or(eq(10, 1)),
+    );
+    for shard in 0..=1 {
+        safe(
+            &mut m,
+            &format!("CommittedPinsPreserved{shard}"),
+            Var(shard).eq(Var(4 + shard)),
+        );
+        safe(
+            &mut m,
+            &format!("CountIsUniquePins{shard}"),
+            (0_i64..=3)
+                .map(|mask| eq(shard, mask).and(eq(2 + shard, mask.count_ones() as i64)))
+                .fold(Bool(false), Expr::or),
+        );
+    }
+    act(&mut m, "StalledIOOrScheduler", Bool(true), &[(17, Var(17))]);
+    m
+}
+
+// Native custody: two materializers for one opaque, versioned namespace;
+// one crash/replay, two noncooperating no-replace target births. Staged bytes
+// never resolve as evidence. Hash/ULID/clock/byte and kernel semantics are real
+// implementation obligations, not supplied by this finite abstraction.
+// Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+fn dream_native_custody(broken: bool) -> Model {
+    let mut m = base::<12>(
+        "DreamNativeCustody",
+        broken,
+        &[
+            ("owner", 2, 0),
+            ("phaseA", 7, 0),
+            ("phaseB", 7, 0),
+            ("blobs", 2, 0),
+            ("log", 2, 0),
+            ("pinsA", 1, 0),
+            ("pinsB", 1, 0),
+            ("crashes", 1, 0),
+            ("replays", 1, 0),
+            ("foreignLog", 1, 0),
+            ("foreignBlob", 1, 0),
+            ("publications", 2, 0),
+        ],
+    );
+    act(
+        &mut m,
+        "ForeignLogBeforeNoReplace",
+        eq(4, 0),
+        &[(4, Int(2)), (9, Int(1))],
+    );
+    act(
+        &mut m,
+        "ForeignBlobBeforeNoReplace",
+        eq(3, 0),
+        &[(3, Int(2)), (10, Int(1))],
+    );
+    for worker in 0..2 {
+        let phase = 1 + worker;
+        let id = worker as i64 + 1;
+        let pins = 5 + worker;
+        act(
+            &mut m,
+            &format!("AcquireNative{worker}"),
+            all([eq(phase, 0), eq(0, 0)]),
+            &[(0, Int(id)), (phase, Int(1))],
+        );
+        act(
+            &mut m,
+            &format!("BusyNativeSkip{worker}"),
+            all([eq(phase, 0), Int(0).lt(Var(0))]),
+            &[(phase, Int(7))],
+        );
+        act(
+            &mut m,
+            &format!("StagePrivate{worker}"),
+            all([eq(phase, 1), eq(4, 0)]),
+            &[(phase, Int(2))],
+        );
+        act(
+            &mut m,
+            &format!("ValidateStagedTranscriptAndBlobs{worker}"),
+            eq(phase, 2),
+            &[(phase, Int(3))],
+        );
+        act(
+            &mut m,
+            &format!("PublishBlobsNoReplace{worker}"),
+            all([eq(phase, 3), Var(3).lt(Int(2))]),
+            &[(3, Int(1)), (phase, Int(4))],
+        );
+        act(
+            &mut m,
+            &format!("PublishCompleteLogNoReplace{worker}"),
+            all([eq(phase, 4), eq(3, 1), eq(4, 0)]),
+            &[(4, Int(1)), (11, Var(11).plus(Int(1))), (phase, Int(5))],
+        );
+        act(
+            &mut m,
+            &format!("ValidateReuseCompletedWinner{worker}"),
+            all([eq(phase, 1), eq(3, 1), eq(4, 1)]),
+            &[(phase, Int(5))],
+        );
+        act(
+            &mut m,
+            &format!("NativeConflictRefusal{worker}"),
+            all([
+                Int(0).lt(Var(phase)),
+                Var(phase).lt(Int(5)),
+                eq(4, 2).or(eq(3, 2)),
+            ]),
+            &[(phase, Int(7)), (0, Int(0))],
+        );
+        let returned = m.actions.len();
+        act(
+            &mut m,
+            &format!("ReturnConfirmedPins{worker}"),
+            all([eq(phase, 5), eq(3, 1), eq(4, 1)]),
+            &[(phase, Int(6)), (pins, Int(1)), (0, Int(0))],
+        );
+        m.weak_fair.push(vec![returned]);
+        progress(
+            &mut m,
+            &format!("ConfirmedWorkerReturns{worker}"),
+            eq(phase, 5),
+            eq(pins, 1).or(eq(phase, 7)),
+            vec![returned],
+        );
+        act(
+            &mut m,
+            &format!("NativeCrashRelease{worker}"),
+            all([Int(0).lt(Var(phase)), Var(phase).lt(Int(6)), eq(7, 0)]),
+            &[(phase, Int(7)), (0, Int(0)), (7, Int(1))],
+        );
+        act(
+            &mut m,
+            &format!("NativeExplicitReplay{worker}"),
+            all([eq(phase, 6).or(eq(phase, 7)), eq(8, 0)]),
+            &[(phase, Int(0)), (8, Int(1))],
+        );
+        if broken {
+            act(
+                &mut m,
+                &format!("ReturnTransientStagingPins{worker}"),
+                eq(phase, 2),
+                &[(phase, Int(7)), (pins, Int(1)), (0, Int(0))],
+            );
+        }
+        safe(
+            &mut m,
+            &format!("NativeClaimOwnsWorker{worker}"),
+            Int(0)
+                .lt(Var(phase))
+                .and(Var(phase).lt(Int(6)))
+                .eq(Bool(false))
+                .or(eq(0, id)),
+        );
+        safe(
+            &mut m,
+            &format!("NoPrematureNativePin{worker}"),
+            eq(pins, 0).or(eq(3, 1).and(eq(4, 1))),
+        );
+    }
+    safe(
+        &mut m,
+        "CompleteLogHasCompleteBlobs",
+        eq(4, 1).eq(Bool(false)).or(eq(3, 1)),
+    );
+    safe(&mut m, "ForeignNativeLogPreserved", eq(9, 0).or(eq(4, 2)));
+    safe(&mut m, "ForeignNativeBlobPreserved", eq(10, 0).or(eq(3, 2)));
+    safe(&mut m, "OneNativePublication", Var(11).le(Int(1)));
+    act(&mut m, "NativeIOStalls", Bool(true), &[(7, Var(7))]);
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (dream_native_custody(false), "pass"),
+        (dream_native_custody(true), "safety"),
+        (dream_d0(0), "pass"),
+        (dream_d0(1), "safety"),
+        (dream_d0(2), "liveness"),
         (dream_sink(0), "pass"),
         (dream_sink(1), "safety"),
         (dream_sink(2), "safety"),

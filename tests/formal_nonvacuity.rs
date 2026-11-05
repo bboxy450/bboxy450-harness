@@ -1261,3 +1261,124 @@ fn dream_merge_explores_both_orders_and_independent_harnesses() {
         );
     }
 }
+
+#[test]
+fn dream_d0_claim_union_crash_and_detached_caller_are_reachable() {
+    let m = model("HarnessDreamD0");
+    let g = m.check(100_000).unwrap();
+    assert!(
+        g.violations.is_empty(),
+        "{:?}",
+        g.violations.iter().map(|v| &v.property).collect::<Vec<_>>()
+    );
+    assert!(
+        g.states
+            .iter()
+            .any(|s| s[0] == 3 && s[2] == 2 && s[18] == 1),
+        "duplicate union of two distinct pins never reached"
+    );
+    assert!(
+        g.states
+            .iter()
+            .any(|s| s[6] == 1 && s[9] == 7 && s[16] == 1),
+        "busy B must skip and return while A still owns/stalls"
+    );
+    assert!(
+        g.states.iter().enumerate().any(|(i, s)| s[6] == 1
+            && s[9] == 1
+            && s[10] == 1
+            && g.edges[i].iter().any(|e| {
+                let n = &g.states[e.to];
+                n[6] == 1 && n[7] == 2 && n[9] == 2
+            })),
+        "other shard cannot acquire independently"
+    );
+    for phase in [3, 5] {
+        assert!(
+            g.states.iter().enumerate().any(|(i, s)| s[8] == phase
+                && s[17] == 0
+                && g.edges[i].iter().any(|e| {
+                    let n = &g.states[e.to];
+                    n[8] == 8 && n[6] == 0 && n[17] == 1 && n[0] == s[0] && n[4] == s[4]
+                })),
+            "crash before/after publication must release without changing committed bytes"
+        );
+    }
+    let lost = model("BrokenHarnessDreamD0").check(100_000).unwrap();
+    assert!(
+        lost.violations
+            .iter()
+            .any(|v| v.property == "CommittedPinsPreserved0")
+    );
+    let blocked = model("BrokenHarnessDreamD0Blocking")
+        .check(100_000)
+        .unwrap();
+    assert!(
+        blocked
+            .violations
+            .iter()
+            .any(|v| v.property == "DetachedCaller1" && !v.cycle.is_empty())
+    );
+    assert!(
+        blocked.states.iter().enumerate().any(|(i, s)| s[6] == 1
+            && s[9] == 1
+            && s[16] == 0
+            && blocked.edges[i].iter().any(|e| {
+                let n = &blocked.states[e.to];
+                n[6] == 1 && n[9] == 9 && n[16] == 0
+            })),
+        "blocking control must enter real busy waiting from a reachable owned shard"
+    );
+}
+
+#[test]
+fn dream_native_custody_never_pins_staging_and_reuses_complete_survivors() {
+    let m = model("HarnessDreamNativeCustody");
+    let g = m.check(100_000).unwrap();
+    assert!(g.violations.is_empty());
+    assert!(
+        g.states
+            .iter()
+            .any(|s| s[5] == 1 && s[6] == 1 && s[11] == 1),
+        "two materializers must reuse one complete publication"
+    );
+    assert!(
+        g.states
+            .iter()
+            .any(|s| s[1] == 7 && s[7] == 1 && s[4] == 0 && s[5] == 0),
+        "crash before publication has no pins"
+    );
+    assert!(
+        g.states
+            .iter()
+            .any(|s| s[7] == 1 && s[4] == 1 && (s[5] == 1 || s[6] == 1)),
+        "complete publication survives owner crash/replay"
+    );
+    assert!(
+        g.states.iter().enumerate().any(|(i, s)| s[1] == 3
+            && s[4] == 0
+            && g.edges[i]
+                .iter()
+                .any(|e| g.states[e.to][4] == 2 && g.states[e.to][1] == 3)),
+        "foreign target birth must remain enabled after check"
+    );
+    let bad = model("BrokenHarnessDreamNativeCustody")
+        .check(100_000)
+        .unwrap();
+    assert!(
+        bad.violations
+            .iter()
+            .any(|v| v.property.starts_with("NoPrematureNativePin"))
+    );
+    assert!(
+        bad.states
+            .iter()
+            .any(|s| s[5] == 1 && s[4] == 0 && s[3] == 0),
+        "control must really pin private, unpublished bytes"
+    );
+    println!(
+        "native custody: {} states, {} labeled edges; premature-pin control rejected",
+        g.states.len(),
+        g.edges.iter().map(Vec::len).sum::<usize>()
+    );
+}

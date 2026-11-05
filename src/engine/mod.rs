@@ -362,6 +362,11 @@ impl SessionActor {
         };
         if matches!(e.event, Event::SessionClosed) {
             self.gateway.hub.publish(e.clone());
+            crate::dream::d0::session_closed(
+                &self.config.sessions,
+                &e,
+                self.config.redactor.clone(),
+            );
             crate::frontends::ir_scan::session_closed(
                 &self.config.sessions,
                 &e,

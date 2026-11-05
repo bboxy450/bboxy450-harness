@@ -73,7 +73,7 @@ fn valid_blob(path: &Path, blob: &BlobRef) -> io::Result<bool> {
     }
     Ok(format!("{:x}", hash.finalize()) == blob.sha256)
 }
-fn publish(temp: &Path, path: &Path) -> io::Result<()> {
+pub(crate) fn publish(temp: &Path, path: &Path) -> io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
     let from = std::ffi::CString::new(temp.as_os_str().as_bytes()).map_err(io::Error::other)?;
     let to = std::ffi::CString::new(path.as_os_str().as_bytes()).map_err(io::Error::other)?;

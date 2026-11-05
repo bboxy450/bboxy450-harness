@@ -9,6 +9,7 @@
 
 //! One core, one event log, and protocol consumers for every face.
 
+pub mod dream;
 pub mod protocol;
 pub mod vcs;
 

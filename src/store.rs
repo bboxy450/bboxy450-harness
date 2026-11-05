@@ -8,6 +8,7 @@ use crate::{protocol::*, redact::Set, runtime::blocking};
 use sha2::{Digest, Sha256};
 mod fork;
 pub mod intake;
+pub(crate) use fork::publish as publish_no_replace;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{File, OpenOptions},
@@ -108,7 +109,17 @@ impl Store {
         cause: Option<OpId>,
         redactor: Set,
     ) -> io::Result<Self> {
-        Self::open_impl(root, meta, cause, redactor, false).await
+        Self::open_impl(root, meta, cause, redactor, false, None).await
+    }
+    /// Opt-in private native-import staging only. Existing opens keep their clocks.
+    pub(crate) async fn open_import_staging(
+        root: PathBuf,
+        meta: SessionMeta,
+        redactor: Set,
+        initial_at: u64,
+        ext: BTreeMap<String, serde_json::Value>,
+    ) -> io::Result<Self> {
+        Self::open_impl(root, meta, None, redactor, false, Some((initial_at, ext))).await
     }
     async fn open_impl(
         root: PathBuf,
@@ -116,6 +127,7 @@ impl Store {
         cause: Option<OpId>,
         redactor: Set,
         _restore_writer_durability: bool,
+        initial: Option<(u64, BTreeMap<String, serde_json::Value>)>,
     ) -> io::Result<Self> {
         let session = meta.session;
         let path = root.join(format!("{session}.jsonl"));
@@ -213,7 +225,13 @@ impl Store {
             redactor,
         };
         if store.events.is_empty() {
-            store.append(Event::SessionStarted { meta }, cause).await?;
+            if let Some((at, ext)) = initial {
+                store
+                    .append_projected_at(Event::SessionStarted { meta }, cause, at, None, ext)
+                    .await?;
+            } else {
+                store.append(Event::SessionStarted { meta }, cause).await?;
+            }
         } else if !store.closed && !created_fork {
             store.recover().await?;
         }
@@ -494,8 +512,15 @@ mod durability_controls {
             .unwrap()
             .write_all(future.as_bytes())
             .unwrap();
-        let broken =
-            Store::open_impl(root.clone(), meta.clone(), None, Default::default(), true).await;
+        let broken = Store::open_impl(
+            root.clone(),
+            meta.clone(),
+            None,
+            Default::default(),
+            true,
+            None,
+        )
+        .await;
         assert!(
             broken.is_err(),
             "broken old reader unexpectedly accepted future data"
