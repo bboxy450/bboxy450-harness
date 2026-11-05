@@ -66,6 +66,14 @@ async fn run_cli(
     stop: CancellationToken,
     ready: Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<i32, String> {
+    #[cfg(feature = "test-fixtures")]
+    let fixture_requested = std::env::args().any(|arg| arg == "--dream-c1-fixture-next-session");
+    #[cfg(not(feature = "test-fixtures"))]
+    let fixture_requested = false;
+    #[cfg(feature = "test-fixtures")]
+    let mut fixture_next_session = None;
+    #[cfg(feature = "test-fixtures")]
+    let mut explicit_cwd = false;
     let mut args = std::env::args().skip(1);
     let mut prompt = None;
     let mut json = false;
@@ -84,6 +92,27 @@ async fn run_cli(
     let mut replay = None;
     let mut socket_path: Option<PathBuf> = None;
     while let Some(arg) = args.next() {
+        // The private fixture cannot enter an unrelated early-return command or
+        // any unapproved discovery, credential, resume or ACP setup path.
+        if fixture_requested
+            && !matches!(
+                arg.as_str(),
+                "seat"
+                    | "--json"
+                    | "--cwd"
+                    | "--sessions"
+                    | "--scripted"
+                    | "--socket"
+                    | "--dream-owner"
+                    | "--dream-c1-fixture-next-session"
+                    | "--profile"
+                    | "--mcp-config"
+                    | "--append-system-prompt"
+                    | "--yolo"
+            )
+        {
+            return Err("private Dream C1 fixture options refused".into());
+        }
         match arg.as_str() {
             "ir-scan" => return super::ir_scan::cli(args).await,
             "dream" => return crate::dream::cli(args).await,
@@ -125,7 +154,13 @@ async fn run_cli(
             "-p" | "--prompt" => prompt = Some(args.next().ok_or("missing prompt")?),
             "--json" => json = true,
             "--profile" => explicit_profile = Some(args.next().ok_or("missing profile")?),
-            "--cwd" => cwd = PathBuf::from(args.next().ok_or("missing cwd")?),
+            "--cwd" => {
+                cwd = PathBuf::from(args.next().ok_or("missing cwd")?);
+                #[cfg(feature = "test-fixtures")]
+                {
+                    explicit_cwd = true;
+                }
+            }
             "--sessions" => {
                 sessions = Some(PathBuf::from(args.next().ok_or("missing sessions path")?))
             }
@@ -138,6 +173,20 @@ async fn run_cli(
                 dream_owner =
                     crate::dream::c1::DreamOwner::parse(&args.next().ok_or("missing dream owner")?)
                         .ok_or("invalid dream owner")?;
+            }
+            #[cfg(feature = "test-fixtures")]
+            "--dream-c1-fixture-next-session" => {
+                if fixture_next_session.is_some() {
+                    return Err("duplicate private Dream C1 fixture option".into());
+                }
+                let raw = args.next().ok_or("missing private fixture session")?;
+                let id = raw
+                    .parse::<ulid::Ulid>()
+                    .map_err(|_| "invalid private fixture session")?;
+                if id.to_string() != raw {
+                    return Err("invalid private fixture session".into());
+                }
+                fixture_next_session = Some(SessionId(id));
             }
             "--append-system-prompt" => {
                 append_system_prompt = args.next().ok_or("missing system prompt text")?
@@ -222,6 +271,37 @@ async fn run_cli(
             _ => return Err(format!("unknown option {arg}")),
         }
     }
+    #[cfg(feature = "test-fixtures")]
+    let (fixture_profile, fixture_input) = if fixture_requested {
+        if !seat
+            || !json
+            || acp
+            || scripts.is_empty()
+            || dream_owner != crate::dream::c1::DreamOwner::TermC1
+            || !explicit_cwd
+            || sessions.is_none()
+            || socket_path.is_none()
+            || resume.is_some()
+            || replay.is_some()
+        {
+            return Err("private Dream C1 fixture requires explicit isolated scripted seat".into());
+        }
+        let input = DreamC1FixtureInput {
+            cwd: cwd.clone(),
+            sessions: sessions.as_ref().unwrap().clone(),
+            socket: socket_path.as_ref().unwrap().clone(),
+            scripts: scripts.clone(),
+            profile_name: explicit_profile.clone(),
+            mcp_config: mcp_config.clone(),
+            next_session: fixture_next_session.unwrap(),
+            append_len: append_system_prompt.len(),
+        };
+        (validate_dream_c1_fixture(input.clone()).await?, Some(input))
+    } else {
+        (None, None)
+    };
+    #[cfg(not(feature = "test-fixtures"))]
+    let fixture_profile: Option<Profile> = None;
     if let Some(path) = replay {
         // seat --replay LOG: render a stored log through the seat face and exit
         if !seat {
@@ -257,7 +337,11 @@ async fn run_cli(
         .join(".bboxy450-harness");
     let sessions = sessions.unwrap_or_else(|| root.join("sessions"));
     let redactor = Set::default();
-    crate::capability::register(&redactor).await;
+    if fixture_requested {
+        redactor.no_capability();
+    } else {
+        crate::capability::register(&redactor).await;
+    }
     if !acp && !seat && prompt.is_none() {
         if let Some(notice) = redactor.capability_notice() {
             eprintln!("Notice: {notice}");
@@ -285,7 +369,13 @@ async fn run_cli(
         stdout.flush().await.map_err(|_| "output unavailable")?;
         return Ok(0);
     }
-    let profile = tokio::select! {biased;_=stop.cancelled()=>return Ok(0),name=crate::onboarding::bootstrap(root.join("profiles"), explicit_profile, scripts.is_empty() && resume.is_none())=>name};
+    let profile = if fixture_requested {
+        fixture_profile
+            .as_ref()
+            .map_or_else(|| "scripted".to_owned(), |p| p.name.clone())
+    } else {
+        tokio::select! {biased;_=stop.cancelled()=>return Ok(0),name=crate::onboarding::bootstrap(root.join("profiles"), explicit_profile, scripts.is_empty() && resume.is_none())=>name}
+    };
     let defer_acp_profile = acp && scripts.is_empty();
     let (provider, model, mut policy): (Arc<dyn Provider>, String, Policy) = if !scripts.is_empty()
     {
@@ -297,11 +387,23 @@ async fn run_cli(
                     .map_err(|_| "scripted SSE unavailable")?,
             );
         }
-        (
-            Arc::new(provider::ScriptedProvider::new(rounds)),
-            "scripted".into(),
-            Policy::new(Unattended::Deny),
-        )
+        let model = fixture_profile
+            .as_ref()
+            .map_or_else(|| "scripted".to_owned(), |p| p.model.clone());
+        let scripted = provider::ScriptedProvider::new(rounds);
+        #[cfg(feature = "test-fixtures")]
+        let scripted: Arc<dyn Provider> = if fixture_requested {
+            Arc::new(DreamC1FixtureProvider {
+                scripted,
+                model: model.clone(),
+                append: append_system_prompt.clone(),
+            })
+        } else {
+            Arc::new(scripted)
+        };
+        #[cfg(not(feature = "test-fixtures"))]
+        let scripted: Arc<dyn Provider> = Arc::new(scripted);
+        (scripted, model, Policy::new(Unattended::Deny))
     } else {
         let p = Profile::path(&profile).map_err(|e| e.message)?;
         let loaded =
@@ -309,18 +411,28 @@ async fn run_cli(
         // Fail before creating a session when local setup cannot launch it.
         // Resolve only the executable, never any credential command.
         #[cfg(feature = "acp-agent")]
-        if let Ok(p) = &loaded && resume.is_none() && p.is_acp_agent() {
+        if let Ok(p) = &loaded
+            && resume.is_none()
+            && p.is_acp_agent()
+        {
             let command = &p.agent.as_ref().unwrap().command[0];
             // Match the real ACP spawn path, including login-shell PATH. Direct
             // paths retain Command's existing cwd-relative launch semantics.
             if !command.contains('/') {
                 let path = crate::backend::acp_agent::login_path().await;
-                crate::backend::acp_agent::find_agent(command, path, &cwd).await
+                crate::backend::acp_agent::find_agent(command, path, &cwd)
+                    .await
                     .map_err(|e| format!("{e}; {}", crate::onboarding::setup_guidance(&profile)))?;
             }
         }
         match loaded {
-            Err(e) if resume.is_none() => return Err(format!("{}; {}", e.message, crate::onboarding::setup_guidance(&profile))),
+            Err(e) if resume.is_none() => {
+                return Err(format!(
+                    "{}; {}",
+                    e.message,
+                    crate::onboarding::setup_guidance(&profile)
+                ));
+            }
             Ok(p) if defer_acp_profile => {
                 // Advertise capabilities without executing a credential command.
                 // Host resolves the real provider inside its cancellable factory.
@@ -374,6 +486,15 @@ async fn run_cli(
     } else {
         SessionId::new()
     };
+    if fixture_requested {
+        let path = crate::store::log_path(&sessions, session);
+        crate::runtime::blocking(move || {
+            if !matches!(std::fs::symlink_metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound) {
+                return Err("private Dream C1 fixture refused [initial_log_exists]".to_owned());
+            }
+            Ok(())
+        }).await?;
+    }
     let config = Config {
         meta: SessionMeta {
             vcs: None,
@@ -381,7 +502,13 @@ async fn run_cli(
             source: None,
             session,
             cwd,
-            profile: Some(profile),
+            // Only an explicitly validated private fixture profile is selected.
+            // Host reuses the supplied scripted provider and ordinary metadata.
+            profile: if fixture_requested && fixture_profile.is_none() {
+                None
+            } else {
+                Some(profile)
+            },
             fork: None,
             protocol: PROTOCOL,
             harness: env!("CARGO_PKG_VERSION").into(),
@@ -401,6 +528,9 @@ async fn run_cli(
         max_rounds,
     };
     let mut launch = tokio::select! {biased;_=stop.cancelled()=>return Ok(0),launch=read_launch(append_system_prompt,mcp_config)=>launch};
+    if fixture_requested && !launch.notices.is_empty() {
+        return Err("private Dream C1 fixture refused [mcp_load]".into());
+    }
     launch.yolo = yolo;
     launch.dream_owner = dream_owner;
     let host = Host::new(config.clone()).with_launch(launch);
@@ -565,6 +695,8 @@ async fn run_cli(
                     continue;
                 }
                 super::seat::InputAction::Eof => {
+                    #[cfg(feature = "test-fixtures")]
+                    { fixture_next_session = None; }
                     if stdin_was_tty && stdin_hung_up(){stop_cli(&stop);}
                     let _=gateway.send(op(session,Op::Close));stopping=true;
                     break;
@@ -595,7 +727,37 @@ async fn run_cli(
           if report_state && let Some(bytes) = state.apply(&event.event)
               && (stdout.write_all(&bytes).await.is_err()||stdout.flush().await.is_err())
           {stop_cli(&stop);let _=gateway.send(op(session,Op::Close));break 'events;}
-          if matches!(event.event,Event::SessionClosed){break;}
+          if matches!(event.event,Event::SessionClosed){
+           #[cfg(feature = "test-fixtures")]
+           if !stopping && !stop.is_cancelled() && let Some(next_session) = fixture_next_session.take() {
+            // This point follows the actual durable close's stdout flush. Keep
+            // the same Host/PID/input, retire A, and create exactly one fresh B.
+            socket.retire().await.map_err(|_| "fixture socket retirement failed")?;
+            if let Some(old) = alias.take() { old.retire().await.map_err(|_| "fixture alias retirement failed")?; }
+            let checked = validate_dream_c1_fixture(fixture_input.as_ref().unwrap().clone()).await?;
+            if checked.as_ref().map(|p| (&p.name, &p.model)) != fixture_profile.as_ref().map(|p| (&p.name, &p.model)) {
+                return Err("private Dream C1 fixture refused [profile_changed]".into());
+            }
+            let next = host.create(op(next_session, Op::StartSession {
+                cwd: config.meta.cwd.clone(), profile: config.meta.profile.clone(), fork: None,
+            })).await.map_err(|_| "fixture next session could not be created")?.0;
+            let hello = next.hello();
+            session = hello.meta.session;
+            gateway = match gateway.profile_switch_sender() {
+                Some(sender) => next.with_profile_switch(sender), None => next,
+            };
+            socket = super::seat::bind_session(&root, gateway.clone(), false).await?;
+            if let Some(path) = &socket_path { alias = Some(super::seat::bind_alias(path, gateway.clone()).await?); }
+            subscription = gateway.subscribe(Subscribe {
+                session, after: None, ephemeral: false,
+            }).map_err(|_| "fixture next subscription refused")?;
+            stopping = false;
+            running = false;
+            input_filter = super::seat::InputFilter::default();
+            continue 'events;
+           }
+           break;
+          }
          }
         }
     }
@@ -611,6 +773,366 @@ async fn run_cli(
     // failed. Headless one-shot mode still reports its turn's failure.
     Ok(if failed && !seat { 1 } else { 0 })
 }
+#[cfg(feature = "test-fixtures")]
+fn dream_c1_fixture_environment_entry(name: &std::ffi::OsStr, value: &std::ffi::OsStr) -> bool {
+    if matches!(
+        name.to_str(),
+        Some(
+            "HOME"
+                | "PATH"
+                | "LANG"
+                | "LC_ALL"
+                | "TERM"
+                | "TMPDIR"
+                | "TZ"
+                | "BBOXY_SEAT_ID"
+                | "BBOXY_GENERATION"
+                | "BBOXY_ROLE"
+                | "BBOXY_SOCK"
+                | "BBOXY_CAPABILITY_FILE"
+                | "TERM_PROGRAM"
+                | "TERM_PROGRAM_VERSION"
+                | "ZDOTDIR"
+                | "CODEX_HOME"
+                | "CLAUDE_CONFIG_DIR"
+        )
+    ) {
+        return true;
+    }
+    // CoreFoundation initializes this locale metadata while dyld loads the
+    // linked framework, even when the parent supplies a cleared environment.
+    // Admit only the native UID/script/region triple, not arbitrary new names.
+    if cfg!(target_os = "macos") && name == "__CF_USER_TEXT_ENCODING" {
+        let Some(text) = value.to_str().filter(|v| v.len() <= 64) else {
+            return false;
+        };
+        let mut parts = text.split(':');
+        let number = |part: Option<&str>| {
+            let part = part?;
+            if let Some(hex) = part.strip_prefix("0x") {
+                u32::from_str_radix(hex, 16).ok()
+            } else if part.bytes().all(|b| b.is_ascii_digit()) {
+                part.parse::<u32>().ok()
+            } else {
+                None
+            }
+        };
+        return number(parts.next()) == Some(unsafe { libc::geteuid() })
+            && number(parts.next()).is_some()
+            && number(parts.next()).is_some()
+            && parts.next().is_none();
+    }
+    false
+}
+
+#[cfg(feature = "test-fixtures")]
+struct DreamC1FixtureProvider {
+    scripted: provider::ScriptedProvider,
+    model: String,
+    append: String,
+}
+#[cfg(feature = "test-fixtures")]
+impl Provider for DreamC1FixtureProvider {
+    fn id(&self) -> &str {
+        self.scripted.id()
+    }
+    fn caps(&self) -> provider::Caps {
+        self.scripted.caps()
+    }
+    fn stream(
+        &self,
+        request: provider::ModelRequest,
+        cancel: CancellationToken,
+    ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = provider::ModelEvent> + Send>> {
+        // Inspect the real production request boundary; never synthesize a
+        // successful turn after losing managed model/bootstrap metadata.
+        let system = request.messages.first().and_then(|m| m["content"].as_str());
+        if request.model != self.model || !system.is_some_and(|s| s.ends_with(&self.append)) {
+            return Box::pin(futures_util::stream::once(async {
+                provider::ModelEvent::Failed(ProviderError::new(
+                    ErrorClass::Config,
+                    "private fixture managed request metadata lost",
+                ))
+            }));
+        }
+        self.scripted.stream(request, cancel)
+    }
+}
+
+#[cfg(feature = "test-fixtures")]
+fn dream_c1_fixture_mcp(servers: &crate::mcp::Servers) -> Result<(), String> {
+    let refused = || "private Dream C1 fixture refused [mcp_environment]".to_owned();
+    for server in servers.values() {
+        if server.command.is_empty()
+            || server.command.len() > 4096
+            || server
+                .args
+                .iter()
+                .any(|a| a.len() > 8192 || a.contains('\0'))
+        {
+            return Err("private Dream C1 fixture refused [mcp_command]".into());
+        }
+        for (name, source) in &server.env {
+            if name.len() > 256
+                || source.len() > 8192
+                || source.contains('\0')
+                || source.starts_with('!')
+                || name == "BBOXY_CAPABILITY"
+                || name.ends_with("API_KEY")
+            {
+                return Err(refused());
+            }
+            if name.starts_with("BBOXY_") {
+                if !matches!(
+                    name.as_str(),
+                    "BBOXY_SEAT_ID"
+                        | "BBOXY_GENERATION"
+                        | "BBOXY_ROLE"
+                        | "BBOXY_SOCK"
+                        | "BBOXY_CAPABILITY_FILE"
+                ) {
+                    return Err(refused());
+                }
+                let expected = std::env::var(name).map_err(|_| refused())?;
+                if source != &expected && source != &format!("${name}") {
+                    return Err(refused());
+                }
+            }
+            if let Some(name) = source.strip_prefix('$') {
+                let value = std::env::var_os(name).ok_or_else(refused)?;
+                if !dream_c1_fixture_environment_entry(std::ffi::OsStr::new(name), &value) {
+                    return Err(refused());
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "test-fixtures")]
+#[derive(Clone)]
+struct DreamC1FixtureInput {
+    cwd: PathBuf,
+    sessions: PathBuf,
+    socket: PathBuf,
+    scripts: Vec<PathBuf>,
+    profile_name: Option<String>,
+    mcp_config: Option<PathBuf>,
+    next_session: SessionId,
+    append_len: usize,
+}
+
+#[cfg(feature = "test-fixtures")]
+async fn validate_dream_c1_fixture(input: DreamC1FixtureInput) -> Result<Option<Profile>, String> {
+    let DreamC1FixtureInput {
+        cwd,
+        sessions,
+        socket,
+        scripts,
+        profile_name,
+        mcp_config,
+        next_session,
+        append_len,
+    } = input;
+    fn deny(code: &str) -> String {
+        format!("private Dream C1 fixture refused [{code}]")
+    }
+    for (name, value) in std::env::vars_os() {
+        if !dream_c1_fixture_environment_entry(&name, &value) {
+            return Err(deny("environment_entry"));
+        }
+    }
+    if append_len > 256 * 1024 {
+        return Err(deny("append_size"));
+    }
+    for name in ["BBOXY_ROLE", "TERM_PROGRAM", "TERM_PROGRAM_VERSION"] {
+        if let Some(value) = std::env::var_os(name)
+            && !value.to_str().is_some_and(|s| {
+                s.len() <= 256
+                    && (name != "BBOXY_ROLE" || !s.is_empty())
+                    && !s.chars().any(char::is_control)
+            })
+        {
+            return Err(deny("environment_metadata"));
+        }
+    }
+    const MANAGED: [&str; 5] = [
+        "BBOXY_SEAT_ID",
+        "BBOXY_GENERATION",
+        "BBOXY_ROLE",
+        "BBOXY_SOCK",
+        "BBOXY_CAPABILITY_FILE",
+    ];
+    let managed = MANAGED.iter().any(|name| std::env::var_os(name).is_some());
+    if managed {
+        if MANAGED.iter().any(|name| std::env::var_os(name).is_none()) {
+            return Err(deny("managed_fields"));
+        }
+        let seat = std::env::var("BBOXY_SEAT_ID").map_err(|_| deny("managed_seat"))?;
+        if !seat
+            .parse::<ulid::Ulid>()
+            .is_ok_and(|id| id.to_string() == seat)
+        {
+            return Err(deny("managed_seat"));
+        }
+        let generation =
+            std::env::var("BBOXY_GENERATION").map_err(|_| deny("managed_generation"))?;
+        if generation.len() > 20
+            || !generation.bytes().all(|b| b.is_ascii_digit())
+            || !generation.parse::<u64>().is_ok_and(|n| n != 0)
+        {
+            return Err(deny("managed_generation"));
+        }
+    }
+    let home = PathBuf::from(std::env::var_os("HOME").ok_or_else(|| deny("home_missing"))?);
+    let dirs = ["ZDOTDIR", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "TMPDIR"]
+        .into_iter()
+        .filter_map(|name| std::env::var_os(name).map(|p| (name, PathBuf::from(p))))
+        .collect::<Vec<_>>();
+    let managed_socket = std::env::var_os("BBOXY_SOCK").map(PathBuf::from);
+    let capability = std::env::var_os("BBOXY_CAPABILITY_FILE").map(PathBuf::from);
+    crate::runtime::blocking(move || {
+        use std::{fs::{Metadata, OpenOptions}, io::Read, os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt}, path::{Component, Path}};
+        struct Private { root: PathBuf }
+        impl Private {
+            fn lexical(path: &Path, label: &str) -> Result<(), String> {
+                if !path.is_absolute() || path.as_os_str().as_encoded_bytes().len() > 4096
+                    || path.components().any(|c| !matches!(c, Component::RootDir | Component::Normal(_))) {
+                    return Err(deny(&format!("{label}_path")));
+                }
+                Ok(())
+            }
+            fn directory(&self, path: &Path, label: &str, optional: bool) -> Result<bool, String> {
+                Self::lexical(path, label)?;
+                if !path.starts_with(&self.root) { return Err(deny("mixed_root")); }
+                let mut walked = PathBuf::from("/");
+                for part in path.components() {
+                    if let Component::Normal(part) = part { walked.push(part); } else { continue; }
+                    let m = match std::fs::symlink_metadata(&walked) {
+                        Ok(m) => m,
+                        Err(e) if optional && e.kind() == std::io::ErrorKind::NotFound && walked.starts_with(&self.root) => return Ok(false),
+                        Err(_) => return Err(deny(&format!("{label}_missing"))),
+                    };
+                    if m.file_type().is_symlink() { return Err(deny(&format!("{label}_symlink"))); }
+                    if !m.is_dir() { return Err(deny(&format!("{label}_kind"))); }
+                    if walked.starts_with(&self.root) {
+                        if m.uid() != unsafe { libc::geteuid() } { return Err(deny(&format!("{label}_owner"))); }
+                        if m.mode() & 0o7777 != 0o700 { return Err(deny(&format!("{label}_mode"))); }
+                    }
+                }
+                Ok(true)
+            }
+            fn data(&self, path: &Path, label: &str, maximum: u64) -> Result<Metadata, String> {
+                Self::lexical(path, label)?;
+                self.directory(path.parent().ok_or_else(|| deny("file_parent"))?, label, false)?;
+                let m = std::fs::symlink_metadata(path).map_err(|_| deny(&format!("{label}_missing")))?;
+                if m.file_type().is_symlink() { return Err(deny(&format!("{label}_symlink"))); }
+                if !m.is_file() { return Err(deny(&format!("{label}_kind"))); }
+                if m.uid() != unsafe { libc::geteuid() } { return Err(deny(&format!("{label}_owner"))); }
+                if m.mode() & 0o7777 != 0o600 { return Err(deny(&format!("{label}_mode"))); }
+                if m.nlink() != 1 { return Err(deny(&format!("{label}_links"))); }
+                if m.len() == 0 || m.len() > maximum { return Err(deny(&format!("{label}_size"))); }
+                Ok(m)
+            }
+            fn read(&self, path: &Path, label: &str, maximum: u64) -> Result<Vec<u8>, String> {
+                let before = self.data(path, label, maximum)?;
+                let mut f = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+                    .open(path).map_err(|_| deny(&format!("{label}_open")))?;
+                let same = |a: &Metadata, b: &Metadata| a.dev() == b.dev() && a.ino() == b.ino()
+                    && a.len() == b.len() && a.mtime() == b.mtime() && a.mtime_nsec() == b.mtime_nsec()
+                    && a.ctime() == b.ctime() && a.ctime_nsec() == b.ctime_nsec();
+                if !same(&before, &f.metadata().map_err(|_| deny("file_metadata"))?) { return Err(deny("file_changed")); }
+                let mut bytes = Vec::new();
+                (&mut f).take(maximum + 1).read_to_end(&mut bytes).map_err(|_| deny(&format!("{label}_read")))?;
+                let after = self.data(path, label, maximum)?;
+                if bytes.len() as u64 != before.len() || !same(&before, &after)
+                    || !same(&before, &f.metadata().map_err(|_| deny("file_metadata"))?) { return Err(deny("file_changed")); }
+                Ok(bytes)
+            }
+            fn absent(&self, path: &Path, label: &str) -> Result<(), String> {
+                Self::lexical(path, label)?;
+                if !path.starts_with(&self.root) { return Err(deny("mixed_root")); }
+                if !matches!(std::fs::symlink_metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound) {
+                    return Err(deny(&format!("{label}_exists")));
+                }
+                Ok(())
+            }
+        }
+        let profile_path = profile_name.as_ref().map(|name| Profile::file_in(&home.join(".bboxy450-harness/profiles"), name)
+            .map_err(|_| deny("profile_name"))).transpose()?;
+        let mut targets = vec![home.clone(), cwd.clone(), sessions.clone(), socket.clone()];
+        targets.extend(scripts.iter().cloned());
+        targets.extend(dirs.iter().map(|(_, p)| p.clone()));
+        targets.extend(profile_path.iter().cloned());
+        targets.extend(mcp_config.iter().cloned());
+        targets.extend(capability.iter().cloned());
+        targets.extend(managed_socket.iter().cloned());
+        let mut root = home.clone();
+        for target in &targets {
+            Private::lexical(target, "input")?;
+            while !target.starts_with(&root) {
+                if !root.pop() { return Err(deny("mixed_root")); }
+            }
+        }
+        let private = Private { root };
+        private.directory(&private.root, "root", false)?;
+        for (label, dir) in [("home", &home), ("cwd", &cwd), ("sessions", &sessions)] {
+            private.directory(dir, label, false)?;
+        }
+        for (_, dir) in &dirs { private.directory(dir, "overlay", false)?; }
+        for suffix in [".bboxy450-harness", ".bboxy450-harness/profiles", ".bboxy450-harness/run"] {
+            private.directory(&home.join(suffix), "runtime", true)?;
+        }
+        private.directory(socket.parent().ok_or_else(|| deny("socket_parent"))?, "socket_parent", false)?;
+        if socket.as_os_str().as_encoded_bytes().len() > 96 { return Err(deny("socket_size")); }
+        private.absent(&socket, "socket")?;
+        private.absent(&crate::store::log_path(&sessions, next_session), "next_log")?;
+        private.absent(&home.join(format!(".bboxy450-harness/run/{next_session}.sock")), "next_socket")?;
+        for script in &scripts { private.data(script, "script", 1024 * 1024)?; }
+        if let Some(path) = &managed_socket {
+            private.directory(path.parent().ok_or_else(|| deny("managed_socket_parent"))?, "managed_socket", false)?;
+            let m = std::fs::symlink_metadata(path).map_err(|_| deny("managed_socket_missing"))?;
+            if !m.file_type().is_socket() || m.uid() != unsafe { libc::geteuid() }
+                || m.mode() & 0o7777 != 0o600 || m.nlink() != 1 { return Err(deny("managed_socket_metadata")); }
+        }
+        if let Some(path) = &capability {
+            let config = mcp_config.as_ref().ok_or_else(|| deny("capability_overlay"))?;
+            if path.parent() != config.parent() { return Err(deny("capability_overlay")); }
+            // Metadata ONLY. Capability bytes belong to the ordinary admitted MCP bridge.
+            private.data(path, "capability", 4096)?;
+        }
+        if let Some(path) = &mcp_config {
+            #[derive(serde::Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct File { #[serde(rename = "mcpServers")] servers: crate::mcp::Servers }
+            let bytes = private.read(path, "mcp", 256 * 1024)?;
+            let file: File = serde_json::from_slice(&bytes).map_err(|_| deny("mcp_json"))?;
+            dream_c1_fixture_mcp(&file.servers)?;
+        }
+        let profile = if let Some(path) = &profile_path {
+            let bytes = private.read(path, "profile", 256 * 1024)?;
+            let profile = Profile::parse(std::str::from_utf8(&bytes).map_err(|_| deny("profile_utf8"))?)
+                .map_err(|_| deny("profile_parse"))?;
+            if Some(&profile.name) != profile_name.as_ref() { return Err(deny("profile_name")); }
+            if profile.auto_compact || profile.is_acp_agent() || profile.agent.is_some() { return Err(deny("profile_mode")); }
+            if profile.api_key.is_some() || profile.api_key_env.is_some() { return Err(deny("profile_credentials")); }
+            dream_c1_fixture_mcp(&profile.mcp_servers)?;
+            Some(profile)
+        } else { None };
+        // Bind_session's ordinary creation defaults are not a private-mode
+        // allocation contract. Prepare only these explicit fixture-owned paths.
+        for suffix in [".bboxy450-harness", ".bboxy450-harness/run"] {
+            let path = home.join(suffix);
+            if !private.directory(&path, "runtime", true)? {
+                use std::os::unix::fs::DirBuilderExt;
+                std::fs::DirBuilder::new().mode(0o700).create(&path).map_err(|_| deny("runtime_create"))?;
+                private.directory(&path, "runtime", false)?;
+            }
+        }
+        Ok(profile)
+    }).await
+}
+
 async fn read_launch(append_system_prompt: String, path: Option<PathBuf>) -> LaunchOptions {
     let mut launch = LaunchOptions {
         append_system_prompt,
@@ -894,5 +1416,37 @@ mod tty_tests {
             tty_hung_up(fd),
             "physical PTY EOF was classified as cooked Ctrl-D"
         );
+    }
+}
+
+#[cfg(all(test, feature = "test-fixtures"))]
+mod dream_c1_fixture_environment_tests {
+    use super::dream_c1_fixture_environment_entry;
+    use std::ffi::OsStr;
+    #[test]
+    fn native_locale_entry_validation_rejects_malformed_values_without_dyld_rewriting() {
+        let name = OsStr::new("__CF_USER_TEXT_ENCODING");
+        for invalid in ["not-native-locale-metadata", "0x0:0x0", "0x0:0x0:0x0:0x0"] {
+            assert!(!dream_c1_fixture_environment_entry(
+                name,
+                OsStr::new(invalid)
+            ));
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let uid = unsafe { libc::geteuid() };
+            assert!(dream_c1_fixture_environment_entry(
+                name,
+                OsStr::new(&format!("0x{uid:X}:0x0:0x0"))
+            ));
+            assert!(!dream_c1_fixture_environment_entry(
+                name,
+                OsStr::new(&format!("0x{:X}:0x0:0x0", uid.wrapping_add(1)))
+            ));
+        }
+        assert!(!dream_c1_fixture_environment_entry(
+            OsStr::new("C1_UNAPPROVED_ENV"),
+            OsStr::new("unsupported")
+        ));
     }
 }

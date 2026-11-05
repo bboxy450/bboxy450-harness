@@ -1308,11 +1308,16 @@ fn four_children_keep_independent_controls_and_individual_memory_shares() {
             break d;
         }
     };
-    assert_eq!(terminal.outcome, w::Outcome::Completed, "{terminal:?}");
-    assert!(workers[0].child.wait().unwrap().success());
+    let status = workers[0].child.wait().unwrap();
     let mut metrics = String::new();
     std::io::Read::read_to_string(&mut workers[0].child.stderr.take().unwrap(), &mut metrics)
         .unwrap();
+    assert_eq!(
+        terminal.outcome,
+        w::Outcome::Completed,
+        "{terminal:?} {metrics}"
+    );
+    assert!(status.success(), "{metrics}");
     assert_memory_gate(&metrics);
     eprintln!("four-child-large-input {metrics}");
 }
@@ -1344,4 +1349,186 @@ fn cancel_after_retained_state_growth_reaps_with_paced_teardown() {
     assert_memory_gate(&metrics);
     assert!(metric(&metrics, "storage_reserved_peak_bytes") > 1024 * 1024);
     eprintln!("retained-cancel {metrics}");
+}
+
+#[tokio::test]
+async fn real_store_multi_mib_ir_and_typed_blob_bundle() {
+    use bboxy450_harness::store::{Store, log_path};
+    let mut job = Job::new(0, 0, false, false);
+    let Event::SessionStarted { meta } = Envelope::from_line(
+        std::str::from_utf8(job.bytes.split_inclusive(|b| *b == b'\n').next().unwrap()).unwrap(),
+    )
+    .unwrap()
+    .event
+    else {
+        panic!()
+    };
+    let sessions = job._home.path().join("real-store");
+    let mut store = Store::open(
+        sessions.clone(),
+        meta.clone(),
+        Some(OpId::new()),
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    let turn = TurnId::new();
+    store
+        .append(Event::TurnQueued { turn }, None)
+        .await
+        .unwrap();
+    store
+        .append(
+            Event::TurnStarted {
+                turn,
+                model: None,
+                origin: None,
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    for _ in 0..32 {
+        let item = ItemId::new();
+        store
+            .append(
+                Event::ItemStarted {
+                    turn: Some(turn),
+                    item,
+                    kind: ItemKind::AgentMessage,
+                    parent: None,
+                    head: None,
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        store
+            .append(
+                Event::ItemCompleted {
+                    item,
+                    status: ItemStatus::Completed,
+                    body: Item::AgentMessage {
+                        markdown: "x".repeat(96 * 1024),
+                    },
+                },
+                None,
+            )
+            .await
+            .unwrap();
+    }
+    let blob = serde_json::to_vec(
+        &serde_json::json!({"type":"private_future_kind","payload":"x".repeat(4*1024*1024)}),
+    )
+    .unwrap();
+    let reference = store
+        .blobs
+        .put(blob.clone(), "application/json")
+        .await
+        .unwrap();
+    let item = ItemId::new();
+    store
+        .append(
+            Event::ItemStarted {
+                turn: Some(turn),
+                item,
+                kind: ItemKind::Native,
+                parent: None,
+                head: None,
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            Event::ItemCompleted {
+                item,
+                status: ItemStatus::Completed,
+                body: Item::Native {
+                    provider: "private-fixture".into(),
+                    record_type: "typed-json-blob".into(),
+                    raw: serde_json::Value::Null,
+                    blob: Some(reference.clone()),
+                },
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            Event::TurnEnded {
+                turn,
+                reason: StopReason::Quiet { ms: 1 },
+                usage: None,
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    let closed = store.append(Event::SessionClosed, None).await.unwrap();
+    drop(store);
+    job.bytes = std::fs::read(log_path(&sessions, meta.session)).unwrap();
+    assert!(job.bytes.len() > 3 * 1024 * 1024);
+    let s = &mut job.manifest.sources[0];
+    s.len = w::Number(job.bytes.len() as u64);
+    s.sha256 = w::hash(&job.bytes);
+    s.closed_seq = w::Number(closed.seq.unwrap().0);
+    let last = job.bytes.split_inclusive(|b| *b == b'\n').last().unwrap();
+    s.closed_line_sha256 = w::hash(&last[..last.len() - 1]);
+    s.blobs = vec![w::Blob {
+        sha256: w::Hex(reference.sha256.clone()),
+        len: w::Number(reference.len),
+        mime: w::Mime(reference.mime.clone()),
+    }];
+    let session_dir = job.path.join("input").join(meta.session.to_string());
+    private_dir(&session_dir);
+    private_dir(&session_dir.join("blobs"));
+    private_file(&session_dir.join("blobs").join(&reference.sha256), &blob);
+    private_file(&job.source(), &job.bytes);
+    job.commit_manifest();
+    laws::check_transcript(
+        &std::str::from_utf8(&job.bytes)
+            .unwrap()
+            .split_inclusive('\n')
+            .map(|l| Envelope::from_line(l).unwrap())
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    let (result, _, metrics) = complete(&job);
+    assert_eq!(result.episode_count, 1);
+    assert_memory_gate(&metrics);
+    if let Some(path) = std::env::var_os("DREAM_C1_EXPORT_BUNDLE") {
+        let path = std::path::PathBuf::from(path);
+        assert!(path.is_absolute());
+        // Caller supplies an absent private export path; never overwrite or repair.
+        private_dir(&path);
+        private_dir(&path.join("sessions"));
+        private_file(
+            &path
+                .join("sessions")
+                .join(format!("{}.jsonl", meta.session)),
+            &job.bytes,
+        );
+        let dir = path.join("sessions").join(meta.session.to_string());
+        private_dir(&dir);
+        private_dir(&dir.join("blobs"));
+        private_file(&dir.join("blobs").join(&reference.sha256), &blob);
+        private_file(
+            &path.join("manifest.json"),
+            &w::canonical(&job.manifest).unwrap(),
+        );
+        eprintln!(
+            "real-Store exported_bundle={} session={} repo={} ir_len={} ir_sha256={} blob_len={} blob_sha256={}",
+            path.display(),
+            meta.session,
+            job.manifest.sources[0].repo.0,
+            job.bytes.len(),
+            job.manifest.sources[0].sha256.0,
+            reference.len,
+            reference.sha256
+        );
+    }
+    eprintln!("real-Store-multi-MiB {metrics}");
 }

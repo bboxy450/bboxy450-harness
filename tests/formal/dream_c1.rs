@@ -285,3 +285,156 @@ pub fn storage(bypass: bool) -> Model {
     );
     m
 }
+
+/// Private fixture only: actual Host/IR/UDS/EOF/join are process witnesses.
+pub fn retained_host(early: bool) -> Model {
+    let mut m = base(
+        "DreamC1RetainedHost",
+        early,
+        &[
+            ("phase", 4, 0),
+            ("created", 2, 0),
+            ("closedA", 1, 0),
+            ("closedB", 1, 0),
+            ("consumed", 1, 0),
+            ("joined", 1, 0),
+        ],
+    );
+    act(
+        &mut m,
+        "CreateActualA",
+        eq(0, 0),
+        &[(0, Int(1)), (1, Int(1))],
+    );
+    let close_a = m.actions.len();
+    act(
+        &mut m,
+        "FlushDurableCloseA",
+        eq(0, 1),
+        &[(0, Int(2)), (2, Int(1))],
+    );
+    act(
+        &mut m,
+        "CreateFreshBOnce",
+        all([
+            if early {
+                eq(0, 1).or(eq(0, 2))
+            } else {
+                eq(0, 2)
+            },
+            eq(4, 0),
+        ]),
+        &[(0, Int(3)), (1, Int(2)), (4, Int(1))],
+    );
+    let close_b = m.actions.len();
+    act(
+        &mut m,
+        "CloseActualB",
+        eq(0, 3),
+        &[(0, Int(4)), (3, Int(1))],
+    );
+    let eof = m.actions.len();
+    act(
+        &mut m,
+        "EofDisablesTransition",
+        eq(0, 2),
+        &[(0, Int(4)), (4, Int(1))],
+    );
+    let join = m.actions.len();
+    act(&mut m, "ActualHostJoin", eq(0, 4), &[(5, Int(1))]);
+    safe(
+        &mut m,
+        "BBeginsAfterDurableFlushedA",
+        Var(1).lt(Int(2)).or(eq(2, 1)),
+    );
+    safe(
+        &mut m,
+        "ExactlyOneFreshTransition",
+        Var(1).lt(Int(2)).or(eq(4, 1)),
+    );
+    safe(
+        &mut m,
+        "JoinAfterAllCreatedSessionsClose",
+        eq(5, 0).or(all([eq(2, 1), Var(1).lt(Int(2)).or(eq(3, 1))])),
+    );
+    progress(
+        &mut m,
+        "RetainedOwnerEventuallyJoins",
+        Var(1).lt(Int(1)).negate(),
+        eq(5, 1),
+        vec![close_a, close_b, eof, join],
+    );
+    m
+}
+
+/// One numeric public label and one typed identifier ending07. Classification
+/// shapes/provenance are helper tests; this models the registration effects.
+pub fn public_metadata(control: u8) -> Model {
+    let name = match control {
+        1 => "DreamC1PublicMetadataOverScrub",
+        2 => "DreamC1PublicMetadataBlanket",
+        _ => "DreamC1PublicMetadata",
+    };
+    let mut m = base(
+        name,
+        control != 0,
+        &[
+            ("phase", 3, 0),
+            ("public", 1, 0),
+            ("independentSecret", 1, 0),
+            ("registered", 1, 0),
+            ("typedIdValid", 1, 1),
+        ],
+    );
+    for public in 0..2 {
+        for known in 0..2 {
+            act(
+                &mut m,
+                &format!("ResolvePublic{public}Known{known}"),
+                eq(0, 0),
+                &[
+                    (0, Int(1)),
+                    (1, Int(public)),
+                    (2, Int(known)),
+                    (3, Int(known)),
+                ],
+            );
+        }
+    }
+    act(
+        &mut m,
+        "RegisterTypedPublicEnvironment",
+        all([eq(0, 1), eq(1, 1)]),
+        &[(0, Int(2)), (3, if control == 1 { Int(1) } else { Var(2) })],
+    );
+    act(
+        &mut m,
+        "RegisterOtherEnvironment",
+        all([eq(0, 1), eq(1, 0)]),
+        &[(0, Int(2)), (3, if control == 2 { Var(2) } else { Int(1) })],
+    );
+    let corrupt = eq(3, 1);
+    act(
+        &mut m,
+        "SanitizeTypedOperation",
+        all([eq(0, 2), corrupt.clone()]),
+        &[(0, Int(3)), (4, Int(0))],
+    );
+    act(
+        &mut m,
+        "PreserveTypedOperation",
+        all([eq(0, 2), corrupt.negate()]),
+        &[(0, Int(3)), (4, Int(1))],
+    );
+    safe(
+        &mut m,
+        "PublicRoutingMetadataPreservesTypedIdentity",
+        eq(1, 0).or(eq(2, 1)).or(eq(4, 1)),
+    );
+    safe(
+        &mut m,
+        "ActualAndIndependentSecretsRemainRegistered",
+        Var(0).lt(Int(2)).or(all([eq(1, 1), eq(2, 0)]).or(eq(3, 1))),
+    );
+    m
+}

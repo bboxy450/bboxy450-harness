@@ -527,3 +527,1047 @@ fn term_c1_owner_is_typed_and_accepted_before_seat_bootstrap() {
     assert!(!invalid.status.success());
     assert!(String::from_utf8_lossy(&invalid.stderr).contains("invalid dream owner"));
 }
+
+#[cfg(not(feature = "test-fixtures"))]
+#[test]
+fn dream_c1_retained_fixture_is_not_a_default_build_option() {
+    use std::os::unix::process::CommandExt;
+    let home = tempfile::tempdir_in("/private/tmp").unwrap();
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"));
+    command
+        .args([
+            "seat",
+            "--dream-c1-fixture-next-session",
+            "0000000000000000000000002B",
+        ])
+        .env_clear()
+        .env("HOME", home.path())
+        .stdin(std::process::Stdio::null());
+    unsafe {
+        command.pre_exec(|| {
+            portable_pty::unix::close_random_fds();
+            Ok(())
+        });
+    }
+    let output = command.output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unknown option"));
+    assert!(!home.path().join(".bboxy450-harness").exists());
+}
+
+#[cfg(feature = "test-fixtures")]
+mod dream_c1_retained_fixture {
+    use bboxy450_harness::{
+        gateway::{Subscription, unix::UnixClient},
+        protocol::*,
+    };
+    use std::{
+        ffi::OsString,
+        os::unix::fs::PermissionsExt,
+        path::{Path, PathBuf},
+        process::Stdio,
+        time::Duration,
+    };
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+    const NEXT: &str = "0000000000000000000000002B";
+    struct Paths {
+        home: tempfile::TempDir,
+        cwd: PathBuf,
+        sessions: PathBuf,
+        socket: PathBuf,
+        script: PathBuf,
+        managed: Option<Managed>,
+        yolo: bool,
+    }
+    struct Managed {
+        home: PathBuf,
+        profile: PathBuf,
+        mcp: PathBuf,
+        capability: PathBuf,
+        socket: PathBuf,
+        receipt: PathBuf,
+        _listener: std::os::unix::net::UnixListener,
+    }
+    impl Paths {
+        fn new() -> Self {
+            let home = tempfile::Builder::new()
+                .prefix("c1-host-")
+                .permissions(std::fs::Permissions::from_mode(0o700))
+                .tempdir_in("/private/tmp")
+                .unwrap();
+            let cwd = home.path().join("cwd");
+            let sessions = home.path().join("sessions");
+            for dir in [&cwd, &sessions] {
+                std::fs::create_dir(dir).unwrap();
+                std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+            }
+            let script = home.path().join("text.sse");
+            std::fs::write(&script, include_bytes!("fixtures/sse/text.sse")).unwrap();
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o600)).unwrap();
+            let socket = home.path().join("seat.sock");
+            Self {
+                home,
+                cwd,
+                sessions,
+                socket,
+                script,
+                managed: None,
+                yolo: false,
+            }
+        }
+        fn home(&self) -> &Path {
+            self.managed
+                .as_ref()
+                .map_or(self.home.path(), |m| m.home.as_path())
+        }
+        fn managed() -> Self {
+            let mut paths = Self::new();
+            let root = paths.home.path();
+            let home = root.join("home");
+            let repository = root.join("repository");
+            let runtime = root.join("runtime");
+            let overlay = runtime.join("overlay");
+            for dir in [
+                home.clone(),
+                repository.clone(),
+                runtime.clone(),
+                overlay.clone(),
+                home.join(".bboxy450-harness"),
+                home.join(".bboxy450-harness/profiles"),
+                home.join(".bboxy450-harness/sessions"),
+                home.join(".bboxy450-harness/run"),
+                overlay.join("zsh"),
+                overlay.join("codex"),
+                overlay.join("claude"),
+            ] {
+                std::fs::create_dir(&dir).unwrap();
+                std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+            }
+            let private_file = |path: &Path, bytes: &[u8]| {
+                std::fs::write(path, bytes).unwrap();
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+            };
+            let profile = home.join(".bboxy450-harness/profiles/managed-c1.md");
+            private_file(&profile, b"---\nname: managed-c1\nmodel: managed-scripted\nendpoint: http://127.0.0.1:9/v1\nauto_compact: false\n---\n");
+            let capability = overlay.join("capability");
+            private_file(&capability, format!("{}\n", "ab".repeat(32)).as_bytes());
+            let socket = runtime.join("term.sock");
+            let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+            std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600)).unwrap();
+            let receipt = overlay.join("managed-receipts.jsonl");
+            let server = overlay.join("mcp.py");
+            private_file(&server, br#"# Copyright 2026 Boxy (bboxy450) and contributors.
+# SPDX-License-Identifier: LicenseRef-Respectful-Slop-1.0-Draft
+# Project: bboxy450-harness - https://github.com/bboxy450/bboxy450-harness
+# License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
+# Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
+# Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+import json, os, sys
+# Record public launch metadata only. Never open or print capability bytes.
+record = {'pid': os.getpid(), 'seat': os.environ.get('BBOXY_SEAT_ID'),
+          'generation': os.environ.get('BBOXY_GENERATION'), 'role': os.environ.get('BBOXY_ROLE'),
+          'socket': os.environ.get('BBOXY_SOCK'),
+          'capability_sibling': os.path.dirname(os.environ.get('BBOXY_CAPABILITY_FILE','')) == os.path.dirname(__file__),
+          'legacy_capability': 'BBOXY_CAPABILITY' in os.environ}
+fd = os.open(os.environ['C1_RECEIPT'], os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+os.write(fd, (json.dumps(record, sort_keys=True) + '\n').encode())
+os.close(fd)
+for line in sys.stdin:
+    request = json.loads(line)
+    if 'id' not in request: continue
+    method = request.get('method')
+    if method == 'initialize':
+        result = {'protocolVersion':'2025-11-25','capabilities':{'tools':{}},'serverInfo':{'name':'private-managed-fixture','version':'1'}}
+    elif method == 'tools/list': result = {'tools':[]}
+    else: result = {}
+    print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}), flush=True)
+"#);
+            let mcp = overlay.join("mcp.json");
+            let configuration = serde_json::json!({"mcpServers":{"managed":{
+                "command":"/usr/bin/python3","args":["-I","-S",server],"timeout_s":2,
+                "env":{"C1_RECEIPT":receipt,"BBOXY_SEAT_ID":"$BBOXY_SEAT_ID", "BBOXY_GENERATION":"$BBOXY_GENERATION", "BBOXY_ROLE":"$BBOXY_ROLE"}
+            }}});
+            private_file(&mcp, &serde_json::to_vec(&configuration).unwrap());
+            for (name, target, content) in [
+                ("write-a.sse", "yolo-a.txt", "private explicit --yolo A\n"),
+                ("write-b.sse", "yolo-b.txt", "private explicit --yolo B\n"),
+            ] {
+                let call = serde_json::json!({"choices":[{"index":0,"delta":{"tool_calls":[{
+                    "index":0,"id":name,"type":"function","function":{"name":"write", "arguments":serde_json::to_string(&serde_json::json!({"path":target,"content":content})).unwrap()}
+                }]},"finish_reason":null}]});
+                let finish = serde_json::json!({"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]});
+                private_file(
+                    &overlay.join(name),
+                    format!("data: {call}\n\ndata: {finish}\n\ndata: [DONE]\n\n").as_bytes(),
+                );
+            }
+            private_file(
+                &home.join(".bboxy450-harness/sessions/retained.keep"),
+                b"retained private owner\n",
+            );
+            paths.cwd = repository;
+            paths.sessions = home.join(".bboxy450-harness/sessions");
+            paths.socket = runtime.join("seat.sock");
+            paths.managed = Some(Managed {
+                home,
+                profile,
+                mcp,
+                capability,
+                socket,
+                receipt,
+                _listener: listener,
+            });
+            paths.yolo = true;
+            paths
+        }
+        fn args(&self) -> Vec<OsString> {
+            let mut args: Vec<OsString> = ["seat", "--json", "--dream-owner", "term-c1"]
+                .into_iter()
+                .map(Into::into)
+                .collect();
+            for (flag, path) in [
+                ("--cwd", &self.cwd),
+                ("--sessions", &self.sessions),
+                ("--socket", &self.socket),
+                ("--scripted", &self.script),
+                ("--scripted", &self.script),
+                ("--scripted", &self.script),
+            ] {
+                args.push(flag.into());
+                args.push(path.as_os_str().to_owned());
+            }
+            args.extend(["--dream-c1-fixture-next-session".into(), NEXT.into()]);
+            if let Some(m) = &self.managed {
+                remove(&mut args, "--scripted", true);
+                for script in [
+                    m.mcp.parent().unwrap().join("write-a.sse"),
+                    self.script.clone(),
+                    m.mcp.parent().unwrap().join("write-b.sse"),
+                    self.script.clone(),
+                    self.script.clone(),
+                ] {
+                    args.extend(["--scripted".into(), script.into_os_string()]);
+                }
+                args.extend(["--profile".into(), "managed-c1".into(), "--mcp-config".into(), m.mcp.as_os_str().to_owned(),
+                    "--append-system-prompt".into(), "NAME: private managed fixture\nROLE: EXECUTOR\nPreserve this context through both sessions.".into()]);
+            }
+            if self.yolo {
+                args.push("--yolo".into());
+            }
+            args
+        }
+        fn command(&self, args: Vec<OsString>) -> tokio::process::Command {
+            let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"));
+            command
+                .args(args)
+                .env_clear()
+                .env("HOME", self.home())
+                .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+                .env("LANG", "C")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true);
+            #[cfg(target_os = "macos")]
+            command.env(
+                "__CF_USER_TEXT_ENCODING",
+                format!("0x{:X}:0x0:0x0", unsafe { libc::geteuid() }),
+            );
+            if let Some(m) = &self.managed {
+                command
+                    .env("BBOXY_SEAT_ID", "00000000000000000000000042")
+                    .env("BBOXY_GENERATION", "7")
+                    .env("BBOXY_ROLE", "executor")
+                    .env("BBOXY_SOCK", &m.socket)
+                    .env("BBOXY_CAPABILITY_FILE", &m.capability)
+                    .env("TERM_PROGRAM", "bboxy450-term")
+                    .env("TERM_PROGRAM_VERSION", "private-fixture")
+                    .env("ZDOTDIR", m.mcp.parent().unwrap().join("zsh"))
+                    .env("CODEX_HOME", m.mcp.parent().unwrap().join("codex"))
+                    .env("CLAUDE_CONFIG_DIR", m.mcp.parent().unwrap().join("claude"));
+            }
+            unsafe {
+                command.pre_exec(|| {
+                    portable_pty::unix::close_random_fds();
+                    Ok(())
+                });
+            }
+            command
+        }
+        fn logs(&self) -> Vec<Vec<Envelope>> {
+            let mut paths = std::fs::read_dir(&self.sessions)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .filter(|p| p.extension().is_some_and(|s| s == "jsonl"))
+                .collect::<Vec<_>>();
+            paths.sort();
+            paths
+                .into_iter()
+                .map(|path| {
+                    let events = std::fs::read_to_string(path)
+                        .unwrap()
+                        .lines()
+                        .map(|line| serde_json::from_str::<Envelope>(line).unwrap())
+                        .collect::<Vec<_>>();
+                    laws::check_transcript(&events).unwrap();
+                    events
+                })
+                .collect()
+        }
+    }
+    fn remove(args: &mut Vec<OsString>, key: &str, value: bool) {
+        while let Some(i) = args.iter().position(|s| s == key) {
+            args.drain(i..i + if value { 2 } else { 1 });
+        }
+    }
+    fn op(session: SessionId, op: Op) -> OpEnvelope {
+        OpEnvelope {
+            v: PROTOCOL,
+            session,
+            op_id: OpId::new(),
+            op,
+        }
+    }
+    async fn discover(path: &Path, session: Option<SessionId>) -> (UnixClient, Subscription) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Ok((client, sub)) = UnixClient::discover(path, None, false, false).await {
+                    if session.is_none_or(|s| sub.hello().meta.session == s) {
+                        break (client, sub);
+                    }
+                    client.close();
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("private retained Host did not publish its actual socket")
+    }
+    async fn turn(
+        client: &UnixClient,
+        sub: &mut Subscription,
+        text: &str,
+        op_id: OpId,
+    ) -> Result<(), &'static str> {
+        let mut request = op(
+            sub.hello().meta.session,
+            Op::UserTurn {
+                blocks: vec![InputBlock::Text { text: text.into() }],
+                mode: TurnMode::Queue,
+            },
+        );
+        request.op_id = op_id;
+        let ack = client
+            .send(request)
+            .await
+            .map_err(|_| "turn_admission_failed")?;
+        if ack.op_id != op_id || ack.duplicate {
+            return Err("turn_ack_identity");
+        }
+        until_turn(sub, text, Some(op_id)).await
+    }
+    async fn until_turn(
+        sub: &mut Subscription,
+        text: &str,
+        op_id: Option<OpId>,
+    ) -> Result<(), &'static str> {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let mut user = false;
+            let mut queued = None;
+            let mut started = None;
+            loop {
+                let event = sub.recv().await.ok_or("actual_session_subscription_ended")?;
+                match event.event {
+                    Event::TurnQueued { turn } if op_id.is_none_or(|id| event.cause == Some(id)) => {
+                        if event.seq.is_none() { return Err("queued_not_durable"); }
+                        queued = Some(turn);
+                    }
+                    Event::TurnStarted { turn, .. } if queued == Some(turn) => {
+                        if event.seq.is_none() { return Err("started_not_durable"); }
+                        started = Some(turn);
+                    }
+                    Event::ItemCompleted { body: Item::UserMessage { blocks }, .. } => {
+                        user |= matches!(&blocks[..], [InputBlock::Text { text: found }] if found == text);
+                    }
+                    Event::TurnEnded { turn, reason, .. } => {
+                        if !user { return Err("actual_user_input_missing"); }
+                        if queued != Some(turn) || started != Some(turn) { return Err("actual_turn_lifecycle_missing"); }
+                        if event.seq.is_none() { return Err("ending_not_durable"); }
+                        if !matches!(reason, StopReason::EndTurn) { return Err("turn_ended_unsuccessfully"); }
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+            }
+        }).await.map_err(|_| "scripted_turn_timeout")?
+    }
+    async fn require_turn(
+        result: Result<(), &'static str>,
+        phase: &str,
+        session: SessionId,
+        paths: &mut Paths,
+        child: &mut tokio::process::Child,
+        stderr: &std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    ) {
+        if let Err(reason) = result {
+            // Retain only this owned private fixture. Read a small log suffix's
+            // structural fields, never capability bytes or transcript payloads.
+            for _ in 0..20 {
+                if child.try_wait().unwrap().is_some() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            let mut tails = vec![];
+            for path in std::fs::read_dir(&paths.sessions)
+                .unwrap()
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|e| e == "jsonl"))
+                .take(2)
+            {
+                let mut raw = vec![];
+                std::io::Read::read_to_end(
+                    &mut std::io::Read::take(std::fs::File::open(&path).unwrap(), 64 * 1024),
+                    &mut raw,
+                )
+                .unwrap();
+                let mut rows = raw
+                    .split(|b| *b == b'\n')
+                    .filter(|b| !b.is_empty())
+                    .map(
+                        |line| match serde_json::from_slice::<serde_json::Value>(line) {
+                            Ok(e) => serde_json::json!({"seq":e["seq"],"kind":e["event"]["type"]}),
+                            Err(_) => serde_json::json!({"invalid_json":true}),
+                        },
+                    )
+                    .collect::<Vec<_>>();
+                if rows.len() > 8 {
+                    rows.drain(..rows.len() - 8);
+                }
+                tails.push(
+                    serde_json::json!({"file":path.file_name().unwrap().to_str(),"tail":rows}),
+                );
+            }
+            let bytes = stderr.lock().unwrap().clone();
+            let summary = serde_json::json!({"phase":phase,"session":session,"reason":reason,
+                "pid":child.id(),"status":format!("{:?}",child.try_wait().unwrap()),"durable":tails});
+            let root = paths.home.path().to_owned();
+            for (name, bytes) in [
+                (
+                    "failure-summary.json",
+                    serde_json::to_vec(&summary).unwrap(),
+                ),
+                ("failure-stderr.log", bytes.clone()),
+            ] {
+                let path = root.join(name);
+                std::fs::write(&path, bytes).unwrap();
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+            }
+            paths.home.disable_cleanup(true);
+            eprintln!(
+                "private retained-Host failure {summary}; bounded child stderr={}; private evidence={}",
+                String::from_utf8_lossy(&bytes),
+                root.display()
+            );
+            panic!("private retained-Host turn failed in {phase}: {reason}");
+        }
+    }
+    async fn close(client: &UnixClient, sub: &mut Subscription) {
+        client
+            .send(op(sub.hello().meta.session, Op::Close))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let e = sub.recv().await.expect("missing durable SessionClosed");
+                if matches!(e.event, Event::SessionClosed) {
+                    assert!(e.seq.is_some());
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        client.close();
+    }
+    async fn stdout_until(
+        receive: &mut tokio::sync::mpsc::Receiver<Envelope>,
+        events: &mut Vec<Envelope>,
+        predicate: impl Fn(&Envelope) -> bool,
+    ) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let e = receive.recv().await.expect("private stdout reader ended");
+                let found = predicate(&e);
+                events.push(e);
+                if found {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+    }
+    async fn peer_pid(path: &Path) -> i32 {
+        let socket = tokio::net::UnixStream::connect(path).await.unwrap();
+        socket
+            .peer_cred()
+            .unwrap()
+            .pid()
+            .expect("local Unix peer PID")
+    }
+
+    #[test]
+    fn dream_c1_retained_host_creates_one_nonfork_b_after_a_and_keeps_real_input() {
+        bbt_rt::handle().block_on(joined(Paths::new()));
+    }
+
+    #[test]
+    fn dream_c1_managed_retained_host_preserves_private_launch_inputs() {
+        bbt_rt::handle().block_on(joined(Paths::managed()));
+    }
+
+    #[test]
+    fn dream_c1_managed_retained_host_without_yolo_keeps_unattended_denial() {
+        let mut paths = Paths::managed();
+        paths.yolo = false;
+        bbt_rt::handle().block_on(joined(paths));
+    }
+
+    async fn joined(mut paths: Paths) {
+        let saved_profile = paths
+            .managed
+            .as_ref()
+            .map(|m| std::fs::read(&m.profile).unwrap());
+        let saved_mcp = paths
+            .managed
+            .as_ref()
+            .map(|m| std::fs::read(&m.mcp).unwrap());
+        let expected_profile = paths.managed.as_ref().map(|_| "managed-c1".to_owned());
+        let mut child = paths.command(paths.args()).spawn().unwrap();
+        let pid = child.id().unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        let mut stdout = BufReader::new(child.stdout.take().unwrap()).lines();
+        let mut stderr = child.stderr.take().unwrap();
+        let (send, mut receive) = tokio::sync::mpsc::channel(256);
+        let reader = bbt_rt::handle().spawn(async move {
+            while let Some(line) = stdout.next_line().await.unwrap() {
+                send.send(serde_json::from_str::<Envelope>(&line).unwrap())
+                    .await
+                    .unwrap();
+            }
+        });
+        let stderr_ring = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let observed_stderr = stderr_ring.clone();
+        let diagnostics = bbt_rt::handle().spawn(async move {
+            let mut chunk = [0u8; 1024];
+            loop {
+                let n = stderr.read(&mut chunk).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                let mut bytes = observed_stderr.lock().unwrap();
+                bytes.extend_from_slice(&chunk[..n]);
+                let trim = bytes.len().saturating_sub(16 * 1024);
+                bytes.drain(..trim);
+            }
+        });
+        let mut events = vec![];
+        stdout_until(&mut receive, &mut events, |e| {
+            matches!(e.event, Event::SessionStarted { .. })
+        })
+        .await;
+        let a = events.last().unwrap().session;
+        let (client_a, mut sub_a) = discover(&paths.socket, Some(a)).await;
+        assert_eq!(sub_a.hello().meta.fork, None);
+        assert_eq!(sub_a.hello().meta.profile, expected_profile);
+        assert_eq!(peer_pid(&paths.socket).await, pid as i32);
+        if paths.managed.is_some() {
+            stdout_until(&mut receive, &mut events, |e| e.session == a && matches!(&e.event, Event::ItemCompleted { body: Item::Notice { text, .. }, .. } if text == "mcp managed: ready")).await;
+        }
+        let a_op = OpId("00000000000000000000000007".parse().unwrap());
+        let b_op = OpId("00000000000000000000000107".parse().unwrap());
+        let result = turn(&client_a, &mut sub_a, "A before closure", a_op).await;
+        require_turn(result, "A", a, &mut paths, &mut child, &stderr_ring).await;
+        close(&client_a, &mut sub_a).await;
+        stdout_until(&mut receive, &mut events, |e| {
+            e.session == a && matches!(e.event, Event::SessionClosed)
+        })
+        .await;
+        let b = SessionId(NEXT.parse().unwrap());
+        let (client_b, mut sub_b) = discover(&paths.socket, Some(b)).await;
+        assert_ne!(a, b);
+        assert_eq!(sub_b.hello().meta.session, b);
+        assert_eq!(sub_b.hello().meta.fork, None);
+        assert_eq!(sub_b.hello().meta.profile, expected_profile);
+        assert_eq!(peer_pid(&paths.socket).await, pid as i32);
+        assert_eq!(child.id(), Some(pid));
+        assert!(child.try_wait().unwrap().is_none());
+        assert!(
+            !paths
+                .home()
+                .join(format!(".bboxy450-harness/run/{a}.sock"))
+                .exists()
+        );
+        if paths.managed.is_some() {
+            stdout_until(&mut receive, &mut events, |e| e.session == b && matches!(&e.event, Event::ItemCompleted { body: Item::Notice { text, .. }, .. } if text == "mcp managed: ready")).await;
+        }
+        let result = turn(&client_b, &mut sub_b, "B through actual Unix socket", b_op).await;
+        require_turn(
+            result,
+            "B Unix socket",
+            b,
+            &mut paths,
+            &mut child,
+            &stderr_ring,
+        )
+        .await;
+        stdin
+            .write_all(b"B through retained stdin\n")
+            .await
+            .unwrap();
+        stdin.flush().await.unwrap();
+        let result = until_turn(&mut sub_b, "B through retained stdin", None).await;
+        require_turn(
+            result,
+            "B retained stdin",
+            b,
+            &mut paths,
+            &mut child,
+            &stderr_ring,
+        )
+        .await;
+        close(&client_b, &mut sub_b).await;
+        stdout_until(&mut receive, &mut events, |e| {
+            e.session == b && matches!(e.event, Event::SessionClosed)
+        })
+        .await;
+        drop(stdin);
+        let status = tokio::time::timeout(Duration::from_secs(5), child.wait())
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), reader)
+            .await
+            .unwrap()
+            .unwrap();
+        while let Some(event) = receive.recv().await {
+            events.push(event);
+        }
+        diagnostics.await.unwrap();
+        let stderr = stderr_ring.lock().unwrap().clone();
+        assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
+        let logs = paths.logs();
+        assert_eq!(logs.len(), 2);
+        // These exact identifiers contain the admitted generation digit. A
+        // corrupted/redacted cause must fail durable decoding or this chain.
+        for (session, id) in [(a, a_op), (b, b_op)] {
+            assert!(id.to_string().ends_with("07"));
+            let log = logs.iter().find(|log| log[0].session == session).unwrap();
+            let queued = log
+                .iter()
+                .filter(|e| e.cause == Some(id))
+                .filter_map(|e| match e.event {
+                    Event::TurnQueued { turn } => Some(turn),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(queued.len(), 1);
+            let turn = queued[0];
+            assert_eq!(log.iter().filter(|e| matches!(e.event, Event::TurnStarted { turn: found, .. } if found == turn)).count(), 1);
+            assert_eq!(log.iter().filter(|e| matches!(e.event, Event::TurnEnded { turn: found, reason: StopReason::EndTurn, .. } if found == turn)).count(), 1);
+        }
+        for log in &logs {
+            assert!(matches!(&log[0].event, Event::SessionStarted { meta } if meta.fork.is_none()));
+            assert_eq!(
+                log.iter()
+                    .filter(|e| matches!(e.event, Event::SessionClosed))
+                    .count(),
+                1
+            );
+            assert_eq!(
+                log.iter()
+                    .filter(|e| matches!(e.event, Event::TurnStarted { .. }))
+                    .count(),
+                if log[0].session == a { 1 } else { 2 }
+            );
+        }
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e.event, Event::SessionStarted { .. }))
+                .count(),
+            2
+        );
+        assert!(!paths.socket.exists());
+        assert!(
+            !paths
+                .home()
+                .join(format!(".bboxy450-harness/run/{b}.sock"))
+                .exists()
+        );
+        if paths.managed.is_none() {
+            assert!(!paths.home().join(".bboxy450-harness/profiles").exists());
+        }
+        assert!(!paths.home().join(".bboxy450-harness/dream").exists());
+        if let Some(m) = &paths.managed {
+            for (session, target, content) in [
+                (a, "yolo-a.txt", "private explicit --yolo A\n"),
+                (b, "yolo-b.txt", "private explicit --yolo B\n"),
+            ] {
+                let log = logs.iter().find(|log| log[0].session == session).unwrap();
+                let writes = log
+                    .iter()
+                    .filter_map(|e| match &e.event {
+                        Event::ItemCompleted {
+                            status,
+                            body: Item::ToolCall { name, .. },
+                            ..
+                        } if name == "write" => Some(status),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(writes.len(), 1);
+                let denied = log.iter().any(|e| {
+                    matches!(
+                        &e.event,
+                        Event::ItemCompleted {
+                            body: Item::Approval {
+                                decision: Some(ApprovalDecision::Deny { .. }),
+                                ..
+                            },
+                            ..
+                        }
+                    )
+                });
+                if paths.yolo {
+                    assert!(matches!(writes[0], ItemStatus::Completed));
+                    assert!(!denied);
+                    assert_eq!(
+                        std::fs::read(paths.cwd.join(target)).unwrap(),
+                        content.as_bytes()
+                    );
+                } else {
+                    assert!(!matches!(writes[0], ItemStatus::Completed));
+                    assert!(denied);
+                    assert!(!paths.cwd.join(target).exists());
+                }
+            }
+            assert_eq!(std::fs::read(&m.profile).unwrap(), saved_profile.unwrap());
+            assert_eq!(std::fs::read(&m.mcp).unwrap(), saved_mcp.unwrap());
+            let metadata = bboxy450_harness::provider::profile::Profile::load(&m.profile)
+                .await
+                .unwrap();
+            assert_eq!(metadata.name, "managed-c1");
+            assert!(!metadata.auto_compact);
+            assert!(logs.iter().all(|log| matches!(&log[0].event, Event::SessionStarted { meta } if meta.profile.as_deref() == Some("managed-c1"))));
+            assert!(
+                events
+                    .iter()
+                    .filter_map(|e| match &e.event {
+                        Event::TurnStarted { model, .. } => Some(model),
+                        _ => None,
+                    })
+                    .all(|m| m.as_deref() == Some("managed-scripted"))
+            );
+            let receipt = std::fs::read_to_string(&m.receipt)
+                .unwrap()
+                .lines()
+                .map(|s| serde_json::from_str::<serde_json::Value>(s).unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(receipt.len(), 2, "one real launcher MCP per Host birth");
+            for record in receipt {
+                assert_eq!(record["seat"], "00000000000000000000000042");
+                assert_eq!(record["generation"], "7");
+                assert_eq!(record["role"], "executor");
+                assert_eq!(record["socket"].as_str(), m.socket.to_str());
+                assert_eq!(record["capability_sibling"], true);
+                assert_eq!(record["legacy_capability"], false);
+                assert_eq!(
+                    unsafe { libc::kill(record["pid"].as_i64().unwrap() as i32, 0) },
+                    -1
+                );
+                assert_eq!(
+                    std::io::Error::last_os_error().raw_os_error(),
+                    Some(libc::ESRCH)
+                );
+            }
+            assert_eq!(
+                std::fs::read(paths.sessions.join("retained.keep")).unwrap(),
+                b"retained private owner\n"
+            );
+            eprintln!(
+                "managed_fixture profile=true auto_compact=false mcp_births=2 seat=true generation=7 role=true exact_op_suffix07=2 durable_lifecycle=true same_pid=true yolo_explicit={} safe_write_policy_witnesses=2",
+                paths.yolo
+            );
+        }
+    }
+
+    #[test]
+    fn dream_c1_retained_fixture_physical_eof_never_creates_b() {
+        bbt_rt::handle().block_on(async {
+            let paths = Paths::new();
+            let output = tokio::time::timeout(
+                Duration::from_secs(5),
+                paths.command(paths.args()).stdin(Stdio::null()).output(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let logs = paths.logs();
+            assert_eq!(logs.len(), 1);
+            assert_ne!(logs[0][0].session.to_string(), NEXT);
+            assert!(matches!(
+                logs[0].last().unwrap().event,
+                Event::SessionClosed
+            ));
+        });
+    }
+
+    #[test]
+    fn dream_c1_retained_fixture_rejects_widening_before_bootstrap() {
+        bbt_rt::handle().block_on(async {
+            for mode in 0..21 {
+                let paths = Paths::new();
+                let mut args = paths.args();
+                args.push("--yolo".into());
+                match mode {
+                    0 => remove(&mut args, "seat", false),
+                    1 => remove(&mut args, "--json", false),
+                    2 => remove(&mut args, "--scripted", true),
+                    3 => remove(&mut args, "--dream-owner", true),
+                    4 => args.extend(["--profile".into(), "forbidden".into()]),
+                    5 => args.extend(["--mcp-config".into(), "forbidden".into()]),
+                    6 => args.extend(["--resume".into(), NEXT.into()]),
+                    7 => args.extend(["--replay".into(), "forbidden".into()]),
+                    8 => args.push("acp".into()),
+                    9 => remove(&mut args, "--cwd", true),
+                    10 => remove(&mut args, "--sessions", true),
+                    11 => remove(&mut args, "--socket", true),
+                    12 => {
+                        let i = args.iter().position(|s| s == "--cwd").unwrap();
+                        args[i + 1] = "relative".into();
+                    }
+                    13 => std::fs::set_permissions(
+                        paths.home(),
+                        std::fs::Permissions::from_mode(0o755),
+                    )
+                    .unwrap(),
+                    14 => {}
+                    15 => args.extend(["--dream-c1-fixture-next-session".into(), NEXT.into()]),
+                    16 => {
+                        let n = args.len();
+                        args[n - 1] = "invalid".into();
+                    }
+                    17 => {
+                        let i = args.iter().position(|s| s == "--socket").unwrap();
+                        args[i + 1] = "/private/tmp/foreign-c1.sock".into();
+                    }
+                    18 => args.push("--export-schema".into()),
+                    19 => {
+                        std::fs::set_permissions(
+                            &paths.script,
+                            std::fs::Permissions::from_mode(0o644),
+                        )
+                        .unwrap();
+                    }
+                    _ => {}
+                }
+                let mut command = paths.command(args);
+                if mode == 14 {
+                    command.env("OPENAI_API_KEY", "throwaway-fixture-refusal");
+                }
+                if mode == 20 {
+                    command.env("C1_UNAPPROVED_ENV", "unsupported-fixture-input");
+                }
+                let output = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    command.stdin(Stdio::null()).output(),
+                )
+                .await
+                .unwrap()
+                .unwrap();
+                assert!(!output.status.success(), "accepted widening mode {mode}");
+                assert!(
+                    paths.logs().is_empty(),
+                    "created session for refused mode {mode}"
+                );
+                assert!(!paths.home().join(".bboxy450-harness").exists());
+                assert!(
+                    !String::from_utf8_lossy(&output.stderr).contains("throwaway-fixture-refusal")
+                );
+            }
+        });
+    }
+    #[test]
+    fn dream_c1_managed_fixture_rejects_credentials_mixed_roots_and_unsafe_metadata() {
+        bbt_rt::handle().block_on(async {
+            for mode in 0..22 {
+                let paths = Paths::managed();
+                let managed = paths.managed.as_ref().unwrap();
+                let mut args = paths.args();
+                let other = tempfile::Builder::new()
+                    .prefix("c1-other-")
+                    .permissions(std::fs::Permissions::from_mode(0o700))
+                    .tempdir_in("/private/tmp")
+                    .unwrap();
+                let sentinel = paths.home.path().join("credential-must-not-run");
+                let profile_bytes = std::fs::read(&managed.profile).unwrap();
+                match mode {
+                    0 | 1 | 2 | 3 | 4 | 5 | 6 => {}
+                    7 => {
+                        let text = String::from_utf8(profile_bytes.clone()).unwrap().replace(
+                            "---\nname",
+                            &format!("---\napi_key: '!touch {}'\nname", sentinel.display()),
+                        );
+                        std::fs::write(&managed.profile, text).unwrap();
+                    }
+                    8 => {
+                        let text = String::from_utf8(profile_bytes.clone())
+                            .unwrap()
+                            .replace("auto_compact: false", "auto_compact: true");
+                        std::fs::write(&managed.profile, text).unwrap();
+                    }
+                    9 => {
+                        let text = String::from_utf8(profile_bytes.clone()).unwrap().replace(
+                            "---\nname",
+                            "---\nprovider: acp-agent\nagent: {command: ['/bin/false']}\nname",
+                        );
+                        std::fs::write(&managed.profile, text).unwrap();
+                    }
+                    10 => std::fs::write(&managed.mcp, b"not JSON").unwrap(),
+                    11 => {
+                        let mut config: serde_json::Value =
+                            serde_json::from_slice(&std::fs::read(&managed.mcp).unwrap()).unwrap();
+                        config["mcpServers"]["managed"]["env"]["C1_CREDENTIAL"] =
+                            serde_json::json!(format!("!touch {}", sentinel.display()));
+                        std::fs::write(&managed.mcp, serde_json::to_vec(&config).unwrap()).unwrap();
+                    }
+                    12 => {
+                        let i = args.iter().position(|s| s == "--cwd").unwrap();
+                        args[i + 1] = other.path().as_os_str().to_owned();
+                    }
+                    13 => {
+                        let backup = managed.profile.with_extension("original");
+                        std::fs::rename(&managed.profile, &backup).unwrap();
+                        std::os::unix::fs::symlink(&backup, &managed.profile).unwrap();
+                    }
+                    14 => std::fs::set_permissions(
+                        &managed.profile,
+                        std::fs::Permissions::from_mode(0o644),
+                    )
+                    .unwrap(),
+                    15 => std::fs::set_permissions(
+                        &managed.capability,
+                        std::fs::Permissions::from_mode(0o644),
+                    )
+                    .unwrap(),
+                    16 => std::fs::set_permissions(
+                        paths.home(),
+                        std::fs::Permissions::from_mode(0o755),
+                    )
+                    .unwrap(),
+                    17 => {
+                        let backup = paths.script.with_extension("original");
+                        std::fs::rename(&paths.script, &backup).unwrap();
+                        std::os::unix::fs::symlink(&backup, &paths.script).unwrap();
+                    }
+                    18 => std::fs::hard_link(
+                        &managed.profile,
+                        managed.profile.with_extension("linked"),
+                    )
+                    .unwrap(),
+                    19 => std::fs::write(&managed.profile, vec![b' '; 256 * 1024 + 1]).unwrap(),
+                    20 => remove(&mut args, "--mcp-config", true),
+                    _ => {}
+                }
+                let mut command = paths.command(args);
+                match mode {
+                    0 => {
+                        command.env("BBOXY_UNAPPROVED", "unsupported");
+                    }
+                    1 => {
+                        command.env("BBOXY_CAPABILITY", "never-a-raw-capability");
+                    }
+                    2 => {
+                        command.env("BBOXY_GENERATION", "0");
+                    }
+                    3 => {
+                        command.env("BBOXY_SEAT_ID", "not-a-canonical-seat");
+                    }
+                    4 => {
+                        command.env("BBOXY_ROLE", "x".repeat(257));
+                    }
+                    5 => {
+                        command.env("OPENAI_API_KEY", "never-a-provider-key");
+                    }
+                    6 => {
+                        command.env("BBOXY_CAPABILITY_FILE", other.path().join("capability"));
+                    }
+                    21 => {
+                        command.env("HOME", "/private/tmp");
+                    }
+                    _ => {}
+                }
+                let output = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    command.stdin(Stdio::null()).output(),
+                )
+                .await
+                .unwrap()
+                .unwrap();
+                assert!(!output.status.success(), "accepted managed negative {mode}");
+                assert!(
+                    String::from_utf8_lossy(&output.stderr)
+                        .contains("private Dream C1 fixture refused ["),
+                    "unclassified managed negative {mode}"
+                );
+                assert!(paths.logs().is_empty());
+                assert!(
+                    !managed.receipt.exists(),
+                    "MCP started for rejected private inputs {mode}"
+                );
+                assert!(!sentinel.exists(), "credential command executed for {mode}");
+            }
+        });
+    }
+
+    #[test]
+    fn dream_c1_managed_fixture_never_clobbers_a_reserved_log_or_socket_name() {
+        bbt_rt::handle().block_on(async {
+            for reserved_log in [false, true] {
+                let paths = Paths::managed();
+                let target = if reserved_log {
+                    paths.sessions.join(format!("{NEXT}.jsonl"))
+                } else {
+                    paths.socket.clone()
+                };
+                std::fs::write(&target, b"original private owner\n").unwrap();
+                std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
+                let output = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    paths.command(paths.args()).stdin(Stdio::null()).output(),
+                )
+                .await
+                .unwrap()
+                .unwrap();
+                assert!(!output.status.success());
+                assert!(
+                    String::from_utf8_lossy(&output.stderr).contains(if reserved_log {
+                        "[next_log_exists]"
+                    } else {
+                        "[socket_exists]"
+                    })
+                );
+                assert_eq!(std::fs::read(&target).unwrap(), b"original private owner\n");
+                assert!(!paths.managed.as_ref().unwrap().receipt.exists());
+            }
+        });
+    }
+}

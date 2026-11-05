@@ -114,6 +114,64 @@ pub(crate) fn select_sources(
 mod source_tests {
     use super::*;
     #[test]
+    fn launcher_public_metadata_has_exact_typed_provenance_and_keeps_actual_secrets() {
+        let good = [
+            ("BBOXY_SEAT_ID", "00000000000000000000000007"),
+            ("BBOXY_GENERATION", "7"),
+            ("BBOXY_ROLE", "executor"),
+        ];
+        for (key, value) in good {
+            let source = format!("${key}");
+            let set = Set::default();
+            register_environment(Origin::Launcher, key, &source, value, &set);
+            assert_eq!(set.scrub(value), value);
+            for (origin, k, s) in [
+                (Origin::Profile, key, source.as_str()),
+                (Origin::Acp, key, source.as_str()),
+                (Origin::Launcher, "ALIAS", source.as_str()),
+                (Origin::Launcher, key, value),
+                (Origin::Launcher, key, "!printf 7"),
+                (Origin::Launcher, key, "$UNKNOWN"),
+            ] {
+                assert!(!public_launcher_metadata(origin, k, s, value));
+                let secret = Set::default();
+                register_environment(origin, k, s, value, &secret);
+                assert_eq!(secret.scrub(value), "<redacted>");
+            }
+            // A source decision never unregisters an independently known secret.
+            set.register(value);
+            register_environment(Origin::Launcher, key, &source, value, &set);
+            assert_eq!(set.scrub(value), "<redacted>");
+        }
+        for (key, value) in [
+            ("BBOXY_SEAT_ID", "lowercase"),
+            ("BBOXY_SEAT_ID", "81M6P07HR5HSQX4HKZHB93ADE8"),
+            ("BBOXY_GENERATION", "0"),
+            ("BBOXY_GENERATION", "-7"),
+            ("BBOXY_GENERATION", "18446744073709551616"),
+            ("BBOXY_ROLE", ""),
+            ("BBOXY_ROLE", "executor\n"),
+            ("BBOXY_SOCK", "7"),
+            ("BBOXY_CAPABILITY_FILE", "7"),
+        ] {
+            assert!(!public_launcher_metadata(
+                Origin::Launcher,
+                key,
+                &format!("${key}"),
+                value
+            ));
+        }
+        assert!(!public_launcher_metadata(
+            Origin::Launcher,
+            "BBOXY_ROLE",
+            "$BBOXY_ROLE",
+            &"x".repeat(257)
+        ));
+        let literal = Set::default();
+        register_environment(Origin::Launcher, "MCP_SECRET", "7", "7", &literal);
+        assert_eq!(literal.scrub("value7"), "value<redacted>");
+    }
+    #[test]
     fn reserved_reference_is_a_typed_config_error_before_resolution() {
         for source in ["$BBOXY_SOCK", "${BBOXY_SEAT_ID}", "!echo ${BBOXY_ROLE}"] {
             let env = [("alias".into(), source.into())].into();
@@ -696,6 +754,38 @@ pub mod fixtures {
     }
 }
 
+/// Host-assigned launcher provenance plus an exact same-name reference identifies
+/// three typed PUBLIC routing labels. This is not authority or a BBOXY wildcard.
+/// Literal, command, alias, profile/ACP and unknown values remain secrets. Never
+/// remove an independent secret registration merely because it matches a label.
+/// Project-owned; credit adapted reuse accurately and retain the policy:
+/// https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+fn public_launcher_metadata(origin: Origin, key: &str, source: &str, value: &str) -> bool {
+    if origin != Origin::Launcher || source.strip_prefix('$') != Some(key) {
+        return false;
+    }
+    match key {
+        "BBOXY_SEAT_ID" => value
+            .parse::<ulid::Ulid>()
+            .is_ok_and(|id| id.to_string() == value),
+        "BBOXY_GENERATION" => {
+            !value.is_empty()
+                && value.len() <= 20
+                && value.bytes().all(|c| c.is_ascii_digit())
+                && value.parse::<u64>().is_ok_and(|n| n != 0)
+        }
+        "BBOXY_ROLE" => {
+            !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
+        }
+        _ => false,
+    }
+}
+fn register_environment(origin: Origin, key: &str, source: &str, value: &str, redactor: &Set) {
+    if !public_launcher_metadata(origin, key, source, value) {
+        redactor.register(value);
+    }
+}
+
 /// Both engine-owned and ACP-relayed servers use the same provenance/custody boundary.
 async fn server_command(
     config: &ServerConfig,
@@ -731,7 +821,7 @@ async fn server_command(
         if origin != Origin::Launcher && redactor.contains_capability(&value) {
             return Err("reserved capability in environment");
         }
-        redactor.register(&value);
+        register_environment(origin, key, source, &value, redactor);
         command.env(key, value);
     }
     if origin != Origin::Launcher {

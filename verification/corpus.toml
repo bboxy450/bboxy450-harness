@@ -1089,3 +1089,25 @@ frontend = "project"
 name = "BrokenHarnessDreamC1Storage"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamC1RetainedHost"
+expected = "pass"
+frontend = "project"
+[[model]]
+name = "BrokenHarnessDreamC1RetainedHost"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamC1PublicMetadata"
+expected = "pass"
+frontend = "project"
+[[model]]
+name = "BrokenHarnessDreamC1PublicMetadataOverScrub"
+expected = "safety"
+frontend = "project"
+[[model]]
+name = "BrokenHarnessDreamC1PublicMetadataBlanket"
+expected = "safety"
+frontend = "project"

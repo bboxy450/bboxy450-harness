@@ -32,6 +32,11 @@ fn mask(index: usize) -> &'static Regex {
         .get_or_init(|| Regex::new(MASKS[index].0).expect("fixed fingerprint pattern"))
 }
 /// Includes first-search setup, so cold regex work does not hide in a record unit.
+/// Warm shared regex machinery separately from each fixed mask's compilation.
+pub(crate) fn warm_normalize_engine() {
+    let regex = regex::Regex::new("").expect("fixed empty regex");
+    let _ = regex.is_match("");
+}
 pub fn warm_normalize_mask(index: usize) {
     let re = mask(index);
     for sample in [

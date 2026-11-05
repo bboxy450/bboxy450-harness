@@ -424,7 +424,7 @@ title = "Admitted launch instructions and callable MCP relay belong to one sessi
 models = ["HarnessLaunchContext", "BrokenHarnessLaunchContextPrompt", "BrokenHarnessLaunchContextMcp", "BrokenHarnessLaunchContextStale", "BrokenHarnessLaunchContextDeadline", "BrokenHarnessLaunchContextSynthetic", "BrokenHarnessLaunchContextApproval"]
 controls = [{name="BrokenHarnessLaunchContextPrompt",expected="safety"},{name="BrokenHarnessLaunchContextMcp",expected="safety"},{name="BrokenHarnessLaunchContextStale",expected="safety"},{name="BrokenHarnessLaunchContextDeadline",expected="liveness"},{name="BrokenHarnessLaunchContextSynthetic",expected="safety"},{name="BrokenHarnessLaunchContextApproval",expected="safety"}]
 sources = ["src/gateway/host.rs", "src/backend/acp_agent.rs", "src/engine/mod.rs", "src/frontends/headless.rs", "src/mcp.rs", "src/mcp/relay.rs", "tests/formal/models.rs"]
-implementation_tests = ["tests/acp_launch_context.rs", "tests/acp_agent.rs", "tests/capability_delivery.rs", "scripts/test-launch-parity-control.py", "scripts/test-launch-approval-control.py"]
+implementation_tests = ["tests/acp_launch_context.rs", "tests/acp_agent.rs", "tests/capability_delivery.rs", "scripts/test-launch-parity-control.py", "scripts/test-launch-approval-control.py", "tests/seat_process.rs", "tests/mcp_client.rs"]
 assumptions = "Three distinct launch/session births A-B-A, context and MCP present/absent, one held completion, startup age0..2, ready/failed states and one real prompt. Weak fairness only of the logical timer/deadline group; no server or provider fairness. Admission samples immutable context and selected grants for that birth; reopen/switch create fresh ownership. Controls omit instructions, omit MCP, apply a held stale completion, disable the deadline or create a synthetic prompt, or drop explicit launcher approval intent. Launcher/profile allow bits are admitted together and the effective allow is their semantic OR. Socket ACLs, uid, bytes, no secret in argv/wire/store, vendor model config and permission semantics, exact file capability custody, real wall-clock bounds, process cleanup and model priority are implementation-only witnesses; ACP v1 bootstrap text is not system-role priority or arbitrary Rust refinement."
 property = "AdmittedContextForwarded; AdmittedMcpForwarded; CurrentGenerationOnly; NoSyntheticPrompt; LauncherApprovalMapped; StartupSettlesWithoutServerFairness."
 checks = ["make test-formal", "make test"]
@@ -768,5 +768,29 @@ sources = ["src/main.rs", "src/dream/c1.rs", "src/dream/c1_wire.rs", "src/dream/
 implementation_tests = ["tests/dream_c1.rs"]
 assumptions = "One transferred owner, one initial capacity and old/new growth overlap, four abstract work credits and two protected control credits; weak fairness of cancellation and paced settlement. Proves only declared requested-capacity accounting before growth and through drop. Actual child78MiB work/16MiB helper/2MiB control, bounded JSON/queues/threads, library/native allocations, startup, CPU/duty, pipes, all unsampled transient peaks and RSS are implementation-only process coverage. The helper allowance is tested engineering headroom, not a proven multiplier, allocator cap or arbitrary Rust/native memory proof. Four-job/root/account admission and parent22/8/2MiB credits are consumer-owned witnesses."
 property = "Declared capacities never exceed reserved work, old/new overlap is reserved before installation, work cannot borrow protected controls and settlement releases ownership."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-dream-c1"]
+
+[[contract]]
+name = "HarnessDreamC1RetainedHost"
+title = "Private retained-Host witness closes A before one fresh nonfork B"
+models = ["HarnessDreamC1RetainedHost", "BrokenHarnessDreamC1RetainedHost"]
+controls = [{name="BrokenHarnessDreamC1RetainedHost", expected="safety"}]
+sources = ["src/frontends/headless.rs", "src/gateway/host.rs", "tests/formal/dream_c1.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/seat_process.rs"]
+assumptions = "EXISTING test-fixtures feature only; exactly two private scripted sessions with one transition. Weak fairness of actual A/B closure, EOF and final join. This model proves sequence/consumption only; real Host/Store/nonfork metadata, same PID, fixed private inputs, actual Hello/UDS transport, physical EOF and child reaping are source/process witnesses. Ordinary production CLI closes/exits after A; this fixture is not a production retained-session API. Parent public authority, owning-seat activity and generation fencing remain consumer models/native witnesses."
+property = "One fresh B starts only after A durable close publication; transition is consumed once and join follows closure of all created sessions."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-dream-c1"]
+
+[[contract]]
+name = "HarnessDreamC1PublicMetadata"
+title = "Typed public launcher labels preserve IDs and actual secrets remain registered"
+models = ["HarnessDreamC1PublicMetadata", "BrokenHarnessDreamC1PublicMetadataOverScrub", "BrokenHarnessDreamC1PublicMetadataBlanket"]
+controls = [{name="BrokenHarnessDreamC1PublicMetadataOverScrub", expected="safety"}, {name="BrokenHarnessDreamC1PublicMetadataBlanket",expected="safety"}]
+sources = ["src/mcp.rs", "src/frontends/headless.rs", "tests/formal/dream_c1.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/seat_process.rs", "tests/mcp_client.rs"]
+assumptions = "One public numeric label, one typed ID ending07 and an independently known secret. Models registration/sanitization effects only; exact host-assigned Launcher provenance, same-name reference allowlist, public ULID/generation/role shape validation, nonlauncher reserved-reference rejection, actual MCP forwarding and preservation of stderr/spill secrecy are source/helper/API witnesses. An independently known secret is never removed; no general redactor or authority semantics are changed."
+property = "Registering public generation cannot corrupt typed operations, while literal/alias/command/unknown and independently known secrets remain protected."
 checks = ["make test-formal", "make test"]
 additional_checks = ["make test-dream-c1"]

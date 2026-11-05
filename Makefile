@@ -283,3 +283,7 @@ test-dream-c1:
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::c1:: -- --test-threads=1
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::fingerprint:: -- --test-threads=1
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test dream_c1 --test dream_replay --test seat_process --test acp_launch_context -- --test-threads=1 --nocapture
+	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features test-fixtures --test seat_process dream_c1_retained -- --test-threads=1 --nocapture
+	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features test-fixtures --lib frontends::headless::dream_c1_fixture_environment_tests:: -- --test-threads=1
+	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib mcp::source_tests:: -- --test-threads=1
+	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features test-fixtures --test mcp_client -- --test-threads=1 --nocapture

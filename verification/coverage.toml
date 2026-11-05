@@ -8,6 +8,11 @@
 name = "bboxy450-harness"
 status = "contract-model"
 models = [
+    "HarnessDreamC1PublicMetadata",
+    "BrokenHarnessDreamC1PublicMetadataOverScrub",
+    "BrokenHarnessDreamC1PublicMetadataBlanket",
+    "HarnessDreamC1RetainedHost",
+    "BrokenHarnessDreamC1RetainedHost",
     "HarnessDreamC1Storage",
     "BrokenHarnessDreamC1Storage",
     "BrokenHarnessDreamC1InspectionLegacyHook",

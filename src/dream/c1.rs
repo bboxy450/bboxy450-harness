@@ -309,6 +309,7 @@ impl Budget {
             return Err(w::Code::ResourceLimit);
         }
         if let Some(e) = self.control.error() {
+            cleanup_unit(&self.control, || drop(result));
             return Err(e);
         }
         result
@@ -703,13 +704,7 @@ fn selected(
         }
         b.counters.bytes += n as u64;
         let mut pos = 0;
-        let mut envelope_count = b.counters.envelopes;
         while pos < n {
-            let mut deferred = Paced::new(None, &b.control, |v| {
-                v.take();
-                false
-            });
-            let memory = b.control.memory.clone();
             b.unit(|| {
                 let end = chunk[pos..n]
                     .iter()
@@ -721,20 +716,33 @@ fn selected(
                 }
                 line.extend_from_slice(&chunk[pos..end]);
                 pos = end;
-                if line.last() != Some(&b'\n') {
-                    return Ok(());
-                }
-                seq += 1;
-                envelope_count += 1;
-                if envelope_count > 65536 {
+                Ok(())
+            })?;
+            if line.last() != Some(&b'\n') {
+                continue;
+            }
+            seq += 1;
+            let count = b.counters.envelopes;
+            let shape = b.unit(|| {
+                if count >= 65536 {
                     return Err(w::Code::ResourceLimit);
                 }
-                let raw = std::str::from_utf8(&line).map_err(|_| w::Code::MalformedIr)?;
-                let shape = storage::preflight(&line, storage::WORK)?;
-                let typed = shape.typed(line.len())?;
-                let _record_credit = memory.reserve(typed)?;
-                let event = Envelope::from_line(raw).map_err(|_| w::Code::MalformedIr)?;
-                inspect::validate_event(&event, source, seq)?;
+                std::str::from_utf8(&line).map_err(|_| w::Code::MalformedIr)?;
+                storage::preflight(&line, storage::WORK)
+            })?;
+            let typed = shape.typed(line.len())?;
+            let event = b.track(typed, || {
+                Envelope::from_line(std::str::from_utf8(&line).map_err(|_| w::Code::MalformedIr)?)
+                    .map_err(|_| w::Code::MalformedIr)
+            })?;
+            let mut deferred = Paced::new(Some(event), &b.control, |v| {
+                v.take();
+                false
+            });
+            let memory = b.control.memory.clone();
+            let is_tool = b.unit(|| {
+                let event = &deferred.as_ref().unwrap().value;
+                inspect::validate_event(event, source, seq)?;
                 let refs = inspect::blobs(&event.event)?;
                 let mut payload = match &event.event {
                     Event::SessionStarted { .. }
@@ -782,7 +790,7 @@ fn selected(
                 )?;
                 let old = std::mem::replace(&mut state_credit, next_credit);
                 drop(old);
-                law.observe(&event).map_err(|_| w::Code::MalformedIr)?;
+                law.observe(event).map_err(|_| w::Code::MalformedIr)?;
                 if let Event::SessionStarted { meta } = &event.event {
                     *log = Some(d0::ClosedLog::new(meta.clone()));
                 }
@@ -807,33 +815,31 @@ fn selected(
                     matches!(event.event, Event::SessionClosed),
                     w::hash(&line[..line.len() - 1]),
                 ));
-                if matches!(
+                let is_tool = matches!(
                     &event.event,
                     Event::ItemCompleted {
                         body: crate::protocol::Item::ToolCall { .. },
                         ..
                     }
-                ) {
-                    *deferred = Some(storage::Tracked {
-                        value: event,
-                        credit: _record_credit,
-                    });
-                } else {
+                );
+                if !is_tool {
                     log.as_mut()
                         .ok_or(w::Code::MalformedIr)?
-                        .observe(&event, &redactor, false)
+                        .observe(event, &redactor, false)
                         .map_err(|_| w::Code::ResourceLimit)?;
+                    drop(deferred.take());
                 }
                 state_credit.shrink(retained);
                 line.clear();
-                Ok(())
+                Ok(is_tool)
             })?;
-            b.counters.envelopes = envelope_count;
-            if deferred.is_none() {
-                deferred.take_value();
-            }
-            if deferred.value.as_ref().is_some_and(|v| v.is_some()) {
+            b.counters.envelopes += 1;
+            if is_tool {
                 if !b.normalization_ready {
+                    b.unit(|| {
+                        super::fingerprint::warm_normalize_engine();
+                        Ok(())
+                    })?;
                     for i in 0..super::fingerprint::NORMALIZE_MASKS {
                         let before = b.counters.cpu;
                         b.unit(|| {
@@ -853,8 +859,8 @@ fn selected(
                     drop(event);
                     Ok(())
                 })?;
-                deferred.take_value();
             }
+            deferred.take_value();
         }
         b.announce(w::Phase::Validate);
     }

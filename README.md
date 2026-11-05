@@ -161,8 +161,8 @@ the structural JSON Schema (JSON Schema string lengths count characters).
 
 Selected immutable, terminal SessionClosed IR is validated incrementally,
 including exact original line pins, non-fork transcript laws and typed blob inventories.
-Native imports and SessionMeta.fork headers return unsupported_ir before source
-inspection; ordinary canonical fork support remains outside this C1 subset.
+Native imports and SessionMeta.fork headers return unsupported_ir before replaying
+inherited events; ordinary canonical fork support remains outside this C1 subset.
 Inspection shares D0 fingerprints and selected-corpus cost ranking; it performs
 no discovery, task join, shared cache write or inference. Results are canonical
 bounded pages, published without replacement before result.json. The worker
@@ -188,3 +188,19 @@ native-watch close paths. Standalone/manual replay retains its existing owner.
 replay and seat witnesses; native/Java evidence uses `make test-formal-parity`.
 Consumer admission/authority, source retention, root/account slot limits and
 native frame/input performance are verified in bboxy450-term.
+
+The existing `test-fixtures` build feature additionally exposes
+`seat --json --dream-owner term-c1 --dream-c1-fixture-next-session ULID`
+with explicit private scripted inputs. It creates exactly one fresh nonfork B
+through the retained Host after A's real durable close, preserving PID and using
+the actual socket/Hello transport. This is a private API/transport witness;
+ordinary CLI SessionClosed still exits. Physical EOF disables the transition.
+`make test-dream-c1` runs the named private witnesses separately from ordinary
+close/exit, Legacy, and generation-change tests.
+
+Private managed fixtures preserve validated profile/model, `auto_compact:false`,
+MCP, appended context and explicit `--yolo` intent; absence retains normal denial.
+Launcher-origin same-name references for the three
+public seat/generation/role labels are validated before excluding them from
+substring-secret registration. Literal, command, alias and credential handling
+keep their existing redaction, and an independently known secret stays registered.
