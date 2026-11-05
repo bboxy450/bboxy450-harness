@@ -312,3 +312,26 @@ Launcher-origin same-name references for the three
 public seat/generation/role labels are validated before excluding them from
 substring-secret registration. Literal, command, alias and credential handling
 keep their existing redaction, and an independently known secret stays registered.
+
+## Private Dream proof tools (unapproved prerequisite)
+
+`make fetch-dream-proof-tools` is the only provisioning step with network access.
+It authenticates the six exact release archives in
+`tests/fixtures/dream-proof-tools/sources.lock.json` with the independently pinned
+public-only bootstrap verifier before extraction. `make build-dream-proof-tools`
+uses two niced jobs and private source/build/log directories under
+`$TARGET_DIR/dream-proof-tools`; it installs nothing globally.
+
+This work remains unsupported: upstream GnuPG 2.5.24's configure script requires
+Libksba even when GPGSM is disabled, while the assigned source closure has exactly
+six sources and excludes Libksba. The builder retains that failure and does not
+substitute Homebrew libraries or waive the upstream check. The frozen canonical
+Q2 probe's Git mode also returns `verification_unproven` unconditionally.
+`make test-dream-proof-tools` retains canonical native/ledger results and refuses
+to certify a real pair. A repeated component check reuses exact retained results,
+including failures, rather than retrying timing gates.
+
+No candidate receipt or Root admission is produced by this incomplete build.
+Q2's separate current-source approval, real Git→GPG component test, qualifying
+publication, corrupt-proof negative and four-job product gates remain required.
+See the fixture README for source review limits and upstream license mapping.

@@ -193,6 +193,28 @@ and the exact shared checker copies. These checks do not replace upstream terms.
   source and this absolute policy URL with extracts:
   https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
 
+## Private Dream proof-tool provisioning
+
+The recipe, byte/custody validators, regression witnesses and finite models in
+`scripts/dream-proof-tools.py`, `tests/dream_proof_tools.rs` and
+`tests/formal/dream_proof_tools.rs` are project-owned under this policy.
+
+**Adapted from Git 2.54.0** (https://github.com/git/git/tree/v2.54.0),
+**GnuPG 2.5.24**, **Libgpg-error 1.61**, **Libassuan 3.0.2** and **nPth 1.8**
+(https://gnupg.org/): the private source guards in
+`tests/fixtures/dream-proof-tools/*.patch` retain their original upstream
+copyright and GPL/LGPL terms. They are not relicensed under the project license.
+The adjacent `license-map.json` maps every patch and release to its upstream
+terms and preserved license files. Libgcrypt 1.12.4 is a source dependency;
+its original LGPL terms and bundled licenses remain attached.
+
+Public maintainer certificates and detached release signatures in that fixture
+directory are **Copied from** the exact primary URLs in `sources.lock.json`,
+with bytes preserved. They identify public release material, not operator keys
+or runtime approval. Generated archives, source trees, scratch executables and
+build logs remain private outside Git. Source-built does not mean qualified;
+the current partial build and frozen Git component remain unsupported.
+
 - The private dream-bootstrap/1 fixed permit, bounded earliest-entry/lease checks,
   canonical binding/layout vectors, independent checker and causal process/formal
   witnesses are project-owned. Keep this origin and policy beside extracts:

@@ -1,0 +1,35 @@
+--- a/run-command.c
++++ b/run-command.c
+@@ -675,0 +676,10 @@
++/* Adapted from Git (https://github.com/git/git/blob/v2.54.0/run-command.c); original GPL/LGPL terms retained.
++ * Public-only Dream profile guard by bboxy450-harness.
++ * Credit reuse: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md */
++static const struct child_process *dream_gpg_permit;
++static unsigned dream_gpg_attempts;
++void dream_proof_permit_gpg(const struct child_process *cmd)
++{
++ if (dream_gpg_attempts || dream_gpg_permit) die("Dream: extra GPG attempt refused");
++ dream_gpg_permit = cmd;
++}
+@@ -677,0 +688,10 @@
++ if (cmd != dream_gpg_permit || dream_gpg_attempts || cmd->args.nr != 6 ||
++     strcmp(cmd->args.v[0], DREAM_PROOF_GPG) ||
++     strcmp(cmd->args.v[1], "--keyid-format=long") ||
++     strcmp(cmd->args.v[2], "--status-fd=1") ||
++     strcmp(cmd->args.v[3], "--verify") || !cmd->args.v[4][0] ||
++     strcmp(cmd->args.v[5], "-") || cmd->use_shell || cmd->git_cmd ||
++     cmd->env.nr || cmd->dir)
++  die("Dream: unsupported process creation refused before effect");
++ dream_gpg_permit = NULL;
++ dream_gpg_attempts++; /* consumed before pipes/fork, never refunded */
+@@ -858 +878 @@
+-		if (errno == ENOEXEC)
++		if (errno == ENOEXEC && 0) /* Dream: no shell fallback for qualified GPG */
+@@ -1152,0 +1173 @@
++ die("Dream: async fork/thread refused before effect");
+--- a/gpg-interface.c
++++ b/gpg-interface.c
+@@ -378,0 +379,3 @@
++	/* Real OpenPGP verification only; no synthetic status. Original Git GPL terms. */
++	extern void dream_proof_permit_gpg(const struct child_process *cmd);
++	dream_proof_permit_gpg(&gpg);

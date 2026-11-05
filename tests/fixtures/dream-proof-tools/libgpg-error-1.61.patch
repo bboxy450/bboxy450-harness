@@ -1,0 +1,7 @@
+--- a/src/spawn-posix.c
++++ b/src/spawn-posix.c
+@@ -577,0 +578,4 @@
++/* Adapted from Libgpg-error (https://dev.gnupg.org/source/libgpg-error/browse/libgpg-error-1.61/src/spawn-posix.c); original GPL/LGPL terms retained.
++ * Public-only Dream profile guard by bboxy450-harness.
++ * Credit reuse: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md */
++  return GPG_ERR_NOT_SUPPORTED; /* before allocation, pipes or fork */

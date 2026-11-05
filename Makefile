@@ -7,6 +7,16 @@
 .PHONY: help test test-ir lock-ir test-formal test-formal-native test-formal-parity check-formal-evidence check-embedded-build smoke-live bench-budgets test-licenses test-secrets
 TARGET_DIR ?= target
 
+.PHONY: fetch-dream-proof-tools build-dream-proof-tools test-dream-proof-tools
+fetch-dream-proof-tools:
+	python3 -I scripts/dream-proof-tools.py fetch --target '$(abspath $(TARGET_DIR))'
+
+build-dream-proof-tools:
+	python3 -I scripts/dream-proof-tools.py build --target '$(abspath $(TARGET_DIR))'
+
+test-dream-proof-tools:
+	python3 -I scripts/dream-proof-tools.py check --target '$(abspath $(TARGET_DIR))'
+
 test:
 	python3 -I scripts/test.py
 	$(MAKE) test-gui
@@ -25,6 +35,9 @@ help:
 	  'make test-formal-parity         Native/Java TLC graph and verdict parity' \
 	  'make land                       Signed rebase, focused gates, source-bound evidence and main push' \
 	  'make test-python-execute         Real CPython, commands, current-context MCP and durable recovery' \
+	  'make fetch-dream-proof-tools    Authenticate six fixed upstream source archives (HTTPS)' \
+	  'make build-dream-proof-tools    Private offline candidate build; refuses unsupported inputs' \
+	  'make test-dream-proof-tools     Private source/custody and canonical component checks' \
 	  'make verify-gui-polish          Focused MCP output, prompt projection, loader and changed model checks' \
 	  'make verify-quiet-code-cards    Focused Python/title/MCP geometry, native raster and embedded lint checks' \
 	  'make check-embedded-lints       Strict embedded harness library lint compilation only' \

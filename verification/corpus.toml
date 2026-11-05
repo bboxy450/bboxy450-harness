@@ -2217,3 +2217,113 @@ frontend = "project"
 name = "BrokenHarnessDreamReadObserveOrTerminalBypassSite"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamProofToolsPublication"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPublicationAuth"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPublicationReview"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPublicationWitness"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPublicationReceiptFirst"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPublicationClobber"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamProofToolsBinding"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsBindingSelfAdmission"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsBindingPartial"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsBindingChangedTuple"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsBindingStaleABA"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsBindingOtherCandidate"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamProofToolsCustody"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsCustodyDebtReset"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsCustodyEffectABA"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsCustodyUnknownRetry"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsCustodyRetiredSignal"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsCustodyEarlyCleanup"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsCustodyTrustBeforeReap"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamProofToolsHiddenWork"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsHiddenWorkCensusQualification"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsHiddenWorkUnqualifiedTrust"
+expected = "safety"
+frontend = "project"

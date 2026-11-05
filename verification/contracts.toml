@@ -1109,3 +1109,51 @@ assumptions = "Task66445: standalone25-field finite failure protocol, fixed27 C 
 property = "Every fixed site takes the shared exact-original independent-terminal route or preserves fail-closed/pending disposition; raw failure never fabricates success/ACK/CONT/work/reap/CPU. Unknown/overcap full raw cost and fresh debt remain intact; release needs actual original ownwait4/groupgone/full known paid bill; prior failure and final budget verdict remain strict."
 checks = ["make test-formal", "make test"]
 additional_checks = ["make test-dream-c1", "make test-dream-mcp", "make test-formal-parity"]
+
+[[contract]]
+name = "HarnessDreamProofToolsPublication"
+title = "Two private builders publish qualification before their immutable receipt"
+models = ["HarnessDreamProofToolsPublication", "BrokenHarnessDreamProofToolsPublicationAuth", "BrokenHarnessDreamProofToolsPublicationReview", "BrokenHarnessDreamProofToolsPublicationWitness", "BrokenHarnessDreamProofToolsPublicationReceiptFirst", "BrokenHarnessDreamProofToolsPublicationClobber"]
+controls = [{name="BrokenHarnessDreamProofToolsPublicationAuth", expected="safety"}, {name="BrokenHarnessDreamProofToolsPublicationReview", expected="safety"}, {name="BrokenHarnessDreamProofToolsPublicationWitness", expected="safety"}, {name="BrokenHarnessDreamProofToolsPublicationReceiptFirst", expected="safety"}, {name="BrokenHarnessDreamProofToolsPublicationClobber", expected="safety"}]
+sources = ["scripts/dream-proof-tools.py", "tests/formal/dream_proof_tools.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/dream_proof_tools.rs"]
+assumptions = "Two independent builders and two candidates; stage0..8 encodes absent/fetched/authenticated/built/reviewed/witnessed/qualification/receipt/refusal. Auth/review/witness/qualification/receipt/failure flags and original publisher0..2 are finite. IO completion and success are not fair. Only each enabled local RetainAndRefuse action is weakly fair. Authentication and reviewed closure/canonical witness completion are external observed premises; they are not established by stage labels. Exact SHA256/OpenPGP bytes, no-follow custody, owner modes, finite extraction, atomic no-replace publication, fsync/directory durability and actual process resource limits remain implementation witnesses. The supplied frozen canonical probe Git mode currently ends with unconditional return81 (unproven); abstract successful witness reachability does not certify this probe or the candidate."
+property = "Build follows authentication; qualification follows authenticated reviewed closure and canonical witness; receipt is last; a competing builder cannot replace the original published candidate."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-dream-proof-tools"]
+
+[[contract]]
+name = "HarnessDreamProofToolsBinding"
+title = "Only separate Root admission binds exact complete candidate bytes to the current consumer incarnation"
+models = ["HarnessDreamProofToolsBinding", "BrokenHarnessDreamProofToolsBindingSelfAdmission", "BrokenHarnessDreamProofToolsBindingPartial", "BrokenHarnessDreamProofToolsBindingChangedTuple", "BrokenHarnessDreamProofToolsBindingStaleABA", "BrokenHarnessDreamProofToolsBindingOtherCandidate"]
+controls = [{name="BrokenHarnessDreamProofToolsBindingSelfAdmission", expected="safety"}, {name="BrokenHarnessDreamProofToolsBindingPartial", expected="safety"}, {name="BrokenHarnessDreamProofToolsBindingChangedTuple", expected="safety"}, {name="BrokenHarnessDreamProofToolsBindingStaleABA", expected="safety"}, {name="BrokenHarnessDreamProofToolsBindingOtherCandidate", expected="safety"}]
+sources = ["scripts/dream-proof-tools.py", "tests/formal/dream_proof_tools.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/dream_proof_tools.rs"]
+assumptions = "Two opaque candidate tuples, three monotonic epochs A1/B2/A3, one selected candidate and one retained Root admission. Complete/valid bits abstract the full source/key/patch/config/library/compiler/platform/OS/receipt tuple; they do not prove cryptographic provenance, byte identity or configuration semantics. Builder feature claims are adversarial inputs. RootAdmit is an explicit externally reviewed authority action and not weakly fair; no approval or IO success is assumed. Source byte preparation and before-birth runtime binding are implementation witnesses; the builder cannot modify the approved Q2 literal or materialize its runtime receipt. Current frozen probe Git mode remains unproven, and this model proves no tool-runtime or full-product certification."
+property = "A bound candidate has complete evidence, exact current bytes, the same candidate and monotonic incarnation as a separate Root-reviewed tuple; forged builder feature claims, partial admission, changed tuple, stale A1 at A3 and another candidate cannot authorize binding."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-dream-proof-tools"]
+
+[[contract]]
+name = "HarnessDreamProofToolsCustody"
+title = "Failure and restart retain original effects, unpaid debt and identity-safe settlement custody"
+models = ["HarnessDreamProofToolsCustody", "BrokenHarnessDreamProofToolsCustodyDebtReset", "BrokenHarnessDreamProofToolsCustodyEffectABA", "BrokenHarnessDreamProofToolsCustodyUnknownRetry", "BrokenHarnessDreamProofToolsCustodyRetiredSignal", "BrokenHarnessDreamProofToolsCustodyEarlyCleanup", "BrokenHarnessDreamProofToolsCustodyTrustBeforeReap"]
+controls = [{name="BrokenHarnessDreamProofToolsCustodyDebtReset", expected="safety"}, {name="BrokenHarnessDreamProofToolsCustodyEffectABA", expected="safety"}, {name="BrokenHarnessDreamProofToolsCustodyUnknownRetry", expected="safety"}, {name="BrokenHarnessDreamProofToolsCustodyRetiredSignal", expected="safety"}, {name="BrokenHarnessDreamProofToolsCustodyEarlyCleanup", expected="safety"}, {name="BrokenHarnessDreamProofToolsCustodyTrustBeforeReap", expected="safety"}]
+sources = ["scripts/dream-proof-tools.py", "tests/formal/dream_proof_tools.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/dream_proof_tools.rs"]
+assumptions = "One original owned effect, at most two attempted effects for the retry control, three builder incarnations A1/B2/A3, absent/present/unknown outcome, debt/paid/required0..2 and pending/released/owned-quarantine states. Debt units abstract independently observed post-span rest and do not replace runtime1ms/native2msCPU/25mswall/3msinclusive or nine-times-rest limits. PayObservedPostSpanDebt, RetainOwnedQuarantine and ReleaseOnlySettledOriginalEffect form one weak-fair local settlement group; actual exit/reap, IO return, clock recovery and OS scheduling have no fairness. Actual original operation/build_id/inode/PID/start/audit identity, clocks, group/retired coverage, crash durability, no-replace effects and canonical component failures are process witnesses. Quarantine retains ownership and never proves reap. The current frozen probe Git mode is unproven; this model certifies neither its measurements nor native tools."
+property = "Debt is paid or retained without forgiveness; A-B-A preserves the original effect, unknown outcomes do not permit replacement, retired signaling rights cannot act, cleanup/trust require actual reap and trust requires complete paid debt."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-dream-proof-tools"]
+
+[[contract]]
+name = "HarnessDreamProofToolsHiddenWork"
+title = "An empty runtime census cannot establish a source-qualified lifetime premise"
+models = ["HarnessDreamProofToolsHiddenWork", "BrokenHarnessDreamProofToolsHiddenWorkCensusQualification", "BrokenHarnessDreamProofToolsHiddenWorkUnqualifiedTrust"]
+controls = [{name="BrokenHarnessDreamProofToolsHiddenWorkCensusQualification", expected="safety"}, {name="BrokenHarnessDreamProofToolsHiddenWorkUnqualifiedTrust", expected="safety"}]
+sources = ["scripts/dream-proof-tools.py", "tests/formal/dream_proof_tools.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/dream_proof_tools.rs"]
+assumptions = "One prepared source/build, one reviewed source-guard predicate, three mutant kinds process/thread/service, hidden phase absent/running/exited and an independent empty-census observation. Adversarial births and fast exits may occur wholly between observations. No fairness is assumed and no runtime event census is claimed complete. A reviewed guard is an explicit finite trusted source/build assumption, requiring separate reachable private mutant execution evidence, exact patch/config/loaded closure/compiler/platform binding and canonical component semantics. The model does not prove arbitrary native code, compilers, platforms, universal preemption, memory bounds or tool signatures. The supplied frozen canonical probe Git mode currently returns81 unproven; no runtime certification follows from this contract."
+property = "Qualification requires the reviewed source guard; trust requires a source-qualified lifetime premise even when an unseen process/thread/service exited before a census reports no extra live member."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-dream-proof-tools"]

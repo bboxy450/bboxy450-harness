@@ -6920,6 +6920,8 @@ fn wp8_recall(mode: u8) -> Model {
 mod dream_c1;
 #[path = "dream_read.rs"]
 mod dream_read;
+#[path = "dream_proof_tools.rs"]
+mod dream_proof_tools;
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
         (dream_c1::bootstrap_entry(0), "pass"),
@@ -7400,6 +7402,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         ));
     }
     out.push((projected, "pass"));
+    out.extend(dream_proof_tools::corpus());
     out
 }
 

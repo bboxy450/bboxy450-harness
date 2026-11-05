@@ -1,0 +1,33 @@
+--- a/common/asshelp.c
++++ b/common/asshelp.c
+@@ -419,0 +420,3 @@
++/* Adapted from GnuPG (https://dev.gnupg.org/source/gnupg/browse/gnupg-2.5.24/common/asshelp.c); original GPL/LGPL terms retained.
++ * Public-only Dream profile guard by bboxy450-harness.
++ * Credit reuse: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md */
+@@ -420,0 +424 @@
++  return gpg_error (GPG_ERR_NOT_SUPPORTED); /* before any service connection */
+--- a/g10/import.c
++++ b/g10/import.c
+@@ -2527 +2527 @@
+-      if (!from_sk && have_secret_key_with_kid (ctrl, keyid))
++      if (0) /* Public-only: no secret material exists; omit secret-key advisory preference check. */
+@@ -2533 +2533 @@
+-      if (!from_sk && have_secret_key_with_kid (ctrl, keyid))
++      if (0) /* Public-only: no secret material exists; omit secret-key advisory preference check. */
+--- a/g10/parse-packet.c
++++ b/g10/parse-packet.c
+@@ -1002,0 +1003,6 @@
++  /* Public-only profile: reject secret packets before dispatch. */
++  if (pkttype == PKT_SECRET_KEY || pkttype == PKT_SECRET_SUBKEY)
++    {
++      log_error ("Dream: secret packet refused\n");
++      return gpg_error (GPG_ERR_NOT_SUPPORTED);
++    }
+--- a/g10/gpg.c
++++ b/g10/gpg.c
+@@ -4042,0 +4043,5 @@
++/* Adapted from GnuPG (https://dev.gnupg.org/source/gnupg/browse/gnupg-2.5.24/g10/gpg.c); original GPL/LGPL terms retained.
++ * Public-only Dream profile guard by bboxy450-harness.
++ * Credit reuse: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md */
++    if ((cmd != aShowKeys && cmd != aImport && cmd != aVerify) || opt.use_keyboxd)
++      log_fatal ("Dream: unsupported command/configuration before service work\n");

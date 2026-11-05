@@ -1,0 +1,8 @@
+--- a/src/system.c
++++ b/src/system.c
+@@ -410,0 +411,5 @@
++/* Adapted from Libassuan (https://dev.gnupg.org/source/libassuan/browse/libassuan-3.0.2/src/system.c); original GPL/LGPL terms retained.
++ * Public-only Dream profile guard by bboxy450-harness.
++ * Credit reuse: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md */
++  errno = EPERM;
++  return -1; /* before process effects */
