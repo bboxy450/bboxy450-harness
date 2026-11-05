@@ -1750,6 +1750,11 @@ async fn trial_real_enforced_twenty_arms_fork_usage_verifier_and_pair_projection
     );
     assert_eq!(result.known_tokens(), 4400);
     assert!(!result.quarantined());
+    let escaped = trial_default_close_cache_pins(&result);
+    assert!(
+        escaped.is_empty(),
+        "confined trial close published its own pins to the default cache outside owned scratch: {escaped:?}"
+    );
     assert_eq!(before, f.source_bytes());
     assert_eq!(head, f.repo.git(&["rev-parse", "HEAD"]));
     assert_eq!(
@@ -2551,4 +2556,125 @@ async fn trial_real_complete_failure_rejects_only_its_harness_pair() {
             .pairs
             .contains_key("other-harness")
     );
+}
+
+#[tokio::test]
+async fn trial_d0_twelve_log_replay_keeps_pins_cache_bytes_and_source_identity() {
+    use bboxy450_harness::dream::d0;
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        path::{Path, PathBuf},
+    };
+    fn cache(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+        fn visit(root: &Path, base: &Path, out: &mut BTreeMap<PathBuf, Vec<u8>>) {
+            for e in std::fs::read_dir(root).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    visit(&p, base, out);
+                } else if p.extension().is_some_and(|s| s == "json") {
+                    out.insert(
+                        p.strip_prefix(base).unwrap().into(),
+                        std::fs::read(p).unwrap(),
+                    );
+                }
+            }
+        }
+        let mut out = BTreeMap::new();
+        visit(root, root, &mut out);
+        out
+    }
+    let (f, _memory) = Box::pin(support::trial_fixture()).await;
+    let before = f.source_bytes();
+    let sessions = f
+        .episodes
+        .iter()
+        .flat_map(|e| e.members.keys().copied())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(sessions.len(), 12);
+    let paths = sessions
+        .iter()
+        .map(|s| bboxy450_harness::store::log_path(&f.sessions, *s))
+        .collect::<Vec<_>>();
+    let root = f.repo.home.path().join("trial-replay");
+    let cached = cache(&root.join("d0"));
+    let expected = serde_json::to_value(&f.episodes).unwrap();
+    let mut maxima = vec![];
+    for rebuild in [false, true] {
+        let observed = Box::pin(d0::replay_with_sessions(
+            paths.clone(),
+            root.clone(),
+            f.sessions.clone(),
+            rebuild,
+            Set::default(),
+        ))
+        .await
+        .unwrap();
+        assert!(observed.max_poll_cpu_ns <= 1_000_000);
+        maxima.push(observed.max_poll_cpu_ns);
+        assert_eq!(serde_json::to_value(&observed.episodes).unwrap(), expected);
+        assert_eq!(cache(&root.join("d0")), cached);
+        assert_eq!(f.source_bytes(), before);
+    }
+    let record = json!({"verify_label":std::env::var("DREAM_WP7_VERIFY_LABEL").ok(),"normal_source_logs":12,"episodes":f.episodes.len(),"guarded_max_poll_cpu_ns":maxima,"pins_and_episode_values_equal":true,"cache_bytes_equal":true,"source_bytes_equal":true,"episode_digest":bboxy450_harness::dream::entry::digest(serde_json::to_vec(&expected).unwrap())});
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(".bboxy/runs")
+        .join(format!("dream-wp7-d0-twelve-{}.json", ulid::Ulid::new()));
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .unwrap();
+    file.write_all(&serde_json::to_vec_pretty(&record).unwrap())
+        .unwrap();
+    file.write_all(b"\n").unwrap();
+}
+
+// Actual durable cache effects, not a profile flag or a claimed joined API return.
+fn trial_default_close_cache_pins(
+    result: &bboxy450_harness::dream::trial::Execution,
+) -> Vec<String> {
+    use std::{collections::BTreeSet, path::Path};
+    let Item::Trial {
+        episodes, controls, ..
+    } = result.trial()
+    else {
+        panic!()
+    };
+    let own = episodes
+        .iter()
+        .chain(controls)
+        .flat_map(|e| &e.runs)
+        .map(|r| r.session)
+        .collect::<BTreeSet<_>>();
+    fn walk(root: &Path, own: &BTreeSet<SessionId>, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(root) else {
+            return;
+        };
+        for entry in entries {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(&path, own, out);
+            } else if path.extension().is_some_and(|s| s == "json")
+                && let Ok(bytes) = std::fs::read(&path)
+                && let Ok(cluster) =
+                    serde_json::from_slice::<bboxy450_harness::dream::d0::Cluster>(&bytes)
+                && cluster
+                    .episodes
+                    .iter()
+                    .any(|p| matches!(p,EvidenceRef::Event{session,..} if own.contains(session)))
+            {
+                out.push(format!(
+                    "{} {}",
+                    path.display(),
+                    bboxy450_harness::dream::entry::digest(bytes)
+                ));
+            }
+        }
+    }
+    let mut out = vec![];
+    let root = std::path::PathBuf::from(std::env::var_os("HOME").unwrap())
+        .join(".bboxy450-harness/dream/d0");
+    walk(&root, &own, &mut out);
+    out
 }

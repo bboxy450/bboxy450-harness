@@ -1,0 +1,3 @@
+command: cargo clippy --offline --locked --all-targets --all-features -- -D warnings
+source: 137c395b190e77e6a1dbad2cd2bd5aae433d8d64
+    Finished `dev` profile [unoptimized] target(s) in 0.16s

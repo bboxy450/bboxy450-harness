@@ -1,0 +1,25 @@
+{
+  "task_etag": "6caca3c63dcbd4c8dfce53ab69a85a0a3afd10787f1b1b8a2fba60a550ba8f0c",
+  "verify_revision": 6,
+  "source_before": "137c395b190e77e6a1dbad2cd2bd5aae433d8d64",
+  "default_red": {
+    "exit_code": 101,
+    "log_sha256": "fa7b02ba955e47ca8cfed14e2347ad1f80380ef636ef5a59b7e3c25c257cfb3f",
+    "failure": "real D0 guarded12-log replay exceeded1ms CPU"
+  },
+  "repair": "cooperative boundaries before each input and log, including early continues; unchanged CPU clock/1000000ns rejection and >=2ms control, with measured ns on rejection",
+  "close_control_red": {
+    "exit_code": 101,
+    "log_sha256": "df428609e604ed524bf190e0b64ab8f645583a6b069d7bc337461e52cad21d07",
+    "context": "bounded-D0 WIP plus actual twenty-arm trial; no trusted-capability close-hook gate yet",
+    "failure": "actual trial arm pins published by detached default D0 close work outside owned scratch"
+  },
+  "close_repair": "trusted Registry trial capability gates off both default detached D0 and IR-advice close jobs; ordinary close path unchanged",
+  "green": {
+    "exit_code": 0,
+    "log_sha256": "11c4a821784b967f1c4764bf4f036a6c13655e69593692f69173af0344b8b093",
+    "cases": "12 trial cases including20 real arms/absence of escaped default cache writes, exact12-log source/pin/cache replay-rebuild equality, ordinary13 replay/close-hook regressions, cap/engine units and all-feature clippy"
+  },
+  "compiler_environment": "stale shared sccache daemon referenced a deleted private TMPDIR; disable RUSTC_WRAPPER/RUSTC_WORKSPACE_WRAPPER for own commands only, no daemon/peer control",
+  "unwaived": "canonical make2/checker1 KB hold; previous receipts do not certify this new source"
+}
