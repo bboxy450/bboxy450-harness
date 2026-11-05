@@ -745,3 +745,17 @@ frontend = "project"
 name = "BrokenHarnessDreamNativeCustody"
 expected = "safety"
 frontend = "project"
+[[model]]
+name = "HarnessDreamSeal"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamSealLateWrite"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamSealChild"
+expected = "safety"
+frontend = "project"

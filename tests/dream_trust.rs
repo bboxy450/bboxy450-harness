@@ -13,11 +13,11 @@ use bboxy450_harness::{
     protocol::*,
 };
 use serde_json::{Value, json};
-use std::{os::unix::fs::PermissionsExt, path::PathBuf, process::Command};
+use std::os::unix::fs::PermissionsExt;
 #[allow(dead_code)]
 #[path = "fixtures/dream/good/support.rs"]
 mod support;
-use support::{Repository, sign_record};
+use support::sign_record;
 
 #[test]
 fn exact_v_rejects_byte_serialization_crypto_and_binding_controls() {
@@ -87,120 +87,9 @@ fn exact_v_rejects_byte_serialization_crypto_and_binding_controls() {
     );
 }
 
-struct Fixture {
-    repo: Repository,
-    gpg: tempfile::TempDir,
-    policy: PathBuf,
-    value: Value,
-    pin: EvidenceRef,
-}
-impl Fixture {
-    fn gpg(&self, args: &[&str]) -> Vec<u8> {
-        let output = Command::new("gpg")
-            .args(["--no-options", "--homedir"])
-            .arg(self.gpg.path())
-            .args([
-                "--batch",
-                "--no-tty",
-                "--pinentry-mode",
-                "loopback",
-                "--passphrase",
-                "",
-            ])
-            .args(args)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "private gpg: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        output.stdout
-    }
-    fn new() -> Self {
-        let repo = Repository::new();
-        let gpg = tempfile::Builder::new()
-            .prefix("wp4-gpg-")
-            .tempdir_in("/tmp")
-            .unwrap();
-        std::fs::set_permissions(gpg.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-        let mut f = Self {
-            policy: repo.home.path().join("trust.json"),
-            repo,
-            gpg,
-            value: Value::Null,
-            pin: EvidenceRef::Unknown(json!({})),
-        };
-        f.gpg(&[
-            "--quick-generate-key",
-            "Boxy <bboxy450@gmail.com>",
-            "ed25519",
-            "sign",
-            "0",
-        ]);
-        let listing = String::from_utf8(f.gpg(&["--with-colons", "--list-keys"])).unwrap();
-        let fingerprint = listing
-            .lines()
-            .find(|l| l.starts_with("fpr:"))
-            .unwrap()
-            .split(':')
-            .nth(9)
-            .unwrap()
-            .to_owned();
-        let key = f.repo.home.path().join("public.asc");
-        std::fs::write(&key, f.gpg(&["--armor", "--export", &fingerprint])).unwrap();
-        // Only the test's exact private keyring signs. The product independently imports public keys.
-        let wrapper = f.repo.home.path().join("sign-gpg");
-        std::fs::write(&wrapper,format!("#!/bin/sh\nexec /opt/homebrew/bin/gpg --no-options --homedir '{}' --batch --pinentry-mode loopback \"$@\"\n",f.gpg.path().display())).unwrap();
-        std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700)).unwrap();
-        f.repo.git(&["config", "gpg.format", "openpgp"]);
-        f.repo
-            .git(&["config", "gpg.program", wrapper.to_str().unwrap()]);
-        f.repo.git(&["config", "user.signingkey", &fingerprint]);
-        let record = sign_record(
-            json!({"id":"01M00000000000000000000002","number":1,"type":"decision","title":"independently committed"}),
-            "private root anchor\n",
-            &f.repo.key,
-        );
-        std::fs::write(
-            f.repo.path.join(".bboxy/decisions/my proof.md"),
-            &record.bytes,
-        )
-        .unwrap();
-        f.repo.git(&["add", "."]);
-        f.repo.git(&["commit", "-qm", "private OpenPGP root"]);
-        let commit = f.repo.git(&["rev-parse", "HEAD"]);
-        f.repo
-            .git(&["update-ref", "refs/remotes/origin/main", &commit]);
-        f.pin = EvidenceRef::Record {
-            root: "fixture.invalid/dream/repo".into(),
-            id: "01M00000000000000000000002".into(),
-            path: ".bboxy/decisions/my proof.md".into(),
-            commit,
-            digest: entry::digest(&record.bytes),
-        };
-        f.value = json!({"schema":"bboxy.dream.trust/2","roots":[{"repo":"fixture.invalid/dream/repo","git_dir":f.repo.path,"branch":"refs/remotes/origin/main"}],
-            "git_signers":[{"fingerprint":fingerprint,"public_key_file":key,"repos":["fixture.invalid/dream/repo"],"revoked_after":null}],"kb_signer_kinds":["seat"],"producers":[]});
-        f.write();
-        f
-    }
-    fn write(&self) {
-        std::fs::write(&self.policy, serde_json::to_vec(&self.value).unwrap()).unwrap();
-        std::fs::set_permissions(&self.policy, std::fs::Permissions::from_mode(0o600)).unwrap();
-    }
-    async fn load(&self) -> Result<Trust, entry::Invalid> {
-        Trust::load(self.policy.clone(), vec![self.repo.path.clone()]).await
-    }
-}
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = Command::new("gpgconf")
-            .arg("--homedir")
-            .arg(self.gpg.path())
-            .args(["--kill", "gpg-agent"])
-            .output();
-    }
-}
+#[path = "fixtures/dream/trust/fixture.rs"]
+mod fixture;
+use fixture::Fixture;
 
 #[tokio::test]
 async fn independent_git_authority_and_rotation_are_ancestry_based() {
@@ -507,84 +396,60 @@ fn deterministic_effect_trace_positive_and_negative_controls() {
 #[tokio::test]
 async fn approved_artifact_binds_executable_capabilities_gate_and_accepted_task() {
     let mut f = Fixture::new();
-    let source = f.repo.git(&["rev-parse", "HEAD"]);
-    let tree = f.repo.git(&["rev-parse", "HEAD^{tree}"]);
-    let producer = json!({"repo":"fixture.invalid/dream/repo","commit":source,"tree":tree,"version":"test/1","build":"test/private","exe_sha256":"a".repeat(64),"capabilities":["receipt/1","effect-wrapper/1","no-replace/1"]});
-    let mut gate = producer.clone();
-    gate["schema"] = json!("bboxy.dream.producer-gate/1");
-    gate["witnesses"] = json!([
-        {"id":"dream_trust::receipt_header_body_roundtrip","exit_code":0},
-        {"id":"dream_sinks::receipt_ops_match_independent_observer","exit_code":0},
-        {"id":"dream_sinks::hand_write_between_read_and_link_preserved","exit_code":0},
-        {"id":"dream_sinks::overwrite_rename_control_fails_audit","exit_code":0}]);
-    let task = sign_record(
-        json!({"id":"01M00000000000000000000004","number":4,"type":"task","title":"private artifact approval","status":"accepted","verify_result":{"exit_code":0},"report":{"commit":source}}),
-        "synthetic gate evidence; not a live executable approval\n",
-        &f.repo.key,
-    );
-    let log = serde_json::to_vec(&gate).unwrap();
-    std::fs::create_dir_all(f.repo.path.join(".bboxy/runs")).unwrap();
-    std::fs::create_dir_all(f.repo.path.join(".bboxy/tasks")).unwrap();
-    std::fs::write(f.repo.path.join(".bboxy/runs/gate.json"), &log).unwrap();
-    std::fs::write(f.repo.path.join(".bboxy/tasks/approval.md"), &task.bytes).unwrap();
-    f.repo.git(&["add", "."]);
-    f.repo.git(&["commit", "-qm", "private retained approval"]);
-    let commit = f.repo.git(&["rev-parse", "HEAD"]);
-    f.repo
-        .git(&["update-ref", "refs/remotes/origin/main", &commit]);
-    let mut approval = producer.clone();
-    approval["gate"] = json!({"commit":commit,"path":".bboxy/runs/gate.json","sha256":entry::digest(&log)[7..],"task":{"kind":"record","root":"fixture.invalid/dream/repo","id":"01M00000000000000000000004","path":".bboxy/tasks/approval.md","commit":commit,"digest":entry::digest(&task.bytes)}});
-    f.value["producers"] = json!([approval]);
-    f.write();
-    let expected: trust::Producer = serde_json::from_value(producer.clone()).unwrap();
+    let expected = f.approve_fixture();
     let trust = f.load().await.unwrap();
     trust
-        .approve(
-            &expected,
-            &["receipt/1", "effect-wrapper/1", "no-replace/1"],
-        )
+        .approve(&expected, &["receipt/1", "constructive-seal/1"])
         .await
         .unwrap();
-    let sessions = f.repo.home.path().join("accepted-sessions");
-    std::fs::create_dir(&sessions).unwrap();
-    let root = bboxy450_harness::dream::resolve::Root::open(
-        "fixture.invalid/dream/repo".into(),
-        f.repo.path.clone(),
-    )
-    .await
-    .unwrap();
-    let resolver = bboxy450_harness::dream::resolve::Resolver::open(sessions, vec![root])
-        .await
-        .unwrap()
-        .with_trust(f.load().await.unwrap());
-    let tasks = resolver.accepted_tasks().await.unwrap();
-    assert_eq!(tasks.len(), 1);
-    assert_eq!(tasks[0].verify_exit, Some(0));
+    assert_eq!(
+        trust
+            .current_producer(&["constructive-seal/1"])
+            .await
+            .unwrap(),
+        expected,
+        "artifact identification is independent of a session cwd"
+    );
     let mut changed = expected.clone();
     changed.exe_sha256 = "b".repeat(64);
     assert!(trust.approve(&changed, &["receipt/1"]).await.is_err());
     changed = expected.clone();
     changed.commit = f.repo.commit.clone();
-    assert!(
-        trust.approve(&changed, &["receipt/1"]).await.is_err(),
-        "old signed code is not an approved artifact"
-    );
-    assert!(trust.approve(&expected, &["unknown/1"]).await.is_err());
+    assert!(trust.approve(&changed, &["receipt/1"]).await.is_err());
     let valid = f.value.clone();
+    let mut reversed = expected.clone();
+    reversed.commit = f.repo.git(&["rev-parse", "HEAD"]);
+    reversed.tree = f.repo.git(&["rev-parse", "HEAD^{tree}"]);
+    f.value["producers"][0]["commit"] = json!(reversed.commit);
+    f.value["producers"][0]["tree"] = json!(reversed.tree);
+    f.write();
+    assert_eq!(
+        f.load()
+            .await
+            .unwrap()
+            .approve(&reversed, &["constructive-seal/1"])
+            .await
+            .unwrap_err()
+            .0,
+        "report_source_ancestry"
+    );
+    f.value = valid.clone();
+    f.write();
+
     f.value["producers"][0]["gate"]["sha256"] = json!("b".repeat(64));
     f.write();
     assert!(
         f.load()
             .await
             .unwrap()
-            .approve(&expected, &["receipt/1"])
+            .approve(&expected, &["constructive-seal/1"])
             .await
             .is_err()
     );
     f.value = valid.clone();
     f.value["producers"][0]["unknown"] = json!(true);
     f.write();
-    assert!(f.load().await.is_err(), "strict flattened policy fields");
+    assert!(f.load().await.is_err());
     f.value = valid.clone();
     f.value["producers"][0]["capabilities"] = json!(["receipt/1"]);
     f.write();
@@ -592,28 +457,40 @@ async fn approved_artifact_binds_executable_capabilities_gate_and_accepted_task(
         f.load()
             .await
             .unwrap()
-            .approve(&expected, &["effect-wrapper/1"])
+            .approve(&expected, &["constructive-seal/1"])
             .await
             .is_err()
     );
-    // A signed gate with a failed required witness is independently rejected.
-    f.value = valid;
-    gate["witnesses"][1]["exit_code"] = json!(1);
-    let bytes = serde_json::to_vec(&gate).unwrap();
-    std::fs::write(f.repo.path.join(".bboxy/runs/gate.json"), &bytes).unwrap();
+    // A report preceding S, or one omitting G, cannot qualify an artifact.
+    f.value = valid.clone();
+    let report = sign_record(
+        json!({"id":"01M00000000000000000000005","number":5,"type":"report","task":"[[01M00000000000000000000004]]","commits":[expected.commit]}),
+        "missing gate binding\n",
+        &f.repo.key,
+    );
+    std::fs::write(f.repo.path.join(".bboxy/reports/gate.md"), &report.bytes).unwrap();
     f.repo.git(&["add", "."]);
-    f.repo.git(&["commit", "-qm", "private failed witness"]);
-    let commit = f.repo.git(&["rev-parse", "HEAD"]);
     f.repo
-        .git(&["update-ref", "refs/remotes/origin/main", &commit]);
-    f.value["producers"][0]["gate"]["commit"] = json!(commit);
-    f.value["producers"][0]["gate"]["sha256"] = json!(&entry::digest(&bytes)[7..]);
+        .git(&["commit", "-qm", "private omitted gate control"]);
+    let r = f.repo.git(&["rev-parse", "HEAD"]);
+    let task = sign_record(
+        json!({"id":"01M00000000000000000000004","number":4,"type":"task","status":"accepted","verify_result":{"exit_code":0},"report":{"commit":r,"report":"[[reports/gate]]"}}),
+        "missing gate control\n",
+        &f.repo.key,
+    );
+    std::fs::write(f.repo.path.join(".bboxy/tasks/approval.md"), &task.bytes).unwrap();
+    f.repo.git(&["add", "."]);
+    f.repo.git(&["commit", "-qm", "private control task"]);
+    let t = f.repo.git(&["rev-parse", "HEAD"]);
+    f.repo.git(&["update-ref", "refs/remotes/origin/main", &t]);
+    f.value["producers"][0]["gate"]["task"]["commit"] = json!(t);
+    f.value["producers"][0]["gate"]["task"]["digest"] = json!(entry::digest(&task.bytes));
     f.write();
     assert!(
         f.load()
             .await
             .unwrap()
-            .approve(&expected, &["effect-wrapper/1"])
+            .approve(&expected, &["constructive-seal/1"])
             .await
             .is_err()
     );
@@ -634,4 +511,122 @@ fn pinned_real_producer_record_is_a_byte_vector_only() {
     )
     .unwrap();
     // This vector carries no local policy or producer-artifact approval.
+}
+
+#[allow(dead_code)]
+#[path = "fixtures/dream/good/receipt_support.rs"]
+mod r;
+#[tokio::test]
+async fn receipt_header_body_roundtrip() {
+    let mut f = Fixture::new();
+    let producer = f.approve_fixture();
+    let session = r::sid(500);
+    let id = r::item(501);
+    let root = f.repo.home.path().join("receipt-sessions");
+    std::fs::create_dir(&root).unwrap();
+    let mut log = r::start(session, &f.repo.path, true);
+    r::begin(&mut log, session, id, ItemKind::Receipt);
+    let (_body, bytes, carrier) = r::run_body(session, producer)
+        .freeze(
+            &bboxy450_harness::dream::seal::Owner::default(),
+            id,
+            &log,
+            &bboxy450_harness::redact::Set::default(),
+        )
+        .unwrap();
+    r::write_blob(&root, session, &carrier, &bytes);
+    r::completed(&mut log, session, id, carrier);
+    r::push(&mut log, session, Event::SessionClosed);
+    let domains = receipt::Domains::configured(root, f.repo.home.path().into());
+    let trust = f.load().await.unwrap();
+    receipt::accept(&log[2], &log, &domains, Some(&trust))
+        .await
+        .unwrap();
+    for index in 0..5 {
+        let mut event = log[2].clone();
+        let Event::ItemCompleted {
+            body:
+                Item::Receipt {
+                    schema,
+                    kind,
+                    outcome,
+                    harness,
+                    sink,
+                    ..
+                },
+            ..
+        } = &mut event.event
+        else {
+            unreachable!()
+        };
+        match index {
+            0 => *schema = "future".into(),
+            1 => *kind = ReceiptKind::Publication,
+            2 => *outcome = ReceiptOutcome::Failed,
+            3 => *harness = Some("different".into()),
+            _ => {
+                *sink = Some(SinkRef {
+                    kind: SinkKind::EngineContext,
+                    path: "/private/different".into(),
+                })
+            }
+        };
+        let wire = serde_json::to_string(&event).unwrap() + "\n";
+        event = Envelope::from_line(&wire).unwrap();
+        let mut altered = log.clone();
+        altered[2] = event.clone();
+        assert_eq!(
+            receipt::accept(&event, &altered, &domains, Some(&trust))
+                .await
+                .unwrap_err(),
+            bboxy450_harness::dream::seal::ProofError::Fail("header_mismatch")
+        );
+    }
+}
+#[test]
+fn receipt_seal_constructs_without_self_hash() {
+    let producer = trust::Producer {
+        repo: "fixture.invalid/dream/repo".into(),
+        commit: "0".repeat(40),
+        tree: "1".repeat(40),
+        version: "test".into(),
+        build: "private".into(),
+        exe_sha256: "2".repeat(64),
+        capabilities: vec!["constructive-seal/1".into()],
+    };
+    let session = r::sid(600);
+    let id = r::item(601);
+    let mut log = r::start(session, std::path::Path::new("/tmp"), true);
+    r::begin(&mut log, session, id, ItemKind::Receipt);
+    let owner = bboxy450_harness::dream::seal::Owner::default();
+    owner
+        .admit()
+        .unwrap()
+        .finish(receipt::Operation::WriteOwnBlob {
+            sha256: "3".repeat(64),
+            result: receipt::ResultCode::Ok,
+        })
+        .unwrap();
+    let (body, bytes, carrier) = r::run_body(session, producer)
+        .freeze(&owner, id, &log, &bboxy450_harness::redact::Set::default())
+        .unwrap();
+    let Item::Receipt {
+        blob: Some(blob), ..
+    } = carrier
+    else {
+        unreachable!()
+    };
+    assert_eq!(blob.sha256, entry::digest(&bytes)[7..]);
+    assert_eq!(body.seal.as_ref().unwrap().effect_count, 1);
+    assert_eq!(
+        receipt::Body::parse(&bytes).unwrap().encode().unwrap(),
+        bytes
+    );
+    assert!(
+        !body
+            .ops
+            .iter()
+            .any(|op| op["sha256"].as_str() == Some(&blob.sha256))
+    );
+    assert!(owner.admit().is_err());
 }

@@ -278,6 +278,7 @@ pub struct Resolver {
     pub logs: Arc<BTreeMap<SessionId, Vec<Envelope>>>,
     records: BTreeMap<String, Arc<ResolvedRecord>>,
     trust: Option<Arc<super::trust::Trust>>,
+    receipt_domains: Option<super::receipt::Domains>,
     catalogues: BTreeMap<(String, String), Vec<String>>,
 }
 impl Resolver {
@@ -344,10 +345,28 @@ impl Resolver {
             logs: Arc::new(logs),
             records: BTreeMap::new(),
             trust: None,
+            receipt_domains: None,
             catalogues: BTreeMap::new(),
         })
     }
     /// Supply only independently loaded local policy; records never select policy contents.
+    pub fn with_receipt_domains(mut self, domains: super::receipt::Domains) -> Self {
+        self.receipt_domains = Some(domains);
+        self
+    }
+    pub fn receipt_domains(&self) -> super::receipt::Domains {
+        self.receipt_domains.clone().unwrap_or_else(|| {
+            super::receipt::Domains::configured(
+                self.sessions.clone(),
+                std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .unwrap_or_default(),
+            )
+        })
+    }
+    pub fn trust(&self) -> Option<Arc<super::trust::Trust>> {
+        self.trust.clone()
+    }
     pub fn with_trust(mut self, trust: super::trust::Trust) -> Self {
         self.records.clear();
         self.trust = Some(Arc::new(trust));

@@ -1382,3 +1382,46 @@ fn dream_native_custody_never_pins_staging_and_reuses_complete_survivors() {
         g.edges.iter().map(Vec::len).sum::<usize>()
     );
 }
+
+#[test]
+fn dream_seal_freeze_and_both_broken_controls_are_nonvacuous() {
+    let m = model("HarnessDreamSeal");
+    let r = m.check(100_000).unwrap();
+    assert!(r.violations.is_empty());
+    let phase = variable(&m, "phase");
+    let child = variable(&m, "child");
+    let coverage = variable(&m, "coverage");
+    assert!(
+        r.states
+            .iter()
+            .any(|s| s[phase] == 3 && s[child] == 2 && s[coverage] == 1)
+    );
+    assert!(
+        r.states
+            .iter()
+            .any(|s| s[phase] == 0 && s[child] == 2 && s[coverage] == 0),
+        "joined does not establish prior observation"
+    );
+    assert!(
+        !r.states
+            .iter()
+            .any(|s| s[phase] > 0 && (s[child] == 1 || (s[child] > 1 && s[coverage] == 0)))
+    );
+    for (name, property) in [
+        (
+            "BrokenHarnessDreamSealLateWrite",
+            "NoProtectedEffectsAfterFreeze",
+        ),
+        ("BrokenHarnessDreamSealChild", "FrozenOwnsNoMutableChild"),
+    ] {
+        let b = model(name);
+        let r = b.check(100_000).unwrap();
+        assert!(r.violations.iter().any(|v| v.property == property));
+        let late = variable(&b, "late_protected");
+        assert!(
+            r.states.iter().any(|s| s[late] == 1),
+            "control must reach an actual late effect"
+        );
+        assert!(b.weak_fair.is_empty() && b.responses.is_empty());
+    }
+}

@@ -708,6 +708,53 @@ impl Trust {
         self.signed(root, last).await?;
         Ok(record)
     }
+    /// Measure the running artifact independently of any recalled/session cwd.
+    /// Producers call this during startup; process-wide identity is measured once.
+    pub async fn current_producer(&self, required: &[&str]) -> Result<Producer, Invalid> {
+        static EXE: std::sync::OnceLock<Result<String, Invalid>> = std::sync::OnceLock::new();
+        let digest = crate::runtime::blocking(|| {
+            EXE.get_or_init(|| {
+                use sha2::Digest;
+                use std::io::Read;
+                let path = std::env::current_exe().map_err(|_| Invalid("producer_unapproved"))?;
+                let mut file =
+                    std::fs::File::open(path).map_err(|_| Invalid("producer_unapproved"))?;
+                if !file
+                    .metadata()
+                    .map_err(|_| Invalid("producer_unapproved"))?
+                    .is_file()
+                {
+                    return Err(Invalid("producer_unapproved"));
+                }
+                let mut hash = sha2::Sha256::new();
+                let mut bytes = [0; 65536];
+                loop {
+                    let n = file
+                        .read(&mut bytes)
+                        .map_err(|_| Invalid("producer_unapproved"))?;
+                    if n == 0 {
+                        break;
+                    }
+                    hash.update(&bytes[..n]);
+                }
+                Ok(format!("{:x}", hash.finalize()))
+            })
+            .clone()
+        })
+        .await?;
+        let candidates = self
+            .policy
+            .producers
+            .iter()
+            .filter(|p| p.producer.exe_sha256 == digest)
+            .collect::<Vec<_>>();
+        if candidates.len() != 1 {
+            return Err(Invalid("producer_unapproved"));
+        }
+        let producer = candidates[0].producer.clone();
+        self.approve(&producer, required).await?;
+        Ok(producer)
+    }
     pub async fn approve(&self, producer: &Producer, required: &[&str]) -> Result<(), Invalid> {
         let entries = self
             .policy
@@ -798,11 +845,112 @@ impl Trust {
         }
         git(
             root,
-            &["merge-base", "--is-ancestor", report, &producer.commit],
+            &["merge-base", "--is-ancestor", &producer.commit, report],
+            None,
+            tokio::time::Instant::now() + crate::vcs::CAPTURE_BUDGET,
+        )
+        .await
+        .map_err(|_| Invalid("report_source_ancestry"))?;
+        let EvidenceRef::Record {
+            root: task_root,
+            id: task_id,
+            ..
+        } = &gate.task
+        else {
+            return Err(Invalid("producer_unapproved"));
+        };
+        if task_root != &producer.repo {
+            return Err(Invalid("producer_unapproved"));
+        }
+        git(
+            root,
+            &["merge-base", "--is-ancestor", &gate.commit, report],
             None,
             tokio::time::Instant::now() + crate::vcs::CAPTURE_BUDGET,
         )
         .await?;
+        let locator = record.front["report"]["report"]
+            .as_str()
+            .ok_or(Invalid("producer_unapproved"))?;
+        let locator = locator
+            .trim_start_matches("[[")
+            .trim_end_matches("]]")
+            .trim_end_matches(".md");
+        let paths = root.paths_at(".bboxy/reports", report).await?;
+        let paths = paths
+            .into_iter()
+            .filter(|p| p.trim_start_matches(".bboxy/").trim_end_matches(".md") == locator)
+            .collect::<Vec<_>>();
+        if paths.len() != 1 {
+            return Err(Invalid("producer_unapproved"));
+        }
+        let path = &paths[0];
+        let report_bytes = root.read(path, report).await?;
+        let kinds = self.policy.kb_signer_kinds.clone();
+        let source = producer.commit.clone();
+        let gate_commit = gate.commit.clone();
+        let task_id = task_id.clone();
+        let task_path = if let EvidenceRef::Record { path, .. } = &gate.task {
+            path.clone()
+        } else {
+            String::new()
+        };
+        let task_number = record
+            .front
+            .get("number")
+            .and_then(|n| n.as_u64().or_else(|| n.as_str()?.parse().ok()));
+        crate::runtime::blocking(move || {
+            let parsed = Record::parse(&report_bytes)?;
+            let id = parsed.front["id"]
+                .as_str()
+                .ok_or(Invalid("producer_unapproved"))?;
+            let parsed = verify_bytes(&report_bytes, id, &kinds)?;
+            if parsed.front["type"] != "report"
+                || !parsed.front["commits"].as_array().is_some_and(|c| {
+                    c.contains(&Value::String(source)) && c.contains(&Value::String(gate_commit))
+                })
+                || !parsed.front["task"].as_str().is_some_and(|s| {
+                    let s = s
+                        .trim_start_matches("[[")
+                        .trim_end_matches("]]")
+                        .trim_end_matches(".md");
+                    s == task_id
+                        || s == task_path.trim_end_matches(".md")
+                        || s == task_path
+                            .trim_start_matches(".bboxy/")
+                            .trim_end_matches(".md")
+                        || s == task_path
+                            .trim_start_matches(".bboxy/tasks/")
+                            .trim_end_matches(".md")
+                        || task_number.is_some_and(|n| s == format!("#{n}"))
+                })
+            {
+                return Err(Invalid("producer_unapproved"));
+            }
+            Ok(())
+        })
+        .await?;
+        let until = tokio::time::Instant::now() + crate::vcs::CAPTURE_BUDGET;
+        let touching = git(root, &["rev-list", "-1", report, "--", path], None, until).await?;
+        let touching = line(&touching)?;
+        if git(
+            root,
+            &["rev-parse", &format!("{touching}:{path}")],
+            None,
+            until,
+        )
+        .await?
+            != git(
+                root,
+                &["rev-parse", &format!("{report}:{path}")],
+                None,
+                until,
+            )
+            .await?
+        {
+            return Err(Invalid("producer_unapproved"));
+        }
+        self.signed(root, touching).await?;
         let expected = producer.clone();
         crate::runtime::blocking(move || {
             let gate: ProducerGate =
@@ -814,6 +962,11 @@ impl Trust {
                 let ids: &[&str] = match capability.as_str() {
                     "receipt/1" => &["dream_trust::receipt_header_body_roundtrip"],
                     "effect-wrapper/1" => &["dream_sinks::receipt_ops_match_independent_observer"],
+                    "constructive-seal/1" => &[
+                        "dream_trust::receipt_seal_constructs_without_self_hash",
+                        "dream_sinks::late_owned_source_write_after_seal_rejected",
+                        "dream_sinks::broken_seal_exception_fails_audit",
+                    ],
                     "no-replace/1" => &[
                         "dream_sinks::hand_write_between_read_and_link_preserved",
                         "dream_sinks::overwrite_rename_control_fails_audit",

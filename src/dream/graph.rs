@@ -378,6 +378,13 @@ impl Graph {
                             .or_insert(fact.at);
                     }
                 }
+                Item::Receipt { .. } => {
+                    graph.node(
+                        pin.clone(),
+                        "receipt",
+                        json!({"pin":fact.pin,"receipt":fact.body,"presence_is_not_approval":true}),
+                    );
+                }
                 _ => continue,
             }
             graph.edge(&pin, session, "generated_in", 1.0, false)?;

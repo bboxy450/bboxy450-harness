@@ -5234,8 +5234,115 @@ fn dream_native_custody(broken: bool) -> Model {
     m
 }
 
+// Constructive seal: one owner, zero/one child, one in-flight protected effect.
+// phase 0 recording,1 frozen,2 sealed,3 closed; child 0 absent,1 active,2 joined,3 reaped;
+// coverage 0 unobserved,1 observed,2 enforced-read-only. Atomic actions are admission,
+// completion, spawn/observe/join/reap, freeze, own-custody seal and close. No fairness
+// or arbitrary-IO liveness claim. Hashes, capabilities and syscalls need real witnesses.
+// Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+fn dream_seal(mode: u8) -> Model {
+    let mut m = base::<7>(
+        "DreamSeal",
+        mode != 0,
+        &[
+            ("phase", 3, 0),
+            ("child", 3, 0),
+            ("coverage", 2, 0),
+            ("inflight", 1, 0),
+            ("spawned", 1, 0),
+            ("late_protected", 1, 0),
+            ("custody", 1, 0),
+        ],
+    );
+    if mode == 1 {
+        m.name = "BrokenHarnessDreamSealLateWrite".into();
+    }
+    if mode == 2 {
+        m.name = "BrokenHarnessDreamSealChild".into();
+    }
+    act(
+        &mut m,
+        "AdmitProtectedEffect",
+        all([eq(0, 0), eq(3, 0)]),
+        &[(3, Int(1))],
+    );
+    act(
+        &mut m,
+        "CompleteObservedEffect",
+        all([eq(0, 0), eq(3, 1)]),
+        &[(3, Int(0))],
+    );
+    act(
+        &mut m,
+        "SpawnOwnedChild",
+        all([eq(0, 0), eq(4, 0)]),
+        &[(1, Int(1)), (4, Int(1))],
+    );
+    for coverage in 1..=2 {
+        act(
+            &mut m,
+            &format!("ObserveOrEnforceChild{coverage}"),
+            all([eq(0, 0), eq(1, 1)]),
+            &[(2, Int(coverage))],
+        );
+    }
+    for terminal in 2..=3 {
+        act(
+            &mut m,
+            &format!("JoinOrReapChild{terminal}"),
+            all([eq(0, 0), eq(1, 1)]),
+            &[(1, Int(terminal))],
+        );
+    }
+    let quiescent = eq(1, 0).or(all([Int(1).lt(Var(1)), Int(0).lt(Var(2))]));
+    act(
+        &mut m,
+        "Freeze",
+        all([
+            eq(0, 0),
+            eq(3, 0),
+            if mode == 2 {
+                Bool(true)
+            } else {
+                quiescent.clone()
+            },
+        ]),
+        &[(0, Int(1))],
+    );
+    act(
+        &mut m,
+        "SealOwnCustody",
+        eq(0, 1),
+        &[(0, Int(2)), (6, Int(1))],
+    );
+    act(&mut m, "Close", eq(0, 2), &[(0, Int(3))]);
+    if mode == 1 {
+        act(
+            &mut m,
+            "BrokenLateProtectedWrite",
+            Int(0).lt(Var(0)),
+            &[(5, Int(1))],
+        );
+    }
+    if mode == 2 {
+        act(
+            &mut m,
+            "BrokenUnjoinedChildWrite",
+            all([Int(0).lt(Var(0)), eq(1, 1)]),
+            &[(5, Int(1))],
+        );
+    }
+    safe(&mut m, "NoProtectedEffectsAfterFreeze", eq(5, 0));
+    safe(&mut m, "FrozenOwnsNoMutableChild", eq(0, 0).or(quiescent));
+    safe(&mut m, "FreezeHasNoInflightEffect", eq(0, 0).or(eq(3, 0)));
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (dream_seal(0), "pass"),
+        (dream_seal(1), "safety"),
+        (dream_seal(2), "safety"),
         (dream_native_custody(false), "pass"),
         (dream_native_custody(true), "safety"),
         (dream_d0(0), "pass"),

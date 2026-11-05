@@ -30,6 +30,7 @@ pub struct Finding {
 #[derive(Default, Serialize)]
 pub struct Audit {
     pub findings: Vec<Finding>,
+    pub labels: Vec<Value>,
     pub projection: Projection,
     pub graph: Graph,
     pub record_views: BTreeMap<String, RecordView>,
@@ -178,10 +179,6 @@ pub async fn run(
         {
             audit.reject("P3", "dream session has no known trigger");
         }
-        if meta.harness == "dream" || meta.dream.is_some() {
-            // No approved final sealing/carrier dependency has been integrated yet.
-            audit.unproven("P4", "missing_run_receipt");
-        }
     }
     let mut infos: BTreeMap<String, Info> = BTreeMap::new();
     let mut current = BTreeSet::new();
@@ -239,15 +236,6 @@ pub async fn run(
                     |pin| matches!(pin,EvidenceRef::Event{session,..} if *session==fact.session),
                 ) {
                     audit.reject("P4", "dream writer cites its own source session");
-                }
-                if evidence
-                    .iter()
-                    .any(|pin| matches!(pin, EvidenceRef::Event { .. }))
-                {
-                    audit.unproven(
-                        "P4",
-                        "no independently verified writer-effect witness for cited sessions",
-                    );
                 }
                 if let Some(draft) = draft {
                     let draft = draft.clone();
@@ -307,19 +295,15 @@ pub async fn run(
             } => {
                 adopted.insert(entry.clone());
             }
-            Item::Adoption { sink, .. } => {
-                if deny::instruction_sink(&sink.path) && !matches!(sink.kind, SinkKind::Proposal) {
-                    audit.reject(
-                        "P6",
-                        "automatic materialization targets an instruction sink",
-                    );
-                }
-                audit.unproven(
-                    "P2",
-                    "authenticated publication-at-time and writer-effect evidence is unavailable",
+            Item::Adoption { sink, .. }
+                if deny::instruction_sink(&sink.path) && sink.kind != SinkKind::Proposal =>
+            {
+                audit.reject(
+                    "P6",
+                    "automatic materialization targets an instruction sink",
                 );
-                audit.unproven("P8", "publication block has no verified resolving custody");
             }
+
             _ => {}
         }
     }
@@ -535,6 +519,9 @@ pub async fn run(
             .collect::<BTreeSet<_>>()
     })
     .await;
+    let publications =
+        audit_receipts(&mut audit, resolver, &facts, &infos, &metas, &accepted).await;
+    let graph_facts = facts.clone();
     audit.graph = crate::runtime::blocking(move || {
         crate::runtime::assert_off_rt_worker();
         let memories = memories
@@ -547,7 +534,7 @@ pub async fn run(
             .collect::<Vec<_>>();
         Graph::build(
             &memories,
-            &facts,
+            &graph_facts,
             &metas,
             &projected,
             &accepted,
@@ -556,6 +543,105 @@ pub async fn run(
         )
     })
     .await?;
+    for publication in publications {
+        let Some(selection) = &publication.body.selection else {
+            continue;
+        };
+        let Some(sink) = &publication.body.sink else {
+            continue;
+        };
+        let mut rows = vec![];
+        for entry in &selection.selected {
+            if let Some(candidate) = selection.candidates.iter().find(|c| &c.entry == entry)
+                && let Ok(record) = resolver.record(&candidate.record).await
+            {
+                rows.push((candidate.clone(), record));
+            }
+        }
+        let sink = sink.clone();
+        let session = publication.body.run.session;
+        let at = resolver
+            .logs
+            .get(&session)
+            .and_then(|log| {
+                log.get(
+                    publication
+                        .body
+                        .seal
+                        .as_ref()
+                        .unwrap()
+                        .own_prefix
+                        .through_seq as usize
+                        - 1,
+                )
+            })
+            .map(|e| e.ts_ms)
+            .unwrap_or(0);
+        let rendered = crate::runtime::blocking(move || {
+            let rows = rows
+                .into_iter()
+                .map(|(c, r)| (c, r.record.clone()))
+                .collect::<Vec<_>>();
+            super::receipt::render_resources(&rows, &sink, session, at)
+        })
+        .await;
+        let event = resolver
+            .logs
+            .get(&session)
+            .and_then(|log| log.get(publication.seq.0 as usize - 1));
+        let receipt_node = event.and_then(|e| e.wire_bytes().ok()).and_then(|bytes| {
+            super::graph::evidence_node(&EvidenceRef::Event {
+                session,
+                seq: publication.seq,
+                digest: entry::digest(bytes.strip_suffix(b"\n").unwrap_or(&bytes)),
+            })
+            .ok()
+        });
+        if let Ok((_, files)) = rendered {
+            for (path, bytes) in files {
+                for (index, line) in String::from_utf8_lossy(&bytes).lines().enumerate() {
+                    let marked = line.contains("<!-- dream:")
+                        || ["dream:", "dream_entry:", "job_id:", "entry:"]
+                            .iter()
+                            .any(|prefix| line.trim_start().starts_with(prefix));
+                    if !marked {
+                        continue;
+                    }
+                    for entry in selection
+                        .selected
+                        .iter()
+                        .filter(|entry| line.contains(entry.as_str()))
+                    {
+                        let id = format!("{}:{}", path.display(), index + 1);
+                        audit.graph.nodes.insert(id.clone(),super::graph::Node{id:id.clone(),kind:"sink_line".into(),data:json!({"path":path,"line":index+1,"receipt":format!("sha256:{}",publication.blob.sha256)}),strength:None});
+                        audit.graph.edges.push(super::graph::Edge {
+                            from: id.clone(),
+                            to: entry.clone(),
+                            relation: "materializes".into(),
+                            weight: 1.0,
+                            external: false,
+                            strength: None,
+                        });
+                        if let Some(node) = &receipt_node {
+                            audit.graph.edges.push(super::graph::Edge {
+                                from: id,
+                                to: node.clone(),
+                                relation: "sealed_by".into(),
+                                weight: 1.0,
+                                external: false,
+                                strength: None,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    audit
+        .graph
+        .edges
+        .sort_by(|a, b| (&a.from, &a.to, &a.relation).cmp(&(&b.from, &b.to, &b.relation)));
+    audit.graph.edges.dedup();
     // Resolve evidence for why output from the same retained/pinned custody; snippets
     // are redacted presentation, never a replacement for their exact byte pins.
     let pins = audit
@@ -593,6 +679,209 @@ pub async fn run(
     audit.findings.sort();
     audit.findings.dedup();
     Ok(audit)
+}
+
+fn proof(audit: &mut Audit, check: &str, result: super::seal::Proof<()>) {
+    match result {
+        Ok(()) => {}
+        Err(super::seal::ProofError::Fail(reason)) => audit.reject(
+            if reason == "writer_touched_source" {
+                "P4"
+            } else {
+                check
+            },
+            reason,
+        ),
+        Err(super::seal::ProofError::Unproven(reason)) => audit.unproven(check, reason),
+    }
+}
+async fn audit_receipts(
+    audit: &mut Audit,
+    resolver: &mut Resolver,
+    facts: &[projection::Fact],
+    infos: &BTreeMap<String, Info>,
+    metas: &BTreeMap<SessionId, SessionMeta>,
+    accepted: &BTreeSet<SessionId>,
+) -> Vec<super::receipt::Accepted> {
+    use super::{receipt, seal::ProofError};
+    let domains = resolver.receipt_domains();
+    let trust = resolver.trust();
+    let logs = resolver.logs.clone();
+    let mut runs = BTreeMap::new();
+    let mut publications = vec![];
+    for events in logs.values() {
+        for event in events {
+            if let Event::ItemCompleted {
+                body: Item::Receipt { kind, .. },
+                ..
+            } = &event.event
+            {
+                let check = if *kind == ReceiptKind::Run {
+                    "P4"
+                } else {
+                    "P2"
+                };
+                match Box::pin(receipt::accept_with_publications(
+                    event,
+                    events,
+                    &domains,
+                    trust.as_deref(),
+                    &publications,
+                ))
+                .await
+                {
+                    Ok(r) if r.body.kind == ReceiptKind::Run => {
+                        let observed = r.clone();
+                        let observed_domains = domains.clone();
+                        audit.labels.extend(
+                            crate::runtime::blocking(move || {
+                                receipt::current_labels(&observed, &observed_domains)
+                            })
+                            .await,
+                        );
+                        if runs.insert(event.session, r).is_some() {
+                            audit.reject("P4", "duplicate_run_receipt");
+                        }
+                    }
+                    Ok(r) => publications.push(r),
+                    Err(e) => proof(audit, check, Err(e)),
+                }
+            }
+        }
+    }
+    fn pins(value: &Value, out: &mut Vec<EvidenceRef>) {
+        if value.get("kind").and_then(Value::as_str) == Some("event")
+            && let Ok(pin) = serde_json::from_value(value.clone())
+        {
+            out.push(pin);
+        }
+        match value {
+            Value::Array(a) => {
+                for v in a {
+                    pins(v, out)
+                }
+            }
+            Value::Object(o) => {
+                for v in o.values() {
+                    pins(v, out)
+                }
+            }
+            _ => {}
+        }
+    }
+    for (session, meta) in metas {
+        if meta.harness != "dream" && meta.dream.is_none() {
+            continue;
+        }
+        let Some(run) = runs.get(session) else {
+            audit.unproven("P4", "missing_run_receipt");
+            continue;
+        };
+        let mut refs = vec![];
+        for fact in facts.iter().filter(|f| f.session == *session) {
+            pins(
+                &serde_json::to_value(&fact.body).unwrap_or_default(),
+                &mut refs,
+            );
+            let entry = match &fact.body {
+                Item::MemoryWrite { entry, .. }
+                | Item::Trial { entry, .. }
+                | Item::MemoryState { entry, .. }
+                | Item::Adoption { entry, .. } => Some(entry),
+                _ => None,
+            };
+            if let Some(entry) = entry
+                && let Some(info) = infos.get(entry)
+            {
+                refs.extend(info.evidence.clone());
+            }
+        }
+        proof(audit, "P4", receipt::check_sources(run, &refs, &logs));
+    }
+    let mut good = vec![];
+    for publication in publications {
+        let Some(run) = runs.get(&publication.body.run.session) else {
+            audit.unproven("P2", "missing_outer_run");
+            continue;
+        };
+        let result = receipt::check_outer(&publication, run);
+        if result.is_err() {
+            proof(audit, "P2", result);
+            continue;
+        }
+        match Box::pin(receipt::check_publication(
+            &publication,
+            resolver,
+            &domains,
+            accepted,
+        ))
+        .await
+        {
+            Ok(entries) => {
+                let observed = publication.clone();
+                let observed_domains = domains.clone();
+                audit.labels.extend(
+                    crate::runtime::blocking(move || {
+                        receipt::current_labels(&observed, &observed_domains)
+                    })
+                    .await,
+                );
+                let harness = publication.body.harness.as_deref().unwrap_or("");
+                for entry in entries {
+                    if audit
+                        .projection
+                        .entries
+                        .get(&entry)
+                        .is_none_or(|p| !p.active(harness))
+                    {
+                        audit.labels.push(json!({"kind":"stale_exposure","entry":entry,"receipt":publication.blob.sha256}));
+                    }
+                }
+                good.push(publication);
+            }
+            Err(e) => proof(audit, "P2", Err(e)),
+        }
+    }
+    for fact in facts {
+        match &fact.body {
+            Item::Adoption {
+                receipt: Some(digest),
+                ..
+            } if good
+                .iter()
+                .any(|r| format!("sha256:{}", r.blob.sha256) == *digest) => {}
+            Item::Adoption { .. } => audit.unproven("P2", "lost_witness"),
+            Item::Recall {
+                entry,
+                basis: RecallBasis::Reported,
+                record,
+                block_digest,
+                sink,
+            } => {
+                let valid = good.iter().any(|r| {
+                    r.body.selection.as_ref().is_some_and(|s| {
+                        s.block_digest == block_digest.clone().unwrap_or_default()
+                            && s.selected.contains(entry)
+                            && s.candidates
+                                .iter()
+                                .any(|c| &c.entry == entry && Some(&c.record) == record.as_ref())
+                    }) && r.body.sink == *sink
+                        && r.body.sink.as_ref().is_some_and(|s| {
+                            matches!(s.kind, SinkKind::EngineContext | SinkKind::AcpContext)
+                        })
+                });
+                if !valid {
+                    proof(
+                        audit,
+                        "P2",
+                        Err(ProofError::Fail("recall_publication_binding")),
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+    good
 }
 
 pub async fn cli(subcommand: &str, args: impl Iterator<Item = String>) -> Result<i32, String> {
@@ -700,8 +989,14 @@ pub async fn cli(subcommand: &str, args: impl Iterator<Item = String>) -> Result
             .await
             .map_err(|_| "dream query encoding unavailable")?;
     use tokio::io::AsyncWriteExt;
-    tokio::io::stdout()
+    let mut stdout = tokio::io::stdout();
+    stdout
         .write_all(&bytes)
+        .await
+        .map_err(|_| "dream query output unavailable")?;
+    // main exits explicitly; drain Tokio's pending blocking stdout write first.
+    stdout
+        .flush()
         .await
         .map_err(|_| "dream query output unavailable")?;
     Ok(code)
