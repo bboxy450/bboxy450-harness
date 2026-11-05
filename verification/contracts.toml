@@ -14,7 +14,8 @@ sources = ["src/backend/acp_agent.rs", "src/frontends/gui/bridge.rs", "tests/for
 implementation_tests = ["tests/acp_agent.rs", "tests/fixtures/acp-agent/fake_agent.py"]
 assumptions = "One admitted input, one negotiated capability and one independently ending active prompt. Replies, deadlines and transport loss settle atomically; an unknown reply may already have delivered the input. Weak fairness of local routing, steering settlement and idle-queue dispatch; the agent need not end its active prompt. The real ten-second deadline, bootstrap fence, payload/image custody, persistent receipts, bounded multi-input queue and session identity are implementation-only; no Rust refinement proof."
 property = "At most one delivery; no steering cancellation; unknown outcomes never become normal prompts. Explicitly unconsumed input can use the normal queue. Accepted steering receipts survive a racing original prompt end."
-checks = ["make test-acp-steering", "make test-acp-steering-formal"]
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-acp-steering", "make test-acp-steering-formal"]
 
 [[contract]]
 name = "HarnessNativeUsage"
