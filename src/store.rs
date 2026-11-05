@@ -340,8 +340,12 @@ impl Store {
                 #[cfg(test)]
                 if let fork::Frontier::TrialQueuedTest(boundary) = &frontier {
                     f.release_observed = Some(boundary.retired.clone());
-                    boundary.reached.wait();
-                    boundary.release.wait();
+                    let _ = boundary.reached.send(());
+                    let mut released = boundary.release.0.lock().unwrap();
+                    while !*released {
+                        released = boundary.release.1.wait(released).unwrap();
+                    }
+                    drop(released);
                     if boundary.fail {
                         return Err(io::Error::other(
                             "injected trial opening error after epoch reservation",
@@ -859,10 +863,27 @@ mod lease_tests {
             (owner, AfterGuard(Some(done))) // fields drop in order, owner BEFORE observation
         }));
         assert!(futures_util::poll!(opening.as_mut()).is_pending());
-        let duplicate = tokio::time::timeout(std::time::Duration::from_secs(3), receive)
-            .await
-            .unwrap()
-            .unwrap();
+        let mut receive = receive;
+        let mut completed = false;
+        let acquisition=tokio::time::timeout(std::time::Duration::from_secs(3),async {
+            tokio::select! {biased;
+                ack=&mut receive=>ack.map_err(|_|"acquisition acknowledgement closed"),
+                returned=&mut opening=>{completed=true;drop(returned);Err("opening completed before acquisition acknowledgement")},
+            }
+        }).await;
+        let duplicate = match acquisition {
+            Ok(Ok(duplicate)) => duplicate,
+            failure => {
+                // Release this exact fixture gate, then join/drop the SAME
+                // opening output before a failing assertion. No detached job.
+                drop(release);
+                if !completed {
+                    drop(opening.await);
+                }
+                let _ = dropped.await;
+                panic!("lease acquisition failed after fixture cleanup: {failure:?}");
+            }
+        };
         drop(opening);
         busy(&path); // caller abandonment does not end a mutating job's ownership
         drop(release);
@@ -1185,6 +1206,21 @@ mod trial_frontier_tests {
     }
     #[tokio::test]
     async fn queued_trial_cancelled_or_error_open_keeps_lease_until_real_drop_and_recovers() {
+        // This test deliberately holds a native blocking permit at its epoch
+        // boundary. Give that barrier its own process, as the observed-spawn
+        // controls do; never starve unrelated lease tests' unchanged deadlines.
+        if std::env::var_os("DREAM_WP7_FRONTIER_CHILD").is_none() {
+            let output=std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact","store::trial_frontier_tests::queued_trial_cancelled_or_error_open_keeps_lease_until_real_drop_and_recovers","--nocapture"])
+                .env("DREAM_WP7_FRONTIER_CHILD","1").output().unwrap();
+            assert!(
+                output.status.success(),
+                "private queued-frontier control failed: {} {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
         for fail in [false, true] {
             let (temp, capability, parent, turns, cut, _) = fixture().await;
             let root = temp.path().join("sessions");
@@ -1196,12 +1232,14 @@ mod trial_frontier_tests {
                 .await
                 .unwrap();
             let (retired, receiver) = std::sync::mpsc::sync_channel(1);
+            let (reached, arrival) = std::sync::mpsc::sync_channel(1);
             let boundary = std::sync::Arc::new(TrialOpenBoundary {
-                reached: std::sync::Barrier::new(2),
-                release: std::sync::Barrier::new(2),
+                reached,
+                release: (std::sync::Mutex::new(false), std::sync::Condvar::new()),
                 retired,
                 fail,
             });
+            let release = TrialBoundaryRelease(boundary.clone());
             let b = boundary.clone();
             let r = root.clone();
             let m = meta.clone();
@@ -1217,8 +1255,9 @@ mod trial_frontier_tests {
                 )
                 .await
             }));
-            let b = boundary.clone();
-            blocking(move || b.reached.wait()).await;
+            blocking(move || arrival.recv_timeout(std::time::Duration::from_secs(3)))
+                .await
+                .unwrap();
             assert_eq!(read_epoch(&root.join(meta.session.to_string())).unwrap(), 2);
             assert!(
                 Store::open(root.clone(), meta.clone(), None, Set::default())
@@ -1231,8 +1270,7 @@ mod trial_frontier_tests {
                 task.abort();
                 assert!(matches!(task.await,Err(e) if e.is_cancelled()));
             }
-            let b = boundary.clone();
-            blocking(move || b.release.wait()).await;
+            drop(release);
             if fail {
                 assert!(task.take().unwrap().await.unwrap().is_err());
             }
@@ -1341,8 +1379,18 @@ mod trial_frontier_tests {
 // Per-invocation deterministic test boundary, never a global hook or product API.
 #[cfg(test)]
 struct TrialOpenBoundary {
-    reached: std::sync::Barrier,
-    release: std::sync::Barrier,
+    reached: std::sync::mpsc::SyncSender<()>,
+    release: (std::sync::Mutex<bool>, std::sync::Condvar),
     retired: std::sync::mpsc::SyncSender<bool>,
     fail: bool,
+}
+
+#[cfg(test)]
+struct TrialBoundaryRelease(std::sync::Arc<TrialOpenBoundary>);
+#[cfg(test)]
+impl Drop for TrialBoundaryRelease {
+    fn drop(&mut self) {
+        *self.0.release.0.lock().unwrap() = true;
+        self.0.release.1.notify_all();
+    }
 }

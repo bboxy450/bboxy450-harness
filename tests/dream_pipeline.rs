@@ -1286,6 +1286,14 @@ async fn synth_nfc_hashing_preserves_resolving_git_pin_spelling() {
 #[tokio::test]
 async fn synth_d0_process_spawn_poll_bound_witness() {
     use std::future::Future;
+    let Ok(mode) = std::env::var("DREAM_WP7_CPU_MODE") else {
+        support::process_poll_modes().await;
+        return;
+    };
+    assert!(matches!(
+        mode.as_str(),
+        "initialization-only" | "cold-api" | "ready"
+    ));
     fn cpu() -> u64 {
         let mut t = std::mem::MaybeUninit::<libc::timespec>::uninit();
         assert_eq!(
@@ -1294,6 +1302,20 @@ async fn synth_d0_process_spawn_poll_bound_witness() {
         );
         let t = unsafe { t.assume_init() };
         t.tv_sec as u64 * 1_000_000_000 + t.tv_nsec as u64
+    }
+    let initialization = if mode != "cold-api" {
+        let before = cpu();
+        let _ = bbt_rt::handle();
+        Some(cpu() - before)
+    } else {
+        None
+    };
+    if mode == "initialization-only" {
+        println!(
+            "dream-wp7-poll:{}",
+            json!({"mode":mode,"initialization_cpu_ns":initialization,"poll_cpu_ns":[],"owned_child_reaped":false,"api_executed":false})
+        );
+        return;
     }
     let own = tempfile::tempdir_in("/tmp").unwrap();
     // Same run_inner/OwnedChild::spawn used by D0's private stdout capture.
@@ -1333,10 +1355,16 @@ async fn synth_d0_process_spawn_poll_bound_witness() {
         "owned no-op child reaped; first_poll_cpu_ns={first}; polls={}",
         polls.len()
     );
-    assert!(
-        first <= 1_000_000,
-        "synchronous owned spawn exceeded unchanged D0 1ms poll contract: {first}ns"
+    println!(
+        "dream-wp7-poll:{}",
+        json!({"mode":mode,"initialization_cpu_ns":initialization,"poll_cpu_ns":polls,"first_poll_cpu_ns":first,"raw_within_1ms":first<=1_000_000,"owned_child_reaped":true,"api_executed":true,"exit_code":result.code})
     );
+    if mode == "ready" {
+        assert!(
+            first <= 1_000_000,
+            "synchronous owned spawn exceeded unchanged D0 1ms poll contract: {first}ns"
+        );
+    }
 }
 
 fn trial_math_fixture(tokens_with: u64, tokens_without: u64) -> Item {

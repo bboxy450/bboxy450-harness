@@ -1,0 +1,16 @@
+{
+  "source": "fe1c4e89491d83a7b5c144fc994e0e1fcdefafb8",
+  "default": {
+    "exit_code": 101,
+    "log_sha256": "3022e21a6d803b6d773c9f34040ed18bf61dc6e4c3631681955f752408ed8482",
+    "first_poll_cpu_ns": 1216875
+  },
+  "acp": {
+    "exit_code": 101,
+    "log_sha256": "57dd3c8e02911de598152039ec1b89e5152c3e7599b6679386fe90f2fa2a6ba9",
+    "failure": "inherited lazy opening acquisition timeout3s"
+  },
+  "disposition": "Historical red gates retained. Signed task verify revision6 authorizes startup-matched measurement and concurrently driving the same lease-opening fixture. Product/runtime/model semantics remain unchanged; new final-source gates are still required.",
+  "task_etag": "8a26d0d2c4e5e7c0d234b450af546326114d7fc788a0c8cc61aa51f5b5bc47e2",
+  "targeted_corrected_log_sha256": "3cda7cfad312b5a68a9052790244cfa253b804b2a6d97279db5df7875fa31716"
+}
