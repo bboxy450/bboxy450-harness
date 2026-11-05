@@ -1,0 +1,18 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp6)
+error[E0282]: type annotations needed
+   --> tests/formal_models.rs:274:28
+    |
+274 |             let mut add = |label, updates: &[(usize, i64)]| {
+    |                            ^^^^^
+...
+279 |                 assert!(expected.insert(label.to_string(), next).is_none());
+    |                                         ----- type must be known at this point
+    |
+help: consider giving this closure parameter an explicit type
+    |
+274 |             let mut add = |label: /* Type */, updates: &[(usize, i64)]| {
+    |                                 ++++++++++++
+
+For more information about this error, try `rustc --explain E0282`.
+error: could not compile `bboxy450-harness` (test "formal_models") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...

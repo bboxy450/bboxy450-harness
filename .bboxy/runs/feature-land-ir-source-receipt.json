@@ -1,0 +1,43 @@
+{
+  "source_verify": {
+    "source": "4786fd837c1ebc873d7c8089c4b529c24b4167be",
+    "verify_revision": 1,
+    "command": "make test-ir && cargo test --test protocol_golden --test ir_v1_corpus --test store_fork && cargo clippy --all-targets --all-features -- -D warnings && cargo test --features acp-agent --test acp_agent steering_ && make test-formal && make test-formal-parity && make check-formal-evidence && make smoke-app",
+    "exit_code": 0,
+    "log": "target/feature-land-ir/revision1-source-primary.log",
+    "sha256": "0c89269cbf33d7a01713af7f1d5f5cc6870a5d542cddeca2620177e034b20732",
+    "seconds": 174.58641982078552,
+    "private_home": true,
+    "jobs": 2,
+    "offline": true
+  },
+  "formal_receipt": "eea0220b71085526e96e6e0ba6b18803e06210c516fff48cd6b3952a919fae46",
+  "formal_archive": "verification/evidence/eea0220b71085526e96e6e0ba6b18803e06210c516fff48cd6b3952a919fae46/evidence.json",
+  "models": 135,
+  "contracts": 45,
+  "crate_count": 1,
+  "all_graphs_transitions_verdicts_match": true,
+  "smoke": {
+    "source": "4786fd837c1ebc873d7c8089c4b529c24b4167be",
+    "private_home": true,
+    "operator_input": false,
+    "replay_exit_code": 0,
+    "screenshot": "/Users/feral/mydev/bboxy450-harness-dream-wp6/target/app-smoke/replay.png",
+    "screenshot_bytes": 155324,
+    "native_window": "hidden",
+    "surface_configured": true,
+    "live_frame_submitted": "private texture",
+    "visible_presentation_checked": false,
+    "launcher_pid": 43490,
+    "launcher_exit_code": 0,
+    "cwd": "/tmp/harness-app-9xjc0twi",
+    "profile": "nemotron",
+    "notice": true,
+    "bundle": "/Users/feral/mydev/bboxy450-harness-dream-wp6/target/bboxy450-harness.app",
+    "app_name": "bboxy450-harness",
+    "codesign_exit_code": 0,
+    "transcript_exit_code": 0
+  },
+  "tracked_source_clean": true,
+  "git_index_clean": true
+}

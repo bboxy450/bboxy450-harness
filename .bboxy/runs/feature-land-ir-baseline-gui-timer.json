@@ -1,0 +1,7 @@
+{
+  "source": "0ab55023228a7f7f49305c9c08f5bdbcfb39c10f",
+  "command": "cargo test --all-features --test gui_chrome zoom_pill_shows_the_percent_then_fades -- --exact",
+  "exit_code": 101,
+  "log": "target/feature-land-ir/baseline-gui-timer.log",
+  "sha256": "e705e934c5abacc55fa6dee190a5955c7c55f898eadaadb56f079542f1e31ab2"
+}
