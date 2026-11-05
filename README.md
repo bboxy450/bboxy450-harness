@@ -177,7 +177,10 @@ Hidden serde/BTree/regex/native overhead is measured; the ledger proves declared
 storage admission, not an absolute native allocator cap. Full observed child
 heap exceeding 96 MiB fails. Diagnostics separately label actual live/high-water
 heap, RSS, declared live/peak/cumulative credits and unmeasured native cumulative
-allocation. Cancel/error teardown also uses paced units. Done follows actual
+allocation. Successful typed returns stay in an external stepped owner until the
+CPU/heap/control verdict accepts them. Rejected returns, including unavailable
+end clocks, drain nested JSON and typed collections in paced units before their
+credits are released. Cancel/error teardown also uses paced units. Done follows actual
 compute settlement and successful exit remains part of
 the consumer's completion check.
 

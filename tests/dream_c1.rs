@@ -1351,6 +1351,72 @@ fn four_children_keep_independent_controls_and_individual_memory_shares() {
 }
 
 #[test]
+fn near_limit_rejected_envelope_drains_before_process_done_and_join() {
+    // A real private worker parses an owned, near-frame header before the law
+    // rejects its unsupported version. This pairs the exact injected-clock and
+    // post-parse Cancel API witnesses with the actual pipe/Done/join boundary.
+    let mut job = Job::new(0, 0, false, false);
+    let lines = job
+        .bytes
+        .split_inclusive(|c| *c == b'\n')
+        .collect::<Vec<_>>();
+    let mut header: serde_json::Value = serde_json::from_slice(lines[0]).unwrap();
+    header["v"]["major"] = serde_json::json!(2);
+    header["ext"] = serde_json::json!({"dense": (0..4096).map(|_| serde_json::json!({"leaf":["retained"]})).collect::<Vec<_>>(), "padding":""});
+    let initial = serde_json::to_vec(&header).unwrap();
+    header["ext"]["padding"] = serde_json::json!("p".repeat(w::MAX_FRAME - initial.len() - 32));
+    let mut bytes = serde_json::to_vec(&header).unwrap();
+    assert_eq!(bytes.len(), w::MAX_FRAME - 32);
+    bytes.push(b'\n');
+    for line in &lines[1..] {
+        bytes.extend_from_slice(line);
+    }
+    job.bytes = bytes;
+    private_file(&job.source(), &job.bytes);
+    job.manifest.sources[0].len = w::Number(job.bytes.len() as u64);
+    job.manifest.sources[0].sha256 = w::hash(&job.bytes);
+    job.commit_manifest();
+    let mut worker = job.launch();
+    let at = Instant::now();
+    worker.start(&job.start);
+    let (done, metrics) = worker.done();
+    assert_eq!(done.outcome, w::Outcome::Failed);
+    assert!(matches!(
+        done.error.as_ref().unwrap().code,
+        w::Code::UnsupportedIr | w::Code::ResourceLimit
+    ));
+    assert!(at.elapsed() < Duration::from_secs(2));
+    // The intentionally dense parse can itself exceed one CPU unit. That is a
+    // causal negative, not a relaxed success threshold: it must fail ResourceLimit
+    // and retain the measured overrun while cleanup still respects its bound.
+    if done.error.as_ref().unwrap().code == w::Code::ResourceLimit {
+        assert!(metric(&metrics, "overruns") > 0, "{metrics}");
+        assert!(metric(&metrics, "max_unit_cpu_ns") > 1_000_000, "{metrics}");
+        assert_eq!(metric(&metrics, "storage_declared_live_bytes"), 0);
+        assert!(metric(&metrics, "heap_peak_bytes") <= 96 * 1024 * 1024);
+    } else {
+        assert_memory_gate(&metrics);
+    }
+    assert!(
+        metric(&metrics, "max_cleanup_unit_cpu_ns") <= 1_000_000,
+        "{metrics}"
+    );
+    assert!(metric(&metrics, "cleanup_cpu_ns") > 0, "{metrics}");
+    assert!(metric(&metrics, "storage_reserved_peak_bytes") > 1024 * 1024);
+    assert!(metric(&metrics, "compute_cpu_ns") > 0);
+    assert!(
+        std::fs::read_dir(job.path.join("output"))
+            .unwrap()
+            .next()
+            .is_none()
+    );
+    eprintln!(
+        "near-limit-rejected-owner elapsed_ms={} {metrics}",
+        at.elapsed().as_millis()
+    );
+}
+
+#[test]
 fn cancel_after_retained_state_growth_reaps_with_paced_teardown() {
     let job = Job::new(80, 16 * 1024, false, false);
     let mut worker = job.launch();

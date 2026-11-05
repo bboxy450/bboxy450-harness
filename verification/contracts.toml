@@ -794,3 +794,15 @@ assumptions = "One public numeric label, one typed ID ending07 and an independen
 property = "Registering public generation cannot corrupt typed operations, while literal/alias/command/unknown and independently known secrets remain protected."
 checks = ["make test-formal", "make test"]
 additional_checks = ["make test-dream-c1"]
+
+[[contract]]
+name = "HarnessDreamC1ReturnedOwner"
+title = "Rejected typed results drain before credit release and Done"
+models = ["HarnessDreamC1ReturnedOwner", "BrokenHarnessDreamC1ReturnedOwnerUnpaced", "BrokenHarnessDreamC1ReturnedOwnerCredit", "BrokenHarnessDreamC1ReturnedOwnerDone"]
+controls = [{name="BrokenHarnessDreamC1ReturnedOwnerUnpaced", expected="safety"}, {name="BrokenHarnessDreamC1ReturnedOwnerCredit", expected="safety"}, {name="BrokenHarnessDreamC1ReturnedOwnerDone", expected="safety"}]
+sources = ["src/dream/c1.rs", "tests/formal/dream_c1.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/dream_c1.rs"]
+assumptions = "One successful typed return with two owned pieces, one reserved credit, CPU/clock/cancel verdicts and finite paced disposal. Weak fairness of production, rejection, disposal and settlement. This proves declared ownership ordering only; real nested serde teardown, unavailable clocks, CPU units, nine-ms waits, credit release and child join/Done are implementation witnesses. JSON disposal follows preflight depth32, per-container4096 and declared capacity limits; scalar/fixed fields remain bounded leaf destruction."
+property = "All rejection branches retain ownership with its credit until stepped disposal; Done follows real destruction and credit release."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-dream-c1"]

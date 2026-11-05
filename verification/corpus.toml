@@ -1111,3 +1111,23 @@ frontend = "project"
 name = "BrokenHarnessDreamC1PublicMetadataBlanket"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamC1ReturnedOwner"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1ReturnedOwnerUnpaced"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1ReturnedOwnerCredit"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamC1ReturnedOwnerDone"
+expected = "safety"
+frontend = "project"

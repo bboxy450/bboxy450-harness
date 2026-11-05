@@ -438,3 +438,97 @@ pub fn public_metadata(control: u8) -> Model {
     );
     m
 }
+
+/// Returned ownership crosses the verdict (CPU/clock/cancel), then bounded
+/// disposal precedes credit release and the externally visible Done receipt.
+/// Pieces/credits are abstract; CPU, wait intervals and actual serde are tests.
+pub fn returned_owner(control: u8) -> Model {
+    let name = match control {
+        1 => "DreamC1ReturnedOwnerUnpaced",
+        2 => "DreamC1ReturnedOwnerCredit",
+        3 => "DreamC1ReturnedOwnerDone",
+        _ => "DreamC1ReturnedOwner",
+    };
+    let mut m = base(
+        name,
+        control != 0,
+        &[
+            ("phase", 4, 0),
+            ("pieces", 2, 0),
+            ("credit", 1, 0),
+            ("verdict", 3, 0),
+            ("unpaced", 1, 0),
+        ],
+    );
+    let produce = m.actions.len();
+    act(
+        &mut m,
+        "ProduceIntoExternalSlot",
+        eq(0, 0),
+        &[(0, Int(1)), (1, Int(2)), (2, Int(1))],
+    );
+    let mut fair = vec![produce];
+    for verdict in 1..=3 {
+        fair.push(m.actions.len());
+        act(
+            &mut m,
+            &format!("RejectCpuClockCancel{verdict}"),
+            eq(0, 1),
+            &[(0, Int(2)), (3, Int(verdict))],
+        );
+    }
+    for pieces in 1..=2 {
+        fair.push(m.actions.len());
+        act(
+            &mut m,
+            &format!("PacedDropPiece{pieces}"),
+            all([eq(0, 2), eq(1, pieces)]),
+            &[(1, Int(pieces - 1))],
+        );
+    }
+    if control == 1 {
+        act(
+            &mut m,
+            "ImplicitUnmeasuredDropOnRejectedReturn",
+            all([eq(0, 2), eq(1, 2)]),
+            &[(1, Int(0)), (4, Int(1))],
+        );
+    }
+    fair.push(m.actions.len());
+    act(
+        &mut m,
+        "ReleaseCreditAfterLastOwnedPiece",
+        all([eq(0, 2), if control == 2 { Bool(true) } else { eq(1, 0) }]),
+        &[(0, Int(3)), (2, Int(0))],
+    );
+    fair.push(m.actions.len());
+    act(
+        &mut m,
+        "DoneAfterRealSettlement",
+        if control == 3 {
+            eq(0, 2).or(eq(0, 3))
+        } else {
+            eq(0, 3)
+        },
+        &[(0, Int(4))],
+    );
+    safe(
+        &mut m,
+        "EveryReturnedOwnerKeepsItsCredit",
+        eq(1, 0).or(eq(2, 1)),
+    );
+    safe(&mut m, "EveryRejectedPieceIsPaced", eq(4, 0));
+    safe(
+        &mut m,
+        "DoneAfterDrainedOwnershipAndCredit",
+        eq(0, 4).negate().or(all([eq(1, 0), eq(2, 0)])),
+    );
+    progress(
+        &mut m,
+        "RejectedOwnerEventuallySettles",
+        Bool(true),
+        eq(0, 4),
+        fair,
+    );
+    m
+}

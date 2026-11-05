@@ -245,17 +245,36 @@ impl Budget {
         self.counters.phase = phase;
         self.progress.force_push(self.counters);
     }
-    fn track<T>(
+    fn track<T: disposal::Drain>(
         &mut self,
         bytes: u64,
         f: impl FnOnce() -> Result<T, w::Code>,
     ) -> Result<storage::Tracked<T>, w::Code> {
+        self.track_clock(bytes, f, cpu_ns)
+    }
+    fn track_clock<T: disposal::Drain>(
+        &mut self,
+        bytes: u64,
+        f: impl FnOnce() -> Result<T, w::Code>,
+        clock: impl FnMut() -> u64,
+    ) -> Result<storage::Tracked<T>, w::Code> {
         let credit = self.control.memory.reserve(bytes)?;
-        let value = self.unit(f)?;
+        let value = self.unit_clock(f, clock)?;
         Ok(storage::Tracked { value, credit })
     }
     #[track_caller]
-    fn unit<T>(&mut self, f: impl FnOnce() -> Result<T, w::Code>) -> Result<T, w::Code> {
+    fn unit<T: disposal::Drain>(
+        &mut self,
+        f: impl FnOnce() -> Result<T, w::Code>,
+    ) -> Result<T, w::Code> {
+        self.unit_clock(f, cpu_ns)
+    }
+    #[track_caller]
+    fn unit_clock<T: disposal::Drain>(
+        &mut self,
+        f: impl FnOnce() -> Result<T, w::Code>,
+        mut clock: impl FnMut() -> u64,
+    ) -> Result<T, w::Code> {
         if let Some(end) = self.last_end {
             let elapsed = end.elapsed();
             if elapsed < WAIT {
@@ -285,17 +304,20 @@ impl Budget {
         if live > HEAP_MAX {
             return Err(w::Code::ResourceLimit);
         }
-        let start = cpu_ns();
+        let start = clock();
         if start == u64::MAX {
             return Err(w::Code::ResourceLimit);
         }
-        let result = f();
-        let end = cpu_ns();
+        // The slot outlives every admission verdict, including a failed clock.
+        // Its stepped destructor finishes before track's credit can be released.
+        let mut result = Paced::new(None, &self.control, disposal::Drain::drain_step);
+        *result = Some(f());
+        let end = clock();
+        self.last_end = Some(Instant::now());
         if end == u64::MAX {
             return Err(w::Code::ResourceLimit);
         }
         let elapsed = end.saturating_sub(start);
-        self.last_end = Some(Instant::now());
         self.max_unit = self.max_unit.max(elapsed);
         self.counters.cpu = self.counters.cpu.saturating_add(elapsed);
         self.heap_peak = self.heap_peak.max(heap());
@@ -309,10 +331,9 @@ impl Budget {
             return Err(w::Code::ResourceLimit);
         }
         if let Some(e) = self.control.error() {
-            cleanup_unit(&self.control, || drop(result));
             return Err(e);
         }
-        result
+        result.take_value().unwrap()
     }
 }
 /// Settlement is mandatory after cancellation. These small cleanup units retain
@@ -321,7 +342,13 @@ fn cleanup_unit(control: &Control, f: impl FnOnce()) {
     thread::sleep(WAIT);
     let at = cpu_ns();
     f();
-    let elapsed = cpu_ns().saturating_sub(at);
+    let end = cpu_ns();
+    // Missing cleanup clocks fail settlement rather than reporting zero work.
+    let elapsed = if at == u64::MAX || end == u64::MAX {
+        UNIT_NS + 1
+    } else {
+        end.saturating_sub(at)
+    };
     control.cleanup_cpu.fetch_add(elapsed, Ordering::AcqRel);
     control.cleanup_max.fetch_max(elapsed, Ordering::AcqRel);
     if elapsed > UNIT_NS {
@@ -361,7 +388,8 @@ impl<T> Drop for Paced<T> {
         while self.value.is_some() {
             cleanup_unit(&self.control, || {
                 let start = cpu_ns();
-                loop {
+                // The finite entry bound also applies if the CPU clock fails.
+                for _ in 0..1024 {
                     if !(self.step)(self.value.as_mut().unwrap()) {
                         drop(self.value.take());
                         break;
@@ -386,6 +414,327 @@ impl Budget {
         result
     }
 }
+/// Incremental ownership teardown for admitted, depth-limited IR. One step
+/// removes at most one collection entry/scalar payload; recursion follows only
+/// the preflight-bounded (32-deep) JSON path. No serialization, clone or heap
+/// allocation is needed to dispose of a rejected typed result.
+mod disposal {
+    use super::*;
+    use crate::protocol::*;
+    pub(super) trait Drain {
+        /// true: a bounded piece was removed; false: only fixed leaf fields remain.
+        fn drain_step(&mut self) -> bool;
+    }
+    macro_rules! leaves {
+        ($($t:ty),* $(,)?) => {$(impl Drain for $t {
+            fn drain_step(&mut self) -> bool { false }
+        })*};
+    }
+    leaves!(
+        (),
+        bool,
+        u8,
+        usize,
+        u64,
+        w::Hex,
+        Dir,
+        File,
+        (File, Metadata),
+        storage::Shape,
+        String,
+        PathBuf,
+        Location,
+        Citation
+    );
+    impl<T: Drain> Drain for Option<T> {
+        fn drain_step(&mut self) -> bool {
+            let Some(v) = self.as_mut() else { return false };
+            if !v.drain_step() {
+                self.take();
+            }
+            true
+        }
+    }
+    impl<T: Drain> Drain for Result<T, w::Code> {
+        fn drain_step(&mut self) -> bool {
+            match self {
+                Ok(v) => v.drain_step(),
+                Err(_) => false,
+            }
+        }
+    }
+    impl<T: Drain> Drain for storage::Tracked<T> {
+        fn drain_step(&mut self) -> bool {
+            self.value.drain_step()
+        }
+    }
+    impl<T: Drain> Drain for Box<T> {
+        fn drain_step(&mut self) -> bool {
+            (**self).drain_step()
+        }
+    }
+    impl<T: Drain> Drain for Vec<T> {
+        fn drain_step(&mut self) -> bool {
+            let Some(v) = self.last_mut() else {
+                return false;
+            };
+            if !v.drain_step() {
+                self.pop();
+            }
+            true
+        }
+    }
+    impl<T: Drain> Drain for BTreeMap<String, T> {
+        fn drain_step(&mut self) -> bool {
+            let Some(mut entry) = self.first_entry() else {
+                return false;
+            };
+            if !entry.get_mut().drain_step() {
+                entry.remove_entry();
+            }
+            true
+        }
+    }
+    impl Drain for serde_json::Value {
+        fn drain_step(&mut self) -> bool {
+            use serde_json::Value;
+            match self {
+                Value::Null => false,
+                Value::Array(v) => v.drain_step(),
+                Value::Object(v) => {
+                    let Some((key, child)) = v.iter_mut().next() else {
+                        return false;
+                    };
+                    if child.drain_step() {
+                        return true;
+                    }
+                    // serde_json::Map has no pop-entry API. Borrow a bounded
+                    // stack copy of the key, then remove the now-empty leaf.
+                    // This frame is entered only for removal, not recursively.
+                    #[inline(never)]
+                    fn remove<const N: usize>(v: &mut serde_json::Map<String, Value>) {
+                        let mut key_bytes = [0u8; N];
+                        let key = v.keys().next().unwrap();
+                        let len = key.len();
+                        key_bytes[..len].copy_from_slice(key.as_bytes());
+                        let key = std::str::from_utf8(&key_bytes[..len]).unwrap();
+                        v.remove_entry(key);
+                    }
+                    debug_assert!(key.len() <= w::MAX_FRAME);
+                    if key.len() <= 512 {
+                        remove::<512>(v);
+                    } else {
+                        remove::<{ w::MAX_FRAME }>(v);
+                    }
+                    true
+                }
+                _ => {
+                    *self = Value::Null;
+                    true
+                }
+            }
+        }
+    }
+    macro_rules! fields {
+        ($t:ty; $($field:ident),+ $(,)?) => { impl Drain for $t {
+            fn drain_step(&mut self) -> bool { false $(|| self.$field.drain_step())+ }
+        }};
+    }
+    // Simple tagged enums have at most fixed leaf ownership except Unknown.
+    macro_rules! unknown {
+        ($($t:ty),+ $(,)?) => {$(impl Drain for $t {
+            fn drain_step(&mut self) -> bool {
+                match self { Self::Unknown(v) => v.drain_step(), _ => false }
+            }
+        })+};
+    }
+    unknown!(
+        ItemStatus,
+        TurnOrigin,
+        ItemKind,
+        ToolKind,
+        ItemHead,
+        Stream,
+        ChangeKind,
+        PlanStatus,
+        Priority,
+        Effect,
+        ApprovalDecisionKind,
+        ApprovalDecision,
+        Resolver,
+        Level,
+        SystemRole,
+        Rejection,
+        ErrorClass,
+        Phase,
+        DreamPhase,
+        ScopeLevel,
+        MemoryOp,
+        EntryState,
+        Arm,
+        Verdict,
+        SinkKind,
+        RecallBasis,
+        ReceiptKind,
+        ReceiptOutcome,
+        EvidenceRef,
+        Trigger,
+        UsageScope,
+        BackendKind,
+        NumberSource
+    );
+    // ItemHead::ToolCall embeds ToolKind, beyond the simple Unknown case.
+    // Handle that field via the containing Event below.
+    fields!(Envelope; ext, event);
+    fields!(SessionMeta; dream);
+    fields!(DreamRun; phase, trigger, scope);
+    fields!(Scope; level, repos);
+    fields!(Usage; scope, backend, cost, source, unreported);
+    fields!(Backend; kind);
+    fields!(Cost; source);
+    fields!(PlanEntry; status, priority);
+    fields!(ApprovalSubject; effect, paths);
+    fields!(TrialEpisode; origin, runs);
+    fields!(TrialRun; arm, usage);
+    fields!(SinkRef; kind);
+    impl Drain for StopReason {
+        fn drain_step(&mut self) -> bool {
+            match self {
+                Self::Unknown(v) => v.drain_step(),
+                Self::Error { class, .. } => class.drain_step(),
+                _ => false,
+            }
+        }
+    }
+    impl Drain for Event {
+        fn drain_step(&mut self) -> bool {
+            match self {
+                Self::Unknown(v) => v.drain_step(),
+                Self::SessionStarted { meta } => meta.drain_step(),
+                Self::TurnStarted { origin, .. } => origin.drain_step(),
+                Self::ContextChanged { config, .. } => config.drain_step(),
+                Self::ItemStarted { kind, head, .. } => {
+                    kind.drain_step()
+                        || match head {
+                            Some(ItemHead::ToolCall { tool_kind, .. }) => tool_kind.drain_step(),
+                            _ => head.drain_step(),
+                        }
+                }
+                Self::ItemCompleted { status, body, .. } => {
+                    status.drain_step() || body.drain_step()
+                }
+                Self::TurnEnded { reason, usage, .. } => reason.drain_step() || usage.drain_step(),
+                Self::OpRejected { reason, .. } => reason.drain_step(),
+                Self::ItemDelta { delta, .. } => delta.drain_step(),
+                Self::ItemSnapshot { partial, .. } => partial.drain_step(),
+                Self::Status { phase } => phase.drain_step(),
+                _ => false,
+            }
+        }
+    }
+    impl Drain for Delta {
+        fn drain_step(&mut self) -> bool {
+            match self {
+                Self::Unknown(v) => v.drain_step(),
+                Self::Plan { entries } => entries.drain_step(),
+                Self::Output { stream, .. } => stream.drain_step(),
+                _ => false,
+            }
+        }
+    }
+    impl Drain for Item {
+        fn drain_step(&mut self) -> bool {
+            match self {
+                Self::Unknown(v) => v.drain_step(),
+                Self::UserMessage { blocks } => blocks.drain_step(),
+                Self::Reasoning {
+                    provider_opaque, ..
+                } => provider_opaque.drain_step(),
+                Self::ToolCall {
+                    tool_kind,
+                    output,
+                    locations,
+                    raw_output,
+                    ..
+                } => {
+                    tool_kind.drain_step()
+                        || output.drain_step()
+                        || locations.drain_step()
+                        || raw_output.drain_step()
+                }
+                Self::FileChange { change, .. } => change.drain_step(),
+                Self::Plan { entries } => entries.drain_step(),
+                Self::Approval {
+                    subject,
+                    options,
+                    decision,
+                    by,
+                } => {
+                    subject.drain_step()
+                        || options.drain_step()
+                        || decision.drain_step()
+                        || by.drain_step()
+                }
+                Self::Usage { usage } => usage.drain_step(),
+                Self::Notice { level, .. } => level.drain_step(),
+                Self::SystemMessage { role, .. } => role.drain_step(),
+                Self::Native { raw, .. } => raw.drain_step(),
+                Self::MemoryWrite {
+                    op,
+                    evidence,
+                    draft,
+                    ..
+                } => op.drain_step() || evidence.drain_step() || draft.drain_step(),
+                Self::MemoryState { state, refs, .. } => state.drain_step() || refs.drain_step(),
+                Self::Trial {
+                    episodes,
+                    controls,
+                    verdict,
+                    ..
+                } => episodes.drain_step() || controls.drain_step() || verdict.drain_step(),
+                Self::Adoption { sink, .. } => sink.drain_step(),
+                Self::Recall { sink, basis, .. } => sink.drain_step() || basis.drain_step(),
+                Self::Receipt {
+                    kind,
+                    outcome,
+                    sink,
+                    ..
+                } => kind.drain_step() || outcome.drain_step() || sink.drain_step(),
+                _ => false,
+            }
+        }
+    }
+    impl Drain for InputBlock {
+        fn drain_step(&mut self) -> bool {
+            match self {
+                Self::Unknown(v) => v.drain_step(),
+                _ => false,
+            }
+        }
+    }
+    impl Drain for OutputBlock {
+        fn drain_step(&mut self) -> bool {
+            match self {
+                Self::Unknown(v) | Self::Json { value: v } => v.drain_step(),
+                Self::Diff { change, .. } => change.drain_step(),
+                Self::Citations { entries } => entries.drain_step(),
+                _ => false,
+            }
+        }
+    }
+    impl Drain for w::Manifest {
+        fn drain_step(&mut self) -> bool {
+            if let Some(source) = self.sources.last_mut() {
+                if source.blobs.pop().is_none() {
+                    self.sources.pop();
+                }
+                return true;
+            }
+            false
+        }
+    }
+}
+
 struct Dir(File);
 impl Dir {
     fn open(path: &Path) -> Result<Self, w::Code> {
@@ -803,10 +1152,7 @@ fn selected(
         b.counters.bytes += n as u64;
         let mut pos = 0;
         while pos < n {
-            let mut deferred = Paced::new(None, &b.control, |v| {
-                v.take();
-                false
-            });
+            let mut deferred = Paced::new(None, &b.control, disposal::Drain::drain_step);
             let mut complete = false;
             let mut is_tool = false;
             let mut shape = None;
@@ -879,12 +1225,6 @@ fn selected(
                     line.clear();
                     Ok(tool)
                 })?;
-                if !is_tool {
-                    b.cleanup(|| {
-                        drop(deferred.take());
-                        Ok(())
-                    })?;
-                }
                 complete = true;
             }
             if complete {
@@ -907,16 +1247,19 @@ fn selected(
                     b.normalization_ready = true;
                 }
                 b.unit(|| {
-                    let event = deferred.take().unwrap();
+                    let event = deferred.as_ref().unwrap();
                     log.as_mut()
                         .ok_or(w::Code::MalformedIr)?
-                        .observe_pinned(&event, &redactor, false, &line_digest.0)
+                        .observe_pinned(event, &redactor, false, &line_digest.0)
                         .map_err(|_| w::Code::ResourceLimit)?;
-                    drop(event);
                     Ok(())
                 })?;
             }
-            deferred.take_value();
+            if deferred.is_some() {
+                drop(deferred);
+            } else {
+                deferred.take_value();
+            }
         }
         b.announce(w::Phase::Validate);
     }
@@ -1054,19 +1397,11 @@ fn compute(
             if w::hash(bytes.as_slice()) != start.manifest_sha256 {
                 return Err(w::Code::SourceMismatch);
             }
-            let m = w::decode::<w::Manifest>(&bytes)?;
-            validate_manifest(&m, &start)?;
-            Ok(m)
+            w::decode::<w::Manifest>(&bytes)
         })?;
         drop(bytes);
-        let manifest = Paced::new(manifest, &b.control, |v| {
-            if let Some(source) = v.sources.last_mut()
-                && source.blobs.pop().is_some()
-            {
-                return true;
-            }
-            v.sources.pop().is_some()
-        });
+        let manifest = Paced::new(manifest, &b.control, disposal::Drain::drain_step);
+        b.unit(|| validate_manifest(&manifest, &start))?;
         let _source_slots = b.control.memory.reserve(
             (manifest.sources.len()
                 * (std::mem::size_of::<d0::ClosedLog>() + std::mem::size_of::<storage::Credit>()))
@@ -1227,7 +1562,7 @@ fn compute(
     b.heap_peak = b.heap_peak.max(final_peak);
     let (live, peak, cumulative) = b.control.memory.snapshot();
     eprintln!(
-        "dream-c1 metrics heap_live_bytes={heap_live} heap_peak_bytes={} startup_heap_peak_bytes={startup_heap} compute_stack_reserved_bytes=2097152 rss_peak_bytes={} compute_cpu_ns={} max_unit_cpu_ns={} overruns={} envelopes={} bytes={} storage_declared_live_bytes={live} storage_reserved_peak_bytes={peak} storage_cumulative_credits_bytes={cumulative} control_reserved_bytes={} helper_reserved_bytes={} credit_ceiling_bytes={} native_cumulative_bytes=unmeasured normalization_unit_0_cpu_ns={} normalization_unit_1_cpu_ns={} normalization_unit_2_cpu_ns={} normalization_unit_3_cpu_ns={}",
+        "dream-c1 metrics heap_live_bytes={heap_live} heap_peak_bytes={} startup_heap_peak_bytes={startup_heap} compute_stack_reserved_bytes=2097152 rss_peak_bytes={} compute_cpu_ns={} max_unit_cpu_ns={} overruns={} envelopes={} bytes={} storage_declared_live_bytes={live} storage_reserved_peak_bytes={peak} storage_cumulative_credits_bytes={cumulative} control_reserved_bytes={} helper_reserved_bytes={} credit_ceiling_bytes={} native_cumulative_bytes=unmeasured normalization_unit_0_cpu_ns={} normalization_unit_1_cpu_ns={} normalization_unit_2_cpu_ns={} normalization_unit_3_cpu_ns={} cleanup_cpu_ns={} max_cleanup_unit_cpu_ns={}",
         b.heap_peak,
         rss(),
         b.counters.cpu,
@@ -1241,7 +1576,9 @@ fn compute(
         b.normalization_units[0],
         b.normalization_units[1],
         b.normalization_units[2],
-        b.normalization_units[3]
+        b.normalization_units[3],
+        b.control.cleanup_cpu.load(Ordering::Acquire),
+        b.control.cleanup_max.load(Ordering::Acquire)
     );
     result.map_err(|code| w::Error {
         code,
@@ -1711,6 +2048,163 @@ mod tests {
             paused: false,
             normalization_ready: false,
             normalization_units: [0; 4],
+        }
+    }
+    /// A leaf destructor is cheap only after every owned piece was stepped.
+    struct DropProbe {
+        remaining: usize,
+        control: Arc<Control>,
+        dropped: Arc<AtomicBool>,
+    }
+    impl disposal::Drain for DropProbe {
+        fn drain_step(&mut self) -> bool {
+            if self.remaining == 0 {
+                return false;
+            }
+            let at = cpu_ns();
+            while cpu_ns().saturating_sub(at) < 120_000 {
+                std::hint::spin_loop();
+            }
+            self.remaining -= 1;
+            true
+        }
+    }
+    impl Drop for DropProbe {
+        fn drop(&mut self) {
+            assert_eq!(self.remaining, 0, "unstepped owned-result destructor");
+            assert_eq!(
+                self.control.memory.snapshot().0,
+                1024,
+                "credit released ahead of ownership"
+            );
+            self.dropped.store(true, Ordering::Release);
+        }
+    }
+    #[test]
+    fn rejected_owned_result_drains_before_credit_release_for_cpu_clock_and_cancel() {
+        for failure in 0..3 {
+            let mut b = budget(false);
+            let control = b.control.clone();
+            let dropped = Arc::new(AtomicBool::new(false));
+            let at = Instant::now();
+            let mut reads = 0;
+            let result = b.track_clock(
+                1024,
+                || {
+                    if failure == 0 {
+                        let at = cpu_ns();
+                        while cpu_ns().saturating_sub(at) <= 2 * UNIT_NS {
+                            std::hint::spin_loop();
+                        }
+                    } else if failure == 2 {
+                        control.cancel.store(1, Ordering::Release);
+                    }
+                    Ok(DropProbe {
+                        remaining: 8,
+                        control: control.clone(),
+                        dropped: dropped.clone(),
+                    })
+                },
+                || {
+                    reads += 1;
+                    if failure == 1 && reads == 2 {
+                        u64::MAX
+                    } else {
+                        cpu_ns()
+                    }
+                },
+            );
+            assert!(
+                matches!(result, Err(w::Code::Cancelled) if failure == 2)
+                    || matches!(result, Err(w::Code::ResourceLimit) if failure != 2)
+            );
+            assert!(
+                dropped.load(Ordering::Acquire),
+                "return preceded real destruction"
+            );
+            assert_eq!(control.memory.snapshot().0, 0);
+            assert!(at.elapsed() >= WAIT * 2, "cleanup was not stepped/paced");
+            assert!(control.cleanup_cpu.load(Ordering::Acquire) >= 8 * 120_000);
+            assert!(control.cleanup_max.load(Ordering::Acquire) <= UNIT_NS);
+            assert_eq!(control.cleanup_overruns.load(Ordering::Acquire), 0);
+        }
+        let mut b = budget(false);
+        assert!(matches!(
+            b.unit_clock::<()>(
+                || panic!("unavailable start clock admitted work"),
+                || u64::MAX
+            ),
+            Err(w::Code::ResourceLimit)
+        ));
+    }
+    #[test]
+    fn near_limit_parsed_envelope_failure_and_cancel_have_paced_disposal() {
+        use serde_json::json;
+        // Real serde envelope, nested arbitrary JSON plus near-frame raw Arc.
+        let mut input = json!({
+            "v":{"major":1,"minor":3},"session":"01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "epoch":1,"seq":2,"at":2,"ts_ms":0,"cause":null,
+            "event":{"type":"session_closed"},
+            "ext":{"dense":[ ],"padding":""}
+        });
+        input["ext"]["dense"] =
+            serde_json::Value::Array((0..4096).map(|_| json!({"leaf":["retained"]})).collect());
+        let bytes = serde_json::to_vec(&input).unwrap();
+        input["ext"]["padding"] = json!("p".repeat(w::MAX_FRAME - bytes.len() - 32));
+        let bytes = serde_json::to_vec(&input).unwrap();
+        assert!(bytes.len() > w::MAX_FRAME - 64 && bytes.len() < w::MAX_FRAME);
+        let typed = storage::preflight(&bytes, storage::WORK)
+            .unwrap()
+            .typed(bytes.len())
+            .unwrap();
+        for failure in 0..3 {
+            let mut b = budget(false);
+            let control = b.control.clone();
+            let mut reads = 0;
+            let at = Instant::now();
+            let result = b.track_clock(
+                typed,
+                || {
+                    let e = Envelope::from_line(std::str::from_utf8(&bytes).unwrap()).unwrap();
+                    if failure == 2 {
+                        control.cancel.store(1, Ordering::Release);
+                    }
+                    Ok(e)
+                },
+                || {
+                    reads += 1;
+                    // Reject a successfully parsed owner, independently of parsing speed.
+                    match (failure, reads) {
+                        (1, 2) => u64::MAX,
+                        (0, 1) => 0,
+                        (0, 2) => UNIT_NS + 1,
+                        (2, 1) => 0,
+                        (2, 2) => 1,
+                        _ => cpu_ns(),
+                    }
+                },
+            );
+            let expected = if failure == 2 {
+                w::Code::Cancelled
+            } else {
+                w::Code::ResourceLimit
+            };
+            assert!(matches!(result, Err(code) if code == expected));
+            assert_eq!(control.memory.snapshot().0, 0);
+            assert!(
+                at.elapsed() >= WAIT * 8,
+                "near-limit owner destroyed as one unit"
+            );
+            assert!(control.cleanup_cpu.load(Ordering::Acquire) > 0);
+            assert!(control.cleanup_max.load(Ordering::Acquire) <= UNIT_NS);
+            assert_eq!(control.cleanup_overruns.load(Ordering::Acquire), 0);
+            eprintln!(
+                "dream-c1 owned_envelope_disposal failure={failure} bytes={} cleanup_cpu_ns={} cleanup_max_cpu_ns={} live_credits={}",
+                bytes.len(),
+                control.cleanup_cpu.load(Ordering::Acquire),
+                control.cleanup_max.load(Ordering::Acquire),
+                control.memory.snapshot().0
+            );
         }
     }
     #[test]
