@@ -673,6 +673,28 @@ def component(d):
 
 
 class ProvisioningTests(unittest.TestCase):
+    def test_zero_context_patches_match_every_exact_postimage(self):
+        # Upstream C includes form-feed separators. Diff line numbers must count
+        # LF, not Python's wider Unicode splitlines boundaries. Verify the real
+        # patch tool's output before spending a compiler build.
+        with tempfile.TemporaryDirectory(dir=TEST_TARGET) as tmp:
+            run = Path(tmp)
+            private_dir(run / "src"); private_dir(run / "logs"); private_dir(run / "public-home")
+            manifest = json.loads(read_regular(FIX / "patches.lock.json", 32768))
+            for row in manifest:
+                source = next(p for p in PINS if p[0] + "-" + p[1] == row["source"])
+                cache = TEST_TARGET.parent / "cache" / source[3] / "archive"
+                if not cache.exists():
+                    self.skipTest("exact patch process witness requires make fetch-dream-proof-tools; no network in unit tests")
+                archive = pinned(read_regular(cache, MAX_ARCHIVE, True), source[3], "test source archive")
+                with tarfile.open(fileobj=io.BytesIO(tar_bytes(archive, "xz" if source[0] == "git" else "bz2")), mode="r:") as tar:
+                    for entry in row["files"]:
+                        dest = run / "src" / row["source"] / entry["path"]
+                        dest.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                        with tar.extractfile(row["source"] + "/" + entry["path"]) as stream:
+                            exclusive(dest, pinned(stream.read(), entry["before"], "test preimage"))
+            apply_profile(run)
+
     def test_source_key_signature_and_patch_pins(self):
         value = source_lock()
         validate_lock(canonical(value))

@@ -1,6 +1,6 @@
 --- a/src/npth.c
 +++ b/src/npth.c
-@@ -374,0 +375,4 @@
+@@ -372,0 +373,4 @@
 +/* Adapted from nPth (https://dev.gnupg.org/source/npth/browse/npth-1.8/src/npth.c); original GPL/LGPL terms retained.
 + * Public-only Dream profile guard by bboxy450-harness.
 + * Credit reuse: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md */

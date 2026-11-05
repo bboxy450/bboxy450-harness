@@ -9,7 +9,7 @@
 #[test]
 fn private_builder_source_and_publication_controls() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let target = root.join("target/dream-proof-tools/rust-unit");
+    let target = root.join("target");
     std::fs::create_dir_all(&target).unwrap();
     let result = std::process::Command::new("/usr/bin/env")
         .args(["python3", "-I"])

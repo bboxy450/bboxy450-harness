@@ -8,10 +8,10 @@
 +  return gpg_error (GPG_ERR_NOT_SUPPORTED); /* before any service connection */
 --- a/g10/import.c
 +++ b/g10/import.c
-@@ -2527 +2527 @@
+@@ -2526 +2526 @@
 -      if (!from_sk && have_secret_key_with_kid (ctrl, keyid))
 +      if (0) /* Public-only: no secret material exists; omit secret-key advisory preference check. */
-@@ -2533 +2533 @@
+@@ -2532 +2532 @@
 -      if (!from_sk && have_secret_key_with_kid (ctrl, keyid))
 +      if (0) /* Public-only: no secret material exists; omit secret-key advisory preference check. */
 --- a/g10/parse-packet.c
