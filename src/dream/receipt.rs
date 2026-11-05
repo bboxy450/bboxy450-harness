@@ -724,6 +724,9 @@ pub fn current_labels(receipt: &Accepted, domains: &Domains) -> Vec<Value> {
         .iter()
         .map(|p| serde_json::json!({"kind":"temp_leak","path":p,"receipt":receipt.blob.sha256}))
         .collect::<Vec<_>>();
+    if receipt.body.outcome == ReceiptOutcome::Skipped {
+        return labels;
+    }
     if let Some(selection) = &receipt.body.selection {
         for g in &selection.generated {
             if let Some(kind) = match current(g, domains) {
