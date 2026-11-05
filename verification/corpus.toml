@@ -1015,3 +1015,23 @@ frontend = "project"
 name = "BrokenHarnessDreamRecallTerminal"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDraftHandoff"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDraftHandoff"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessUnrestrictedStartup"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessUnrestrictedStartup"
+expected = "safety"
+frontend = "project"

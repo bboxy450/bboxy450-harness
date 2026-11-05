@@ -8,6 +8,10 @@
 name = "bboxy450-harness"
 status = "contract-model"
 models = [
+    "HarnessDraftHandoff",
+    "BrokenHarnessDraftHandoff",
+    "HarnessUnrestrictedStartup",
+    "BrokenHarnessUnrestrictedStartup",
     "HarnessDreamFlush",
     "BrokenHarnessDreamFlushReplay",
     "BrokenHarnessDreamFlushUncommitted",
