@@ -27,7 +27,9 @@ use std::{
 };
 const CHUNK: usize = 64 * 1024;
 const INPUT_MAX: u64 = 64 * 1024 * 1024;
-const HEAP_MAX: u64 = 128 * 1024 * 1024;
+// Observational fail-fast guard; the amended hard reservation invariant is
+// tracked separately and must not be inferred from this allocator sample.
+const HEAP_MAX: u64 = 96 * 1024 * 1024;
 const UNIT_NS: u64 = 1_000_000;
 const WAIT: Duration = Duration::from_millis(9);
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
@@ -48,6 +50,47 @@ impl DreamOwner {
     }
 }
 
+/// Strict executable-only dispatch before the shared Tokio runtime exists.
+/// Darwin exposes borrowed argv/env pointers, so recognition allocates no argv Vec.
+pub fn early_worker_entry() -> Option<i32> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        let argc = unsafe { *libc::_NSGetArgc() };
+        let argv = unsafe { *libc::_NSGetArgv() };
+        if argc < 3 {
+            return None;
+        }
+        let arg = |i: usize| unsafe { std::ffi::CStr::from_ptr(*argv.add(i)) }.to_bytes();
+        if arg(1) != b"dream" || arg(2) != b"inspect-c1" {
+            return None;
+        }
+        if argc != 5 || arg(3) != b"--job-dir" {
+            return Some(2);
+        }
+        let raw = arg(4);
+        if raw.len() > 4096 || raw.first() != Some(&b'/') {
+            return Some(2);
+        }
+        let mut owned = Vec::new();
+        if owned.try_reserve_exact(raw.len()).is_err() {
+            return Some(1);
+        }
+        owned.extend_from_slice(raw);
+        let path = PathBuf::from(std::ffi::OsString::from_vec(owned));
+        let maximum = Arc::new(AtomicU64::new(0));
+        let code = run(path, maximum.clone());
+        eprintln!(
+            "dream-c1 reactor_max_cpu_ns={} startup_runtime=none",
+            maximum.load(Ordering::Acquire)
+        );
+        Some(code)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
 /// Dispatch before cwd/HOME/profile/capability initialization. Join happens off reactor.
 pub async fn cli(mut args: impl Iterator<Item = String>) -> i32 {
     if args.next().as_deref() != Some("--job-dir") {
@@ -111,7 +154,7 @@ fn cpu_ns() -> u64 {
     t.tv_sec as u64 * 1_000_000_000 + t.tv_nsec as u64
 }
 #[cfg(target_os = "macos")]
-fn heap() -> u64 {
+fn heaps() -> (u64, u64) {
     #[repr(C)]
     struct Statistics {
         blocks: u32,
@@ -129,12 +172,15 @@ fn heap() -> u64 {
         allocated: 0,
     };
     unsafe { malloc_zone_statistics(std::ptr::null_mut(), &mut stats) };
-    stats.peak.max(stats.size) as u64
+    (stats.size as u64, stats.peak.max(stats.size) as u64)
 }
 #[cfg(not(target_os = "macos"))]
-fn heap() -> u64 {
+fn heaps() -> (u64, u64) {
     // No unmeasured heap certification on a platform without this allocator probe.
-    u64::MAX
+    (u64::MAX, u64::MAX)
+}
+fn heap() -> u64 {
+    heaps().1
 }
 fn rss() -> u64 {
     let mut r = std::mem::MaybeUninit::<libc::rusage>::uninit();
@@ -153,10 +199,16 @@ struct Control {
     foreground: AtomicBool,
     deadline: Instant,
     reactor: Arc<AtomicU64>,
+    memory: Arc<storage::Ledger>,
+    cleanup_cpu: AtomicU64,
+    cleanup_max: AtomicU64,
+    cleanup_overruns: AtomicU64,
 }
 impl Control {
     fn error(&self) -> Option<w::Code> {
-        if self.reactor.load(Ordering::Acquire) > UNIT_NS {
+        if self.reactor.load(Ordering::Acquire) > UNIT_NS
+            || self.cleanup_max.load(Ordering::Acquire) > UNIT_NS
+        {
             return Some(w::Code::ResourceLimit);
         }
         match self.cancel.load(Ordering::Acquire) {
@@ -193,6 +245,15 @@ impl Budget {
         self.counters.phase = phase;
         self.progress.force_push(self.counters);
     }
+    fn track<T>(
+        &mut self,
+        bytes: u64,
+        f: impl FnOnce() -> Result<T, w::Code>,
+    ) -> Result<storage::Tracked<T>, w::Code> {
+        let credit = self.control.memory.reserve(bytes)?;
+        let value = self.unit(f)?;
+        Ok(storage::Tracked { value, credit })
+    }
     #[track_caller]
     fn unit<T>(&mut self, f: impl FnOnce() -> Result<T, w::Code>) -> Result<T, w::Code> {
         if let Some(end) = self.last_end {
@@ -221,7 +282,7 @@ impl Budget {
         let live = heap();
         self.heap_peak = self.heap_peak.max(live);
         // Reserve an upper bound for the next bounded record's parser allocations.
-        if live > HEAP_MAX - 16 * 1024 * 1024 {
+        if live > HEAP_MAX {
             return Err(w::Code::ResourceLimit);
         }
         let start = cpu_ns();
@@ -249,6 +310,77 @@ impl Budget {
         }
         if let Some(e) = self.control.error() {
             return Err(e);
+        }
+        result
+    }
+}
+/// Settlement is mandatory after cancellation. These small cleanup units retain
+/// the same CPU/duty rule, independently of foreground/expensive admission flags.
+fn cleanup_unit(control: &Control, f: impl FnOnce()) {
+    thread::sleep(WAIT);
+    let at = cpu_ns();
+    f();
+    let elapsed = cpu_ns().saturating_sub(at);
+    control.cleanup_cpu.fetch_add(elapsed, Ordering::AcqRel);
+    control.cleanup_max.fetch_max(elapsed, Ordering::AcqRel);
+    if elapsed > UNIT_NS {
+        control.cleanup_overruns.fetch_add(1, Ordering::AcqRel);
+    }
+}
+struct Paced<T> {
+    value: Option<T>,
+    step: fn(&mut T) -> bool,
+    control: Arc<Control>,
+}
+impl<T> Paced<T> {
+    fn new(value: T, control: &Arc<Control>, step: fn(&mut T) -> bool) -> Self {
+        Self {
+            value: Some(value),
+            step,
+            control: control.clone(),
+        }
+    }
+    fn take_value(&mut self) -> T {
+        self.value.take().unwrap()
+    }
+}
+impl<T> std::ops::Deref for Paced<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        self.value.as_ref().unwrap()
+    }
+}
+impl<T> std::ops::DerefMut for Paced<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        self.value.as_mut().unwrap()
+    }
+}
+impl<T> Drop for Paced<T> {
+    fn drop(&mut self) {
+        while self.value.is_some() {
+            cleanup_unit(&self.control, || {
+                let start = cpu_ns();
+                loop {
+                    if !(self.step)(self.value.as_mut().unwrap()) {
+                        drop(self.value.take());
+                        break;
+                    }
+                    if cpu_ns().saturating_sub(start) >= 400_000 {
+                        break;
+                    }
+                }
+            });
+        }
+    }
+}
+impl Budget {
+    fn cleanup(&mut self, f: impl FnOnce() -> Result<(), w::Code>) -> Result<(), w::Code> {
+        let mut result = Ok(());
+        cleanup_unit(&self.control, || {
+            result = f();
+        });
+        if self.control.cleanup_max.load(Ordering::Acquire) > UNIT_NS {
+            return Err(w::Code::ResourceLimit);
         }
         result
     }
@@ -433,9 +565,19 @@ fn identity(m: &Metadata) -> (u64, u64, u64, i64, i64, i64, i64) {
         m.ctime_nsec(),
     )
 }
-fn read_bounded(dir: &Dir, name: &str, max: u64, b: &mut Budget) -> Result<Vec<u8>, w::Code> {
+fn read_bounded(
+    dir: &Dir,
+    name: &str,
+    max: u64,
+    b: &mut Budget,
+) -> Result<storage::Tracked<Vec<u8>>, w::Code> {
     let (mut file, before) = b.unit(|| dir.file(name, max))?;
-    let mut bytes = b.unit(|| Ok(Vec::with_capacity(before.len() as usize)))?;
+    let mut bytes = b.track(before.len(), || {
+        let mut v = Vec::new();
+        v.try_reserve_exact(before.len() as usize)
+            .map_err(|_| w::Code::ResourceLimit)?;
+        Ok(v)
+    })?;
     let mut chunk = [0u8; CHUNK];
     loop {
         let n = b.unit(|| {
@@ -444,6 +586,9 @@ fn read_bounded(dir: &Dir, name: &str, max: u64, b: &mut Budget) -> Result<Vec<u
         })?;
         if n == 0 {
             break;
+        }
+        if bytes.len() + n > before.len() as usize {
+            return Err(w::Code::SourceChanged);
         }
         if bytes.len() + n > max as usize {
             return Err(w::Code::ResourceLimit);
@@ -497,7 +642,11 @@ fn validate_manifest(m: &w::Manifest, start: &w::Start) -> Result<(), w::Code> {
     }
     Ok(())
 }
-fn selected(input: &Dir, source: &w::Source, b: &mut Budget) -> Result<d0::ClosedLog, w::Code> {
+fn selected(
+    input: &Dir,
+    source: &w::Source,
+    b: &mut Budget,
+) -> Result<storage::Tracked<d0::ClosedLog>, w::Code> {
     let name = format!("{}.jsonl", source.session.0);
     let (mut file, before) = b.unit(|| input.file(&name, INPUT_MAX))?;
     if before.len() != source.len.0 {
@@ -505,10 +654,34 @@ fn selected(input: &Dir, source: &w::Source, b: &mut Budget) -> Result<d0::Close
     }
     let mut hasher = Sha256::new();
     let mut chunk = [0u8; CHUNK];
-    let mut line = b.unit(|| Ok(Vec::with_capacity(w::MAX_FRAME)))?;
-    let mut law = inspect::Transcript::default();
-    let mut log = None;
-    let mut seen = BTreeMap::new();
+    let line = b.track(w::MAX_FRAME as u64, || {
+        let mut v = Vec::new();
+        v.try_reserve_exact(w::MAX_FRAME)
+            .map_err(|_| w::Code::ResourceLimit)?;
+        Ok(v)
+    })?;
+    let mut line = Paced::new(line, &b.control, |v| {
+        v.clear();
+        false
+    });
+    // Persistent upper-credit transfers cover retained declared typed entries and
+    // payloads; opaque container nodes remain measured helper overhead.
+    let mut state_credit = b.control.memory.reserve(0)?;
+    let mut law = Paced::new(
+        inspect::Transcript::default(),
+        &b.control,
+        inspect::Transcript::drain_step,
+    );
+    let mut log = Paced::new(None::<d0::ClosedLog>, &b.control, |v| {
+        if let Some(log) = v.as_mut()
+            && log.drain_step()
+        {
+            return true;
+        }
+        v.take();
+        false
+    });
+    let mut seen = Paced::new(BTreeMap::new(), &b.control, |v| v.pop_first().is_some());
     let mut seq = 0;
     let mut length = 0;
     let mut last = None;
@@ -532,6 +705,11 @@ fn selected(input: &Dir, source: &w::Source, b: &mut Budget) -> Result<d0::Close
         let mut pos = 0;
         let mut envelope_count = b.counters.envelopes;
         while pos < n {
+            let mut deferred = Paced::new(None, &b.control, |v| {
+                v.take();
+                false
+            });
+            let memory = b.control.memory.clone();
             b.unit(|| {
                 let end = chunk[pos..n]
                     .iter()
@@ -552,13 +730,63 @@ fn selected(input: &Dir, source: &w::Source, b: &mut Budget) -> Result<d0::Close
                     return Err(w::Code::ResourceLimit);
                 }
                 let raw = std::str::from_utf8(&line).map_err(|_| w::Code::MalformedIr)?;
+                let shape = storage::preflight(&line, storage::WORK)?;
+                let typed = shape.typed(line.len())?;
+                let _record_credit = memory.reserve(typed)?;
                 let event = Envelope::from_line(raw).map_err(|_| w::Code::MalformedIr)?;
                 inspect::validate_event(&event, source, seq)?;
+                let refs = inspect::blobs(&event.event)?;
+                let mut payload = match &event.event {
+                    Event::SessionStarted { .. }
+                    | Event::ItemStarted { head: Some(_), .. }
+                    | Event::TurnEnded { usage: Some(_), .. } => typed,
+                    Event::ItemCompleted {
+                        body: crate::protocol::Item::ToolCall { input_raw, .. },
+                        ..
+                    } => typed
+                        .checked_add(
+                            match storage::preflight(input_raw.as_bytes(), storage::WORK) {
+                                Ok(s) => s
+                                    .typed(input_raw.len())?
+                                    .checked_add(s.canonical()?)
+                                    .ok_or(w::Code::ResourceLimit)?,
+                                Err(w::Code::MalformedIr) => input_raw.len() as u64,
+                                Err(e) => return Err(e),
+                            },
+                        )
+                        .ok_or(w::Code::ResourceLimit)?,
+                    _ => 0,
+                };
+                if !refs.is_empty() {
+                    payload = payload.max(typed);
+                }
+                // At most one new entry in each of twelve accumulator collections
+                // (turn sets/maps, item sets/maps, calls/denials/tools/patterns);
+                // two requested slots cover each Vec capacity's doubling bound.
+                // Doubled Vec
+                // requested capacities and fixed owner slots are declared here.
+                let delta = 24u64
+                    .checked_mul(storage::slot())
+                    .and_then(|n| n.checked_add(payload))
+                    .ok_or(w::Code::ResourceLimit)?;
+                let retained = state_credit
+                    .bytes
+                    .checked_add(delta)
+                    .ok_or(w::Code::ResourceLimit)?;
+                let next_credit = memory.reserve(
+                    state_credit
+                        .bytes
+                        .checked_mul(2)
+                        .and_then(|n| n.checked_add(delta))
+                        .ok_or(w::Code::ResourceLimit)?,
+                )?;
+                let old = std::mem::replace(&mut state_credit, next_credit);
+                drop(old);
                 law.observe(&event).map_err(|_| w::Code::MalformedIr)?;
                 if let Event::SessionStarted { meta } = &event.event {
-                    log = Some(d0::ClosedLog::new(meta.clone()));
+                    *log = Some(d0::ClosedLog::new(meta.clone()));
                 }
-                for r in inspect::blobs(&event.event) {
+                for r in refs {
                     if r.sha256.len() != 64
                         || w::Hex::try_from(r.sha256.clone()).is_err()
                         || r.mime.len() > 256
@@ -579,24 +807,53 @@ fn selected(input: &Dir, source: &w::Source, b: &mut Budget) -> Result<d0::Close
                     matches!(event.event, Event::SessionClosed),
                     w::hash(&line[..line.len() - 1]),
                 ));
-                log.as_mut()
-                    .ok_or(w::Code::MalformedIr)?
-                    .observe(&event, &redactor, false)
-                    .map_err(|_| w::Code::ResourceLimit)?;
+                if matches!(
+                    &event.event,
+                    Event::ItemCompleted {
+                        body: crate::protocol::Item::ToolCall { .. },
+                        ..
+                    }
+                ) {
+                    *deferred = Some(storage::Tracked {
+                        value: event,
+                        credit: _record_credit,
+                    });
+                } else {
+                    log.as_mut()
+                        .ok_or(w::Code::MalformedIr)?
+                        .observe(&event, &redactor, false)
+                        .map_err(|_| w::Code::ResourceLimit)?;
+                }
+                state_credit.shrink(retained);
                 line.clear();
                 Ok(())
             })?;
             b.counters.envelopes = envelope_count;
-            if log.is_some() && !b.normalization_ready {
-                for i in 0..super::fingerprint::NORMALIZE_MASKS {
-                    let before = b.counters.cpu;
-                    b.unit(|| {
-                        super::fingerprint::warm_normalize_mask(i);
-                        Ok(())
-                    })?;
-                    b.normalization_units[i] = b.counters.cpu - before;
+            if deferred.is_none() {
+                deferred.take_value();
+            }
+            if deferred.value.as_ref().is_some_and(|v| v.is_some()) {
+                if !b.normalization_ready {
+                    for i in 0..super::fingerprint::NORMALIZE_MASKS {
+                        let before = b.counters.cpu;
+                        b.unit(|| {
+                            super::fingerprint::warm_normalize_mask(i);
+                            Ok(())
+                        })?;
+                        b.normalization_units[i] = b.counters.cpu - before;
+                    }
+                    b.normalization_ready = true;
                 }
-                b.normalization_ready = true;
+                b.unit(|| {
+                    let event = deferred.take().unwrap();
+                    log.as_mut()
+                        .ok_or(w::Code::MalformedIr)?
+                        .observe(&event, &redactor, false)
+                        .map_err(|_| w::Code::ResourceLimit)?;
+                    drop(event);
+                    Ok(())
+                })?;
+                deferred.take_value();
             }
         }
         b.announce(w::Phase::Validate);
@@ -669,11 +926,12 @@ fn selected(input: &Dir, source: &w::Source, b: &mut Budget) -> Result<d0::Close
         }
     }
     // Destruction of retained law/parser tables belongs to a measured unit too.
-    b.unit(|| {
-        drop((law, seen, line));
-        Ok(())
-    })?;
-    log.ok_or(w::Code::MalformedIr)
+    drop((law, seen));
+    drop(line);
+    Ok(storage::Tracked {
+        value: log.take().ok_or(w::Code::MalformedIr)?,
+        credit: state_credit,
+    })
 }
 struct Completed {
     hash: w::Hex,
@@ -702,8 +960,9 @@ fn compute(
         normalization_ready: false,
         normalization_units: [0; 4],
     };
+    let startup_heap = heap();
     let mut source_index = None;
-    let result = (|| {
+    let mut result = (|| {
         if unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, 10) } != 0 {
             return Err(w::Code::ResourceLimit);
         }
@@ -720,67 +979,141 @@ fn compute(
         let input = b.unit(|| dir.dir("input"))?;
         let output = b.unit(|| dir.dir("output"))?;
         let bytes = read_bounded(&input, "manifest.json", w::MAX_FRAME as u64, &mut b)?;
-        let manifest = b.unit(|| {
-            if w::hash(&bytes) != start.manifest_sha256 {
+        let manifest_shape = b.unit(|| {
+            storage::preflight(&bytes, storage::WORK).map_err(|e| {
+                if e == w::Code::MalformedIr {
+                    w::Code::ProtocolError
+                } else {
+                    e
+                }
+            })
+        })?;
+        let manifest = b.track(manifest_shape.typed(bytes.len())?, || {
+            if w::hash(bytes.as_slice()) != start.manifest_sha256 {
                 return Err(w::Code::SourceMismatch);
             }
             let m = w::decode::<w::Manifest>(&bytes)?;
             validate_manifest(&m, &start)?;
             Ok(m)
         })?;
-        let mut logs = vec![];
+        drop(bytes);
+        let manifest = Paced::new(manifest, &b.control, |v| {
+            if let Some(source) = v.sources.last_mut()
+                && source.blobs.pop().is_some()
+            {
+                return true;
+            }
+            v.sources.pop().is_some()
+        });
+        let _source_slots = b.control.memory.reserve(
+            (manifest.sources.len()
+                * (std::mem::size_of::<d0::ClosedLog>() + std::mem::size_of::<storage::Credit>()))
+                as u64,
+        )?;
+        let mut state_credits = Vec::new();
+        state_credits
+            .try_reserve_exact(manifest.sources.len())
+            .map_err(|_| w::Code::ResourceLimit)?;
+        let mut logs = Paced::new(Vec::<d0::ClosedLog>::new(), &b.control, |v| {
+            if let Some(log) = v.last_mut()
+                && log.drain_step()
+            {
+                return true;
+            }
+            v.pop().is_some()
+        });
+        logs.try_reserve_exact(manifest.sources.len())
+            .map_err(|_| w::Code::ResourceLimit)?;
         for (i, s) in manifest.sources.iter().enumerate() {
             source_index = Some(i as u32);
-            logs.push(selected(&input, s, &mut b)?);
+            let selected = selected(&input, s, &mut b)?;
+            logs.push(selected.value);
+            state_credits.push(selected.credit);
         }
         source_index = None;
         b.announce(w::Phase::Replay);
-        let mut unit_error = None;
-        let rows = d0::inspect_closed(logs, |f| {
+        let result_bound = d0::inspection_storage_bound_budgeted(&logs, |f| {
             b.unit(|| f().map_err(|_| w::Code::ResourceLimit))
-                .map_err(|e| {
-                    unit_error = Some(e);
-                    io::Error::other("bounded inspection stopped")
-                })
+                .map_err(|_| io::Error::other("bounded inspection stopped"))
+        })
+        .map_err(|_| w::Code::ResourceLimit)?;
+        let _result_credit = b.control.memory.reserve(result_bound)?;
+        let mut unit_error = None;
+        let rows = d0::inspect_closed_budgeted(logs.take_value(), |cleanup, f| {
+            let result = if cleanup {
+                b.cleanup(|| f().map_err(|_| w::Code::ResourceLimit))
+            } else {
+                b.unit(|| f().map_err(|_| w::Code::ResourceLimit))
+            };
+            result.map_err(|e| {
+                unit_error = Some(e);
+                io::Error::other("bounded inspection stopped")
+            })
         })
         .map_err(|_| unit_error.unwrap_or(w::Code::ResourceLimit))?;
+        drop(state_credits);
+        let mut rows = Paced::new(rows, &b.control, |v| v.pop().is_some());
         let episodes = rows
             .iter()
             .filter(|r| matches!(r, w::Row::Episode(_)))
             .count() as u32;
         let clusters = rows.len() as u32 - episodes;
         b.announce(w::Phase::Publish);
-        let mut pages = vec![];
-        let mut page = w::Page {
-            schema: w::PageSchema::V1,
-            run_id: start.run_id.clone(),
-            manifest_sha256: start.manifest_sha256.clone(),
-            index: 0,
-            rows: vec![],
-            next: Some(1),
-        };
+        // Page-index entries and owned digest strings remain charged through result
+        // publication. Fixed admission also covers the old/new Vec growth overlap.
+        let _index_credit = b
+            .control
+            .memory
+            .reserve(8192 * (std::mem::size_of::<w::PageRef>() as u64 + 64))?;
+        let mut pages = Vec::new();
+        pages
+            .try_reserve_exact(4096)
+            .map_err(|_| w::Code::ResourceLimit)?;
+        let _page_credit = b
+            .control
+            .memory
+            .reserve(4 * 129 * (8192 + 32 * std::mem::size_of::<serde_json::Value>() as u64))?;
+        let mut page = Paced::new(
+            w::Page {
+                schema: w::PageSchema::V1,
+                run_id: start.run_id.clone(),
+                manifest_sha256: start.manifest_sha256.clone(),
+                index: 0,
+                rows: vec![],
+                next: Some(1),
+            },
+            &b.control,
+            |v| v.rows.pop().is_some(),
+        );
         let mut total = 0usize;
-        for row in rows {
+        let mut rows = Paced::new(rows.take_value().into_iter(), &b.control, |v| {
+            v.next().is_some()
+        });
+        for row in rows.by_ref() {
             let mut row = Some(row);
             let size = b.unit(|| {
-                if w::canonical(row.as_ref().unwrap())
-                    .map_err(|_| w::Code::ResourceLimit)?
-                    .len()
-                    > 8192
-                {
+                if w::canonical_limited(row.as_ref().unwrap(), 8192)?.len() > 8192 {
                     return Err(w::Code::ResourceLimit);
                 }
+                page.rows
+                    .try_reserve(1)
+                    .map_err(|_| w::Code::ResourceLimit)?;
                 page.rows.push(row.take().unwrap());
-                w::canonical(&page)
-                    .map(|v| v.len())
-                    .map_err(|_| w::Code::ResourceLimit)
+                w::canonical_limited(&*page, 25 * 1024).map(|v| v.len())
             })?;
             if size > 16 * 1024 || page.rows.len() > 128 {
                 let last = page.rows.pop().unwrap();
                 publish_page(&output, &page, &start, &mut pages, &mut total, &mut b)?;
                 page.index += 1;
                 page.next = Some(page.index + 1);
-                page.rows = vec![last];
+                let mut next = Vec::new();
+                next.try_reserve_exact(1)
+                    .map_err(|_| w::Code::ResourceLimit)?;
+                next.push(last);
+                b.cleanup(|| {
+                    page.rows = next;
+                    Ok(())
+                })?;
             }
         }
         page.next = None;
@@ -799,7 +1132,15 @@ fn compute(
             trust: w::Trust::NotEvaluated,
             pages,
         };
-        let bytes = b.unit(|| w::canonical(&result).map_err(|_| w::Code::ResourceLimit))?;
+        let descriptor_bound = 4096u64 + (result.pages.len() as u64) * 256;
+        let _descriptor_credit = b.control.memory.reserve(
+            descriptor_bound
+                .checked_mul(3)
+                .ok_or(w::Code::ResourceLimit)?,
+        )?;
+        let bytes = b.unit(|| {
+            w::canonical_limited(&result, (descriptor_bound as usize).min(w::MAX_FRAME))
+        })?;
         if bytes.len() > w::MAX_FRAME {
             return Err(w::Code::ResourceLimit);
         }
@@ -810,21 +1151,35 @@ fn compute(
             pages: result.pages.len() as u32,
         })
     })();
+    if b.control.cleanup_max.load(Ordering::Acquire) > UNIT_NS {
+        result = Err(w::Code::ResourceLimit);
+    }
+    b.max_unit = b
+        .max_unit
+        .max(b.control.cleanup_max.load(Ordering::Acquire));
+    b.overruns += b.control.cleanup_overruns.load(Ordering::Acquire);
+    b.counters.cpu += b.control.cleanup_cpu.load(Ordering::Acquire);
     b.announce(w::Phase::Settling);
-    // Fixed, bounded diagnostics only; stderr never contains input or IO error text.
+    // One bounded machine-readable metrics line, with no input or IO error text.
+    let (heap_live, final_peak) = heaps();
+    b.heap_peak = b.heap_peak.max(final_peak);
+    let (live, peak, cumulative) = b.control.memory.snapshot();
     eprintln!(
-        "dream-c1 metrics heap_peak_bytes={} rss_peak_bytes={} compute_cpu_ns={} max_unit_cpu_ns={} overruns={} envelopes={} bytes={}",
+        "dream-c1 metrics heap_live_bytes={heap_live} heap_peak_bytes={} startup_heap_peak_bytes={startup_heap} compute_stack_reserved_bytes=2097152 rss_peak_bytes={} compute_cpu_ns={} max_unit_cpu_ns={} overruns={} envelopes={} bytes={} storage_declared_live_bytes={live} storage_reserved_peak_bytes={peak} storage_cumulative_credits_bytes={cumulative} control_reserved_bytes={} helper_reserved_bytes={} credit_ceiling_bytes={} native_cumulative_bytes=unmeasured normalization_unit_0_cpu_ns={} normalization_unit_1_cpu_ns={} normalization_unit_2_cpu_ns={} normalization_unit_3_cpu_ns={}",
         b.heap_peak,
         rss(),
         b.counters.cpu,
         b.max_unit,
         b.overruns,
         b.counters.envelopes,
-        b.counters.bytes
-    );
-    eprintln!(
-        "dream-c1 normalization_unit_cpu_ns={:?}",
-        b.normalization_units
+        b.counters.bytes,
+        storage::CONTROL,
+        storage::HELPERS,
+        storage::CONTROL + storage::HELPERS + storage::WORK,
+        b.normalization_units[0],
+        b.normalization_units[1],
+        b.normalization_units[2],
+        b.normalization_units[3]
     );
     result.map_err(|code| w::Error {
         code,
@@ -839,7 +1194,7 @@ fn publish_page(
     total: &mut usize,
     b: &mut Budget,
 ) -> Result<(), w::Code> {
-    let bytes = b.unit(|| w::canonical(page).map_err(|_| w::Code::ResourceLimit))?;
+    let bytes = b.unit(|| w::canonical_limited(page, 16 * 1024))?;
     *total += bytes.len();
     if bytes.len() > 16 * 1024 || *total > 16 * 1024 * 1024 {
         return Err(w::Code::ResourceLimit);
@@ -851,6 +1206,7 @@ fn publish_page(
         &start.nonce,
         b,
     )?;
+    pages.try_reserve(1).map_err(|_| w::Code::ResourceLimit)?;
     pages.push(w::PageRef {
         index: page.index,
         len: w::Number(bytes.len() as u64),
@@ -866,10 +1222,131 @@ fn nonblocking(fd: RawFd) -> io::Result<()> {
         Ok(())
     }
 }
-fn framed(out: &w::WorkerOut) -> Vec<u8> {
-    let mut v = w::canonical(out).expect("fixed protocol serialization");
-    v.push(b'\n');
-    v
+const OUT_FRAME: usize = 1024;
+struct Frame {
+    bytes: [u8; OUT_FRAME],
+    len: usize,
+}
+impl std::ops::Deref for Frame {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        &self.bytes[..self.len]
+    }
+}
+impl Write for Frame {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if bytes.len() > OUT_FRAME - self.len {
+            return Err(io::Error::other("bounded frame"));
+        }
+        self.bytes[self.len..self.len + bytes.len()].copy_from_slice(bytes);
+        self.len += bytes.len();
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+fn framed(out: &w::WorkerOut) -> Frame {
+    let mut frame = Frame {
+        bytes: [0; OUT_FRAME],
+        len: 0,
+    };
+    // Three closed variants: all strings are constant or validated ASCII ULID/Hex;
+    // at most twelve <=20-digit scalar fields. Their source-derived maximum is
+    // below 1 KiB. Direct serde writing avoids canonical Value/Vec allocations.
+    serde_json::to_writer(&mut frame, out).expect("bounded WorkerOut shape");
+    frame.write_all(b"\n").expect("bounded WorkerOut LF");
+    frame
+}
+/// Preflight the closed, flat WorkerIn shape before serde's tagged Content tree.
+/// Valid strings need <=64 ASCII scalars (<=384 bytes when fully escaped), keys
+/// <=17 ASCII scalars. No array/object value can reach buffered decoding.
+fn flat_control(bytes: &[u8]) -> Result<(), w::Code> {
+    fn ws(b: &[u8], i: &mut usize) {
+        while b.get(*i).is_some_and(u8::is_ascii_whitespace) {
+            *i += 1
+        }
+    }
+    fn string(b: &[u8], i: &mut usize, max: usize) -> Result<(), w::Code> {
+        if b.get(*i) != Some(&b'"') {
+            return Err(w::Code::ProtocolError);
+        }
+        *i += 1;
+        let start = *i;
+        while let Some(c) = b.get(*i) {
+            if *i - start > max {
+                return Err(w::Code::ResourceLimit);
+            }
+            match c {
+                b'"' => {
+                    *i += 1;
+                    return Ok(());
+                }
+                b'\\' => *i += 2,
+                _ => *i += 1,
+            }
+        }
+        Err(w::Code::ProtocolError)
+    }
+    let mut i = 0;
+    ws(bytes, &mut i);
+    if bytes.get(i) != Some(&b'{') {
+        return Err(w::Code::ProtocolError);
+    }
+    i += 1;
+    let mut fields = 0;
+    loop {
+        ws(bytes, &mut i);
+        if bytes.get(i) == Some(&b'}') {
+            i += 1;
+            break;
+        }
+        fields += 1;
+        if fields > 10 {
+            return Err(w::Code::ProtocolError);
+        }
+        string(bytes, &mut i, 128)?;
+        ws(bytes, &mut i);
+        if bytes.get(i) != Some(&b':') {
+            return Err(w::Code::ProtocolError);
+        }
+        i += 1;
+        ws(bytes, &mut i);
+        if bytes.get(i) == Some(&b'"') {
+            string(bytes, &mut i, 384)?
+        } else {
+            let start = i;
+            while bytes
+                .get(i)
+                .is_some_and(|c| !matches!(c, b',' | b'}') && !c.is_ascii_whitespace())
+            {
+                if matches!(bytes[i], b'[' | b'{' | b'"') {
+                    return Err(w::Code::ProtocolError);
+                }
+                i += 1;
+                if i - start > 32 {
+                    return Err(w::Code::ResourceLimit);
+                }
+            }
+            if i == start {
+                return Err(w::Code::ProtocolError);
+            }
+        }
+        ws(bytes, &mut i);
+        match bytes.get(i) {
+            Some(b',') => i += 1,
+            Some(b'}') => {
+                i += 1;
+                break;
+            }
+            _ => return Err(w::Code::ProtocolError),
+        }
+    }
+    ws(bytes, &mut i);
+    if i != bytes.len() {
+        return Err(w::Code::ProtocolError);
+    }
+    Ok(())
 }
 type Active = (
     w::Start,
@@ -881,15 +1358,22 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
     if nonblocking(0).is_err() || nonblocking(1).is_err() {
         return 2;
     }
-    let mut pending = VecDeque::from([framed(&w::WorkerOut::Hello(w::Hello {
+    let mut pending = VecDeque::new();
+    if pending.try_reserve_exact(33).is_err() {
+        return 1;
+    }
+    pending.push_back(framed(&w::WorkerOut::Hello(w::Hello {
         protocol: w::Protocol::V1,
         algorithm: w::Algorithm::D0C1,
         schema_sha256: w::schema_hash(),
         ir_major: 1,
         ir_minor_max: 3,
-    }))]);
+    })));
     let mut offset = 0;
-    let mut input = Vec::with_capacity(w::MAX_FRAME);
+    let mut input = Vec::new();
+    if input.try_reserve_exact(w::MAX_FRAME).is_err() {
+        return 1;
+    }
     let mut chunk = [0u8; 8192];
     let mut eof = false;
     let mut state: Option<Active> = None;
@@ -941,7 +1425,8 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
                     }
                     input.push(*byte);
                     if *byte == b'\n' {
-                        let msg = w::decode::<w::WorkerIn>(&input);
+                        let msg =
+                            flat_control(&input).and_then(|()| w::decode::<w::WorkerIn>(&input));
                         input.clear();
                         match (msg, &mut state) {
                             (Ok(w::WorkerIn::Start(s)), None)
@@ -957,6 +1442,10 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
                                     deadline: Instant::now()
                                         + Duration::from_millis(s.timeout_ms as u64),
                                     reactor: reactor.clone(),
+                                    memory: storage::Ledger::new(),
+                                    cleanup_cpu: AtomicU64::new(0),
+                                    cleanup_max: AtomicU64::new(0),
+                                    cleanup_overruns: AtomicU64::new(0),
                                 });
                                 let tx = Arc::new(crossbeam_queue::ArrayQueue::new(32));
                                 let rx = tx.clone();
@@ -965,6 +1454,7 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
                                 let p = path.clone();
                                 match thread::Builder::new()
                                     .name("dream-c1-compute".into())
+                                    .stack_size(2 * 1024 * 1024)
                                     .spawn(move || compute(p, ss, cc, tx))
                                 {
                                     Ok(h) => state = Some((s, c, h, rx)),
@@ -1107,6 +1597,7 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
         }
         let elapsed = cpu_ns().saturating_sub(tick);
         max_control = max_control.max(elapsed);
+        reactor.fetch_max(elapsed, Ordering::AcqRel);
         if elapsed > UNIT_NS {
             if let Some((_, c, _, _)) = &state {
                 c.cancel.store(4, Ordering::Release);
@@ -1139,6 +1630,10 @@ mod tests {
                 foreground: AtomicBool::new(foreground),
                 deadline: Instant::now() + Duration::from_secs(2),
                 reactor: Arc::new(AtomicU64::new(0)),
+                memory: storage::Ledger::new(),
+                cleanup_cpu: AtomicU64::new(0),
+                cleanup_max: AtomicU64::new(0),
+                cleanup_overruns: AtomicU64::new(0),
             }),
             progress: Arc::new(crossbeam_queue::ArrayQueue::new(32)),
             counters: Counters {
@@ -1273,5 +1768,404 @@ mod custody_control {
             dir.unchanged("source", &f, &before),
             Err(w::Code::SourceChanged)
         );
+    }
+}
+
+#[cfg(test)]
+mod control_storage {
+    use super::*;
+    #[test]
+    fn flat_preflight_rejects_nested_allocations_and_accepts_escaped_keys() {
+        assert_eq!(
+            flat_control(br#"{"type":"start","payload":[[[{"x":"y"}]]]}"#),
+            Err(w::Code::ProtocolError)
+        );
+        let escaped=br#"{"\u0061\u0063\u0074\u0069\u0076\u0069\u0074\u0079\u005f\u0072\u0065\u0076\u0069\u0073\u0069\u006f\u006e":1}"#;
+        assert!(flat_control(escaped).is_ok());
+        assert_eq!(
+            std::mem::size_of::<Frame>(),
+            OUT_FRAME + std::mem::size_of::<usize>()
+        );
+        assert!(33 * std::mem::size_of::<Frame>() + w::MAX_FRAME < 2 * 1024 * 1024);
+    }
+}
+
+/// Declared owned-storage credits. Opaque serde/BTree/regex/native overhead uses
+/// the separate fixed 16 MiB helper allowance and measured full-child ceiling.
+/// Credits are not an allocator interception or an all-times native heap proof.
+pub(crate) mod storage {
+    use super::*;
+    pub const CONTROL: u64 = 2 * 1024 * 1024;
+    pub const HELPERS: u64 = 16 * 1024 * 1024;
+    pub const WORK: u64 = 78 * 1024 * 1024;
+    pub struct Ledger {
+        live: AtomicU64,
+        peak: AtomicU64,
+        cumulative: AtomicU64,
+    }
+    impl Ledger {
+        pub fn new() -> Arc<Self> {
+            Arc::new(Self {
+                live: AtomicU64::new(0),
+                peak: AtomicU64::new(0),
+                cumulative: AtomicU64::new(0),
+            })
+        }
+        pub fn reserve(self: &Arc<Self>, bytes: u64) -> Result<Credit, w::Code> {
+            let mut old = self.live.load(Ordering::Acquire);
+            loop {
+                let next = old
+                    .checked_add(bytes)
+                    .filter(|n| *n <= WORK)
+                    .ok_or(w::Code::ResourceLimit)?;
+                match self.live.compare_exchange_weak(
+                    old,
+                    next,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) => {
+                        self.peak.fetch_max(next, Ordering::Relaxed);
+                        self.cumulative.fetch_add(bytes, Ordering::Relaxed);
+                        return Ok(Credit {
+                            ledger: self.clone(),
+                            bytes,
+                        });
+                    }
+                    Err(now) => old = now,
+                }
+            }
+        }
+        pub fn snapshot(&self) -> (u64, u64, u64) {
+            (
+                self.live.load(Ordering::Acquire),
+                self.peak.load(Ordering::Acquire),
+                self.cumulative.load(Ordering::Acquire),
+            )
+        }
+    }
+    pub struct Credit {
+        ledger: Arc<Ledger>,
+        pub bytes: u64,
+    }
+    impl Credit {
+        pub fn shrink(&mut self, bytes: u64) {
+            assert!(bytes <= self.bytes);
+            self.ledger
+                .live
+                .fetch_sub(self.bytes - bytes, Ordering::AcqRel);
+            self.bytes = bytes;
+        }
+    }
+    impl Drop for Credit {
+        fn drop(&mut self) {
+            self.ledger.live.fetch_sub(self.bytes, Ordering::AcqRel);
+        }
+    }
+    pub struct Tracked<T> {
+        pub value: T,
+        pub credit: Credit,
+    }
+    impl<T> std::ops::Deref for Tracked<T> {
+        type Target = T;
+        fn deref(&self) -> &T {
+            &self.value
+        }
+    }
+    impl<T> std::ops::DerefMut for Tracked<T> {
+        fn deref_mut(&mut self) -> &mut T {
+            &mut self.value
+        }
+    }
+    /// Conservative declared IR typed-slot bound. These owners contain the largest
+    /// inline protocol variants; strings and Vec payload capacities are additional.
+    /// Internal BTree nodes/serde Content are helper overhead, not these slot bytes.
+    pub fn slot() -> u64 {
+        (std::mem::size_of::<crate::protocol::Envelope>()
+            + std::mem::size_of::<crate::protocol::Item>()
+            + std::mem::size_of::<crate::protocol::Usage>()
+            + std::mem::size_of::<crate::protocol::SessionMeta>()) as u64
+    }
+    #[derive(Clone, Copy, Default, Debug)]
+    pub struct Shape {
+        pub values: u64,
+        pub keys: u64,
+        pub strings: u64,
+        pub containers: u64,
+    }
+    impl Shape {
+        /// Two requested typed slots per admitted value/key cover Vec capacity growth;
+        /// two raw-string capacities cover decoded owned strings and their growth.
+        /// Raw Arc line storage and the Envelope owner are charged separately here.
+        pub fn typed(&self, raw: usize) -> Result<u64, w::Code> {
+            self.values
+                .checked_add(self.keys)
+                .and_then(|n| n.checked_mul(slot()))
+                .and_then(|n| n.checked_mul(2))
+                .and_then(|n| n.checked_add(self.strings.checked_mul(2)?))
+                .and_then(|n| n.checked_add(raw as u64 + slot()))
+                .ok_or(w::Code::ResourceLimit)
+        }
+        /// JSON string serialization cannot exceed its original escaped spelling;
+        /// numeric serialization uses <=24 bytes, plus container/member delimiters.
+        pub fn canonical(&self) -> Result<u64, w::Code> {
+            self.values
+                .checked_mul(26)
+                .and_then(|n| n.checked_add(self.keys.checked_mul(3)?))
+                .and_then(|n| n.checked_add(self.strings))
+                .and_then(|n| n.checked_add(self.containers.checked_mul(2)?))
+                .ok_or(w::Code::ResourceLimit)
+        }
+    }
+    /// Non-materializing preflight: depth32, 4096 members/container, 65536 total
+    /// values+keys. Early declared-credit refusal precedes general serde trees.
+    pub fn preflight(raw: &[u8], available: u64) -> Result<Shape, w::Code> {
+        struct Scan<'a> {
+            b: &'a [u8],
+            i: usize,
+            s: Shape,
+            available: u64,
+        }
+        impl Scan<'_> {
+            fn ws(&mut self) {
+                while self.b.get(self.i).is_some_and(u8::is_ascii_whitespace) {
+                    self.i += 1
+                }
+            }
+            fn count(&mut self, key: bool) -> Result<(), w::Code> {
+                if key {
+                    self.s.keys += 1
+                } else {
+                    self.s.values += 1
+                }
+                if self.s.values + self.s.keys > 65536
+                    || self.s.typed(self.b.len())? > self.available
+                {
+                    return Err(w::Code::ResourceLimit);
+                }
+                Ok(())
+            }
+            fn string(&mut self) -> Result<(), w::Code> {
+                if self.b.get(self.i) != Some(&b'"') {
+                    return Err(w::Code::MalformedIr);
+                }
+                let at = self.i;
+                self.i += 1;
+                loop {
+                    match self.b.get(self.i) {
+                        Some(b'"') => {
+                            self.i += 1;
+                            self.s.strings += (self.i - at) as u64;
+                            return Ok(());
+                        }
+                        Some(b'\\') => {
+                            self.i += 1;
+                            match self.b.get(self.i) {
+                                Some(b'u') => {
+                                    for _ in 0..4 {
+                                        self.i += 1;
+                                        if !self.b.get(self.i).is_some_and(u8::is_ascii_hexdigit) {
+                                            return Err(w::Code::MalformedIr);
+                                        }
+                                    }
+                                    self.i += 1
+                                }
+                                Some(b'"' | b'\\' | b'/' | b'b' | b'f' | b'n' | b'r' | b't') => {
+                                    self.i += 1
+                                }
+                                _ => return Err(w::Code::MalformedIr),
+                            }
+                        }
+                        Some(c) if *c >= 0x20 => self.i += 1,
+                        _ => return Err(w::Code::MalformedIr),
+                    }
+                }
+            }
+            fn value(&mut self, depth: u8) -> Result<(), w::Code> {
+                self.ws();
+                self.count(false)?;
+                match self.b.get(self.i) {
+                    Some(b'"') => self.string(),
+                    Some(open @ (b'{' | b'[')) => {
+                        if depth >= 32 {
+                            return Err(w::Code::ResourceLimit);
+                        }
+                        let object = *open == b'{';
+                        let close = if object { b'}' } else { b']' };
+                        self.i += 1;
+                        self.s.containers += 1;
+                        self.ws();
+                        if self.b.get(self.i) == Some(&close) {
+                            self.i += 1;
+                            return Ok(());
+                        }
+                        let mut members = 0;
+                        loop {
+                            members += 1;
+                            if members > 4096 {
+                                return Err(w::Code::ResourceLimit);
+                            }
+                            if object {
+                                self.ws();
+                                self.count(true)?;
+                                self.string()?;
+                                self.ws();
+                                if self.b.get(self.i) != Some(&b':') {
+                                    return Err(w::Code::MalformedIr);
+                                }
+                                self.i += 1
+                            }
+                            self.value(depth + 1)?;
+                            self.ws();
+                            match self.b.get(self.i) {
+                                Some(c) if *c == close => {
+                                    self.i += 1;
+                                    break;
+                                }
+                                Some(b',') => self.i += 1,
+                                _ => return Err(w::Code::MalformedIr),
+                            }
+                        }
+                        Ok(())
+                    }
+                    Some(b't') => self.literal(b"true"),
+                    Some(b'f') => self.literal(b"false"),
+                    Some(b'n') => self.literal(b"null"),
+                    Some(b'-' | b'0'..=b'9') => {
+                        let start = self.i;
+                        while self.b.get(self.i).is_some_and(|c| {
+                            matches!(c, b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')
+                        }) {
+                            self.i += 1
+                        }
+                        if self.i == start {
+                            return Err(w::Code::MalformedIr);
+                        }
+                        Ok(())
+                    }
+                    _ => Err(w::Code::MalformedIr),
+                }
+            }
+            fn literal(&mut self, v: &[u8]) -> Result<(), w::Code> {
+                if !self.b[self.i..].starts_with(v) {
+                    return Err(w::Code::MalformedIr);
+                }
+                self.i += v.len();
+                Ok(())
+            }
+        }
+        if raw.len() > w::MAX_FRAME {
+            return Err(w::Code::ResourceLimit);
+        }
+        let mut scan = Scan {
+            b: raw,
+            i: 0,
+            s: Shape::default(),
+            available,
+        };
+        scan.value(0)?;
+        scan.ws();
+        if scan.i != raw.len() {
+            return Err(w::Code::MalformedIr);
+        }
+        if scan.s.typed(raw.len())? > available {
+            return Err(w::Code::ResourceLimit);
+        }
+        Ok(scan.s)
+    }
+}
+
+#[cfg(test)]
+mod storage_tests {
+    use super::{storage::*, *};
+    #[test]
+    fn credits_refuse_growth_and_overlap_preserve_control_and_release_on_transfer() {
+        assert_eq!(WORK + CONTROL + HELPERS, HEAP_MAX);
+        let ledger = Ledger::new();
+        let held = ledger.reserve(WORK - 8).unwrap();
+        let old = ledger.reserve(8).unwrap();
+        assert!(matches!(ledger.reserve(16), Err(w::Code::ResourceLimit)));
+        assert_eq!(ledger.snapshot().0, WORK);
+        // The error/control frame is preprovisioned independently of work credits.
+        let f = framed(&w::WorkerOut::Hello(w::Hello {
+            protocol: w::Protocol::V1,
+            algorithm: w::Algorithm::D0C1,
+            schema_sha256: w::schema_hash(),
+            ir_major: 1,
+            ir_minor_max: 3,
+        }));
+        assert!(f.len() < OUT_FRAME);
+        drop(old);
+        drop(held);
+        let tracked = Tracked {
+            value: vec![1u8; 128],
+            credit: ledger.reserve(128).unwrap(),
+        };
+        let child = thread::spawn(move || {
+            assert_eq!(tracked.credit.bytes, 128);
+            drop(tracked);
+        });
+        child.join().unwrap();
+        assert_eq!(ledger.snapshot().0, 0);
+        assert_eq!(ledger.snapshot().1, WORK);
+        assert!(ledger.snapshot().2 > WORK);
+        assert!(matches!(
+            ledger.reserve(u64::MAX),
+            Err(w::Code::ResourceLimit)
+        ));
+    }
+    #[test]
+    fn causal_missing_reservation_is_detected_from_owned_capacity() {
+        let ledger = Ledger::new();
+        let mut owned = Vec::<u64>::new();
+        let bytes = 128 * std::mem::size_of::<u64>() as u64;
+        let credit = ledger.reserve(bytes).unwrap();
+        owned.try_reserve_exact(128).unwrap();
+        let footprint = (owned.capacity() * std::mem::size_of::<u64>()) as u64;
+        assert!(footprint <= ledger.snapshot().0);
+        drop(owned);
+        drop(credit);
+        // Causal control: execute the same owned growth with the reserve omitted.
+        let mut bypass = Vec::<u64>::new();
+        bypass.try_reserve_exact(128).unwrap();
+        assert!((bypass.capacity() * std::mem::size_of::<u64>()) as u64 > ledger.snapshot().0);
+    }
+    #[test]
+    fn structural_preflight_bounds_depth_width_total_and_credit_before_serde() {
+        let nested = format!("{}0{}", "[".repeat(32), "]".repeat(32));
+        assert!(preflight(nested.as_bytes(), u64::MAX).is_ok());
+        let deep = format!("[{nested}]");
+        assert_eq!(
+            preflight(deep.as_bytes(), u64::MAX).unwrap_err(),
+            w::Code::ResourceLimit
+        );
+        let wide = format!(
+            "[{}]",
+            std::iter::repeat_n("0", 4097).collect::<Vec<_>>().join(",")
+        );
+        assert_eq!(
+            preflight(wide.as_bytes(), u64::MAX).unwrap_err(),
+            w::Code::ResourceLimit
+        );
+        let inner = format!(
+            "[{}]",
+            std::iter::repeat_n("0", 4096).collect::<Vec<_>>().join(",")
+        );
+        let dense = format!("[{}]", vec![inner; 16].join(","));
+        assert!(dense.len() < w::MAX_FRAME);
+        assert_eq!(
+            preflight(dense.as_bytes(), u64::MAX).unwrap_err(),
+            w::Code::ResourceLimit
+        );
+        let escape = br#"{"a":"\u0000\u00e9\\\"","b":[1,true,null]}"#;
+        let shape = preflight(escape, WORK).unwrap();
+        assert!(shape.typed(escape.len()).unwrap() > escape.len() as u64);
+        assert!(
+            shape.canonical().unwrap()
+                >= w::canonical(&serde_json::from_slice::<serde_json::Value>(escape).unwrap())
+                    .unwrap()
+                    .len() as u64
+        );
+        assert_eq!(preflight(escape, 1).unwrap_err(), w::Code::ResourceLimit);
     }
 }

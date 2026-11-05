@@ -202,3 +202,86 @@ pub fn worker(control: u8) -> Model {
     );
     m
 }
+
+/// Declared requested storage only. Native allocator/serde/regex overhead is
+/// deliberately outside this finite credit abstraction and is measured in processes.
+pub fn storage(bypass: bool) -> Model {
+    let mut m = base(
+        "DreamC1Storage",
+        bypass,
+        &[
+            ("declared", 4, 0),
+            ("reserved", 4, 0),
+            ("phase", 4, 0),
+            ("cancel", 1, 0),
+            ("settled", 1, 0),
+            ("control", 2, 2),
+            ("status", 1, 0),
+            ("owner", 1, 0),
+        ],
+    );
+    act(
+        &mut m,
+        "ReserveBeforeCreate",
+        all([eq(2, 0), eq(3, 0)]),
+        &[(0, Int(2)), (1, Int(2)), (2, Int(1))],
+    );
+    act(
+        &mut m,
+        "ReserveOldAndNewOverlap",
+        all([eq(2, 1), eq(3, 0)]),
+        &[(1, if bypass { Int(2) } else { Int(4) }), (2, Int(2))],
+    );
+    act(
+        &mut m,
+        "InstallGrowth",
+        all([eq(2, 2), eq(3, 0)]),
+        &[(0, Int(4)), (2, Int(3))],
+    );
+    act(
+        &mut m,
+        "FreeOldThenReleaseCredit",
+        all([eq(2, 3), eq(3, 0)]),
+        &[(0, Int(2)), (1, Int(2)), (2, Int(4))],
+    );
+    act(
+        &mut m,
+        "TransferOneOwner",
+        all([eq(0, 2), eq(7, 0)]),
+        &[(7, Int(1))],
+    );
+    act(
+        &mut m,
+        "IndependentStatusAtExhaustion",
+        eq(1, 4),
+        &[(6, Int(1))],
+    );
+    let cancel = m.actions.len();
+    act(&mut m, "Cancel", eq(3, 0), &[(3, Int(1))]);
+    let settle = m.actions.len();
+    act(
+        &mut m,
+        "PacedDropThenRelease",
+        all([eq(3, 1), eq(4, 0)]),
+        &[(0, Int(0)), (1, Int(0)), (4, Int(1))],
+    );
+    safe(&mut m, "EveryDeclaredCapacityHasCredit", Var(0).le(Var(1)));
+    safe(
+        &mut m,
+        "WorkCannotBorrowControl",
+        all([Var(1).le(Int(4)), eq(5, 2)]),
+    );
+    safe(
+        &mut m,
+        "SettlementReleasesOwnedCredits",
+        eq(4, 0).or(all([eq(0, 0), eq(1, 0)])),
+    );
+    progress(
+        &mut m,
+        "CancelledStorageSettles",
+        Bool(true),
+        eq(4, 1),
+        vec![cancel, settle],
+    );
+    m
+}

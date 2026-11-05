@@ -1080,3 +1080,12 @@ frontend = "project"
 name="BrokenHarnessDreamC1InspectionLegacyHook"
 expected="safety"
 frontend="project"
+
+[[model]]
+name = "HarnessDreamC1Storage"
+expected = "pass"
+frontend = "project"
+[[model]]
+name = "BrokenHarnessDreamC1Storage"
+expected = "safety"
+frontend = "project"

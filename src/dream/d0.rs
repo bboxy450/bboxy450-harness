@@ -187,6 +187,26 @@ struct Turn {
     tools: BTreeMap<ItemId, String>,
     usage: Option<Usage>,
 }
+impl Turn {
+    /// One retained entry at a time; the owner stays live until its children settle.
+    fn drain_step(&mut self) -> bool {
+        if self.calls.pop().is_some()
+            || self.denied.pop().is_some()
+            || self.tools.pop_first().is_some()
+            || self.patterns.pop_first().is_some()
+        {
+            return true;
+        }
+        if let Some(usage) = &mut self.usage {
+            if usage.unreported.pop().is_some() {
+                return true;
+            }
+            self.usage = None;
+            return true;
+        }
+        false
+    }
+}
 struct Log {
     meta: SessionMeta,
     turns: Vec<Turn>,
@@ -265,6 +285,25 @@ impl ClosedLog {
             calls: vec![],
         }
     }
+    /// Discard one selected-input entry without destroying a whole retained log.
+    /// C1 never retains the task-join JSON calls (`retain_calls` is false).
+    pub(crate) fn drain_step(&mut self) -> bool {
+        if let Some(turn) = self.turns.last_mut() {
+            if !turn.drain_step() {
+                self.turns.pop();
+            }
+            return true;
+        }
+        if self.items.pop_first().is_some() || self.calls.pop().is_some() {
+            return true;
+        }
+        if let Some(dream) = &mut self.meta.dream
+            && dream.scope.repos.pop().is_some()
+        {
+            return true;
+        }
+        false
+    }
     pub fn observe(&mut self, e: &Envelope, redactor: &Set, retain_calls: bool) -> io::Result<()> {
         let line = e
             .raw
@@ -273,6 +312,7 @@ impl ClosedLog {
         match &e.event {
             Event::TurnStarted { turn, .. } => {
                 self.current = Some(self.turns.len());
+                self.turns.try_reserve(1).map_err(io::Error::other)?;
                 self.turns.push(Turn {
                     origin: event_pin(e, line)?,
                     id: *turn,
@@ -340,6 +380,7 @@ impl ClosedLog {
                         if success && t.calls.iter().any(|(n, a, _)| n == name && a == &args) {
                             t.patterns.insert(fp::retry(name, &args));
                         }
+                        t.calls.try_reserve(1).map_err(io::Error::other)?;
                         t.calls.push((name.clone(), args, success));
                         t.tools.insert(*item, name.clone());
                     }
@@ -348,6 +389,7 @@ impl ClosedLog {
                         decision: Some(ApprovalDecision::Deny { .. }),
                         ..
                     } => {
+                        t.denied.try_reserve(1).map_err(io::Error::other)?;
                         t.denied.push(subject.tool_call);
                     }
                     _ => {}
@@ -799,127 +841,334 @@ pub fn inspect_closed(
     logs: Vec<ClosedLog>,
     mut unit: impl FnMut(&mut dyn FnMut() -> io::Result<()>) -> io::Result<()>,
 ) -> io::Result<Vec<super::c1_wire::Row>> {
+    inspect_closed_budgeted(logs, |cleanup, f| if cleanup { f() } else { unit(f) })
+}
+
+/// C1's cleanup callback must always execute, including after cancellation or a
+/// rejected normal unit. Collection owners remain outside the fallible work body.
+pub(crate) fn inspect_closed_budgeted(
+    mut logs: Vec<ClosedLog>,
+    mut unit: impl FnMut(bool, &mut dyn FnMut() -> io::Result<()>) -> io::Result<()>,
+) -> io::Result<Vec<super::c1_wire::Row>> {
     use super::c1_wire as w;
     let mut rows = Vec::new();
     let mut costs: BTreeMap<String, Vec<u64>> = BTreeMap::new();
-    let mut logs = logs;
-    for log in &logs {
-        for t in &log.turns {
-            if t.usage.is_some() {
-                unit(&mut || {
-                    if let Some((key, cost)) = t.usage.as_ref().and_then(reported_cost) {
-                        costs.entry(key).or_default().push(cost);
-                    }
-                    Ok(())
-                })?;
+    let mut clusters: BTreeMap<(String, String), Cluster> = BTreeMap::new();
+    let mut active_turn: Option<Turn> = None;
+    let mut result = (|| {
+        let mut episode_total = 0usize;
+        unit(false, &mut || {
+            for log in &logs {
+                episode_total = episode_total
+                    .checked_add(log.turns.len())
+                    .ok_or_else(|| io::Error::other("resource limit"))?;
             }
-        }
-    }
-    for values in costs.values_mut() {
-        unit(&mut || {
-            values.sort_unstable();
+            if episode_total > 4096 {
+                return Err(io::Error::other("resource limit"));
+            }
+            let capacity = episode_total
+                .checked_mul(33)
+                .ok_or_else(|| io::Error::other("resource limit"))?
+                .min(4096);
+            rows.try_reserve_exact(capacity).map_err(io::Error::other)?;
             Ok(())
         })?;
-    }
-    let mut clusters: BTreeMap<(String, String), Cluster> = BTreeMap::new();
-    for log in &mut logs {
-        let repo = log
-            .meta
-            .vcs
-            .as_ref()
-            .and_then(|v| v.repo.as_ref())
-            .ok_or_else(|| io::Error::other("missing selected repo"))?;
-        while let Some(t) = log.turns.pop() {
-            let mut owned = Some(t);
-            unit(&mut || {
-                let mut t = owned.take().unwrap();
-                for id in &t.denied {
-                    if let Some(name) = t.tools.get(id) {
-                        t.patterns
-                            .insert(fp::digest(format!("approval-denied:{name}")));
-                    }
+        for log in &logs {
+            for t in &log.turns {
+                if t.usage.is_some() {
+                    unit(false, &mut || {
+                        if let Some((key, cost)) = t.usage.as_ref().and_then(reported_cost) {
+                            let values = costs.entry(key).or_default();
+                            values.try_reserve(1).map_err(io::Error::other)?;
+                            values.push(cost);
+                        }
+                        Ok(())
+                    })?;
                 }
-                if let Some((key, cost)) = t.usage.as_ref().and_then(reported_cost) {
-                    let values = &costs[&key];
-                    if cost > values[(values.len() * 95).div_ceil(100) - 1] {
-                        t.patterns.insert(fp::digest(format!("cost-outlier:{key}")));
-                    }
-                }
-                if t.patterns.len() > 32 || rows.len() >= 4096 {
-                    return Err(io::Error::other("resource limit"));
-                }
-                let EvidenceRef::Event {
-                    session,
-                    seq,
-                    digest,
-                } = &t.origin
-                else {
-                    return Err(io::Error::other("invalid pin"));
-                };
-                rows.push(w::Row::Episode(w::Episode {
-                    session: w::Ulid(log.meta.session.to_string()),
-                    turn: w::Ulid(t.id.to_string()),
-                    origin: w::Origin {
-                        session: w::Ulid(session.to_string()),
-                        seq: w::Number(seq.0),
-                        digest: digest.clone(),
-                    },
-                    fingerprints: t.patterns.iter().cloned().map(w::Hex).collect(),
-                    first_ms: w::Number(t.first),
-                    last_ms: w::Number(t.last),
-                }));
-                for fingerprint in &t.patterns {
-                    let key = (repo.clone(), fingerprint.clone());
-                    let c = clusters.entry(key).or_insert_with(|| Cluster {
-                        fingerprint: fingerprint.clone(),
-                        count: 0,
-                        episodes: vec![],
-                        first: t.first,
-                        last: t.last,
-                    });
-                    // One row per unique TurnStarted; validated sources have distinct sessions.
-                    c.count += 1;
-                    c.first = c.first.min(t.first);
-                    c.last = c.last.max(t.last);
-                }
+            }
+        }
+        for values in costs.values_mut() {
+            unit(false, &mut || {
+                values.sort_unstable();
                 Ok(())
             })?;
         }
-    }
-    unit(&mut || {
-        rows.sort_by(|a, b| match (a, b) {
-            (w::Row::Episode(a), w::Row::Episode(b)) => (
-                &a.session,
-                a.origin.seq,
-                &a.origin.digest,
-            )
-                .cmp(&(&b.session, b.origin.seq, &b.origin.digest)),
-            _ => std::cmp::Ordering::Equal,
-        });
-        Ok(())
-    })?;
-    for ((repo, fingerprint), c) in clusters {
-        let mut owned = Some((repo, fingerprint, c));
-        unit(&mut || {
-            let (repo, fingerprint, c) = owned.take().unwrap();
-            if rows.len() >= 4096 {
-                return Err(io::Error::other("resource limit"));
+        for log in &mut logs {
+            if log
+                .meta
+                .vcs
+                .as_ref()
+                .and_then(|v| v.repo.as_ref())
+                .is_none()
+            {
+                return Err(io::Error::other("missing selected repo"));
             }
-            rows.push(w::Row::Cluster(w::Cluster {
-                repo: w::Repo(repo),
-                fingerprint: w::Hex(fingerprint),
-                count: c.count as u32,
-                first_ms: w::Number(c.first),
-                last_ms: w::Number(c.last),
-            }));
+            while !log.turns.is_empty() {
+                unit(false, &mut || {
+                    // A cancelled callback cannot strand a popped, unmeasured Turn.
+                    active_turn = log.turns.pop();
+                    let t = active_turn.as_mut().expect("retained selected turn");
+                    let repo = log
+                        .meta
+                        .vcs
+                        .as_ref()
+                        .and_then(|v| v.repo.as_ref())
+                        .ok_or_else(|| io::Error::other("missing selected repo"))?;
+                    for id in &t.denied {
+                        if let Some(name) = t.tools.get(id) {
+                            t.patterns
+                                .insert(fp::digest(format!("approval-denied:{name}")));
+                        }
+                    }
+                    if let Some((key, cost)) = t.usage.as_ref().and_then(reported_cost) {
+                        let values = &costs[&key];
+                        if cost > values[(values.len() * 95).div_ceil(100) - 1] {
+                            t.patterns.insert(fp::digest(format!("cost-outlier:{key}")));
+                        }
+                    }
+                    if t.patterns.len() > 32 || rows.len() >= 4096 {
+                        return Err(io::Error::other("resource limit"));
+                    }
+                    let EvidenceRef::Event {
+                        session,
+                        seq,
+                        digest,
+                    } = &t.origin
+                    else {
+                        return Err(io::Error::other("invalid pin"));
+                    };
+                    rows.push(w::Row::Episode(w::Episode {
+                        session: w::Ulid(log.meta.session.to_string()),
+                        turn: w::Ulid(t.id.to_string()),
+                        origin: w::Origin {
+                            session: w::Ulid(session.to_string()),
+                            seq: w::Number(seq.0),
+                            digest: digest.clone(),
+                        },
+                        fingerprints: t.patterns.iter().cloned().map(w::Hex).collect(),
+                        first_ms: w::Number(t.first),
+                        last_ms: w::Number(t.last),
+                    }));
+                    for fingerprint in &t.patterns {
+                        let key = (repo.clone(), fingerprint.clone());
+                        if !clusters.contains_key(&key) && clusters.len() >= 4096 - episode_total {
+                            return Err(io::Error::other("resource limit"));
+                        }
+                        let c = clusters.entry(key).or_insert_with(|| Cluster {
+                            fingerprint: fingerprint.clone(),
+                            count: 0,
+                            episodes: vec![],
+                            first: t.first,
+                            last: t.last,
+                        });
+                        // One row per unique TurnStarted; selected sessions are distinct.
+                        c.count += 1;
+                        c.first = c.first.min(t.first);
+                        c.last = c.last.max(t.last);
+                    }
+                    Ok(())
+                })?;
+                drain_inspection(&mut unit, || drain_turn(&mut active_turn))?;
+            }
+        }
+        unit(false, &mut || {
+            rows.sort_by(|a, b| match (a, b) {
+                (w::Row::Episode(a), w::Row::Episode(b)) => (
+                    &a.session,
+                    a.origin.seq,
+                    &a.origin.digest,
+                )
+                    .cmp(&(&b.session, b.origin.seq, &b.origin.digest)),
+                _ => std::cmp::Ordering::Equal,
+            });
+            Ok(())
+        })?;
+        while !clusters.is_empty() {
+            unit(false, &mut || {
+                if rows.len() >= 4096 {
+                    return Err(io::Error::other("resource limit"));
+                }
+                let ((repo, fingerprint), c) =
+                    clusters.pop_first().expect("retained selected cluster");
+                rows.push(w::Row::Cluster(w::Cluster {
+                    repo: w::Repo(repo),
+                    fingerprint: w::Hex(fingerprint),
+                    count: c.count as u32,
+                    first_ms: w::Number(c.first),
+                    last_ms: w::Number(c.last),
+                }));
+                Ok(())
+            })?;
+        }
+        Ok(())
+    })();
+    let cleanup = drain_inspection(&mut unit, || {
+        if drain_turn(&mut active_turn) {
+            return true;
+        }
+        if let Some(log) = logs.last_mut() {
+            if !log.drain_step() {
+                logs.pop();
+            }
+            return true;
+        }
+        // Empty outer capacities are released inside cleanup too.
+        drop(std::mem::take(&mut logs));
+        if let Some(mut entry) = costs.first_entry() {
+            if entry.get_mut().pop().is_none() {
+                entry.remove_entry();
+            }
+            return true;
+        }
+        if clusters.pop_first().is_some() {
+            return true;
+        }
+        false
+    });
+    if result.is_ok() {
+        result = cleanup;
+    }
+    if result.is_err() {
+        // Rows remain owned if normal work or cleanup failed; never unwind them
+        // as an unmeasured full Vec after cancellation.
+        let _ = drain_inspection(&mut unit, || {
+            if let Some(w::Row::Episode(episode)) = rows.last_mut()
+                && episode.fingerprints.pop().is_some()
+            {
+                return true;
+            }
+            if rows.pop().is_some() {
+                return true;
+            }
+            drop(std::mem::take(&mut rows));
+            false
+        });
+    }
+    result.map(|()| rows)
+}
+
+fn drain_turn(turn: &mut Option<Turn>) -> bool {
+    if let Some(t) = turn {
+        if !t.drain_step() {
+            *turn = None;
+        }
+        true
+    } else {
+        false
+    }
+}
+
+/// Small finite cleanup batches avoid a nine-millisecond wait for every entry.
+/// The callback is also responsible for executing cleanup after work rejection.
+fn drain_inspection(
+    unit: &mut impl FnMut(bool, &mut dyn FnMut() -> io::Result<()>) -> io::Result<()>,
+    mut step: impl FnMut() -> bool,
+) -> io::Result<()> {
+    let mut empty = false;
+    let mut error = None;
+    while !empty {
+        let observed = unit(true, &mut || {
+            let started = cpu_ns();
+            for _ in 0..1024 {
+                if !step() {
+                    empty = true;
+                    break;
+                }
+                let now = cpu_ns();
+                if started == u64::MAX || now == u64::MAX || now.saturating_sub(started) >= 400_000
+                {
+                    break;
+                }
+            }
+            Ok(())
+        });
+        if let Err(e) = observed
+            && error.is_none()
+        {
+            error = Some(e);
+        }
+    }
+    error.map_or(Ok(()), Err)
+}
+
+/// Declared result-owner upper capacity before selected replay. Native BTree and
+/// regex/serde internals are helper overhead, not these owned typed/payload bytes.
+pub fn inspection_storage_bound(logs: &[ClosedLog]) -> io::Result<u64> {
+    inspection_storage_bound_budgeted(logs, |f| f())
+}
+
+/// Account the source/turn scan in bounded read-only batches on C1's owner.
+pub(crate) fn inspection_storage_bound_budgeted(
+    logs: &[ClosedLog],
+    mut unit: impl FnMut(&mut dyn FnMut() -> io::Result<()>) -> io::Result<()>,
+) -> io::Result<u64> {
+    let mut turns = 0usize;
+    let mut repo = 0usize;
+    let mut cost_keys = 0usize;
+    let mut log_index = 0usize;
+    let mut turn_index = 0usize;
+    while log_index < logs.len() {
+        unit(&mut || {
+            let started = cpu_ns();
+            for _ in 0..256 {
+                let log = &logs[log_index];
+                if turn_index == 0 {
+                    turns = turns
+                        .checked_add(log.turns.len())
+                        .filter(|n| *n <= 4096)
+                        .ok_or_else(|| io::Error::other("resource limit"))?;
+                    repo = repo.max(
+                        log.meta
+                            .vcs
+                            .as_ref()
+                            .and_then(|v| v.repo.as_ref())
+                            .map_or(0, String::len),
+                    );
+                }
+                if let Some(t) = log.turns.get(turn_index)
+                    && let Some(usage) = &t.usage
+                {
+                    let n = usage
+                        .model
+                        .as_ref()
+                        .map_or(0, String::capacity)
+                        .checked_add(usage.backend.as_ref().map_or(0, |v| v.name.capacity()))
+                        .and_then(|n| n.checked_add(1))
+                        .ok_or_else(|| io::Error::other("resource limit"))?;
+                    cost_keys = cost_keys
+                        .checked_add(n)
+                        .ok_or_else(|| io::Error::other("resource limit"))?;
+                }
+                turn_index += 1;
+                if turn_index >= log.turns.len() {
+                    log_index += 1;
+                    turn_index = 0;
+                }
+                if log_index == logs.len() {
+                    break;
+                }
+                let now = cpu_ns();
+                if started == u64::MAX || now == u64::MAX || now.saturating_sub(started) >= 400_000
+                {
+                    break;
+                }
+            }
             Ok(())
         })?;
     }
-    // Remaining retained metadata/cost tables are bounded but still measured.
-    unit(&mut || {
-        logs.clear();
-        costs.clear();
-        Ok(())
-    })?;
-    Ok(rows)
+    let rows = turns
+        .checked_mul(33)
+        .ok_or_else(|| io::Error::other("resource limit"))?
+        .min(4096);
+    // Per row: Row owner, max32 owned Hex strings, repo/pin/IDs, and cluster/cost
+    // typed entries. Requested Vec capacities have one full growth overlap.
+    let per = std::mem::size_of::<super::c1_wire::Row>()
+        + 32 * (std::mem::size_of::<super::c1_wire::Hex>() + 64)
+        + repo
+        + 512;
+    rows.checked_mul(per)
+        .and_then(|n| n.checked_mul(2))
+        .and_then(|n| n.checked_add(cost_keys.checked_mul(4)?))
+        .map(|n| n as u64)
+        .ok_or_else(|| io::Error::other("resource limit"))
 }

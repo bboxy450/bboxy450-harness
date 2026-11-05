@@ -29,6 +29,21 @@ pub struct Transcript {
     replaced: Seq,
 }
 impl Transcript {
+    /// One bounded owner entry for paced success/error settlement.
+    pub(crate) fn drain_step(&mut self) -> bool {
+        if self.queued.pop_first().is_some()
+            || self.started.pop_first().is_some()
+            || self.ended.pop_first().is_some()
+            || self.open.pop_first().is_some()
+            || self.items.pop_first().is_some()
+            || self.calls.pop_first().is_some()
+            || self.endings.pop().is_some()
+            || self.open_turns.pop_first().is_some()
+        {
+            return true;
+        }
+        false
+    }
     pub fn observe(&mut self, e: &Envelope) -> Result<(), laws::LawViolation> {
         let i = self.head as usize;
         let fail = |law, detail: &str| laws::LawViolation {
@@ -418,8 +433,13 @@ pub fn validate_event(e: &Envelope, source: &w::Source, index: u64) -> Result<()
     Ok(())
 }
 /// Visit exactly typed blob carriers, never arbitrary JSON keys or extension data.
-pub fn blobs(event: &Event) -> Vec<&BlobRef> {
+pub fn blobs(event: &Event) -> Result<Vec<&BlobRef>, w::Code> {
     let mut out = vec![];
+    let mut push = |b| {
+        out.try_reserve(1).map_err(|_| w::Code::ResourceLimit)?;
+        out.push(b);
+        Ok::<(), w::Code>(())
+    };
     let item = match event {
         Event::ItemCompleted { body, .. } => Some(body),
         Event::ItemSnapshot { partial, .. } => Some(partial),
@@ -430,24 +450,24 @@ pub fn blobs(event: &Event) -> Vec<&BlobRef> {
             Item::UserMessage { blocks } => {
                 for b in blocks {
                     match b {
-                        InputBlock::Image { blob } | InputBlock::Audio { blob } => out.push(blob),
+                        InputBlock::Image { blob } | InputBlock::Audio { blob } => push(blob)?,
                         InputBlock::Resource {
                             blob: Some(blob), ..
-                        } => out.push(blob),
+                        } => push(blob)?,
                         _ => {}
                     }
                 }
             }
             Item::ToolCall { output, spill, .. } => {
                 if let Some(b) = spill {
-                    out.push(b)
+                    push(b)?
                 }
                 for b in output {
                     match b {
-                        OutputBlock::Image { blob } | OutputBlock::Audio { blob } => out.push(blob),
+                        OutputBlock::Image { blob } | OutputBlock::Audio { blob } => push(blob)?,
                         OutputBlock::Resource {
                             blob: Some(blob), ..
-                        } => out.push(blob),
+                        } => push(blob)?,
                         _ => {}
                     }
                 }
@@ -458,9 +478,9 @@ pub fn blobs(event: &Event) -> Vec<&BlobRef> {
             | Item::Image { blob: b, .. }
             | Item::Compaction { summary: b, .. }
             | Item::Native { blob: Some(b), .. }
-            | Item::Receipt { blob: Some(b), .. } => out.push(b),
+            | Item::Receipt { blob: Some(b), .. } => push(b)?,
             _ => {}
         }
     }
-    out
+    Ok(out)
 }

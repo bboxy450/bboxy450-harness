@@ -557,7 +557,9 @@ pub fn schema_bytes() -> Vec<u8> {
     canonical(&schema()).expect("schema bytes")
 }
 pub fn schema_hash() -> Hex {
-    hash(schema_bytes())
+    // Generation/vector checks bind these embedded canonical bytes to schema().
+    // The worker's capability probe needs no schemars/Value allocation tree.
+    hash(include_bytes!("../../schema/dream-c1-v1.schema.json"))
 }
 /// Strict bounded framing; typed serde visitors reject duplicate/unknown fields.
 pub fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> std::result::Result<T, Code> {
@@ -565,4 +567,69 @@ pub fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> std::result::Resu
         return Err(Code::ResourceLimit);
     }
     serde_json::from_slice(bytes).map_err(|_| Code::ProtocolError)
+}
+
+/// Canonical runtime output with a fallible, fixed requested-byte capacity.
+/// Temporary serde Value/container internals are covered by the caller's declared
+/// payload credits plus its separately measured helper-overlap allowance.
+pub fn canonical_limited<T: Serialize>(value: &T, limit: usize) -> Result<Vec<u8>, Code> {
+    use std::io::Write;
+    struct Sink {
+        bytes: Vec<u8>,
+        limit: usize,
+    }
+    impl Write for Sink {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            if b.len() > self.limit - self.bytes.len() {
+                return Err(std::io::Error::other("canonical bound"));
+            }
+            self.bytes.extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    fn write(v: &Value, out: &mut Sink) -> Result<(), Code> {
+        match v {
+            Value::Object(m) => {
+                let mut keys = Vec::new();
+                keys.try_reserve_exact(m.len())
+                    .map_err(|_| Code::ResourceLimit)?;
+                keys.extend(m.keys());
+                keys.sort_unstable();
+                out.write_all(b"{").map_err(|_| Code::ResourceLimit)?;
+                for (i, key) in keys.into_iter().enumerate() {
+                    if i > 0 {
+                        out.write_all(b",").map_err(|_| Code::ResourceLimit)?;
+                    }
+                    serde_json::to_writer(&mut *out, key).map_err(|_| Code::ResourceLimit)?;
+                    out.write_all(b":").map_err(|_| Code::ResourceLimit)?;
+                    write(&m[key], out)?;
+                }
+                out.write_all(b"}").map_err(|_| Code::ResourceLimit)
+            }
+            Value::Array(a) => {
+                out.write_all(b"[").map_err(|_| Code::ResourceLimit)?;
+                for (i, v) in a.iter().enumerate() {
+                    if i > 0 {
+                        out.write_all(b",").map_err(|_| Code::ResourceLimit)?;
+                    }
+                    write(v, out)?;
+                }
+                out.write_all(b"]").map_err(|_| Code::ResourceLimit)
+            }
+            _ => serde_json::to_writer(out, v).map_err(|_| Code::ResourceLimit),
+        }
+    }
+    let mut out = Sink {
+        bytes: Vec::new(),
+        limit,
+    };
+    out.bytes
+        .try_reserve_exact(limit)
+        .map_err(|_| Code::ResourceLimit)?;
+    let tree = serde_json::to_value(value).map_err(|_| Code::ResourceLimit)?;
+    write(&tree, &mut out)?;
+    Ok(out.bytes)
 }

@@ -60,6 +60,14 @@ fn wire_schema_and_vectors() {
     for v in vectors {
         let bytes = w::canonical(&v["value"]).unwrap();
         assert_eq!(bytes, v["canonical"].as_str().unwrap().as_bytes());
+        assert_eq!(
+            w::canonical_limited(&v["value"], bytes.len()).unwrap(),
+            bytes
+        );
+        assert_eq!(
+            w::canonical_limited(&v["value"], bytes.len() - 1),
+            Err(w::Code::ResourceLimit)
+        );
         assert_eq!(w::hash(bytes).0, v["sha256"]);
     }
     for entry in std::fs::read_dir(root().join("valid")).unwrap() {
@@ -666,6 +674,7 @@ fn large_input_records_heap_rss_and_resource_rejection() {
     assert!(metrics.contains("heap_peak_bytes="));
     assert!(metrics.contains("rss_peak_bytes="));
     assert!(metrics.contains("overruns=0"));
+    assert_memory_gate(&metrics);
     eprintln!("large-input {metrics}");
     let mut over = Job::new(1, 0, false, false);
     over.manifest.sources[0].len = w::Number(64 * 1024 * 1024 + 1);
@@ -1019,14 +1028,15 @@ async fn actual_store_fork_is_explicitly_unsupported_and_parent_rows_never_pass(
         job.commit_manifest();
         let mut worker = job.launch();
         worker.start(&job.start);
-        let (done, _) = worker.done();
+        let (done, metrics) = worker.done();
         assert_eq!(
             done.error.unwrap().code,
             if mode == 2 {
                 w::Code::MalformedIr
             } else {
                 w::Code::UnsupportedIr
-            }
+            },
+            "fork mode={mode} {metrics}"
         );
         assert!(!job.path.join("output/result.json").exists());
         assert_eq!(bytes, std::fs::read(job.source()).unwrap());
@@ -1090,4 +1100,248 @@ fn paused_owner_does_not_delay_another_process_and_owned_kill_never_completes() 
     assert!(!status.success());
     assert!(!first.path.join("output/result.json").exists());
     assert_eq!(first.bytes, std::fs::read(first.source()).unwrap());
+}
+
+#[test]
+fn actual_over_limit_ir_corpus_is_rejected_before_reading() {
+    use sha2::{Digest, Sha256};
+    let mut job = Job::new(0, 0, false, false);
+    let first = Envelope::from_line(
+        std::str::from_utf8(job.bytes.split_inclusive(|b| *b == b'\n').next().unwrap()).unwrap(),
+    )
+    .unwrap();
+    let session = first.session;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(job.source())
+        .unwrap();
+    let mut hash = Sha256::new();
+    let mut seq = 0u64;
+    let mut len = 0u64;
+    let mut final_hash = w::hash([]);
+    let mut push = |event| {
+        seq += 1;
+        let e = Envelope {
+            event,
+            seq: Some(Seq(seq)),
+            at: Seq(seq),
+            ts_ms: seq,
+            raw: None,
+            ..first.clone()
+        };
+        let line = e.wire_bytes().unwrap();
+        assert!(line.len() <= w::MAX_FRAME);
+        hash.update(&line);
+        file.write_all(&line).unwrap();
+        len += line.len() as u64;
+        final_hash = w::hash(&line[..line.len() - 1]);
+    };
+    push(first.event.clone());
+    let turn = TurnId::new();
+    push(Event::TurnQueued { turn });
+    push(Event::TurnStarted {
+        turn,
+        model: None,
+        origin: None,
+    });
+    let payload = "x".repeat(128 * 1024);
+    for _ in 0..512 {
+        let item = ItemId::new();
+        push(Event::ItemStarted {
+            turn: Some(turn),
+            item,
+            kind: ItemKind::AgentMessage,
+            parent: None,
+            head: None,
+        });
+        push(Event::ItemCompleted {
+            item,
+            status: ItemStatus::Completed,
+            body: Item::AgentMessage {
+                markdown: payload.clone(),
+            },
+        });
+    }
+    push(Event::TurnEnded {
+        turn,
+        reason: StopReason::EndTurn,
+        usage: None,
+    });
+    push(Event::SessionClosed);
+    drop(push);
+    file.sync_all().unwrap();
+    drop(file);
+    assert!(len > 64 * 1024 * 1024);
+    assert_eq!(std::fs::metadata(job.source()).unwrap().len(), len);
+    let s = &mut job.manifest.sources[0];
+    s.session = w::Ulid(session.to_string());
+    s.len = w::Number(len);
+    s.sha256 = w::Hex(format!("{:x}", hash.finalize()));
+    s.closed_seq = w::Number(seq);
+    s.closed_line_sha256 = final_hash;
+    job.commit_manifest();
+    let mut worker = job.launch();
+    worker.start(&job.start);
+    let (done, metrics) = worker.done();
+    assert_eq!(done.error.unwrap().code, w::Code::ResourceLimit);
+    assert!(metrics.contains("envelopes=0 bytes=0"));
+    assert!(
+        std::fs::read_dir(job.path.join("output"))
+            .unwrap()
+            .next()
+            .is_none()
+    );
+    assert_eq!(std::fs::metadata(job.source()).unwrap().len(), len);
+    eprintln!("actual-over-limit source_bytes={len} {metrics}");
+}
+
+fn metric(metrics: &str, key: &str) -> u64 {
+    metrics
+        .split_whitespace()
+        .find_map(|field| field.strip_prefix(&format!("{key}=")))
+        .unwrap_or_else(|| panic!("missing {key}: {metrics}"))
+        .parse()
+        .unwrap()
+}
+fn assert_memory_gate(metrics: &str) {
+    assert_eq!(
+        metrics
+            .lines()
+            .filter(|l| l.starts_with("dream-c1 metrics "))
+            .count(),
+        1
+    );
+    assert!(metric(metrics, "heap_live_bytes") <= 96 * 1024 * 1024);
+    assert!(metric(metrics, "heap_peak_bytes") <= 96 * 1024 * 1024);
+    assert!(metric(metrics, "storage_reserved_peak_bytes") <= 78 * 1024 * 1024);
+    assert_eq!(metric(metrics, "storage_declared_live_bytes"), 0);
+    assert_eq!(metric(metrics, "control_reserved_bytes"), 2 * 1024 * 1024);
+    assert_eq!(metric(metrics, "helper_reserved_bytes"), 16 * 1024 * 1024);
+    assert_eq!(metric(metrics, "credit_ceiling_bytes"), 96 * 1024 * 1024);
+    assert!(metrics.contains("native_cumulative_bytes=unmeasured"));
+    assert_eq!(metric(metrics, "overruns"), 0);
+    assert!(metric(metrics, "max_unit_cpu_ns") <= 1_000_000);
+}
+#[test]
+fn child_declared_storage_overflow_precedes_serde_and_controls_still_settle() {
+    let mut job = Job::new(1, 0, false, false);
+    let mut lines = job
+        .bytes
+        .split(|b| *b == b'\n')
+        .filter(|v| !v.is_empty())
+        .map(|v| serde_json::from_slice::<serde_json::Value>(v).unwrap())
+        .collect::<Vec<_>>();
+    // Each container and the entire document stay below their independent caps.
+    // The much larger declared typed capacity must be refused before materialization.
+    lines[0]["ext"]["dense"] = serde_json::json!(vec![vec![0u8; 4096]; 10]);
+    job.bytes.clear();
+    for line in &lines {
+        job.bytes.extend(serde_json::to_vec(line).unwrap());
+        job.bytes.push(b'\n');
+    }
+    job.manifest.sources[0].len = w::Number(job.bytes.len() as u64);
+    job.manifest.sources[0].sha256 = w::hash(&job.bytes);
+    private_file(&job.source(), &job.bytes);
+    job.commit_manifest();
+    let mut worker = job.launch();
+    worker.start(&job.start);
+    let (done, metrics) = worker.done();
+    assert_eq!(
+        done.error.unwrap().code,
+        w::Code::ResourceLimit,
+        "{metrics}"
+    );
+    assert_memory_gate(&metrics);
+    assert!(!job.path.join("output/result.json").exists());
+    assert_eq!(std::fs::read(job.source()).unwrap(), job.bytes);
+    eprintln!("declared-child-overflow {metrics}");
+}
+#[test]
+fn four_children_keep_independent_controls_and_individual_memory_shares() {
+    let jobs = (0..4)
+        .map(|_| {
+            let mut j = Job::new(20, 128 * 1024, false, false);
+            j.start.foreground = true;
+            j
+        })
+        .collect::<Vec<_>>();
+    let mut workers = jobs.iter().map(Job::launch).collect::<Vec<_>>();
+    for (worker, job) in workers.iter_mut().zip(&jobs) {
+        worker.start(&job.start);
+    }
+    for worker in &mut workers {
+        loop {
+            if matches!(
+                worker.read(),
+                w::WorkerOut::Progress(w::Progress {
+                    phase: w::Phase::Paused,
+                    ..
+                })
+            ) {
+                break;
+            }
+        }
+    }
+    // Resume one large input; the three paused owners retain immediate Cancel.
+    workers[0].activity(2, false);
+    for worker in &mut workers[1..] {
+        worker.cancel();
+    }
+    for worker in &mut workers[1..] {
+        let at = Instant::now();
+        let terminal = loop {
+            if let w::WorkerOut::Done(d) = worker.read() {
+                break d;
+            }
+        };
+        assert_eq!(terminal.outcome, w::Outcome::Cancelled);
+        assert!(worker.child.wait().unwrap().success());
+        assert!(at.elapsed() < Duration::from_millis(500));
+        let mut metrics = String::new();
+        std::io::Read::read_to_string(&mut worker.child.stderr.take().unwrap(), &mut metrics)
+            .unwrap();
+        assert_memory_gate(&metrics);
+    }
+    let terminal = loop {
+        if let w::WorkerOut::Done(d) = workers[0].read() {
+            break d;
+        }
+    };
+    assert_eq!(terminal.outcome, w::Outcome::Completed, "{terminal:?}");
+    assert!(workers[0].child.wait().unwrap().success());
+    let mut metrics = String::new();
+    std::io::Read::read_to_string(&mut workers[0].child.stderr.take().unwrap(), &mut metrics)
+        .unwrap();
+    assert_memory_gate(&metrics);
+    eprintln!("four-child-large-input {metrics}");
+}
+
+#[test]
+fn cancel_after_retained_state_growth_reaps_with_paced_teardown() {
+    let job = Job::new(80, 16 * 1024, false, false);
+    let mut worker = job.launch();
+    worker.start(&job.start);
+    loop {
+        if let w::WorkerOut::Progress(p) = worker.read() {
+            if p.envelopes.0 >= 100 {
+                break;
+            }
+        }
+    }
+    let begin = Instant::now();
+    worker.cancel();
+    let done = loop {
+        if let w::WorkerOut::Done(d) = worker.read() {
+            break d;
+        }
+    };
+    assert_eq!(done.outcome, w::Outcome::Cancelled);
+    assert!(worker.child.wait().unwrap().success());
+    assert!(begin.elapsed() < Duration::from_millis(500));
+    let mut metrics = String::new();
+    std::io::Read::read_to_string(&mut worker.child.stderr.take().unwrap(), &mut metrics).unwrap();
+    assert_memory_gate(&metrics);
+    assert!(metric(&metrics, "storage_reserved_peak_bytes") > 1024 * 1024);
+    eprintln!("retained-cancel {metrics}");
 }

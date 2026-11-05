@@ -145,7 +145,8 @@ Credit and reuse policy: [ATTRIBUTION.md](ATTRIBUTION.md).
 ## Closed-source Dream C1 worker
 
 The provisioned sibling executable exposes `dream inspect-c1 --job-dir ABSOLUTE_DIR`.
-It emits a capability Hello before opening the job directory, then accepts one
+It dispatches before the shared async runtime and emits a capability Hello before
+opening the job directory, then accepts one
 matching Start over bounded JSONL pipes. The owner supplies a private 0700 job
 with 0600 snapshots at `input/<session>.jsonl`, referenced blobs at
 `input/<session>/blobs/<sha256>`, `input/manifest.json` committed last, and an
@@ -167,8 +168,17 @@ no discovery, task join, shared cache write or inference. Results are canonical
 bounded pages, published without replacement before result.json. The worker
 uses nice +10/utility scheduling, measured ≤1 ms CPU units separated by ≥9 ms
 waits, an independent control owner, foreground pause and a wall deadline.
-Resource overruns fail the run; diagnostics report measured heap and RSS
-separately. Done follows compute settlement and successful exit remains part of
+Resource overruns fail the run. Child declared working storage has atomic 78 MiB
+credits, acquired before controllable growth and held through transfer/drop;
+2 MiB controls and 16 MiB tested helper/startup allowance stay inside 96 MiB.
+JSON preflight bounds depth 32, members 4096/container and total 65536 values/keys.
+Old/new buffers, retained typed entries/payloads and serialization overlaps count.
+Hidden serde/BTree/regex/native overhead is measured; the ledger proves declared
+storage admission, not an absolute native allocator cap. Full observed child
+heap exceeding 96 MiB fails. Diagnostics separately label actual live/high-water
+heap, RSS, declared live/peak/cumulative credits and unmeasured native cumulative
+allocation. Cancel/error teardown also uses paced units. Done follows actual
+compute settlement and successful exit remains part of
 the consumer's completion check.
 
 Managed seats pass `--dream-owner term-c1`. This typed ownership setting preserves

@@ -758,3 +758,15 @@ assumptions = "Two selected source proofs, two work units, three monotonically i
 property = "No unit while foreground; Done follows real settlement; cancellation never starts new publication."
 checks = ["make test-formal", "make test"]
 additional_checks = ["make test-dream-c1"]
+
+[[contract]]
+name = "HarnessDreamC1Storage"
+title = "Dream C1 declared working-storage credits preserve control and settlement"
+models = ["HarnessDreamC1Storage", "BrokenHarnessDreamC1Storage"]
+controls = [{name="BrokenHarnessDreamC1Storage", expected="safety"}]
+sources = ["src/main.rs", "src/dream/c1.rs", "src/dream/c1_wire.rs", "src/dream/d0.rs", "src/dream/inspect.rs", "tests/formal/dream_c1.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/dream_c1.rs"]
+assumptions = "One transferred owner, one initial capacity and old/new growth overlap, four abstract work credits and two protected control credits; weak fairness of cancellation and paced settlement. Proves only declared requested-capacity accounting before growth and through drop. Actual child78MiB work/16MiB helper/2MiB control, bounded JSON/queues/threads, library/native allocations, startup, CPU/duty, pipes, all unsampled transient peaks and RSS are implementation-only process coverage. The helper allowance is tested engineering headroom, not a proven multiplier, allocator cap or arbitrary Rust/native memory proof. Four-job/root/account admission and parent22/8/2MiB credits are consumer-owned witnesses."
+property = "Declared capacities never exceed reserved work, old/new overlap is reserved before installation, work cannot borrow protected controls and settlement releases ownership."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-dream-c1"]

@@ -7,6 +7,9 @@
 
 #![allow(clippy::disallowed_methods)] // Startup, headless, and post-event-loop join only.
 fn main() {
+    if let Some(code) = bboxy450_harness::dream::c1::early_worker_entry() {
+        std::process::exit(code);
+    }
     let code = if std::env::args().nth(1).as_deref() == Some("gui") {
         gui()
     } else {

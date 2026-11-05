@@ -6882,6 +6882,8 @@ fn wp8_recall(mode: u8) -> Model {
 mod dream_c1;
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (dream_c1::storage(false), "pass"),
+        (dream_c1::storage(true), "safety"),
         (dream_c1::inspection(0), "pass"),
         (dream_c1::inspection(1), "safety"),
         (dream_c1::inspection(2), "safety"),

@@ -175,5 +175,6 @@ and the exact shared checker copies. These checks do not replace upstream terms.
 
 - Dream C1 wire authority, canonical schema/hash corpus and isolated inspection worker
   are project-owned implementations; keep this policy with extracted transport,
-  custody, scheduling and formal/process witnesses. The split normalization masks
+  custody, scheduling, declared storage-credit accounting and paced settlement
+  witnesses. The credit model does not certify opaque native allocation. The split normalization masks
   retain this project's original expression as an independent regression oracle.
