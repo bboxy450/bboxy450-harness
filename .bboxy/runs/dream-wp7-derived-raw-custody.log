@@ -1,0 +1,9 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized] target(s) in 9.73s
+     Running tests/dream_graph.rs (target/debug/deps/dream_graph-cbac22182543624d)
+
+running 1 test
+test derived_qualification_binds_closed_fork_call_leaves_and_current_fact ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.70s
+

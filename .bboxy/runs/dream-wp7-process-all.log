@@ -1,0 +1,59 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+warning: method `verifier_preflight` is never used
+   --> src/tools.rs:690:25
+    |
+668 | impl TrialCapability {
+    | -------------------- method in this implementation
+...
+690 |     pub(crate) async fn verifier_preflight(&self)->Result<bool,String> {
+    |                         ^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `bboxy450-harness` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized] target(s) in 21.29s
+     Running unittests src/lib.rs (target/debug/deps/bboxy450_harness-8edd1d2684df9122)
+
+running 15 tests
+test process::ownership_tests::automatic_sigchld_reaping_is_refused_before_spawn ... ok
+test process::ownership_tests::released_registration_does_not_clear_a_reused_slot ... ok
+test process::ownership_tests::reaped_group_drop_never_signals_a_reused_identity ... ok
+test process::spawn_admission_tests::closed_elapsed_result_beats_a_not_ready_caller_timer ... ok
+test process::spawn_admission_tests::result_observations_preserve_priority_cutoff_and_explicit_errors ... ok
+test process::settlement_tests::observed_early_io_error_retires_the_actual_same_owner ... ok
+test process::ownership_tests::echild_after_owned_reap_never_leaves_a_signal_target ... ok
+test process::settlement_tests::observed_never_polled_live_and_lost_ack_are_distinct ... ok
+test process::settlement_tests::observed_queued_refusal_does_not_wait_for_four_busy_permits ... ok
+test process::spawn_admission_tests::abandonment_during_admission_and_after_spawn_retains_reaping_owner ... FAILED
+test process::spawn_admission_tests::store_writer_release_during_owned_spawn_diagnostic ... FAILED
+test process::spawn_admission_tests::queued_cancel_drop_and_deadline_do_not_need_permit_service ... FAILED
+test process::spawn_admission_tests::unreceived_owned_result_and_normal_handoff_are_not_owner_loss ... ok
+test process::spawn_admission_tests::result_observation_hands_off_live_and_reaps_late_owned_packets ... ok
+test process::settlement_tests::observed_late_spawn_keeps_resources_while_an_independent_operation_finishes ... ok
+
+failures:
+
+---- process::spawn_admission_tests::abandonment_during_admission_and_after_spawn_retains_reaping_owner stdout ----
+
+thread 'process::spawn_admission_tests::abandonment_during_admission_and_after_spawn_retains_reaping_owner' (192650951) panicked at src/process.rs:1291:18:
+called `Result::unwrap()` on an `Err` value: Elapsed(())
+
+---- process::spawn_admission_tests::store_writer_release_during_owned_spawn_diagnostic stdout ----
+
+thread 'process::spawn_admission_tests::store_writer_release_during_owned_spawn_diagnostic' (192650961) panicked at src/process.rs:1406:14:
+called `Result::unwrap()` on an `Err` value: Elapsed(())
+
+---- process::spawn_admission_tests::queued_cancel_drop_and_deadline_do_not_need_permit_service stdout ----
+
+thread 'process::spawn_admission_tests::queued_cancel_drop_and_deadline_do_not_need_permit_service' (192650953) panicked at src/process.rs:1198:18:
+called `Result::unwrap()` on an `Err` value: Elapsed(())
+
+
+failures:
+    process::spawn_admission_tests::abandonment_during_admission_and_after_spawn_retains_reaping_owner
+    process::spawn_admission_tests::queued_cancel_drop_and_deadline_do_not_need_permit_service
+    process::spawn_admission_tests::store_writer_release_during_owned_spawn_diagnostic
+
+test result: FAILED. 12 passed; 3 failed; 0 ignored; 0 measured; 41 filtered out; finished in 3.05s
+
+error: test failed, to rerun pass `--lib`

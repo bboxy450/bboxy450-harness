@@ -1,0 +1,530 @@
+command: cargo test --lib tools:: && cargo test --lib process:: && cargo test --lib dream:: && cargo test --test dream_pipeline trial && cargo test --test policy_gate --test cancel_process --test store_fork --test store_recovery --test protocol_laws --test ir_v1_corpus --test dream_graph --test dream_audit_broken --test dream_trust --test dream_seal && make test-formal && make test-formal-parity && make check-formal-evidence
+source: fe1c4e89491d83a7b5c144fc994e0e1fcdefafb8
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized] target(s) in 15.61s
+     Running unittests src/lib.rs (target/debug/deps/bboxy450_harness-8edd1d2684df9122)
+
+running 3 tests
+test tools::trial_tests::trial_mcp_rebinding_cannot_widen_definitions_or_entry_point ... ok
+test tools::trial_tests::confined_registry_rejects_escapes_links_special_files_and_forged_allow ... ok
+test tools::trial_tests::confined_real_write_read_and_descriptor_substitution_preserve_external_bytes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 62 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.35s
+     Running unittests src/lib.rs (target/debug/deps/bboxy450_harness-8edd1d2684df9122)
+
+running 15 tests
+test process::ownership_tests::automatic_sigchld_reaping_is_refused_before_spawn ... ok
+test process::ownership_tests::released_registration_does_not_clear_a_reused_slot ... ok
+test process::ownership_tests::reaped_group_drop_never_signals_a_reused_identity ... ok
+test process::spawn_admission_tests::closed_elapsed_result_beats_a_not_ready_caller_timer ... ok
+test process::spawn_admission_tests::result_observations_preserve_priority_cutoff_and_explicit_errors ... ok
+test process::ownership_tests::echild_after_owned_reap_never_leaves_a_signal_target ... ok
+test process::settlement_tests::observed_early_io_error_retires_the_actual_same_owner ... ok
+test process::settlement_tests::observed_never_polled_live_and_lost_ack_are_distinct ... ok
+test process::settlement_tests::observed_queued_refusal_does_not_wait_for_four_busy_permits ... ok
+test process::spawn_admission_tests::queued_cancel_drop_and_deadline_do_not_need_permit_service ... ok
+test process::spawn_admission_tests::unreceived_owned_result_and_normal_handoff_are_not_owner_loss ... ok
+test process::spawn_admission_tests::abandonment_during_admission_and_after_spawn_retains_reaping_owner ... ok
+test process::spawn_admission_tests::result_observation_hands_off_live_and_reaps_late_owned_packets ... ok
+test process::spawn_admission_tests::store_writer_release_during_owned_spawn_diagnostic ... ok
+test process::settlement_tests::observed_late_spawn_keeps_resources_while_an_independent_operation_finishes ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 50 filtered out; finished in 0.08s
+
+    Finished `test` profile [unoptimized] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/bboxy450_harness-8edd1d2684df9122)
+
+running 13 tests
+test dream::resolve::tests::hashbrown_record_cache_bench ... ignored, explicit release-mode measurement, never a CI timing threshold
+test dream::fingerprint::tests::digest_is_the_exact_sha256_string_vector ... ok
+test dream::resolve::tests::record_cache_matches_all_fields_and_exact_option_identity ... ok
+test dream::join::tests::joins_require_task_tools_and_bounded_id_number_or_path_tokens ... ok
+test dream::trial::timing_tests::original_timing_absence_is_distinct_from_unavailable_or_legacy_units ... ok
+test dream::join::tests::verdicts_use_recorded_results_and_keep_exact_pins ... ok
+test dream::fingerprint::tests::normalization_masks_unstable_values_before_hashing ... ok
+test dream::d0::tests::inline_cpu_broken_control_is_rejected_by_the_actual_poll_budget ... ok
+test dream::trial::input_tests::inherited_input_uses_common_deny_without_rewriting_source_or_model_identity ... ok
+test dream::trial::timing_tests::original_timing_exact_milliseconds_strict_json_and_binding_controls ... ok
+test dream::resolve::tests::record_cache_random_seeds_preserve_canonical_observable_records ... ok
+test dream::resolve::tests::record_cache_collisions_resize_duplicates_and_clear ... ok
+test dream::trial::timing_tests::original_timing_reads_only_task_root_commit_regular_git_blob_never_tip ... ok
+
+test result: ok. 12 passed; 0 failed; 1 ignored; 0 measured; 52 filtered out; finished in 1.69s
+
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized] target(s) in 15.09s
+     Running tests/dream_pipeline.rs (target/debug/deps/dream_pipeline-474d8e9d45472881)
+
+running 11 tests
+test trial_original_eligibility_requires_observed_clean_revision_and_verify ... ok
+test trial_closure_and_every_possible_exposure_exclude_forks ... ok
+test trial_thresholds_exact_gain_controls_and_median ... ok
+test trial_selection_is_canonical_held_out_and_not_arrival_order ... ok
+test trial_usage_spend_and_unknowns_never_become_free_work ... ok
+test trial_prepare_declared_timing_failure_never_falls_back_to_eligible_absence ... ok
+test trial_real_turn_deadline_closes_owned_continuation_and_preserves_upstream ... ok
+test trial_real_complete_failure_rejects_only_its_harness_pair ... ok
+test trial_real_missing_usage_and_over_budget_are_not_zero_or_qualified ... ok
+test trial_real_busy_nonblocking_independent_entry_and_abandoned_result_closes ... ok
+test trial_real_enforced_twenty_arms_fork_usage_verifier_and_pair_projection ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 59.36s
+
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized] target(s) in 5.11s
+     Running tests/cancel_process.rs (target/debug/deps/cancel_process-02ec1881f8337c07)
+
+running 9 tests
+test process_admission_environment_child ... ignored, invoked as an owned private-environment process by the parent witness
+test expired_public_admission_preserves_cancel_priority_and_never_runs ... ok
+test process_admission_preserves_environment_exclusion_in_real_child ... ok
+test process_admission_public_queue_cancellation_and_deadline_are_observable ... ok
+test observed_capture_drop_preserves_upstream_and_joins_exact_child_before_cleanup ... ok
+test real_process_group_witness ... ok
+test cancel_kills_group_and_joins_before_ending ... ok
+test cancel_after_leader_exit_kills_the_remaining_member ... ok
+test escaped_pipe_holder_cannot_stall_a_cancelled_turn ... ok
+
+test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.17s
+
+     Running tests/dream_audit_broken.rs (target/debug/deps/dream_audit_broken-f65c886f318c1334)
+
+running 7 tests
+test matching_current_bytes_never_replace_missing_publication_history ... ok
+test incomplete_run_stays_unproven_and_real_cli_queries_are_read_only ... ok
+test every_retained_broken_case_exits_one_and_names_its_check ... ok
+test adoption_cannot_borrow_a_publication_from_another_session ... ok
+test reported_recall_requires_successful_publication_not_a_valid_skip ... ok
+test sufficient_retained_publication_run_idempotence_and_stale_exposure_accept ... ok
+test altered_and_duplicate_adoptions_cannot_piggyback_a_good_digest has been running for over 60 seconds
+test altered_and_duplicate_adoptions_cannot_piggyback_a_good_digest ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 111.53s
+
+     Running tests/dream_graph.rs (target/debug/deps/dream_graph-cbac22182543624d)
+
+running 9 tests
+test net_gain_keeps_failed_held_out_observations ... ok
+test numeric_pass_cannot_fill_missing_cost_duplicate_held_out_or_harm_controls ... ok
+test pair_terminal_reasons_survive_and_inconclusive_remains_tested ... ok
+test adoption_cannot_borrow_a_harness_revision_or_unknown_threshold ... ok
+test durable_union_rejects_conflicting_raw_identity_and_keeps_unknown_bytes ... ok
+test projection_ignores_clocks_order_duplicates_and_cross_harness_rejection ... ok
+test graph_refuses_invalid_weights_and_strength_is_only_a_read_projection ... ok
+test cross_root_links_match_whole_authorized_names_and_keep_external_edges ... ok
+test derived_qualification_binds_closed_fork_call_leaves_and_current_fact ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.69s
+
+     Running tests/dream_seal.rs (target/debug/deps/dream_seal-16b7caafa167decf)
+
+running 8 tests
+test owned_child_fixture ... ignored, private child process fixture, explicitly invoked by the process witness
+test registered_data_cannot_be_sealed_or_silently_redacted_into_different_pins ... ok
+test freeze_requires_observed_quiescence_and_completed_admissions ... ok
+test native_resource_shapes_bind_full_entries_and_fixed_adapter_bytes ... ok
+test real_delayed_child_is_unproven_and_broken_exception_exposes_aba ... ok
+test own_receipt_custody_is_atomic_noreplace_and_preserves_a_conflict ... ok
+test receipt_seal_constructs_without_self_hash_and_exact_suffix_roundtrips ... ok
+test retained_seal_cut_selection_and_outer_coverage_controls_reject ... ok
+
+test result: ok. 7 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 6.25s
+
+     Running tests/dream_trust.rs (target/debug/deps/dream_trust-9fb5bd2ecab17347)
+
+running 8 tests
+test deterministic_effect_trace_positive_and_negative_controls ... ok
+test pinned_real_producer_record_is_a_byte_vector_only ... ok
+test receipt_seal_constructs_without_self_hash ... ok
+test exact_v_rejects_byte_serialization_crypto_and_binding_controls ... ok
+test policy_rejects_unknown_schema_aliases_permissions_and_root_rebinding ... ok
+test receipt_header_body_roundtrip ... ok
+test independent_git_authority_and_rotation_are_ancestry_based ... ok
+test approved_artifact_binds_executable_capabilities_gate_and_accepted_task ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.91s
+
+     Running tests/ir_v1_corpus.rs (target/debug/deps/ir_v1_corpus-8854a8c4cb66fe4c)
+
+running 16 tests
+test dream_event_digest_pins_the_exact_retained_line_without_lf ... ok
+test agent_turn_fixture_renders_in_the_seat_and_reports_an_open_turn ... ok
+test adoption_receipt_is_an_optional_structural_digest_without_retroactive_requirements ... ok
+test incomplete_new_items_remain_readable_but_cannot_be_authored ... ok
+test dream_shapes_are_typed_durable_and_roundtrip ... ok
+test authored_dream_pins_and_harness_presence_are_structural_checks ... ok
+test receipt_fixture_has_typed_durable_carriers_and_exact_blob_pins ... ok
+test writer_rejects_nested_unknown_without_rejecting_opaque_text ... ok
+test trial_usage_unknown_is_checked_in_both_arms_and_controls ... ok
+test frozen_corpus_is_readable ... ok
+test receipt_readers_keep_incomplete_future_and_nested_unknowns_while_writers_refuse_them ... ok
+test dream_nested_unknowns_survive_readers_and_are_refused_by_writers ... ok
+test receipt_fork_refuses_a_missing_or_corrupt_referenced_blob ... ok
+test future_bytes_survive_open_unix_fork_and_headless ... ok
+test dream_corpus_smoke_open_replay_fork_and_headless_keep_bytes ... ok
+test receipt_envelope_and_blob_bytes_survive_store_fork_unix_and_headless ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+
+     Running tests/policy_gate.rs (target/debug/deps/policy_gate-e58d79368ef65047)
+
+running 5 tests
+test trial_policy_allows_only_supported_builtins_without_altering_yolo ... ok
+test unattended_denies_and_registry_declares_effects ... ok
+test first_resolution_wins_and_stale_is_rejected ... ok
+test old_turn_approval_cannot_resolve_the_current_turn ... ok
+test deny_star_never_executes_the_counting_tool ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/protocol_laws.rs (target/debug/deps/protocol_laws-46318e9b9302a9cb)
+
+running 3 tests
+test queued_cancellation_does_not_authorize_reducing_a_running_turn ... ok
+test durable_identity_and_live_completion_rules_are_specific ... ok
+test rejects_double_end_gap_unpaired_and_kind_change ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/store_fork.rs (target/debug/deps/store_fork-e29eff39e717496a)
+
+running 5 tests
+test queued_trial_frontier_is_not_a_public_fork_permission ... ok
+test corrupt_parent_blob_never_publishes_a_child_log ... ok
+test fork_while_parent_appends_copies_exactly_the_fixed_prefix ... ok
+test fork_is_self_contained_and_builds_the_same_first_request ... ok
+test invalid_fork_points_are_refused_without_a_child_log ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/store_recovery.rs (target/debug/deps/store_recovery-a1e3051ce302c59c)
+
+running 4 tests
+test incomplete_line_single_writer_and_read_only_close ... ok
+test trusted_head_cursors_survive_reassigned_sequences ... ok
+test killed_harness_recovers_the_original_tool_identity ... ok
+test every_truncation_recovers_innermost_and_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+
+FORMAL_OUT='/Users/feral/mydev/bboxy450-harness-dream-wp4/target/formal/models' cargo test --offline --locked --test formal_models --test formal_nonvacuity --test reactor_projection
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized] target(s) in 1.15s
+     Running tests/formal_models.rs (target/debug/deps/formal_models-67ca2001eccb035e)
+
+running 4 tests
+test models::embed_stop_control_reaches_a_stale_a_to_b_to_a_delivery ... ok
+test models::acp_agent_idle_quiet_and_queue_states_are_reachable_and_the_control_is_rejected ... ok
+test models::launch_controls_reach_named_forwarding_and_generation_failures ... ok
+test native_contracts_and_broken_controls ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.78s
+
+     Running tests/formal_nonvacuity.rs (target/debug/deps/formal_nonvacuity-40e07e75f22d0fce)
+
+running 39 tests
+test cancellation_tag_changes_and_removing_the_fence_exposes_a_stale_apply ... ok
+test acked_steer_reaches_both_exactly_once_routes ... ok
+test admission_result_observations_reach_the_closed_elapsed_not_ready_counterexample ... ok
+test agent_path_controls_witness_duplicate_probe_missing_deadline_and_child_env ... ok
+test acp_engine_emit_stays_enabled_with_a_full_writer ... ok
+test capability_bootstrap_covers_valid_and_degraded_faces_and_legacy_read_leaks ... ok
+test dream_seal_freeze_and_both_broken_controls_are_nonvacuous ... ok
+test dream_native_custody_never_pins_staging_and_reuses_complete_survivors ... ok
+test automatic_compaction_controls_violate_the_named_contracts ... ok
+test four_view_budget_defers_a_real_tail_and_the_missing_guard_exceeds_the_share ... ok
+test idle_status_reaches_durable_only_consumers_without_claiming_progress ... ok
+test leader_exit_is_not_group_exit_and_both_ownership_controls_are_real ... ok
+test models::embed_stop_control_reaches_a_stale_a_to_b_to_a_delivery ... ok
+test mcp_close_joins_members_even_when_term_is_ignored ... ok
+test acp_fifo_and_paused_writer_are_reachable_and_the_controls_are_real ... ok
+test native_import_controls_expose_duplicate_accounting_and_references_before_blobs ... ok
+test process_spawn_admission_reaches_queue_races_handoff_and_owned_cleanup ... ok
+test models::acp_agent_idle_quiet_and_queue_states_are_reachable_and_the_control_is_rejected ... ok
+test mcp_controls_reach_aba_deadlock_and_silent_inflight ... ok
+test reap_identity_is_retired_and_both_mcp_notifications_complete ... ok
+test shutdown_watch_covers_a_late_fork_and_output_blocked_physical_eof ... ok
+test socket_delivery_controls_duplicate_effect_and_retarget_across_session_births ... ok
+test stale_socket_intent_control_keeps_a_real_pending_owner_and_breaks_retirement ... ok
+test socket_lifecycle_controls_reach_restart_aba_cancel_duplicate_and_detach ... ok
+test store_writer_lease_has_real_error_abandonment_clone_and_replacement_witnesses ... ok
+test subscriber_model_can_lose_an_entire_epoch_and_rejects_both_old_rules ... ok
+test synchronous_hangup_kill_precedes_the_supervisors_unjoinable_exit ... ok
+test control_producers_conserve_slots_and_consumers_return_them ... ok
+test models::launch_controls_reach_named_forwarding_and_generation_failures ... ok
+test trial_claims_allow_independent_busy_and_hold_owned_cleanup ... ok
+test trial_queued_frontier_recovers_and_reopens_before_fresh_identity ... ok
+test trial_new_boundaries_have_positive_states_and_decisive_controls ... ok
+test seat_probes_and_stubborn_acp_agents_have_nonvacuous_controls ... ok
+test dream_d0_claim_union_crash_and_detached_caller_are_reachable ... ok
+test provider_controls_reach_retry_after_output_wrong_finish_and_double_ending ... ok
+test trial_outcomes_reach_uncertain_wrong_pair_late_terminal_and_real_completion ... ok
+test dream_sink_preserves_check_publish_races_and_labels_foreign_edits ... ok
+test dream_merge_explores_both_orders_and_independent_harnesses ... ok
+test dream_lifecycle_reaches_independent_harnesses_crash_and_revival ... ok
+
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.37s
+
+     Running tests/reactor_projection.rs (target/debug/deps/reactor_projection-298613e904c0e376)
+
+running 1 test
+test every_readiness_mask_matches_shared_projection ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+python3 -I scripts/formal.py --native --target '/Users/feral/mydev/bboxy450-harness-dream-wp4/target/formal'
+formal: native 175 models; 1 crates inventoried
+FORMAL_OUT='/Users/feral/mydev/bboxy450-harness-dream-wp4/target/formal/models' cargo test --offline --locked --test formal_models --test formal_nonvacuity --test reactor_projection
+    Finished `test` profile [unoptimized] target(s) in 0.12s
+     Running tests/formal_models.rs (target/debug/deps/formal_models-67ca2001eccb035e)
+
+running 4 tests
+test models::embed_stop_control_reaches_a_stale_a_to_b_to_a_delivery ... ok
+test models::acp_agent_idle_quiet_and_queue_states_are_reachable_and_the_control_is_rejected ... ok
+test models::launch_controls_reach_named_forwarding_and_generation_failures ... ok
+test native_contracts_and_broken_controls ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.67s
+
+     Running tests/formal_nonvacuity.rs (target/debug/deps/formal_nonvacuity-40e07e75f22d0fce)
+
+running 39 tests
+test cancellation_tag_changes_and_removing_the_fence_exposes_a_stale_apply ... ok
+test acked_steer_reaches_both_exactly_once_routes ... ok
+test admission_result_observations_reach_the_closed_elapsed_not_ready_counterexample ... ok
+test agent_path_controls_witness_duplicate_probe_missing_deadline_and_child_env ... ok
+test dream_native_custody_never_pins_staging_and_reuses_complete_survivors ... ok
+test acp_engine_emit_stays_enabled_with_a_full_writer ... ok
+test dream_seal_freeze_and_both_broken_controls_are_nonvacuous ... ok
+test capability_bootstrap_covers_valid_and_degraded_faces_and_legacy_read_leaks ... ok
+test automatic_compaction_controls_violate_the_named_contracts ... ok
+test four_view_budget_defers_a_real_tail_and_the_missing_guard_exceeds_the_share ... ok
+test idle_status_reaches_durable_only_consumers_without_claiming_progress ... ok
+test mcp_close_joins_members_even_when_term_is_ignored ... ok
+test models::embed_stop_control_reaches_a_stale_a_to_b_to_a_delivery ... ok
+test leader_exit_is_not_group_exit_and_both_ownership_controls_are_real ... ok
+test acp_fifo_and_paused_writer_are_reachable_and_the_controls_are_real ... ok
+test models::acp_agent_idle_quiet_and_queue_states_are_reachable_and_the_control_is_rejected ... ok
+test process_spawn_admission_reaches_queue_races_handoff_and_owned_cleanup ... ok
+test native_import_controls_expose_duplicate_accounting_and_references_before_blobs ... ok
+test mcp_controls_reach_aba_deadlock_and_silent_inflight ... ok
+test reap_identity_is_retired_and_both_mcp_notifications_complete ... ok
+test shutdown_watch_covers_a_late_fork_and_output_blocked_physical_eof ... ok
+test socket_delivery_controls_duplicate_effect_and_retarget_across_session_births ... ok
+test stale_socket_intent_control_keeps_a_real_pending_owner_and_breaks_retirement ... ok
+test socket_lifecycle_controls_reach_restart_aba_cancel_duplicate_and_detach ... ok
+test store_writer_lease_has_real_error_abandonment_clone_and_replacement_witnesses ... ok
+test subscriber_model_can_lose_an_entire_epoch_and_rejects_both_old_rules ... ok
+test synchronous_hangup_kill_precedes_the_supervisors_unjoinable_exit ... ok
+test models::launch_controls_reach_named_forwarding_and_generation_failures ... ok
+test trial_claims_allow_independent_busy_and_hold_owned_cleanup ... ok
+test control_producers_conserve_slots_and_consumers_return_them ... ok
+test trial_queued_frontier_recovers_and_reopens_before_fresh_identity ... ok
+test trial_new_boundaries_have_positive_states_and_decisive_controls ... ok
+test seat_probes_and_stubborn_acp_agents_have_nonvacuous_controls ... ok
+test dream_d0_claim_union_crash_and_detached_caller_are_reachable ... ok
+test provider_controls_reach_retry_after_output_wrong_finish_and_double_ending ... ok
+test trial_outcomes_reach_uncertain_wrong_pair_late_terminal_and_real_completion ... ok
+test dream_sink_preserves_check_publish_races_and_labels_foreign_edits ... ok
+test dream_merge_explores_both_orders_and_independent_harnesses ... ok
+test dream_lifecycle_reaches_independent_harnesses_crash_and_revival ... ok
+
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.40s
+
+     Running tests/reactor_projection.rs (target/debug/deps/reactor_projection-298613e904c0e376)
+
+running 1 test
+test every_readiness_mask_matches_shared_projection ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+python3 -I scripts/formal.py --native --target '/Users/feral/mydev/bboxy450-harness-dream-wp4/target/formal'
+formal: native 175 models; 1 crates inventoried
+python3 -I scripts/test-formal.py
+........
+----------------------------------------------------------------------
+Ran 8 tests in 0.055s
+
+OK
+python3 -I scripts/formal.py --target '/Users/feral/mydev/bboxy450-harness-dream-wp4/target/formal'
+formal: BrokenHarnessDreamTrialFrontierEarly: safety, 98 states, 107 edges match
+formal: BrokenHarnessDreamTrialFrontierBytes: safety, 95 states, 104 edges match
+formal: BrokenHarnessDreamTrialFrontierActive: safety, 123 states, 134 edges match
+formal: HarnessDreamTrialFrontier: pass, 95 states, 104 edges match
+formal: BrokenHarnessDreamTrialFrontierDuplicate: safety, 116 states, 131 edges match
+formal: BrokenHarnessDreamTrialFrontierInherited: safety, 134 states, 166 edges match
+formal: HarnessDreamTrialCapability: pass, 123 states, 242 edges match
+formal: BrokenHarnessDreamTrialCapabilityReopen: safety, 123 states, 242 edges match
+formal: BrokenHarnessDreamTrialCapabilityPermit: safety, 225 states, 425 edges match
+formal: BrokenHarnessDreamTrialCapabilityExec: safety, 131 states, 242 edges match
+formal: HarnessDreamTrialUsage: pass, 22 states, 22 edges match
+formal: BrokenHarnessDreamTrialUsageJoin: safety, 28 states, 30 edges match
+formal: BrokenHarnessDreamTrialUsageBlind: safety, 41 states, 41 edges match
+formal: BrokenHarnessDreamTrialUsageBasis: safety, 28 states, 30 edges match
+formal: HarnessDreamTrialSettlement: pass, 72 states, 156 edges match
+formal: BrokenHarnessDreamTrialSettlementErr: safety, 96 states, 260 edges match
+formal: BrokenHarnessDreamTrialSettlementLate: safety, 116 states, 270 edges match
+formal: BrokenHarnessDreamTrialSettlementChannel: safety, 112 states, 312 edges match
+formal: BrokenHarnessDreamTrialClaimsGlobal: safety, 273 states, 630 edges match
+formal: HarnessDreamTrialClaims: pass, 529 states, 2070 edges match
+formal: BrokenHarnessDreamTrialClaimsEarlyRelease: safety, 841 states, 2958 edges match
+formal: HarnessDreamTrialOutcome: pass, 9546 states, 50423 edges match
+formal: BrokenHarnessDreamTrialOutcomeIsolation: safety, 9549 states, 50428 edges match
+formal: BrokenHarnessDreamTrialOutcomeHarness: safety, 9549 states, 50427 edges match
+formal: BrokenHarnessDreamTrialOutcomeTerminal: safety, 9546 states, 50425 edges match
+formal: BrokenHarnessDreamTrialOutcomeUsage: safety, 9552 states, 50431 edges match
+formal: BrokenHarnessDreamTrialOutcomeEntry: safety, 9549 states, 50427 edges match
+formal: BrokenHarnessDreamTrialOutcomeCleanup: safety, 9549 states, 50427 edges match
+formal: HarnessProcessAdmissionResult: pass, 50 states, 76 edges match
+formal: BrokenHarnessProcessAdmissionResult: safety, 50 states, 76 edges match
+formal: HarnessDreamSeal: pass, 35 states, 61 edges match
+formal: BrokenHarnessDreamSealLateWrite: safety, 50 states, 101 edges match
+formal: BrokenHarnessDreamSealChild: safety, 59 states, 100 edges match
+formal: HarnessDreamNativeCustody: pass, 412 states, 1541 edges match
+formal: BrokenHarnessDreamNativeCustody: safety, 804 states, 3158 edges match
+formal: BrokenHarnessDreamD0: safety, 3381 states, 12186 edges match
+formal: HarnessDreamD0: pass, 3381 states, 12186 edges match
+formal: BrokenHarnessDreamD0Blocking: liveness, 3069 states, 11126 edges match
+formal: BrokenHarnessDreamSink: safety, 20892 states, 79814 edges match
+formal: HarnessDreamSink: pass, 18474 states, 70440 edges match
+formal: BrokenHarnessDreamSinkLoad: safety, 24666 states, 92953 edges match
+formal: BrokenHarnessDreamSinkAdoption: safety, 57999 states, 237073 edges match
+formal: HarnessDreamLifecycle: pass, 23235 states, 120154 edges match
+formal: BrokenHarnessDreamLifecycleFence: safety, 46617 states, 235840 edges match
+formal: BrokenHarnessDreamLifecycle: safety, 83715 states, 431512 edges match
+formal: BrokenHarnessDreamLifecyclePair: safety, 52623 states, 266956 edges match
+formal: HarnessSocketHeartbeat: pass, 66 states, 132 edges match
+formal: BrokenHarnessSocketHeartbeat: safety, 66 states, 132 edges match
+formal: HarnessFourViewBudget: pass, 31 states, 62 edges match
+formal: BrokenHarnessDreamMerge: safety, 43750 states, 256500 edges match
+formal: BrokenHarnessFourViewBudgetTail: safety, 32 states, 64 edges match
+formal: HarnessSocketLifecycle: pass, 477 states, 1914 edges match
+formal: BrokenHarnessSocketLifecycleStale: safety, 582 states, 2349 edges match
+formal: HarnessDreamMerge: pass, 39400 states, 239100 edges match
+formal: BrokenHarnessSocketLifecycleDuplicate: safety, 624 states, 2476 edges match
+formal: BrokenHarnessSocketLifecycleCancelled: safety, 624 states, 2476 edges match
+formal: BrokenHarnessSocketLifecycleDetach: safety, 643 states, 2449 edges match
+formal: BrokenHarnessSocketLifecycleStalePending: liveness, 495 states, 1998 edges match
+formal: HarnessSocketDelivery: pass, 69 states, 111 edges match
+formal: BrokenHarnessSocketDeliveryFreshId: safety, 78 states, 118 edges match
+formal: BrokenHarnessSocketDeliveryRetarget: safety, 105 states, 153 edges match
+formal: HarnessAgentPath: pass, 23 states, 38 edges match
+formal: BrokenHarnessAgentPathDuplicateProbe: safety, 32 states, 50 edges match
+formal: BrokenHarnessDreamMergeHarness: safety, 39400 states, 239100 edges match
+formal: BrokenHarnessAgentPathNoDeadline: liveness, 23 states, 35 edges match
+formal: BrokenHarnessAgentPathChildEnv: safety, 23 states, 38 edges match
+formal: HarnessGuiMarkdownBudget: pass, 1184 states, 2586 edges match
+formal: BrokenHarnessGuiMarkdownQuadratic: safety, 1348 states, 2916 edges match
+formal: BrokenHarnessGuiMarkdownHiddenTail: safety, 968 states, 1895 edges match
+formal: BrokenHarnessGuiMarkdownSuppressedRender: liveness, 1162 states, 2410 edges match
+formal: HarnessGuiApprovalChoice: pass, 14 states, 22 edges match
+formal: BrokenHarnessGuiApprovalChoice: safety, 17 states, 33 edges match
+formal: HarnessSeatReport: pass, 984 states, 7880 edges match
+formal: BrokenHarnessSeatReportState: safety, 984 states, 7880 edges match
+formal: BrokenHarnessSeatReportProbe: safety, 1968 states, 15760 edges match
+formal: BrokenHarnessSeatReportHeartbeat: safety, 732 states, 5648 edges match
+formal: BrokenHarnessSeatReportPhase: safety, 1560 states, 12440 edges match
+formal: BrokenHarnessSeatReportChild: safety, 1368 states, 10920 edges match
+formal: BrokenHarnessAcpAgentGrace: safety, 1031 states, 2374 edges match
+formal: BrokenHarnessAcpAgentIdleCancel: safety, 1043 states, 2196 edges match
+formal: HarnessTurnLifecycle: pass, 504 states, 2592 edges match
+formal: HarnessCancelTree: pass, 36 states, 54 edges match
+formal: HarnessTurnLifecyclePairing: pass, 504 states, 2592 edges match
+formal: HarnessCancelTreeGroup: pass, 36 states, 54 edges match
+formal: HarnessSteerQueue: pass, 15 states, 22 edges match
+formal: HarnessApprovalLifecycle: pass, 13 states, 28 edges match
+formal: HarnessApprovalUnattended: pass, 6 states, 13 edges match
+formal: HarnessControlLaneBound: pass, 8580 states, 42376 edges match
+formal: HarnessSubscriberReplay: pass, 166 states, 180 edges match
+formal: HarnessSubscriberReplayDrop: pass, 19 states, 22 edges match
+formal: HarnessSubscriberReplayHealthy: pass, 10 states, 12 edges match
+formal: HarnessStreamToView: pass, 20 states, 40 edges match
+formal: HarnessDirtyWakeFrame: pass, 152 states, 333 edges match
+formal: HarnessScrollStick: pass, 12 states, 22 edges match
+formal: HarnessNativeUsage: pass, 68 states, 207 edges match
+formal: HarnessAcpAgentTurn: pass, 1253 states, 2596 edges match
+formal: HarnessNativeSpill: pass, 7 states, 6 edges match
+formal: HarnessFoldedCard: pass, 9 states, 14 edges match
+formal: HarnessEmbedLifecycle: pass, 74 states, 124 edges match
+formal: HarnessProfileLoad: pass, 51 states, 81 edges match
+formal: HarnessForkMaterialize: pass, 10 states, 21 edges match
+formal: HarnessTextZoom: pass, 144 states, 596 edges match
+formal: BrokenHarnessTurnLifecycle: safety, 738 states, 3708 edges match
+formal: BrokenHarnessCancelTree: safety, 66 states, 96 edges match
+formal: BrokenHarnessTurnLifecyclePairing: safety, 712 states, 3272 edges match
+formal: BrokenHarnessCancelTreeGroup: safety, 36 states, 54 edges match
+formal: BrokenHarnessSteerQueue: liveness, 5 states, 4 edges match
+formal: BrokenHarnessApprovalLifecycle: safety, 15 states, 32 edges match
+formal: BrokenHarnessApprovalUnattended: liveness, 3 states, 5 edges match
+formal: BrokenHarnessControlLaneBound: safety, 8708 states, 42504 edges match
+formal: BrokenHarnessSubscriberReplay: safety, 44 states, 46 edges match
+formal: BrokenHarnessSubscriberReplayDrop: safety, 20 states, 31 edges match
+formal: BrokenHarnessSubscriberReplayHealthy: liveness, 4 states, 3 edges match
+formal: BrokenHarnessStreamToView: safety, 21 states, 42 edges match
+formal: BrokenHarnessDirtyWakeFrame: safety, 176 states, 362 edges match
+formal: BrokenHarnessScrollStick: safety, 14 states, 27 edges match
+formal: BrokenHarnessAcpAgentTurn: safety, 1365 states, 3130 edges match
+formal: BrokenHarnessNativeUsage: safety, 204 states, 509 edges match
+formal: BrokenHarnessNativeSpill: safety, 8 states, 7 edges match
+formal: BrokenHarnessFoldedCard: safety, 12 states, 18 edges match
+formal: BrokenHarnessEmbedLifecycle: safety, 83 states, 146 edges match
+formal: BrokenHarnessProfileLoad: safety, 60 states, 90 edges match
+formal: BrokenHarnessForkMaterialize: safety, 16 states, 42 edges match
+formal: BrokenHarnessTextZoom: safety, 180 states, 752 edges match
+formal: HarnessAutoCompact: pass, 320 states, 908 edges match
+formal: HarnessMcpServer: pass, 534 states, 1701 edges match
+formal: BrokenHarnessAutoCompactA: safety, 256 states, 744 edges match
+formal: BrokenHarnessMcpServerA: deadlock, 510 states, 1559 edges match
+formal: BrokenHarnessAutoCompactB: safety, 700 states, 2152 edges match
+formal: BrokenHarnessMcpServerB: safety, 606 states, 1941 edges match
+formal: BrokenHarnessAutoCompactC: liveness, 280 states, 740 edges match
+formal: BrokenHarnessMcpServerC: liveness, 450 states, 1281 edges match
+formal: BrokenHarnessAutoCompactD: safety, 628 states, 1854 edges match
+formal: BrokenHarnessMcpServerD: safety, 534 states, 1701 edges match
+formal: BrokenHarnessMcpServerE: safety, 534 states, 1701 edges match
+formal: HarnessAcpFlow: pass, 1148 states, 2290 edges match
+formal: BrokenHarnessAcpFlowA: safety, 1484 states, 2915 edges match
+formal: BrokenHarnessAcpFlowB: safety, 1296 states, 2586 edges match
+formal: BrokenHarnessAcpFlowC: safety, 1148 states, 2274 edges match
+formal: HarnessMcpGroupClose: pass, 26 states, 47 edges match
+formal: BrokenHarnessMcpGroupClose: safety, 34 states, 55 edges match
+formal: BrokenHarnessSteerQueueDelivery: safety, 18 states, 27 edges match
+formal: HarnessSubscriberReplayRegistration: pass, 19 states, 22 edges match
+formal: BrokenHarnessSubscriberReplayRegistration: safety, 16 states, 21 edges match
+formal: BrokenHarnessSubscriberReplayEpochReuse: safety, 118 states, 122 edges match
+formal: HarnessStoreWriterLease: pass, 632 states, 1387 edges match
+formal: BrokenHarnessStoreWriterLeaseMissing: safety, 482 states, 987 edges match
+formal: BrokenHarnessStoreWriterLeasePremature: safety, 1292 states, 3219 edges match
+formal: BrokenHarnessStoreWriterLeaseStale: safety, 732 states, 1647 edges match
+formal: HarnessProcessSpawnAdmission: pass, 73 states, 205 edges match
+formal: BrokenHarnessProcessSpawnAdmissionLate: safety, 118 states, 331 edges match
+formal: BrokenHarnessProcessSpawnAdmissionOwner: safety, 81 states, 219 edges match
+formal: HarnessProcessLifecycle: pass, 35 states, 65 edges match
+formal: BrokenHarnessProcessDrain: liveness, 23 states, 45 edges match
+formal: BrokenHarnessProcessOwnership: safety, 46 states, 92 edges match
+formal: BrokenHarnessProcessReapedMembers: safety, 56 states, 107 edges match
+formal: BrokenHarnessProcessHangup: safety, 45 states, 82 edges match
+formal: BrokenHarnessProcessReapLease: safety, 46 states, 92 edges match
+formal: HarnessSeatShutdown: pass, 154 states, 216 edges match
+formal: BrokenHarnessSeatShutdownSingleKill: safety, 130 states, 168 edges match
+formal: BrokenHarnessSeatShutdownBlockedOutput: safety, 130 states, 172 edges match
+formal: BrokenHarnessMcpLostChild: safety, 23 states, 39 edges match
+formal: HarnessProviderStream: pass, 2150 states, 4275 edges match
+formal: BrokenHarnessProviderRetry: safety, 2330 states, 4743 edges match
+formal: BrokenHarnessProviderFinish: safety, 2150 states, 4275 edges match
+formal: BrokenHarnessProviderEnding: safety, 7131 states, 12244 edges match
+formal: BrokenHarnessNativeUsageScopes: safety, 68 states, 207 edges match
+formal: HarnessLaunchContext: pass, 1809 states, 6114 edges match
+formal: BrokenHarnessLaunchContextPrompt: safety, 1953 states, 6426 edges match
+formal: BrokenHarnessLaunchContextMcp: safety, 1953 states, 6426 edges match
+formal: BrokenHarnessLaunchContextStale: safety, 2097 states, 6786 edges match
+formal: BrokenHarnessLaunchContextDeadline: liveness, 1809 states, 5970 edges match
+formal: BrokenHarnessLaunchContextSynthetic: safety, 1809 states, 6114 edges match
+formal: HarnessTurnLoop: pass, 208 states, 575 edges match
+formal: BrokenHarnessLaunchContextApproval: safety, 1809 states, 6114 edges match
+formal: receipt {"checkout": "/Users/feral/mydev/bboxy450-harness-dream-wp4", "contracts": 54, "crates": 1, "dirty": false, "evidence": "/Users/feral/mydev/bboxy450-harness-dream-wp4/verification/evidence/d46da3c309ef9bf4c3584f6a99728dd6b280f2a6f3946f7de073f62f77820ee9/evidence.json", "evidence_sha256": "d46da3c309ef9bf4c3584f6a99728dd6b280f2a6f3946f7de073f62f77820ee9", "models": 175, "source": "fe1c4e89491d83a7b5c144fc994e0e1fcdefafb8"}
+formal: 175 models; 1 crates inventoried; native/TLC parity held
+python3 -I scripts/formal.py --target '/Users/feral/mydev/bboxy450-harness-dream-wp4/target/formal' --verify-evidence
+formal: receipt {"checkout": "/Users/feral/mydev/bboxy450-harness-dream-wp4", "contracts": 54, "crates": 1, "dirty": false, "evidence": "/Users/feral/mydev/bboxy450-harness-dream-wp4/target/formal/evidence.json", "evidence_sha256": "d46da3c309ef9bf4c3584f6a99728dd6b280f2a6f3946f7de073f62f77820ee9", "models": 175, "source": "fe1c4e89491d83a7b5c144fc994e0e1fcdefafb8"}

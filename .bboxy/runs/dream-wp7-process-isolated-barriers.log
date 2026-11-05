@@ -1,0 +1,23 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized] target(s) in 9.60s
+     Running unittests src/lib.rs (target/debug/deps/bboxy450_harness-8edd1d2684df9122)
+
+running 15 tests
+test process::ownership_tests::released_registration_does_not_clear_a_reused_slot ... ok
+test process::ownership_tests::automatic_sigchld_reaping_is_refused_before_spawn ... ok
+test process::ownership_tests::reaped_group_drop_never_signals_a_reused_identity ... ok
+test process::spawn_admission_tests::closed_elapsed_result_beats_a_not_ready_caller_timer ... ok
+test process::spawn_admission_tests::result_observations_preserve_priority_cutoff_and_explicit_errors ... ok
+test process::ownership_tests::echild_after_owned_reap_never_leaves_a_signal_target ... ok
+test process::settlement_tests::observed_early_io_error_retires_the_actual_same_owner ... ok
+test process::settlement_tests::observed_never_polled_live_and_lost_ack_are_distinct ... ok
+test process::settlement_tests::observed_queued_refusal_does_not_wait_for_four_busy_permits ... ok
+test process::spawn_admission_tests::queued_cancel_drop_and_deadline_do_not_need_permit_service ... ok
+test process::spawn_admission_tests::unreceived_owned_result_and_normal_handoff_are_not_owner_loss ... ok
+test process::spawn_admission_tests::abandonment_during_admission_and_after_spawn_retains_reaping_owner ... ok
+test process::spawn_admission_tests::result_observation_hands_off_live_and_reaps_late_owned_packets ... ok
+test process::spawn_admission_tests::store_writer_release_during_owned_spawn_diagnostic ... ok
+test process::settlement_tests::observed_late_spawn_keeps_resources_while_an_independent_operation_finishes ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 41 filtered out; finished in 0.08s
+

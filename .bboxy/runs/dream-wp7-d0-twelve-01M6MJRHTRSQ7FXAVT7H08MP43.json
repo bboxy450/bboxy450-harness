@@ -1,0 +1,13 @@
+{
+  "verify_label": "dream-wp7-d0-bounded-focused",
+  "normal_source_logs": 12,
+  "episodes": 12,
+  "guarded_max_poll_cpu_ns": [
+    165041,
+    224458
+  ],
+  "pins_and_episode_values_equal": true,
+  "cache_bytes_equal": true,
+  "source_bytes_equal": true,
+  "episode_digest": "sha256:7987c37cb012219ed53c934b1ce7225e24377b0eb4dbf1aab0bed09e44261a78"
+}

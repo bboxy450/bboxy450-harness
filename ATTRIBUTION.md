@@ -167,3 +167,8 @@ Copied from bboxy450-term, with original source notices retained:
 
 The accompanying `licensing.json` records source scope, preserved-file hashes
 and the exact shared checker copies. These checks do not replace upstream terms.
+- **Built on hashbrown 0.17.1** (https://github.com/rust-lang/hashbrown),
+  used through its safe `HashTable` API for the private provenance record cache
+  in `src/dream/resolve.rs`. Upstream is licensed **MIT OR Apache-2.0**;
+  this is dependency/API use, with no copied upstream implementation. Its own
+  origin and license notices retain their original terms.

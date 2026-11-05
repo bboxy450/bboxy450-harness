@@ -42,20 +42,40 @@ fn strings(value: &mut Value) -> Vec<&mut String> {
 pub(super) async fn append(store: &mut Store, event: Event, at: u64) -> io::Result<Envelope> {
     append_projected(store, event, None, at, None, Default::default()).await
 }
-pub(crate) async fn append_projected(
-    store: &mut Store,
+struct Payload {
+    raw: Vec<u8>,
+    redacted: Vec<u8>,
+    reference: BlobRef,
+}
+struct Prepared {
+    event: Event,
+    ext: std::collections::BTreeMap<String, Value>,
+    payloads: Vec<Payload>,
+}
+fn prepare(
     mut event: Event,
-    cause: Option<OpId>,
-    at: u64,
-    native: Option<Native>,
     mut ext: std::collections::BTreeMap<String, Value>,
-) -> io::Result<Envelope> {
-    // Redact before cutting: a secret crossing the preview boundary must not leak a prefix.
-    event = store
-        .blobs
-        .redactor
-        .sanitize(&event)
-        .map_err(io::Error::other)?;
+    set: crate::redact::Set,
+) -> io::Result<Prepared> {
+    use sha2::{Digest, Sha256};
+    crate::runtime::assert_off_rt_worker();
+    let mut payloads = Vec::new();
+    let mut put = |raw: Vec<u8>, mime: &str| {
+        let redacted = set.bytes(&raw);
+        let reference = BlobRef {
+            sha256: format!("{:x}", Sha256::digest(&redacted)),
+            len: redacted.len() as u64,
+            mime: mime.into(),
+        };
+        payloads.push(Payload {
+            raw,
+            redacted,
+            reference: reference.clone(),
+        });
+        reference
+    };
+    // Same redaction/cut/preview order as the shared ordinary import path.
+    event = set.sanitize(&event).map_err(io::Error::other)?;
     if let Event::ItemCompleted {
         body: Item::Native { raw, blob, .. },
         ..
@@ -63,16 +83,16 @@ pub(crate) async fn append_projected(
     {
         let bytes = serde_json::to_vec(raw)?;
         if bytes.len() > 64 * 1024 {
-            let reference = store.blobs.put(bytes.clone(), "application/json").await?;
+            let reference = put(bytes.clone(), "application/json");
             *raw = json_preview(&bytes);
             *blob = Some(reference);
         }
     }
     for value in ext.values_mut() {
-        *value = store.blobs.redactor.value(value.clone());
+        *value = set.value(value.clone());
         let bytes = serde_json::to_vec(value)?;
         if bytes.len() > 64 * 1024 {
-            let blob = store.blobs.put(bytes.clone(), "application/json").await?;
+            let blob = put(bytes.clone(), "application/json");
             *value = serde_json::json!({"$blob":blob,"$preview":json_preview(&bytes)});
         }
     }
@@ -83,15 +103,10 @@ pub(crate) async fn append_projected(
         && let [OutputBlock::Text { text } | OutputBlock::Error { text }] = output.as_mut_slice()
         && oversized(text)
     {
-        let blob = store
-            .blobs
-            .put(text.as_bytes().to_vec(), "text/plain")
-            .await?;
+        let blob = put(text.as_bytes().to_vec(), "text/plain");
         *text = preview(text, &blob);
         *spill = Some(blob);
     }
-    // User/assistant/reasoning text and tool input have no typed spill slot in v0.4.
-    // Preserve exact text in a blob and leave a visible digest, never silently clip it.
     let mut value = serde_json::to_value(&event)?;
     let texts = if matches!(
         &event,
@@ -106,15 +121,82 @@ pub(crate) async fn append_projected(
     };
     for text in texts {
         if oversized(text) {
-            let blob = store
-                .blobs
-                .put(text.as_bytes().to_vec(), "text/plain")
-                .await?;
+            let blob = put(text.as_bytes().to_vec(), "text/plain");
             *text = preview(text, &blob);
         }
     }
+    Ok(Prepared {
+        event: serde_json::from_value(value)?,
+        ext,
+        payloads,
+    })
+}
+pub(crate) async fn append_projected(
+    store: &mut Store,
+    event: Event,
+    cause: Option<OpId>,
+    at: u64,
+    native: Option<Native>,
+    ext: std::collections::BTreeMap<String, Value>,
+) -> io::Result<Envelope> {
+    append_mode(store, event, cause, at, native, ext, false).await
+}
+/// Opt-in native custody writes already-scrubbed planned payloads privately and
+/// reuses Blobs::ingest; heavy redaction/serialization never polls on an IO worker.
+pub(crate) async fn append_projected_staging(
+    store: &mut Store,
+    event: Event,
+    at: u64,
+    native: Option<Native>,
+    ext: std::collections::BTreeMap<String, Value>,
+) -> io::Result<Envelope> {
+    append_mode(store, event, None, at, native, ext, true).await
+}
+async fn append_mode(
+    store: &mut Store,
+    event: Event,
+    cause: Option<OpId>,
+    at: u64,
+    native: Option<Native>,
+    ext: std::collections::BTreeMap<String, Value>,
+    staging: bool,
+) -> io::Result<Envelope> {
+    let set = store.blobs.redactor.clone();
+    let prepared = crate::runtime::blocking(move || prepare(event, ext, set)).await?;
+    for payload in prepared.payloads {
+        let actual = if staging {
+            let dir = store.blobs.dir.clone();
+            let mime = payload.reference.mime.clone();
+            let path = crate::runtime::blocking(move || {
+                use std::{io::Write, os::unix::fs::OpenOptionsExt};
+                crate::runtime::assert_off_rt_worker();
+                std::fs::create_dir_all(&dir)?;
+                let path = dir.join(format!(".native-spill-{}", ulid::Ulid::new()));
+                let mut file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&path)?;
+                file.write_all(&payload.redacted)?;
+                crate::runtime::sync_all(&file)?;
+                Ok::<_, io::Error>(path)
+            })
+            .await?;
+            store.blobs.ingest(path, &mime).await?
+        } else {
+            store
+                .blobs
+                .put(payload.raw, &payload.reference.mime)
+                .await?
+        };
+        if actual != payload.reference {
+            return Err(io::Error::other(
+                "redaction changed during blob preparation",
+            ));
+        }
+    }
     store
-        .append_projected_at(serde_json::from_value(value)?, cause, at, native, ext)
+        .append_projected_at(prepared.event, cause, at, native, prepared.ext)
         .await
 }
 fn json_preview(bytes: &[u8]) -> Value {

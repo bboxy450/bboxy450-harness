@@ -1022,3 +1022,836 @@ fn idle_status_reaches_durable_only_consumers_without_claiming_progress() {
     );
     assert!(bad.states.iter().any(|s| s[variable(&good, "clock")] == 21 && s[variable(&good, "transport_age")] == 21));
 }
+
+#[test]
+fn dream_sink_preserves_check_publish_races_and_labels_foreign_edits() {
+    let good = model("HarnessDreamSink").check(100_000).unwrap();
+    assert!(
+        good.violations.is_empty(),
+        "{:?}",
+        good.violations
+            .iter()
+            .map(|v| &v.property)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        good.states.iter().any(|s| s[4] == 2 && s[0] > s[6]),
+        "hand edit after the digest check must be reachable"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[4] == 3 && s[0] > s[6] && s[1] == s[2]),
+        "immutable publication preserves the hand edit in the race window"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[4] == 4 && s[9] == 2 && s[14] == 1 && s[15] == 0),
+        "no-replace collision must refuse rather than claim publication"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[15] == 1 && s[9] == 2 && s[12] == 0 && s[13] == 1),
+        "legitimate edit after publication must change the ownership label"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[0] == 2 && s[1] == 0 && s[5] == 3 && s[4] == 3),
+        "two invalidated reads, including ABA, leave the third attempt available"
+    );
+    for snapshot in 0..=3 {
+        assert!(good.states.iter().any(|s| s[15] == 1 && s[11] == snapshot));
+    }
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[15] == 1 && s[17] == 0 && s[19] == 1),
+        "crash after publication before Adoption must be reachable"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[15] == 1 && s[17] == 1 && s[19] == 2),
+        "restart can record a reachable existing publication"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[22] == 1 && s[4] == 4 && s[17] == 0 && s[15] == 0),
+        "a pre-existing shared index must skip with no false Adoption"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[17] == 1 && s[11] > 0 && s[16] == 0 && s[20] == 0),
+        "terminal entries must be omitted even when their old artifact remains"
+    );
+    for (mode, property) in [(2, "NoFalseAdoption"), (3, "ServedPinsValid")] {
+        let bad = model(if mode == 2 {
+            "BrokenHarnessDreamSinkAdoption"
+        } else {
+            "BrokenHarnessDreamSinkLoad"
+        })
+        .check(100_000)
+        .unwrap();
+        assert!(bad.violations.iter().any(|v| v.property == property));
+    }
+    let bad = model("BrokenHarnessDreamSink").check(100_000).unwrap();
+    assert!(
+        bad.violations
+            .iter()
+            .any(|v| v.property == "HandLinesPreserved")
+    );
+    assert!(
+        bad.states
+            .iter()
+            .any(|s| s[4] == 3 && s[0] > s[6] && s[1] != s[2])
+    );
+}
+
+#[test]
+fn dream_lifecycle_reaches_independent_harnesses_crash_and_revival() {
+    let graph = model("HarnessDreamLifecycle").check(100_000).unwrap();
+    assert!(graph.violations.is_empty());
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[5] == 2 && s[12] == 1 && s[13] == 3),
+        "one harness adopts while another remains inconclusive"
+    );
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[2] == 1 && s[5] == 2 && s[10] == 1)
+    );
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[0] == 1 && s[5] == 2 && s[10] == 2)
+    );
+    assert!(
+        graph.states.iter().any(|s| s[0] == 1 && s[19] == 1),
+        "the old adoption must survive global terminal and revival"
+    );
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[4] == 1 && s[5] == 2 && s[10] == 0 && s[11] == 0),
+        "global terminal overlays an adopted pair and lower removes its sink"
+    );
+    for (mode, property) in [
+        (1, "AdoptedHasSamePairPassA"),
+        (2, "GlobalTerminalFencesDelayedAdoption"),
+        (3, "AdoptedHasSamePairPassA"),
+    ] {
+        let bad = model(match mode {
+            1 => "BrokenHarnessDreamLifecycle",
+            2 => "BrokenHarnessDreamLifecycleFence",
+            _ => "BrokenHarnessDreamLifecyclePair",
+        })
+        .check(100_000)
+        .unwrap();
+        assert!(
+            bad.violations.iter().any(|v| v.property == property),
+            "{mode}: {property}"
+        );
+        if mode == 2 {
+            assert!(
+                bad.states
+                    .iter()
+                    .any(|s| s[0] == 1 && s[5] == 2 && s[8] == 1 && s[22] == 0),
+                "old passing completion must actually reach a new revival in the control"
+            );
+        }
+        if mode == 3 {
+            assert!(
+                bad.states
+                    .iter()
+                    .any(|s| s[7] == 1 && s[14] == 2 && s[8] == 2 && s[5] == 2),
+                "wrong harness trial pin must be rejected even when both harnesses passed"
+            );
+        }
+    }
+}
+
+#[test]
+fn dream_merge_explores_both_orders_and_independent_harnesses() {
+    let graph = model("HarnessDreamMerge").check(100_000).unwrap();
+    assert!(graph.violations.is_empty());
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[8] == 2 && s[9] == 3 && s[12] == 1),
+        "B rejection cannot erase A adoption"
+    );
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[2] == 2 && s[7] == 1 && s[8] == 5 && s[9] == 5 && s[12] == 1),
+        "an expiry in the other log fences an adoption"
+    );
+    assert!(
+        graph
+            .states
+            .iter()
+            .any(|s| s[4] == 1 && s[7] == 2 && s[8] == 6 && s[12] == 1),
+        "global terminal display uses fixed superseded-over-expired order"
+    );
+    // Extract the actual model's join table, without reimplementing max.
+    // A global terminal makes the pair display details irrelevant; this
+    // quotient has 25 independent pair states plus expiry and supersession.
+    let normalize = |a, b, g| if g == 0 { (a, b, g) } else { (0, 0, g) };
+    let mut joins = std::collections::BTreeMap::new();
+    for state in graph.states.iter().filter(|s| s[12] == 1) {
+        let key = (
+            normalize(state[2], state[3], state[4]),
+            normalize(state[5], state[6], state[7]),
+        );
+        let value = normalize(state[8], state[9], state[10]);
+        if let Some(previous) = joins.insert(key, value) {
+            assert_eq!(previous, value);
+        }
+    }
+    let mut domain = Vec::new();
+    for a in 0..=4 {
+        for b in 0..=4 {
+            domain.push((a, b, 0));
+        }
+    }
+    domain.extend([(0, 0, 1), (0, 0, 2)]);
+    assert_eq!(
+        joins.len(),
+        domain.len() * domain.len(),
+        "every quotient input pair must be reachable"
+    );
+    for &a in &domain {
+        assert_eq!(joins[&(a, a)], a, "idempotence");
+        for &b in &domain {
+            assert_eq!(joins[&(a, b)], joins[&(b, a)], "commutativity");
+            for &c in &domain {
+                assert_eq!(
+                    joins[&(joins[&(a, b)], c)],
+                    joins[&(a, joins[&(b, c)])],
+                    "associativity"
+                );
+            }
+        }
+    }
+    for mode in [1, 2] {
+        let bad = model(if mode == 1 {
+            "BrokenHarnessDreamMerge"
+        } else {
+            "BrokenHarnessDreamMergeHarness"
+        })
+        .check(100_000)
+        .unwrap();
+        assert!(
+            bad.violations
+                .iter()
+                .any(|v| v.property == "CommutativeIdempotentProjection")
+        );
+    }
+}
+
+#[test]
+fn dream_d0_claim_union_crash_and_detached_caller_are_reachable() {
+    let m = model("HarnessDreamD0");
+    let g = m.check(100_000).unwrap();
+    assert!(
+        g.violations.is_empty(),
+        "{:?}",
+        g.violations.iter().map(|v| &v.property).collect::<Vec<_>>()
+    );
+    assert!(
+        g.states
+            .iter()
+            .any(|s| s[0] == 3 && s[2] == 2 && s[18] == 1),
+        "duplicate union of two distinct pins never reached"
+    );
+    assert!(
+        g.states
+            .iter()
+            .any(|s| s[6] == 1 && s[9] == 7 && s[16] == 1),
+        "busy B must skip and return while A still owns/stalls"
+    );
+    assert!(
+        g.states.iter().enumerate().any(|(i, s)| s[6] == 1
+            && s[9] == 1
+            && s[10] == 1
+            && g.edges[i].iter().any(|e| {
+                let n = &g.states[e.to];
+                n[6] == 1 && n[7] == 2 && n[9] == 2
+            })),
+        "other shard cannot acquire independently"
+    );
+    for phase in [3, 5] {
+        assert!(
+            g.states.iter().enumerate().any(|(i, s)| s[8] == phase
+                && s[17] == 0
+                && g.edges[i].iter().any(|e| {
+                    let n = &g.states[e.to];
+                    n[8] == 8 && n[6] == 0 && n[17] == 1 && n[0] == s[0] && n[4] == s[4]
+                })),
+            "crash before/after publication must release without changing committed bytes"
+        );
+    }
+    let lost = model("BrokenHarnessDreamD0").check(100_000).unwrap();
+    assert!(
+        lost.violations
+            .iter()
+            .any(|v| v.property == "CommittedPinsPreserved0")
+    );
+    let blocked = model("BrokenHarnessDreamD0Blocking")
+        .check(100_000)
+        .unwrap();
+    assert!(
+        blocked
+            .violations
+            .iter()
+            .any(|v| v.property == "DetachedCaller1" && !v.cycle.is_empty())
+    );
+    assert!(
+        blocked.states.iter().enumerate().any(|(i, s)| s[6] == 1
+            && s[9] == 1
+            && s[16] == 0
+            && blocked.edges[i].iter().any(|e| {
+                let n = &blocked.states[e.to];
+                n[6] == 1 && n[9] == 9 && n[16] == 0
+            })),
+        "blocking control must enter real busy waiting from a reachable owned shard"
+    );
+}
+
+#[test]
+fn dream_native_custody_never_pins_staging_and_reuses_complete_survivors() {
+    let m = model("HarnessDreamNativeCustody");
+    let g = m.check(100_000).unwrap();
+    assert!(g.violations.is_empty());
+    assert!(
+        g.states
+            .iter()
+            .any(|s| s[5] == 1 && s[6] == 1 && s[11] == 1),
+        "two materializers must reuse one complete publication"
+    );
+    assert!(
+        g.states
+            .iter()
+            .any(|s| s[1] == 7 && s[7] == 1 && s[4] == 0 && s[5] == 0),
+        "crash before publication has no pins"
+    );
+    assert!(
+        g.states
+            .iter()
+            .any(|s| s[7] == 1 && s[4] == 1 && (s[5] == 1 || s[6] == 1)),
+        "complete publication survives owner crash/replay"
+    );
+    assert!(
+        g.states.iter().enumerate().any(|(i, s)| s[1] == 3
+            && s[4] == 0
+            && g.edges[i]
+                .iter()
+                .any(|e| g.states[e.to][4] == 2 && g.states[e.to][1] == 3)),
+        "foreign target birth must remain enabled after check"
+    );
+    let bad = model("BrokenHarnessDreamNativeCustody")
+        .check(100_000)
+        .unwrap();
+    assert!(
+        bad.violations
+            .iter()
+            .any(|v| v.property.starts_with("NoPrematureNativePin"))
+    );
+    assert!(
+        bad.states
+            .iter()
+            .any(|s| s[5] == 1 && s[4] == 0 && s[3] == 0),
+        "control must really pin private, unpublished bytes"
+    );
+    println!(
+        "native custody: {} states, {} labeled edges; premature-pin control rejected",
+        g.states.len(),
+        g.edges.iter().map(Vec::len).sum::<usize>()
+    );
+}
+
+#[test]
+fn dream_seal_freeze_and_both_broken_controls_are_nonvacuous() {
+    let m = model("HarnessDreamSeal");
+    let r = m.check(100_000).unwrap();
+    assert!(r.violations.is_empty());
+    let phase = variable(&m, "phase");
+    let child = variable(&m, "child");
+    let coverage = variable(&m, "coverage");
+    assert!(
+        r.states
+            .iter()
+            .any(|s| s[phase] == 3 && s[child] == 2 && s[coverage] == 1)
+    );
+    assert!(
+        r.states
+            .iter()
+            .any(|s| s[phase] == 0 && s[child] == 2 && s[coverage] == 0),
+        "joined does not establish prior observation"
+    );
+    assert!(
+        !r.states
+            .iter()
+            .any(|s| s[phase] > 0 && (s[child] == 1 || (s[child] > 1 && s[coverage] == 0)))
+    );
+    for (name, property) in [
+        (
+            "BrokenHarnessDreamSealLateWrite",
+            "NoProtectedEffectsAfterFreeze",
+        ),
+        ("BrokenHarnessDreamSealChild", "FrozenOwnsNoMutableChild"),
+    ] {
+        let b = model(name);
+        let r = b.check(100_000).unwrap();
+        assert!(r.violations.iter().any(|v| v.property == property));
+        let late = variable(&b, "late_protected");
+        assert!(
+            r.states.iter().any(|s| s[late] == 1),
+            "control must reach an actual late effect"
+        );
+        assert!(b.weak_fair.is_empty() && b.responses.is_empty());
+    }
+}
+
+#[test]
+fn process_spawn_admission_reaches_queue_races_handoff_and_owned_cleanup() {
+    let m = model("HarnessProcessSpawnAdmission");
+    let checked = m.check(100_000).unwrap();
+    assert!(checked.violations.is_empty(), "{:?}", checked.violations);
+    let c = variable(&m, "caller");
+    let p = variable(&m, "admission");
+    let child = variable(&m, "child");
+    let owner = variable(&m, "owner");
+    let returned = variable(&m, "returned");
+    let deadline = variable(&m, "deadline");
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[p] == 7 && s[c] == 1 && s[child] == 0),
+        "queued cancellation requires no permit service"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[p] == 7 && s[deadline] == 1 && s[child] == 0),
+        "queued deadline requires no permit service"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[p] == 1 && s[c] == 2 && s[owner] == 1),
+        "drop while spawning retains worker"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[p] == 2 && s[c] == 2 && s[owner] == 2),
+        "abandoned result retains owner"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[p] == 4 && s[returned] == 1 && s[child] == 1),
+        "API return is not cleanup join"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[p] == 3 && s[c] == 0 && s[owner] == 3),
+        "successful live handoff is reachable"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[p] == 6 && s[c] == 2 && s[child] == 3 && s[owner] == 0),
+        "abandoned child actually reaches reap"
+    );
+    println!(
+        "spawn admission: {} states, {} labeled edges",
+        checked.states.len(),
+        checked.edges.iter().map(Vec::len).sum::<usize>()
+    );
+    for (control, property) in [
+        (
+            "BrokenHarnessProcessSpawnAdmissionLate",
+            "NoLateQueuedAdmission",
+        ),
+        (
+            "BrokenHarnessProcessSpawnAdmissionOwner",
+            "NoLostOwnedChild",
+        ),
+    ] {
+        let broken = model(control).check(100_000).unwrap();
+        if control.ends_with("Late") {
+            assert!(
+                broken
+                    .states
+                    .iter()
+                    .any(|s| s[child] == 1 && s[variable(&m, "late_admission")] == 1),
+                "late-admission control must actually create the child"
+            );
+        } else {
+            assert!(
+                broken.states.iter().any(|s| s[child] == 1 && s[owner] == 0),
+                "lost-owner control must actually leave an owned child running"
+            );
+        }
+
+        assert!(
+            broken.violations.iter().any(|v| v.property == property),
+            "missing reachable same-property control {control}"
+        );
+    }
+}
+
+#[test]
+fn store_writer_lease_has_real_error_abandonment_clone_and_replacement_witnesses() {
+    let m = model("HarnessStoreWriterLease");
+    let checked = m.check(100_000).unwrap();
+    assert!(checked.violations.is_empty(), "{:?}", checked.violations);
+    let p = variable(&m, "old_phase");
+    let c = variable(&m, "caller_cancelled");
+    let d = variable(&m, "duplicate");
+    let k = variable(&m, "kernel_owner");
+    let n = variable(&m, "replacement");
+    let r = variable(&m, "released");
+    let e = variable(&m, "unlock_failed");
+    let o = variable(&m, "outcome");
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[p] == 1 && s[c] == 1 && s[k] == 1),
+        "cancelled caller cannot release opening job guard"
+    );
+    assert!(
+        checked.states.iter().any(|s| s[o] == 2 && s[p] == 5),
+        "constructor error must destroy acquired guard"
+    );
+    assert!(
+        checked.states.iter().any(|s| s[o] == 3 && s[p] == 5),
+        "abandoned result must destroy acquired guard"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[variable(&m, "live_refused")] == 1 && s[p] == 2),
+        "live Store must refuse competitor"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[d] == 1 && s[r] == 1 && s[n] == 1 && s[k] == 2),
+        "replacement must acquire before old descriptor closes/execs"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[d] == 2 && s[n] == 1 && s[k] == 2),
+        "old descriptor close preserves new writer"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[d] == 1 && s[e] == 1 && s[n] == 3 && s[r] == 0),
+        "failed unlock is genuinely unavailable"
+    );
+    for (name, property) in [
+        (
+            "BrokenHarnessStoreWriterLeaseMissing",
+            "NoFalseBusyAfterSuccessfulRelease",
+        ),
+        (
+            "BrokenHarnessStoreWriterLeasePremature",
+            "NoConcurrentLiveWriters",
+        ),
+        (
+            "BrokenHarnessStoreWriterLeaseStale",
+            "OldReleaseCannotClearReplacementLease",
+        ),
+    ] {
+        let bad = model(name).check(100_000).unwrap();
+        assert!(
+            bad.violations.iter().any(|v| v.property == property),
+            "missing reachable {name}/{property}"
+        );
+        if name.ends_with("Missing") {
+            assert!(
+                bad.states
+                    .iter()
+                    .any(|s| s[variable(&m, "false_busy")] == 1 && s[r] == 1 && s[d] == 1)
+            );
+        }
+        if name.ends_with("Premature") {
+            assert!(
+                bad.states
+                    .iter()
+                    .any(|s| (s[p] == 1 || s[p] == 2) && s[n] == 1)
+            );
+        }
+        if name.ends_with("Stale") {
+            assert!(bad.states.iter().any(|s| s[n] == 1 && s[k] != 2));
+        }
+    }
+    println!(
+        "Store writer lease: {} states / {} labeled edges",
+        checked.states.len(),
+        checked.edges.iter().map(Vec::len).sum::<usize>()
+    );
+}
+
+#[test]
+fn admission_result_observations_reach_the_closed_elapsed_not_ready_counterexample() {
+    for (name, returned) in [
+        ("HarnessProcessAdmissionResult", 2),
+        ("BrokenHarnessProcessAdmissionResult", 1),
+    ] {
+        let m = model(name);
+        let checked = m.check(100_000).unwrap();
+        let c = variable(&m, "cancelled");
+        let e = variable(&m, "elapsed");
+        let t = variable(&m, "caller_timer_ready");
+        let w = variable(&m, "worker_deadline_observed");
+        let k = variable(&m, "received");
+        let r = variable(&m, "returned");
+        let exact = checked.states.iter().find(|s| {
+            s[c] == 0 && s[e] == 1 && s[t] == 0 && s[w] == 1 && s[k] == 1 && s[r] == returned
+        });
+        assert!(
+            exact.is_some(),
+            "missing exact closed/elapsed/not-ready case in {name}"
+        );
+        if name.starts_with("Broken") {
+            assert!(
+                checked
+                    .violations
+                    .iter()
+                    .any(|v| v.property == "ObservedElapsedResultIsTimedOut")
+            );
+        } else {
+            assert!(checked.violations.is_empty(), "{:?}", checked.violations);
+            for kind in 1..=3 {
+                assert!(
+                    checked
+                        .states
+                        .iter()
+                        .any(|s| s[c] == 1 && s[e] == 1 && s[k] == kind && s[r] == 1),
+                    "cancel priority {kind}"
+                );
+            }
+            for (kind, class) in [(1, 1), (2, 3), (3, 4)] {
+                assert!(
+                    checked
+                        .states
+                        .iter()
+                        .any(|s| s[c] == 0 && s[e] == 0 && s[k] == kind && s[r] == class),
+                    "before cutoff {kind}"
+                );
+            }
+        }
+        println!(
+            "{name}: exact closed/elapsed/not-ready={:?}; {} states; {} edges",
+            exact.unwrap(),
+            checked.states.len(),
+            checked.edges.iter().map(Vec::len).sum::<usize>()
+        );
+    }
+}
+
+#[test]
+fn trial_claims_allow_independent_busy_and_hold_owned_cleanup() {
+    let m = model("HarnessDreamTrialClaims");
+    let checked = m.check(100_000).unwrap();
+    assert!(checked.violations.is_empty(), "{:?}", checked.violations);
+    let a = variable(&m, "claim_a");
+    let b = variable(&m, "claim_b");
+    let o = variable(&m, "owned_a");
+    let busy = variable(&m, "busy_a");
+    let caller = variable(&m, "caller_a");
+    assert!(
+        checked.states.iter().any(|s| s[a] == 1 && s[b] == 1),
+        "independent claims overlap"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[a] == 1 && s[o] == 1 && s[busy] == 1),
+        "busy response leaves owner running"
+    );
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[a] == 1 && s[o] == 1 && s[caller] == 2),
+        "drop retains cleanup claim"
+    );
+    for (name, property) in [
+        (
+            "BrokenHarnessDreamTrialClaimsGlobal",
+            "IndependentClaimAvailable1",
+        ),
+        (
+            "BrokenHarnessDreamTrialClaimsEarlyRelease",
+            "OwnedArmKeepsClaim0",
+        ),
+    ] {
+        let bad = model(name).check(100_000).unwrap();
+        assert!(
+            bad.violations.iter().any(|v| v.property == property),
+            "{name} decisive control"
+        );
+    }
+}
+#[test]
+fn trial_outcomes_reach_uncertain_wrong_pair_late_terminal_and_real_completion() {
+    let m = model("HarnessDreamTrialOutcome");
+    let checked = m.check(100_000).unwrap();
+    assert!(checked.violations.is_empty(), "{:?}", checked.violations);
+    let r = variable(&m, "result");
+    let iso = variable(&m, "isolation");
+    let usage = variable(&m, "usage");
+    let term = variable(&m, "terminal");
+    let end = variable(&m, "ended");
+    let join = variable(&m, "cleanup");
+    assert!(checked.states.iter().any(|s| s[r] == 1
+        && s[iso] == 1
+        && s[usage] == 1
+        && s[end] == 1
+        && s[join] == 1));
+    assert!(
+        checked.states.iter().any(|s| s[r] == 3 && s[iso] == 2),
+        "unsupported means inconclusive before execution"
+    );
+    assert!(
+        checked.states.iter().any(|s| s[r] == 3 && s[usage] == 0),
+        "missing usage never passes"
+    );
+    assert!(
+        checked.states.iter().any(|s| s[r] == 4 && s[term] == 2),
+        "global terminal fences historical pass"
+    );
+    for suffix in [
+        "Isolation",
+        "Harness",
+        "Terminal",
+        "Usage",
+        "Entry",
+        "Cleanup",
+    ] {
+        let name = format!("BrokenHarnessDreamTrialOutcome{suffix}");
+        let bad = model(&name).check(100_000).unwrap();
+        assert!(
+            bad.violations
+                .iter()
+                .any(|v| v.property == "ActivePassRequiresObservedGates"),
+            "{name} missing same-property witness"
+        );
+    }
+}
+
+#[test]
+fn trial_new_boundaries_have_positive_states_and_decisive_controls() {
+    for (family, positive_var, positive_value, controls, property) in [
+        (
+            "Capability",
+            "phase",
+            3,
+            vec!["Reopen", "Permit", "Exec"],
+            "",
+        ),
+        (
+            "Usage",
+            "qualified",
+            1,
+            vec!["Join", "Blind", "Basis"],
+            "QualificationRequiresBoundTargetProof",
+        ),
+        (
+            "Settlement",
+            "observer",
+            1,
+            vec!["Err", "Channel", "Late"],
+            "",
+        ),
+    ] {
+        let m = model(&format!("HarnessDreamTrial{family}"));
+        let c = m.check(100_000).unwrap();
+        assert!(c.violations.is_empty(), "{family}: {:?}", c.violations);
+        let v = variable(&m, positive_var);
+        assert!(
+            c.states.iter().any(|s| s[v] == positive_value),
+            "{family} positive unreachable"
+        );
+        for suffix in controls {
+            let name = format!("BrokenHarnessDreamTrial{family}{suffix}");
+            let bad = model(&name).check(100_000).unwrap();
+            assert!(
+                bad.violations
+                    .iter()
+                    .any(|v| property.is_empty() || v.property == property),
+                "{name} control vacuous"
+            );
+        }
+    }
+}
+
+#[test]
+fn trial_queued_frontier_recovers_and_reopens_before_fresh_identity() {
+    let m = model("HarnessDreamTrialFrontier");
+    let c = m.check(100_000).unwrap();
+    assert!(c.violations.is_empty(), "{:?}", c.violations);
+    let phase = variable(&m, "phase");
+    let pending = variable(&m, "pending");
+    let crash = variable(&m, "crashed");
+    let epoch = variable(&m, "epoch");
+    assert!(
+        c.states
+            .iter()
+            .any(|s| s[phase] == 8 && s[pending] == 2 && s[crash] == 1 && s[epoch] == 3)
+    );
+    assert!(
+        c.states.iter().any(|s| s[phase] == 10),
+        "unavailable is explicit"
+    );
+    for (suffix, property) in [
+        ("Active", "OnlyAcceptedFrontier"),
+        ("Early", "NoActorBeforeRecovery"),
+        ("Bytes", "InheritedBytesUnchanged"),
+        ("Inherited", "FreshSuccessHasFreshIdentity"),
+        ("Duplicate", "EachQueueEndsOnce"),
+    ] {
+        let bad = model(&format!("BrokenHarnessDreamTrialFrontier{suffix}"))
+            .check(100_000)
+            .unwrap();
+        assert!(
+            bad.violations.iter().any(|v| v.property == property),
+            "{suffix}: {:?}",
+            bad.violations
+        );
+    }
+}

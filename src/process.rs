@@ -450,36 +450,378 @@ pub async fn run_stream(
 pub(crate) async fn capture_stdout(req: Request, cancel: CancellationToken) -> io::Result<Output> {
     run_inner(req, cancel.child_token(), None, true).await
 }
+// Decision d20261103136600. Per-operation observation has no Child/PID/kill
+// authority. A result is distinct from all explicit admission/reap/IO completion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SettlementStatus {
+    Pending,
+    Confirmed,
+    Unavailable,
+}
+#[derive(Clone)]
+pub struct Settlement(std::sync::Arc<SettlementState>);
+struct SettlementState {
+    state: std::sync::Mutex<(usize, bool)>,
+    changed: tokio::sync::Notify,
+}
+impl Settlement {
+    fn new() -> Self {
+        Self(std::sync::Arc::new(SettlementState {
+            state: std::sync::Mutex::new((0, false)),
+            changed: tokio::sync::Notify::new(),
+        }))
+    }
+    pub fn status(&self) -> SettlementStatus {
+        let s = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
+        if s.1 {
+            SettlementStatus::Unavailable
+        } else if s.0 == 0 {
+            SettlementStatus::Confirmed
+        } else {
+            SettlementStatus::Pending
+        }
+    }
+    pub async fn wait(&self) -> SettlementStatus {
+        loop {
+            let notified = self.0.changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let status = self.status();
+            if status != SettlementStatus::Pending {
+                return status;
+            }
+            notified.await;
+        }
+    }
+    fn work(&self) -> SettlementWork {
+        self.0.state.lock().unwrap_or_else(|e| e.into_inner()).0 += 1;
+        SettlementWork(Some(self.clone()))
+    }
+}
+struct SettlementWork(Option<Settlement>);
+impl SettlementWork {
+    fn complete(mut self) {
+        if let Some(s) = self.0.take() {
+            let mut state = s.0.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.0 -= 1;
+            drop(state);
+            s.0.changed.notify_waiters();
+        }
+    }
+}
+impl Drop for SettlementWork {
+    fn drop(&mut self) {
+        if let Some(s) = self.0.take() {
+            let mut state = s.0.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.0 -= 1;
+            state.1 = true;
+            drop(state);
+            s.0.changed.notify_waiters();
+        }
+    }
+}
+/// Lazy capture-only operation: register its observation BEFORE polling result.
+/// Drop cancels only its own child token; the existing owner/retirement path lives
+/// until explicit completion. Never-polled Drop explicitly refuses unopened work.
+pub struct ObservedCapture {
+    request: Option<Request>,
+    observation: Settlement,
+    initial: Option<SettlementWork>,
+    cancel: CancellationToken,
+}
+pub fn observe_capture(req: Request, cancel: CancellationToken) -> ObservedCapture {
+    let observation = Settlement::new();
+    let initial = Some(observation.work());
+    ObservedCapture {
+        request: Some(req),
+        observation,
+        initial,
+        cancel: cancel.child_token(),
+    }
+}
+impl ObservedCapture {
+    pub fn settlement(&self) -> Settlement {
+        self.observation.clone()
+    }
+    pub async fn result(&mut self) -> io::Result<Output> {
+        let req = self
+            .request
+            .take()
+            .ok_or_else(|| io::Error::other("observed result already taken"))?;
+        let ticket = self.initial.take().expect("registered owner");
+        let observation = self.observation.clone();
+        let cancel = self.cancel.clone();
+        let _cancel_on_abandon = cancel.clone().drop_guard();
+        // This is the same run_inner/admission/OwnedChild, not another runner.
+        bbt_rt::handle()
+            .spawn(async move {
+                let result = run_inner_observed(req, cancel, None, true, Some(observation)).await;
+                ticket.complete();
+                result
+            })
+            .await
+            .map_err(|_| io::Error::other("observed process owner unavailable"))?
+    }
+}
+impl Drop for ObservedCapture {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+        if self.request.take().is_some() {
+            // No owner future was ever created; admission cannot run later.
+            if let Some(ticket) = self.initial.take() {
+                ticket.complete();
+            }
+        }
+    }
+}
+// Wrapper retains the EXISTING OwnedChild on observed early error/unwind. It
+// never signals an id after OwnedChild's existing retirement fence has released.
+struct ActiveChild {
+    child: Option<OwnedChild>,
+    work: Option<SettlementWork>,
+    waited: bool,
+}
+impl std::ops::Deref for ActiveChild {
+    type Target = OwnedChild;
+    fn deref(&self) -> &OwnedChild {
+        self.child.as_ref().unwrap()
+    }
+}
+impl std::ops::DerefMut for ActiveChild {
+    fn deref_mut(&mut self) -> &mut OwnedChild {
+        self.child.as_mut().unwrap()
+    }
+}
+impl ActiveChild {
+    async fn wait(&mut self) -> io::Result<std::process::ExitStatus> {
+        let result = self.child.as_mut().unwrap().wait().await;
+        if result.is_ok() {
+            self.waited = true;
+        } else {
+            self.work.take();
+        }
+        result
+    }
+}
+impl Drop for ActiveChild {
+    fn drop(&mut self) {
+        if let Some(ticket) = self.work.take() {
+            if self.waited {
+                drop(self.child.take());
+                ticket.complete();
+            } else if let Some(mut child) = self.child.take() {
+                child.send(libc::SIGKILL);
+                drop(bbt_rt::handle().spawn(async move {
+                    if child.wait().await.is_ok() {
+                        drop(child);
+                        ticket.complete();
+                    }
+                }));
+            }
+        }
+    }
+}
+// A queued closure that has never entered make owns no child/effect. Explicit
+// refusal/drop-before-start completes its admission ticket; panic after entry
+// leaves an unavailable ticket, never a positive acknowledgement.
+struct AdmissionWork<F: FnOnce() -> io::Result<OwnedChild>> {
+    make: Option<F>,
+    work: Option<SettlementWork>,
+}
+impl<F: FnOnce() -> io::Result<OwnedChild>> AdmissionWork<F> {
+    fn run(mut self) -> io::Result<SpawnResult> {
+        let make = self.make.take().unwrap();
+        let result = make();
+        match result {
+            Ok(child) => Ok(SpawnResult(Some(child), self.work.take())),
+            Err(e) => {
+                if let Some(ticket) = self.work.take() {
+                    ticket.complete();
+                }
+                Err(e)
+            }
+        }
+    }
+}
+impl<F: FnOnce() -> io::Result<OwnedChild>> Drop for AdmissionWork<F> {
+    fn drop(&mut self) {
+        if self.make.is_some()
+            && let Some(ticket) = self.work.take()
+        {
+            ticket.complete();
+        }
+    }
+}
+// Decision d20261103136528: a queued job/result keeps the existing exclusive
+// OwnedChild. API cancellation/drop is not a joined-cleanup or seal witness.
+struct SpawnResult(Option<OwnedChild>, Option<SettlementWork>);
+impl Drop for SpawnResult {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            child.send(libc::SIGKILL);
+            // Both an abandoned sender and an unreceived channel result arrive
+            // here. Keep the same owner through its existing fenced wait.
+            let work = self.1.take();
+            drop(bbt_rt::handle().spawn(async move {
+                let result = child.wait().await;
+                drop(child);
+                if result.is_ok()
+                    && let Some(work) = work
+                {
+                    work.complete();
+                }
+            }));
+        }
+    }
+}
+// Decision d20261103136567: classify caller observations, never infer their
+// historical cause from channel closure. The packet keeps its existing owner.
+fn observe_spawn_packet(
+    result: Result<io::Result<SpawnResult>, tokio::sync::oneshot::error::RecvError>,
+    cancelled: bool,
+    now: Instant,
+    deadline: Instant,
+) -> io::Result<SpawnResult> {
+    if cancelled {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "cancelled during process admission",
+        ));
+    }
+    if now >= deadline {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "process admission deadline",
+        ));
+    }
+    let packet = result.map_err(|_| {
+        io::Error::new(io::ErrorKind::Interrupted, "process admission unavailable")
+    })??;
+    Ok(packet)
+}
+#[cfg(test)]
+fn observe_spawn_result(
+    result: Result<io::Result<SpawnResult>, tokio::sync::oneshot::error::RecvError>,
+    cancelled: bool,
+    now: Instant,
+    deadline: Instant,
+) -> io::Result<OwnedChild> {
+    let mut packet = observe_spawn_packet(result, cancelled, now, deadline)?;
+    Ok(packet.0.take().expect("exclusive admitted child"))
+}
+async fn spawn_packet(
+    make: impl FnOnce() -> io::Result<OwnedChild> + Send + 'static,
+    cancel: CancellationToken,
+    deadline: Instant,
+    observation: Option<Settlement>,
+) -> io::Result<SpawnResult> {
+    let local = cancel.child_token();
+    let _drop_guard = local.clone().drop_guard();
+    let job_cancel = local.clone();
+    let (send, receive) = tokio::sync::oneshot::channel();
+    let admission = AdmissionWork {
+        make: Some(make),
+        work: observation.as_ref().map(Settlement::work),
+    };
+    drop(bbt_rt::handle().spawn(async move {
+        let worker_cancel = job_cancel.clone();
+        let queued = crate::runtime::blocking(move || {
+            crate::runtime::assert_off_rt_worker();
+            let result = if worker_cancel.is_cancelled() {
+                Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "cancelled before process admission",
+                ))
+            } else if Instant::now() >= deadline {
+                Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "process admission deadline",
+                ))
+            } else {
+                admission.run()
+            };
+            // Never return OwnedChild as an abandoned blocking-task output.
+            // The channel packet owns retirement even if its receiver drops.
+            let _ = send.send(result);
+        });
+        tokio::pin!(queued);
+        tokio::select! {biased;
+            _=job_cancel.cancelled()=>{},
+            _=sleep_until(deadline)=>{},
+            _=&mut queued=>{},
+        }
+    }));
+    tokio::select! {biased;
+        _=cancel.cancelled()=>Err(io::Error::new(io::ErrorKind::Interrupted,"cancelled during process admission")),
+        _=sleep_until(deadline)=>Err(io::Error::new(io::ErrorKind::TimedOut,"process admission deadline")),
+        result=receive=>observe_spawn_packet(result, cancel.is_cancelled(), Instant::now(), deadline),
+    }
+}
+#[cfg(test)]
+async fn spawn_admission(
+    make: impl FnOnce() -> io::Result<OwnedChild> + Send + 'static,
+    cancel: CancellationToken,
+    deadline: Instant,
+) -> io::Result<OwnedChild> {
+    let mut packet = spawn_packet(make, cancel, deadline, None).await?;
+    Ok(packet.0.take().expect("exclusive admitted child"))
+}
 async fn run_inner(
     req: Request,
     cancel: CancellationToken,
     sink: Option<OutputSink>,
     capture_only: bool,
 ) -> io::Result<Output> {
+    // The additive observation layer has a large capture future (pipe buffers).
+    // Keep that new layer out of ordinary callers' nested inline stack frames.
+    Box::pin(run_inner_observed(req, cancel, sink, capture_only, None)).await
+}
+async fn run_inner_observed(
+    req: Request,
+    cancel: CancellationToken,
+    sink: Option<OutputSink>,
+    capture_only: bool,
+    observation: Option<Settlement>,
+) -> io::Result<Output> {
+    let deadline = Instant::now() + req.timeout;
     if cancel.is_cancelled() {
         return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
     }
-    let mut command = Command::new(req.program);
-    command
-        .args(req.args)
-        .current_dir(req.cwd)
-        .stdin(if req.stdin.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .process_group(0)
-        .kill_on_drop(true);
-    // Tools, terminals and !cmd resolvers have no seat-identity exception.
-    // Launcher MCP children use their separate, origin-checked spawn path.
-    for (name, _) in std::env::vars_os() {
-        if name.as_encoded_bytes().starts_with(b"BBOXY_") {
-            command.env_remove(name);
-        }
-    }
-    let mut child = OwnedChild::spawn(command)?;
+    let has_input = req.stdin.is_some();
+    let mut packet = spawn_packet(
+        move || {
+            let mut command = Command::new(req.program);
+            command
+                .args(req.args)
+                .current_dir(req.cwd)
+                .stdin(if has_input {
+                    Stdio::piped()
+                } else {
+                    Stdio::null()
+                })
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .process_group(0)
+                .kill_on_drop(true);
+            // Tools, terminals and !cmd resolvers have no seat-identity exception.
+            // Launcher MCP children use their separate, origin-checked spawn path.
+            for (name, _) in std::env::vars_os() {
+                if name.as_encoded_bytes().starts_with(b"BBOXY_") {
+                    command.env_remove(name);
+                }
+            }
+            OwnedChild::spawn(command)
+        },
+        cancel.clone(),
+        deadline,
+        observation,
+    )
+    .await?;
+    let mut child = ActiveChild {
+        child: packet.0.take(),
+        work: packet.1.take(),
+        waited: false,
+    };
     let pgid = child.pgid();
     let mut stdout = child.stdout().unwrap();
     let mut stderr = child.stderr().unwrap();
@@ -501,7 +843,6 @@ async fn run_inner(
     tokio::pin!(exited);
     let mut cancelled = false;
     let mut drain_deadline = None;
-    let deadline = Instant::now() + req.timeout;
     loop {
         if (leader_done || status.is_some()) && !out_open && !err_open {
             break;
@@ -777,5 +1118,754 @@ pub mod fixtures {
     }
     pub(crate) fn missing_id(child: &OwnedChild) -> bool {
         child.child.id().is_none()
+    }
+}
+
+#[cfg(test)]
+mod spawn_admission_tests {
+    use super::*;
+    use std::sync::{
+        Arc, Condvar, Mutex,
+        atomic::{AtomicBool, Ordering},
+    };
+    type Gate = Arc<(Mutex<bool>, Condvar)>;
+    struct Release(Gate);
+    impl Release {
+        fn open(&self) {
+            *self.0.0.lock().unwrap() = true;
+            self.0.1.notify_all();
+        }
+    }
+    impl Drop for Release {
+        fn drop(&mut self) {
+            self.open();
+        }
+    }
+    fn gate() -> (Gate, Release) {
+        let g = Arc::new((Mutex::new(false), Condvar::new()));
+        (g.clone(), Release(g))
+    }
+    fn wait(g: &Gate) {
+        let mut open = g.0.lock().unwrap();
+        while !*open {
+            open = g.1.wait(open).unwrap();
+        }
+    }
+    struct Settled(Option<tokio::sync::oneshot::Sender<()>>);
+    impl Drop for Settled {
+        fn drop(&mut self) {
+            if let Some(s) = self.0.take() {
+                let _ = s.send(());
+            }
+        }
+    }
+    fn sleeper() -> io::Result<OwnedChild> {
+        let mut command = Command::new("/bin/sleep");
+        command
+            .arg("600")
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        OwnedChild::spawn(command)
+    }
+    async fn reaped(pid: u32) {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let observed = exited_without_reaping(pid);
+                if observed
+                    .as_ref()
+                    .err()
+                    .is_some_and(|e| e.raw_os_error() == Some(libc::ECHILD))
+                {
+                    assert_eq!(unsafe { libc::kill(-(pid as i32), 0) }, -1);
+                    assert_eq!(io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("test-owned admitted child was not reaped");
+    }
+    #[tokio::test]
+    async fn closed_elapsed_result_beats_a_not_ready_caller_timer() {
+        let (send, receive) = tokio::sync::oneshot::channel::<io::Result<SpawnResult>>();
+        drop(send);
+        let now = Instant::now();
+        // Explicitly pending caller timer models the other runtime's deadline
+        // observation preceding readiness here. The real receive helper runs.
+        let result = tokio::select! {biased;
+            _=std::future::pending::<()>()=>unreachable!("caller timer is not ready"),
+            result=receive=>observe_spawn_result(result, false, now, now),
+        };
+        assert_eq!(result.err().unwrap().kind(), io::ErrorKind::TimedOut);
+    }
+    #[tokio::test]
+    async fn result_observations_preserve_priority_cutoff_and_explicit_errors() {
+        let now = Instant::now();
+        for (cancelled, deadline, expected) in [
+            (
+                false,
+                now + Duration::from_secs(1),
+                io::ErrorKind::Interrupted,
+            ),
+            (
+                true,
+                now + Duration::from_secs(1),
+                io::ErrorKind::Interrupted,
+            ),
+            (true, now, io::ErrorKind::Interrupted),
+            (false, now, io::ErrorKind::TimedOut),
+            (
+                false,
+                now - Duration::from_nanos(1),
+                io::ErrorKind::TimedOut,
+            ),
+        ] {
+            let (send, receive) = tokio::sync::oneshot::channel::<io::Result<SpawnResult>>();
+            drop(send);
+            let error = observe_spawn_result(receive.await, cancelled, now, deadline)
+                .err()
+                .unwrap();
+            assert_eq!(error.kind(), expected);
+            if cancelled {
+                assert_eq!(error.to_string(), "cancelled during process admission");
+            } else if now < deadline {
+                assert_eq!(error.to_string(), "process admission unavailable");
+            }
+        }
+        for (cancelled, deadline, expected) in [
+            (
+                false,
+                now + Duration::from_secs(1),
+                io::ErrorKind::PermissionDenied,
+            ),
+            (false, now, io::ErrorKind::TimedOut),
+            (true, now, io::ErrorKind::Interrupted),
+        ] {
+            let error = observe_spawn_result(
+                Ok(Err(io::Error::from_raw_os_error(libc::EACCES))),
+                cancelled,
+                now,
+                deadline,
+            )
+            .err()
+            .unwrap();
+            assert_eq!(error.kind(), expected);
+            if expected == io::ErrorKind::PermissionDenied {
+                assert_eq!(error.raw_os_error(), Some(libc::EACCES));
+            }
+        }
+    }
+    #[tokio::test]
+    async fn result_observation_hands_off_live_and_reaps_late_owned_packets() {
+        for (cancelled, late) in [(false, false), (false, true), (true, false), (true, true)] {
+            let child = crate::runtime::blocking(sleeper).await.unwrap();
+            let pid = child.pgid();
+            let (send, receive) = tokio::sync::oneshot::channel();
+            assert!(send.send(Ok(SpawnResult(Some(child), None))).is_ok());
+            let now = Instant::now();
+            let deadline = if late {
+                now
+            } else {
+                now + Duration::from_secs(5)
+            };
+            let result = observe_spawn_result(receive.await, cancelled, now, deadline);
+            if !cancelled && !late {
+                let mut child = result.unwrap();
+                assert_eq!(child.pgid(), pid);
+                child.send(libc::SIGKILL);
+                child.wait().await.unwrap();
+            } else {
+                let kind = match result {
+                    Err(error) => error.kind(),
+                    Ok(mut unexpected) => {
+                        // Retain cleanup even when run against the old mapping.
+                        unexpected.send(libc::SIGKILL);
+                        unexpected.wait().await.unwrap();
+                        panic!("late/cancelled packet was handed off");
+                    }
+                };
+                assert_eq!(
+                    kind,
+                    if cancelled {
+                        io::ErrorKind::Interrupted
+                    } else {
+                        io::ErrorKind::TimedOut
+                    }
+                );
+            }
+            // ECHILD plus ESRCH for this exact private group prove actual reap;
+            // the helper returning an error alone makes no joined-cleanup claim.
+            reaped(pid).await;
+        }
+    }
+    #[tokio::test]
+    async fn queued_cancel_drop_and_deadline_do_not_need_permit_service() {
+        let (held, release) = gate();
+        let mut workers = Vec::new();
+        for _ in 0..4 {
+            let held = held.clone();
+            let (sent, ready) = tokio::sync::oneshot::channel();
+            workers.push(bbt_rt::handle().spawn(async move {
+                crate::runtime::blocking(move || {
+                    sent.send(()).unwrap();
+                    wait(&held);
+                })
+                .await
+            }));
+            tokio::time::timeout(Duration::from_secs(3), ready)
+                .await
+                .unwrap()
+                .unwrap();
+        }
+        for mode in 0..3 {
+            let upstream = CancellationToken::new();
+            let called = Arc::new(AtomicBool::new(false));
+            let seen = called.clone();
+            let (done, settled) = tokio::sync::oneshot::channel();
+            let settled_guard = Settled(Some(done));
+            let deadline = Instant::now()
+                + if mode == 2 {
+                    Duration::from_millis(30)
+                } else {
+                    Duration::from_secs(5)
+                };
+            let mut admission = Box::pin(spawn_admission(
+                move || {
+                    let _settled = settled_guard;
+                    seen.store(true, Ordering::SeqCst);
+                    sleeper()
+                },
+                upstream.clone(),
+                deadline,
+            ));
+            assert!(futures_util::poll!(admission.as_mut()).is_pending());
+            if mode == 0 {
+                upstream.cancel();
+                let error = tokio::time::timeout(Duration::from_secs(2), &mut admission)
+                    .await
+                    .unwrap()
+                    .err()
+                    .unwrap();
+                assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+            } else if mode == 1 {
+                drop(admission);
+            } else {
+                let error = tokio::time::timeout(Duration::from_secs(2), &mut admission)
+                    .await
+                    .unwrap()
+                    .err()
+                    .unwrap();
+                assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+            }
+            tokio::time::timeout(Duration::from_secs(2), settled)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(
+                !called.load(Ordering::SeqCst),
+                "cancelled queued factory ran, mode {mode}"
+            );
+            if mode != 0 {
+                assert!(
+                    !upstream.is_cancelled(),
+                    "local drop/deadline cancelled upstream"
+                );
+            }
+        }
+        // Permits stay held until all cancellation/drop/deadline observations.
+        release.open();
+        for worker in workers {
+            worker.await.unwrap();
+        }
+    }
+    #[tokio::test]
+    async fn abandonment_during_admission_and_after_spawn_retains_reaping_owner() {
+        for after_spawn in [false, true] {
+            let (g, release) = gate();
+            let upstream = CancellationToken::new();
+            let (entered, ready) = tokio::sync::oneshot::channel();
+            let (pid_send, pid_recv) = tokio::sync::oneshot::channel();
+            let mut admission = Box::pin(spawn_admission(
+                move || {
+                    if !after_spawn {
+                        let _ = entered.send(());
+                        wait(&g);
+                        let child = sleeper()?;
+                        let _ = pid_send.send(child.pgid());
+                        Ok(child)
+                    } else {
+                        let child = sleeper()?;
+                        let _ = pid_send.send(child.pgid());
+                        let _ = entered.send(());
+                        wait(&g);
+                        Ok(child)
+                    }
+                },
+                upstream.clone(),
+                Instant::now() + Duration::from_secs(5),
+            ));
+            assert!(futures_util::poll!(admission.as_mut()).is_pending());
+            tokio::time::timeout(Duration::from_secs(2), ready)
+                .await
+                .unwrap()
+                .unwrap();
+            drop(admission);
+            assert!(!upstream.is_cancelled());
+            release.open();
+            let pid = tokio::time::timeout(Duration::from_secs(2), pid_recv)
+                .await
+                .unwrap()
+                .unwrap();
+            reaped(pid).await;
+        }
+    }
+    #[tokio::test]
+    async fn unreceived_owned_result_and_normal_handoff_are_not_owner_loss() {
+        let child = sleeper().unwrap();
+        let pid = child.pgid();
+        let (send, receive) = tokio::sync::oneshot::channel();
+        assert!(send.send(SpawnResult(Some(child), None)).is_ok());
+        drop(receive);
+        reaped(pid).await;
+        let upstream = CancellationToken::new();
+        let mut child = spawn_admission(
+            sleeper,
+            upstream.clone(),
+            Instant::now() + Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+        let pid = child.pgid();
+        assert!(!upstream.is_cancelled());
+        child.send(libc::SIGKILL);
+        child.wait().await.unwrap();
+        reaped(pid).await;
+    }
+    #[tokio::test]
+    async fn store_writer_release_during_owned_spawn_diagnostic() {
+        use crate::{protocol::*, store::Store};
+        use std::{
+            io::Write,
+            os::{fd::AsRawFd, unix::net::UnixStream},
+        };
+        let own = tempfile::tempdir_in("/tmp").unwrap();
+        let root = own.path().join("sessions");
+        let meta = SessionMeta {
+            session: SessionId::new(),
+            cwd: own.path().into(),
+            profile: None,
+            fork: None,
+            protocol: PROTOCOL,
+            harness: "engine".into(),
+            created_ms: 0,
+            vcs: None,
+            dream: None,
+            source: None,
+        };
+        let store = Store::open(root.clone(), meta.clone(), None, Default::default())
+            .await
+            .unwrap();
+        let (ready_parent, ready_child) = UnixStream::pair().unwrap();
+        let (release_parent, release_child) = UnixStream::pair().unwrap();
+        struct ReleaseExec(UnixStream);
+        impl Drop for ReleaseExec {
+            fn drop(&mut self) {
+                let _ = self.0.write_all(&[1]);
+            }
+        }
+        let release = ReleaseExec(release_parent);
+        ready_parent.set_nonblocking(true).unwrap();
+        let mut ready = tokio::net::UnixStream::from_std(ready_parent).unwrap();
+        let mut admission = Box::pin(spawn_admission(
+            move || {
+                let ready_fd = ready_child.as_raw_fd();
+                let release_fd = release_child.as_raw_fd();
+                let mut command = Command::new("/usr/bin/true");
+                command
+                    .env_clear()
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                unsafe {
+                    command.pre_exec(move || {
+                        let pid = libc::getpid().to_ne_bytes();
+                        if libc::write(ready_fd, pid.as_ptr().cast(), pid.len())
+                            != pid.len() as isize
+                        {
+                            return Err(io::Error::last_os_error());
+                        }
+                        let mut byte = 0u8;
+                        loop {
+                            let n = libc::read(release_fd, (&mut byte as *mut u8).cast(), 1);
+                            if n == 1 {
+                                break;
+                            }
+                            if n < 0
+                                && io::Error::last_os_error().raw_os_error() == Some(libc::EINTR)
+                            {
+                                continue;
+                            }
+                            return Err(io::Error::from_raw_os_error(libc::EIO));
+                        }
+                        Ok(())
+                    });
+                }
+                let child = OwnedChild::spawn(command);
+                drop(ready_child);
+                drop(release_child);
+                child
+            },
+            CancellationToken::new(),
+            Instant::now() + Duration::from_secs(5),
+        ));
+        assert!(futures_util::poll!(admission.as_mut()).is_pending());
+        let mut pid_bytes = [0u8; 4];
+        tokio::time::timeout(Duration::from_secs(2), ready.read_exact(&mut pid_bytes))
+            .await
+            .unwrap()
+            .unwrap();
+        let pid = i32::from_ne_bytes(pid_bytes);
+        drop(store);
+        // Native nonblocking probe avoids needing another shared blocking permit
+        // while this test deliberately parks the admitted spawn before exec.
+        let probe = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(crate::store::log_path(&root, meta.session))
+            .unwrap();
+        let locked = unsafe { libc::flock(probe.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        let errno = if locked < 0 {
+            io::Error::last_os_error().raw_os_error()
+        } else {
+            None
+        };
+        let replacement = if locked == 0 {
+            Some(probe)
+        } else {
+            drop(probe);
+            None
+        };
+        eprintln!(
+            "pre-exec inherited descriptor: child={pid}, reopen_ok={}, flock_return={locked}, errno={errno:?}",
+            locked == 0
+        );
+        drop(release);
+        let mut child = tokio::time::timeout(Duration::from_secs(3), admission)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(child.pgid(), pid as u32);
+        child.wait().await.unwrap();
+        if let Some(replacement) = replacement {
+            let contender = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(crate::store::log_path(&root, meta.session))
+                .unwrap();
+            assert_eq!(
+                unsafe { libc::flock(contender.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+                -1,
+                "old inherited close released the replacement writer"
+            );
+            assert_eq!(
+                io::Error::last_os_error().raw_os_error(),
+                Some(libc::EWOULDBLOCK)
+            );
+            drop(contender);
+            drop(replacement);
+        }
+        let first_ok = locked == 0;
+        let after = Store::open(root, meta, None, Default::default()).await;
+        assert!(after.is_ok(), "writer remains after actual child exec/reap");
+        drop(after);
+        assert!(
+            first_ok,
+            "Store lifetime ended but pre-exec inherited descriptor retained its flock"
+        );
+    }
+}
+
+#[cfg(test)]
+mod settlement_tests {
+    use super::*;
+    use std::sync::{Arc, Condvar, Mutex};
+    fn gate() -> Arc<(Mutex<bool>, Condvar)> {
+        Arc::new((Mutex::new(false), Condvar::new()))
+    }
+    fn block(g: &Arc<(Mutex<bool>, Condvar)>) {
+        let mut open = g.0.lock().unwrap();
+        while !*open {
+            open = g.1.wait(open).unwrap();
+        }
+    }
+    struct Release(Arc<(Mutex<bool>, Condvar)>);
+    impl Drop for Release {
+        fn drop(&mut self) {
+            *self.0.0.lock().unwrap() = true;
+            self.0.1.notify_all();
+        }
+    }
+    fn request(path: &std::path::Path, command: &str) -> Request {
+        Request {
+            program: "/usr/bin/env".into(),
+            args: vec![
+                "-i".into(),
+                "PATH=/usr/bin:/bin".into(),
+                "/bin/sh".into(),
+                "-c".into(),
+                command.into(),
+            ],
+            stdin: None,
+            cwd: path.into(),
+            timeout: Duration::from_secs(3),
+            spill_dir: path.join("spill"),
+            cap: 1024,
+            redactor: crate::redact::Set::default(),
+        }
+    }
+    async fn confirmed(s: &Settlement) {
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), s.wait())
+                .await
+                .unwrap(),
+            SettlementStatus::Confirmed
+        );
+    }
+    async fn isolated_case(name: &'static str) -> bool {
+        if std::env::var("DREAM_WP7_SETTLEMENT_CASE").as_deref() == Ok(name) {
+            return false;
+        }
+        // Native barriers deliberately retain bounded IO permits. Give each
+        // fixture its own runtime instead of contending with another fixture's
+        // four-permit allocation; all original process assertions still run.
+        let exe = std::env::current_exe().unwrap();
+        let result = tokio::task::spawn_blocking(move || {
+            std::process::Command::new(exe)
+                .args([
+                    "--exact",
+                    &format!("process::settlement_tests::{name}"),
+                    "--nocapture",
+                ])
+                .env("DREAM_WP7_SETTLEMENT_CASE", name)
+                .output()
+                .unwrap()
+        })
+        .await
+        .unwrap();
+        assert!(
+            result.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+        true
+    }
+    #[tokio::test]
+    async fn observed_never_polled_live_and_lost_ack_are_distinct() {
+        if isolated_case("observed_never_polled_live_and_lost_ack_are_distinct").await {
+            return;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let upstream = CancellationToken::new();
+        let op = observe_capture(request(temp.path(), "touch forbidden"), upstream.clone());
+        let s = op.settlement();
+        assert_eq!(s.status(), SettlementStatus::Pending);
+        drop(op);
+        confirmed(&s).await;
+        assert!(!temp.path().join("forbidden").exists());
+        assert!(!upstream.is_cancelled());
+        let mut op = observe_capture(request(temp.path(), "printf joined"), upstream.clone());
+        let s = op.settlement();
+        let result = op.result().await.unwrap();
+        assert_eq!(result.bytes, b"joined");
+        assert_eq!(result.code, Some(0));
+        confirmed(&s).await;
+        let s = Settlement::new();
+        let ticket = s.work();
+        let observer = s.clone();
+        drop(observer);
+        assert_eq!(s.status(), SettlementStatus::Pending);
+        drop(ticket);
+        assert_eq!(s.wait().await, SettlementStatus::Unavailable);
+        let s = Settlement::new();
+        let ticket = s.work();
+        let task = tokio::spawn(async move {
+            let _ticket = ticket;
+            panic!("private missing acknowledgement control");
+        });
+        assert!(task.await.is_err());
+        assert_eq!(s.wait().await, SettlementStatus::Unavailable);
+    }
+    #[tokio::test]
+    async fn observed_late_spawn_keeps_resources_while_an_independent_operation_finishes() {
+        if isolated_case(
+            "observed_late_spawn_keeps_resources_while_an_independent_operation_finishes",
+        )
+        .await
+        {
+            return;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().to_path_buf();
+        let g = gate();
+        let release = Release(g.clone());
+        let s = Settlement::new();
+        let root_work = s.work();
+        let upstream = CancellationToken::new();
+        let (ready, entered) = tokio::sync::oneshot::channel();
+        let (pid_send, pid_receive) = tokio::sync::oneshot::channel();
+        let deadline = Instant::now() + Duration::from_millis(60);
+        let observation = s.clone();
+        let a = tokio::spawn(async move {
+            let r = spawn_packet(
+                move || {
+                    ready.send(()).unwrap();
+                    block(&g);
+                    let mut command = Command::new("/bin/sh");
+                    command
+                        .args(["-c", "sleep 1; echo escaped > after-cleanup"])
+                        .current_dir(root)
+                        .env_clear()
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped());
+                    let child = OwnedChild::spawn(command)?;
+                    pid_send.send(child.pgid()).unwrap();
+                    Ok(child)
+                },
+                upstream,
+                deadline,
+                Some(observation),
+            )
+            .await;
+            root_work.complete();
+            r.err().unwrap().kind()
+        });
+        entered.await.unwrap();
+        assert_eq!(a.await.unwrap(), io::ErrorKind::TimedOut);
+        assert_eq!(s.status(), SettlementStatus::Pending);
+        let mut b = observe_capture(
+            request(temp.path(), "printf independent"),
+            CancellationToken::new(),
+        );
+        let bs = b.settlement();
+        assert_eq!(b.result().await.unwrap().bytes, b"independent");
+        confirmed(&bs).await;
+        assert_eq!(
+            s.status(),
+            SettlementStatus::Pending,
+            "B proof cannot confirm A"
+        );
+        assert!(
+            temp.path().exists(),
+            "scratch retained while native job pending"
+        );
+        drop(release);
+        let pid = pid_receive.await.unwrap();
+        confirmed(&s).await;
+        assert_eq!(
+            exited_without_reaping(pid).unwrap_err().raw_os_error(),
+            Some(libc::ECHILD)
+        );
+        assert_eq!(unsafe { libc::kill(-(pid as i32), 0) }, -1);
+        assert!(!temp.path().join("after-cleanup").exists());
+    }
+    #[tokio::test]
+    async fn observed_early_io_error_retires_the_actual_same_owner() {
+        if isolated_case("observed_early_io_error_retires_the_actual_same_owner").await {
+            return;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let s = Settlement::new();
+        let root = s.work();
+        let mut packet = spawn_packet(
+            || {
+                let mut c = Command::new("/bin/sleep");
+                c.arg("600")
+                    .env_clear()
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                OwnedChild::spawn(c)
+            },
+            CancellationToken::new(),
+            Instant::now() + Duration::from_secs(3),
+            Some(s.clone()),
+        )
+        .await
+        .unwrap();
+        let child = ActiveChild {
+            child: packet.0.take(),
+            work: packet.1.take(),
+            waited: false,
+        };
+        let pid = child.pgid();
+        // Deterministic post-admission IO-error injection exercises the exact
+        // run_inner error/unwind owner guard; no orphan-queue success is assumed.
+        let result: io::Result<()> = async move {
+            let _owner = child;
+            Err(io::Error::from_raw_os_error(libc::EIO))
+        }
+        .await;
+        assert_eq!(result.unwrap_err().raw_os_error(), Some(libc::EIO));
+        root.complete();
+        confirmed(&s).await;
+        assert_eq!(
+            exited_without_reaping(pid).unwrap_err().raw_os_error(),
+            Some(libc::ECHILD)
+        );
+        assert!(!temp.path().join("spill").exists());
+    }
+    #[tokio::test]
+    async fn observed_queued_refusal_does_not_wait_for_four_busy_permits() {
+        if isolated_case("observed_queued_refusal_does_not_wait_for_four_busy_permits").await {
+            return;
+        }
+        let g = gate();
+        let release = Release(g.clone());
+        let mut jobs = vec![];
+        for _ in 0..4 {
+            let g = g.clone();
+            let (send, ready) = tokio::sync::oneshot::channel();
+            jobs.push(tokio::spawn(async move {
+                crate::runtime::blocking(move || {
+                    send.send(()).unwrap();
+                    block(&g);
+                })
+                .await
+            }));
+            ready.await.unwrap();
+        }
+        let temp = tempfile::tempdir().unwrap();
+        for mode in 0..3 {
+            let upstream = CancellationToken::new();
+            let mut req = request(temp.path(), "touch forbidden");
+            if mode == 1 {
+                req.timeout = Duration::from_millis(30);
+            }
+            let mut op = observe_capture(req, upstream.clone());
+            let s = op.settlement();
+            let mut result = Box::pin(op.result());
+            assert!(futures_util::poll!(result.as_mut()).is_pending());
+            if mode == 0 {
+                upstream.cancel();
+                assert_eq!(result.await.unwrap_err().kind(), io::ErrorKind::Interrupted);
+            } else if mode == 1 {
+                assert_eq!(result.await.unwrap_err().kind(), io::ErrorKind::TimedOut);
+            } else {
+                drop(result);
+                drop(op);
+                assert!(!upstream.is_cancelled());
+            }
+            confirmed(&s).await;
+        }
+        assert!(!temp.path().join("forbidden").exists());
+        drop(release);
+        for job in jobs {
+            job.await.unwrap();
+        }
     }
 }

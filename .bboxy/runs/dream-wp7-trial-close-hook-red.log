@@ -1,0 +1,22 @@
+command: cargo test --offline --locked --test dream_pipeline trial_real_enforced_twenty_arms_fork_usage_verifier_and_pair_projection -- --exact --nocapture
+source: 137c395b190e77e6a1dbad2cd2bd5aae433d8d64
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized] target(s) in 2.20s
+     Running tests/dream_pipeline.rs (target/debug/deps/dream_pipeline-977c642e40d8402f)
+
+running 1 test
+
+thread 'trial_real_enforced_twenty_arms_fork_usage_verifier_and_pair_projection' (195850303) panicked at tests/dream_pipeline.rs:1754:5:
+confined trial close published its own pins to the default cache outside owned scratch: ["/tmp/wp7-check-1wkfqwdz/.bboxy450-harness/dream/d0/6c3aeae59564ff875f0b402dc931ce19c69e2cbc89598c2cf0cbf33eed8de518/2e178ef8b91290af7a4f5855ae226edec89d2bfa2f95c730cd453fad7f81d480.json sha256:8545f5a84624a3090ca6359733c1de1f4699b2262e753208d855d4ec521ec511"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+synthetic D1 failure custody: /tmp/wp7-check-1wkfqwdz/.tmpQ3UKvc
+test trial_real_enforced_twenty_arms_fork_usage_verifier_and_pair_projection ... FAILED
+
+failures:
+
+failures:
+    trial_real_enforced_twenty_arms_fork_usage_verifier_and_pair_projection
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 19 filtered out; finished in 15.09s
+
+error: test failed, to rerun pass `--test dream_pipeline`

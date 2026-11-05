@@ -666,3 +666,277 @@ frontend = "project"
 name = "BrokenHarnessOnboardingInstall"
 expected = "safety"
 frontend = "project"
+[[model]]
+name = "HarnessDreamLifecycle"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamLifecycle"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamLifecycleFence"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamLifecyclePair"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamMerge"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamMerge"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamMergeHarness"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamSink"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamSink"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamSinkAdoption"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamSinkLoad"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamD0"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamD0"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamD0Blocking"
+expected = "liveness"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamNativeCustody"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamNativeCustody"
+expected = "safety"
+frontend = "project"
+[[model]]
+name = "HarnessDreamSeal"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamSealLateWrite"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamSealChild"
+expected = "safety"
+frontend = "project"
+[[model]]
+name = "HarnessProcessSpawnAdmission"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessProcessSpawnAdmissionLate"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessProcessSpawnAdmissionOwner"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessStoreWriterLease"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessStoreWriterLeaseMissing"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessStoreWriterLeasePremature"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessStoreWriterLeaseStale"
+expected = "safety"
+frontend = "project"
+[[model]]
+name = "HarnessProcessAdmissionResult"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessProcessAdmissionResult"
+expected = "safety"
+frontend = "project"
+[[model]]
+name = "HarnessDreamTrialClaims"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialClaimsGlobal"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialClaimsEarlyRelease"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamTrialOutcome"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialOutcomeIsolation"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialOutcomeHarness"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialOutcomeTerminal"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialOutcomeUsage"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialOutcomeEntry"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialOutcomeCleanup"
+expected = "safety"
+frontend = "project"
+[[model]]
+name = "HarnessDreamTrialCapability"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialCapabilityReopen"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialCapabilityPermit"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialCapabilityExec"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamTrialUsage"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialUsageJoin"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialUsageBlind"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialUsageBasis"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamTrialSettlement"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialSettlementErr"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialSettlementChannel"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialSettlementLate"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamTrialFrontier"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialFrontierActive"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialFrontierEarly"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialFrontierBytes"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialFrontierInherited"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamTrialFrontierDuplicate"
+expected = "safety"
+frontend = "project"

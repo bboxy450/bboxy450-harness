@@ -1923,6 +1923,7 @@ mod gui_polish_tests {
             append_system_prompt: context.into(),
             mcp_servers: [("seat".into(), server)].into(),
             notices: vec![],
+            trial: None,
         });
         let (gateway, _) = host
             .create(OpEnvelope {

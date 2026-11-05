@@ -1,0 +1,13 @@
+{
+  "verify_label": "dream-wp7-close-confinement-d0-green",
+  "normal_source_logs": 12,
+  "episodes": 12,
+  "guarded_max_poll_cpu_ns": [
+    199875,
+    157792
+  ],
+  "pins_and_episode_values_equal": true,
+  "cache_bytes_equal": true,
+  "source_bytes_equal": true,
+  "episode_digest": "sha256:a431b92bfff1e55f24a3c5be1f7f97b8d9c3fbe17394f3a8c93e5113728190a4"
+}
