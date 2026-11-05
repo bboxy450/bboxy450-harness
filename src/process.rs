@@ -772,7 +772,9 @@ async fn run_inner(
     sink: Option<OutputSink>,
     capture_only: bool,
 ) -> io::Result<Output> {
-    run_inner_observed(req, cancel, sink, capture_only, None).await
+    // The additive observation layer has a large capture future (pipe buffers).
+    // Keep that new layer out of ordinary callers' nested inline stack frames.
+    Box::pin(run_inner_observed(req, cancel, sink, capture_only, None)).await
 }
 async fn run_inner_observed(
     req: Request,

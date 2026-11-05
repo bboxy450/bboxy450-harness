@@ -1,0 +1,36 @@
+error[E0624]: associated function `load` is private
+   --> .bboxy/runs/dream-wp7-future-layout-probe.rs:14:237
+    |
+ 14 |   ...eate(op)),std::mem::size_of_val(&SessionActor::load(cfg,OpId::new())),std::mem::size_of_val(&bboxy450_harness::store::Store::o...
+    |                                                     ^^^^ private associated function
+    |
+   ::: src/engine/mod.rs:145:5
+    |
+145 | /     pub(crate) async fn load(
+146 | |         config: Config,
+147 | |         start: OpId,
+148 | |         notice: Option<String>,
+149 | |     ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
+    | |________________________________________________________________________________- private associated function defined here
+
+error[E0061]: this function takes 3 arguments but 2 arguments were supplied
+   --> .bboxy/runs/dream-wp7-future-layout-probe.rs:14:223
+    |
+ 14 | ...td::mem::size_of_val(&SessionActor::load(cfg,OpId::new())),std::mem::size_of_val(&bboxy450_harness::store::Store::open("/tmp/nev...
+    |                          ^^^^^^^^^^^^^^^^^^----------------- argument #3 of type `Option<String>` is missing
+    |
+note: associated function defined here
+   --> src/engine/mod.rs:145:25
+    |
+145 |     pub(crate) async fn load(
+    |                         ^^^^
+help: provide the argument
+    |
+ 14 -     println!("{{\"host_open\":{},\"host_create\":{},\"engine_load\":{},\"store_open\":{},\"process_run\":{}}}",std::mem::size_of_val(&host.open(meta.session)),std::mem::size_of_val(&host.create(op)),std::mem::size_of_val(&SessionActor::load(cfg,OpId::new())),std::mem::size_of_val(&bboxy450_harness::store::Store::open("/tmp/never-created-wp7-layout".into(),meta,None,Default::default())),std::mem::size_of_val(&bboxy450_harness::process::run(req,Default::default())));
+ 14 +     println!("{{\"host_open\":{},\"host_create\":{},\"engine_load\":{},\"store_open\":{},\"process_run\":{}}}",std::mem::size_of_val(&host.open(meta.session)),std::mem::size_of_val(&host.create(op)),std::mem::size_of_val(&SessionActor::load(cfg, OpId::new(), /* Option<String> */)),std::mem::size_of_val(&bboxy450_harness::store::Store::open("/tmp/never-created-wp7-layout".into(),meta,None,Default::default())),std::mem::size_of_val(&bboxy450_harness::process::run(req,Default::default())));
+    |
+
+error: aborting due to 2 previous errors
+
+Some errors have detailed explanations: E0061, E0624.
+For more information about an error, try `rustc --explain E0061`.
