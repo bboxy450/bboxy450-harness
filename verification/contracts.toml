@@ -14,7 +14,7 @@ sources = ["src/backend/acp_agent.rs", "src/frontends/gui/bridge.rs", "tests/for
 implementation_tests = ["tests/acp_agent.rs", "tests/fixtures/acp-agent/fake_agent.py"]
 assumptions = "One admitted input, one negotiated capability and one independently ending active prompt. Replies, deadlines and transport loss settle atomically; an unknown reply may already have delivered the input. Weak fairness of local routing, steering settlement and idle-queue dispatch; the agent need not end its active prompt. The real ten-second deadline, bootstrap fence, payload/image custody, persistent receipts, bounded multi-input queue and session identity are implementation-only; no Rust refinement proof."
 property = "At most one delivery; no steering cancellation; unknown outcomes never become normal prompts. Explicitly unconsumed input can use the normal queue. Accepted steering receipts survive a racing original prompt end."
-checks = ["make test-acp-steering", "make test-acp-steering-formal"]
+checks = ["make test-formal", "make test"]
 
 [[contract]]
 name = "HarnessNativeUsage"
@@ -235,12 +235,13 @@ checks = ["make test-formal", "make test"]
 
 [[contract]]
 name = "HarnessScrollStick"
-title = "Tail follows append until manual scroll; Jump or wheeling to the bottom restores following."
-models = ["HarnessScrollStick", "BrokenHarnessScrollStick"]
-sources = ["src/frontends/gui/chat_scroll.rs", "src/frontends/gui/view.rs", "tests/formal/models.rs"]
-implementation_tests = ["tests/gui_fixtures.rs", "tests/gui_render.rs"]
-assumptions = "Tail/offset/requested 0..3, one following flag, monotonic growth. Jump and wheel-to-bottom are atomic user actions; no user fairness assumed. Real layout clamp, wheel bursts and pixels remain implementation witnesses."
-property = "Tail follows append until manual scroll; Jump or wheeling to the bottom restores following."
+title = "Tail follows append, Jump and resumed views; inset scrolling preserves outer intent."
+models = ["HarnessScrollStick", "BrokenHarnessScrollStick", "BrokenHarnessScrollResume"]
+controls = [{name="BrokenHarnessScrollStick", expected="safety"}, {name="BrokenHarnessScrollResume", expected="safety"}]
+sources = ["src/frontends/gui/chat_scroll.rs", "src/frontends/gui/view.rs", "src/frontends/gui/anim.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/gui_fixtures.rs", "tests/gui_render.rs", "tests/gui_scroll.rs", "src/frontends/gui/anim.rs"]
+assumptions = "Tail/offset/requested and inset offset 0..3, one following flag, monotonic growth. Resume, Jump, inset wheel and wheel-to-bottom are atomic actions; no user fairness assumed. The finite model abstracts settled offsets. Delayed preparation, epoch changes, real wheel hit routing, float spring stability at slow frame rates and pixels are implementation witnesses; no Rust refinement proof."
+property = "Resume and Jump show the latest tail; manual intent survives growth; inset movement does not move the transcript."
 checks = ["make test-formal", "make test"]
 
 

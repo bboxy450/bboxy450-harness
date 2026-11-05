@@ -245,6 +245,8 @@ pub struct HarnessView {
     config_scroll: f32,
     config_menu_rect: Option<Rect>,
     pub scroll: chat_scroll::State,
+    /// Stay at the latest prepared tail through initial replay/reconnection.
+    tail_pending: bool,
     /// View-local offsets into worker-prepared Markdown tool panels.
     markdown_scroll: HashMap<String, [f32; 2]>,
     metrics: Metrics,
@@ -380,6 +382,7 @@ impl Default for HarnessView {
             config_scroll: 0.,
             config_menu_rect: None,
             scroll: Default::default(),
+            tail_pending: true,
             markdown_scroll: HashMap::new(),
             metrics: Metrics::default(),
             cached: None,
@@ -839,8 +842,9 @@ impl HarnessView {
             return 0.;
         };
         let max = (content_h - rows_h).max(0.);
-        if first_frame {
+        if first_frame || self.tail_pending {
             // a session's first frame shows its tail at once
+            self.anim.forget_spring("scroll");
             return max;
         }
         self.anim
@@ -937,6 +941,7 @@ impl HarnessView {
         let scope = (model.session, model.epoch);
         let first_frame = self.known_scope != Some(scope);
         if first_frame {
+            self.follow_latest();
             self.known_scope = Some(scope);
             self.known.clear();
             self.entering.clear();
@@ -1581,6 +1586,13 @@ impl HarnessView {
         ));
         frame.layout = Some(layout);
         self.scroll.layout_solved();
+        if !self.scroll.following()
+            || (state.ready
+                && prepared.is_some_and(|p| p.source.cursor == model.cursor
+                    && p.width == width && p.zoom == self.zoom.percent()))
+        {
+            self.tail_pending = false;
+        }
         self.frame = frame;
         // the floating menus over everything, with this frame's motion
         self.paint_menus(state, size, rows_h)?;
@@ -2270,7 +2282,15 @@ impl HarnessView {
                 }
             },
         );
+        self.follow_latest();
+        self.invalidate();
+    }
+    /// Resume or an explicit jump starts at the newest row, with no stale glide.
+    pub fn follow_latest(&mut self) {
         self.scroll.follow_latest();
+        self.tail_pending = true;
+        self.anchor = None;
+        self.anim.forget_spring("scroll");
         self.invalidate();
     }
     pub fn activate(&mut self, action: Action, bridge: &Bridge) {
@@ -2279,7 +2299,7 @@ impl HarnessView {
                 self.shift_panel(&key, delta);
                 return;
             }
-            Action::Jump => self.scroll.follow_latest(),
+            Action::Jump => self.follow_latest(),
             Action::AgentConfig(envelope) => {
                 self.config_open = None;
                 self.notice = match bridge.send_envelope(envelope) {
@@ -2399,7 +2419,7 @@ impl HarnessView {
                         self.composer.stored(&sent);
                         let birth = self.birth.unwrap_or(bridge.state.transcript.epoch);
                         self.activate(Action::StopAt(birth), bridge);
-                        self.scroll.follow_latest();
+                        self.follow_latest();
                         return;
                     }
                     let blocks = match self.attachment_blocks(&sent) {
@@ -2458,7 +2478,7 @@ impl HarnessView {
                             }
                             self.inputs.changed();
                             self.notice = None;
-                            self.scroll.follow_latest();
+                            self.follow_latest();
                         }
                         Err(error) => {
                             self.notice = Some(format!(
@@ -2497,7 +2517,7 @@ impl HarnessView {
                             self.invalidate();
                             return;
                         };
-                        self.scroll.follow_latest();
+                        self.follow_latest();
                         Op::UserTurn {
                             blocks,
                             mode: TurnMode::Queue,

@@ -1244,8 +1244,8 @@ fn dirty_wake_frame(b: bool) -> Model {
 }
 // Adapted from bboxy450-term chat_scroll.rs: layout follows a finite tail
 // sentinel, but never overwrites manual intent; Jump explicitly restores it.
-fn scroll_stick(b: bool) -> Model {
-    let mut m = base::<4>(
+pub fn scroll_stick(b: bool) -> Model {
+    let mut m = base::<5>(
         "ScrollStick",
         b,
         &[
@@ -1253,6 +1253,7 @@ fn scroll_stick(b: bool) -> Model {
             ("following", 1, 1),
             ("offset", 3, 1),
             ("requested", 3, 0),
+            ("panel", 3, 0),
         ],
     );
     act(
@@ -1288,6 +1289,8 @@ fn scroll_stick(b: bool) -> Model {
         eq(1, 0),
         &[(1, Int(1)), (2, Var(0))],
     );
+    act(&mut m, "ResumeView", Bool(true), &[(1, Int(1)), (2, Var(0))]);
+    act(&mut m, "ScrollInsidePanel", Var(4).lt(Int(3)), &[(4, Var(4).plus(Int(1)))]);
     safe(
         &mut m,
         "TailShownWhileFollowing",
@@ -1298,6 +1301,12 @@ fn scroll_stick(b: bool) -> Model {
         "ManualOffsetPreserved",
         eq(1, 1).or(Var(2).eq(Var(3))),
     );
+    m
+}
+pub fn scroll_resume_control() -> Model {
+    let mut m = scroll_stick(false);
+    m.name = "BrokenHarnessScrollResume".into();
+    act(&mut m, "ResumeWithoutTail", eq(1, 0), &[(1, Int(1))]);
     m
 }
 // Adapted from bboxy450-term LifecycleOwnership: detaching a face never
@@ -4108,6 +4117,7 @@ pub fn acp_steering(control: u8) -> Model {
 
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (scroll_resume_control(), "safety"),
         (acp_steering(0), "pass"),
         (acp_steering(1), "safety"),
         (acp_steering(2), "safety"),

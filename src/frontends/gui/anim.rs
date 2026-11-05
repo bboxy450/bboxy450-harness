@@ -378,14 +378,17 @@ impl Clock {
         }
         s.touched = true;
         s.target = target;
-        // Cap the step so one slow or resumed frame stays within the explicit integrator's
-        // stable range (w·dt below ~1), never a jump.
+        // Solve the critically damped spring exactly. Semi-implicit Euler is unstable
+        // at the old 25 ms cap for a 180 ms spring (w*dt > 2*(sqrt(2)-1)); a busy
+        // embedded worker then alternates between the viewport's two clamps.
         let dt = ((now - s.last) / 1000.).clamp(0., 0.025);
         s.last = now;
         if dt > 0. {
-            let gap = s.target - s.x;
-            s.v += (w * w * gap - 2. * w * s.v) * dt;
-            s.x += s.v * dt;
+            let displacement = s.x - s.target;
+            let velocity = s.v + w * displacement;
+            let decay = (-w * dt).exp();
+            s.x = s.target + (displacement + velocity * dt) * decay;
+            s.v = (s.v - w * velocity * dt) * decay;
         }
         if s.done() {
             s.x = s.target;
@@ -397,6 +400,10 @@ impl Clock {
     /// user starts from). None when no spring is in flight.
     pub fn spring_value(&self, id: &str) -> Option<f32> {
         self.springs.get(id).map(|s| s.x)
+    }
+    /// A deliberate jump discards the old trajectory, including its velocity.
+    pub fn forget_spring(&mut self, id: &str) {
+        self.springs.remove(id);
     }
     /// Phase 0..1 of a loop with `period_ms`. Asking keeps the clock awake this frame. Under
     /// reduced motion, flat fallback or pause the phase is 0 and no frame is wanted.
@@ -666,6 +673,24 @@ mod tests {
         );
         let settled = settled_at.expect("settles");
         assert!((200. ..=600.).contains(&settled), "settled at {settled} ms");
+    }
+    #[test]
+    fn spring_stays_bounded_when_embedded_frames_are_slow() {
+        for step in [16., 24., 25., 40., 100., 500.] {
+            let mut c = Clock::live(false);
+            c.tick(0.);
+            c.spring_from("scroll", 0., 10_000., 180.);
+            let mut previous = 0.;
+            for frame in 1..180 {
+                c.tick(frame as f32 * step);
+                let x = c.spring("scroll", 10_000., 180.);
+                assert!(x.is_finite() && x >= previous - 0.01 && x <= 10_000.,
+                    "{step} ms frame {frame}: {previous} -> {x}");
+                previous = x;
+                c.end_frame();
+            }
+            assert_eq!(previous, 10_000.);
+        }
     }
     #[test]
     fn two_missed_frames_fall_flat_until_idle() {

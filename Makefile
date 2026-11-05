@@ -238,6 +238,15 @@ verify-acp-controls:
 	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/test-acp-controls.py
 
 .PHONY: test-acp-steering test-acp-steering-formal
+test-rich-scroll:
+	cargo test --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features embedded --lib spring_
+	cargo test --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features embedded --test gui_scroll
+
+test-rich-scroll-formal:
+	SCROLL_FORMAL_OUT='$(abspath $(TARGET_DIR))/scroll/formal' cargo test --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test formal_models scroll_native
+	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/check-scroll-models.py
+
+.PHONY: test-rich-scroll test-rich-scroll-formal
 test-acp-steering:
 	cargo test --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features acp-agent --test acp_agent steering_ -- --test-threads=2
 

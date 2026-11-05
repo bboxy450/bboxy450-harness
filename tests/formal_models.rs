@@ -52,6 +52,19 @@ fn gui_polish_pending_native_models_and_controls() {
 }
 
 #[test]
+fn scroll_native_models_and_controls() {
+    let root = std::path::PathBuf::from(std::env::var("SCROLL_FORMAL_OUT")
+        .unwrap_or_else(|_| "target/scroll/formal".into()));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut manifest = String::new();
+    for (model, expected) in [(models::scroll_stick(false), "pass"),
+        (models::scroll_stick(true), "safety"), (models::scroll_resume_control(), "safety")] {
+        export::export(model, expected, &root, &mut manifest).unwrap();
+    }
+    std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
+}
+
+#[test]
 fn acp_steering_native_model_and_broken_controls() {
     let root = std::path::PathBuf::from(
         std::env::var("ACP_STEERING_FORMAL_OUT")
