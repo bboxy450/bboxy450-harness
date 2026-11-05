@@ -17,6 +17,9 @@ fn references(body: &Item, out: &mut BTreeMap<String, BlobRef>) {
     match body {
         Item::Native {
             blob: Some(blob), ..
+        }
+        | Item::Receipt {
+            blob: Some(blob), ..
         } => add(out, blob),
         Item::UserMessage { blocks } => {
             for b in blocks {

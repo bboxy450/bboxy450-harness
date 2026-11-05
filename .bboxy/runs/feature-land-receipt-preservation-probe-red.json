@@ -1,0 +1,5 @@
+{
+  "exit_code": 1,
+  "assertion": "CLAUDE.md",
+  "cause": "First read-only instrument compared followed symlink content to the Git symlink-target blob. No source mutation or product test failure. Corrected instrument compares link target bytes."
+}

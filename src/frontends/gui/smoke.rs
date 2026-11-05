@@ -240,7 +240,7 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
                 ItemKind::Compaction => "Context compacted",
                 ItemKind::Notice => "fixture complete", ItemKind::Subagent => "Session: 00000000000000000000000009",
                 ItemKind::Command | ItemKind::Hook | ItemKind::SystemMessage => "",
-                ItemKind::MemoryWrite | ItemKind::MemoryState | ItemKind::Trial | ItemKind::Adoption | ItemKind::Recall => "",
+                ItemKind::MemoryWrite | ItemKind::MemoryState | ItemKind::Trial | ItemKind::Adoption | ItemKind::Recall | ItemKind::Receipt => "",
                 ItemKind::Unknown(_) => return Err("unexpected unknown fixture item".into()),
             };
             // a tool card names its action: the verb the rich face derives from the tool

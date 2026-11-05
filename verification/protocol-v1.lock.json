@@ -14,6 +14,7 @@
   "tests/fixtures/ir-v1/v1.2-agent-turn.jsonl": "3b97b9d90c16638f3e04d56dc267d19947bbf72611475b9af4f4c008ee94acd6",
   "tests/fixtures/ir-v1/v1.3-dream-session.jsonl": "970d88fd7e9a4e20ae063cb391c618be172e6023ff691b196812e397fd91eb07",
   "tests/fixtures/ir-v1/v1.3-recall.jsonl": "3ea85e96a7228a5cd04c24e5851cb068365e437b89be0f12ab6142b4188dc348",
+  "tests/fixtures/ir-v1/v1.3-receipt.jsonl": "101e9b668eb2df169ccbf3698cbece93679b4e0c221d5e5712f86d73ffc85b8b",
   "tests/fixtures/ir-v1/v1.3-vcs.jsonl": "a2b5f30648b913c015efea7d2b691b9dd3e65441f30b4a51eb3ed31ba6f62365"
  },
  "ir": "bboxy log IR",
@@ -640,6 +641,10 @@
       "required": false,
       "type": "string"
      },
+     "receipt": {
+      "required": false,
+      "type": "string|null"
+     },
      "record": {
       "required": false,
       "type": "RecordPin|null"
@@ -855,6 +860,32 @@
       "type": "SinkRef|null"
      }
     },
+    "receipt": {
+     "blob": {
+      "required": false,
+      "type": "BlobRef|null"
+     },
+     "harness": {
+      "required": false,
+      "type": "string|null"
+     },
+     "outcome": {
+      "required": false,
+      "type": "ReceiptOutcome"
+     },
+     "receipt_kind": {
+      "required": false,
+      "type": "ReceiptKind"
+     },
+     "schema": {
+      "required": false,
+      "type": "string"
+     },
+     "sink": {
+      "required": false,
+      "type": "SinkRef|null"
+     }
+    },
     "subagent": {
      "call": {
       "required": false,
@@ -1052,6 +1083,7 @@
     "plan": {},
     "reasoning": {},
     "recall": {},
+    "receipt": {},
     "subagent": {},
     "system_message": {},
     "terminal": {},
@@ -1426,6 +1458,25 @@
     "cited": {},
     "inferred": {},
     "reported": {},
+    "unknown": {}
+   }
+  },
+  "ReceiptKind": {
+   "shape": "enum",
+   "variants": {
+    "publication": {},
+    "run": {},
+    "unknown": {}
+   }
+  },
+  "ReceiptOutcome": {
+   "shape": "enum",
+   "variants": {
+    "completed": {},
+    "failed": {},
+    "idempotent": {},
+    "published": {},
+    "skipped": {},
     "unknown": {}
    }
   },

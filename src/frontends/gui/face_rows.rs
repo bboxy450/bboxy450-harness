@@ -733,7 +733,8 @@ impl Preparer {
             | Item::MemoryState { .. }
             | Item::Trial { .. }
             | Item::Adoption { .. }
-            | Item::Recall { .. } => f::notice(
+            | Item::Recall { .. }
+            | Item::Receipt { .. } => f::notice(
                 &row.body.extension_text().unwrap_or_default(),
                 &Level::Info,
                 &ink,

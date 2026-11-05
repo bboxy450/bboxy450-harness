@@ -730,3 +730,443 @@ fn incomplete_new_items_remain_readable_but_cannot_be_authored() {
         );
     }
 }
+
+#[test]
+fn adoption_receipt_is_an_optional_structural_digest_without_retroactive_requirements() {
+    let original: Vec<serde_json::Value> = DREAM_CORPUS[0]
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let row = original
+        .iter()
+        .position(|e| e["event"]["body"]["kind"] == "adoption")
+        .unwrap();
+    let old: Vec<Envelope> = original
+        .iter()
+        .cloned()
+        .map(|e| serde_json::from_value(e).unwrap())
+        .collect();
+    laws::check_authored(&old).unwrap();
+    assert!(matches!(
+        &old[row].event,
+        Event::ItemCompleted {
+            body: Item::Adoption { receipt: None, .. },
+            ..
+        }
+    ));
+    assert!(
+        serde_json::to_value(&old[row]).unwrap()["event"]["body"]
+            .get("receipt")
+            .is_none()
+    );
+    for (digest, valid) in [
+        (format!("sha256:{}", "a".repeat(64)), true),
+        (String::new(), false),
+        ("sha256:fixture".into(), false),
+        (format!("sha256:{}", "g".repeat(64)), false),
+        (format!("sha256:{}", "A".repeat(64)), false),
+        ("a".repeat(64), false),
+    ] {
+        let mut raw = original.clone();
+        raw[row]["event"]["body"]["receipt"] = digest.clone().into();
+        let bytes = serde_json::to_string(&raw[row]).unwrap() + "\n";
+        let retained = Envelope::from_line(&bytes).unwrap();
+        assert_eq!(retained.wire_bytes().unwrap(), bytes.as_bytes());
+        let events: Vec<Envelope> = raw
+            .into_iter()
+            .map(|v| serde_json::from_value(v).unwrap())
+            .collect();
+        laws::check_transcript(&events).unwrap();
+        assert!(
+            matches!(&events[row].event, Event::ItemCompleted { body: Item::Adoption { receipt: Some(value), .. }, .. } if value == &digest)
+        );
+        if valid {
+            laws::check_authored(&events).unwrap();
+        } else {
+            assert_eq!(
+                laws::check_authored(&events).unwrap_err().law,
+                "dream-structure"
+            );
+        }
+    }
+}
+
+// Project-owned receipt carrier fixtures; no producer or audit semantics are claimed.
+// Origin: https://github.com/bboxy450/bboxy450-harness
+// Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+const RECEIPT_CORPUS: &str = include_str!("fixtures/ir-v1/v1.3-receipt.jsonl");
+const RECEIPT_MIME: &str = "application/vnd.bboxy.dream-receipt+json";
+const RECEIPT_BLOBS: [&[u8]; 2] = [
+    br#"{"kind":"publication","outcome":"published","schema":"bboxy.dream.receipt/1"}"#,
+    br#"{"kind":"run","outcome":"completed","schema":"bboxy.dream.receipt/1"}"#,
+];
+
+fn receipt_events(text: &str) -> Vec<Envelope> {
+    text.split_inclusive('\n')
+        .map(|line| Envelope::from_line(line).unwrap())
+        .collect()
+}
+
+#[test]
+fn receipt_fixture_has_typed_durable_carriers_and_exact_blob_pins() {
+    use sha2::{Digest as _, Sha256};
+    let events = receipt_events(RECEIPT_CORPUS);
+    laws::check_authored(&events).unwrap();
+    let mut refs = vec![];
+    for event in &events {
+        assert!(event.event.is_durable());
+        if let Event::ItemCompleted {
+            body:
+                Item::Receipt {
+                    schema,
+                    kind,
+                    outcome,
+                    blob: Some(blob),
+                    ..
+                },
+            ..
+        } = &event.event
+        {
+            assert_eq!(schema, "bboxy.dream.receipt/1");
+            assert!(!kind.is_unknown() && !outcome.is_unknown());
+            refs.push(blob);
+        }
+    }
+    assert_eq!(refs.len(), RECEIPT_BLOBS.len());
+    for (blob, bytes) in refs.iter().zip(RECEIPT_BLOBS) {
+        assert_eq!(blob.sha256, format!("{:x}", Sha256::digest(bytes)));
+        assert_eq!(blob.len, bytes.len() as u64);
+        assert_eq!(blob.mime, RECEIPT_MIME);
+        let mut json: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        json.sort_all_objects();
+        assert_eq!(serde_json::to_vec(&json).unwrap(), bytes);
+    }
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(&e.event,Event::ItemCompleted {
+        body:Item::Adoption { receipt:Some(digest),.. },..
+    } if digest==&format!("sha256:{}",refs[0].sha256)))
+    );
+}
+
+#[test]
+fn receipt_readers_keep_incomplete_future_and_nested_unknowns_while_writers_refuse_them() {
+    use serde_json::{Value, json};
+    let source: Vec<Value> = RECEIPT_CORPUS
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let row = source
+        .iter()
+        .position(|e| e["event"]["body"]["receipt_kind"] == "publication")
+        .unwrap();
+    for (pointer, replacement, law) in [
+        (
+            "/schema",
+            json!("bboxy.dream.receipt/99"),
+            "dream-structure",
+        ),
+        ("/schema", json!(""), "dream-structure"),
+        (
+            "/receipt_kind",
+            json!({"future":[7,"opaque"]}),
+            "authorship",
+        ),
+        ("/receipt_kind", Value::Null, "authorship"),
+        ("/outcome", json!("future_outcome"), "authorship"),
+        ("/outcome", Value::Null, "authorship"),
+        (
+            "/sink/kind",
+            json!({"future_sink":{"keep":true}}),
+            "authorship",
+        ),
+        ("/sink/path", json!(""), "dream-structure"),
+        ("/harness", json!(""), "dream-structure"),
+        ("/blob", Value::Null, "dream-structure"),
+        ("/blob", json!({"future_blob":{"keep":42}}), "authorship"),
+        (
+            "/blob/mime",
+            json!("application/future-receipt"),
+            "dream-structure",
+        ),
+        ("/blob/sha256", json!("not-a-digest"), "dream-structure"),
+        ("/blob/len", json!(0), "dream-structure"),
+    ] {
+        let mut raw = source.clone();
+        *raw[row]["event"]["body"].pointer_mut(pointer).unwrap() = replacement;
+        let text = raw
+            .iter()
+            .map(|v| format!("  {} \n", serde_json::to_string(v).unwrap()))
+            .collect::<String>();
+        let events = receipt_events(&text);
+        laws::check_transcript(&events).unwrap();
+        for (event, line) in events.iter().zip(text.split_inclusive('\n')) {
+            assert_eq!(event.wire_bytes().unwrap(), line.as_bytes());
+        }
+        assert_eq!(
+            laws::check_authored(&events).unwrap_err().law,
+            law,
+            "{pointer}"
+        );
+    }
+    let mut raw = source.clone();
+    raw[row]["event"]["body"] = json!({"kind":"receipt"});
+    let events: Vec<Envelope> = raw
+        .into_iter()
+        .map(|v| serde_json::from_value(v).unwrap())
+        .collect();
+    assert!(matches!(
+        &events[row].event,
+        Event::ItemCompleted {
+            body: Item::Receipt { .. },
+            ..
+        }
+    ));
+    assert_eq!(laws::check_authored(&events).unwrap_err().law, "authorship");
+    // This carrier is only authored by dream sessions. Reader tolerance does
+    // not confer writer authority, and an Interrupted recovery invents no blob.
+    for bad in ["harness", "dream"] {
+        let mut raw = source.clone();
+        raw[0]["event"]["meta"][bad] = if bad == "harness" {
+            json!("engine")
+        } else {
+            Value::Null
+        };
+        let events: Vec<Envelope> = raw
+            .into_iter()
+            .map(|v| serde_json::from_value(v).unwrap())
+            .collect();
+        laws::check_transcript(&events).unwrap();
+        assert_eq!(
+            laws::check_authored(&events).unwrap_err().law,
+            "dream-structure"
+        );
+    }
+    let mut recovered = receipt_events(RECEIPT_CORPUS);
+    let Event::ItemCompleted { item, body, status } = &mut recovered[row].event else {
+        panic!()
+    };
+    *body = Item::interrupted(ItemKind::Receipt, *item);
+    *status = ItemStatus::Interrupted;
+    laws::check_authored(&recovered).unwrap();
+}
+
+async fn retained_receipt_store(root: &std::path::Path, text: &str) -> (SessionMeta, Vec<BlobRef>) {
+    let events = receipt_events(text);
+    let Event::SessionStarted { meta } = &events[0].event else {
+        panic!()
+    };
+    let store = Store::open(root.to_owned(), meta.clone(), None, Default::default())
+        .await
+        .unwrap();
+    let mut refs = vec![];
+    for bytes in RECEIPT_BLOBS {
+        refs.push(store.blobs.put(bytes.to_vec(), RECEIPT_MIME).await.unwrap());
+    }
+    drop(store);
+    std::fs::write(log_path(root, meta.session), text).unwrap();
+    (meta.clone(), refs)
+}
+
+#[tokio::test]
+async fn receipt_envelope_and_blob_bytes_survive_store_fork_unix_and_headless() {
+    use serde_json::json;
+    for future in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("sessions");
+        let text = if future {
+            RECEIPT_CORPUS
+                .split_inclusive('\n')
+                .map(|line| {
+                    let mut value: serde_json::Value = serde_json::from_str(line).unwrap();
+                    if value["event"]["body"]["receipt_kind"] == "publication" {
+                        value["future_envelope"] = json!({"keep":"snowman ☃"});
+                        value["event"]["body"]["receipt_kind"] = json!({"future_kind":[1,2]});
+                        value["event"]["body"]["outcome"] = json!("future_outcome");
+                        value["event"]["body"]["sink"]["kind"] = json!({"future_sink":true});
+                        value["event"]["body"]["blob"]["future_blob_field"] = json!([42]);
+                        format!("  {} \n", serde_json::to_string(&value).unwrap())
+                    } else if value["event"]["type"] == "item_started"
+                        && value["event"]["kind"] == "receipt"
+                    {
+                        value["event"]["kind"] = json!({"future_receipt_item_kind":{"keep":true}});
+                        format!(" {} \n", serde_json::to_string(&value).unwrap())
+                    } else {
+                        line.to_owned()
+                    }
+                })
+                .collect::<String>()
+        } else {
+            RECEIPT_CORPUS.to_owned()
+        };
+        let expected = receipt_events(&text);
+        let (meta, refs) = retained_receipt_store(&root, &text).await;
+        let parent = Store::open(root.clone(), meta.clone(), None, Default::default())
+            .await
+            .unwrap();
+        for (event, line) in parent.events.iter().zip(text.split_inclusive('\n')) {
+            assert_eq!(event.wire_bytes().unwrap(), line.as_bytes());
+        }
+        for (reference, bytes) in refs.iter().zip(RECEIPT_BLOBS) {
+            assert_eq!(parent.blobs.get(reference).await.unwrap(), bytes);
+        }
+        drop(parent);
+        let replay = Store::replay_closed(root.clone(), meta.session)
+            .await
+            .unwrap();
+        assert_eq!(replay, expected);
+        if future {
+            assert_eq!(laws::check_authored(&replay).unwrap_err().law, "authorship");
+        } else {
+            laws::check_authored(&replay).unwrap();
+        }
+        let mut child_meta = meta.clone();
+        child_meta.session = SessionId::new();
+        child_meta.fork = Some((meta.session, Seq(expected.len() as u64 - 1)));
+        let child = Store::open(root.clone(), child_meta.clone(), None, Default::default())
+            .await
+            .unwrap();
+        for (event, line) in child
+            .events
+            .iter()
+            .skip(1)
+            .zip(text.split_inclusive('\n').skip(1))
+        {
+            assert_eq!(event.wire_bytes().unwrap(), line.as_bytes());
+        }
+        for (reference, bytes) in refs.iter().zip(RECEIPT_BLOBS) {
+            assert_eq!(
+                child.blobs.get(reference).await.unwrap(),
+                bytes,
+                "Receipt.blob was omitted from fork custody"
+            );
+        }
+        let child_id = child.session;
+        drop(child);
+        let unix_bytes = std::fs::read_to_string(log_path(&root, child_id)).unwrap();
+        let config = Config {
+            meta: child_meta,
+            sessions: root.clone(),
+            profiles: temp.path().join("profiles"),
+            provider: Arc::new(ScriptedProvider::new(vec![])),
+            model: "scripted".into(),
+            policy: Policy::new(Unattended::Deny),
+            redactor: Default::default(),
+            max_rounds: 1,
+            profile_error: None,
+        };
+        let (gateway, task) = SessionActor::open(config, OpId::new()).await.unwrap();
+        let socket = temp.path().join("receipt.sock");
+        let server = UnixServer::bind(socket.clone(), gateway.clone())
+            .await
+            .unwrap();
+        let (read, mut write) = UnixStream::connect(&socket).await.unwrap().into_split();
+        write.write_all((json!({"v":PROTOCOL,"subscribe":Subscribe {session:child_id,after:None,ephemeral:false}}).to_string()+"\n").as_bytes()).await.unwrap();
+        let mut reader = BufReader::new(read);
+        let mut line = String::new();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            reader.read_line(&mut line),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let hello: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let head = hello["head"].as_u64().unwrap();
+        let prefix: Vec<_> = unix_bytes.split_inclusive('\n').collect();
+        assert!(head >= prefix.len() as u64);
+        for index in 0..head as usize {
+            line.clear();
+            tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                reader.read_line(&mut line),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            if let Some(original) = prefix.get(index) {
+                assert_eq!(line, *original, "Unix reserialized a retained receipt");
+            } else {
+                // Opening the live actor may append its own typed startup
+                // suffix. It cannot replace any retained prefix byte.
+                assert_eq!(
+                    Envelope::from_line(&line).unwrap().seq,
+                    Some(Seq(index as u64 + 1))
+                );
+            }
+        }
+        drop(reader);
+        drop(write);
+        server.close().await.unwrap();
+        gateway.send(support::op(&gateway, Op::Close)).unwrap();
+        task.await.unwrap().unwrap();
+        assert_eq!(
+            std::fs::read(log_path(&root, meta.session)).unwrap(),
+            text.as_bytes()
+        );
+        let child_bytes = std::fs::read(log_path(&root, child_id)).unwrap();
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
+            .env("HOME", temp.path())
+            .env_remove("BBOXY_CAPABILITY")
+            .env_remove("BBOXY_CAPABILITY_FILE")
+            .env_remove("BBOXY_SEAT_ID")
+            .args([
+                "--json",
+                "--resume",
+                &child_id.to_string(),
+                "--sessions",
+                root.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, child_bytes);
+        assert_eq!(
+            std::fs::read(log_path(&root, meta.session)).unwrap(),
+            text.as_bytes()
+        );
+    }
+}
+
+#[tokio::test]
+async fn receipt_fork_refuses_a_missing_or_corrupt_referenced_blob() {
+    for corrupt in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("sessions");
+        let (meta, refs) = retained_receipt_store(&root, RECEIPT_CORPUS).await;
+        let original = std::fs::read(log_path(&root, meta.session)).unwrap();
+        let blob = root
+            .join(meta.session.to_string())
+            .join("blobs")
+            .join(&refs[0].sha256);
+        if corrupt {
+            std::fs::write(&blob, b"corrupt").unwrap();
+        } else {
+            std::fs::remove_file(&blob).unwrap();
+        }
+        let mut child = meta.clone();
+        child.session = SessionId::new();
+        child.fork = Some((
+            meta.session,
+            Seq(receipt_events(RECEIPT_CORPUS).len() as u64 - 1),
+        ));
+        assert!(
+            Store::open(root.clone(), child.clone(), None, Default::default())
+                .await
+                .is_err()
+        );
+        assert!(
+            !log_path(&root, child.session).exists(),
+            "failed fork exposed a child log"
+        );
+        assert_eq!(
+            std::fs::read(log_path(&root, meta.session)).unwrap(),
+            original
+        );
+    }
+}
