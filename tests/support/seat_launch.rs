@@ -26,6 +26,7 @@ fn command_inner(temp: &Path, face: &str, scripted: bool) -> tokio::process::Com
         .env("BBOXY_GENERATION", "7")
         .env("BBOXY_ROLE", "executor")
         .env("BBOXY_TEST_CUSTOM", "throwaway-marker")
+        .args(["--profile", "nemotron"])
         .arg(face)
         .arg("--cwd")
         .arg(temp)
