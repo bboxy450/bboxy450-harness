@@ -213,6 +213,7 @@ Private bounded diagnostics freeze these metric names (all durations are ns):
 | `control_parts` | `input_max_cpu_ns`, `protocol_max_cpu_ns`, `settlement_max_cpu_ns`, `output_max_cpu_ns`, `total_cpu_ns`; whole ticks remain ≤1 ms independently of subspan measurements |
 | `publication_custody` | original `run_id`, `nonce`, `operation` (page index or 4096 for result), `dev`, `ino`, `effect` (0 absent, 1 present, 2 unknown), `errno`, `cleanup_uncertain`; deterministic original private temp/output paths; one latest operation, retained through compute settlement |
 | `metrics` | existing `compute_cpu_ns`, `max_unit_cpu_ns`, `cleanup_cpu_ns`, `max_cleanup_unit_cpu_ns`, heap/credit/normalization counters; compute cutoff, before owner-thread exit |
+| Private test-parent `parent_reap` | `reap_user_cpu_ns`, `reap_system_cpu_ns`, `parent_elapsed_wall_ns`, `cutoff=actual_wait4_exit`; full reaped process usage includes telemetry/exit tail; parent elapsed wall includes launch/collection overhead |
 | `cost_known` | false on unavailable/reversed clocks; unknown cost fails admission and is never a wrapping/zero CPU total |
 
 `span_cpu_ns` sums measured expensive calling-thread spans only. Owner-thread CPU

@@ -306,9 +306,12 @@ struct Worker {
     output: BufReader<ChildStdout>,
     start: Option<w::Start>,
     sequence: u64,
+    reaped: bool,
+    launched: Instant,
 }
 impl Worker {
     fn launch(path: &Path) -> Self {
+        let launched = Instant::now();
         let mut child = Command::new(
             std::env::var_os("DREAM_C1_RUNNER")
                 .unwrap_or_else(|| env!("CARGO_BIN_EXE_bboxy450-harness").into()),
@@ -331,6 +334,8 @@ impl Worker {
             output,
             start: None,
             sequence: 0,
+            reaped: false,
+            launched,
         };
         match w.read() {
             w::WorkerOut::Hello(h) => {
@@ -389,6 +394,37 @@ impl Worker {
             foreground,
         }));
     }
+    fn reap_usage(&mut self) -> (std::process::ExitStatus, libc::rusage) {
+        use std::os::unix::process::ExitStatusExt;
+        let until = Instant::now() + Duration::from_secs(3);
+        loop {
+            let mut status = 0;
+            let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+            let pid = unsafe {
+                libc::wait4(
+                    self.child.id() as libc::pid_t,
+                    &mut status,
+                    libc::WNOHANG,
+                    usage.as_mut_ptr(),
+                )
+            };
+            if pid > 0 {
+                assert_eq!(pid as u32, self.child.id());
+                self.reaped = true;
+                return (std::process::ExitStatus::from_raw(status), unsafe {
+                    usage.assume_init()
+                });
+            }
+            if pid < 0 {
+                assert_eq!(
+                    std::io::Error::last_os_error().raw_os_error(),
+                    Some(libc::EINTR)
+                );
+            }
+            assert!(Instant::now() < until, "worker did not settle");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
     fn done(&mut self) -> (w::Done, String) {
         let mut seq = self.sequence;
         let done = loop {
@@ -404,14 +440,7 @@ impl Worker {
                 _ => panic!("extra hello"),
             }
         };
-        let until = Instant::now() + Duration::from_secs(3);
-        let status = loop {
-            if let Some(s) = self.child.try_wait().unwrap() {
-                break s;
-            }
-            assert!(Instant::now() < until, "worker did not settle");
-            std::thread::sleep(Duration::from_millis(2));
-        };
+        let (status, usage) = self.reap_usage();
         let expected = if done.outcome == w::Outcome::Failed {
             1
         } else {
@@ -430,12 +459,25 @@ impl Worker {
             .read_to_string(&mut metrics)
             .unwrap();
         assert!(metrics.len() <= 16 * 1024);
+        let ns = |t: libc::timeval| t.tv_sec as u64 * 1_000_000_000 + t.tv_usec as u64 * 1000;
+        let user = ns(usage.ru_utime);
+        let system = ns(usage.ru_stime);
+        if let Some(terminal) = metrics
+            .lines()
+            .find(|l| l.starts_with("dream-c1 terminal_metrics "))
+        {
+            assert!(user >= metric(terminal, "process_user_cpu_ns"));
+            assert!(system >= metric(terminal, "process_system_cpu_ns"));
+        }
+        // Separate post-reap complete-process usage, never added to overlapping
+        // child caller/owner observations. Includes final telemetry and exit.
+        metrics.push_str(&format!("dream-c1 parent_reap reap_user_cpu_ns={user} reap_system_cpu_ns={system} parent_elapsed_wall_ns={} cutoff=actual_wait4_exit\n", self.launched.elapsed().as_nanos()));
         (done, metrics)
     }
 }
 impl Drop for Worker {
     fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
+        if !self.reaped && self.child.try_wait().unwrap().is_none() {
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
