@@ -401,6 +401,9 @@ impl Worker {
         assert!(self.output.buffer().is_empty());
         let at = Instant::now();
         self.activity(revision, true);
+        self.wait_paused_response(at, timeout)
+    }
+    fn wait_paused_response(&mut self, at: Instant, timeout: Duration) -> Option<Duration> {
         loop {
             let left = timeout.checked_sub(at.elapsed())?;
             let mut fd = libc::pollfd {
@@ -1836,8 +1839,38 @@ fn four_ordinary_release_workers_complete_multi_mib_with_independent_control_and
             .is_none()
     );
     assert!(workers[0].child.try_wait().unwrap().is_none());
+    // Delay a genuinely NEW Activity by withholding only its final LF. No
+    // request is outstanding after the stale control; before LF the same real
+    // response timer must refuse silence. Then drain its actual response.
+    let start = workers[0].start.clone().unwrap();
+    let delayed = w::WorkerIn::Activity(w::Activity {
+        protocol: w::Protocol::V1,
+        run_id: start.run_id,
+        nonce: start.nonce,
+        revision: w::Number(2),
+        foreground: true,
+    });
+    workers[0]
+        .input
+        .as_mut()
+        .unwrap()
+        .write_all(&w::canonical(&delayed).unwrap())
+        .unwrap();
+    assert!(
+        workers[0]
+            .wait_paused_response(Instant::now(), Duration::from_millis(25))
+            .is_none()
+    );
+    workers[0].input.as_mut().unwrap().write_all(b"\n").unwrap();
+    assert!(
+        workers[0]
+            .wait_paused_response(Instant::now(), Duration::from_millis(250))
+            .is_some()
+    );
     let mut control_times = Vec::new();
-    for revision in 1..=50 {
+    // Start already carried revision1; revision2 was consumed by the delayed
+    // causal control. Every timed revision below is strictly newer for all4.
+    for revision in 3..=52 {
         for worker in &mut workers {
             control_times.push(
                 worker
@@ -1851,10 +1884,10 @@ fn four_ordinary_release_workers_complete_multi_mib_with_independent_control_and
     assert!(control_times[198] <= Duration::from_millis(100));
     assert!(control_times[199] <= Duration::from_millis(250));
     for worker in &mut workers {
-        worker.activity(51, false);
+        worker.activity(53, false);
     }
     eprintln!(
-        "four-ordinary-release actual_control_roundtrips=200 initial_paused_drained=true ignored_revision_control=timeout p99_us={} max_us={}",
+        "four-ordinary-release actual_control_roundtrips=200 initial_paused_drained=true ignored_revision_control=timeout delayed_fresh_activity_control=timeout_then_response p99_us={} max_us={}",
         control_times[198].as_micros(),
         control_times[199].as_micros()
     );
