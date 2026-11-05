@@ -908,6 +908,11 @@ expected = "safety"
 frontend = "project"
 
 [[model]]
+name = "BrokenHarnessDreamPublicationAbandon"
+expected = "safety"
+frontend = "project"
+
+[[model]]
 name = "HarnessDreamRecall"
 expected = "pass"
 frontend = "project"

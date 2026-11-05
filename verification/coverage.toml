@@ -17,6 +17,7 @@ models = [
     "BrokenHarnessDreamPublicationLate",
     "BrokenHarnessDreamPublicationSync",
     "BrokenHarnessDreamPublicationAdoption",
+    "BrokenHarnessDreamPublicationAbandon",
     "HarnessDreamRecall",
     "BrokenHarnessDreamRecallAppend",
     "BrokenHarnessDreamRecallPayload",
@@ -101,6 +102,9 @@ sources = [
     "src/gateway/unix.rs",
     "src/lib.rs",
     "src/dream/mod.rs",
+    "src/dream/flush.rs",
+    "src/dream/lower.rs",
+    "src/dream/recall.rs",
     "src/dream/d0.rs",
     "src/dream/fingerprint.rs",
     "src/dream/join.rs",
@@ -163,11 +167,9 @@ sources = [
     "src/dream/synth.rs",
     "src/dream/trial.rs",
 ]
-planned_sources = [
-    "src/dream/lower.rs",
-    "src/dream/recall.rs",
-]
+planned_sources = []
 implementation_only = [
+    "WP8 flush/lower/recall sources are current. Real private Unix MCP write/commit/status, committed Git pins; descriptor no-follow immutable file publication, exact shared rendering/selection/E, caller-drop owner settlement and Store/blob publication/outer-run fixtures; separately compiled macOS libc call/result/byte-digest observer with clobber/ABA, wrong bytes, missing sync and hand race controls; shared Claude index skip, Codex full identity, missing Grok archive loader UNPROVEN; actual Engine Provider and ACP first-prompt/Recall and explicit native cited/inferred exposure witnesses are in tests/dream_sinks.rs and tests/dream_recall.rs. Three narrowly bounded finite families plus15 total good/broken models abstract one flush ticket, target/temp/hand writer/publication owner, and one Recall. They do not prove cryptography, kernel/allocator/Rust safety, hostile same-uid directory or mount relocation, universal scheduling/durability, vendor loading/forgetting or snapshot freshness beyond its observed cut. Live route/ticket restart retention, producer-policy installation, automatic discovery/current snapshot refresh and final run sealing remain caller/WP9; absent proof never yields effective adoption or Recall.",
     "WP7 trial.rs implements exact thresholds@2 eligibility/scoring and an actual private scripted Engine/read-write continuation plus exact lightweight verifier adapter. Trials use ordinary Store/fork custody, shared projection/deny/Derived usage proof, nonblocking per-entry claims, same fixed scratch path/private HOME, serial arms and observed owned-process settlement. Twenty real arms, strict committed original-timing controls, Registry/engine escape controls, busy/independent/cancel/deadline/unknown/over-cap tests, P5 API+CLI controls, late terminal fencing and queued epoch/crash/abandonment/lease witnesses are current. New finite TrialClaims/Outcome/Capability/Usage/Settlement/Frontier families have reachable broken controls; bounded models do not prove hash/allocator/syscall/OS timing/memory safety, cryptographic bytes, arbitrary Rust/Provider behavior or universal cleanup fairness. Native/ACP/general-command/submodule/heavy-verifier adapters are unsupported and Inconclusive; no live model spend or OS sandbox is claimed. Inherited lease fixture now keeps polling its queued lazy opening until the real fd acknowledgement; all ownership assertions and both3s bounds remain. The inherited1ms first-poll witness uses three fresh initialization/cold/ready subprocess modes and records every poll, with the same ready assertion and actual child reap; the historical default1.216875ms failure and its cause remain distinct. D0 production guard and inline-CPU broken control stay unchanged. D0 now yields between input/read and per-log phases (including early continues) so consecutive Ready awaits cannot chain a whole corpus into one poll; measured budget rejection remains active. A real12-normal-log replay compares exact episodes/pins, cache and source bytes across replay/rebuild. Trusted trial closes suppress default D0/IR-advice jobs: the real old close-hook counterexample published trial pins outside scratch; unchanged ordinary close-hook tests remain current. No new lifecycle/model semantics are claimed for these placement/effect gates. The additive observed-capture future is heap-pinned at the new compatibility wrapper: unchanged gateway_host tests reproduce a default-stack abort before that cut and pass after it. Public future-layout measurements are diagnostic, not a proof of Rust stack or allocator bounds. Final run/publication producer seal, sink/recall and combined product integration remain WP8/9, and this unreceipted stage is P2 UNPROVEN for complete audit.",
     "Admission result observations (d20261103136567): HarnessProcessAdmissionResult freezes observed cancellation/elapsed deadline/caller timer readiness/worker closure/received kind/returned class. Exact closed+elapsed+not-ready returns TimedOut; its old-mapping control returns Interrupted. src/process.rs private receive-helper tests and tests/cancel_process.rs cover priority/equality/explicit errors/live handoff/late owned packet kill-wait-reap and public refusal without execution. No new fairness, owner or queue; existing145 models stay unchanged. Concrete per-runtime timers/channels, exact clock sampling, arbitrary Rust/OS scheduling and cleanup progress are implementation witnesses, not refined/proved by this finite observation quotient. API refusal remains distinct from joined cleanup or producer seal.",
     "Store writer lease (d20261103136541): one private non-Clone guard spans successful nonblocking acquisition, opening job/error/abandoned output, handoff and Store destruction. HarnessStoreWriterLease separately models old/replacement ownership, one inherited/fsync descriptor and successful/failed release with reachable missing/premature/stale controls. src/store.rs lease_tests and process.rs native pre-exec witness cover actual exclusion, checked/Drop errors, job abandonment, clone lifetime and replacement preservation; existing store_recovery/store_fork/ir_v1_corpus suites retain actual byte and fork custody. Supported successful kernel unlock is assumed for positive release; exceptional failure remains unavailable/best-effort, not certified release. General unsafe fork duplicating a Rust Store owner, arbitrary filesystem/kernel behavior and universal scheduling are not proved. Existing fork and process families stay unchanged.",

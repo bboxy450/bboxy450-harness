@@ -617,21 +617,21 @@ name = "HarnessDreamFlush"
 title = "WP8 Flush owned boundary"
 models = ["HarnessDreamFlush", "BrokenHarnessDreamFlushReplay", "BrokenHarnessDreamFlushUncommitted", "BrokenHarnessDreamFlushRoot"]
 controls = [{name="BrokenHarnessDreamFlushReplay",expected="safety"}, {name="BrokenHarnessDreamFlushUncommitted",expected="safety"}, {name="BrokenHarnessDreamFlushRoot",expected="safety"}]
-sources = ["tests/formal/models.rs"]
-implementation_tests = ["tests/formal_nonvacuity.rs"]
-assumptions = "One caller-authenticated route and pending memory; original uncertain write/commit operations are queried, never replayed; only matching confirmed committed pins become eligible. No external service/transport fairness or KB signature/byte proof follows. Runtime implementation and real transport witnesses pending."
+sources = ["src/dream/flush.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/dream_sinks.rs", "tests/formal_nonvacuity.rs"]
+assumptions = "One caller-retained affine ticket, one write and commit. Query original IDs after transport loss/drop; a matching confirmed committed pin is resolved against the mounted origin/main. Real private Unix JSON-RPC/signature/Git commit tests cover success, lost replies, commit failure, wrong root and no authenticated route. Durable retention/restart of the caller-owned ticket and live MCP route/trigger remain WP9; missing ticket never supplies permission to replay. Finite model does not prove transport, Git, DSSE or OS behavior."
 property = "PinRequiresExactConfirmedCommit"
 checks = ["make test-formal", "make test"]
 
 [[contract]]
 name = "HarnessDreamPublication"
 title = "WP8 Publication owned boundary"
-models = ["HarnessDreamPublication", "BrokenHarnessDreamPublicationClobber", "BrokenHarnessDreamPublicationLate", "BrokenHarnessDreamPublicationSync", "BrokenHarnessDreamPublicationAdoption"]
-controls = [{name="BrokenHarnessDreamPublicationClobber",expected="safety"}, {name="BrokenHarnessDreamPublicationLate",expected="safety"}, {name="BrokenHarnessDreamPublicationSync",expected="safety"}, {name="BrokenHarnessDreamPublicationAdoption",expected="safety"}]
-sources = ["tests/formal/models.rs"]
-implementation_tests = ["tests/formal_nonvacuity.rs"]
-assumptions = "One publication, one owned temp/target and one concurrent hand writer; separate write/fsync/link/directory-sync/freeze/receipt/adoption plus observed work and terminal/approval loss. No unconditional IO/OS fairness. Existing shared E/seal/source receipt law remains authoritative. Real independent syscall/byte observer and API/process witnesses pending."
-property = "NoHandClobber; FrozenHasNoLateSourceMutation; SuccessRequiresDirectorySync; EffectiveAdoptionRequiresReceiptAndCurrency"
+models = ["HarnessDreamPublication", "BrokenHarnessDreamPublicationClobber", "BrokenHarnessDreamPublicationLate", "BrokenHarnessDreamPublicationSync", "BrokenHarnessDreamPublicationAdoption", "BrokenHarnessDreamPublicationAbandon"]
+controls = [{name="BrokenHarnessDreamPublicationClobber",expected="safety"}, {name="BrokenHarnessDreamPublicationLate",expected="safety"}, {name="BrokenHarnessDreamPublicationSync",expected="safety"}, {name="BrokenHarnessDreamPublicationAdoption",expected="safety"}, {name="BrokenHarnessDreamPublicationAbandon",expected="safety"}]
+sources = ["src/dream/lower.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/dream_sinks.rs", "tests/formal_nonvacuity.rs"]
+assumptions = "One candidate target/temp/hand writer; write, fsync, no-replace link, directory-sync, freeze, receipt/adoption and active/inflight owner survive caller drop until settlement. No unconditional IO/OS fairness or malicious-same-uid directory/mount confinement proof. Actual descriptor no-follow private filesystem, independent separately compiled macOS libc call/result/SHA256 observer and clobber/ABA, missing sync, wrong bytes and hand-race controls; private approved producer/Store blob/suffix API tests. Shared Claude index skip; native Codex/Claude formats use common rendering. Grok archive/loader locator and proposal consumption are unavailable and labelled UNPROVEN with no Adoption. Outer final run and live producer approval remain caller/WP9; models do not prove syscall truth or vendor consumption."
+property = "NoHandClobber; FrozenHasNoLateSourceMutation; SuccessRequiresDirectorySync; EffectiveAdoptionRequiresReceiptAndCurrency; RetainOwnerUntilSettlement"
 checks = ["make test-formal", "make test"]
 
 [[contract]]
@@ -639,8 +639,8 @@ name = "HarnessDreamRecall"
 title = "WP8 Recall owned boundary"
 models = ["HarnessDreamRecall", "BrokenHarnessDreamRecallAppend", "BrokenHarnessDreamRecallPayload", "BrokenHarnessDreamRecallTrial", "BrokenHarnessDreamRecallTerminal"]
 controls = [{name="BrokenHarnessDreamRecallAppend",expected="safety"}, {name="BrokenHarnessDreamRecallPayload",expected="safety"}, {name="BrokenHarnessDreamRecallTrial",expected="safety"}, {name="BrokenHarnessDreamRecallTerminal",expected="safety"}]
-sources = ["tests/formal/models.rs"]
-implementation_tests = ["tests/formal_nonvacuity.rs"]
-assumptions = "One exact pinned quote and request, separate durable append/insertion/dispatch, one failed append, terminal/pin invalidation and trial gate. No model-use claim, global log freshness, filesystem bytes or arbitrary callback fairness. Real Engine/ACP/import witnesses pending."
+sources = ["src/dream/recall.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/dream_recall.rs", "tests/formal_nonvacuity.rs"]
+assumptions = "One current caller-selected validated snapshot, exact opaque quote/pin, durable append before actual request, terminal/trial fences. Real private engine Provider and ACP stdio requests validate separate user/reference data, handoff order and retained Recall. Snapshot freshness beyond the observed cut and discovery/refresh belong to WP9; no global scan or cache authority at the hot request seam. Native exposure requires explicit retained publication timeline and actual documented Codex text citation; inferred never grants strength. Models do not prove vendor state, string parsing, bytes/crypto or OS durability."
 property = "InsertionRequiresDurableExactCurrentNonTrialPin"
 checks = ["make test-formal", "make test"]

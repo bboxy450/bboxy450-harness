@@ -133,6 +133,7 @@ pub struct SessionActor {
     window_warned: bool,
     mcp: crate::mcp::Manager,
     append_system_prompt: String,
+    recall: Option<crate::dream::recall::Context>,
     launch_yolo: bool,
 }
 impl SessionActor {
@@ -141,6 +142,21 @@ impl SessionActor {
         start: OpId,
     ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
         Self::load(config, start, None).await
+    }
+    /// Caller-prepared immutable reference, logged durably at the actual request seam.
+    pub async fn open_with_recall(
+        config: Config,
+        start: OpId,
+        launch: LaunchOptions,
+        recall: crate::dream::recall::Context,
+    ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
+        let mut actor = Self::new(config, start, None, Default::default(), launch).await?;
+        if recall.kind() == &SinkKind::EngineContext {
+            actor.recall = Some(recall);
+        }
+        let gateway = actor.gateway.clone();
+        let task = bbt_rt::handle().spawn(actor.run());
+        Ok((gateway, task))
     }
     pub(crate) async fn load(
         config: Config,
@@ -377,6 +393,7 @@ impl SessionActor {
         let window_warned=store.events.iter().any(|e|matches!(&e.event,Event::ItemCompleted {status:ItemStatus::Completed,body:Item::Notice {text,..},..} if text=="context window unknown; automatic compaction off"));
         gateway.set_unattended(config.policy.on_unattended);
         let actor = Self {
+            recall: None,
             store,
             gateway: gateway.clone(),
             work,
@@ -994,6 +1011,35 @@ impl SessionActor {
         Ok((messages, prefix))
     }
     async fn prepare_round(
+        &mut self,
+        turn: TurnId,
+        tools: &[crate::provider::ToolDef],
+    ) -> std::io::Result<(Vec<serde_json::Value>, usize)> {
+        let (mut messages, mut prefix) = self.prepare_round_base(turn, tools).await?;
+        if let Some(recall) = self.recall.take() {
+            let from = self.store.events.len();
+            if let Ok(Some(block)) = recall
+                .append(
+                    &mut self.store,
+                    self.tools.is_trial(),
+                    &self.config.redactor,
+                )
+                .await
+            {
+                for event in &self.store.events[from..] {
+                    self.gateway.hub.publish(event.clone());
+                }
+                let index = messages
+                    .iter()
+                    .rposition(|v| v["role"] == "user")
+                    .unwrap_or(messages.len());
+                prefix = prefix.min(index);
+                messages.insert(index, serde_json::json!({"role":"user","content":block}));
+            }
+        }
+        Ok((messages, prefix))
+    }
+    async fn prepare_round_base(
         &mut self,
         turn: TurnId,
         tools: &[crate::provider::ToolDef],

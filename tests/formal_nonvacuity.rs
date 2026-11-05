@@ -1863,7 +1863,7 @@ fn wp8_owned_boundaries_reach_positive_and_broken_scenarios() {
         (
             "Publication",
             8,
-            vec!["Clobber", "Late", "Sync", "Adoption"],
+            vec!["Clobber", "Late", "Sync", "Adoption", "Abandon"],
         ),
         ("Recall", 3, vec!["Append", "Payload", "Trial", "Terminal"]),
     ] {

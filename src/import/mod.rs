@@ -203,6 +203,36 @@ impl Projector {
             .map(|ids| ids.next("call").to_string())
             .unwrap_or_else(|| ItemId::new().to_string())
     }
+    /// Explicit retained loader timeline; default import never guesses exposure.
+    pub fn push_with_exposure(
+        &mut self,
+        record: &Value,
+        timeline: &crate::dream::recall::Exposure,
+    ) -> Vec<Event> {
+        let mut out = self.push(record);
+        for body in edge::exposure(
+            self.native,
+            record,
+            self.vcs.as_ref().and_then(|v| v.repo.as_deref()),
+            self.cwd.as_deref(),
+            timeline,
+        ) {
+            let item = self.item_id();
+            out.push(Event::ItemStarted {
+                turn: self.turn,
+                item,
+                kind: ItemKind::Recall,
+                parent: None,
+                head: None,
+            });
+            out.push(Event::ItemCompleted {
+                item,
+                status: ItemStatus::Completed,
+                body,
+            });
+        }
+        out
+    }
     pub fn push(&mut self, record: &Value) -> Vec<Event> {
         if let Some(observed) = edge::vcs(self.native, record) {
             let vcs = self.vcs.get_or_insert_with(Vcs::default);

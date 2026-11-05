@@ -6399,6 +6399,7 @@ fn wp8_publication(mode: u8) -> Model {
         "DreamPublicationLate",
         "DreamPublicationSync",
         "DreamPublicationAdoption",
+        "DreamPublicationAbandon",
     ][mode as usize];
     let mut m = base(
         name,
@@ -6416,6 +6417,9 @@ fn wp8_publication(mode: u8) -> Model {
             ("current", 1, 1),
             ("approved", 1, 1),
             ("inflight", 1, 0),
+            ("caller", 1, 1),
+            ("cancelled", 1, 0),
+            ("owner_retained", 1, 1),
         ],
     );
     for (from, label) in [
@@ -6503,6 +6507,31 @@ fn wp8_publication(mode: u8) -> Model {
     if mode == 2 {
         act(&mut m, "BrokenLateSourceWrite", eq(6, 1), &[(7, Int(1))]);
     }
+    act(
+        &mut m,
+        "CallerDropRequestsCancellation",
+        eq(12, 1),
+        &[(12, Int(0)), (13, Int(1))],
+    );
+    act(
+        &mut m,
+        "ReleaseOnlySettledOwner",
+        all([eq(0, 8), eq(11, 0)]),
+        &[(14, Int(0))],
+    );
+    if mode == 5 {
+        act(
+            &mut m,
+            "BrokenDropDestroysInflightOwner",
+            all([eq(12, 0), eq(11, 1)]),
+            &[(14, Int(0))],
+        );
+    }
+    safe(
+        &mut m,
+        "RetainOwnerUntilSettlement",
+        eq(11, 0).or(eq(14, 1)),
+    );
     safe(&mut m, "NoHandClobber", eq(3, 1));
     safe(&mut m, "FrozenHasNoLateSourceMutation", eq(7, 0));
     safe(
@@ -6606,6 +6635,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (wp8_publication(2), "safety"),
         (wp8_publication(3), "safety"),
         (wp8_publication(4), "safety"),
+        (wp8_publication(5), "safety"),
         (wp8_recall(0), "pass"),
         (wp8_recall(1), "safety"),
         (wp8_recall(2), "safety"),
