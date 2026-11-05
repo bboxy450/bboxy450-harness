@@ -195,7 +195,10 @@ compute settlement and successful exit remains part of
 the consumer's completion check.
 
 Managed C1 additionally requires the private `dream-bootstrap/1` admission
-before the first owned argv/path/Arc allocation. Its sole extra cleared env entry
+before the first owned argv/path/Arc allocation. A non-inlined ordinary entry
+keeps the ordinary CLI future/GUI frame behind the thin worker dispatch; exact
+compiler/artifact prologues are profile evidence, not a loader latency guarantee.
+Its sole extra cleared env entry
 is `BBOXY_DREAM_BOOTSTRAP=1:N:birth:binding`, where N is the uniquely inherited
 read-only anonymous pipe. The producer-owned fixed128-byte authority and independent
 Rust/Python binding vectors live in `src/dream/bootstrap.rs` and

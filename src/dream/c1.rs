@@ -414,6 +414,7 @@ impl DreamOwner {
 
 /// Strict executable-only dispatch before the shared Tokio runtime exists.
 /// Darwin exposes borrowed argv/env pointers, so recognition allocates no argv Vec.
+#[inline(never)]
 pub fn early_worker_entry() -> Option<i32> {
     // Samples precede borrowed recognition; failed samples only refuse the
     // recognized managed worker, leaving ordinary launch selection unchanged.

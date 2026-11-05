@@ -10,6 +10,12 @@ fn main() {
     if let Some(code) = bboxy450_harness::dream::c1::early_worker_entry() {
         std::process::exit(code);
     }
+    ordinary_main();
+}
+// Keep the large ordinary CLI future/GUI stack frame behind early C1 admission.
+// This is an entry boundary, not an OS/loader response-time guarantee.
+#[inline(never)]
+fn ordinary_main() {
     let code = if std::env::args().nth(1).as_deref() == Some("gui") {
         gui()
     } else {
