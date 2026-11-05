@@ -140,6 +140,7 @@ enum Wire {
 enum Call {
     Initialize,
     NewSession,
+    SetPermissions { session_result: Value },
     SetModel {
         revision: u64,
     },
@@ -644,6 +645,90 @@ impl AcpAgentActor {
             }
         }
         Ok(false)
+    }
+
+    async fn session_ready(&mut self, result: Value) -> std::io::Result<()> {
+        let Some(session) = result.get("sessionId").and_then(Value::as_str) else {
+            return self
+                .agent_gone("ACP agent returned no sessionId".into())
+                .await;
+        };
+        let session = session.to_owned();
+        self.agent.as_mut().expect("agent").session = Some(session.clone());
+        self.agent.as_mut().expect("agent").model = model_option(&result)
+            .and_then(|option| option.get("currentValue"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        {
+            let a = self.agent.as_mut().unwrap();
+            a.controls.replace(&result);
+            a.controls.status = "Confirmed by agent".into();
+            a.model = a
+                .controls
+                .options
+                .iter()
+                .find(|o| o.category == "model")
+                .map(|o| o.current.clone())
+                .or_else(|| a.model.clone());
+        }
+        self.publish_controls(None).await?;
+        if let Some(wanted) = self.model.clone() {
+            match pick_model(&result, &wanted) {
+                ModelChoice::Current => {}
+                ModelChoice::Set(value) => {
+                    let agent = self.agent.as_mut().expect("agent");
+                    agent.pending_model = Some(value.clone());
+                    let option = agent
+                        .controls
+                        .options
+                        .iter()
+                        .find(|o| o.category == "model");
+                    let legacy = option.is_some_and(|o| o.legacy);
+                    // Preserve the existing profile bootstrap for older v1 advertisements
+                    // missing optional UI metadata. Such rows remain unavailable as UI selectors.
+                    let config_id = option
+                        .map(|o| o.id.as_str())
+                        .or_else(|| {
+                            model_option(&result)
+                                .and_then(|o| o.get("id"))
+                                .and_then(Value::as_str)
+                        })
+                        .unwrap_or("model");
+                    let params = if legacy {
+                        json!({ "sessionId": session, "modelId": value })
+                    } else {
+                        json!({ "sessionId": session, "configId": config_id, "value": value })
+                    };
+                    let revision = agent.controls.revision;
+                    agent.controls.pending = Some(OpId::new());
+                    agent.controls.status =
+                        "Pending · applying profile model intent".into();
+                    let sent = call(
+                        agent,
+                        Call::SetModel { revision },
+                        if legacy {
+                            "session/set_model"
+                        } else {
+                            "session/set_config_option"
+                        },
+                        params,
+                    );
+                    self.publish_controls(None).await?;
+                    return sent;
+                }
+                ModelChoice::NotOffered(current) => {
+                    self.notice(
+                        Level::Warn,
+                        format!(
+                            "the agent does not offer model {wanted}; it keeps {}",
+                            current.unwrap_or_else(|| "its default".into())
+                        ),
+                    )
+                    .await?;
+                }
+            }
+        }
+        self.send_prompt().await
     }
 
     async fn publish_controls(&mut self, cause: Option<OpId>) -> std::io::Result<()> {
@@ -1512,7 +1597,7 @@ impl AcpAgentActor {
                     self.notice(Level::Warn, message).await?;
                     self.send_prompt().await
                 }
-                Call::Prompt | Call::Initialize | Call::NewSession if self.running.is_some() => {
+                Call::Prompt | Call::Initialize | Call::NewSession | Call::SetPermissions { .. } if self.running.is_some() => {
                     self.notice(Level::Error, message.clone()).await?;
                     if !matches!(call_kind, Call::Prompt) {
                         self.kill();
@@ -1574,88 +1659,29 @@ impl AcpAgentActor {
                 )
             }
             Call::NewSession => {
-                let Some(session) = result.get("sessionId").and_then(Value::as_str) else {
-                    return self
-                        .agent_gone("ACP agent returned no sessionId".into())
-                        .await;
-                };
-                let session = session.to_owned();
-                self.agent.as_mut().expect("agent").session = Some(session.clone());
-                self.agent.as_mut().expect("agent").model = model_option(&result)
-                    .and_then(|option| option.get("currentValue"))
-                    .and_then(Value::as_str)
-                    .map(str::to_owned);
-                {
-                    let a = self.agent.as_mut().unwrap();
-                    a.controls.replace(&result);
-                    a.controls.status = "Confirmed by agent".into();
-                    a.model = a
-                        .controls
-                        .options
-                        .iter()
-                        .find(|o| o.category == "model")
-                        .map(|o| o.current.clone())
-                        .or_else(|| a.model.clone());
-                }
-                self.publish_controls(None).await?;
-                if let Some(wanted) = self.model.clone() {
-                    match pick_model(&result, &wanted) {
-                        ModelChoice::Current => {}
-                        ModelChoice::Set(value) => {
-                            let agent = self.agent.as_mut().expect("agent");
-                            agent.pending_model = Some(value.clone());
-                            let option = agent
-                                .controls
-                                .options
-                                .iter()
-                                .find(|o| o.category == "model");
-                            let legacy = option.is_some_and(|o| o.legacy);
-                            // Preserve the existing profile bootstrap for older v1 advertisements
-                            // missing optional UI metadata. Such rows remain unavailable as UI selectors.
-                            let config_id = option
-                                .map(|o| o.id.as_str())
-                                .or_else(|| {
-                                    model_option(&result)
-                                        .and_then(|o| o.get("id"))
-                                        .and_then(Value::as_str)
-                                })
-                                .unwrap_or("model");
-                            let params = if legacy {
-                                json!({ "sessionId": session, "modelId": value })
-                            } else {
-                                json!({ "sessionId": session, "configId": config_id, "value": value })
-                            };
-                            let revision = agent.controls.revision;
-                            agent.controls.pending = Some(OpId::new());
-                            agent.controls.status =
-                                "Pending · applying profile model intent".into();
-                            let sent = call(
-                                agent,
-                                Call::SetModel { revision },
-                                if legacy {
-                                    "session/set_model"
-                                } else {
-                                    "session/set_config_option"
-                                },
-                                params,
-                            );
-                            self.publish_controls(None).await?;
-                            return sent;
-                        }
-                        ModelChoice::NotOffered(current) => {
-                            self.notice(
-                                Level::Warn,
-                                format!(
-                                    "the agent does not offer model {wanted}; it keeps {}",
-                                    current.unwrap_or_else(|| "its default".into())
-                                ),
-                            )
-                            .await?;
+                if self.yolo && let Some(mode) = unrestricted_mode(&result) {
+                    let Some(session) = result.get("sessionId").and_then(Value::as_str).map(str::to_owned) else {
+                        return self.agent_gone("ACP agent returned no sessionId".into()).await;
+                    };
+                    let mut result = result;
+                    if let Some(modes) = result.get_mut("modes").and_then(Value::as_object_mut) {
+                        modes.insert("currentModeId".into(), json!(mode));
+                    }
+                    if let Some(options) = result.get_mut("configOptions").and_then(Value::as_array_mut) {
+                        for option in options {
+                            if option.get("options").and_then(Value::as_array).is_some_and(|values| values.iter().any(|v| v.get("value").and_then(Value::as_str) == Some(&mode))) {
+                                option["currentValue"] = json!(mode);
+                            }
                         }
                     }
+                    let agent = self.agent.as_mut().expect("agent");
+                    agent.session = Some(session.clone());
+                    return call(agent, Call::SetPermissions { session_result: result },
+                        "session/set_mode", json!({"sessionId":session,"modeId":mode}));
                 }
-                self.send_prompt().await
+                self.session_ready(result).await
             }
+            Call::SetPermissions { session_result } => self.session_ready(session_result).await,
             Call::SetModel { revision } => {
                 let agent = self.agent.as_mut().expect("agent");
                 let pending = agent.pending_model.take();
@@ -2624,11 +2650,18 @@ fn call_name(c: &Call) -> &'static str {
     match c {
         Call::Initialize => "initialize",
         Call::NewSession => "session/new",
+        Call::SetPermissions { .. } => "unrestricted permissions",
         Call::SetModel { .. } => "the model choice",
         Call::Prompt => "the prompt",
         Call::Steer { .. } => "steering",
         Call::Configure { .. } => "session configuration",
     }
+}
+/// Standard ACP mode negotiation, using only identifiers actually advertised by the agent.
+fn unrestricted_mode(result: &Value) -> Option<String> {
+    let modes = result.pointer("/modes/availableModes")?.as_array()?;
+    ["agent-full-access", "bypassPermissions", "yolo", "full-access", "fullAccess", "danger-full-access", "auto-approve"]
+        .iter().find_map(|wanted| modes.iter().any(|mode| mode.get("id").and_then(Value::as_str) == Some(*wanted)).then(|| (*wanted).to_owned()))
 }
 pub fn tool_kind(k: &str) -> ToolKind {
     match k {

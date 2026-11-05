@@ -60,7 +60,7 @@ async fn fake_command(
     )
     .unwrap();
     // The wake witnesses exercise profile yolo independently of unattended deny.
-    if matches!(scenario, "wake" | "wake-twice") {
+    if matches!(scenario, "wake" | "wake-twice" | "unrestricted-codex" | "unrestricted-claude") {
         let path = profiles.join("fake.md");
         let profile = std::fs::read_to_string(&path)
             .unwrap()
@@ -1227,5 +1227,50 @@ async fn gui_polish_real_mcp_result_survives_acp_completion() {
             matches!(&output[..], [OutputBlock::Json { value }] if Some(value) == raw.as_ref()),
             "raw result must be paired as real structured output: {output:?}"
         );
+    }
+}
+
+#[tokio::test]
+async fn oversized_json_result_spills_before_publication_and_keeps_actor_alive() {
+    let f = fake("oversized-json", Unattended::Deny).await;
+    let mut sub = subscribe(&f.gateway, false);
+    for prompt in ["first", "second"] {
+        f.gateway.send(support::prompt(&f.gateway, prompt)).unwrap();
+        let events = until_end(&mut sub).await;
+        assert!(events.iter().all(|e| serde_json::to_vec(e).unwrap().len() < MAX_ENVELOPE_BYTES));
+        let raw = events.iter().find_map(|e| match &e.event {
+            Event::ItemCompleted { body: Item::ToolCall { raw_output: Some(raw), spill: Some(_), .. }, .. } => Some(raw),
+            _ => None,
+        }).expect("large aggregate result must spill both representations");
+        let blob: BlobRef = serde_json::from_value(raw["$blob"].clone()).unwrap();
+        fn stored(dir: &std::path::Path, sha: &str) -> Option<Vec<u8>> {
+            for entry in std::fs::read_dir(dir).ok()? {
+                let path = entry.ok()?.path();
+                if path.is_dir() {
+                    if let Some(bytes) = stored(&path, sha) { return Some(bytes); }
+                } else if path.file_name().unwrap() == sha { return std::fs::read(path).ok(); }
+            }
+            None
+        }
+        let bytes = stored(f.temp.path(), &blob.sha256).expect("referenced blob already durable");
+        assert_eq!(bytes.len() as u64, blob.len);
+        let full: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(full["tail"], "kept");
+        assert_eq!(full["parts"].as_array().unwrap().len(), 6);
+        assert!(full["parts"].as_array().unwrap().iter().all(|v| v.as_str().unwrap().len() == 24000));
+    }
+    assert_eq!(ended(&close(f).await).len(), 2);
+}
+
+#[tokio::test]
+async fn unrestricted_acp_modes_are_confirmed_before_codex_and_claude_prompts() {
+    for scenario in ["unrestricted-codex", "unrestricted-claude"] {
+        let f = fake(scenario, Unattended::Deny).await;
+        let mut sub = subscribe(&f.gateway, false);
+        f.gateway.send(support::prompt(&f.gateway, "run")).unwrap();
+        until_end(&mut sub).await;
+        let mode = std::fs::read_to_string(f.temp.path().join("selected-mode")).unwrap();
+        assert_eq!(mode, if scenario.ends_with("codex") {"agent-full-access"} else {"bypassPermissions"});
+        close(f).await;
     }
 }

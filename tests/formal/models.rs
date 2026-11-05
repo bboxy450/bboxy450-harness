@@ -6584,6 +6584,10 @@ fn dream_trial_frontier(mode: u8) -> Model {
 
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (unrestricted_startup(false), "pass"),
+        (unrestricted_startup(true), "safety"),
+        (draft_handoff(false), "pass"),
+        (draft_handoff(true), "safety"),
         (dream_trial_frontier(0), "pass"),
         (dream_trial_frontier(1), "safety"),
         (dream_trial_frontier(2), "safety"),
@@ -7054,5 +7058,38 @@ pub fn onboarding_install(b: bool) -> Model {
     });
     // Click split at index 0 shifts Cancel to 2 and Reap to 3.
     m.weak_fair.push(vec![3]);
+    m
+}
+
+/// A replacement face acquires the seat's draft only after queued edits drain.
+pub fn draft_handoff(b: bool) -> Model {
+    let mut m = base::<5>("DraftHandoff", b, &[
+        ("old_phase", 2, 0), // visible, retired, released
+        ("queued_edit", 1, 1),
+        ("draft_text", 1, 0),
+        ("replacement_open", 1, 0),
+        ("replacement_text", 1, 0),
+    ]);
+    act(&mut m, "Detach", eq(0, 0), &[(0, Int(1))]);
+    act(&mut m, "DrainAcceptedEdit", all([eq(0, 1), eq(1, 1)]), &[(1, Int(0)), (2, Int(1))]);
+    act(&mut m, "ReleaseCustody", all([eq(0, 1), if b { Bool(true) } else { eq(1, 0) }]), &[(0, Int(2))]);
+    act(&mut m, "Reopen", all([eq(0, 2), eq(3, 0)]), &[(3, Int(1)), (4, Var(2))]);
+    safe(&mut m, "AcceptedEditSurvivesReopen", eq(3, 0).or(eq(4, 1)));
+    m
+}
+pub fn pane_spill_models() -> Vec<(Model, &'static str)> {
+    vec![(unrestricted_startup(false), "pass"), (unrestricted_startup(true), "safety"),
+        (draft_handoff(false), "pass"), (draft_handoff(true), "safety"),
+        (native_spill(false), "pass"), (native_spill(true), "safety")]
+}
+
+pub fn unrestricted_startup(b: bool) -> Model {
+    let mut m = base::<3>("UnrestrictedStartup", b,
+        &[("phase", 3, 0), ("mode_confirmed", 1, 0), ("prompt_sent", 1, 0)]);
+    act(&mut m, "RequestAdvertisedFullAccess", eq(0, 0), &[(0, Int(1))]);
+    act(&mut m, "AgentConfirmsFullAccess", eq(0, 1), &[(0, Int(2)), (1, Int(1))]);
+    act(&mut m, "SendPrompt", if b {eq(0, 1).or(eq(0, 2))} else {eq(0, 2)},
+        &[(0, Int(3)), (2, Int(1))]);
+    safe(&mut m, "FullAccessConfirmedBeforePrompt", eq(2, 0).or(eq(1, 1)));
     m
 }

@@ -230,7 +230,7 @@ fn create_profile(env: &Environment, agent: Agent) -> io::Result<()> {
     let mut command = vec![cmd];
     command.extend_from_slice(args);
     let body = format!(
-        "---\nname: {}\nprovider: acp-agent\nagent:\n  command: {}\n---\nEditable local ACP profile. Authentication stays with the agent.\nOfficial instructions: {}\nOrigin: https://github.com/bboxy450/bboxy450-harness\nPolicy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md\n",
+        "---\nname: {}\nprovider: acp-agent\npolicy: yolo\nagent:\n  command: {}\n---\nEditable local ACP profile. Authentication stays with the agent.\nOfficial instructions: {}\nOrigin: https://github.com/bboxy450/bboxy450-harness\nPolicy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md\n",
         agent.name(),
         serde_json::to_string(&command)?,
         agent.instructions()

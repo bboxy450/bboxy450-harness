@@ -107,6 +107,20 @@ fn prepare(
         *text = preview(text, &blob);
         *spill = Some(blob);
     }
+    // A result made of many small fields can exceed the cap in aggregate.
+    // Persist both raw and rendered representations before publishing references.
+    if let Event::ItemCompleted {
+        body: Item::ToolCall { raw_output, output, spill, .. }, ..
+    } = &mut event {
+        if let Some(raw) = raw_output {
+            spill_json(raw, &mut put)?;
+        }
+        let mut value = serde_json::to_value(&*output)?;
+        if let Some(blob) = spill_json(&mut value, &mut put)? {
+            *output = vec![OutputBlock::Json { value }];
+            *spill = Some(blob);
+        }
+    }
     let mut value = serde_json::to_value(&event)?;
     let texts = if matches!(
         &event,
@@ -198,6 +212,18 @@ async fn append_mode(
     store
         .append_projected_at(prepared.event, cause, at, native, prepared.ext)
         .await
+}
+fn spill_json(
+    value: &mut Value,
+    put: &mut impl FnMut(Vec<u8>, &str) -> BlobRef,
+) -> io::Result<Option<BlobRef>> {
+    let bytes = serde_json::to_vec(value)?;
+    if bytes.len() <= 64 * 1024 {
+        return Ok(None);
+    }
+    let blob = put(bytes.clone(), "application/json");
+    *value = serde_json::json!({"$blob":blob,"$preview":json_preview(&bytes)});
+    Ok(Some(blob))
 }
 fn json_preview(bytes: &[u8]) -> Value {
     let mut end = bytes.len().min(4096);

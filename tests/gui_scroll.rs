@@ -90,3 +90,33 @@ async fn inset_output_scroll_has_one_owner_and_hands_off_only_at_its_edge() {
         assert!(!view.scroll.following());
     }).await;
 }
+
+#[tokio::test]
+async fn vertical_swipes_never_pan_a_single_long_line() {
+    bboxy450_harness::runtime::blocking(|| {
+        let mut model = history();
+        let body = serde_json::from_value(serde_json::json!({
+            "kind":"tool_call", "call_id":"wide", "name":"shell", "tool_kind":"execute",
+            "input_raw":"", "output":[{"type":"text","text":"long ".repeat(600)}],
+            "locations":[],"spill":null
+        })).unwrap();
+        let id = push(&mut model, body);
+        let state = prepared(model, Default::default());
+        let mut view = HarnessView::default();
+        let frame = view.render(&state, SIZE).unwrap();
+        let key = format!("codeout/{id}/output");
+        let node = &find(frame.layout.as_ref().unwrap(), &key).expect("code output").children[0];
+        let at = [node.rect.x + 20., node.rect.y + 10.];
+        assert!(view.wheel_delta(at, [180., 0.]));
+        let frame = view.render(&state, SIZE).unwrap();
+        let node = &find(frame.layout.as_ref().unwrap(), &key).unwrap().children[0];
+        let x = match node.kind { LayoutKind::ScrollView { offset, .. } => offset[0], _ => panic!("scroll panel") };
+        assert!(x > 0.);
+        assert!(view.wheel(at, -150.));
+        assert!(!view.scroll.following());
+        view.follow_latest();
+        let frame = view.render(&state, SIZE).unwrap();
+        let node = &find(frame.layout.as_ref().unwrap(), &key).unwrap().children[0];
+        assert!(matches!(node.kind, LayoutKind::ScrollView { offset, .. } if offset[0] == x));
+    }).await;
+}

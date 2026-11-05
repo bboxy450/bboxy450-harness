@@ -82,6 +82,16 @@ def wake():
 
 
 def prompt(rid, text):
+    if SCENARIO.startswith("unrestricted-"):
+        assert Path("selected-mode").exists(), "prompt arrived before unrestricted mode was confirmed"
+        chunk("agent_message_chunk", "unrestricted prompt received")
+        return "end_turn"
+    if SCENARIO == "oversized-json":
+        result = {"parts": ["x" * 24000 for _ in range(6)], "tail": "kept"}
+        update({"sessionUpdate": "tool_call", "toolCallId": "large-" + str(rid), "title": "Editing files", "kind": "edit", "status": "pending"})
+        update({"sessionUpdate": "tool_call_update", "toolCallId": "large-" + str(rid), "status": "completed", "rawOutput": result})
+        chunk("agent_message_chunk", "continued after large result")
+        return "end_turn"
     if SCENARIO.startswith("steering-"):
         if "second" in text:
             chunk("agent_message_chunk", "normal fallback delivered")
@@ -211,9 +221,18 @@ while True:
               "_meta": {"steering": {"supported": SCENARIO.startswith("steering-")}}}})
     elif method == "session/new":
         result = {"sessionId": SESSION}
+        if SCENARIO.startswith("unrestricted-"):
+            mode = "agent-full-access" if SCENARIO.endswith("codex") else "bypassPermissions"
+            result["modes"] = {"currentModeId":"default", "availableModes":[{"id":"default", "name":"Default"}, {"id":mode, "name":"Full access"}]}
         if SCENARIO == "usage":
             result["configOptions"] = [{"id": "model", "category": "model", "currentValue": "reported-model", "options": []}]
         send({"jsonrpc": "2.0", "id": rid, "result": result})
+    elif method == "session/set_mode":
+        assert SCENARIO.startswith("unrestricted-")
+        wanted = "agent-full-access" if SCENARIO.endswith("codex") else "bypassPermissions"
+        assert m["params"]["modeId"] == wanted
+        Path("selected-mode").write_text(wanted)
+        send({"jsonrpc":"2.0", "id":rid, "result":{}})
     elif method == "session/prompt":
         text = " ".join(b.get("text", "") for b in m["params"]["prompt"])
         if SCENARIO.startswith("steering-"): text = m["params"]["prompt"][-1].get("text", "")

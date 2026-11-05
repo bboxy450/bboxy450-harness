@@ -395,3 +395,15 @@ fn conditional_lowering_preserves_full_finite_successors_and_fairness() {
         "conditional lowering: {checked_states} declared states; {checked_edges} labeled successors match original math; fairness groups match"
     );
 }
+
+#[test]
+fn pane_recovery_native_models_and_controls() {
+    let root = std::path::PathBuf::from(std::env::var("PANE_FORMAL_OUT")
+        .unwrap_or_else(|_| "target/pane/formal".into()));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut manifest = String::new();
+    for (model, expected) in models::pane_spill_models() {
+        export::export(model, expected, &root, &mut manifest).unwrap();
+    }
+    std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
+}

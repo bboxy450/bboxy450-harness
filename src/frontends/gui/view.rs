@@ -227,6 +227,11 @@ struct Controls {
 }
 #[path = "input.rs"]
 mod input;
+/// Lightweight draft custody survives a disposable embedded view, including pending intake.
+pub struct Draft {
+    composer: super::editor::Input,
+    inputs: input::Inputs,
+}
 pub struct HarnessView {
     theme: Theme,
     theme_revision: u64,
@@ -446,12 +451,23 @@ impl HarnessView {
             ..Self::default()
         }
     }
+    pub fn take_draft(&mut self) -> Draft {
+        Draft {
+            composer: std::mem::replace(&mut self.composer, super::editor::Input::new(Default::default())),
+            inputs: std::mem::take(&mut self.inputs),
+        }
+    }
+    pub fn restore_draft(&mut self, draft: Draft) {
+        self.composer = draft.composer;
+        self.inputs = draft.inputs;
+        self.invalidate();
+    }
     /// A wheel over an inset first scrolls that document, then the transcript at its edge.
     pub fn wheel(&mut self, at: [f32; 2], dy: f32) -> bool {
         self.wheel_delta(at, [0., dy])
     }
-    /// Both axes stay view-local; horizontal arrows also serve embedded hosts with a vertical-only wheel API.
-    pub fn wheel_delta(&mut self, at: [f32; 2], mut delta: [f32; 2]) -> bool {
+    /// Both axes stay independent; vertical movement never pans a long line.
+    pub fn wheel_delta(&mut self, at: [f32; 2], delta: [f32; 2]) -> bool {
         if self.config_menu_rect.is_some_and(|r| contains(r, at)) {
             self.config_scroll = (self.config_scroll + delta[1]).max(0.);
             self.invalidate();
@@ -474,20 +490,6 @@ impl HarnessView {
             .filter(|n| contains(n.rect, at))
             .and_then(|n| panel(n, at))
         {
-            // A single long line is horizontally scrollable even in an older embedded host.
-            if let Some(n) = self
-                .frame
-                .layout
-                .as_ref()
-                .and_then(|r| find(r, &key))
-                .and_then(|n| n.children.first())
-                && let c::LayoutKind::ScrollView { content, .. } = n.kind
-                && content[1] <= n.rect.h
-                && content[0] > n.rect.w
-                && delta[0] == 0.
-            {
-                delta = [delta[1], 0.];
-            }
             if self.shift_panel(&key, delta) {
                 return true;
             }

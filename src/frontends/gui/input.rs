@@ -127,6 +127,11 @@ impl HarnessView {
         self.poll_inputs(&bridge.state);
     }
     pub(super) fn poll_inputs(&mut self, state: &FrameState) {
+        // Reconnecting faces must not infer delivery or replace attachment ownership
+        // from an incomplete replay. Sending remains fenced by Bridge readiness.
+        if !state.ready && self.inputs.owner.session.is_some() {
+            return;
+        }
         if self.inputs.observed_text != self.composer.view.text {
             self.inputs.changed();
             self.inputs.observed_text = self.composer.view.text.clone();

@@ -33,8 +33,8 @@ name = "HarnessNativeSpill"
 title = "Imported and watched text persists its blob before publishing a bounded preview."
 models = ["HarnessNativeSpill", "BrokenHarnessNativeSpill"]
 sources = ["src/import/mod.rs", "src/import/edge.rs", "src/import/watch.rs", "src/import/spill.rs", "tests/formal/models.rs"]
-implementation_tests = ["tests/import_native.rs", "tests/ir_edge.rs"]
-assumptions = "One pending small/large event, one blob, success/failure of persistence and one native-or-ext preservation bit; local put/append weak fairness settles pending work. Broken controls publish before blob persistence or clear the retention bit. Atomic durability and value identity are abstract; actual fsync, hash/redaction, JSON escaping, UTF-8, source-key consumption and verbatim Native JSON are implementation-only; no Rust refinement proof."
+implementation_tests = ["tests/import_native.rs", "tests/ir_edge.rs", "tests/acp_agent.rs"]
+assumptions = "One pending small/large event, one blob, success/failure of persistence and one native-or-ext preservation bit; local put/append weak fairness settles pending work. Broken controls publish before blob persistence or clear the retention bit. Atomic durability and value identity are abstract; actual fsync, hash/redaction, aggregate JSON field sizing, JSON escaping, UTF-8, source-key consumption and verbatim Native JSON are implementation-only; no Rust refinement proof."
 property = "Every published spill reference has an already-persisted blob; envelopes stay bounded and failed writes publish no reference. Edge records retain raw Native data or their mapped remainder in ext."
 checks = ["make test-formal", "make test"]
 [[contract]]
@@ -679,4 +679,26 @@ sources = ["src/store/fork.rs", "src/store.rs", "src/engine/mod.rs", "src/fronte
 implementation_tests = ["tests/formal_nonvacuity.rs", "src/store.rs", "tests/dream_pipeline.rs", "tests/store_fork.rs"]
 assumptions = "One frontier quiescent/queued-only/active/open/malformed, zero/one/two pending queues, one publication and one crash/reopen, separate lease/epoch reservation/recovery/actor/fresh-usage actions. Local recovery WF includes explicit persistence-unavailable disposition; no arbitrary syscall completion or repeated-crash progress. Opaque trial capability alone selects the internal queued-only classifier; synthetic Interrupted endings validate a clone only, while copied raw prefix/blobs remain exact. Store reserves epoch2 under the existing WriterLease and ordinary recovery closes each inherited queue once before actor exposure. Twenty actual engine continuations and Store units cover future/ext/CRLF/blob identity, source deletion, prefix/partial-recovery crash, malformed/active/open/missing-blob refusal, unpolled and deterministically abandoned/error opening after epoch reservation, actual lease-release acknowledgement and epoch3 recovery. Public store_fork test preserves ordinary queued-frontier rejection. Exact bytes, no-replace/fsync/kernel lease correctness are implementation witnesses; no receipt or arbitrary Rust conformance follows."
 property = "OnlyAcceptedFrontier; InheritedBytesUnchanged; NoActorBeforeRecovery; EachQueueEndsOnce; FreshSuccessHasFreshIdentity; LocalRecoverySettles under stated local fairness. Controls accept active/open work, expose prefix early, rewrite inherited bytes, count inherited recovery as success or duplicate an interrupted ending."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessDraftHandoff"
+title = "Accepted edits survive disposal and replacement of an embedded face."
+models = ["HarnessDraftHandoff", "BrokenHarnessDraftHandoff"]
+controls = [{name="BrokenHarnessDraftHandoff", expected="safety"}]
+sources = ["src/frontends/gui/view.rs", "src/frontends/gui/input.rs", "tests/formal/models.rs"]
+implementation_tests = ["../bboxy450-term/src/rich_pane.rs"]
+assumptions = "One accepted edit, old face visible/retired/released, one replacement and binary text identity. The worker drains the closed queue before resolving its per-seat ordered handoff. Fair queue scheduling is assumed; OS process crashes, persistence across UI restart, IME and attachment filesystem custody remain implementation-only. No Rust refinement proof."
+property = "A replacement that has acquired draft custody includes every accepted local edit."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessUnrestrictedStartup"
+title = "YOLO selects the advertised unrestricted ACP mode before the first prompt."
+models = ["HarnessUnrestrictedStartup", "BrokenHarnessUnrestrictedStartup"]
+controls = [{name="BrokenHarnessUnrestrictedStartup", expected="safety"}]
+sources = ["src/backend/acp_agent.rs", "src/onboarding.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/acp_agent.rs", "tests/fixtures/acp-agent/fake_agent.py"]
+assumptions = "One newly created ACP session advertises a recognized full-access mode; request, confirmation and prompt are atomic steps. Agents without mode advertisements retain host YOLO permission admission. Adapter honesty, provider-side policy, transport and configuration details are tested separately; no arbitrary Rust refinement proof."
+property = "A prompt for an advertised unrestricted mode is sent only after the agent confirms that mode."
 checks = ["make test-formal", "make test"]
