@@ -1,0 +1,12 @@
+command: make smoke-app
+source: dfa694ed26f4932024a457307dc270d7206c5c11
+cargo build --locked --release --features standalone --target-dir 'target'
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `release` profile [optimized] target(s) in 1m 30s
+target/bboxy450-harness.app/Contents/Info.plist: OK
+target/bboxy450-harness.app/Contents/MacOS/bboxy450-harness: replacing existing signature
+Test bundle: ad-hoc signature only; no Apple identity or Keychain access.
+python3 -I scripts/smoke-app.py 'target/bboxy450-harness.app' 'target/app-smoke'
+gui-smoke structural: Checked { markdown_blocks: 5, accordion_headers: 5, inline_rows: 2, painted_boxes: 34, cards: 19, disclosures: 5 }
+gui-smoke: PASS · 21 visible items, 14 kinds, readable payloads, 3 approval buttons, scrolled viewport, Metal 1120×7000 · /Users/feral/mydev/bboxy450-harness-dream-wp4/target/app-smoke/replay.png
+smoke-app: PASS; bundled PNG, empty-HOME notice, hidden native window/surface/live frame, exit/reap, strict codesign

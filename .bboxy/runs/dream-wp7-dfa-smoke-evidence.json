@@ -1,0 +1,21 @@
+{
+  "source": "dfa694ed26f4932024a457307dc270d7206c5c11",
+  "private_home": true,
+  "operator_input": false,
+  "replay_exit_code": 0,
+  "screenshot": "/Users/feral/mydev/bboxy450-harness-dream-wp4/target/app-smoke/replay.png",
+  "screenshot_bytes": 152748,
+  "native_window": "hidden",
+  "surface_configured": true,
+  "live_frame_submitted": "private texture",
+  "visible_presentation_checked": false,
+  "launcher_pid": 36789,
+  "launcher_exit_code": 0,
+  "cwd": "/tmp/harness-app-8egsfmvc",
+  "profile": "nemotron",
+  "notice": true,
+  "bundle": "/Users/feral/mydev/bboxy450-harness-dream-wp4/target/bboxy450-harness.app",
+  "app_name": "bboxy450-harness",
+  "codesign_exit_code": 0,
+  "transcript_exit_code": 0
+}

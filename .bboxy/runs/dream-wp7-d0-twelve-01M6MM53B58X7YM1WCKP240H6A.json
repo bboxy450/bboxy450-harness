@@ -1,0 +1,13 @@
+{
+  "verify_label": "dream-wp7-dfa-acp",
+  "normal_source_logs": 12,
+  "episodes": 12,
+  "guarded_max_poll_cpu_ns": [
+    170542,
+    215875
+  ],
+  "pins_and_episode_values_equal": true,
+  "cache_bytes_equal": true,
+  "source_bytes_equal": true,
+  "episode_digest": "sha256:1d8f3bee4c1752302a8425386ae86856dd16cef7136eafdb1054994a3c30cca8"
+}

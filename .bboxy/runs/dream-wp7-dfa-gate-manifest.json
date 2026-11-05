@@ -1,0 +1,997 @@
+{
+  "byte_proof_sha256": "8d0307dce338547c61a216d8f7fd1a44195e62c2e4f8cd90202c04c2e8703548",
+  "canonical_gate": "unchanged retained make2/checker1, not rerun; eleven KB number collisions incl5974; no waiver",
+  "command_results": [
+    {
+      "command": "cargo test --lib tools:: && cargo test --lib process:: && cargo test --lib store::lease_tests::post_acquisition_error_and_abandoned_job_output_destroy_the_guard -- --exact --nocapture && cargo test --lib dream:: && cargo test --test dream_pipeline synth_d0_process_spawn_poll_bound_witness -- --exact --nocapture && cargo test --test dream_pipeline trial && cargo test --test policy_gate --test cancel_process --test store_fork --test store_recovery --test protocol_laws --test ir_v1_corpus --test dream_graph --test dream_audit_broken --test dream_trust --test dream_seal && make test-formal && make test-formal-parity && make check-formal-evidence",
+      "compiler_wrapper": "disabled in this command only; no shared daemon control",
+      "elapsed_seconds": 293.2187896249816,
+      "exit_code": 0,
+      "jobs": 2,
+      "log": ".bboxy/runs/dream-wp7-dfa-primary.log",
+      "metadata_sha256": "fd9dd7c36e65611789b8713eecd2107b0a903dc201a11080421d90ef8a829901",
+      "offline": true,
+      "operator_input": false,
+      "private_home": true,
+      "sha256": "2f633bfb9745afa2694b7208d48382f838b09c9e6354afa189addac7840ed26d",
+      "source": "dfa694ed26f4932024a457307dc270d7206c5c11",
+      "source_dirty": false,
+      "started": "2026-11-05T01:18:17.476461+00:00",
+      "test_result_tuples": [
+        [
+          "3",
+          "0",
+          "0"
+        ],
+        [
+          "15",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "12",
+          "0",
+          "1"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "12",
+          "0",
+          "0"
+        ],
+        [
+          "8",
+          "0",
+          "1"
+        ],
+        [
+          "7",
+          "0",
+          "0"
+        ],
+        [
+          "9",
+          "0",
+          "0"
+        ],
+        [
+          "7",
+          "0",
+          "1"
+        ],
+        [
+          "8",
+          "0",
+          "0"
+        ],
+        [
+          "16",
+          "0",
+          "0"
+        ],
+        [
+          "5",
+          "0",
+          "0"
+        ],
+        [
+          "3",
+          "0",
+          "0"
+        ],
+        [
+          "5",
+          "0",
+          "0"
+        ],
+        [
+          "4",
+          "0",
+          "0"
+        ],
+        [
+          "4",
+          "0",
+          "0"
+        ],
+        [
+          "39",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "4",
+          "0",
+          "0"
+        ],
+        [
+          "39",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    {
+      "command": "cargo clippy --offline --locked --all-targets --all-features -- -D warnings",
+      "compiler_wrapper": "disabled in this command only; no shared daemon control",
+      "elapsed_seconds": 1.1754993330687284,
+      "exit_code": 0,
+      "jobs": 2,
+      "log": ".bboxy/runs/dream-wp7-dfa-clippy-candidate.log",
+      "metadata_sha256": "26e90b93bce902b7981b544fe6ebf5988420947c2c3ba895fedd2b86d3714d13",
+      "offline": true,
+      "operator_input": false,
+      "private_home": true,
+      "sha256": "17cb875a3aa32cc8ff3b1fe0801ad81d1e87d20751014db7c340f350a1a0544f",
+      "source": "dfa694ed26f4932024a457307dc270d7206c5c11",
+      "source_dirty": false,
+      "started": "2026-11-05T01:01:12.735924+00:00",
+      "test_result_tuples": []
+    },
+    {
+      "command": "make test-ir && cargo test --offline --locked --test protocol_golden --test ir_v1_corpus --test store_fork --test dream_replay --features acp-agent",
+      "compiler_wrapper": "disabled in this command only; no shared daemon control",
+      "elapsed_seconds": 7.753464125096798,
+      "exit_code": 0,
+      "jobs": 2,
+      "log": ".bboxy/runs/dream-wp7-dfa-ir-golden-replay.log",
+      "metadata_sha256": "bffd8c3657d611f7b81925cc649c052574cc5058e179d0c59fbc80d0e773b652",
+      "offline": true,
+      "operator_input": false,
+      "private_home": true,
+      "sha256": "02d68d528a4091dd45acd90faba2593035ed5a9a97b56e25ad52d424f928d51a",
+      "source": "dfa694ed26f4932024a457307dc270d7206c5c11",
+      "source_dirty": false,
+      "started": "2026-11-05T01:01:14.089231+00:00",
+      "test_result_tuples": [
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "13",
+          "0",
+          "2"
+        ],
+        [
+          "16",
+          "0",
+          "0"
+        ],
+        [
+          "9",
+          "0",
+          "0"
+        ],
+        [
+          "5",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    {
+      "command": "cargo test --offline --locked --all-targets -- --skip non_pty_spawn_does_not_keep_a_sibling_master_alive",
+      "compiler_wrapper": "disabled in this command only; no shared daemon control",
+      "elapsed_seconds": 389.53254925017245,
+      "exit_code": 0,
+      "jobs": 2,
+      "log": ".bboxy/runs/dream-wp7-dfa-default.log",
+      "metadata_sha256": "8edaa258f5e64247619491f12ebe8ac5e6a741fa8ac4bd8fc61437a280dc0bb5",
+      "offline": true,
+      "operator_input": false,
+      "private_home": true,
+      "sha256": "7162b9ba10e3d1c2c9b547b10bc978c99886490652c360bdd2a2898b9f905d92",
+      "source": "dfa694ed26f4932024a457307dc270d7206c5c11",
+      "source_dirty": false,
+      "started": "2026-11-05T01:01:21.976420+00:00",
+      "test_result_tuples": [
+        [
+          "64",
+          "0",
+          "1"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "19",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "7",
+          "0",
+          "0"
+        ],
+        [
+          "20",
+          "0",
+          "0"
+        ],
+        [
+          "8",
+          "0",
+          "1"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "2",
+          "0",
+          "0"
+        ],
+        [
+          "10",
+          "0",
+          "1"
+        ],
+        [
+          "3",
+          "0",
+          "0"
+        ],
+        [
+          "7",
+          "0",
+          "0"
+        ],
+        [
+          "9",
+          "0",
+          "0"
+        ],
+        [
+          "15",
+          "0",
+          "0"
+        ],
+        [
+          "20",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "13",
+          "0",
+          "2"
+        ],
+        [
+          "7",
+          "0",
+          "1"
+        ],
+        [
+          "8",
+          "0",
+          "0"
+        ],
+        [
+          "8",
+          "0",
+          "0"
+        ],
+        [
+          "5",
+          "0",
+          "0"
+        ],
+        [
+          "2",
+          "0",
+          "0"
+        ],
+        [
+          "4",
+          "0",
+          "0"
+        ],
+        [
+          "39",
+          "0",
+          "0"
+        ],
+        [
+          "4",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "3",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "4",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "8",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "7",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "15",
+          "0",
+          "0"
+        ],
+        [
+          "8",
+          "0",
+          "0"
+        ],
+        [
+          "6",
+          "0",
+          "0"
+        ],
+        [
+          "2",
+          "0",
+          "0"
+        ],
+        [
+          "16",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "5",
+          "0",
+          "0"
+        ],
+        [
+          "2",
+          "0",
+          "0"
+        ],
+        [
+          "9",
+          "0",
+          "0"
+        ],
+        [
+          "3",
+          "0",
+          "0"
+        ],
+        [
+          "6",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "1"
+        ],
+        [
+          "17",
+          "0",
+          "0"
+        ],
+        [
+          "12",
+          "0",
+          "0"
+        ],
+        [
+          "4",
+          "0",
+          "0"
+        ],
+        [
+          "5",
+          "0",
+          "0"
+        ],
+        [
+          "4",
+          "0",
+          "0"
+        ],
+        [
+          "2",
+          "0",
+          "0"
+        ],
+        [
+          "6",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    {
+      "command": "cargo test --offline --locked --all-targets --features acp,test-fixtures -- --skip seat_launch:: --skip non_pty_spawn_does_not_keep_a_sibling_master_alive",
+      "compiler_wrapper": "disabled in this command only; no shared daemon control",
+      "elapsed_seconds": 365.39056266704574,
+      "exit_code": 0,
+      "jobs": 2,
+      "log": ".bboxy/runs/dream-wp7-dfa-acp.log",
+      "metadata_sha256": "1dea4354d2310b17521dba83969e22da72cdc56c655b23daa2ca263a4efbc9d4",
+      "offline": true,
+      "operator_input": false,
+      "private_home": true,
+      "sha256": "1f9ec37a6c6fb3f003636329554b995b373f70dc14c8d5b59bc589acc28916ba",
+      "source": "dfa694ed26f4932024a457307dc270d7206c5c11",
+      "source_dirty": false,
+      "started": "2026-11-05T01:07:51.645661+00:00",
+      "test_result_tuples": [
+        [
+          "67",
+          "0",
+          "1"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "19",
+          "0",
+          "0"
+        ],
+        [
+          "16",
+          "0",
+          "0"
+        ],
+        [
+          "7",
+          "0",
+          "0"
+        ],
+        [
+          "20",
+          "0",
+          "0"
+        ],
+        [
+          "8",
+          "0",
+          "1"
+        ],
+        [
+          "7",
+          "0",
+          "0"
+        ],
+        [
+          "2",
+          "0",
+          "0"
+        ],
+        [
+          "10",
+          "0",
+          "1"
+        ],
+        [
+          "3",
+          "0",
+          "0"
+        ],
+        [
+          "7",
+          "0",
+          "0"
+        ],
+        [
+          "9",
+          "0",
+          "0"
+        ],
+        [
+          "15",
+          "0",
+          "0"
+        ],
+        [
+          "20",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "13",
+          "0",
+          "2"
+        ],
+        [
+          "7",
+          "0",
+          "1"
+        ],
+        [
+          "8",
+          "0",
+          "0"
+        ],
+        [
+          "8",
+          "0",
+          "0"
+        ],
+        [
+          "5",
+          "0",
+          "0"
+        ],
+        [
+          "2",
+          "0",
+          "0"
+        ],
+        [
+          "4",
+          "0",
+          "0"
+        ],
+        [
+          "39",
+          "0",
+          "0"
+        ],
+        [
+          "4",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "3",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "5",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "9",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "7",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "15",
+          "0",
+          "0"
+        ],
+        [
+          "9",
+          "0",
+          "0"
+        ],
+        [
+          "6",
+          "0",
+          "0"
+        ],
+        [
+          "2",
+          "0",
+          "0"
+        ],
+        [
+          "16",
+          "0",
+          "0"
+        ],
+        [
+          "18",
+          "0",
+          "0"
+        ],
+        [
+          "5",
+          "0",
+          "0"
+        ],
+        [
+          "2",
+          "0",
+          "0"
+        ],
+        [
+          "9",
+          "0",
+          "0"
+        ],
+        [
+          "3",
+          "0",
+          "0"
+        ],
+        [
+          "6",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "1"
+        ],
+        [
+          "17",
+          "0",
+          "0"
+        ],
+        [
+          "20",
+          "0",
+          "0"
+        ],
+        [
+          "4",
+          "0",
+          "0"
+        ],
+        [
+          "5",
+          "0",
+          "0"
+        ],
+        [
+          "4",
+          "0",
+          "0"
+        ],
+        [
+          "2",
+          "0",
+          "0"
+        ],
+        [
+          "6",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    {
+      "command": "cargo test --offline --locked --features acp,test-fixtures --test seat_process seat_launch::",
+      "compiler_wrapper": "disabled in this command only; no shared daemon control",
+      "elapsed_seconds": 1.8515346669591963,
+      "exit_code": 0,
+      "jobs": 2,
+      "log": ".bboxy/runs/dream-wp7-dfa-seat-launch.log",
+      "metadata_sha256": "a898be5df91e4e0d722e900d10167d08c7db767ee2a6c76ab21fc6dcbb69724b",
+      "offline": true,
+      "operator_input": false,
+      "private_home": true,
+      "sha256": "58883e5807b761ccac1d26859ffbe0c52c06003993bd45c3360dce8a54a426ea",
+      "source": "dfa694ed26f4932024a457307dc270d7206c5c11",
+      "source_dirty": false,
+      "started": "2026-11-05T01:13:57.169842+00:00",
+      "test_result_tuples": [
+        [
+          "7",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    {
+      "command": "cargo test --offline --locked --features acp,test-fixtures --test seat_process non_pty_spawn_does_not_keep_a_sibling_master_alive -- --exact",
+      "compiler_wrapper": "disabled in this command only; no shared daemon control",
+      "elapsed_seconds": 0.22382733295671642,
+      "exit_code": 0,
+      "jobs": 2,
+      "log": ".bboxy/runs/dream-wp7-dfa-nonpty.log",
+      "metadata_sha256": "9d1997bcd754650180b78f5a90e65c68422eaa3dfcdc8752bac08dcb274d04df",
+      "offline": true,
+      "operator_input": false,
+      "private_home": true,
+      "sha256": "7dfb15dbf345a056428e3e54d41317789e7afcfda46ebf4c1cd1e71d842014b5",
+      "source": "dfa694ed26f4932024a457307dc270d7206c5c11",
+      "source_dirty": false,
+      "started": "2026-11-05T01:13:59.115934+00:00",
+      "test_result_tuples": [
+        [
+          "1",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    {
+      "command": "make smoke-app",
+      "compiler_wrapper": "disabled in this command only; no shared daemon control",
+      "elapsed_seconds": 91.78949537500739,
+      "exit_code": 0,
+      "jobs": 2,
+      "log": ".bboxy/runs/dream-wp7-dfa-native-smoke.log",
+      "metadata_sha256": "b38883f9386a07893a9b09fbe65fca2c3093057601aeacfdf76d9f7709953bf6",
+      "offline": true,
+      "operator_input": false,
+      "private_home": true,
+      "sha256": "6ee20094efdceb67d3782fbe932617970d1ea7961d49a3f3c06ad7c2a307ff0f",
+      "source": "dfa694ed26f4932024a457307dc270d7206c5c11",
+      "source_dirty": false,
+      "started": "2026-11-05T01:13:59.437256+00:00",
+      "test_result_tuples": []
+    },
+    {
+      "command": "cargo fmt --check && python3 -I scripts/checks.py headers && python3 -I scripts/checks.py secrets",
+      "compiler_wrapper": "disabled in this command only; no shared daemon control",
+      "elapsed_seconds": 2.2530747500713915,
+      "exit_code": 0,
+      "jobs": 2,
+      "log": ".bboxy/runs/dream-wp7-dfa-source-candidate.log",
+      "metadata_sha256": "2f864e0733b3097f01b4229c668aadc6e4014ab7f4b697210b9bf19f2899e349",
+      "offline": true,
+      "operator_input": false,
+      "private_home": true,
+      "sha256": "f82f8bbb9c1cd2496e773c81214b7fa0978ffc7de711fda7735c21b3c6a69062",
+      "source": "dfa694ed26f4932024a457307dc270d7206c5c11",
+      "source_dirty": false,
+      "started": "2026-11-05T01:15:31.346404+00:00",
+      "test_result_tuples": []
+    }
+  ],
+  "model_union": {
+    "base_models": 147,
+    "base_receipt": "e4ecb0f077603867d91468b29fb4aabd1b792d1949a7a546a6035683af7341e4",
+    "candidate_receipt": "3f8a858d2263a78c70b888e2987245ee4c41eb9997cb4fffba973f6341fe6189",
+    "contracts": 54,
+    "crates": 1,
+    "dirty": false,
+    "edges": 2974120,
+    "excluded_volatile_files": [
+      "Java .log timings",
+      "Java .dot identifiers"
+    ],
+    "input_bytes_current": true,
+    "models": 175,
+    "new_models": [
+      "BrokenHarnessDreamTrialCapabilityExec",
+      "BrokenHarnessDreamTrialCapabilityPermit",
+      "BrokenHarnessDreamTrialCapabilityReopen",
+      "BrokenHarnessDreamTrialClaimsEarlyRelease",
+      "BrokenHarnessDreamTrialClaimsGlobal",
+      "BrokenHarnessDreamTrialFrontierActive",
+      "BrokenHarnessDreamTrialFrontierBytes",
+      "BrokenHarnessDreamTrialFrontierDuplicate",
+      "BrokenHarnessDreamTrialFrontierEarly",
+      "BrokenHarnessDreamTrialFrontierInherited",
+      "BrokenHarnessDreamTrialOutcomeCleanup",
+      "BrokenHarnessDreamTrialOutcomeEntry",
+      "BrokenHarnessDreamTrialOutcomeHarness",
+      "BrokenHarnessDreamTrialOutcomeIsolation",
+      "BrokenHarnessDreamTrialOutcomeTerminal",
+      "BrokenHarnessDreamTrialOutcomeUsage",
+      "BrokenHarnessDreamTrialSettlementChannel",
+      "BrokenHarnessDreamTrialSettlementErr",
+      "BrokenHarnessDreamTrialSettlementLate",
+      "BrokenHarnessDreamTrialUsageBasis",
+      "BrokenHarnessDreamTrialUsageBlind",
+      "BrokenHarnessDreamTrialUsageJoin",
+      "HarnessDreamTrialCapability",
+      "HarnessDreamTrialClaims",
+      "HarnessDreamTrialFrontier",
+      "HarnessDreamTrialOutcome",
+      "HarnessDreamTrialSettlement",
+      "HarnessDreamTrialUsage"
+    ],
+    "old_complete_records_equal": true,
+    "source": "dfa694ed26f4932024a457307dc270d7206c5c11",
+    "source_inputs": 362,
+    "states": 616891
+  },
+  "model_union_sha256": "9570000345ca64016e254bc7807a592985162fd37aeda27510e8714367f81ba0",
+  "source": "dfa694ed26f4932024a457307dc270d7206c5c11",
+  "source_index_changes": ""
+}

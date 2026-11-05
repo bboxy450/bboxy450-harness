@@ -1,0 +1,111 @@
+.bboxy/runs/dream-wp7-all-trial-models.log:12: new blank line at EOF.
+.bboxy/runs/dream-wp7-bound-timing-trials.log:14: new blank line at EOF.
+.bboxy/runs/dream-wp7-cap-final-checkpoint.log:11: new blank line at EOF.
+.bboxy/runs/dream-wp7-cap-same-descriptor.log:20: new blank line at EOF.
+.bboxy/runs/dream-wp7-cap-units.log:23: new blank line at EOF.
+.bboxy/runs/dream-wp7-capture-frame-gateway.log:26: new blank line at EOF.
+.bboxy/runs/dream-wp7-checkpoint-substrate.log:92: new blank line at EOF.
+.bboxy/runs/dream-wp7-complete-fail-pair.log:9: new blank line at EOF.
+.bboxy/runs/dream-wp7-corrected-ir-golden-replay.log:95: new blank line at EOF.
+.bboxy/runs/dream-wp7-d0-bounded-focused.log:72: new blank line at EOF.
+.bboxy/runs/dream-wp7-derived-raw-custody.log:9: new blank line at EOF.
+.bboxy/runs/dream-wp7-direct-acp.log:866: new blank line at EOF.
+.bboxy/runs/dream-wp7-direct-nonpty.log:10: new blank line at EOF.
+.bboxy/runs/dream-wp7-direct-seat-launch.log:16: new blank line at EOF.
+.bboxy/runs/dream-wp7-final-ir-golden-replay.log:95: new blank line at EOF.
+.bboxy/runs/dream-wp7-format-check-red.log:38: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:501: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:505: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:943: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:1133: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:1875: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:1996: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:2756: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:2766: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:2791: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:3214: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:3507: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:3509: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:3564: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:3577: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:3924: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:3945: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:4129: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:4330: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:4377: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:4773: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:4858: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:4925: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:4927: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:5268: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:5593: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:5817: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:6142: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:6366: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:6425: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:6467: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:6469: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:6517: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:6519: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:6573: trailing whitespace.
++ 
+.bboxy/runs/dream-wp7-format-check-red.log:6573: new blank line at EOF.
+.bboxy/runs/dream-wp7-frontier-before-code.log:9: new blank line at EOF.
+.bboxy/runs/dream-wp7-frontier-cancel-error.log:12: new blank line at EOF.
+.bboxy/runs/dream-wp7-frontier-isolated-unit.log:78: new blank line at EOF.
+.bboxy/runs/dream-wp7-gate-fixtures-corrected.log:31: new blank line at EOF.
+.bboxy/runs/dream-wp7-graph-checkpoint.log:17: new blank line at EOF.
+.bboxy/runs/dream-wp7-input-boundary.log:9: new blank line at EOF.
+.bboxy/runs/dream-wp7-ir-golden-replay.log:95: new blank line at EOF.
+.bboxy/runs/dream-wp7-launch-controls.log:20: new blank line at EOF.
+.bboxy/runs/dream-wp7-model-before-current.log:10: new blank line at EOF.
+.bboxy/runs/dream-wp7-model-before.log:10: new blank line at EOF.
+.bboxy/runs/dream-wp7-nonpty.log:10: new blank line at EOF.
+.bboxy/runs/dream-wp7-process-isolated-barriers.log:23: new blank line at EOF.
+.bboxy/runs/dream-wp7-pure-current.log:13: new blank line at EOF.
+.bboxy/runs/dream-wp7-pure.log:11: new blank line at EOF.
+.bboxy/runs/dream-wp7-real-absolute-budgets.log:9: new blank line at EOF.
+.bboxy/runs/dream-wp7-real-clean-git.log:9: new blank line at EOF.
+.bboxy/runs/dream-wp7-real-paired-context-fixed.log:9: new blank line at EOF.
+.bboxy/runs/dream-wp7-real-positive-queued-frontier.log:9: new blank line at EOF.
+.bboxy/runs/dream-wp7-seams-before-stateful-fixed.log:9: new blank line at EOF.
+.bboxy/runs/dream-wp7-seams-regressions.log:42: new blank line at EOF.
+.bboxy/runs/dream-wp7-seat-launch.log:16: new blank line at EOF.
+.bboxy/runs/dream-wp7-settlement-units.log:28: new blank line at EOF.
+.bboxy/runs/dream-wp7-store-frontier-boundaries-fixed.log:11: new blank line at EOF.
+.bboxy/runs/dream-wp7-timing-unit-controls-fixed.log:11: new blank line at EOF.
+.bboxy/runs/dream-wp7-trial-runtime-api-cli.log:18: new blank line at EOF.

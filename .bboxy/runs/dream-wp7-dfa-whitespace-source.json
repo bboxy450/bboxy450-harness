@@ -1,0 +1,17 @@
+{
+  "command": [
+    "git",
+    "diff",
+    "a574c94d904c4f3bf312921af5d662ab59b3248a",
+    "--check",
+    "--",
+    "src",
+    "tests",
+    "Cargo.toml",
+    "Cargo.lock",
+    "protocol.schema.json",
+    "verification"
+  ],
+  "exit_code": 0,
+  "disposition": "source check; immutable raw evidence bytes are not trimmed"
+}
