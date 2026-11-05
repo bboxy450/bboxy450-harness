@@ -128,17 +128,8 @@ impl Fixture {
         for n in 0..3 {
             f.source(n).await;
         }
-        let result = Box::pin(d0::replay_with_sessions(
-            vec![f.sessions.clone()],
-            f.repo.home.path().join("dream"),
-            f.sessions.clone(),
-            false,
-            Set::default(),
-        ))
-        .await
-        .unwrap();
-        assert_eq!(result.episodes.len(), 3);
-        f.episodes = result.episodes;
+        f.episodes = replay_explicit_sources(&f, f.repo.home.path().join("dream")).await;
+        assert_eq!(f.episodes.len(), 3);
         f.fingerprint = f.episodes[0]
             .fingerprints
             .iter()
@@ -372,6 +363,32 @@ pub fn sse_usage(value: &Value) -> Vec<u8> {
     format!(": Synthetic bboxy450-harness fixture; policy https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md\ndata: {}\n\ndata: [DONE]\n\n",json!({"choices":[{"delta":{"content":value.to_string()},"finish_reason":"stop"}],"usage":{"prompt_tokens":17,"completion_tokens":9}})).into_bytes()
 }
 
+/// Build retained fixture inputs through the real bounded D0 API, once
+/// per explicit source log. Aggregate replay latency is tested separately by
+/// trial_d0_twelve_log_replay_keeps_pins_cache_bytes_and_source_identity.
+async fn replay_explicit_sources(f: &Fixture, root: PathBuf) -> Vec<d0::Episode> {
+    let before = f.source_bytes();
+    let mut episodes = vec![];
+    for (index, path) in before.keys().enumerate() {
+        let replay = Box::pin(d0::replay_with_sessions(
+            vec![path.clone()],
+            root.clone(),
+            f.sessions.clone(),
+            index == 0,
+            Set::default(),
+        ))
+        .await
+        .unwrap();
+        assert_eq!(replay.busy, 0);
+        assert_eq!(replay.skipped, 0);
+        assert!(replay.max_poll_cpu_ns <= 1_000_000);
+        episodes.extend(replay.episodes);
+    }
+    episodes.sort_by_cached_key(|episode| (episode.repo.clone(), serde_json::to_string(&episode.origin).unwrap()));
+    assert_eq!(f.source_bytes(), before);
+    episodes
+}
+
 /// Synthetic retained source episodes and real signed task observations. Trial
 /// continuations themselves use the ordinary engine and confined actual tools.
 pub async fn trial_fixture() -> (Fixture, EvidenceRef) {
@@ -559,16 +576,7 @@ pub async fn trial_fixture_timing(
             .unwrap();
         store.append(Event::SessionClosed, None).await.unwrap();
     }
-    let replay = Box::pin(bboxy450_harness::dream::d0::replay_with_sessions(
-        vec![f.sessions.clone()],
-        f.repo.home.path().join("trial-replay"),
-        f.sessions.clone(),
-        true,
-        Set::default(),
-    ))
-    .await
-    .unwrap();
-    f.episodes = replay.episodes;
+    f.episodes = replay_explicit_sources(&f, f.repo.home.path().join("trial-replay")).await;
     f.fingerprint = fingerprint::tool_fail("read", "missing private fixture");
     assert_eq!(
         f.episodes

@@ -1,0 +1,65 @@
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized] target(s) in 12.94s
+     Running unittests src/lib.rs (target/debug/deps/bboxy450_harness-8edd1d2684df9122)
+
+running 14 tests
+test dream::resolve::tests::hashbrown_record_cache_bench ... ignored, explicit release-mode measurement, never a CI timing threshold
+test dream::fingerprint::tests::digest_is_the_exact_sha256_string_vector ... ok
+test dream::d0::tests::inline_cpu_broken_control_is_rejected_by_the_actual_poll_budget ... ok
+test dream::join::tests::joins_require_task_tools_and_bounded_id_number_or_path_tokens ... ok
+test dream::join::tests::verdicts_use_recorded_results_and_keep_exact_pins ... ok
+test dream::resolve::tests::record_cache_matches_all_fields_and_exact_option_identity ... ok
+test dream::trial::timing_tests::original_timing_absence_is_distinct_from_unavailable_or_legacy_units ... ok
+test dream::fingerprint::tests::normalization_masks_unstable_values_before_hashing ... ok
+test dream::trial::input_tests::inherited_input_uses_common_deny_without_rewriting_source_or_model_identity ... ok
+test dream::trial::timing_tests::original_timing_exact_milliseconds_strict_json_and_binding_controls ... ok
+test dream::resolve::tests::record_cache_random_seeds_preserve_canonical_observable_records ... ok
+test dream::resolve::tests::record_cache_collisions_resize_duplicates_and_clear ... ok
+test dream::recall::tests::actual_trial_capability_suppresses_automatic_recall_in_both_engine_arms ... ok
+test dream::trial::timing_tests::original_timing_reads_only_task_root_commit_regular_git_blob_never_tip ... ok
+
+test result: ok. 13 passed; 0 failed; 1 ignored; 0 measured; 61 filtered out; finished in 0.78s
+
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized] target(s) in 13.35s
+     Running tests/dream_pipeline.rs (target/debug/deps/dream_pipeline-474d8e9d45472881)
+
+running 20 tests
+test trial_closure_and_every_possible_exposure_exclude_forks ... ok
+test trial_original_eligibility_requires_observed_clean_revision_and_verify ... ok
+test synth_d0_process_spawn_poll_bound_witness ... ok
+test synth_guard_deadline_after_finish_and_spend_controls ... ok
+test synth_actual_provider_store_request_and_same_writer ... ok
+test synth_nfc_hashing_preserves_resolving_git_pin_spelling ... ok
+test synth_pure_prompt_parse_identity_and_emission_contracts ... ok
+test synth_source_bounds_redaction_and_invalid_pins_are_refused ... ok
+test trial_selection_is_canonical_held_out_and_not_arrival_order ... ok
+test trial_thresholds_exact_gain_controls_and_median ... ok
+test trial_usage_spend_and_unknowns_never_become_free_work ... ok
+test synth_private_home_cli_process_smoke_and_read_only_source ... ok
+test synth_tool_truncation_failed_cancelled_and_unsafe_streams_emit_no_proposal ... ok
+test trial_real_busy_nonblocking_independent_entry_and_abandoned_result_closes ... FAILED
+test trial_prepare_declared_timing_failure_never_falls_back_to_eligible_absence ... ok
+test trial_d0_twelve_log_replay_keeps_pins_cache_bytes_and_source_identity ... ok
+test trial_real_complete_failure_rejects_only_its_harness_pair ... ok
+test trial_real_turn_deadline_closes_owned_continuation_and_preserves_upstream ... ok
+test trial_real_missing_usage_and_over_budget_are_not_zero_or_qualified ... ok
+test trial_real_enforced_twenty_arms_fork_usage_verifier_and_pair_projection ... ok
+
+failures:
+
+---- trial_real_busy_nonblocking_independent_entry_and_abandoned_result_closes stdout ----
+
+thread 'trial_real_busy_nonblocking_independent_entry_and_abandoned_result_closes' (200095225) panicked at tests/support/dream.rs:570:6:
+called `Result::unwrap()` on an `Err` value: Custom { kind: Other, error: "D0 exceeded 1ms CPU between awaits: 1491042ns in replay" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+synthetic D1 failure custody: /tmp/nyx-mmyob077/t/.tmp7qotiS
+synthetic D1 failure custody: /tmp/nyx-mmyob077/t/.tmp4fyNOI
+
+
+failures:
+    trial_real_busy_nonblocking_independent_entry_and_abandoned_result_closes
+
+test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 47.46s
+
+error: test failed, to rerun pass `--test dream_pipeline`

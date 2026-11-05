@@ -1,0 +1,19 @@
+command: cargo test --test dream_pipeline trial_real_busy_nonblocking_independent_entry_and_abandoned_result_closes -- --exact && cargo test --test dream_pipeline trial_d0_twelve_log_replay_keeps_pins_cache_bytes_and_source_identity -- --exact
+source: a910b9904c9ae432997c09bdc5f884c1d5857a82
+   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
+    Finished `test` profile [unoptimized] target(s) in 15.64s
+     Running tests/dream_pipeline.rs (target/debug/deps/dream_pipeline-977c642e40d8402f)
+
+running 1 test
+test trial_real_busy_nonblocking_independent_entry_and_abandoned_result_closes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 32.80s
+
+    Finished `test` profile [unoptimized] target(s) in 0.41s
+     Running tests/dream_pipeline.rs (target/debug/deps/dream_pipeline-977c642e40d8402f)
+
+running 1 test
+test trial_d0_twelve_log_replay_keeps_pins_cache_bytes_and_source_identity ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 15.79s
+
