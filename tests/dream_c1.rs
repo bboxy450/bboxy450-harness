@@ -305,20 +305,24 @@ struct Worker {
     input: Option<ChildStdin>,
     output: BufReader<ChildStdout>,
     start: Option<w::Start>,
+    sequence: u64,
 }
 impl Worker {
     fn launch(path: &Path) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
-            .args(["dream", "inspect-c1", "--job-dir"])
-            .arg(path)
-            .env_clear()
-            .env("LANG", "C.UTF-8")
-            .env("TMPDIR", path)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+        let mut child = Command::new(
+            std::env::var_os("DREAM_C1_RUNNER")
+                .unwrap_or_else(|| env!("CARGO_BIN_EXE_bboxy450-harness").into()),
+        )
+        .args(["dream", "inspect-c1", "--job-dir"])
+        .arg(path)
+        .env_clear()
+        .env("LANG", "C.UTF-8")
+        .env("TMPDIR", path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
         let input = child.stdin.take();
         let output = BufReader::new(child.stdout.take().unwrap());
         let mut w = Self {
@@ -326,6 +330,7 @@ impl Worker {
             input,
             output,
             start: None,
+            sequence: 0,
         };
         match w.read() {
             w::WorkerOut::Hello(h) => {
@@ -345,7 +350,17 @@ impl Worker {
             "worker unexpectedly exited {:?}",
             self.child.try_wait()
         );
-        w::decode(&b).unwrap()
+        let out = w::decode(&b).unwrap();
+        let seq = match &out {
+            w::WorkerOut::Progress(p) => Some(p.seq.0),
+            w::WorkerOut::Done(d) => Some(d.seq.0),
+            _ => None,
+        };
+        if let Some(seq) = seq {
+            assert_eq!(seq, self.sequence + 1);
+            self.sequence = seq;
+        }
+        out
     }
     fn send(&mut self, message: &w::WorkerIn) {
         let mut b = w::canonical(message).unwrap();
@@ -375,7 +390,7 @@ impl Worker {
         }));
     }
     fn done(&mut self) -> (w::Done, String) {
-        let mut seq = 0;
+        let mut seq = self.sequence;
         let done = loop {
             match self.read() {
                 w::WorkerOut::Progress(p) => {
@@ -437,7 +452,12 @@ fn complete(job: &Job) -> (w::ResultDescriptor, Vec<w::Row>, String) {
     assert_eq!(result.manifest_sha256, job.start.manifest_sha256);
     assert_eq!(result.knowledge, w::Knowledge::NotRequested);
     assert_eq!(result.trust, w::Trust::NotEvaluated);
-    assert!(result.max_poll_cpu_ns.0 <= 1_000_000);
+    assert!(result.max_poll_cpu_ns.0 <= 3_000_000);
+    assert_native_gate(&metrics);
+    assert_eq!(
+        result.max_poll_cpu_ns.0,
+        metric(&metrics, "captured_max_cpu_ns")
+    );
     let mut rows = vec![];
     for (i, p) in result.pages.iter().enumerate() {
         let bytes = std::fs::read(job.path.join(format!("output/page-{i:06}.json"))).unwrap();
@@ -466,7 +486,17 @@ fn hello_precedes_all_source_access_and_private_bootstrap() {
     let mut worker = Worker::launch(&path);
     drop(worker.input.take());
     assert!(worker.child.wait().unwrap().success());
+    let mut metrics = String::new();
+    std::io::Read::read_to_string(&mut worker.child.stderr.take().unwrap(), &mut metrics).unwrap();
+    assert_native_gate(&metrics);
+    let native = metrics
+        .lines()
+        .find(|l| l.starts_with("dream-c1 native tag=compute_owner_create "))
+        .unwrap();
+    assert_eq!(metric(native, "count"), 1);
+    assert_eq!(metric(native, "effects"), 1);
     assert!(!path.exists());
+    eprintln!("cleared-environment Hello-before-source EOF actual_parked_owner_joined {metrics}");
 }
 #[test]
 fn empty_closed_and_raw_crlf_origins_are_exact() {
@@ -1232,6 +1262,50 @@ fn metric(metrics: &str, key: &str) -> u64 {
         .parse()
         .unwrap()
 }
+fn assert_native_gate(metrics: &str) {
+    let terminal = metrics
+        .lines()
+        .find(|l| l.starts_with("dream-c1 terminal_metrics "))
+        .unwrap();
+    assert!(terminal.contains("profile=c1-native-debt/1"), "{metrics}");
+    assert!(metrics.contains("cost_known=true"), "{metrics}");
+    assert!(metric(terminal, "app_max_cpu_ns") <= 1_000_000, "{metrics}");
+    assert!(
+        metric(terminal, "control_max_cpu_ns") <= 1_000_000,
+        "{metrics}"
+    );
+    assert!(
+        metric(terminal, "inclusive_max_cpu_ns") <= 3_000_000,
+        "{metrics}"
+    );
+    assert!(metric(terminal, "captured_max_cpu_ns") <= metric(terminal, "inclusive_max_cpu_ns"));
+    assert_eq!(metric(terminal, "remaining_debt_ns"), 0);
+    assert!(metric(terminal, "process_user_cpu_ns") > 0);
+    assert!(metric(terminal, "owner_thread_cpu_ns") > 0);
+    for tag in ["compute_owner_create", "publish_noreplace"] {
+        let line = metrics
+            .lines()
+            .find(|l| l.starts_with(&format!("dream-c1 native tag={tag} ")))
+            .unwrap();
+        assert!(metric(line, "max_cpu_ns") <= 2_000_000, "{line}");
+        assert!(metric(line, "max_wall_ns") <= 25_000_000, "{line}");
+        assert!(metric(line, "inclusive_max_cpu_ns") <= 3_000_000, "{line}");
+        assert!(metric(line, "app_max_cpu_ns") <= 1_000_000, "{line}");
+        assert!(
+            metric(line, "max_wall_ns") <= metric(line, "inclusive_max_wall_ns"),
+            "{line}"
+        );
+        assert_eq!(metric(line, "failures_with_effect"), 0);
+        assert!(
+            metric(line, "count")
+                <= if tag == "compute_owner_create" {
+                    1
+                } else {
+                    4097
+                }
+        );
+    }
+}
 fn assert_memory_gate(metrics: &str) {
     assert_eq!(
         metrics
@@ -1249,7 +1323,8 @@ fn assert_memory_gate(metrics: &str) {
     assert_eq!(metric(metrics, "credit_ceiling_bytes"), 96 * 1024 * 1024);
     assert!(metrics.contains("native_cumulative_bytes=unmeasured"));
     assert_eq!(metric(metrics, "overruns"), 0);
-    assert!(metric(metrics, "max_unit_cpu_ns") <= 1_000_000);
+    assert!(metric(metrics, "max_unit_cpu_ns") <= 3_000_000);
+    assert_native_gate(metrics);
 }
 #[test]
 fn child_declared_storage_overflow_precedes_serde_and_controls_still_settle() {
@@ -1625,4 +1700,57 @@ async fn real_store_multi_mib_ir_and_typed_blob_bundle() {
         );
     }
     eprintln!("real-Store-multi-MiB {metrics}");
+}
+
+#[test]
+fn four_ordinary_release_workers_complete_multi_mib_with_independent_control_and_reap() {
+    let jobs: Vec<_> = (0..4)
+        .map(|_| Job::new(40, 60 * 1024, false, false))
+        .collect();
+    assert!(jobs.iter().all(|j| j.bytes.len() > 2 * 1024 * 1024));
+    let mut workers: Vec<_> = jobs.iter().map(Job::launch).collect();
+    for (worker, job) in workers.iter_mut().zip(&jobs) {
+        let mut start = job.start.clone();
+        start.foreground = true;
+        worker.start(&start);
+    }
+    let mut control_times = Vec::new();
+    for revision in 1..=50 {
+        for worker in &mut workers {
+            let at = Instant::now();
+            worker.activity(revision, true);
+            loop {
+                if let w::WorkerOut::Progress(p) = worker.read() {
+                    if p.phase == w::Phase::Paused {
+                        assert_eq!(p.bytes.0, 0);
+                        control_times.push(at.elapsed());
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    control_times.sort();
+    assert_eq!(control_times.len(), 200);
+    assert!(control_times[198] <= Duration::from_millis(100));
+    assert!(control_times[199] <= Duration::from_millis(250));
+    for worker in &mut workers {
+        worker.activity(51, false);
+    }
+    eprintln!(
+        "four-ordinary-release actual_control_roundtrips=200 p99_us={} max_us={}",
+        control_times[198].as_micros(),
+        control_times[199].as_micros()
+    );
+    for (i, worker) in workers.iter_mut().enumerate() {
+        let (done, metrics) = worker.done();
+        assert_eq!(
+            done.outcome,
+            w::Outcome::Completed,
+            "job={i} {done:?} {metrics}"
+        );
+        assert_memory_gate(&metrics);
+        assert_eq!(done.pages, 1);
+        eprintln!("four-ordinary-release job={i} reaped=true {metrics}");
+    }
 }

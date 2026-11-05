@@ -179,3 +179,9 @@ and the exact shared checker copies. These checks do not replace upstream terms.
   teardown and paced settlement
   witnesses. The credit model does not certify opaque native allocation. The split normalization masks
   retain this project's original expression as an independent regression oracle.
+
+- C1 parked compute-owner provisioning, exact native-call/effect accounting,
+  monotonic post-span rest debt, bounded private metrics and the paired runtime
+  and C1QuantumDebt causal witnesses are project-owned. Keep the canonical
+  source and this absolute policy URL with extracts:
+  https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.

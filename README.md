@@ -166,8 +166,18 @@ inherited events; ordinary canonical fork support remains outside this C1 subset
 Inspection shares D0 fingerprints and selected-corpus cost ranking; it performs
 no discovery, task join, shared cache write or inference. Results are canonical
 bounded pages, published without replacement before result.json. The worker
-uses nice +10/utility scheduling, measured ≤1 ms CPU units separated by ≥9 ms
-waits, an independent control owner, foreground pause and a wall deadline.
+uses nice +10/utility scheduling, measured ≤1 ms application/control/cleanup
+units, an independent control owner, foreground pause and a wall deadline.
+Exactly one 2 MiB compute owner is provisioned and parked before Hello, with
+no source access until matching Start and quiescent foreground admission.
+Only that `Builder::spawn` and each prechecked no-replace artifact rename get
+the `c1-native-debt/1` native profile: observed ≤2 ms caller CPU/25 ms wall,
+≤1 ms surrounding application CPU and ≤3 ms raw inclusive span. These are
+observational admission allocations, not universal OS response bounds.
+Each expensive span owes `9 * max(1 ms, inclusive CPU)` monotonic wall rest
+AFTER its end; IO time cannot pay it. Bootstrap debt is paid before Hello;
+controls remain independent. Timing failure retains actual handles or the
+original publication nonce/operation/inode until joined settlement.
 Resource overruns fail the run. Child declared working storage has atomic 78 MiB
 credits, acquired before controllable growth and held through transfer/drop;
 2 MiB controls and 16 MiB tested helper/startup allowance stay inside 96 MiB.
@@ -183,6 +193,36 @@ end clocks, drain nested JSON and typed collections in paced units before their
 credits are released. Cancel/error teardown also uses paced units. Done follows actual
 compute settlement and successful exit remains part of
 the consumer's completion check.
+
+The unchanged `ResultDescriptor.max_poll_cpu_ns` captures the raw inclusive
+maximum **before descriptor serialization/hash/write/publication**. It includes
+native calls already observed and cannot certify its own later publication.
+Terminal metrics include descriptor work, cleanup, joined ownership and the
+final measured control tick. Captured maximum must not exceed terminal maximum.
+Legacy 1 ms-only consumers may refuse; ≤3 ms alone does not prove this profile.
+The ordinary-release/no-test-fixtures worker is retained in
+`target/dream-c1-native-profile/worker` by the focused gate, beside exact source
+commit, source/binary hashes and `rustc -Vv`. Fixture artifacts remain distinct.
+
+Private bounded diagnostics freeze these metric names (all durations are ns):
+
+| Record | Fields and cutoff |
+|---|---|
+| `native tag=compute_owner_create` / `publish_noreplace` | `count`, `cpu_ns`, `wall_ns`, `max_cpu_ns`, `max_wall_ns`, `inclusive_max_cpu_ns`, `inclusive_max_wall_ns`, `app_max_cpu_ns`, `effects`, `failures_with_effect`; exact callable observations; ≤1 and ≤4097 calls respectively |
+| `terminal_metrics profile=c1-native-debt/1` | `captured_max_cpu_ns`, `inclusive_max_cpu_ns`, `app_max_cpu_ns`, `control_max_cpu_ns`, `inclusive_max_wall_ns`, `span_cpu_ns`, `owner_thread_cpu_ns`, `process_user_cpu_ns`, `process_system_cpu_ns`, `wall_ns`, `debt_total_ns`, `rest_observed_ns`, `remaining_debt_ns`; joined final-control cutoff before telemetry formatting/process teardown |
+| `control_parts` | `input_max_cpu_ns`, `protocol_max_cpu_ns`, `settlement_max_cpu_ns`, `output_max_cpu_ns`, `total_cpu_ns`; whole ticks remain ≤1 ms independently of subspan measurements |
+| `publication_custody` | original `run_id`, `nonce`, `operation` (page index or 4096 for result), `dev`, `ino`, `effect` (0 absent, 1 present, 2 unknown), `errno`, `cleanup_uncertain`; deterministic original private temp/output paths; one latest operation, retained through compute settlement |
+| `metrics` | existing `compute_cpu_ns`, `max_unit_cpu_ns`, `cleanup_cpu_ns`, `max_cleanup_unit_cpu_ns`, heap/credit/normalization counters; compute cutoff, before owner-thread exit |
+| `cost_known` | false on unavailable/reversed clocks; unknown cost fails admission and is never a wrapping/zero CPU total |
+
+`span_cpu_ns` sums measured expensive calling-thread spans only. Owner-thread CPU
+and full process user/system CPU are separate overlapping observations and must
+not be added together. Final parent post-reap usage covers telemetry/exit tail.
+Unknown cost retains a conservative 27 ms settlement rest and a sticky failure;
+it never authorizes another expensive span. No unbounded per-call logging or
+additional wire frames are introduced. Formal C1QuantumDebt is a finite per-run
+projection against a held peer; byte identity, OS timing, native heap, actual
+process exit and complete consumer integration remain implementation witnesses.
 
 Managed seats pass `--dream-owner term-c1`. This typed ownership setting preserves
 durable SessionClosed and suppresses both legacy automatic D0 and automatic IR advice in engine, ACP and

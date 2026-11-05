@@ -31,7 +31,327 @@ const INPUT_MAX: u64 = 64 * 1024 * 1024;
 // tracked separately and must not be inferred from this allocator sample.
 const HEAP_MAX: u64 = 96 * 1024 * 1024;
 const UNIT_NS: u64 = 1_000_000;
+#[cfg(test)]
 const WAIT: Duration = Duration::from_millis(9);
+// Fixed private metrics profile c1-native-debt/1; all CPU/wall/debt values are ns.
+// ResultDescriptor captures RAW inclusive max before descriptor serialization;
+// terminal_metrics captures through joined owner + final control tick, before
+// telemetry formatting/process teardown. Parent wait4 usage covers that tail.
+const NATIVE_CPU_NS: u64 = 2_000_000;
+const NATIVE_WALL_NS: u64 = 25_000_000;
+const SPAN_NS: u64 = UNIT_NS + NATIVE_CPU_NS;
+#[derive(Clone, Copy)]
+enum NativeKind {
+    ComputeOwnerCreate = 0,
+    PublishNoreplace = 1,
+}
+#[derive(Default)]
+struct NativeStats {
+    count: AtomicU64,
+    cpu: AtomicU64,
+    wall: AtomicU64,
+    max_cpu: AtomicU64,
+    max_wall: AtomicU64,
+    inclusive_max_cpu: AtomicU64,
+    inclusive_max_wall: AtomicU64,
+    app_max_cpu: AtomicU64,
+    effects: AtomicU64,
+    failures_with_effect: AtomicU64,
+}
+struct Accounting {
+    origin: Instant,
+    clock_failed: AtomicBool,
+    resource_failed: AtomicBool,
+    rest_until: AtomicU64,
+    debt_total: AtomicU64,
+    rest_total: AtomicU64,
+    inclusive_max: AtomicU64,
+    inclusive_wall_max: AtomicU64,
+    app_max: AtomicU64,
+    total_cpu: AtomicU64,
+    captured_max: AtomicU64,
+    owner_cpu: AtomicU64,
+    control_cpu: AtomicU64,
+    control_parts: [AtomicU64; 4],
+    native: [NativeStats; 2],
+}
+impl Accounting {
+    fn new() -> Self {
+        Self {
+            origin: Instant::now(),
+            clock_failed: AtomicBool::new(false),
+            resource_failed: AtomicBool::new(false),
+            rest_until: AtomicU64::new(0),
+            debt_total: AtomicU64::new(0),
+            rest_total: AtomicU64::new(0),
+            inclusive_max: AtomicU64::new(0),
+            inclusive_wall_max: AtomicU64::new(0),
+            app_max: AtomicU64::new(0),
+            total_cpu: AtomicU64::new(0),
+            captured_max: AtomicU64::new(0),
+            owner_cpu: AtomicU64::new(0),
+            control_cpu: AtomicU64::new(0),
+            control_parts: std::array::from_fn(|_| AtomicU64::new(0)),
+            native: std::array::from_fn(|_| NativeStats::default()),
+        }
+    }
+    fn now(&self) -> u64 {
+        self.origin.elapsed().as_nanos().min(u64::MAX as u128) as u64
+    }
+    fn pay(&self) {
+        let at = self.now();
+        loop {
+            let now = self.now();
+            let until = self.rest_until.load(Ordering::Acquire);
+            if now >= until {
+                break;
+            }
+            thread::sleep(Duration::from_nanos(until - now));
+        }
+        self.rest_total.fetch_add(self.now() - at, Ordering::AcqRel);
+    }
+    fn charge(&self, cpu: u64, app: u64) {
+        // Debt starts at the end, never at admission or before blocking IO.
+        let debt = if cpu == u64::MAX {
+            9 * SPAN_NS
+        } else {
+            cpu.max(UNIT_NS).saturating_mul(9)
+        };
+        self.rest_until
+            .fetch_max(self.now().saturating_add(debt), Ordering::AcqRel);
+        self.debt_total.fetch_add(debt, Ordering::AcqRel);
+        if cpu == u64::MAX {
+            // Unknown cost is a sticky failed measurement, never a zero sample
+            // or wrapping total. Only bounded mandatory settlement remains.
+            self.clock_failed.store(true, Ordering::Release);
+        } else {
+            self.total_cpu.fetch_add(cpu, Ordering::AcqRel);
+        }
+        self.inclusive_max.fetch_max(cpu, Ordering::AcqRel);
+        self.app_max.fetch_max(app, Ordering::AcqRel);
+    }
+}
+fn interval(a: u64, b: u64) -> u64 {
+    if a == u64::MAX || b == u64::MAX || b < a {
+        u64::MAX
+    } else {
+        b - a
+    }
+}
+/// The returned owner/effect NEVER lives behind the verdict Result. Even a bad
+/// ending clock returns the real handle/status to the caller before refusal.
+struct NativeOutcome<T> {
+    value: T,
+    verdict: Result<(), w::Code>,
+    cpu: u64,
+}
+fn errno_pointer() -> *mut libc::c_int {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe { libc::__error() }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        unsafe { libc::__errno_location() }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        compile_error!("C1 native timing needs a thread-local errno adapter");
+    }
+}
+fn native_call<T>(
+    a: &Accounting,
+    kind: NativeKind,
+    f: impl FnOnce() -> T,
+    effect: impl FnOnce(&T) -> bool,
+) -> Result<NativeOutcome<T>, w::Code> {
+    native_call_clock(a, kind, f, effect, cpu_ns, Instant::now)
+}
+fn native_call_clock<T>(
+    a: &Accounting,
+    kind: NativeKind,
+    f: impl FnOnce() -> T,
+    effect: impl FnOnce(&T) -> bool,
+    mut cpu: impl FnMut() -> u64,
+    mut wall: impl FnMut() -> Instant,
+) -> Result<NativeOutcome<T>, w::Code> {
+    a.pay();
+    if a.clock_failed.load(Ordering::Acquire) || a.resource_failed.load(Ordering::Acquire) {
+        return Err(w::Code::ResourceLimit);
+    }
+    let limit = match kind {
+        NativeKind::ComputeOwnerCreate => 1,
+        NativeKind::PublishNoreplace => 4097,
+    };
+    if a.native[kind as usize].count.load(Ordering::Acquire) >= limit {
+        return Err(w::Code::ResourceLimit);
+    }
+    let span_wall_start = Instant::now();
+    let span_start = cpu();
+    let call_start = cpu();
+    let wall_start = wall();
+    if span_start == u64::MAX || call_start == u64::MAX {
+        a.clock_failed.store(true, Ordering::Release);
+        return Err(w::Code::ResourceLimit);
+    }
+    let value = f();
+    // Mandatory scalar return capture precedes every clock/cancel verdict.
+    // Probe failure must not replace the syscall's original unknown-effect errno.
+    let returned_errno = unsafe { *errno_pointer() };
+    let wall_end = wall();
+    let call_end = cpu();
+    unsafe {
+        *errno_pointer() = returned_errno;
+    }
+    let has_effect = effect(&value);
+    let span_end = cpu();
+    let span_wall = span_wall_start.elapsed().as_nanos().min(u64::MAX as u128) as u64;
+    let native_cpu = interval(call_start, call_end);
+    let native_wall = match wall_end.checked_duration_since(wall_start) {
+        Some(d) => d.as_nanos().min(u64::MAX as u128) as u64,
+        None => {
+            a.clock_failed.store(true, Ordering::Release);
+            u64::MAX
+        }
+    };
+    let inclusive = interval(span_start, span_end);
+    // Separate measured application subintervals; inclusive CPU stays RAW.
+    let app = interval(span_start, call_start).saturating_add(interval(call_end, span_end));
+    let stats = &a.native[kind as usize];
+    stats.count.fetch_add(1, Ordering::AcqRel);
+    if native_cpu != u64::MAX {
+        stats.cpu.fetch_add(native_cpu, Ordering::AcqRel);
+    }
+    if native_wall != u64::MAX {
+        stats.wall.fetch_add(native_wall, Ordering::AcqRel);
+    }
+    stats.max_cpu.fetch_max(native_cpu, Ordering::AcqRel);
+    stats.max_wall.fetch_max(native_wall, Ordering::AcqRel);
+    stats
+        .inclusive_max_cpu
+        .fetch_max(inclusive, Ordering::AcqRel);
+    stats
+        .inclusive_max_wall
+        .fetch_max(span_wall, Ordering::AcqRel);
+    stats.app_max_cpu.fetch_max(app, Ordering::AcqRel);
+    a.inclusive_wall_max.fetch_max(span_wall, Ordering::AcqRel);
+    if has_effect {
+        stats.effects.fetch_add(1, Ordering::AcqRel);
+    }
+    a.charge(inclusive, app);
+    let verdict = if stats.count.load(Ordering::Acquire) > limit
+        || native_cpu > NATIVE_CPU_NS
+        || native_wall > NATIVE_WALL_NS
+        || app > UNIT_NS
+        || inclusive > SPAN_NS
+    {
+        if has_effect {
+            stats.failures_with_effect.fetch_add(1, Ordering::AcqRel);
+        }
+        a.resource_failed.store(true, Ordering::Release);
+        Err(w::Code::ResourceLimit)
+    } else {
+        Ok(())
+    };
+    Ok(NativeOutcome {
+        value,
+        verdict,
+        cpu: inclusive,
+    })
+}
+struct ControlTick<'a> {
+    at: u64,
+    part_at: u64,
+    accounting: &'a Accounting,
+    max: &'a AtomicU64,
+}
+impl ControlTick<'_> {
+    fn part(&mut self, index: usize) {
+        let end = cpu_ns();
+        self.accounting.control_parts[index]
+            .fetch_max(interval(self.part_at, end), Ordering::AcqRel);
+        self.part_at = end;
+    }
+}
+impl Drop for ControlTick<'_> {
+    fn drop(&mut self) {
+        let used = interval(self.at, cpu_ns());
+        self.max.fetch_max(used, Ordering::AcqRel);
+        self.accounting
+            .inclusive_max
+            .fetch_max(used, Ordering::AcqRel);
+        if used == u64::MAX {
+            self.accounting.clock_failed.store(true, Ordering::Release);
+        } else {
+            self.accounting
+                .control_cpu
+                .fetch_add(used, Ordering::AcqRel);
+        }
+    }
+}
+struct TerminalMetrics {
+    accounting: Arc<Accounting>,
+    control: Arc<AtomicU64>,
+}
+impl Drop for TerminalMetrics {
+    fn drop(&mut self) {
+        let a = &self.accounting;
+        a.pay();
+        let load = |v: &AtomicU64| v.load(Ordering::Acquire);
+        for (tag, s) in ["compute_owner_create", "publish_noreplace"]
+            .into_iter()
+            .zip(&a.native)
+        {
+            eprintln!(
+                "dream-c1 native tag={tag} count={} cpu_ns={} wall_ns={} max_cpu_ns={} max_wall_ns={} inclusive_max_cpu_ns={} inclusive_max_wall_ns={} app_max_cpu_ns={} effects={} failures_with_effect={}",
+                load(&s.count),
+                load(&s.cpu),
+                load(&s.wall),
+                load(&s.max_cpu),
+                load(&s.max_wall),
+                load(&s.inclusive_max_cpu),
+                load(&s.inclusive_max_wall),
+                load(&s.app_max_cpu),
+                load(&s.effects),
+                load(&s.failures_with_effect)
+            );
+        }
+        let mut r = std::mem::MaybeUninit::<libc::rusage>::uninit();
+        let (user, system) = if unsafe { libc::getrusage(libc::RUSAGE_SELF, r.as_mut_ptr()) } == 0 {
+            let r = unsafe { r.assume_init() };
+            let ns = |t: libc::timeval| t.tv_sec as u64 * 1_000_000_000 + t.tv_usec as u64 * 1000;
+            (ns(r.ru_utime), ns(r.ru_stime))
+        } else {
+            (u64::MAX, u64::MAX)
+        };
+        eprintln!(
+            "dream-c1 cost_known={}",
+            !a.clock_failed.load(Ordering::Acquire)
+        );
+        let overall = load(&a.inclusive_max).max(load(&self.control));
+        eprintln!(
+            "dream-c1 control_parts input_max_cpu_ns={} protocol_max_cpu_ns={} settlement_max_cpu_ns={} output_max_cpu_ns={} total_cpu_ns={}",
+            load(&a.control_parts[0]),
+            load(&a.control_parts[1]),
+            load(&a.control_parts[2]),
+            load(&a.control_parts[3]),
+            load(&a.control_cpu)
+        );
+        eprintln!(
+            "dream-c1 terminal_metrics profile=c1-native-debt/1 cutoff=joined_final_control_pre_telemetry captured_max_cpu_ns={} inclusive_max_cpu_ns={overall} app_max_cpu_ns={} control_max_cpu_ns={} inclusive_max_wall_ns={} span_cpu_ns={} owner_thread_cpu_ns={} process_user_cpu_ns={user} process_system_cpu_ns={system} wall_ns={} debt_total_ns={} rest_observed_ns={} remaining_debt_ns={}",
+            load(&a.captured_max),
+            load(&a.app_max),
+            load(&self.control),
+            load(&a.inclusive_wall_max),
+            load(&a.total_cpu),
+            load(&a.owner_cpu),
+            a.now(),
+            load(&a.debt_total),
+            load(&a.rest_total),
+            load(&a.rest_until).saturating_sub(a.now())
+        );
+    }
+}
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub enum DreamOwner {
     #[default]
@@ -72,6 +392,7 @@ pub fn early_worker_entry() -> Option<i32> {
         if raw.len() > 4096 || raw.first() != Some(&b'/') {
             return Some(2);
         }
+        let argv_at = cpu_ns();
         let mut owned = Vec::new();
         if owned.try_reserve_exact(raw.len()).is_err() {
             return Some(1);
@@ -79,7 +400,18 @@ pub fn early_worker_entry() -> Option<i32> {
         owned.extend_from_slice(raw);
         let path = PathBuf::from(std::ffi::OsString::from_vec(owned));
         let maximum = Arc::new(AtomicU64::new(0));
+        let argv_cpu = interval(argv_at, cpu_ns());
+        maximum.fetch_max(argv_cpu, Ordering::AcqRel);
+        if argv_cpu > UNIT_NS {
+            return Some(1);
+        }
+        thread::sleep(Duration::from_nanos(9 * argv_cpu.max(UNIT_NS)));
         let code = run(path, maximum.clone());
+        let code = if maximum.load(Ordering::Acquire) > UNIT_NS {
+            1
+        } else {
+            code
+        };
         eprintln!(
             "dream-c1 reactor_max_cpu_ns={} startup_runtime=none",
             maximum.load(Ordering::Acquire)
@@ -194,22 +526,68 @@ fn rss() -> u64 {
         r.ru_maxrss as u64 * 1024
     }
 }
+#[derive(Clone, Copy)]
+struct PublicationResult {
+    status: i32,
+    errno: i32,
+    operation: u32,
+    dev: u64,
+    ino: u64,
+    nonce: [u8; 26],
+}
+#[derive(Default)]
+struct PublicationCustody {
+    operation: AtomicU64,
+    dev: AtomicU64,
+    ino: AtomicU64,
+    state: AtomicU8,
+    errno: AtomicU64,
+}
+impl PublicationCustody {
+    fn retain(&self, r: &PublicationResult) {
+        self.operation.store(r.operation as u64, Ordering::Release);
+        self.dev.store(r.dev, Ordering::Release);
+        self.ino.store(r.ino, Ordering::Release);
+        self.errno.store(r.errno as u64, Ordering::Release);
+        self.state.store(
+            if r.status == 0 {
+                1
+            } else if r.errno == libc::EINTR || r.errno == libc::EIO {
+                2
+            } else {
+                0
+            },
+            Ordering::Release,
+        );
+        // nonce is owned in the typed result before clocks and in Start for the
+        // whole run; the deterministic temp/path mapping is unchanged.
+        debug_assert!(r.nonce.iter().all(u8::is_ascii));
+    }
+}
 struct Control {
     cancel: AtomicU8,
     foreground: AtomicBool,
     deadline: Instant,
     reactor: Arc<AtomicU64>,
     memory: Arc<storage::Ledger>,
+    accounting: Arc<Accounting>,
+    publication: PublicationCustody,
+    cleanup_uncertain: AtomicBool,
     cleanup_cpu: AtomicU64,
     cleanup_max: AtomicU64,
     cleanup_overruns: AtomicU64,
 }
 impl Control {
     fn error(&self) -> Option<w::Code> {
-        if self.reactor.load(Ordering::Acquire) > UNIT_NS
+        if self.accounting.clock_failed.load(Ordering::Acquire)
+            || self.accounting.resource_failed.load(Ordering::Acquire)
+            || self.reactor.load(Ordering::Acquire) > UNIT_NS
             || self.cleanup_max.load(Ordering::Acquire) > UNIT_NS
         {
             return Some(w::Code::ResourceLimit);
+        }
+        if self.cleanup_uncertain.load(Ordering::Acquire) {
+            return Some(w::Code::StorageUnavailable);
         }
         match self.cancel.load(Ordering::Acquire) {
             1 => Some(w::Code::Cancelled),
@@ -228,7 +606,6 @@ struct Budget {
     max_unit: u64,
     heap_peak: u64,
     overruns: u64,
-    last_end: Option<Instant>,
     paused: bool,
     normalization_ready: bool,
     normalization_units: [u64; 4],
@@ -244,6 +621,35 @@ impl Budget {
     fn announce(&mut self, phase: w::Phase) {
         self.counters.phase = phase;
         self.progress.force_push(self.counters);
+    }
+    fn native<T>(
+        &mut self,
+        kind: NativeKind,
+        f: impl FnOnce() -> T,
+        effect: impl FnOnce(&T) -> bool,
+    ) -> Result<NativeOutcome<T>, w::Code> {
+        self.control.accounting.pay();
+        loop {
+            if let Some(e) = self.control.error() {
+                return Err(e);
+            }
+            if !self.control.foreground.load(Ordering::Acquire) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(2));
+        }
+        if heap() > HEAP_MAX {
+            return Err(w::Code::ResourceLimit);
+        }
+        let out = native_call(&self.control.accounting, kind, f, effect)?;
+        self.max_unit = self.max_unit.max(out.cpu);
+        self.counters.cpu = self.counters.cpu.saturating_add(out.cpu);
+        if out.verdict.is_err() {
+            self.overruns += 1;
+            self.control.cancel.store(4, Ordering::Release);
+        }
+        // No cancellation/timing decision may discard out.value.
+        Ok(out)
     }
     fn track<T: disposal::Drain>(
         &mut self,
@@ -275,12 +681,7 @@ impl Budget {
         f: impl FnOnce() -> Result<T, w::Code>,
         mut clock: impl FnMut() -> u64,
     ) -> Result<T, w::Code> {
-        if let Some(end) = self.last_end {
-            let elapsed = end.elapsed();
-            if elapsed < WAIT {
-                thread::sleep(WAIT - elapsed)
-            }
-        }
+        self.control.accounting.pay();
         loop {
             if let Some(e) = self.control.error() {
                 return Err(e);
@@ -304,8 +705,13 @@ impl Budget {
         if live > HEAP_MAX {
             return Err(w::Code::ResourceLimit);
         }
+        let wall_at = Instant::now();
         let start = clock();
         if start == u64::MAX {
+            self.control
+                .accounting
+                .clock_failed
+                .store(true, Ordering::Release);
             return Err(w::Code::ResourceLimit);
         }
         // The slot outlives every admission verdict, including a failed clock.
@@ -313,15 +719,23 @@ impl Budget {
         let mut result = Paced::new(None, &self.control, disposal::Drain::drain_step);
         *result = Some(f());
         let end = clock();
-        self.last_end = Some(Instant::now());
-        if end == u64::MAX {
+        let elapsed = interval(start, end);
+        self.control.accounting.inclusive_wall_max.fetch_max(
+            wall_at.elapsed().as_nanos().min(u64::MAX as u128) as u64,
+            Ordering::AcqRel,
+        );
+        self.control.accounting.charge(elapsed, elapsed);
+        if elapsed == u64::MAX {
             return Err(w::Code::ResourceLimit);
         }
-        let elapsed = end.saturating_sub(start);
         self.max_unit = self.max_unit.max(elapsed);
         self.counters.cpu = self.counters.cpu.saturating_add(elapsed);
         self.heap_peak = self.heap_peak.max(heap());
         if elapsed > UNIT_NS || self.heap_peak > HEAP_MAX {
+            self.control
+                .accounting
+                .resource_failed
+                .store(true, Ordering::Release);
             self.overruns += 1;
             eprintln!(
                 "dream-c1 rejected_unit line={} phase={:?} cpu_ns={elapsed}",
@@ -339,19 +753,31 @@ impl Budget {
 /// Settlement is mandatory after cancellation. These small cleanup units retain
 /// the same CPU/duty rule, independently of foreground/expensive admission flags.
 fn cleanup_unit(control: &Control, f: impl FnOnce()) {
-    thread::sleep(WAIT);
+    control.accounting.pay();
+    let wall_at = Instant::now();
     let at = cpu_ns();
     f();
     let end = cpu_ns();
     // Missing cleanup clocks fail settlement rather than reporting zero work.
     let elapsed = if at == u64::MAX || end == u64::MAX {
-        UNIT_NS + 1
+        u64::MAX
     } else {
         end.saturating_sub(at)
     };
-    control.cleanup_cpu.fetch_add(elapsed, Ordering::AcqRel);
+    control.accounting.inclusive_wall_max.fetch_max(
+        wall_at.elapsed().as_nanos().min(u64::MAX as u128) as u64,
+        Ordering::AcqRel,
+    );
+    control.accounting.charge(elapsed, elapsed);
+    if elapsed != u64::MAX {
+        control.cleanup_cpu.fetch_add(elapsed, Ordering::AcqRel);
+    }
     control.cleanup_max.fetch_max(elapsed, Ordering::AcqRel);
     if elapsed > UNIT_NS {
+        control
+            .accounting
+            .resource_failed
+            .store(true, Ordering::Release);
         control.cleanup_overruns.fetch_add(1, Ordering::AcqRel);
     }
 }
@@ -440,6 +866,7 @@ mod disposal {
         Dir,
         File,
         (File, Metadata),
+        (CString, CString),
         storage::Shape,
         String,
         PathBuf,
@@ -853,55 +1280,126 @@ impl Dir {
                 {
                     return Err(w::Code::StorageUnavailable);
                 }
-                let a = CString::new(temp.as_str()).unwrap();
-                let dest = CString::new(name).unwrap();
-                #[cfg(target_os = "macos")]
-                let status = unsafe {
-                    libc::renameatx_np(
-                        self.0.as_raw_fd(),
-                        a.as_ptr(),
-                        self.0.as_raw_fd(),
-                        dest.as_ptr(),
-                        libc::RENAME_EXCL,
-                    )
-                };
-                #[cfg(target_os = "linux")]
-                let status = unsafe {
-                    libc::renameat2(
-                        self.0.as_raw_fd(),
-                        a.as_ptr(),
-                        self.0.as_raw_fd(),
-                        dest.as_ptr(),
-                        libc::RENAME_NOREPLACE,
-                    )
-                };
-                #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-                let status = -1;
-                if status != 0 {
-                    return Err(w::Code::StorageUnavailable);
-                }
                 Ok(())
             })?;
+            let (a, dest) = b.unit(|| {
+                Ok((
+                    CString::new(temp.as_str()).unwrap(),
+                    CString::new(name).unwrap(),
+                ))
+            })?;
+            let operation = if name == "result.json" {
+                4096
+            } else {
+                name.strip_prefix("page-")
+                    .and_then(|n| n.strip_suffix(".json"))
+                    .and_then(|n| n.parse::<u32>().ok())
+                    .filter(|n| *n < 4096)
+                    .ok_or(w::Code::StorageUnavailable)?
+            };
+            let original_nonce: [u8; 26] = nonce
+                .0
+                .as_bytes()
+                .try_into()
+                .map_err(|_| w::Code::ProtocolError)?;
+            let control = b.control.clone();
+            let effect = b.native(
+                NativeKind::PublishNoreplace,
+                || {
+                    #[cfg(target_os = "macos")]
+                    let status = unsafe {
+                        libc::renameatx_np(
+                            self.0.as_raw_fd(),
+                            a.as_ptr(),
+                            self.0.as_raw_fd(),
+                            dest.as_ptr(),
+                            libc::RENAME_EXCL,
+                        )
+                    };
+                    #[cfg(target_os = "linux")]
+                    let status = unsafe {
+                        libc::renameat2(
+                            self.0.as_raw_fd(),
+                            a.as_ptr(),
+                            self.0.as_raw_fd(),
+                            dest.as_ptr(),
+                            libc::RENAME_NOREPLACE,
+                        )
+                    };
+                    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+                    let status = -1;
+                    status
+                },
+                |status| {
+                    let errno = if *status == 0 {
+                        0
+                    } else {
+                        io::Error::last_os_error()
+                            .raw_os_error()
+                            .unwrap_or(libc::EIO)
+                    };
+                    let result = PublicationResult {
+                        status: *status,
+                        errno,
+                        operation,
+                        dev: before.dev(),
+                        ino: before.ino(),
+                        nonce: original_nonce,
+                    };
+                    control.publication.retain(&result);
+                    *status == 0
+                },
+            )?;
+            // The exclusive rename effect is captured with original nonce and
+            // staged inode (before), even if a later clock/cancel verdict fails.
+            effect.verdict?;
+            if effect.value != 0 {
+                return Err(w::Code::StorageUnavailable);
+            }
+            if let Some(e) = b.control.error() {
+                return Err(e);
+            }
             b.unit(|| self.0.sync_all().map_err(|_| w::Code::StorageUnavailable))
         })();
         // Only this exclusive-created inode can be unlinked, even on cancellation.
-        let a = CString::new(temp.as_str()).unwrap();
-        let mut st = std::mem::MaybeUninit::<libc::stat>::uninit();
-        if unsafe {
-            libc::fstatat(
-                self.0.as_raw_fd(),
-                a.as_ptr(),
-                st.as_mut_ptr(),
-                libc::AT_SYMLINK_NOFOLLOW,
-            )
-        } == 0
-        {
-            let st = unsafe { st.assume_init() };
-            if st.st_dev as u64 == before.dev() && st.st_ino == before.ino() {
-                unsafe { libc::unlinkat(self.0.as_raw_fd(), a.as_ptr(), 0) };
+        let control = b.control.clone();
+        let cleanup = b.cleanup(|| {
+            // Unknown publication effect retains both names/inode for parent
+            // settlement; do not delete evidence or repeat the operation.
+            if control.publication.state.load(Ordering::Acquire) == 2 {
+                return Ok(());
             }
+            let a = CString::new(temp.as_str()).unwrap();
+            let mut st = std::mem::MaybeUninit::<libc::stat>::uninit();
+            let status = unsafe {
+                libc::fstatat(
+                    self.0.as_raw_fd(),
+                    a.as_ptr(),
+                    st.as_mut_ptr(),
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
+            };
+            if status != 0 {
+                if io::Error::last_os_error().raw_os_error() == Some(libc::ENOENT) {
+                    return Ok(());
+                }
+                control.cleanup_uncertain.store(true, Ordering::Release);
+                return Err(w::Code::StorageUnavailable);
+            }
+            let st = unsafe { st.assume_init() };
+            if st.st_dev as u64 != before.dev()
+                || st.st_ino != before.ino()
+                || unsafe { libc::unlinkat(self.0.as_raw_fd(), a.as_ptr(), 0) } != 0
+            {
+                control.cleanup_uncertain.store(true, Ordering::Release);
+                return Err(w::Code::StorageUnavailable);
+            }
+            Ok(())
+        });
+        match result {
+            Err(e) => Err(e),
+            Ok(()) => cleanup,
         }
-        result
     }
 }
 fn identity(m: &Metadata) -> (u64, u64, u64, i64, i64, i64, i64) {
@@ -1349,7 +1847,7 @@ fn compute(
     progress: Arc<crossbeam_queue::ArrayQueue<Counters>>,
 ) -> Result<Completed, w::Error> {
     let mut b = Budget {
-        control,
+        control: control.clone(),
         progress,
         counters: Counters {
             phase: w::Phase::Validate,
@@ -1357,10 +1855,9 @@ fn compute(
             envelopes: 0,
             cpu: 0,
         },
-        max_unit: 0,
+        max_unit: control.accounting.inclusive_max.load(Ordering::Acquire),
         heap_peak: 0,
         overruns: 0,
-        last_end: None,
         paused: false,
         normalization_ready: false,
         normalization_units: [0; 4],
@@ -1368,17 +1865,25 @@ fn compute(
     let startup_heap = heap();
     let mut source_index = None;
     let mut result = (|| {
-        if unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, 10) } != 0 {
-            return Err(w::Code::ResourceLimit);
-        }
+        b.unit(|| {
+            if unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, 10) } != 0 {
+                Err(w::Code::ResourceLimit)
+            } else {
+                Ok(())
+            }
+        })?;
         #[cfg(target_os = "macos")]
         {
             unsafe extern "C" {
                 fn pthread_set_qos_class_self_np(class: u32, relative: i32) -> i32;
             }
-            if unsafe { pthread_set_qos_class_self_np(0x11, 0) } != 0 {
-                return Err(w::Code::ResourceLimit);
-            }
+            b.unit(|| {
+                if unsafe { pthread_set_qos_class_self_np(0x11, 0) } != 0 {
+                    Err(w::Code::ResourceLimit)
+                } else {
+                    Ok(())
+                }
+            })?;
         }
         let dir = b.unit(|| Dir::open(&path))?;
         let input = b.unit(|| dir.dir("input"))?;
@@ -1524,11 +2029,22 @@ fn compute(
             source_count: manifest.sources.len() as u32,
             episode_count: episodes,
             cluster_count: clusters,
-            max_poll_cpu_ns: w::Number(b.max_unit.max(b.control.reactor.load(Ordering::Acquire))),
+            // PRE-DESCRIPTOR cutoff: later serialization/publication is terminal-only.
+            max_poll_cpu_ns: w::Number(
+                b.control
+                    .accounting
+                    .inclusive_max
+                    .load(Ordering::Acquire)
+                    .max(b.control.reactor.load(Ordering::Acquire)),
+            ),
             knowledge: w::Knowledge::NotRequested,
             trust: w::Trust::NotEvaluated,
             pages,
         };
+        b.control
+            .accounting
+            .captured_max
+            .store(result.max_poll_cpu_ns.0, Ordering::Release);
         let descriptor_bound = 4096u64 + (result.pages.len() as u64) * 256;
         let _descriptor_credit = b.control.memory.reserve(
             descriptor_bound
@@ -1555,8 +2071,23 @@ fn compute(
         .max_unit
         .max(b.control.cleanup_max.load(Ordering::Acquire));
     b.overruns += b.control.cleanup_overruns.load(Ordering::Acquire);
-    b.counters.cpu += b.control.cleanup_cpu.load(Ordering::Acquire);
+    b.counters.cpu = b
+        .counters
+        .cpu
+        .saturating_add(b.control.cleanup_cpu.load(Ordering::Acquire));
     b.announce(w::Phase::Settling);
+    let effect = &b.control.publication;
+    eprintln!(
+        "dream-c1 publication_custody run_id={} nonce={} operation={} dev={} ino={} effect={} errno={} cleanup_uncertain={} path_mapping=page_index_or_4096_result temp_mapping=dot_name_original_Start_nonce_tmp",
+        start.run_id.0,
+        start.nonce.0,
+        effect.operation.load(Ordering::Acquire),
+        effect.dev.load(Ordering::Acquire),
+        effect.ino.load(Ordering::Acquire),
+        effect.state.load(Ordering::Acquire),
+        effect.errno.load(Ordering::Acquire),
+        b.control.cleanup_uncertain.load(Ordering::Acquire)
+    );
     // One bounded machine-readable metrics line, with no input or IO error text.
     let (heap_live, final_peak) = heaps();
     b.heap_peak = b.heap_peak.max(final_peak);
@@ -1580,6 +2111,7 @@ fn compute(
         b.control.cleanup_cpu.load(Ordering::Acquire),
         b.control.cleanup_max.load(Ordering::Acquire)
     );
+    b.control.accounting.pay();
     result.map_err(|code| w::Error {
         code,
         source: source_index,
@@ -1750,10 +2282,83 @@ fn flat_control(bytes: &[u8]) -> Result<(), w::Code> {
 type Active = (
     w::Start,
     Arc<Control>,
-    thread::JoinHandle<Result<Completed, w::Error>>,
     Arc<crossbeam_queue::ArrayQueue<Counters>>,
 );
+struct ComputeWork {
+    path: PathBuf,
+    start: w::Start,
+    control: Arc<Control>,
+    progress: Arc<crossbeam_queue::ArrayQueue<Counters>>,
+}
+struct ParkedOwner {
+    accounting: Arc<Accounting>,
+    sender: Option<std::sync::mpsc::SyncSender<ComputeWork>>,
+    handle: Option<thread::JoinHandle<Result<Completed, w::Error>>>,
+}
+impl Drop for ParkedOwner {
+    fn drop(&mut self) {
+        // EOF/malformed/missing Start disconnects the parked owner, then joins
+        // the actual returned handle, including timing-failed creation.
+        self.accounting.pay();
+        drop(self.sender.take());
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+}
 fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
+    let bootstrap_at = cpu_ns();
+    let accounting = Arc::new(Accounting::new());
+    let _terminal = TerminalMetrics {
+        accounting: accounting.clone(),
+        control: reactor.clone(),
+    };
+    let (sender, receiver) = std::sync::mpsc::sync_channel::<ComputeWork>(1);
+    let owner_accounting = accounting.clone();
+    let builder = thread::Builder::new()
+        .name("dream-c1-compute".into())
+        .stack_size(2 * 1024 * 1024);
+    // Only Builder::spawn itself is tagged. Channel/closure/builder setup above
+    // is ordinary bootstrap application work, with no filesystem/provider access.
+    let entry = move || {
+        let at = cpu_ns();
+        let result = match receiver.recv() {
+            Ok(w) => compute(w.path, w.start, w.control, w.progress),
+            Err(_) => Err(w::Error {
+                code: w::Code::Cancelled,
+                source: None,
+            }),
+        };
+        owner_accounting
+            .owner_cpu
+            .store(interval(at, cpu_ns()), Ordering::Release);
+        result
+    };
+    let setup_cpu = interval(bootstrap_at, cpu_ns());
+    accounting.charge(setup_cpu, setup_cpu);
+    if setup_cpu > UNIT_NS {
+        return 1;
+    }
+    let created = match native_call(
+        &accounting,
+        NativeKind::ComputeOwnerCreate,
+        || builder.spawn(entry),
+        |r| r.is_ok(),
+    ) {
+        Ok(out) => out,
+        Err(_) => return 1,
+    };
+    let mut owner = ParkedOwner {
+        accounting: accounting.clone(),
+        sender: Some(sender),
+        handle: created.value.ok(),
+    };
+    if created.verdict.is_err() || owner.handle.is_none() {
+        return 1;
+    }
+    // Bootstrap native debt is fully paid BEFORE Hello or first work.
+    accounting.pay();
+    let setup_at = cpu_ns();
     if nonblocking(0).is_err() || nonblocking(1).is_err() {
         return 2;
     }
@@ -1788,6 +2393,12 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
         envelopes: 0,
         cpu: 0,
     };
+    let setup_cpu = interval(setup_at, cpu_ns());
+    accounting.charge(setup_cpu, setup_cpu);
+    if setup_cpu > UNIT_NS {
+        return 1;
+    }
+    accounting.pay();
     loop {
         let mut fds = [
             libc::pollfd {
@@ -1803,11 +2414,17 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
         ];
         unsafe { libc::poll(fds.as_mut_ptr(), 2, 2) };
         let tick = cpu_ns();
+        let mut tick_guard = ControlTick {
+            at: tick,
+            part_at: tick,
+            accounting: &accounting,
+            max: &reactor,
+        };
         if !eof && (fds[0].revents & (libc::POLLIN | libc::POLLHUP)) != 0 {
             let n = unsafe { libc::read(0, chunk.as_mut_ptr().cast(), chunk.len()) };
             if n == 0 {
                 eof = true;
-                if let Some((_, c, _, _)) = &state {
+                if let Some((_, c, _)) = &state {
                     c.cancel
                         .store(if input.is_empty() { 1 } else { 3 }, Ordering::Release);
                     if !input.is_empty() {
@@ -1842,6 +2459,9 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
                                         + Duration::from_millis(s.timeout_ms as u64),
                                     reactor: reactor.clone(),
                                     memory: storage::Ledger::new(),
+                                    accounting: accounting.clone(),
+                                    publication: PublicationCustody::default(),
+                                    cleanup_uncertain: AtomicBool::new(false),
                                     cleanup_cpu: AtomicU64::new(0),
                                     cleanup_max: AtomicU64::new(0),
                                     cleanup_overruns: AtomicU64::new(0),
@@ -1851,18 +2471,19 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
                                 let cc = c.clone();
                                 let ss = s.clone();
                                 let p = path.clone();
-                                match thread::Builder::new()
-                                    .name("dream-c1-compute".into())
-                                    .stack_size(2 * 1024 * 1024)
-                                    .spawn(move || compute(p, ss, cc, tx))
-                                {
-                                    Ok(h) => state = Some((s, c, h, rx)),
-                                    Err(_) => {
-                                        protocol_failed = true;
-                                    }
+                                let work = ComputeWork {
+                                    path: p,
+                                    start: ss,
+                                    control: cc,
+                                    progress: tx,
+                                };
+                                if owner.sender.take().unwrap().try_send(work).is_ok() {
+                                    state = Some((s, c, rx));
+                                } else {
+                                    protocol_failed = true;
                                 }
                             }
-                            (Ok(w::WorkerIn::Activity(a)), Some((s, c, _, lane)))
+                            (Ok(w::WorkerIn::Activity(a)), Some((s, c, lane)))
                                 if a.run_id == s.run_id && a.nonce == s.nonce =>
                             {
                                 if a.revision.0 > revision {
@@ -1875,7 +2496,7 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
                                     }
                                 }
                             }
-                            (Ok(w::WorkerIn::Cancel(a)), Some((s, c, _, _)))
+                            (Ok(w::WorkerIn::Cancel(a)), Some((s, c, _)))
                                 if a.run_id == s.run_id && a.nonce == s.nonce =>
                             {
                                 c.cancel.store(1, Ordering::Release);
@@ -1891,9 +2512,10 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
                 protocol_failed = true;
             }
         }
+        tick_guard.part(0);
         if protocol_failed {
             eof = true;
-            if let Some((_, c, _, _)) = &state {
+            if let Some((_, c, _)) = &state {
                 c.cancel.store(3, Ordering::Release);
             } else if exit.is_some() {
                 exit = Some(2);
@@ -1901,7 +2523,8 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
                 return 2;
             }
         }
-        if let Some((s, c, h, rx)) = &state {
+        tick_guard.part(1);
+        if let Some((s, c, rx)) = &state {
             if Instant::now() >= c.deadline {
                 let _ = c
                     .cancel
@@ -1935,8 +2558,9 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
                     })));
                 }
             }
-            if h.is_finished() {
-                let (s, c, h, rx) = state.take().unwrap();
+            if owner.handle.as_ref().unwrap().is_finished() {
+                let (s, c, rx) = state.take().unwrap();
+                let h = owner.handle.take().unwrap();
                 drop(rx);
                 let result = h.join().unwrap_or(Err(w::Error {
                     code: w::Code::WorkerLost,
@@ -1975,6 +2599,7 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
                 settled_at = Some(Instant::now());
             }
         }
+        tick_guard.part(2);
         if let Some(front) = pending.front() {
             let n =
                 unsafe { libc::write(1, front[offset..].as_ptr().cast(), front.len() - offset) };
@@ -1985,7 +2610,7 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
                     offset = 0;
                 }
             } else if n < 0 && io::Error::last_os_error().kind() != io::ErrorKind::WouldBlock {
-                if let Some((_, c, _, _)) = &state {
+                if let Some((_, c, _)) = &state {
                     c.cancel.store(1, Ordering::Release);
                     pending.clear();
                     offset = 0;
@@ -1994,11 +2619,16 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>) -> i32 {
                 }
             }
         }
-        let elapsed = cpu_ns().saturating_sub(tick);
+        tick_guard.part(3);
+        drop(tick_guard);
+        let elapsed = interval(tick, cpu_ns());
+        accounting
+            .inclusive_max
+            .fetch_max(elapsed, Ordering::AcqRel);
         max_control = max_control.max(elapsed);
         reactor.fetch_max(elapsed, Ordering::AcqRel);
         if elapsed > UNIT_NS {
-            if let Some((_, c, _, _)) = &state {
+            if let Some((_, c, _)) = &state {
                 c.cancel.store(4, Ordering::Release);
                 eof = true;
             } else if exit.is_some() {
@@ -2030,6 +2660,9 @@ mod tests {
                 deadline: Instant::now() + Duration::from_secs(2),
                 reactor: Arc::new(AtomicU64::new(0)),
                 memory: storage::Ledger::new(),
+                accounting: Arc::new(Accounting::new()),
+                publication: PublicationCustody::default(),
+                cleanup_uncertain: AtomicBool::new(false),
                 cleanup_cpu: AtomicU64::new(0),
                 cleanup_max: AtomicU64::new(0),
                 cleanup_overruns: AtomicU64::new(0),
@@ -2044,11 +2677,254 @@ mod tests {
             max_unit: 0,
             heap_peak: 0,
             overruns: 0,
-            last_end: None,
             paused: false,
             normalization_ready: false,
             normalization_units: [0; 4],
         }
+    }
+    #[test]
+    fn native_verdict_retains_real_owner_on_cpu_wall_clock_cancel_and_repeated_admission() {
+        for failure in 0..4 {
+            let accounting = Arc::new(Accounting::new());
+            let (tx, rx) = std::sync::mpsc::channel();
+            let ended = Arc::new(AtomicBool::new(false));
+            let end_flag = ended.clone();
+            let builder = thread::Builder::new().stack_size(2 * 1024 * 1024);
+            let base = Instant::now();
+            let mut c = [
+                0,
+                10,
+                if failure == 0 {
+                    2_000_011
+                } else if failure == 2 {
+                    u64::MAX
+                } else {
+                    500_010
+                },
+                if failure == 2 {
+                    u64::MAX
+                } else if failure == 0 {
+                    2_000_021
+                } else {
+                    500_020
+                },
+            ]
+            .into_iter();
+            let mut wall = [
+                base,
+                base + Duration::from_millis(if failure == 1 { 26 } else { 1 }),
+            ]
+            .into_iter();
+            let out = native_call_clock(
+                &accounting,
+                NativeKind::ComputeOwnerCreate,
+                || {
+                    builder.spawn(move || {
+                        rx.recv().unwrap();
+                        end_flag.store(true, Ordering::Release);
+                    })
+                },
+                |r| r.is_ok(),
+                || c.next().unwrap(),
+                || wall.next().unwrap(),
+            )
+            .unwrap();
+            let handle = out.value.unwrap();
+            if failure < 3 {
+                assert_eq!(out.verdict, Err(w::Code::ResourceLimit));
+            } else {
+                assert_eq!(out.verdict, Ok(()));
+            }
+            assert!(
+                !handle.is_finished(),
+                "failed verdict lost the actual parked owner"
+            );
+            // Independent control makes progress while actual owner is withheld.
+            let control = AtomicBool::new(false);
+            control.store(true, Ordering::Release);
+            assert!(control.load(Ordering::Acquire));
+            assert!(
+                native_call(
+                    &accounting,
+                    NativeKind::ComputeOwnerCreate,
+                    || panic!("repeated creation admitted"),
+                    |_: &()| false
+                )
+                .is_err()
+            );
+            tx.send(()).unwrap();
+            handle.join().unwrap();
+            assert!(ended.load(Ordering::Acquire));
+            accounting.pay();
+            assert!(accounting.now() >= accounting.rest_until.load(Ordering::Acquire));
+            assert_eq!(accounting.native[0].count.load(Ordering::Acquire), 1);
+            assert_eq!(accounting.native[0].effects.load(Ordering::Acquire), 1);
+            eprintln!(
+                "native-owner-failure mode={failure} actual_join=true clock_fixture=true effect=present"
+            );
+        }
+    }
+    #[test]
+    fn publication_effect_survives_timing_failure_and_missing_entry_clock_never_executes() {
+        for cpu_failure in [true, false] {
+            let home = tempfile::tempdir().unwrap();
+            let staged = home.path().join("stage");
+            let published = home.path().join("page-000000.json");
+            std::fs::write(&staged, b"retained immutable effect").unwrap();
+            let before = std::fs::metadata(&staged).unwrap();
+            let a = Accounting::new();
+            let base = Instant::now();
+            let mut c = [
+                0,
+                1,
+                if cpu_failure { NATIVE_CPU_NS + 2 } else { 2 },
+                if cpu_failure { NATIVE_CPU_NS + 3 } else { 3 },
+            ]
+            .into_iter();
+            let mut wall = [
+                base,
+                base + Duration::from_millis(if cpu_failure { 1 } else { 26 }),
+            ]
+            .into_iter();
+            let out = native_call_clock(
+                &a,
+                NativeKind::PublishNoreplace,
+                || std::fs::hard_link(&staged, &published),
+                |r| r.is_ok(),
+                || c.next().unwrap(),
+                || wall.next().unwrap(),
+            )
+            .unwrap();
+            assert!(out.value.is_ok());
+            assert_eq!(out.verdict, Err(w::Code::ResourceLimit));
+            let effect = std::fs::metadata(&published).unwrap();
+            assert_eq!((effect.dev(), effect.ino()), (before.dev(), before.ino()));
+            assert_eq!(
+                std::fs::read(&published).unwrap(),
+                b"retained immutable effect"
+            );
+            assert!(
+                native_call(
+                    &a,
+                    NativeKind::PublishNoreplace,
+                    || panic!("failed effect repeated"),
+                    |_: &()| false
+                )
+                .is_err()
+            );
+            assert_eq!(a.native[1].failures_with_effect.load(Ordering::Acquire), 1);
+        }
+        let a = Accounting::new();
+        assert!(
+            native_call_clock(
+                &a,
+                NativeKind::ComputeOwnerCreate,
+                || panic!("missing clock admitted effect"),
+                |_: &()| false,
+                || u64::MAX,
+                Instant::now
+            )
+            .is_err()
+        );
+        assert_eq!(a.native[0].count.load(Ordering::Acquire), 0);
+    }
+    #[test]
+    fn original_unknown_publication_errno_survives_postcall_clock_failure() {
+        let home = tempfile::tempdir().unwrap();
+        let stage = home.path().join(".page-000000.original_nonce.tmp");
+        let dest = home.path().join("page-000000.json");
+        std::fs::write(&stage, b"unknown-effect-evidence").unwrap();
+        let metadata = std::fs::metadata(&stage).unwrap();
+        let custody = PublicationCustody::default();
+        let a = Accounting::new();
+        let mut reads = 0;
+        let out = native_call_clock(
+            &a,
+            NativeKind::PublishNoreplace,
+            || {
+                // Actual staged inode plus an injected indeterminate return. This
+                // is an adversarial effect fixture, never a native timing benchmark.
+                std::fs::hard_link(&stage, &dest).unwrap();
+                unsafe {
+                    *errno_pointer() = libc::EIO;
+                }
+                -1
+            },
+            |status| {
+                let errno = unsafe { *errno_pointer() };
+                custody.retain(&PublicationResult {
+                    status: *status,
+                    errno,
+                    operation: 0,
+                    dev: metadata.dev(),
+                    ino: metadata.ino(),
+                    nonce: *b"01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                });
+                false
+            },
+            || {
+                reads += 1;
+                if reads >= 3 {
+                    unsafe {
+                        *errno_pointer() = libc::EINVAL;
+                    }
+                    u64::MAX
+                } else {
+                    reads
+                }
+            },
+            Instant::now,
+        )
+        .unwrap();
+        assert_eq!(out.value, -1);
+        assert_eq!(out.verdict, Err(w::Code::ResourceLimit));
+        assert_eq!(custody.errno.load(Ordering::Acquire), libc::EIO as u64);
+        assert_eq!(custody.state.load(Ordering::Acquire), 2);
+        assert_eq!(std::fs::metadata(&dest).unwrap().ino(), metadata.ino());
+        assert!(
+            stage.exists() && dest.exists(),
+            "unknown effect evidence was removed"
+        );
+    }
+    #[test]
+    fn rest_is_after_span_and_strict_parser_control_cleanup_have_no_native_exemption() {
+        let mut b = budget(false);
+        b.unit(|| {
+            thread::sleep(Duration::from_millis(12));
+            Ok(())
+        })
+        .unwrap();
+        let end = Instant::now();
+        b.unit(|| Ok(())).unwrap();
+        assert!(
+            end.elapsed() >= WAIT,
+            "IO time incorrectly paid post-span debt"
+        );
+        let control = budget(false).control;
+        cleanup_unit(&control, || {
+            let at = cpu_ns();
+            while interval(at, cpu_ns()) < 2 * UNIT_NS {
+                std::hint::spin_loop();
+            }
+        });
+        assert_eq!(control.error(), Some(w::Code::ResourceLimit));
+        let a = Accounting::new();
+        let maximum = AtomicU64::new(0);
+        {
+            let at = cpu_ns();
+            let _tick = ControlTick {
+                at,
+                part_at: at,
+                accounting: &a,
+                max: &maximum,
+            };
+            while interval(at, cpu_ns()) < 2 * UNIT_NS {
+                std::hint::spin_loop();
+            }
+        }
+        assert!(maximum.load(Ordering::Acquire) > UNIT_NS);
+        assert_eq!(a.native[0].count.load(Ordering::Acquire), 0);
+        assert_eq!(a.native[1].count.load(Ordering::Acquire), 0);
     }
     /// A leaf destructor is cheap only after every owned piece was stepped.
     struct DropProbe {
