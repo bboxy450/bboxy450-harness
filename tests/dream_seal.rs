@@ -365,6 +365,31 @@ async fn retained_seal_cut_selection_and_outer_coverage_controls_reject() {
     let accepted = receipt::accept(&log[*index], log, &fixture.domains, Some(&trust))
         .await
         .unwrap();
+    let adoption = log.iter().find(|e| matches!(&e.event, Event::ItemCompleted {body: Item::Adoption {receipt: Some(digest), ..}, ..} if digest == &format!("sha256:{}", accepted.blob.sha256))).unwrap();
+    receipt::check_adoption(&accepted, adoption).unwrap();
+    for seq in [0, u64::MAX] {
+        let mut foreign = adoption.clone();
+        foreign.session = sid(42);
+        foreign.seq = Some(Seq(seq));
+        assert_eq!(
+            receipt::check_adoption(&accepted, &foreign).unwrap_err(),
+            Fail("adoption_session"),
+            "never compare ordinal numbers across logs"
+        );
+    }
+    for seq in [
+        accepted.seq.0 - 1,
+        accepted.seq.0,
+        accepted.seq.0 + 1,
+        accepted.seq.0 + 4,
+    ] {
+        let mut misplaced = adoption.clone();
+        misplaced.seq = Some(Seq(seq));
+        assert_eq!(
+            receipt::check_adoption(&accepted, &misplaced).unwrap_err(),
+            Fail("adoption_order")
+        );
+    }
     let mut bad = body.clone();
     bad.seal.as_mut().unwrap().children = vec![Child {
         id: ulid::Ulid::new(),

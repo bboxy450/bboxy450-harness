@@ -425,3 +425,197 @@ async fn reported_recall_requires_successful_publication_not_a_valid_skip() {
         }
     }
 }
+
+fn retained_audit_cli(fixture: &sufficient::AuditFixture) -> (i32, Value) {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"));
+    command
+        .args(["dream", "audit", "--sessions"])
+        .arg(&fixture.sessions)
+        .args([
+            "--root",
+            &format!(
+                "fixture.invalid/dream/repo={}",
+                fixture.fixture.repo.path.display()
+            ),
+            "--trust-policy",
+        ])
+        .arg(&fixture.fixture.policy)
+        .arg("--json")
+        .current_dir(&fixture.fixture.repo.path)
+        .env("HOME", fixture.fixture.repo.home.path())
+        .stdin(std::process::Stdio::null());
+    for (name, _) in std::env::vars_os() {
+        if name.to_str().is_some_and(|n| n.starts_with("BBOXY_")) {
+            command.env_remove(name);
+        }
+    }
+    let output = command.output().unwrap();
+    let value = serde_json::from_slice(&output.stdout).expect("actual audit CLI JSON");
+    (output.status.code().unwrap(), value)
+}
+
+// Adapted from the Oracle's retained oracle-wp4-foreign-adoption-20261104/probe.rs.
+// Origin: https://github.com/bboxy450/bboxy450-harness
+// Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+#[tokio::test]
+async fn adoption_cannot_borrow_a_publication_from_another_session() {
+    use bboxy450_harness::{dream::seal::Owner, protocol::*};
+    let mut fixture = sufficient::AuditFixture::new(false);
+    let mut resolver = fixture.resolver().await;
+    let baseline = audit::run(&mut resolver, Set::default(), false, 50000)
+        .await
+        .unwrap();
+    assert_eq!(baseline.exit_code(), 0, "{:?}", baseline.findings);
+    assert_eq!(retained_audit_cli(&fixture).0, 0);
+    let adoption = fixture
+        .logs
+        .values()
+        .flatten()
+        .find_map(|e| match &e.event {
+            Event::ItemCompleted {
+                body: body @ Item::Adoption { .. },
+                ..
+            } => Some(body.clone()),
+            _ => None,
+        })
+        .unwrap();
+    let session = r::sid(42);
+    let mut log = r::start(session, &fixture.fixture.repo.path, true);
+    r::begin(&mut log, session, r::item(4200), ItemKind::Adoption);
+    r::completed(&mut log, session, r::item(4200), adoption);
+    fixture.finish(session, log, Owner::default(), vec![]);
+    let before = std::fs::read(fixture.sessions.join(format!("{session}.jsonl"))).unwrap();
+    let mut resolver = fixture.resolver().await;
+    let report = audit::run(&mut resolver, Set::default(), false, 50000)
+        .await
+        .unwrap();
+    let (code, cli) = retained_audit_cli(&fixture);
+    println!(
+        "{}",
+        json!({"baseline_exit":baseline.exit_code(), "foreign_api_exit":report.exit_code(), "foreign_cli_exit":code, "findings":report.findings})
+    );
+    assert_eq!(
+        report.exit_code(),
+        1,
+        "foreign-session Adoption borrowed a successful publication"
+    );
+    assert_eq!(code, 1);
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.check == "P2" && f.kind == "violation" && f.detail == "adoption_session")
+    );
+    assert!(
+        cli["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["check"] == "P2"
+                && f["kind"] == "violation"
+                && f["detail"] == "adoption_session")
+    );
+    assert_eq!(
+        std::fs::read(fixture.sessions.join(format!("{session}.jsonl"))).unwrap(),
+        before
+    );
+}
+
+#[tokio::test]
+async fn altered_and_duplicate_adoptions_cannot_piggyback_a_good_digest() {
+    use bboxy450_harness::protocol::Item;
+    type Change = fn(Item) -> Vec<Item>;
+    let cases: [(&str, Change); 7] = [
+        ("entry", |mut body| {
+            if let Item::Adoption { entry, .. } = &mut body {
+                *entry = format!("sha256:{}", "0".repeat(64));
+            }
+            vec![body]
+        }),
+        ("harness", |mut body| {
+            if let Item::Adoption { harness, .. } = &mut body {
+                harness.push_str("-other");
+            }
+            vec![body]
+        }),
+        ("sink", |mut body| {
+            if let Item::Adoption { sink, .. } = &mut body {
+                sink.path.push_str(".other");
+            }
+            vec![body]
+        }),
+        ("block", |mut body| {
+            if let Item::Adoption { block_digest, .. } = &mut body {
+                *block_digest = format!("sha256:{}", "0".repeat(64));
+            }
+            vec![body]
+        }),
+        ("record", |mut body| {
+            if let Item::Adoption {
+                record: Some(record),
+                ..
+            } = &mut body
+            {
+                record.digest = format!("sha256:{}", "0".repeat(64));
+            }
+            vec![body]
+        }),
+        ("missing-record", |mut body| {
+            if let Item::Adoption { record, .. } = &mut body {
+                *record = None;
+            }
+            vec![body]
+        }),
+        ("duplicate", |body| vec![body.clone(), body]),
+    ];
+    for (name, change) in cases {
+        // Alter before the final seal: these controls retain valid run/header/prefix
+        // evidence, so a stale own-prefix cannot accidentally supply the rejection.
+        let fixture = sufficient::AuditFixture::with_adoptions(change);
+        let before = fixture
+            .logs
+            .keys()
+            .map(|s| {
+                (
+                    *s,
+                    std::fs::read(fixture.sessions.join(format!("{s}.jsonl"))).unwrap(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut resolver = fixture.resolver().await;
+        let report = audit::run(&mut resolver, Set::default(), false, 50000)
+            .await
+            .unwrap();
+        assert_eq!(report.exit_code(), 1, "{name}: {:?}", report.findings);
+        assert!(
+            report.findings.iter().any(|f| f.check == "P2"
+                && f.kind == "violation"
+                && matches!(f.detail.as_str(), "adoption_binding" | "adoption_subset")),
+            "{name}: {:?}",
+            report.findings
+        );
+        assert!(
+            !report
+                .findings
+                .iter()
+                .any(|f| f.detail == "own_prefix_mismatch"),
+            "{name}: invalid test prefix"
+        );
+        let (code, cli) = retained_audit_cli(&fixture);
+        assert_eq!(code, 1, "{name}");
+        assert!(
+            cli["findings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|f| f["check"] == "P2" && f["kind"] == "violation"),
+            "{name}"
+        );
+        for (session, bytes) in before {
+            assert_eq!(
+                std::fs::read(fixture.sessions.join(format!("{session}.jsonl"))).unwrap(),
+                bytes
+            );
+        }
+    }
+}
