@@ -949,6 +949,23 @@ impl HelperSummary {
             m.first_failure_line,
             m.first_failure_sample_stage
         );
+        let last_stop = m.last_stop;
+        let first_stop = m.first_failed_stop;
+        eprintln!(
+            "dream-read helper_stop profile=read-helper-native/1 attempts={} failures={} last_sequence={} last_pgid={} last_attempt={} last_result={} last_errno={} first_failure_sequence={} first_failure_pgid={} first_failure_attempt={} first_failure_result={} first_failure_errno={}",
+            m.stop_attempts,
+            m.stop_failures,
+            last_stop.sequence,
+            last_stop.pgid,
+            last_stop.attempt,
+            last_stop.result,
+            last_stop.rawerrno,
+            first_stop.sequence,
+            first_stop.pgid,
+            first_stop.attempt,
+            first_stop.result,
+            first_stop.rawerrno
+        );
         eprintln!(
             "dream-read helper_memory profile=read-helper-native/1 simultaneous_group_rss_peak_bytes={} sum_separate_rss_peak_bytes={} reaped_rss_high_water_bytes={} mixed_main_heap_plus_group_rss_peak_bytes={} group_rss_limit_bytes={} mixed_limit_bytes={} native_heap_coverage=sampled_rss_not_allocator",
             m.group_rss_peak,
@@ -1683,6 +1700,14 @@ impl super::resolve::ProofPace for ProofClock {
         m.initial_kernel_cpu_ns = m
             .initial_kernel_cpu_ns
             .saturating_add(h.metrics.initial_kernel_cpu_ns);
+        m.stop_attempts = m.stop_attempts.saturating_add(h.metrics.stop_attempts);
+        m.stop_failures = m.stop_failures.saturating_add(h.metrics.stop_failures);
+        if h.metrics.last_stop.attempt != 0 {
+            m.last_stop = h.metrics.last_stop;
+        }
+        if m.first_failed_stop.attempt == 0 {
+            m.first_failed_stop = h.metrics.first_failed_stop;
+        }
         if m.first_failure_line == 0 {
             m.first_failure_line = h.metrics.first_failure_line;
             m.first_failure_sample_stage = h.metrics.first_failure_sample_stage;

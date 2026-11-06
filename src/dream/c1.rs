@@ -732,6 +732,8 @@ pub(crate) struct HelperGroup {
     admission_failed: bool,
     #[cfg(test)]
     admission_samples: u64,
+    #[cfg(test)]
+    fail_stop_verdict: bool,
     pub(crate) initial_stop_pending: bool,
     pub(crate) confirmed_stopped: bool,
     pub(crate) identity: super::resolve::HelperIdentity,
@@ -987,6 +989,14 @@ struct HelperMember {
 /// Fixed-size observations, distinct from allocator coverage. Process RSS and
 /// Rust heap are deliberately named separately; neither is whole-tree heap.
 #[derive(Clone, Copy, Default)]
+pub(crate) struct HelperStopReceipt {
+    pub(crate) sequence: u16,
+    pub(crate) pgid: i32,
+    pub(crate) attempt: u64,
+    pub(crate) result: i32,
+    pub(crate) rawerrno: i32,
+}
+#[derive(Clone, Copy, Default)]
 pub(crate) struct HelperMetrics {
     pub(crate) grants: u64,
     pub(crate) charged_ns: u64,
@@ -1003,6 +1013,10 @@ pub(crate) struct HelperMetrics {
     pub(crate) descendants: u64,
     pub(crate) verified_descendants: u64,
     pub(crate) initial_kernel_cpu_ns: u64,
+    pub(crate) stop_attempts: u64,
+    pub(crate) stop_failures: u64,
+    pub(crate) last_stop: HelperStopReceipt,
+    pub(crate) first_failed_stop: HelperStopReceipt,
     pub(crate) first_failure_line: u32,
     pub(crate) first_failure_sample_stage: u8,
     sample_stage: u8,
@@ -1061,19 +1075,51 @@ impl HelperGroup {
     pub(crate) fn needs_active_poll(&self) -> bool {
         self.running && !self.retiring && !self.admission_failed
     }
-    fn request_group_stop(&self) -> Result<(), ()> {
+    fn signal_group_stop(&mut self) -> HelperStopReceipt {
         let result = unsafe { libc::kill(-self.pgid, libc::SIGSTOP) };
-        // Capture the actual result before observing any completion. ESRCH is
-        // a permissible delivery race only when our still-unreaped leader has
-        // a positive WNOWAIT exit. It never closes a slot or proves a roster;
-        // the normal exact exit/usage/continuity path still has to do that.
+        // Retain the exact native outcome before any completion observation or
+        // verdict. Bounded scalar receipts also survive later retirement.
         let rawerrno = if result == 0 {
             0
         } else {
             std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
         };
-        if result == 0
-            || (rawerrno == libc::ESRCH && super::resolve::helper_exited(self.pgid) == Ok(true))
+        self.metrics.stop_attempts = self.metrics.stop_attempts.saturating_add(1);
+        let receipt = HelperStopReceipt {
+            sequence: self.identity.sequence,
+            pgid: self.pgid,
+            attempt: self.metrics.stop_attempts,
+            result,
+            rawerrno,
+        };
+        self.metrics.last_stop = receipt;
+        if result != 0 {
+            self.metrics.stop_failures = self.metrics.stop_failures.saturating_add(1);
+            if self.metrics.first_failed_stop.attempt == 0 {
+                self.metrics.first_failed_stop = receipt;
+            }
+        }
+        receipt
+    }
+    fn request_group_stop(&mut self) -> Result<(), ()> {
+        if self.stop_requested {
+            return Err(()); // A consumed operation is never silently repeated.
+        }
+        self.stop_requested = true; // retain the attempted effect BEFORE its call/verdict
+        let receipt = self.signal_group_stop();
+        #[cfg(test)]
+        if std::mem::take(&mut self.fail_stop_verdict) {
+            // Fault only the verdict; the receipt still contains the actual
+            // kernel result/errno. This cannot manufacture a failed signal.
+            return Err(());
+        }
+        // Capture the actual result before observing any completion. ESRCH is
+        // a permissible delivery race only when our still-unreaped leader has
+        // a positive WNOWAIT exit. It never closes a slot or proves a roster;
+        // the normal exact exit/usage/continuity path still has to do that.
+        if receipt.result == 0
+            || (receipt.rawerrno == libc::ESRCH
+                && super::resolve::helper_exited(self.pgid) == Ok(true))
         {
             Ok(())
         } else {
@@ -2078,6 +2124,8 @@ impl HelperGroup {
             admission_failed: false,
             #[cfg(test)]
             admission_samples: 0,
+            #[cfg(test)]
+            fail_stop_verdict: false,
             initial_stop_pending: false,
             confirmed_stopped: false,
             identity,
@@ -2198,11 +2246,14 @@ impl HelperGroup {
                         .position(|known| *known == 0)
                         .ok_or(())?;
                     self.stopped_roster[free] = pid;
-                    if unsafe { libc::kill(-self.pgid, libc::SIGSTOP) } != 0 {
-                        return Err(());
-                    }
                     self.stop_requested = true;
                     self.confirmed_stopped = false;
+                    // This newly discovered recipient is a distinct roster
+                    // effect. Consume its roster entry/STOP state first; keep
+                    // its existing strict success-only signal policy.
+                    if self.signal_group_stop().result != 0 {
+                        return Err(());
+                    }
                 }
                 let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
                 let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
@@ -2377,8 +2428,7 @@ impl HelperGroup {
         if self.running && !self.stop_requested && !self.retiring {
             // The original unreaped leader still pins this recorded group.
             // Revoke it once, without treating signal delivery as a stop ACK.
-            self.stop_requested = true;
-            if unsafe { libc::kill(-self.pgid, libc::SIGSTOP) } != 0 {
+            if self.request_group_stop().is_err() {
                 self.metrics.coverage_known = false;
             }
         }
@@ -3090,35 +3140,41 @@ impl Control {
         } else if h.grant_commit_pending {
             // Physically stopped; the final owner-CPU handoff is still open.
         } else if h.running {
+            let mut sampled_exit = false;
             match super::resolve::helper_exited(h.pgid) {
                 Ok(true) => {
-                    if !h.stop_requested && h.request_group_stop().is_err() {
-                        h.reject(self, 5);
+                    // An unreaped exit is a reason to attempt the existing
+                    // complete exit/usage/roster proof, not to signal a zombie.
+                    // Leader exit alone never closes a possible child slot.
+                    sampled_exit = true;
+                    match h.sample(self) {
+                        Ok(true) => {
+                            h.running = false;
+                            h.grant_commit_pending = true;
+                        }
+                        Ok(false) => {}
+                        Err(()) if !h.admission_failed => h.reject(self, 5),
+                        Err(()) => {}
                     }
-                    h.stop_requested = true;
                 }
                 Ok(false) => {}
                 Err(_) => h.reject(self, 5),
             }
-            if !h.stop_requested
+            if h.running
+                && !h.admission_failed
+                && !h.stop_requested
                 && (!h.ready
                     || foreground
                     || self.error().is_some()
                     // Leave room for actual stop/identity/roster closure and
                     // its full controller charge under the unchanged1ms Q.
-                    || h.changed.elapsed()
-                        >= Duration::from_micros(if h.identity.expected_members == 2 {
-                            25
-                        } else {
-                            100
-                        }))
+                    || h.changed.elapsed() >= Duration::from_micros(100))
+                && h.request_group_stop().is_err()
             {
-                if h.request_group_stop().is_err() {
-                    h.reject(self, 5);
-                }
-                h.stop_requested = true;
+                h.reject(self, 5);
             }
-            if h.stop_requested && !h.admission_failed && h.stop_observation_due() {
+            if !sampled_exit && h.stop_requested && !h.admission_failed && h.stop_observation_due()
+            {
                 match h.sample(self) {
                     Ok(true) => {
                         h.running = false;
@@ -6503,6 +6559,126 @@ mod helper_admission_tests {
         fn drop(&mut self) {
             self.reap();
         }
+    }
+
+    #[test]
+    fn failed_group_stop_verdict_does_not_repeat_or_close_real_owned_child() {
+        let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
+        let mut proof = crate::dream::read::helper_fixture_clock(control.clone());
+        let mut attr = std::mem::MaybeUninit::<libc::posix_spawnattr_t>::uninit();
+        assert_eq!(unsafe { libc::posix_spawnattr_init(attr.as_mut_ptr()) }, 0);
+        let mut attr = unsafe { attr.assume_init() };
+        assert_eq!(unsafe { libc::posix_spawnattr_setpgroup(&mut attr, 0) }, 0);
+        assert_eq!(
+            unsafe {
+                libc::posix_spawnattr_setflags(
+                    &mut attr,
+                    (libc::POSIX_SPAWN_START_SUSPENDED | libc::POSIX_SPAWN_SETPGROUP) as i16,
+                )
+            },
+            0
+        );
+        let argv = [
+            c"sleep".as_ptr().cast_mut(),
+            c"30".as_ptr().cast_mut(),
+            std::ptr::null_mut(),
+        ];
+        let env = [c"LANG=C".as_ptr().cast_mut(), std::ptr::null_mut()];
+        let mut pid = 0;
+        let result = unsafe {
+            libc::posix_spawn(
+                &mut pid,
+                c"/bin/sleep".as_ptr(),
+                std::ptr::null(),
+                &attr,
+                argv.as_ptr(),
+                env.as_ptr(),
+            )
+        };
+        assert!(pid > 0, "retain the positive owned native effect");
+        let mut child = OwnedChild {
+            pid,
+            control: control.clone(),
+            reaped: false,
+        };
+        assert_eq!(unsafe { libc::posix_spawnattr_destroy(&mut attr) }, 0);
+        assert_eq!(result, 0);
+        let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
+        let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+        assert_eq!(
+            unsafe {
+                libc::proc_pidinfo(
+                    pid,
+                    libc::PROC_PIDTBSDINFO,
+                    0,
+                    info.as_mut_ptr().cast(),
+                    size,
+                )
+            },
+            size
+        );
+        let info = unsafe { info.assume_init() };
+        let identity = super::super::resolve::HelperIdentity {
+            sequence: 1,
+            pid,
+            pgid: pid,
+            start_identity: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec,
+            expected_members: 1,
+            image: std::fs::canonicalize("/bin/sleep").unwrap(),
+            descendant_image: None,
+        };
+        let ticket = identity.ticket();
+        proof.helper_attach(identity).unwrap();
+        let samples = {
+            let mut owner = control.helper.lock().unwrap();
+            let helper = owner.as_mut().unwrap();
+            assert!(helper.confirmed_stopped);
+            helper.open_grant().unwrap();
+            // The real child remains kernel-stopped. A possible interval still
+            // cannot be closed merely by an attempted STOP or a refusal.
+            helper.running = true;
+            helper.confirmed_stopped = false;
+            helper.fail_stop_verdict = true;
+            assert!(helper.request_group_stop().is_err());
+            assert!(
+                !helper.fail_stop_verdict,
+                "the causal verdict fault executed"
+            );
+            assert_eq!(helper.metrics.last_stop.result, 0);
+            assert_eq!(helper.metrics.last_stop.rawerrno, 0);
+            helper.reject(&control, 5); // the old ordering issued a second STOP here
+            assert!(helper.request_group_stop().is_err());
+            assert_eq!(helper.metrics.stop_attempts, 1);
+            assert_eq!(
+                helper.metrics.stop_failures, 0,
+                "native outcome was not fabricated"
+            );
+            assert_eq!(helper.metrics.last_stop.pgid, pid);
+            assert_eq!(helper.metrics.last_stop.sequence, ticket.sequence);
+            assert!(helper.stop_requested && helper.admission_failed);
+            assert!(helper.running && helper.pending_closure());
+            assert!(!helper.confirmed_stopped && !helper.grant.closed);
+            assert_eq!(helper.grant.slots[0].ack_ns, None);
+            helper.admission_samples
+        };
+        control.helper_tick();
+        {
+            let owner = control.helper.lock().unwrap();
+            let helper = owner.as_ref().unwrap();
+            assert_eq!(helper.metrics.stop_attempts, 1);
+            assert_eq!(helper.admission_samples, samples);
+            assert!(!helper.confirmed_stopped && !helper.grant.closed);
+            assert_eq!(super::super::resolve::helper_exited(pid), Ok(false));
+        }
+        assert!(proof.helper_retire(ticket).is_err());
+        child.reap();
+        assert_eq!(unsafe { libc::kill(-pid, 0) }, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH)
+        );
+        proof.helper_detach(ticket).unwrap();
+        assert!(control.helper.lock().unwrap().is_none());
     }
 
     #[test]

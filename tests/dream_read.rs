@@ -26,17 +26,21 @@ use bboxy450_harness::{
 use std::{
     collections::BTreeMap,
     fs::File,
-    io::{BufRead, BufReader, Read, Write},
+    io::{Read, Write},
     os::{
         fd::{AsRawFd, FromRawFd},
         unix::{
-            fs::{MetadataExt, PermissionsExt},
+            fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
             process::CommandExt,
         },
     },
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
-    sync::{Arc, mpsc},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -1378,11 +1382,78 @@ impl Job {
         next
     }
 }
+#[derive(Debug, PartialEq, Eq)]
+enum ReaderExit {
+    Eof,
+    Stopped,
+    Invalid(&'static str),
+}
+fn read_stdout(
+    mut stdout: std::process::ChildStdout,
+    sender: mpsc::SyncSender<Vec<u8>>,
+    stop: Arc<AtomicBool>,
+) -> ReaderExit {
+    let fd = stdout.as_raw_fd();
+    let mut chunk = [0u8; 4096];
+    let mut line = Vec::with_capacity(4096);
+    loop {
+        if stop.load(Ordering::Acquire) {
+            return ReaderExit::Stopped;
+        }
+        let mut ready = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let polled = unsafe { libc::poll(&mut ready, 1, 5) };
+        if polled < 0 {
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return ReaderExit::Invalid("stdout poll failed");
+        }
+        if polled == 0 {
+            continue;
+        }
+        let n = match stdout.read(&mut chunk) {
+            Ok(0) => {
+                return if line.is_empty() {
+                    ReaderExit::Eof
+                } else {
+                    ReaderExit::Invalid("partial frame at EOF")
+                };
+            }
+            Ok(n) => n,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                ) =>
+            {
+                continue;
+            }
+            Err(_) => return ReaderExit::Invalid("stdout read failed"),
+        };
+        for byte in &chunk[..n] {
+            if line.len() == w::MAX_FRAME {
+                return ReaderExit::Invalid("frame exceeds byte limit");
+            }
+            line.push(*byte);
+            if *byte == b'\n' {
+                if sender.send(std::mem::take(&mut line)).is_err() {
+                    return ReaderExit::Stopped;
+                }
+                line = Vec::with_capacity(4096);
+            }
+        }
+    }
+}
 struct Runner {
     child: Child,
     input: Option<ChildStdin>,
     receiver: mpsc::Receiver<Vec<u8>>,
-    reader: Option<thread::JoinHandle<()>>,
+    reader: Option<thread::JoinHandle<ReaderExit>>,
+    reader_stop: Arc<AtomicBool>,
     stderr: PathBuf,
     stderr_pipe: Option<std::process::ChildStderr>,
     stderr_bytes: Vec<u8>,
@@ -1400,6 +1471,9 @@ struct Runner {
 type Stamp = (u64, u64, u64, i64, i64, i64, i64);
 fn stamp(path: &Path) -> Stamp {
     let m = std::fs::symlink_metadata(path).unwrap();
+    owned_stamp(&m)
+}
+fn owned_stamp(m: &std::fs::Metadata) -> Stamp {
     assert!(m.is_file() && !m.file_type().is_symlink());
     assert_eq!(m.uid(), unsafe { libc::geteuid() });
     assert_eq!(m.nlink(), 1, "private artifact custody requires one link");
@@ -1413,18 +1487,21 @@ fn stamp(path: &Path) -> Stamp {
         m.ctime_nsec(),
     )
 }
-fn parent_cpu() -> u64 {
+fn observed_parent_cpu() -> Option<u64> {
     let mut t = std::mem::MaybeUninit::<libc::timespec>::uninit();
-    assert_eq!(
-        unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, t.as_mut_ptr()) },
-        0
-    );
+    if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, t.as_mut_ptr()) } != 0 {
+        return None;
+    }
     let t = unsafe { t.assume_init() };
+    if t.tv_sec < 0 || !(0..1_000_000_000).contains(&t.tv_nsec) {
+        return None;
+    }
     (t.tv_sec as u64)
-        .checked_mul(1_000_000_000)
-        .unwrap()
+        .checked_mul(1_000_000_000)?
         .checked_add(t.tv_nsec as u64)
-        .unwrap()
+}
+fn parent_cpu() -> u64 {
+    observed_parent_cpu().expect("known nonnegative private parent CPU clock")
 }
 fn parent_rest(cpu: u64, end: Instant) {
     if let Some(left) = Duration::from_nanos(9 * cpu.max(1_000_000)).checked_sub(end.elapsed()) {
@@ -1439,6 +1516,37 @@ fn parent_paid(at: u64) {
         "ordinary private parent unit exceeds1ms: {used}"
     );
     parent_rest(used, end);
+}
+fn bounded_parent_text(path: &Path, limit: usize) -> String {
+    let at = parent_cpu();
+    let before = stamp(path);
+    assert!(before.2 <= limit as u64, "receipt exceeds byte limit");
+    let mut file = File::options()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(path)
+        .unwrap();
+    assert_eq!(owned_stamp(&file.metadata().unwrap()), before);
+    let mut bytes = Vec::with_capacity(limit);
+    let mut chunk = [0u8; 4096];
+    parent_paid(at);
+    loop {
+        let at = parent_cpu();
+        let n = file.read(&mut chunk).unwrap();
+        assert!(n <= limit - bytes.len(), "receipt grew past byte limit");
+        bytes.extend_from_slice(&chunk[..n]);
+        parent_paid(at);
+        if n == 0 {
+            break;
+        }
+    }
+    let at = parent_cpu();
+    assert_eq!(owned_stamp(&file.metadata().unwrap()), before);
+    assert_eq!(stamp(path), before);
+    drop(file);
+    let text = String::from_utf8(bytes).unwrap();
+    parent_paid(at);
+    text
 }
 struct ApprovedRunner {
     path: PathBuf,
@@ -1476,18 +1584,18 @@ fn approved_runner() -> &'static ApprovedRunner {
         assert_eq!(std::fs::canonicalize(&path).unwrap(), path);
         let folder = path.parent().unwrap();
         assert_eq!(
-            std::fs::read(folder.join("bootstrap-support.txt")).unwrap(),
-            b"dream-bootstrap/1\n"
+            bounded_parent_text(&folder.join("bootstrap-support.txt"), 18),
+            "dream-bootstrap/1\n"
         );
-        let source = std::fs::read_to_string(folder.join("source-commit.txt")).unwrap();
+        let source = bounded_parent_text(&folder.join("source-commit.txt"), 16 * 1024);
         assert!(source.trim().len() == 40 && source.trim().bytes().all(|b| b.is_ascii_hexdigit()));
-        let compiler = std::fs::read_to_string(folder.join("compiler.txt")).unwrap();
+        let compiler = bounded_parent_text(&folder.join("compiler.txt"), 16 * 1024);
         assert!(
             compiler.len() <= 16 * 1024
                 && compiler.starts_with("rustc ")
                 && compiler.contains("host: ")
         );
-        let receipts = std::fs::read_to_string(folder.join("hashes.txt")).unwrap();
+        let receipts = bounded_parent_text(&folder.join("hashes.txt"), 16 * 1024);
         assert!(receipts.len() <= 16 * 1024);
         let declared_worker_hash = receipts
             .lines()
@@ -1505,7 +1613,7 @@ fn approved_runner() -> &'static ApprovedRunner {
             declared_worker_hash.len() == 64
                 && declared_worker_hash.bytes().all(|b| b.is_ascii_hexdigit())
         );
-        let frozen_source_id = std::fs::read_to_string(folder.join("source-snapshot.txt")).unwrap();
+        let frozen_source_id = bounded_parent_text(&folder.join("source-snapshot.txt"), 65);
         assert!(frozen_source_id.len() == 65 && frozen_source_id.ends_with('\n'));
         let frozen_source_id = frozen_source_id.trim_end();
         assert!(frozen_source_id.bytes().all(|b| b.is_ascii_hexdigit()));
@@ -1677,6 +1785,7 @@ impl Runner {
         let stderr = job.path.join("worker.stderr");
         private_file(&stderr, b"");
         let stderr_bytes = Vec::with_capacity(64 * 1024);
+        let reader_stop = Arc::new(AtomicBool::new(false));
         let expected_schema = w::schema_hash();
         let (read, write) = bootstrap_pipe();
         let fd = read.as_raw_fd();
@@ -1753,13 +1862,15 @@ impl Runner {
             });
         }
         parent_paid(prepare_at);
+        let birth_at = parent_cpu();
         let native_at = parent_cpu();
         let wall_at = Instant::now();
         let child = command.spawn().unwrap();
+        // Observe, but defer every post-effect verdict until Runner owns the
+        // actual Child and lease. An unavailable clock cannot orphan Child.
+        let native_end = observed_parent_cpu();
         let wall = wall_at.elapsed();
         let spawn_return = boot::monotonic_ns();
-        let native_end = parent_cpu();
-        let birth_end = Instant::now();
         // Returned Child and writer lease are owned before any cost/readiness
         // verdict can reject a native effect. Drop always performs real reap.
         let mut this = Self {
@@ -1767,6 +1878,7 @@ impl Runner {
             input: None,
             receiver,
             reader: None,
+            reader_stop,
             stderr,
             stderr_pipe: None,
             stderr_bytes,
@@ -1783,19 +1895,51 @@ impl Runner {
         };
         drop(read);
         this.stderr_pipe = this.child.stderr.take();
-        let stderr_fd = this.stderr_pipe.as_ref().unwrap().as_raw_fd();
+        let stderr_fd = this
+            .stderr_pipe
+            .as_ref()
+            .map(AsRawFd::as_raw_fd)
+            .unwrap_or(-1);
         let stderr_flags = unsafe { libc::fcntl(stderr_fd, libc::F_GETFL) };
-        assert!(stderr_flags >= 0);
-        assert_eq!(
-            unsafe { libc::fcntl(stderr_fd, libc::F_SETFL, stderr_flags | libc::O_NONBLOCK) },
-            0
+        let nonblocking = if stderr_flags >= 0 {
+            unsafe { libc::fcntl(stderr_fd, libc::F_SETFL, stderr_flags | libc::O_NONBLOCK) }
+        } else {
+            -1
+        };
+        let birth_end = observed_parent_cpu();
+        let birth_cost = native_end.zip(birth_end).and_then(|(call_end, end)| {
+            let native = call_end.checked_sub(native_at)?;
+            let app = native_at
+                .checked_sub(birth_at)?
+                .checked_add(end.checked_sub(call_end)?)?;
+            Some((native, app, end.checked_sub(birth_at)?))
+        });
+        // Close and pay the FULL creation/custody/setup span before marker
+        // work begins. Its fresh debt cannot overlap marker work or marker
+        // debt. Unknown clocks retain raw unknown evidence and pay mandatory
+        // 3ms-span settlement debt before refusal, never an inferred cost.
+        parent_rest(
+            birth_cost
+                .map(|(_, _, inclusive)| inclusive)
+                .unwrap_or(3_000_000),
+            Instant::now(),
         );
+        let marker_at = parent_cpu();
+        let (native_cpu, app_cpu, inclusive_cpu) =
+            birth_cost.expect("known nonreversed birth clocks");
+        assert!(
+            native_cpu <= 2_000_000
+                && app_cpu <= 1_000_000
+                && inclusive_cpu <= 3_000_000
+                && wall <= Duration::from_millis(25),
+            "private parent birth native_cpu={native_cpu} app_cpu={app_cpu} inclusive_cpu={inclusive_cpu} native_wall={wall:?}"
+        );
+        assert!(stderr_flags >= 0 && nonblocking == 0);
         let readiness_ns = spawn_return
             .unwrap()
             .checked_add(boot::WINDOW_NS)
             .unwrap()
             .min(job_deadline_ns);
-        let marker_at = parent_cpu();
         let marker = this.wait_marker(readiness_ns);
         assert_eq!(
             marker.trim(),
@@ -1803,12 +1947,6 @@ impl Runner {
         );
         held(&mut this, readiness_ns);
         parent_paid(marker_at);
-        let used = native_end.checked_sub(native_at).unwrap();
-        assert!(
-            used <= 2_000_000 && wall <= Duration::from_millis(25),
-            "private parent birth native allocation cpu={used} wall={wall:?}"
-        );
-        parent_rest(used, birth_end);
         let setup_at = parent_cpu();
         drop(command);
         this.input = this.child.stdin.take();
@@ -1872,20 +2010,20 @@ impl Runner {
         let reader_at = parent_cpu();
         let reader_wall = Instant::now();
         let stdout = this.child.stdout.take().unwrap();
-        let reader = thread::spawn(move || {
-            let mut stdout = BufReader::new(stdout);
-            loop {
-                let mut line = vec![];
-                let n = stdout.read_until(b'\n', &mut line).unwrap();
-                if n == 0 {
-                    break;
-                }
-                assert!(line.len() <= w::MAX_FRAME);
-                if sender.send(line).is_err() {
-                    break;
-                }
-            }
-        });
+        let stdout_flags = unsafe { libc::fcntl(stdout.as_raw_fd(), libc::F_GETFL) };
+        assert!(stdout_flags >= 0);
+        assert_eq!(
+            unsafe {
+                libc::fcntl(
+                    stdout.as_raw_fd(),
+                    libc::F_SETFL,
+                    stdout_flags | libc::O_NONBLOCK,
+                )
+            },
+            0
+        );
+        let stop = Arc::clone(&this.reader_stop);
+        let reader = thread::spawn(move || read_stdout(stdout, sender, stop));
         let reader_wall = reader_wall.elapsed();
         this.reader = Some(reader);
         let reader_cpu = parent_cpu().checked_sub(reader_at).unwrap();
@@ -1957,6 +2095,31 @@ impl Runner {
             thread::sleep(Duration::from_millis(1));
         }
         self.save_stderr();
+    }
+    fn stop_reader(&mut self) {
+        self.reader_stop.store(true, Ordering::Release);
+        // A stop flag interrupts nonblocking IO; receiver disposal separately
+        // wakes an existing bounded send. Neither path abandons its owner.
+        let (_sender, empty) = mpsc::channel();
+        drop(std::mem::replace(&mut self.receiver, empty));
+    }
+    fn join_reader_eof(&mut self) {
+        let until = Instant::now() + Duration::from_secs(2);
+        while !self.reader.as_ref().unwrap().is_finished() && Instant::now() < until {
+            self.drain_stderr();
+            thread::sleep(Duration::from_millis(1));
+        }
+        let timely = self.reader.as_ref().unwrap().is_finished() && Instant::now() <= until;
+        if !timely {
+            self.stop_reader();
+        }
+        let exit = self.reader.take().unwrap().join().unwrap();
+        eprintln!(
+            "read-private-parent reader_pid={} actual_join=true outcome={exit:?} eof_within2s={timely}",
+            self.child.id()
+        );
+        assert!(timely, "stdout EOF exceeded existing two-second deadline");
+        assert_eq!(exit, ReaderExit::Eof, "reader must actually observe EOF");
     }
     fn read_hello(&mut self, readiness_ns: u64) -> w::Hello {
         let fd = self.child.stdout.as_ref().unwrap().as_raw_fd();
@@ -2095,7 +2258,7 @@ impl Runner {
         assert_eq!(done.nonce, job.start.nonce);
         let code = self.wait_exit();
         self.input.take();
-        self.reader.take().unwrap().join().unwrap();
+        self.join_reader_eof();
         self.finish_stderr();
         assert!(self.receiver.try_recv().is_err(), "frame after Done");
         let stderr = std::fs::read_to_string(&self.stderr).unwrap();
@@ -2116,7 +2279,7 @@ impl Runner {
                 panic!("probe post-Hello lane did not close empty after actual exit: {other:?}")
             }
         }
-        self.reader.take().unwrap().join().unwrap();
+        self.join_reader_eof();
         self.finish_stderr();
         assert!(
             self.receiver.try_recv().is_err(),
@@ -2219,22 +2382,26 @@ impl Drop for Runner {
         drop(self.lease.take());
         self.input.take();
         drop(self.child.stdin.take());
-        // Unblock the bounded reader lane before waiting for cooperative EOF.
-        let (_sender, empty) = mpsc::channel();
-        drop(std::mem::replace(&mut self.receiver, empty));
+        let stop_at = Instant::now();
+        self.stop_reader();
         if !self.reaped {
             settle_runner(&mut self.child);
         }
         if let Some(reader) = self.reader.take() {
-            let until = Instant::now() + Duration::from_secs(2);
-            while !reader.is_finished() && Instant::now() < until {
-                thread::sleep(Duration::from_millis(1));
-            }
-            if reader.is_finished() {
-                let _ = reader.join();
-            } else {
+            // The owned lane has only <=4KiB nonblocking reads, <=5ms polls,
+            // and sends whose receiver was disposed above. Keep the handle
+            // until actual join, including a failed deadline or thread panic.
+            let join_at = Instant::now();
+            let joined = reader.join();
+            let timely = join_at.elapsed() <= Duration::from_secs(2);
+            eprintln!(
+                "read-private-parent reader_pid={} actual_join=true stop_requested=true outcome={joined:?} join_wait_within2s={timely} stop_to_join_ns={}",
+                self.child.id(),
+                stop_at.elapsed().as_nanos()
+            );
+            if !timely || joined.is_err() {
                 eprintln!(
-                    "dream-read private_parent quarantine=reader_not_settled pid={} completion=unproven",
+                    "dream-read private_parent reader_gate=failed pid={} completion=unproven actual_join=true",
                     self.child.id()
                 );
             }
