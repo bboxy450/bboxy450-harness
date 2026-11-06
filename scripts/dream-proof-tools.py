@@ -92,11 +92,11 @@ def check_private_dir(path):
     return path
 
 
-def read_regular(path, limit=MAX_TAR, private=False):
+def read_regular(path, limit=MAX_TAR, private=False, *, platform_image=False):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
     try:
         s = os.fstat(fd)
-        require(stat.S_ISREG(s.st_mode) and s.st_nlink == 1 and s.st_size <= limit, f"unsafe/oversized regular file: {path}")
+        require(stat.S_ISREG(s.st_mode) and (s.st_nlink == 1 or (platform_image and not private)) and s.st_size <= limit, f"unsafe/oversized regular file: {path}")
         if private:
             require(s.st_uid == os.getuid() and stat.S_IMODE(s.st_mode) in (0o600, 0o700), f"unsafe custody: {path}")
         data = bytearray()
@@ -609,8 +609,8 @@ def compile_sources(run, candidate):
     tools = {}
     for name in ("make", "patch", "otool", "ar", "ranlib", "nice", "sh"):
         path = Path("/bin/sh") if name == "sh" else Path("/usr/bin") / name
-        tools[name] = {"path": str(path), "resolved_path": str(path.resolve()), "sha256": sha(read_regular(path.resolve()))}
-    tools["python"] = {"path": sys.executable, "resolved_path": str(Path(sys.executable).resolve()), "sha256": sha(read_regular(Path(sys.executable).resolve()))}
+        tools[name] = {"path": str(path), "resolved_path": str(path.resolve()), "sha256": sha(read_regular(path.resolve(), platform_image=True)), "links": path.stat().st_nlink}
+    tools["python"] = {"path": sys.executable, "resolved_path": str(Path(sys.executable).resolve()), "sha256": sha(read_regular(Path(sys.executable).resolve(), platform_image=True)), "links": Path(sys.executable).stat().st_nlink}
     exclusive(run / "developer-tools.json", canonical(tools))
     deps = private_dir(run / "build" / "deps")
     buildenv = {"CC": compiler, "SDKROOT": sdk, "CFLAGS_FOR_BUILD": "-O2 -isysroot " + sdk, "CFLAGS": "-O2 -g0 -isysroot " + sdk, "CPPFLAGS": "-isysroot " + sdk + " -I" + str(deps / "include"), "LDFLAGS": "-L" + str(deps / "lib") + " -isysroot " + sdk,
@@ -1086,6 +1086,15 @@ def component(d):
 
 
 class ProvisioningTests(unittest.TestCase):
+    def test_platform_image_links_do_not_relax_private_file_custody(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TARGET) as tmp:
+            path = Path(tmp) / "fixed-platform-image"
+            exclusive(path, b"public platform image bytes")
+            os.link(path, Path(tmp) / "platform-alias")
+            with self.assertRaises(Refused): read_regular(path)
+            with self.assertRaises(Refused): read_regular(path, private=True, platform_image=True)
+            self.assertEqual(read_regular(path, platform_image=True), b"public platform image bytes")
+
     def test_bad_cache_quarantines_its_exact_entry_without_replacement(self):
         with tempfile.TemporaryDirectory(dir=TEST_TARGET) as tmp:
             d = Path(tmp); private_dir(d / "cache")
