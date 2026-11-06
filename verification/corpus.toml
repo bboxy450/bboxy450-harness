@@ -2165,3 +2165,18 @@ frontend = "project"
 name = "BrokenHarnessDreamReadFailedStopPayloadWhilePending"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamReadQuarantineOwner"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQuarantineOwnerReleaseFd"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQuarantineOwnerExit"
+expected = "safety"
+frontend = "project"

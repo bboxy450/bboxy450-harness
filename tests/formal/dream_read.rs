@@ -179,6 +179,349 @@ mod failed_stop_terminal_tests {
     }
 }
 
+/// Decision66074 refines the existing helper's refused owned quarantine. The
+/// SAME controller holds the original FDs and unreaped leader; this is not a
+/// second scheduler, custody recipient or runtime approval path. One captured
+/// group reserves one/two members; profiles are one known member, two known
+/// members, and an observed second member whose identity remains unknown.
+/// Work deadline expiry never releases custody. Native clock/terminal/wait4/
+/// group observations are not fair; only local refusal/payment/release actions
+/// are weakly fair. External destruction of the controller is not prevented by
+/// this actor model: parent/session loss is recorded honestly while it lives.
+pub fn quarantine_owner(control: u8) -> Model {
+    let suffix = ["", "ReleaseFd", "Exit"][control as usize];
+    let mut m = base(
+        &format!("DreamReadQuarantineOwner{suffix}"),
+        control != 0,
+        &[
+            ("phase", 5, 0),
+            ("memberProfile", 2, 0),
+            ("sameWorkOwner", 1, 1),
+            ("originalFdsHeld", 1, 1),
+            ("controllerAlive", 1, 1),
+            ("originalUnreapedPinHeld", 1, 1),
+            ("consumedMemberReservations", 2, 1),
+            ("knownOriginalMembers", 2, 1),
+            ("unknownAdmittedMember", 1, 0),
+            ("clockKnownOrdered", 1, 1),
+            ("freshObservationDebt", 1, 1),
+            ("allOriginalTerminalFacts", 1, 0),
+            ("ownActualWait4", 1, 0),
+            ("originalGroupGone", 1, 0),
+            ("refusalWireAttempt", 2, 0),
+            ("parentOrSessionGone", 1, 0),
+            ("ownerLostRecorded", 1, 0),
+            ("qualifiedSuccess", 1, 0),
+            ("replacementRun", 1, 0),
+            ("originalWorkDeadlineExpired", 1, 1),
+        ],
+    );
+    const P: usize = 0;
+    const OWNER: usize = 2;
+    const FD: usize = 3;
+    const ALIVE: usize = 4;
+    const PIN: usize = 5;
+    const RESERVED: usize = 6;
+    const KNOWN: usize = 7;
+    const UNKNOWN: usize = 8;
+    const CLOCK: usize = 9;
+    const DEBT: usize = 10;
+    const TERMINAL: usize = 11;
+    const REAP: usize = 12;
+    const GROUP: usize = 13;
+    const REFUSAL: usize = 14;
+    const PARENT: usize = 15;
+    const LOST: usize = 16;
+    const QUALIFIED: usize = 17;
+    const NEW_RUN: usize = 18;
+    for profile in 0..=2 {
+        act(
+            &mut m,
+            &format!("CaptureExistingOriginalGroupProfile{profile}"),
+            eq(P, 0),
+            &[
+                (P, Int(1)),
+                (1, Int(profile)),
+                (RESERVED, Int(if profile == 0 { 1 } else { 2 })),
+                (KNOWN, Int(if profile == 1 { 2 } else { 1 })),
+                (UNKNOWN, Int(i64::from(profile == 2))),
+            ],
+        );
+    }
+    let mut publish = Vec::new();
+    for result in 1..=2 {
+        publish.push(m.actions.len());
+        act(
+            &mut m,
+            &format!("AttemptExistingRefusalWireOnceResult{result}"),
+            eq(P, 1),
+            &[(P, Int(2)), (REFUSAL, Int(result)), (DEBT, Int(1))],
+        );
+    }
+    let holding = all([Int(1).lt(Var(P)), Var(P).lt(Int(5))]);
+    for known in 0..=1 {
+        act(
+            &mut m,
+            &format!("ObserveHoldClockKnownOrdered{known}"),
+            holding.clone(),
+            &[(CLOCK, Int(known)), (DEBT, Int(1))],
+        );
+    }
+    let pay = m.actions.len();
+    act(
+        &mut m,
+        "PayFreshHoldObservationDebt",
+        all([holding.clone(), eq(CLOCK, 1), eq(DEBT, 1)]),
+        &[(DEBT, Int(0))],
+    );
+    let members = all([
+        eq(UNKNOWN, 0),
+        Var(KNOWN).eq(Var(RESERVED)),
+        Int(0).lt(Var(KNOWN)),
+    ]);
+    act(
+        &mut m,
+        "ObserveEveryOriginalTerminalWithNonvacuousClosedRoster",
+        all([
+            eq(P, 2),
+            eq(CLOCK, 1),
+            eq(DEBT, 0),
+            members.clone(),
+            eq(PIN, 1),
+            eq(ALIVE, 1),
+            eq(FD, 1),
+        ]),
+        &[(P, Int(3)), (TERMINAL, Int(1)), (DEBT, Int(1))],
+    );
+    act(
+        &mut m,
+        "SameControllerActuallyReapsOriginalLeader",
+        all([
+            eq(P, 3),
+            eq(CLOCK, 1),
+            eq(DEBT, 0),
+            eq(TERMINAL, 1),
+            members.clone(),
+            eq(PIN, 1),
+            eq(ALIVE, 1),
+        ]),
+        &[(P, Int(4)), (REAP, Int(1)), (PIN, Int(0)), (DEBT, Int(1))],
+    );
+    act(
+        &mut m,
+        "ObserveOriginalGroupGoneWithoutPostReapSignal",
+        all([
+            eq(P, 4),
+            eq(CLOCK, 1),
+            eq(DEBT, 0),
+            eq(REAP, 1),
+            eq(TERMINAL, 1),
+            members.clone(),
+        ]),
+        &[(GROUP, Int(1)), (DEBT, Int(1))],
+    );
+    act(
+        &mut m,
+        "ParentOrSessionLossRecordsOwnerLostWithoutRelease",
+        all([holding.clone(), eq(PARENT, 0)]),
+        &[(PARENT, Int(1)), (LOST, Int(1)), (DEBT, Int(1))],
+    );
+    act(
+        &mut m,
+        "ExpiredWorkDeadlineCannotReleaseHeldCustody",
+        holding.clone(),
+        &[],
+    );
+    let disposed = all([
+        eq(TERMINAL, 1),
+        eq(REAP, 1),
+        eq(GROUP, 1),
+        eq(DEBT, 0),
+        members.clone(),
+    ]);
+    let release = m.actions.len();
+    act(
+        &mut m,
+        "ReleaseOnlyPhysicallySettledRefusalAfterPaidDebt",
+        all([eq(P, 4), eq(CLOCK, 1), disposed.clone()]),
+        &[(P, Int(5)), (OWNER, Int(0)), (FD, Int(0)), (ALIVE, Int(0))],
+    );
+    if control == 1 {
+        act(
+            &mut m,
+            "BrokenReleaseOriginalFdWhileQuarantined",
+            eq(P, 2),
+            &[(FD, Int(0))],
+        );
+    }
+    if control == 2 {
+        // A stale durable claim may still say owner/FD held after its process
+        // exits. That claim cannot substitute for this live-controller fact.
+        act(
+            &mut m,
+            "BrokenControllerExitAtExpiredWorkDeadline",
+            eq(P, 2),
+            &[(ALIVE, Int(0))],
+        );
+    }
+    safe(
+        &mut m,
+        "OwnedQuarantineKeepsLiveControllerAndFdsUntilActualSettlement",
+        disposed
+            .clone()
+            .or(all([eq(OWNER, 1), eq(FD, 1), eq(ALIVE, 1)])),
+    );
+    safe(
+        &mut m,
+        "OriginalUnreapedPinSurvivesUntilOwnActualWait4",
+        eq(REAP, 1).or(eq(PIN, 1)),
+    );
+    safe(
+        &mut m,
+        "SettledRefusalHasOwnReapAllMembersGroupGoneAndPaidDebt",
+        eq(P, 5).negate().or(disposed),
+    );
+    safe(
+        &mut m,
+        "UnknownAdmittedMemberCannotAcquireVacuousSettlement",
+        eq(UNKNOWN, 0).or(all([
+            eq(TERMINAL, 0),
+            eq(REAP, 0),
+            eq(GROUP, 0),
+            eq(P, 5).negate(),
+        ])),
+    );
+    safe(
+        &mut m,
+        "ParentLossIsHonestAndNeverQualifiesOrCreatesReplacement",
+        all([
+            eq(QUALIFIED, 0),
+            eq(NEW_RUN, 0),
+            eq(PARENT, 0).or(eq(LOST, 1)),
+        ]),
+    );
+    safe(
+        &mut m,
+        "RefusalWireAttemptPrecedesHoldAndSettlement",
+        Var(P).lt(Int(2)).or(eq(REFUSAL, 0).negate()),
+    );
+    progress(
+        &mut m,
+        "RefusalAttemptDoesNotWaitForPhysicalSettlement",
+        eq(P, 1),
+        eq(REFUSAL, 0).negate(),
+        publish,
+    );
+    m.weak_fair.push(vec![pay]);
+    m.weak_fair.push(vec![release]);
+    m
+}
+
+#[cfg(test)]
+mod quarantine_owner_tests {
+    use super::*;
+
+    #[test]
+    fn live_original_custody_and_broken_release_exit_export_complete_graphs() {
+        let output = std::env::var_os("DREAM_QUARANTINE_FORMAL_OUT").map(std::path::PathBuf::from);
+        if let Some(root) = &output {
+            std::fs::create_dir_all(root).unwrap();
+        }
+        let mut manifest = String::new();
+        for control in 0..=2 {
+            let model = quarantine_owner(control);
+            let checked = model.check(100_000).unwrap();
+            assert!(checked.violations.iter().all(|v| v.property != "TypeOK"));
+            if control == 0 {
+                assert!(checked.violations.is_empty());
+                assert!(
+                    checked.states.iter().any(|s| s[0] == 2
+                        && s[14] == 1
+                        && s[2] == 1
+                        && s[3] == 1
+                        && s[4] == 1
+                        && s[5] == 1
+                        && s[12] == 0),
+                    "prompt refusal leaves the same live owner/FDs/unreaped original"
+                );
+                assert!(
+                    checked.states.iter().any(|s| s[0] == 2
+                        && s[8] == 1
+                        && s[9] == 0
+                        && s[2] == 1
+                        && s[3] == 1
+                        && s[4] == 1
+                        && s[5] == 1),
+                    "unknown admitted member or clock never releases custody"
+                );
+                assert!(
+                    checked.states.iter().any(|s| s[0] == 4
+                        && s[12] == 1
+                        && s[13] == 0
+                        && s[2] == 1
+                        && s[3] == 1
+                        && s[4] == 1
+                        && s[5] == 0),
+                    "actual leader reap alone does not release the owned group"
+                );
+                assert!(
+                    checked.states.iter().any(|s| s[0] == 2
+                        && s[15] == 1
+                        && s[16] == 1
+                        && s[2] == 1
+                        && s[3] == 1
+                        && s[4] == 1
+                        && s[17] == 0
+                        && s[18] == 0),
+                    "parent/session loss remains owner-lost refusal with original custody"
+                );
+                assert!(
+                    checked.states.iter().any(|s| s[0] == 5
+                        && s[10] == 0
+                        && s[11] == 1
+                        && s[12] == 1
+                        && s[13] == 1
+                        && s[17] == 0
+                        && s[18] == 0),
+                    "own reap plus full group/member proof releases only a settled refusal"
+                );
+            } else {
+                assert_eq!(
+                    checked
+                        .violations
+                        .iter()
+                        .map(|v| v.property.as_str())
+                        .collect::<Vec<_>>(),
+                    vec!["OwnedQuarantineKeepsLiveControllerAndFdsUntilActualSettlement"]
+                );
+            }
+            println!(
+                "quarantine_owner control={control} model={} states={} labelled_edges={} named_verdicts={:?}",
+                model.name,
+                checked.states.len(),
+                checked.edges.iter().map(Vec::len).sum::<usize>(),
+                checked
+                    .violations
+                    .iter()
+                    .map(|v| &v.property)
+                    .collect::<Vec<_>>()
+            );
+            if let Some(root) = &output {
+                super::helper_observer_lowering_export::export(
+                    model,
+                    if control == 0 { "pass" } else { "safety" },
+                    root,
+                    &mut manifest,
+                )
+                .unwrap();
+            }
+        }
+        if let Some(root) = output {
+            std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
+        }
+    }
+}
+
 /// Shared-codec/currentness projection, not a native lifetime theorem. Owner is
 /// the existing private controller; two platform values and three incarnations
 /// expose observed A-B-A. The nine profiles abstract independently checked

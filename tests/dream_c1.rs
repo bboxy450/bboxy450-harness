@@ -1236,6 +1236,101 @@ fn birth_readiness(sample: Option<u64>, lag: Option<Duration>) -> Option<u64> {
         .checked_sub(u64::try_from(lag?.as_nanos()).ok()?)?
         .checked_add(boot::WINDOW_NS)
 }
+#[derive(Debug, PartialEq, Eq)]
+enum HelloReadinessFailure {
+    Clock,
+    ReversedClock,
+    Expired(u64),
+    Native(i32),
+    Interrupted,
+    Events(i16),
+}
+fn hello_readiness(
+    deadline: u64,
+    mut clock: impl FnMut() -> Result<u64, ()>,
+    mut poll: impl FnMut(i32) -> Result<i16, i32>,
+) -> Result<(), HelloReadinessFailure> {
+    let mut previous = 0;
+    // An interrupted observation is not a readiness timeout. Retry only the
+    // poll, at most four times, against the SAME original absolute deadline.
+    // There is no second child, permit, grant or new readiness window.
+    for _ in 0..=4 {
+        let now = clock().map_err(|_| HelloReadinessFailure::Clock)?;
+        if now < previous {
+            return Err(HelloReadinessFailure::ReversedClock);
+        }
+        if now >= deadline {
+            return Err(HelloReadinessFailure::Expired(now));
+        }
+        let result = poll((deadline - now).div_ceil(1_000_000).min(i32::MAX as u64) as i32);
+        let after = clock().map_err(|_| HelloReadinessFailure::Clock)?;
+        if after < now {
+            return Err(HelloReadinessFailure::ReversedClock);
+        }
+        if after >= deadline {
+            return Err(HelloReadinessFailure::Expired(after));
+        }
+        previous = after;
+        match result {
+            Ok(events) if events & libc::POLLIN != 0 => return Ok(()),
+            Ok(0) => return Err(HelloReadinessFailure::Expired(after)),
+            Ok(events) => return Err(HelloReadinessFailure::Events(events)),
+            Err(libc::EINTR) => (),
+            Err(errno) => return Err(HelloReadinessFailure::Native(errno)),
+        }
+    }
+    Err(HelloReadinessFailure::Interrupted)
+}
+#[test]
+fn interrupted_hello_observation_keeps_original_deadline_and_failures() {
+    let mut clock = [0, 1_000_000, 2_000_000, 3_000_000].into_iter();
+    let mut timeouts = Vec::new();
+    let mut results = [Err(libc::EINTR), Ok(libc::POLLIN)].into_iter();
+    assert_eq!(
+        hello_readiness(
+            4_000_000,
+            || Ok(clock.next().unwrap()),
+            |timeout| {
+                timeouts.push(timeout);
+                results.next().unwrap()
+            },
+        ),
+        Ok(())
+    );
+    assert_eq!(timeouts, [4, 2]);
+    for events in [Ok(libc::POLLIN), Err(libc::EINTR)] {
+        let mut clock = [0, 4_000_000].into_iter();
+        assert_eq!(
+            hello_readiness(4_000_000, || Ok(clock.next().unwrap()), |_| events),
+            Err(HelloReadinessFailure::Expired(4_000_000))
+        );
+    }
+    assert_eq!(
+        hello_readiness(4_000_000, || Ok(1), |_| Err(libc::EINTR)),
+        Err(HelloReadinessFailure::Interrupted)
+    );
+    assert_eq!(
+        hello_readiness(4_000_000, || Ok(1), |_| Err(libc::EBADF)),
+        Err(HelloReadinessFailure::Native(libc::EBADF))
+    );
+    assert_eq!(
+        hello_readiness(4_000_000, || Ok(1), |_| Ok(libc::POLLHUP)),
+        Err(HelloReadinessFailure::Events(libc::POLLHUP))
+    );
+    assert_eq!(
+        hello_readiness(4_000_000, || Err(()), |_| panic!("unknown clock polled")),
+        Err(HelloReadinessFailure::Clock)
+    );
+    let mut clock = [2, 1].into_iter();
+    assert_eq!(
+        hello_readiness(
+            4_000_000,
+            || Ok(clock.next().unwrap()),
+            |_| Ok(libc::POLLIN)
+        ),
+        Err(HelloReadinessFailure::ReversedClock)
+    );
+}
 #[test]
 fn unavailable_or_reversed_parent_samples_never_become_zero_cost() {
     for (start, end) in [(u64::MAX, u64::MAX), (100, u64::MAX), (100, 99)] {
@@ -1888,18 +1983,38 @@ impl HeldWorker {
         };
         assert_eq!(wrote, 128);
         assert!(parent_interval(grant_at, parent_cpu()) <= 1_000_000);
-        let remaining = self
-            .readiness_ns
-            .checked_sub(boot::monotonic_ns().unwrap())
-            .expect("readiness not reset by grant");
         let mut p = libc::pollfd {
             fd: worker.output.get_ref().as_raw_fd(),
             events: libc::POLLIN,
             revents: 0,
         };
+        let mut last_poll = None;
+        let hello_observation = hello_readiness(
+            self.readiness_ns,
+            || boot::monotonic_ns().map_err(|_| ()),
+            |timeout| {
+                p.revents = 0;
+                let result = unsafe { libc::poll(&mut p, 1, timeout) };
+                let errno = if result < 0 {
+                    std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
+                } else {
+                    0
+                };
+                last_poll = Some((result, p.revents, errno));
+                if result < 0 {
+                    Err(errno)
+                } else {
+                    Ok(p.revents)
+                }
+            },
+        );
         assert!(
-            unsafe { libc::poll(&mut p, 1, remaining.div_ceil(1_000_000) as i32) } > 0,
-            "Hello readiness exceeded"
+            hello_observation.is_ok(),
+            "Hello readiness refused observation={hello_observation:?} raw_poll_result_events_errno={last_poll:?} pid={} original_deadline_ns={} observed_ns={:?} child_before_lease_revoke={:?}",
+            worker.child.id(),
+            self.readiness_ns,
+            boot::monotonic_ns(),
+            worker.child.try_wait(),
         );
         match worker.read() {
             w::WorkerOut::Hello(h) => {

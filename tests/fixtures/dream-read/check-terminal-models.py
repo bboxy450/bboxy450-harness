@@ -5,7 +5,7 @@
 # License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 # Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
-"""Focused decision66050 parity; never a full repository formal receipt."""
+"""Focused helper terminal/custody parity; never a full repository formal receipt."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
@@ -33,6 +33,13 @@ EXPECTED_PROPERTIES = {
         "Pipe", "Late", "Quantum", "Clock", "UnknownExit")},
     **{name: "ReleaseRequiresActualSettlementAndFullPaidDebt" for name in ("Debt", "Reap")},
 }
+QUARANTINE_SUFFIXES = ("", "ReleaseFd", "Exit")
+QUARANTINE_NAMES = [("Broken" if index else "") + "HarnessDreamReadQuarantineOwner" + suffix
+                    for index, suffix in enumerate(QUARANTINE_SUFFIXES)]
+QUARANTINE_PROPERTIES = {
+    suffix: "OwnedQuarantineKeepsLiveControllerAndFdsUntilActualSettlement"
+    for suffix in QUARANTINE_SUFFIXES[1:]
+}
 
 
 def digest(path):
@@ -41,12 +48,16 @@ def digest(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--family", choices=("terminal", "quarantine"), default="terminal")
     parser.add_argument("--target", type=Path, required=True,
                         help="Focused export directory containing models/manifest.tsv")
     parser.add_argument("--tools-target", type=Path, default=ROOT / "target/formal")
     parser.add_argument("--model-source", type=Path, default=ROOT / "tests/formal/dream_read.rs",
                         help="Exact model source used by the focused native exporter")
     args = parser.parse_args()
+    names, suffixes, expected_properties, decision = (
+        (QUARANTINE_NAMES, QUARANTINE_SUFFIXES, QUARANTINE_PROPERTIES, "decision66074")
+        if args.family == "quarantine" else (NAMES, SUFFIXES, EXPECTED_PROPERTIES, "decision66050"))
     target = args.target.resolve()
     models = target / "models"
     spec = importlib.util.spec_from_file_location("canonical_formal", ROOT / "scripts/formal.py")
@@ -63,10 +74,10 @@ def main():
     source_before = {str(path): digest(path) for path in source_paths}
     java, jar, pins = formal.tools(args.tools_target.resolve())
     rows = [line.split("\t") for line in (models / "manifest.tsv").read_text().splitlines()]
-    if [row[0] for row in rows] != NAMES:
-        raise ValueError("focused native manifest must contain exactly all18 ordered decision66050 models")
+    if [row[0] for row in rows] != names:
+        raise ValueError(f"focused native manifest must contain exactly all{len(names)} ordered {decision} models")
     generated_inputs = [models / "manifest.tsv", *(models / (name + suffix)
-        for name in NAMES for suffix in (
+        for name in names for suffix in (
             ".tla", ".cfg", "Graph.cfg", ".metadata.json", ".states", ".edges", ".native-trace"))]
     generated_before = {str(path): digest(path) for path in generated_inputs}
 
@@ -81,7 +92,7 @@ def main():
             metadata = formal.contract_metadata(models, name)
             native_names = set(re.findall(
                 r"^(\w+) prefix=", (models / (name + ".native-trace")).read_text(), re.MULTILINE))
-            exact_names = {EXPECTED_PROPERTIES[SUFFIXES[index]]} if index else set()
+            exact_names = {expected_properties[suffixes[index]]} if index else set()
             if native_names != exact_names or "TypeOK" in native_names:
                 raise ValueError("native causal named violation differs")
             native = formal.native_graph(models, name)
@@ -120,7 +131,7 @@ def main():
     unchanged = before == after and generated_before == generated_after
     passed = unchanged and all(row["passed"] for row in results)
     evidence = {
-        "scope": "decision66050 all18 finite models only; no full-corpus or implementation refinement receipt",
+        "scope": f"{decision} all{len(names)} finite models only; no full-corpus or implementation refinement receipt",
         "passed": passed, "exit_code": 0 if passed else 1, "models": results,
         "native_state_cap": 100000, "reference_timeout_seconds": 60,
         "source_sha256_before": before, "source_sha256_after": after,

@@ -1250,22 +1250,29 @@ impl HelperGroup {
         }
     }
     fn signal_group_stop(&mut self) -> HelperStopReceipt {
-        #[cfg(test)]
-        let injected = self.injected_stop_errno.take();
-        #[cfg(not(test))]
-        let injected: Option<i32> = None;
-        let result = if injected.is_some() {
-            -1 // Source-known control only: no kernel call was performed.
-        } else {
-            unsafe { libc::kill(-self.pgid, libc::SIGSTOP) }
+        let signal = || {
+            let result = unsafe { libc::kill(-self.pgid, libc::SIGSTOP) };
+            let rawerrno = if result == 0 {
+                0
+            } else {
+                std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
+            };
+            (result, rawerrno)
         };
+        #[cfg(test)]
+        let (result, rawerrno, injected) = match self.injected_stop_errno.take() {
+            Some(errno) => (-1, errno, true), // Control only: no native signal.
+            None => {
+                let (result, rawerrno) = signal();
+                (result, rawerrno, false)
+            }
+        };
+        #[cfg(not(test))]
+        let (result, rawerrno) = signal();
+        #[cfg(not(test))]
+        let injected = false;
         // Retain the exact native outcome before any completion observation or
         // verdict. Bounded scalar receipts also survive later retirement.
-        let rawerrno = if result == 0 {
-            0
-        } else {
-            injected.unwrap_or_else(|| std::io::Error::last_os_error().raw_os_error().unwrap_or(0))
-        };
         self.metrics.stop_attempts = self.metrics.stop_attempts.saturating_add(1);
         let receipt = HelperStopReceipt {
             sequence: self.identity.sequence,
@@ -1278,7 +1285,7 @@ impl HelperGroup {
             result,
             rawerrno,
             observed_ns: self.ledger_clock().unwrap_or(u64::MAX),
-            injected: injected.is_some(),
+            injected,
         };
         self.metrics.last_stop = receipt;
         if result != 0 {

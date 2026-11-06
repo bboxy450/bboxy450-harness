@@ -220,3 +220,8 @@ and the exact shared checker copies. These checks do not replace upstream terms.
   from Git's `t/t7510-signed-commit.sh`; Git retains its own origin and license.
   Keep this policy with extracts:
   https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+
+- Dream's same-controller quarantine custody, refusal wire, owner-loss record
+  and live FD/child settlement controls are project-owned. Preserve this origin
+  and policy with extracts:
+  https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.

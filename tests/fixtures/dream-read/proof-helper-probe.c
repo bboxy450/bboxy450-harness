@@ -545,26 +545,70 @@ struct private_input {
 #define PRIVATE_METADATA_CAPACITY (sizeof(struct private_input)+PRIVATE_INPUT_MAX+1u+8192u+32768u)
 _Static_assert(PRIVATE_METADATA_CAPACITY<=PRIVATE_EVIDENCE_MAX,"private fixed metadata capacity");
 struct json_reader {const unsigned char *p,*end;unsigned depth,limit;};
-struct private_metrics {uint64_t entry,deadline,ordinary_max,debt,debt_paid,rest_until,rest_poll_cpu,metadata,open_cpu,last_unit,close_max,rss_peak;int rss_known;};
+struct private_metrics {
+    uint64_t entry,deadline,ordinary_max,debt,debt_paid,rest_until,rest_poll_cpu,metadata,open_cpu,last_unit,close_max,rss_peak;
+    // Closed units belong to this same owner BEFORE their CPU epoch advances.
+    // A missing scheduling clock cannot erase their exact normalized/raw cost.
+    uint64_t retained_cost_ns,retained_raw_ns,retained_units,retained_unknown_units,closed_units,booked_units;
+    int rss_known;unsigned custody_hold,retained_overflow;pid_t original_parent;
+};
 static const char *private_error="input_invalid",*private_detail="strict private input decoding failed";
 static struct private_metrics private_cost;
 static int private_failed=0;
 static int private_fail(const char *code,const char *detail) {if(!private_failed){private_error=code;private_detail=detail;private_failed=1;}return 0;}
 static void (*private_rest_control)(void)=NULL;
-static int private_schedule_cost(uint64_t raw_cost) {
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+// Interrupted observations only; no test hook is present in the probe build.
+static unsigned source_known_payment_interrupts,source_known_payment_fail_nth,source_known_schedule_interrupts,source_known_schedule_fail_nth;
+#endif
+static int private_retain_closed_cost(uint64_t raw_cost) {
     uint64_t cost=raw_cost>1000000?raw_cost:1000000;
     if(raw_cost==UINT64_MAX||cost>UINT64_MAX/9) {
         private_fail("clock_unknown","unknown or overflowing closed-unit cost");
         cost=3000000; // Canonical finite mandatory-settlement debt; raw cost stays unknown.
     }
+    if(private_cost.retained_overflow||UINT64_MAX-private_cost.retained_cost_ns<cost
+        ||private_cost.retained_units==UINT64_MAX||private_cost.closed_units==UINT64_MAX
+        ||(raw_cost==UINT64_MAX?private_cost.retained_unknown_units==UINT64_MAX:UINT64_MAX-private_cost.retained_raw_ns<raw_cost)) {
+        private_cost.retained_overflow=1;
+        return private_fail("clock_unknown","retained closed-unit cost overflow; original owner stays held");
+    }
+    private_cost.retained_cost_ns+=cost;private_cost.retained_units++;private_cost.closed_units++;
+    if(raw_cost==UINT64_MAX)private_cost.retained_unknown_units++;
+    else private_cost.retained_raw_ns+=raw_cost;
+    return 1;
+}
+static int private_book_retained_cost(void) {
+    if(private_cost.retained_overflow)return private_fail("clock_unknown","retained closed-unit cost is unrepresentable");
+    if(!private_cost.retained_units)return 1;
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(source_known_schedule_interrupts){source_known_schedule_interrupts--;return private_fail("clock_unknown","source-known interrupted debt scheduling");}
+    if(source_known_schedule_fail_nth&&!--source_known_schedule_fail_nth)return private_fail("clock_unknown","source-known interrupted selected debt scheduling");
+#endif
+    uint64_t cost=private_cost.retained_cost_ns;
     uint64_t now;
     if(!known_clock_ns(CLOCK_MONOTONIC,&now))return private_fail("clock_unknown","shared debt clock unavailable");
     uint64_t deadline;
-    if(!additive_debt(private_cost.rest_until,now,cost,&deadline)||UINT64_MAX-private_cost.debt<9*cost)
+    if(cost>UINT64_MAX/9||!additive_debt(private_cost.rest_until,now,cost,&deadline)
+        ||UINT64_MAX-private_cost.debt<9*cost||UINT64_MAX-private_cost.booked_units<private_cost.retained_units)
         return private_fail("clock_unknown","shared additive debt overflow");
-    private_cost.rest_until=deadline;private_cost.debt+=9*cost;return 1;
+    // Moving retained -> booked is atomic in this single controller. Failed
+    // payment leaves the booked debt intact; recovery never books it twice.
+    private_cost.rest_until=deadline;private_cost.debt+=9*cost;private_cost.booked_units+=private_cost.retained_units;
+    private_cost.retained_cost_ns=private_cost.retained_raw_ns=private_cost.retained_units=private_cost.retained_unknown_units=0;
+    return 1;
+}
+static int private_schedule_cost(uint64_t raw_cost) {
+    if(!private_retain_closed_cost(raw_cost))return 0;
+    if(!private_book_retained_cost())return 0;
+    return 1;
 }
 static int private_pay_pending(void) {
+    if(!private_book_retained_cost())return 0;
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(source_known_payment_interrupts){source_known_payment_interrupts--;return private_fail("clock_unknown","source-known interrupted debt payment");}
+    if(source_known_payment_fail_nth&&!--source_known_payment_fail_nth)return private_fail("clock_unknown","source-known interrupted selected debt payment");
+#endif
     uint64_t pay_begin;
     if(!known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&pay_begin))return private_fail("clock_unknown","rest payment beginning clock unavailable");
     if(!private_cost.open_cpu)private_cost.open_cpu=pay_begin;
@@ -596,11 +640,12 @@ static int private_end_unit(uint64_t at) {
     else private_fail("clock_unknown","unavailable or reversed ordinary clock");
     private_cost.last_unit=used;
     if(used>private_cost.ordinary_max)private_cost.ordinary_max=used;
+    int scheduled=private_schedule_cost(used);
     private_cost.open_cpu=used==UINT64_MAX?UINT64_MAX:end;
-    if(!private_schedule_cost(used)||!private_pay_pending())return 0;
+    if(!scheduled||!private_pay_pending())return 0;
     if(used==UINT64_MAX)return 0;
     if(used>1000000)return private_fail("resource_limit","ordinary validation exceeds one millisecond");
-    if(clock_ns(CLOCK_MONOTONIC)>=private_cost.deadline)return private_fail("deadline","original private test deadline expired");
+    if(!private_cost.custody_hold&&clock_ns(CLOCK_MONOTONIC)>=private_cost.deadline)return private_fail("deadline","original private test deadline expired");
     return 1;
 }
 static int private_utf8(const unsigned char *p,size_t n) {
@@ -1613,6 +1658,7 @@ static __attribute__((unused)) int private_revalidate_context(const struct priva
 // Sole private fixed-profile command engine. Missing temp-signature/source
 // premise remains review_unbound before any original process effect.
 int private_command_engine(const struct private_engine_context *,struct private_engine_result *);
+static int private_emit(const struct private_input *,const char *,struct private_engine_result *);
 
 // Copyright 2026 Boxy (bboxy450) and contributors.
 // SPDX-License-Identifier: LicenseRef-Respectful-Slop-1.0-Draft
@@ -2231,6 +2277,11 @@ struct engine_owner {
     audit_token_t pending_token[2];unsigned pending_final_image_mask,pending_identity_lost;
     unsigned settlement_quarantined,quarantine_recorded,quarantine_durable,group_kill_attempted;int group_kill_result;
     uint64_t settlement_prepaid_cpu;
+    unsigned refusal_attempted,refusal_complete,quarantine_settled,owner_lost,owner_lost_recorded,hold_rounds,allocations_owned;
+    unsigned hold_reap_normal,hold_settled_recorded,hold_late_charged;pid_t controller_parent;
+    uint64_t hold_cpu_total,hold_max_cpu,hold_last_wall,hold_last_cpu,hold_unknown_units;
+    unsigned source_admitted,hold_conservative_sleep,hold_unknown_recorded,hold_prior_payment_pending;
+    uint64_t hold_terminal_samples,hold_roster_checks,hold_wait4_calls,hold_group_checks;
     uint64_t wait_user,wait_system,wait_rss;unsigned wait_observed;
     char image[4097],descendant[4097];
     int input,output,errors,ledger;size_t sent,out_len,err_len,ledger_bytes;
@@ -2243,11 +2294,15 @@ static struct engine_owner *engine_current=NULL;
 // A second command cannot replace a physically unsettled first owner.
 static struct engine_owner engine_storage;
 static void engine_emergency_dispose(void);
+static int engine_hold_observe(struct engine_owner *);
+static void engine_quarantine_hold(struct engine_owner *);
+static void engine_close_transferred(struct engine_owner *);
 // Scratch custody and the actual verifier argv survive all direct commands
 // and any refused owned effect. This is not a second controller or tool grant.
 static struct private_git_sig_temp engine_signature_storage={.scratch_fd=-1,.signature_fd=-1};
-static volatile sig_atomic_t engine_cancel_signal=0;
+static volatile sig_atomic_t engine_cancel_signal=0,engine_owner_loss_signal=0;
 static void engine_cancel_handler(int signal) {(void)signal;engine_cancel_signal=1;}
+static void engine_owner_loss_handler(int signal) {(void)signal;engine_owner_loss_signal=1;engine_cancel_signal=1;}
 static __attribute__((unused)) int engine_owner_priority(void) {
     static unsigned ready=0;if(ready)return 1;
     errno=0;int current=getpriority(PRIO_PROCESS,0);
@@ -2378,6 +2433,7 @@ static int engine_stop_result(struct engine_owner *owner,int result,int error,ui
     return engine_failure(owner,"coverage_unknown","original group STOP effect unresolved");
 }
 static int engine_stop_group(struct engine_owner *owner) {
+    if(owner->settlement_quarantined)return engine_failure(owner,"coverage_unknown","quarantine admits observations only, never another STOP");
     if(owner->stop_requested)return 1;
     int done;if(!known_exited(owner->ticket.pid,&done))return engine_failure(owner,"settlement_unknown","original unreaped group custody unavailable");
     owner->stop_requested=1;
@@ -2517,6 +2573,7 @@ static int engine_roster(struct engine_owner *owner,int final,int *closed) {
     int count=proc_listchildpids(owner->ticket.pid,children,sizeof(children));
     if(count<0||count>2)return engine_failure(owner,"coverage_unknown","owned child census unavailable or overflowing");
     if(count>1||((unsigned)count&&owner->slots!=2)) {
+        if(owner->settlement_quarantined){owner->coverage_lost=1;return engine_failure(owner,"coverage_unknown","quarantined roster exceeded original reservation");}
         engine_stop_group(owner);return engine_failure(owner,"coverage_unknown","source-bounded process count exceeded");
     }
     if(count)child=children[0];
@@ -2524,6 +2581,7 @@ static int engine_roster(struct engine_owner *owner,int final,int *closed) {
         // Capture the real logical effect before expensive token/image checks.
         owner->members[1].state.pid=child;
         if(!owner->child_created){owner->child_created=1;owner->result->created++;owner->result->members_max=2;}
+        if(owner->settlement_quarantined){owner->coverage_lost=1;return engine_failure(owner,"coverage_unknown","quarantined observation discovered an unbound child");}
         if(owner->stop_pending)return engine_failure(owner,"coverage_unknown","new child cannot close a pending terminal unknown slot");
         owner->stop_requested=0;
         if(!engine_stop_group(owner))return 0;
@@ -2584,6 +2642,7 @@ static int engine_roster(struct engine_owner *owner,int final,int *closed) {
     if(c&&!owner->members[1].state.pid) {
         owner->members[1].state.pid=final_children[0];owner->grant.unknown_mask|=2u;
         if(!owner->child_created){owner->child_created=1;owner->result->created++;owner->result->members_max=2;}
+        if(owner->settlement_quarantined){owner->coverage_lost=1;return engine_failure(owner,"coverage_unknown","quarantined final roster discovered an unbound child");}
         if(owner->stop_pending)return engine_failure(owner,"coverage_unknown","late unknown child cannot close pending terminal proof");
         owner->stop_requested=0;
         if(!engine_stop_group(owner))return 0;
@@ -2668,7 +2727,10 @@ static int engine_record(struct engine_owner *owner,const char *phase) {
         "\"wait4_observed\":%u,\"wait4_user_ns\":%llu,\"wait4_system_ns\":%llu,\"wait4_rss\":%llu,"
         "\"stop_attempts\":%u,\"stop_result\":%d,\"stop_errno\":%d,\"stop_call_ns\":%llu,"
         "\"stop_pending\":%u,\"stop_terminal\":%u,\"stop_terminal_ns\":%llu,"
-        "\"child_status_known\":%u,\"child_status_raw\":%u,\"conditional_source_only\":true}\n",
+        "\"child_status_known\":%u,\"child_status_raw\":%u,\"hold_rounds\":%u,\"hold_unknown_units\":%llu,"
+        "\"hold_unbooked_units\":%llu,\"hold_retained_cost_ns\":%llu,\"hold_retained_raw_ns\":%llu,\"hold_retained_unknown_units\":%llu,"
+        "\"hold_retained_overflow\":%u,\"hold_debt_charged_ns\":%llu,\"hold_debt_paid_ns\":%llu,"
+        "\"owner_lost\":%u,\"conditional_source_only\":true}\n",
         phase,owner->ticket.sequence,owner->command,owner->grants,owner->ticket.pid,owner->members[1].state.pid,
         (unsigned long long)owner->members[0].state.birth,(unsigned long long)owner->members[1].state.birth,
         owner->members[0].token.val[7],owner->members[1].token.val[7],(unsigned long long)g->t0,
@@ -2682,7 +2744,11 @@ static int engine_record(struct engine_owner *owner,const char *phase) {
         (unsigned long long)owner->wait_user,(unsigned long long)owner->wait_system,(unsigned long long)owner->wait_rss,
         owner->stop_attempts,owner->stop_result,owner->stop_errno,(unsigned long long)owner->stop_call_ns,
         owner->stop_pending,owner->stop_terminal,(unsigned long long)owner->stop_terminal_ns,
-        owner->members[1].exit_status_known,owner->members[1].exit_status);
+        owner->members[1].exit_status_known,owner->members[1].exit_status,owner->hold_rounds,
+        (unsigned long long)owner->hold_unknown_units,(unsigned long long)private_cost.retained_units,
+        (unsigned long long)private_cost.retained_cost_ns,(unsigned long long)private_cost.retained_raw_ns,
+        (unsigned long long)private_cost.retained_unknown_units,private_cost.retained_overflow,
+        (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,owner->owner_lost);
     if(n<=0||(size_t)n>=sizeof(bytes)||owner->record_count>=ENGINE_RECORD_MAX
         ||(size_t)n>ENGINE_CAPTURE_MAX-owner->ledger_bytes)
         return engine_failure(owner,"resource_limit","fixed raw ledger record or two-MiB file bound exhausted");
@@ -2703,14 +2769,16 @@ static int engine_charge(struct engine_owner *owner,uint64_t actual,uint64_t cos
         uint64_t extra=inclusive-actual;actual=inclusive;
         if(!engine_safe_sum(cost,extra,&cost))cost=UINT64_MAX;
     }
-    private_cost.last_unit=actual;private_cost.open_cpu=end;
+    private_cost.last_unit=actual;
     if(ordinary)engine_max(&owner->result->ordinary_max_ns,actual);
-    if(!private_schedule_cost(cost)||!private_pay_pending())return engine_failure(owner,"clock_unknown","shared unit debt could not be paid");
+    int scheduled=private_schedule_cost(cost);
+    private_cost.open_cpu=end;
+    if(!scheduled||!private_pay_pending())return engine_failure(owner,"clock_unknown","shared unit debt could not be paid");
     engine_max(&owner->result->debt_charged_ns,private_cost.debt);
     engine_max(&owner->result->debt_paid_ns,private_cost.debt_paid);
     if(cost==UINT64_MAX||actual==UINT64_MAX)return engine_failure(owner,"clock_unknown","closed engine unit has unknown CPU");
     if(ordinary&&(actual>1000000||cost>1000000))return engine_failure(owner,"resource_limit","ordinary engine unit exceeds one millisecond");
-    if(engine_now(owner,CLOCK_MONOTONIC)>=owner->context->outer->deadline)return engine_failure(owner,"deadline","original private deadline expired");
+    if(!private_cost.custody_hold&&engine_now(owner,CLOCK_MONOTONIC)>=owner->context->outer->deadline)return engine_failure(owner,"deadline","original private deadline expired");
     return 1;
 }
 static int engine_stopped_corroboration(struct engine_owner *owner) {
@@ -3018,7 +3086,8 @@ static int engine_original_group_gone(struct engine_owner *owner) {
     return count==0;
 }
 static int engine_quarantine(struct engine_owner *owner,const char *detail) {
-    owner->settlement_quarantined=1;owner->retiring=1;
+    owner->settlement_quarantined=1;owner->retiring=1;private_cost.custody_hold=1;
+    if(!owner->controller_parent)owner->controller_parent=private_cost.original_parent?private_cost.original_parent:getppid();
     (void)engine_failure(owner,"settlement_unknown",detail);
     owner->result->phase="quarantined";owner->result->outcome="quarantined";
     owner->result->group_gone=owner->result->retired_coverage=0;
@@ -3034,8 +3103,8 @@ static int engine_quarantine(struct engine_owner *owner,const char *detail) {
     engine_max(&owner->result->late_kernel_ns,UINT64_MAX);
     // The attempt flag precedes every evidence write: unknown writes are not
     // replayed at atexit. A successful persisted receipt links these unresolved
-    // identities to run/nonce/input. It is evidence, not live kernel custody
-    // after process exit or proof that a recovery consumer has acquired them.
+    // identities to run/nonce/input. Decision66074 keeps THIS controller alive
+    // with its actual FDs/unreaped handle; this record never replaces custody.
     if(!owner->quarantine_recorded) {
         owner->quarantine_recorded=1;int durable=owner->ledger>=0;
         if(owner->ledger>=0&&!engine_record(owner,"quarantined"))durable=0;
@@ -3057,7 +3126,7 @@ static int engine_quarantine(struct engine_owner *owner,const char *detail) {
         owner->quarantine_durable=(unsigned)durable;
         if(!durable)(void)engine_failure(owner,"settlement_unknown","quarantine evidence write or persistence failed; no retry and no durable-custody claim");
         char receipt[256];int count=snprintf(receipt,sizeof(receipt),
-            "private_quarantine evidence_persisted=%s live_kernel_custody_after_exit=false recovery_handoff_proved=false created=%u reaped=%u group_gone=false retired_coverage=false\n",
+            "private_quarantine evidence_persisted=%s same_controller_holds_custody=true created=%u reaped=%u group_gone=false retired_coverage=false\n",
             durable?"true":"false",(unsigned)owner->result->created,(unsigned)owner->result->reaped);
         if(count<=0||(size_t)count>=sizeof(receipt)||write(STDERR_FILENO,receipt,(size_t)count)!=count)
             (void)engine_failure(owner,"settlement_unknown","quarantine persistence-status receipt is incomplete");
@@ -3097,6 +3166,7 @@ static int engine_retire(struct engine_owner *owner,int *exit_code) {
     if(owner->settlement_quarantined)return 0;
     if(owner->direct_reaped)return owner->result->group_gone&&owner->result->retired_coverage;
     owner->result->phase="settling";owner->retiring=1;uint64_t at=private_cost.open_cpu;
+    if(!engine_settlement_live(owner))return 0;
     // Observe the original unreaped handle before settlement. A naturally
     // finished command is reaped without signalling its retired incarnation.
     // Failed STOP remains pending until the independent terminal conjunction;
@@ -3221,16 +3291,202 @@ static int engine_retire(struct engine_owner *owner,int *exit_code) {
     (void)engine_charge(owner,log_used,log_used,1);
     owner->result->phase="settled";return !owner->failed;
 }
+static int engine_hold_member_terminal(struct engine_owner *owner,unsigned index) {
+    struct engine_member *member=&owner->members[index];
+    if(!member->state.pid||!member->token_known||!member->state.start_absolute)return 0;
+    // The same admitted final-image and exact RI/audit continuity rules apply.
+    // No empty census repairs a missing slot or observed exec discontinuity.
+    return engine_member_exit(owner,index);
+}
+static int engine_hold_late(struct engine_owner *owner,uint64_t *late) {
+    uint64_t before_cpu,before_user,before_system,user_upper,system_upper;
+    uint64_t width=(uint64_t)owner->slots*1000-1;
+    if(!owner->wait_observed||owner->wait_user==UINT64_MAX||owner->wait_system==UINT64_MAX
+        ||!engine_actual(owner,&before_cpu,&before_user,&before_system)
+        ||!engine_safe_sum(owner->wait_user,width,&user_upper)||!engine_safe_sum(owner->wait_system,width,&system_upper)
+        ||owner->wait_user>before_user||user_upper+1<before_user||system_upper+1<before_system)return 0;
+    *late=system_upper-(before_system?before_system-1:0);return 1;
+}
+static int engine_hold_original_bound(const struct engine_owner *owner) {
+    if(owner->slots<1||owner->slots>2||owner->ticket.pid<=0||owner->ticket.pgid!=owner->ticket.pid
+        ||!owner->ticket.birth||!owner->ticket.start||!owner->ticket.sequence
+        ||(!owner->direct_custody&&!owner->direct_reaped)||(!owner->source_admitted&&!owner->grant.source_complete)
+        ||owner->context->basis->source_coverage!=127||owner->context->basis->command_coverage!=65535
+        ||owner->retired_count<owner->slots||owner->retired_count>8)return 0;
+    for(unsigned i=0;i<owner->slots;i++) {
+        const struct engine_member *m=&owner->members[i];unsigned bound=0;
+        if(m->state.pid<=0||!m->state.birth||!m->state.start_absolute||!m->token_known
+            ||(i==0&&(m->state.pid!=owner->ticket.pid||m->state.birth!=owner->ticket.birth||m->state.start_absolute!=owner->ticket.start)))return 0;
+        for(unsigned j=0;j<owner->retired_count;j++) {
+            const struct engine_incarnation *r=&owner->retired[j];
+            if(r->current&&r->pid==m->state.pid&&r->birth==m->state.birth&&r->start==m->state.start_absolute
+                &&!memcmp(&r->token,&m->token,sizeof(r->token)))bound=1;
+        }
+        if(!bound)return 0;
+    }
+    return 1;
+}
+static int engine_hold_unknown_cost(struct engine_owner *owner,const char *detail) {
+    owner->hold_conservative_sleep=1;
+    (void)engine_failure(owner,"clock_unknown",detail);
+    if(owner->hold_unknown_units<UINT64_MAX)owner->hold_unknown_units++;
+    else private_cost.retained_overflow=1;
+    // Raw counters remain in the retained owner. Defer all persistence/status
+    // I/O to the post-payment lane below; even equality of debt fields cannot
+    // stand in for the successful payment observation that lane requires.
+    engine_sum(&owner->result->post_cpu_ns,UINT64_MAX);engine_max(&owner->result->cleanup_max_ns,UINT64_MAX);
+    // Same canonical unknown3ms mandatory-settlement charge, never unknown-as-
+    // zero. The shared closed-unit owner retains ANY failed scheduling cost,
+    // including this raw unknown. Sleeping below is never reported as payment.
+    owner->hold_prior_payment_pending=1;
+    (void)engine_charge(owner,UINT64_MAX,UINT64_MAX,1);
+    return 0;
+}
+static __attribute__((unused)) int engine_hold_pay_prior(struct engine_owner *owner) {
+    // Field equality alone is insufficient: a failed ending-clock read can
+    // follow debt_paid assignment. Require the actual payment call to finish
+    // successfully before ANY new terminal/roster/wait4/group/status work.
+    int recovering=owner->hold_prior_payment_pending||private_cost.retained_units||private_cost.retained_overflow;
+    owner->hold_prior_payment_pending=1;
+    if(!private_pay_pending()||private_cost.retained_units||private_cost.retained_overflow||private_cost.debt_paid!=private_cost.debt)
+        return engine_hold_unknown_cost(owner,"prior quarantine debt payment is unproven; observation withheld");
+    owner->hold_prior_payment_pending=0;
+    if(!recovering)return 1;
+    owner->hold_conservative_sleep=1;
+    uint64_t used=engine_interval(private_cost.open_cpu,engine_now(owner,CLOCK_THREAD_CPUTIME_ID));
+    engine_sum(&owner->result->post_cpu_ns,used);engine_max(&owner->result->cleanup_max_ns,used);
+    if(!engine_charge(owner,used,used,1))owner->hold_prior_payment_pending=1;
+    return 0; // Booking/payment is this round's only work; revalidate next round.
+}
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+static unsigned source_known_hold_clock_unknown;
+#endif
+static int engine_hold_observe(struct engine_owner *owner) {
+    if(!owner->settlement_quarantined||owner->quarantine_settled)return owner->quarantine_settled;
+    private_cost.custody_hold=1;owner->hold_conservative_sleep=0;
+    if(owner->controller_parent&&getppid()!=owner->controller_parent)owner->owner_lost=1;
+    if(engine_owner_loss_signal)owner->owner_lost=1;
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(source_known_hold_clock_unknown)return engine_hold_unknown_cost(owner,"source-known injected unknown hold entry clock");
+#endif
+    uint64_t wall=0,begin=0;
+    if(!known_clock_ns(CLOCK_MONOTONIC,&wall)||!known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&begin)
+        ||private_cost.open_cpu==UINT64_MAX||begin<private_cost.open_cpu
+        ||wall<owner->hold_last_wall||begin<owner->hold_last_cpu) {
+        return engine_hold_unknown_cost(owner,"quarantine entry clock unknown or reversed; original owner stays alive");
+    }
+    owner->hold_last_wall=wall;owner->hold_last_cpu=begin;
+    if(!engine_hold_pay_prior(owner))return 0;
+    if(owner->hold_unknown_units&&!owner->hold_unknown_recorded) {
+        owner->hold_unknown_recorded=1;
+        if(owner->ledger>=0){(void)engine_record(owner,"hold_clock_unknown");(void)fsync(owner->ledger);}
+    }
+    if(owner->owner_lost&&!owner->owner_lost_recorded) {
+        owner->owner_lost_recorded=1;
+        // This is a new observed owner-loss event, never a retry of the old
+        // quarantine write and never a release or replacement admission.
+        int recorded=owner->ledger>=0&&engine_record(owner,"owner_lost")&&fsync(owner->ledger)==0;
+        char line[256];int n=snprintf(line,sizeof(line),"private_quarantine_owner_lost pid=%d parent=%d recorded=%s outcome=quarantined same_controller_alive=true\n",getpid(),owner->controller_parent,recorded?"true":"false");
+        if(n>0&&(size_t)n<sizeof(line))(void)write(STDERR_FILENO,line,(size_t)n);
+    }
+    int ready=!owner->coverage_lost&&!owner->pending_identity_lost&&engine_hold_original_bound(owner);
+    for(unsigned i=0;i<owner->slots&&ready;i++) {
+        if(owner->hold_terminal_samples==UINT64_MAX)return engine_hold_unknown_cost(owner,"terminal observation counter overflow");
+        owner->hold_terminal_samples++;
+        if(!engine_hold_member_terminal(owner,i))ready=0;
+    }
+    if(ready&&!owner->direct_reaped) {
+        if(owner->hold_roster_checks==UINT64_MAX)return engine_hold_unknown_cost(owner,"roster observation counter overflow");
+        owner->hold_roster_checks++;int closed=0;
+        if(!engine_roster(owner,1,&closed)||!closed)ready=0;
+    }
+    if(ready&&!owner->direct_reaped) {
+        int done=0;
+        if(!known_exited(owner->ticket.pid,&done)||!done)ready=0;
+        else {
+            if(owner->hold_wait4_calls==UINT64_MAX)return engine_hold_unknown_cost(owner,"wait4 observation counter overflow");
+            owner->hold_wait4_calls++;
+            struct rusage usage;int status=0;pid_t reaped=wait4(owner->ticket.pid,&status,WNOHANG,&usage);
+            if(reaped==owner->ticket.pid) {
+                owner->direct_reaped=owner->wait_observed=1;owner->direct_custody=0;retained_group=0;
+                owner->result->reaped++;owner->wait_user=engine_timeval(&usage.ru_utime);owner->wait_system=engine_timeval(&usage.ru_stime);
+                owner->wait_rss=usage.ru_maxrss<0?UINT64_MAX:(uint64_t)usage.ru_maxrss;
+                owner->hold_reap_normal=WIFEXITED(status)&&!engine_cancel_signal;
+            } else ready=0;
+        }
+    }
+    if(ready) {
+        if(owner->hold_group_checks==UINT64_MAX)return engine_hold_unknown_cost(owner,"group observation counter overflow");
+        owner->hold_group_checks++;
+        if(!owner->direct_reaped||!engine_original_group_gone(owner))ready=0;
+    }
+    uint64_t late=0;
+    if(ready&&!owner->hold_late_charged&&!engine_hold_late(owner,&late))ready=0;
+    // Retired/current incarnation absence is checked by the same existing
+    // original-group routine. A late unknown child remains held forever until
+    // there is real continuity evidence, never a timeout/census-based release.
+    uint64_t ended=0,used=UINT64_MAX;
+    if(!known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&ended)||private_cost.open_cpu==UINT64_MAX
+        ||ended<begin||ended<private_cost.open_cpu||ended<owner->hold_last_cpu)
+        return engine_hold_unknown_cost(owner,"quarantine ending clock unknown or reversed; original owner stays alive");
+    used=ended-private_cost.open_cpu;owner->hold_last_cpu=ended;
+    if(owner->hold_rounds==UINT_MAX||used==UINT64_MAX||UINT64_MAX-owner->hold_cpu_total<used) {
+        ready=0;(void)engine_failure(owner,"clock_unknown","quarantine observation cost unknown or overflowing");
+    } else {owner->hold_rounds++;owner->hold_cpu_total+=used;if(used>owner->hold_max_cpu)owner->hold_max_cpu=used;}
+    engine_sum(&owner->result->post_cpu_ns,used);engine_max(&owner->result->cleanup_max_ns,used);
+    uint64_t cost=used;int charge_late=ready&&!owner->hold_late_charged;
+    if(charge_late) {
+        if(!engine_safe_sum(used,late,&cost))cost=UINT64_MAX;
+        // The raw original unknown stays unknown in aggregate metrics; this
+        // independently observed final reconciliation is charged once.
+    }
+    if(!engine_charge(owner,used,cost,1))ready=0;
+    if(charge_late&&cost!=UINT64_MAX) {
+        // This exact late cost now belongs to the shared retained/booked debt,
+        // even when scheduling/payment failed. Do not add it a second time.
+        engine_sum(&owner->result->late_kernel_ns,late);owner->hold_late_charged=1;
+    }
+    uint64_t paid_wall=0;
+    if(!known_clock_ns(CLOCK_MONOTONIC,&paid_wall)||paid_wall<wall||paid_wall<owner->hold_last_wall)
+        return engine_hold_unknown_cost(owner,"quarantine payment clock unknown or reversed; original owner stays alive");
+    owner->hold_last_wall=paid_wall;
+    if(!ready)return 0;
+    if(owner->child_created&&!owner->child_settled){owner->child_settled=1;owner->result->reaped++;}
+    // The result already sent remains the immutable prompt refusal. The ledger
+    // records physical settlement; it never upgrades that result to success.
+    if(!owner->hold_settled_recorded) {
+        owner->hold_settled_recorded=1;
+        (void)engine_record(owner,owner->owner_lost?"settled_refusal_owner_lost":"settled_refusal");
+        if(owner->ledger>=0)(void)fsync(owner->ledger);
+        uint64_t cost=engine_interval(private_cost.open_cpu,engine_now(owner,CLOCK_THREAD_CPUTIME_ID));
+        engine_sum(&owner->result->post_cpu_ns,cost);engine_max(&owner->result->cleanup_max_ns,cost);
+        if(!engine_charge(owner,cost,cost,1))return 0;
+    }
+    if(private_cost.retained_overflow||private_cost.retained_units||private_cost.debt_paid!=private_cost.debt)return 0;
+    owner->quarantine_settled=1;owner->result->group_gone=owner->result->retired_coverage=1;
+    owner->result->phase="settled";owner->result->outcome="refused";
+    engine_current=NULL;dispose_private_engine=NULL;return 1;
+}
+static void engine_quarantine_hold(struct engine_owner *owner) {
+    if(!owner||!owner->settlement_quarantined)return;
+    private_cost.custody_hold=1;
+    // Exactly one existing-wire refusal attempt precedes the lasting hold.
+    if(!owner->refusal_attempted)(void)private_emit(owner->context->outer,owner->context->input_sha256,owner->result);
+    while(!owner->quarantine_settled) {
+        if(engine_hold_observe(owner))break;
+        // Ordinary observation already paid its9x debt. On missing clocks no
+        // settlement is inferred; sleeping prevents an unknown-clock busy loop.
+        usleep(owner->hold_conservative_sleep?27000:10000);
+    }
+}
 static void engine_emergency_dispose(void) {
     struct engine_owner *owner=engine_current;if(!owner)return;
-    // A quarantined original operation has already consumed cleanup/evidence
-    // effects. Atexit must not repeat them, block on waitpid, drop handles or
-    // signal a retired numeric PGID. A persisted claim/ledger records unresolved
-    // identities only; it cannot preserve a dead process's kernel handles.
-    if(owner->settlement_quarantined)return;
-    int status=-1;(void)engine_retire(owner,&status);
-    if(!owner->result->group_gone||!owner->result->retired_coverage)
-        (void)engine_quarantine(owner,"atexit retains unresolved original settlement");
+    if(!owner->settlement_quarantined) {
+        int status=-1;(void)engine_retire(owner,&status);
+        if(!owner->result->group_gone||!owner->result->retired_coverage)
+            (void)engine_quarantine(owner,"atexit retains unresolved original settlement");
+    }
+    if(owner->settlement_quarantined)engine_quarantine_hold(owner);
 }
 static int engine_capture_drain(struct engine_owner *owner) {
     while(owner->output>=0||owner->errors>=0) {
@@ -3268,6 +3524,7 @@ static int engine_command(struct engine_owner *owner,struct engine_prepared *pre
         engine_failure(owner,"resource_limit","fixed argv environment or effect preparation refused");goto prepared_done;
     }
     if(!private_revalidate_context(owner->context)){engine_failure(owner,private_error,private_detail);goto prepared_done;}
+    owner->source_admitted=1;
     // Consumption itself belongs to the paid preparation unit, before the
     // native effect. Failed/unknown creations never refund these reservations.
     owner->result->attempts+=(uint16_t)owner->slots;owner->ticket.sequence=owner->result->attempts;
@@ -3290,7 +3547,7 @@ prepared_done:
     engine_dispose_prepared(prepared);
     if(!owner->failed&&!private_revalidate_context(owner->context))engine_failure(owner,private_error,private_detail);
     if(!owner->failed)(void)engine_capture_drain(owner);
-    engine_close_transferred(owner);
+    if(!owner->settlement_quarantined)engine_close_transferred(owner);
     if(private_failed&&!owner->failed)engine_failure(owner,private_error,private_detail);
     if(form==12&&owner->verified_descendants!=1)return engine_failure(owner,"coverage_unknown","signature did not observe exactly one expected verifier incarnation");
     return !owner->failed;
@@ -3577,13 +3834,14 @@ int private_command_engine(const struct private_engine_context *context,struct p
         (void)private_git_sig_release(&engine_signature_storage);
         free(input);free(capture);(void)private_end_unit(private_cost.open_cpu);goto refused;
     }
-    struct sigaction ignore,old_pipe,old_term,old_child;memset(&ignore,0,sizeof(ignore));ignore.sa_handler=SIG_IGN;sigemptyset(&ignore.sa_mask);
+    struct sigaction ignore,old_pipe,old_term,old_child,old_hup;memset(&ignore,0,sizeof(ignore));ignore.sa_handler=SIG_IGN;sigemptyset(&ignore.sa_mask);
     int pipe_set=sigaction(SIGPIPE,&ignore,&old_pipe)==0;ignore.sa_handler=engine_cancel_handler;
     int term_set=sigaction(SIGTERM,&ignore,&old_term)==0;engine_cancel_signal=0;
+    ignore.sa_handler=engine_owner_loss_handler;int hup_set=sigaction(SIGHUP,&ignore,&old_hup)==0;engine_owner_loss_signal=0;
     ignore.sa_handler=SIG_DFL;
     int child_set=sigaction(SIGCHLD,&ignore,&old_child)==0;
     int ledger=openat(context->outer->output.fd,"ledger.ndjson",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
-    const unsigned order[15]={13,14,0,1,2,3,4,5,6,7,8,9,10,11,12};int all=pipe_set&&term_set&&child_set&&ledger>=0;
+    const unsigned order[15]={13,14,0,1,2,3,4,5,6,7,8,9,10,11,12};int all=pipe_set&&term_set&&hup_set&&child_set&&ledger>=0;
     if(!all)private_fail("source_changed","private signal disposition or exclusive raw-ledger setup failed");
     size_t ledger_bytes=0;unsigned record_count=0;
     if(all)all=engine_signature_prepare_record(context,&engine_signature_storage,ledger,&ledger_bytes,&record_count);
@@ -3597,6 +3855,7 @@ int private_command_engine(const struct private_engine_context *context,struct p
         if(engine_current){private_fail("settlement_unknown","prior original effect remains retained");all=0;break;}
         struct engine_owner *owner=&engine_storage;memset(owner,0,sizeof(*owner));
         owner->context=context;owner->result=result;owner->capture=capture;owner->ledger=ledger;
+        owner->allocations_owned=1;owner->controller_parent=private_cost.original_parent?private_cost.original_parent:getppid();
         owner->git_signature=&engine_signature_storage;owner->signature_buffer=input;owner->signature_capacity=ENGINE_INPUT_MAX;
         owner->ledger_bytes=ledger_bytes;owner->record_count=record_count;
         struct engine_prepared prepared;int status=-1;
@@ -3609,6 +3868,7 @@ int private_command_engine(const struct private_engine_context *context,struct p
     // ambiguous original effect keeps its fixed owner and borrowed buffers;
     // atexit may use only its retained audit identities, never a reused PGID.
     if(engine_current||engine_signature_storage.quarantined) {result->phase="quarantined";result->outcome="quarantined";goto refused;}
+    if(hup_set&&sigaction(SIGHUP,&old_hup,NULL)!=0)all=private_fail("settlement_unknown","private owner-loss disposition restore unresolved");
     if(child_set&&sigaction(SIGCHLD,&old_child,NULL)!=0)all=private_fail("settlement_unknown","private child disposition restore unresolved");
     if(term_set&&sigaction(SIGTERM,&old_term,NULL)!=0)all=private_fail("settlement_unknown","private cancel disposition restore unresolved");
     if(pipe_set&&sigaction(SIGPIPE,&old_pipe,NULL)!=0)all=private_fail("settlement_unknown","private pipe disposition restore unresolved");
@@ -3829,6 +4089,10 @@ static int private_sample_rss(void) {
     if(info.pti_resident_size>96*1024*1024)return private_fail("resource_limit","probe resident-memory ceiling exceeded");return 1;
 }
 static int private_emit(const struct private_input *v,const char *input_hash,struct private_engine_result *result) {
+    struct engine_owner *held=engine_current&&engine_current->result==result&&engine_current->settlement_quarantined?engine_current:NULL;
+    int can_emit=!engine_current||held;
+    if(held&&held->refusal_attempted)return held->refusal_complete;
+    if(held)held->refusal_attempted=1;
     (void)private_sample_rss();private_result_cost(result);
     // The fixed JSON is a PRE-RESULT cutoff, like the shared worker snapshot.
     // Formatter/write/close/paid-exit-tail spans are separate raw observations;
@@ -3838,7 +4102,7 @@ static int private_emit(const struct private_input *v,const char *input_hash,str
     uint64_t format_end=clock_ns(CLOCK_THREAD_CPUTIME_ID);
     int format_paid=private_end_unit(format_start);uint64_t format_inclusive=private_cost.last_unit;
     int complete=0,persisted=0;uint64_t write_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);
-    if(format_paid&&len>0&&(size_t)len<sizeof(bytes)&&v->output.fd>=0&&!engine_current) {
+    if(can_emit&&(format_paid||held)&&len>0&&(size_t)len<sizeof(bytes)&&v->output.fd>=0) {
         int fd=openat(v->output.fd,"result.json",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
         if(fd>=0) {
             persisted=write(fd,bytes,(size_t)len)==len;
@@ -3850,7 +4114,7 @@ static int private_emit(const struct private_input *v,const char *input_hash,str
     if(!private_end_unit(write_start))persisted=0;
     write_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);
     int flags=fcntl(STDOUT_FILENO,F_GETFL);
-    if(format_paid&&len>0&&(size_t)len<sizeof(bytes)&&flags>=0&&fcntl(STDOUT_FILENO,F_SETFL,flags|O_NONBLOCK)==0) {
+    if(can_emit&&(format_paid||held)&&len>0&&(size_t)len<sizeof(bytes)&&flags>=0&&fcntl(STDOUT_FILENO,F_SETFL,flags|O_NONBLOCK)==0) {
         ssize_t n=write(STDOUT_FILENO,bytes,(size_t)len);complete=n==len;
         if(fcntl(STDOUT_FILENO,F_SETFL,flags)!=0)complete=0;
     }
@@ -3866,6 +4130,7 @@ static int private_emit(const struct private_input *v,const char *input_hash,str
         (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,format_paid?"true":"false",write_paid?"true":"false");
     fflush(stderr);
     if(!private_end_unit(terminal_start))fprintf(stderr,"private_candidate_terminal_gate=failed code=%s actual_exit=81\n",private_error);
+    if(held)held->refusal_complete=(unsigned)complete;
     return complete&&persisted&&format_paid&&write_paid&&!private_failed;
 }
 static int private_dispatch(int outer_ready,int inner_ready,int original_ready,
@@ -3874,7 +4139,7 @@ static int private_dispatch(int outer_ready,int inner_ready,int original_ready,
     return private_command_engine(context,result);
 }
 static int private_candidate(const char *self,const char *path,const char *expected) {
-    memset(&private_cost,0,sizeof(private_cost));private_failed=0;private_error="input_invalid";private_detail="strict private input decoding failed";private_cost.entry=clock_ns(CLOCK_MONOTONIC);private_cost.open_cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    memset(&private_cost,0,sizeof(private_cost));private_failed=0;private_error="input_invalid";private_detail="strict private input decoding failed";private_cost.entry=clock_ns(CLOCK_MONOTONIC);private_cost.open_cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID);private_cost.original_parent=getppid();
     if(private_cost.entry>UINT64_MAX-30000000000ULL){fprintf(stderr,"private candidate refused: clock_unknown entry overflow\n");return 81;}
     private_cost.deadline=private_cost.entry+30000000000ULL;
     uint64_t priority_at=clock_ns(CLOCK_THREAD_CPUTIME_ID);int priority=engine_owner_priority();
@@ -3911,7 +4176,23 @@ static int private_candidate(const char *self,const char *path,const char *expec
         (void)private_close(fd);
     } else {result.phase="quarantined";result.outcome="quarantined";result.group_gone=result.retired_coverage=0;}
     int emitted=private_emit(&input,hash,&result);
-    if(!engine_current&&!engine_signature_storage.quarantined&&input.output.fd>=0) {
+    if(engine_current&&engine_current->settlement_quarantined) {
+        struct engine_owner *held=engine_current;engine_quarantine_hold(held);
+        // All releases follow the same controller's actual terminal proof.
+        engine_close_transferred(held);
+        struct private_git_sig_temp *sig=held->git_signature;
+        if(sig&&sig->initialized) {
+            int *fds[]={&sig->signature_fd,&sig->transient_fd,&sig->scratch_fd};
+            for(unsigned i=0;i<3;i++)if(*fds[i]>=0){int owned=*fds[i];*fds[i]=-1;(void)private_close(owned);}
+            // GS2 semantic/quarantine flags remain unchanged: closing owned
+            // descriptors after group proof cannot turn a failed proof valid.
+        }
+        if(held->allocations_owned){free(held->signature_buffer);free(held->capture);held->signature_buffer=held->capture=NULL;held->allocations_owned=0;(void)private_end_unit(private_cost.open_cpu);}
+        private_guards_dispose();
+        for(unsigned i=0;i<2;i++){struct private_dir *d=i==0?&input.prefix:&input.repo;if(d->fd>=0){private_close(d->fd);d->fd=-1;}}
+        (void)private_close(fd);
+    }
+    if(!engine_current&&input.output.fd>=0) {
         (void)private_close(input.output.fd);input.output.fd=-1;
         uint64_t at=private_cost.open_cpu;
         fprintf(stderr,"private_candidate_exit_tail output_closed=true close_max_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu ordinary_max_ns=%llu\n",
