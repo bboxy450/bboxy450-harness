@@ -198,6 +198,11 @@ and the exact shared checker copies. These checks do not replace upstream terms.
 The recipe, byte/custody validators, regression witnesses and finite models in
 `scripts/dream-proof-tools.py`, `tests/dream_proof_tools.rs` and
 `tests/formal/dream_proof_tools.rs` are project-owned under this policy.
+The strict `closure-boundary.schema.json`, synthetic canonical byte vectors and
+their offline validator retain this same origin and absolute policy URL. The
+Mach-O metadata interpretation and active-cache membership capture are
+**Inspired by** Apple's public SDK `mach-o/loader.h`, `mach-o/dyld.h` and
+`mach-o/dyld_images.h`; no platform implementation is copied or certified.
 
 **Adapted from Git 2.54.0** (https://github.com/git/git/tree/v2.54.0),
 **GnuPG 2.5.24**, **Libgpg-error 1.61**, **Libgcrypt 1.12.4**, **Libassuan 3.0.2** and **nPth 1.8**

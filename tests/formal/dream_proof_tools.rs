@@ -1192,6 +1192,332 @@ pub fn signature_corpus(control: u8) -> Model {
     m
 }
 
+/// C codec authority is the signed b26d7cd3432e9cae3e6c68492afd73a82cc8f2e9 pair:
+/// schema d70948ec375dae099ea1dac0b92dfb30ff87d7fcac94c98f42caa1c0ba2da8ec;
+/// vectors bff32c1afb483980952a6761918d4005c9f1e12b66f3d7aaaa88f1b9afe09740.
+/// This is builder metadata/checkpoint ordering, not a Q2 controller or native
+/// qualification. Complete candidate images/archives are checked; OS-internal
+/// images/edges and any runtime catalogue are outside the prepared representation.
+/// Finite static predicates below factor the signed shape/context constraints;
+/// concrete JSON/u64/Ref/Mach-O/member-frame/byte limits stay codec witnesses.
+/// Two finite platforms and incarnations, at most two physical changes, one
+/// publication and two checkpoint receipts are explored. Physical changes do NOT
+/// imply observations. Only an actual mismatch observation makes invalidation
+/// sticky; an entirely unobserved A-B-A remains possible and unproved.
+/// Only local rejection of an already complete invalid artifact is weakly fair.
+pub fn closure_boundary(control: u8) -> Model {
+    let suffix = match control {
+        1 => "Shape",
+        2 => "Premise",
+        3 => "CandidateGraph",
+        4 => "LoadSequence",
+        5 => "LoadMode",
+        6 => "LoadTarget",
+        7 => "StaticSelection",
+        8 => "ImmutableContext",
+        9 => "PartialPublication",
+        10 => "Bounds",
+        11 => "BirthContext",
+        12 => "SettleContext",
+        13 => "ObservedABA",
+        _ => "",
+    };
+    let mut m = base(
+        &format!("DreamProofToolsClosureBoundary{suffix}"),
+        control != 0,
+        &[
+            ("published", 2, 0), // absent, partial, atomic complete
+            ("canonicalShape", 1, 0),
+            ("platformPremise", 1, 0),
+            ("candidateGraphComplete", 1, 0),
+            ("loadOrderMatches", 1, 0),
+            ("target", 5, 0), // cache, known candidate, rpath, foreign, unknown, root objc-env
+            ("mode", 5, 0),   // load, weak, reexport, upward, lazy, unknown
+            ("perToolStaticBinding", 1, 0),
+            ("immutableContext", 1, 0),
+            ("withinBounds", 1, 0),
+            ("basisPlatform", 1, 0),
+            ("actualPlatform", 1, 0),
+            ("physicalChanges", 2, 0),
+            ("basisIncarnation", 2, 0),
+            ("mismatchSticky", 1, 0),
+            ("birthCheckpoint", 1, 0),
+            ("settleCheckpoint", 1, 0),
+            ("metadataEligible", 1, 0), // conditional metadata only; never runtime approval
+            ("capturedLoads", 2, 0),
+            ("preparedLoads", 2, 0),
+            ("sequenceKind", 2, 0), // one load, real repeated load, two distinct loads
+            ("staticSelection", 2, 0), // none, one owner, shared archive/different per-tool selection
+            ("birthPlatform", 1, 0),
+            ("birthIncarnation", 2, 0),
+            ("settlePlatform", 1, 0),
+            ("settleIncarnation", 2, 0),
+            ("observedMismatch", 1, 0),
+            ("capturedMode", 5, 0),
+            ("rejected", 1, 0),
+            ("currentIncarnation", 2, 0),
+        ],
+    );
+    let prepare = |m: &mut Model,
+                   name: &str,
+                   mode: i64,
+                   target: i64,
+                   sequence: i64,
+                   invalid: Option<usize>| {
+        let count = if sequence == 0 { 1 } else { 2 };
+        let mut updates = vec![
+            (0, Int(1)),
+            (5, Int(target)),
+            (6, Int(mode)),
+            (18, Int(count)),
+            (19, Int(count)),
+            (20, Int(sequence)),
+            (21, Int(2)),
+            (27, Int(mode)),
+        ];
+        for field in [1, 2, 3, 4, 7, 8, 9] {
+            updates.push((field, Int(i64::from(invalid != Some(field)))));
+        }
+        act(m, name, eq(0, 0), &updates);
+    };
+    for mode in 0..=4 {
+        for target in 0..=1 {
+            for sequence in 0..=2 {
+                prepare(
+                    &mut m,
+                    &format!("PrepareMode{mode}Target{target}Sequence{sequence}"),
+                    mode,
+                    target,
+                    sequence,
+                    None,
+                );
+            }
+        }
+    }
+    for (name, field) in [
+        ("PrepareWrongCanonicalFieldOrNullDiscriminant", 1),
+        ("PrepareMissingOrWrongTrustedPlatformPremise", 2),
+        ("PrepareUnknownDuplicateOrUnreachableCandidate", 3),
+        ("PrepareReorderedRawLoadsOrRpaths", 4),
+        ("PrepareCrossToolMemberCountHashOrMapBinding", 7),
+        ("PrepareChangedUuidSourceFileOutputOrMapContext", 8),
+        ("PrepareExceededNodeArrayEdgeDepthOrByteBound", 9),
+    ] {
+        prepare(&mut m, name, 0, 0, 1, Some(field));
+    }
+    prepare(&mut m, "PrepareDroppedRepeatedLoad", 0, 0, 1, None);
+    // This case has valid enum/shape facts but differs from its immutable source
+    // sequence. It checks a dropped occurrence, not a blanket duplicate ban.
+    let dropped = m.actions.last_mut().unwrap();
+    dropped.updates.retain(|(field, _)| *field != 19);
+    dropped.updates.push((19, Int(1)));
+    prepare(&mut m, "PrepareUnknownLoadMode", 5, 0, 0, None);
+    for target in 2..=5 {
+        prepare(
+            &mut m,
+            &format!("PrepareUnsupportedTarget{target}"),
+            0,
+            target,
+            0,
+            None,
+        );
+    }
+    prepare(
+        &mut m,
+        "PrepareChangedValidModeAgainstCapturedImage",
+        1,
+        0,
+        0,
+        None,
+    );
+    let changed_mode = m.actions.last_mut().unwrap();
+    changed_mode.updates.retain(|(field, _)| *field != 27);
+    changed_mode.updates.push((27, Int(0)));
+    act(
+        &mut m,
+        "PublishAtomicCompleteClosure",
+        eq(0, 1),
+        &[(0, Int(2))],
+    );
+    let sequence_matches = eq(4, 1).and(Var(18).eq(Var(19)));
+    let context_matches = eq(8, 1).and(Var(6).eq(Var(27)));
+    let static_basis = all([
+        eq(1, 1),
+        eq(2, 1),
+        eq(3, 1),
+        sequence_matches.clone(),
+        Var(6).lt(Int(5)),
+        Var(5).lt(Int(2)),
+        eq(7, 1),
+        context_matches.clone(),
+        eq(9, 1),
+    ]);
+    let controlled_basis = all([
+        if control == 1 { Bool(true) } else { eq(1, 1) },
+        if control == 2 { Bool(true) } else { eq(2, 1) },
+        if control == 3 { Bool(true) } else { eq(3, 1) },
+        if control == 4 {
+            Bool(true)
+        } else {
+            sequence_matches.clone()
+        },
+        if control == 5 {
+            Bool(true)
+        } else {
+            Var(6).lt(Int(5))
+        },
+        if control == 6 {
+            Bool(true)
+        } else {
+            Var(5).lt(Int(2))
+        },
+        if control == 7 { Bool(true) } else { eq(7, 1) },
+        if control == 8 {
+            Bool(true)
+        } else {
+            context_matches.clone()
+        },
+        if control == 10 { Bool(true) } else { eq(9, 1) },
+    ]);
+    let platform_matches = Var(10).eq(Var(11));
+    let incarnation_matches = Var(13).eq(Var(29));
+    act(
+        &mut m,
+        "ObserveAndBindBeforeBirth",
+        all([
+            if control == 9 {
+                eq(0, 1).or(eq(0, 2))
+            } else {
+                eq(0, 2)
+            },
+            controlled_basis,
+            eq(14, 0),
+            eq(15, 0),
+            eq(28, 0),
+            if control == 11 {
+                Bool(true)
+            } else {
+                platform_matches.clone().and(incarnation_matches.clone())
+            },
+        ]),
+        &[(15, Int(1)), (22, Var(11)), (23, Var(29))],
+    );
+    act(
+        &mut m,
+        "PhysicalPlatformChangeWithoutImpliedObservation",
+        all([Int(0).lt(Var(0)), Var(12).lt(Int(2))]),
+        &[(11, Int(1).minus(Var(11))), (12, Var(12).plus(Int(1)))],
+    );
+    act(
+        &mut m,
+        "AdvanceActualHostIncarnation",
+        all([Int(0).lt(Var(0)), Var(29).lt(Int(2))]),
+        &[(29, Var(29).plus(Int(1)))],
+    );
+    act(
+        &mut m,
+        "ObserveActualCheckpointMismatch",
+        all([
+            Int(0).lt(Var(0)),
+            platform_matches
+                .clone()
+                .and(incarnation_matches.clone())
+                .negate(),
+        ]),
+        &[
+            (14, Int(1)),
+            (16, Int(0)),
+            (17, Int(0)),
+            (26, Int(1)),
+            (28, Int(1)),
+        ],
+    );
+    act(
+        &mut m,
+        "ObserveAfterActualSettlement",
+        all([
+            eq(15, 1),
+            eq(14, 0),
+            eq(28, 0),
+            if control == 12 {
+                Bool(true)
+            } else {
+                platform_matches.clone().and(incarnation_matches.clone())
+            },
+        ]),
+        &[(16, Int(1)), (24, Var(11)), (25, Var(29))],
+    );
+    if control == 13 {
+        act(
+            &mut m,
+            "ForgetObservedMismatchAfterPlatformReturns",
+            all([eq(26, 1), platform_matches, incarnation_matches]),
+            &[(14, Int(0)), (28, Int(0))],
+        );
+    }
+    act(
+        &mut m,
+        "MarkConditionalMetadataEligible",
+        all([eq(15, 1), eq(16, 1), eq(14, 0), eq(28, 0)]),
+        &[(17, Int(1))],
+    );
+    let reject = m.actions.len();
+    let invalid_complete = eq(0, 2).and(static_basis.negate());
+    act(
+        &mut m,
+        "RejectCompleteUnsupportedClosureLocally",
+        invalid_complete.clone(),
+        &[(17, Int(0)), (28, Int(1))],
+    );
+    for (name, required) in [
+        ("ClosureRequiresCanonicalTypedShape", eq(1, 1)),
+        ("ClosureRequiresExplicitPlatformPremise", eq(2, 1)),
+        ("ClosureRequiresCompleteCandidateGraph", eq(3, 1)),
+        ("ClosurePreservesLoadOrderAndMultiplicity", sequence_matches),
+        ("ClosureAllowsExactlyFiveLoadModes", Var(6).lt(Int(5))),
+        (
+            "ClosureAllowsBoundCandidateOrCacheTargets",
+            Var(5).lt(Int(2)),
+        ),
+        ("ClosureRequiresPerToolStaticSelection", eq(7, 1)),
+        (
+            "ClosureMatchesImmutableImageMapMemberContext",
+            context_matches,
+        ),
+        ("ClosureRequiresAtomicCompletePublication", eq(0, 2)),
+        ("ClosureRetainsEveryCountDepthAndByteBound", eq(9, 1)),
+        (
+            "ClosureBirthCheckpointMatchesBasis",
+            Var(22).eq(Var(10)).and(Var(23).eq(Var(13))),
+        ),
+    ] {
+        safe(&mut m, name, eq(15, 0).or(required));
+    }
+    safe(
+        &mut m,
+        "ClosureSettleCheckpointMatchesBasis",
+        eq(16, 0).or(Var(24).eq(Var(10)).and(Var(25).eq(Var(13)))),
+    );
+    safe(
+        &mut m,
+        "ClosureObservedMismatchIsSticky",
+        eq(26, 0).or(eq(14, 1)),
+    );
+    safe(
+        &mut m,
+        "ClosureEligibilityRequiresBothCheckpoints",
+        eq(17, 0).or(all([eq(15, 1), eq(16, 1), eq(14, 0), eq(28, 0)])),
+    );
+    progress(
+        &mut m,
+        "CompleteUnsupportedClosureLocallyRefuses",
+        invalid_complete,
+        eq(28, 1),
+        vec![reject],
+    );
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = Vec::new();
     for (family, count) in [
@@ -1202,6 +1528,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (source_seven as fn(u8) -> Model, 8),
         (pretest_basis as fn(u8) -> Model, 14),
         (signature_corpus as fn(u8) -> Model, 7),
+        (closure_boundary as fn(u8) -> Model, 13),
     ] {
         for control in 0..=count {
             out.push((
@@ -1527,4 +1854,167 @@ fn dream_proof_tools_signature_corpus_good_model_is_nonvacuous() {
             .any(|s| s[0] == 1 && s[8] != s[1] && s[3] == s[4] && s[9] == 0),
         "matching signature bytes do not silently rebind a changed case"
     );
+}
+
+#[test]
+fn dream_proof_tools_closure_boundary_controls_are_causal() {
+    for (control, property) in [
+        (1, "ClosureRequiresCanonicalTypedShape"),
+        (2, "ClosureRequiresExplicitPlatformPremise"),
+        (3, "ClosureRequiresCompleteCandidateGraph"),
+        (4, "ClosurePreservesLoadOrderAndMultiplicity"),
+        (5, "ClosureAllowsExactlyFiveLoadModes"),
+        (6, "ClosureAllowsBoundCandidateOrCacheTargets"),
+        (7, "ClosureRequiresPerToolStaticSelection"),
+        (8, "ClosureMatchesImmutableImageMapMemberContext"),
+        (9, "ClosureRequiresAtomicCompletePublication"),
+        (10, "ClosureRetainsEveryCountDepthAndByteBound"),
+        (11, "ClosureBirthCheckpointMatchesBasis"),
+        (12, "ClosureSettleCheckpointMatchesBasis"),
+        (13, "ClosureObservedMismatchIsSticky"),
+    ] {
+        let bad = closure_boundary(control).check(100_000).unwrap();
+        assert!(
+            bad.violations
+                .iter()
+                .any(|v| v.property == property && v.cycle.is_empty()),
+            "closure control {control} did not reach safety invariant {property}"
+        );
+        if control == 13 {
+            assert!(bad.states.iter().any(|s| s[12] == 2 && s[26] == 1 && s[17] == 1),
+                "observed mismatch then A return must causally admit stale metadata in the broken control");
+        }
+    }
+}
+
+#[test]
+fn dream_proof_tools_closure_boundary_good_model_is_nonvacuous() {
+    let good = closure_boundary(0).check(100_000).unwrap();
+    assert!(good.violations.is_empty());
+    for mode in 0..=4 {
+        for target in 0..=1 {
+            assert!(
+                good.states
+                    .iter()
+                    .any(|s| s[6] == mode && s[5] == target && s[17] == 1),
+                "five-mode candidate/cache binding {mode}/{target} must be usable"
+            );
+        }
+    }
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[20] == 1 && s[18] == 2 && s[19] == 2 && s[17] == 1),
+        "a real repeated raw load must remain valid with both occurrences retained"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[21] == 2 && s[7] == 1 && s[17] == 1),
+        "shared archive with different per-tool selections must not be collapsed globally"
+    );
+    assert!(
+        good.states.iter().any(|s| s[12] == 2
+            && s[11] == s[10]
+            && s[26] == 1
+            && s[14] == 1
+            && s[17] == 0),
+        "an actual observed mismatch followed by A return must stay invalidated"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[12] == 2 && s[11] == s[10] && s[26] == 0 && s[17] == 1),
+        "entirely unobserved transient changes are deliberately outside checkpoint proof"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[0] == 1 && s[15] == 0 && s[17] == 0),
+        "partial publication is reachable but never consumed"
+    );
+}
+
+#[test]
+fn dream_proof_tools_closure_boundary_signed_authority_is_exact() {
+    use sha2::{Digest, Sha256};
+    let schema = include_bytes!("../fixtures/dream-proof-tools/closure-boundary.schema.json");
+    let vectors = include_bytes!("../fixtures/dream-proof-tools/closure-boundary-vectors.json");
+    assert_eq!(
+        format!("{:x}", Sha256::digest(schema)),
+        "d70948ec375dae099ea1dac0b92dfb30ff87d7fcac94c98f42caa1c0ba2da8ec"
+    );
+    assert_eq!(
+        format!("{:x}", Sha256::digest(vectors)),
+        "bff32c1afb483980952a6761918d4005c9f1e12b66f3d7aaaa88f1b9afe09740"
+    );
+    let schema: serde_json::Value = serde_json::from_slice(schema).unwrap();
+    let vectors: serde_json::Value = serde_json::from_slice(vectors).unwrap();
+    assert_eq!(
+        vectors["schema_sha256"],
+        "d70948ec375dae099ea1dac0b92dfb30ff87d7fcac94c98f42caa1c0ba2da8ec"
+    );
+    assert_eq!(
+        schema["$defs"]["Platform"]["properties"]["premise"]["const"],
+        "trusted_platform_boundary/1"
+    );
+    for (key, limit) in [
+        ("candidate_nodes", 64),
+        ("array_items", 64),
+        ("edges", 128),
+        ("depth", 10),
+        ("basis_bytes", 49_152),
+        ("aggregate_bytes", 131_072),
+        ("descriptor_bytes", 16_384),
+        ("source_lock_bytes", 32_768),
+        ("result_bytes_including_lf", 65_536),
+        ("receipt_bytes_separate", 32_768),
+    ] {
+        assert_eq!(schema["x-budgets"][key].as_u64(), Some(limit));
+    }
+    let rows = vectors["vectors"].as_array().unwrap();
+    for id in [
+        "valid-complete-candidate-graph",
+        "valid-repeated-load",
+        "valid-repeated-member",
+        "valid-mode-load",
+        "valid-mode-weak",
+        "valid-mode-reexport",
+        "valid-mode-upward",
+        "valid-mode-lazy",
+    ] {
+        assert!(rows
+            .iter()
+            .any(|row| row["id"] == id && row["expected"] == "accept"));
+    }
+    for (id, invariant) in [
+        ("duplicate-image", "candidate_identity"),
+        ("unreachable-image", "reachability"),
+        ("dropped-load", "frozen_image_binding"),
+        ("reordered-load", "frozen_image_binding"),
+        ("inserted-repeated-load", "frozen_image_binding"),
+        ("changed-mode", "frozen_image_binding"),
+        ("unknown-candidate", "load_resolution"),
+        ("noncache-load", "cache_boundary"),
+        ("rpath-load", "load_resolution"),
+        ("direct-libobjc-env", "direct_libobjc_env"),
+        ("changed-member-count", "frozen_map_binding"),
+        ("changed-member-hash", "frozen_map_binding"),
+        ("changed-map-ref", "frozen_map_binding"),
+        ("missing-shared-output-owner", "link_map_ownership"),
+        ("edge129-plus-statics", "edge_bound"),
+        ("node65-combined-arrays", "node_bound"),
+        ("platform-before-changed", "platform_observed_change"),
+        ("platform-after-changed", "platform_observed_change"),
+        ("platform-observed-aba-sticky", "platform_observed_change"),
+        ("stale-incarnation-aba", "stale_incarnation"),
+        ("partial-publication", "partial_publication"),
+    ] {
+        assert!(
+            rows.iter().any(|row| row["id"] == id
+                && row["expected"] == "reject"
+                && row["invariant"] == invariant),
+            "signed control {id}/{invariant} must remain the model's concrete witness"
+        );
+    }
 }

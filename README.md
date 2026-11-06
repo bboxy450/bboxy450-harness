@@ -328,13 +328,19 @@ six-source baseline, authenticates the new source and preserves the mandatory
 library check. It substitutes no Homebrew binary libraries. Joined qualification
 still requires Root's frozen canonical private-candidate probe; normal Git mode
 remains `verification_unproven`.
-The builder emits one typed `provenance/pretest-basis.json` from real compiler,
-generated configuration, static link maps, recursive Mach-O/platform identities,
-the fixed command profile, a public-only presigned fixture and conditional source
-review. Six descriptor projections share that file. Hashes and review coverage
-do not grant runtime authority; missing canonical joined evidence still refuses.
-The current Darwin platform graph exceeds the ICD's 128-edge bound. The builder
-retains that exact failure and refuses emission rather than dropping load edges.
+The typed `provenance/pretest-basis.json` binds compiler, generated configuration,
+candidate Mach-O images, ordered static selections, the fixed command profile,
+public-only presigned fixture and conditional source review. Six descriptor
+projections share that file. The single signed `closure-boundary.schema.json`
+and its byte vectors define complete candidate loads with their modes, order and
+repetitions. Selected-member hashes use exact length-prefixed raw names per
+tool/output. OS internals use the explicit `trusted_platform_boundary/1` premise;
+only candidate destinations are checked for bound shared-cache membership.
+Before-birth/after-settle observations cannot establish absence of unseen changes.
+The earlier recursive-platform graph exceeded 128 edges; that failed build and
+all original evidence remain retained. `check --closure-projection-only` through
+the recipe records an explicitly incomplete C projection from the retained run,
+without executing its tools or creating a Basis, qualification or receipt.
 `make test-dream-proof-tools` retains canonical native/ledger results and refuses
 to certify a real pair. A repeated component check reuses exact retained results,
 including failures, rather than retrying timing gates.
@@ -342,4 +348,5 @@ including failures, rather than retrying timing gates.
 No Root admission is produced by this private build.
 Q2's separate current-source approval, real Git→GPG component test, qualifying
 publication, corrupt-proof negative and four-job product gates remain required.
-See the fixture README for source review limits and upstream license mapping.
+The real complete Basis fit and joined qualification remain unproven. See the
+fixture README for source review limits and upstream license mapping.

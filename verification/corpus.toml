@@ -2487,3 +2487,73 @@ frontend = "project"
 name = "BrokenHarnessDreamProofToolsSignatureCorpusDirectLaunch"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamProofToolsClosureBoundary"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsClosureBoundaryShape"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsClosureBoundaryPremise"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsClosureBoundaryCandidateGraph"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsClosureBoundaryLoadSequence"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsClosureBoundaryLoadMode"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsClosureBoundaryLoadTarget"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsClosureBoundaryStaticSelection"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsClosureBoundaryImmutableContext"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsClosureBoundaryPartialPublication"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsClosureBoundaryBounds"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsClosureBoundaryBirthContext"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsClosureBoundarySettleContext"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsClosureBoundaryObservedABA"
+expected = "safety"
+frontend = "project"
