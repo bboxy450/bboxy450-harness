@@ -33,7 +33,7 @@ pub(super) fn model(control: u8) -> Model {
             ("foreign_kill", 1, 0),
             ("temporary", 1, 0),
             ("cancelled", 1, 0),
-            ("after_cancel_dispatch", 1, 0),
+            ("after_retirement_dispatch", 1, 0),
             ("complete_admission", 1, 0),
             ("cross_scope_effect", 1, 0),
         ],
@@ -98,6 +98,18 @@ pub(super) fn model(control: u8) -> Model {
     );
     act(
         &mut m,
+        "CompleteWithoutEffects",
+        all([eq(0, 2), eq(3, 0), eq(11, 0), Var(2).eq(Var(1))]),
+        &[
+            (0, Int(3)),
+            (5, Int(1)),
+            (6, Var(2)),
+            (7, Int(0)),
+            (8, Int(1)),
+        ],
+    );
+    act(
+        &mut m,
         "AdvanceEpoch",
         Var(1).lt(Int(2)),
         &[(1, Var(1).plus(Int(1))), (5, Int(0))],
@@ -144,6 +156,12 @@ pub(super) fn model(control: u8) -> Model {
             all([eq(0, 2), eq(11, 1), eq(3, 0)]),
             &[(3, Int(1)), (12, Int(1))],
         );
+        act(
+            &mut m,
+            "BrokenDispatchAfterTerminal",
+            all([eq(0, 3).or(eq(0, 4)), eq(3, 0)]),
+            &[(3, Int(1)), (12, Int(1))],
+        );
     }
     if control == 5 {
         act(
@@ -164,7 +182,7 @@ pub(super) fn model(control: u8) -> Model {
     safe(&mut m, "NoRepeatedEffect", Var(3).le(Int(1)));
     safe(&mut m, "CurrentResultOnly", eq(5, 0).or(Var(6).eq(Var(1))));
     safe(&mut m, "NeverKillReusedIdentity", eq(9, 0));
-    safe(&mut m, "NoNewEffectAfterCancel", eq(12, 0));
+    safe(&mut m, "NoNewEffectAfterRetirement", eq(12, 0));
     safe(&mut m, "NoPartialAdmissionExecutes", eq(0, 0).or(eq(13, 1)));
     safe(&mut m, "NativeEffectKeepsCapturedScope", eq(14, 0));
     progress(

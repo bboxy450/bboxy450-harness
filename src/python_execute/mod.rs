@@ -539,14 +539,13 @@ impl Service {
                     timeout,
                 )
                 .await;
+            let was_cancelled = current.cancel.is_cancelled();
+            // Retire callback admission on every terminal outcome. A delayed
+            // socket or a copied token cannot reopen a completed execution.
+            current.cancel.cancel();
             if let Err(error) = result {
                 let mut record = current.record.lock().await;
-                record.status = if current.cancel.is_cancelled() {
-                    "cancelled"
-                } else {
-                    "failed"
-                }
-                .into();
+                record.status = if was_cancelled { "cancelled" } else { "failed" }.into();
                 record.error = Some(error);
             }
             let _ = service.persist(&current).await;

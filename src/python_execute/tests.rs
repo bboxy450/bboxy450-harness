@@ -149,6 +149,46 @@ impl Rig {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn completed_execution_rejects_late_real_callback_frames() {
+    let rig = Rig::start().await;
+    let done = rig.run("emit(1)").await;
+    let id: Ulid = done["execution_id"].as_str().unwrap().parse().unwrap();
+    let run = rig.service.0.runs.lock().await.get(&id).cloned().unwrap();
+    let before = serde_json::to_value(rig.service.get_record(id).await.unwrap()).unwrap();
+    for (method, arguments) in [
+        ("call", json!({"server":"a","tool":"write","arguments":{}})),
+        ("emit", json!({"value":2})),
+    ] {
+        let mut stream = tokio::net::UnixStream::connect(rig.service.0.endpoint.socket())
+            .await
+            .unwrap();
+        let mut bytes=serde_json::to_vec(&json!({"jsonrpc":"2.0","id":1,"method":"python/callback","params":{"execution_id":id,"token":run.token,"method":method,"arguments":arguments}})).unwrap();
+        bytes.push(b'\n');
+        stream.write_all(&bytes).await.unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        tokio::time::timeout(Duration::from_secs(2), reader.read_line(&mut line))
+            .await
+            .unwrap()
+            .unwrap();
+        let reply: Value = serde_json::from_str(&line).unwrap();
+        assert!(
+            matches!(
+                reply["error"]["data"]["error"]["code"].as_str(),
+                Some("cancelled" | "execution_retired")
+            ),
+            "{reply}"
+        );
+    }
+    assert!(!rig._dir.path().join("a.writes").exists());
+    assert_eq!(
+        serde_json::to_value(rig.service.get_record(id).await.unwrap()).unwrap(),
+        before
+    );
+    rig.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn real_python_commands_and_json_work_in_source_checkout() {
     let rig = Rig::start().await;
     let value=rig.run(r#"

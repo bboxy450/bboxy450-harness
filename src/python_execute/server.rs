@@ -112,6 +112,12 @@ impl Service {
             Some("emit") => {
                 let value = self.0.redactor.value(args["value"].clone());
                 let mut record = run.record.lock().await;
+                if record.status != "running" || run.cancel.is_cancelled() {
+                    return Err(fault(
+                        "execution_retired",
+                        "Terminal executions do not admit new output",
+                    ));
+                }
                 let bytes = serde_json::to_vec(&record.emitted).map_or(usize::MAX, |b| b.len())
                     + serde_json::to_vec(&value).map_or(usize::MAX, |b| b.len());
                 if bytes > 64 * 1024 {
@@ -160,12 +166,9 @@ impl Service {
                 };
                 let sequence = {
                     let mut record = run.record.lock().await;
-                    if run.cancel.is_cancelled()
-                        || matches!(
-                            record.status.as_str(),
-                            "cancelling" | "cancelled" | "timed_out" | "failed" | "unknown"
-                        )
-                    {
+                    // This same record lock serializes finish/cancel with new
+                    // effect admission, including callbacks already in flight.
+                    if run.cancel.is_cancelled() || record.status != "running" {
                         return Err(fault(
                             "cancelled",
                             "execution no longer admits nested effects",
