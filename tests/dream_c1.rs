@@ -1683,7 +1683,10 @@ fn paused_owner_does_not_delay_another_process_and_owned_kill_never_completes() 
     // retains its original product deadline and all CPU, paid debt, publication
     // and custody checks; deliberate paid rest is not a blocked owner.
     let (_, _, metrics) = complete_worker(&second, &mut independent);
-    eprintln!("paused-independent progress_wall_ns={} phase={phase:?} {metrics}",progress_elapsed.as_nanos());
+    eprintln!(
+        "paused-independent progress_wall_ns={} phase={phase:?} {metrics}",
+        progress_elapsed.as_nanos()
+    );
     assert!(
         std::fs::read_dir(first.path.join("output"))
             .unwrap()
@@ -2034,16 +2037,62 @@ fn near_limit_rejected_envelope_drains_before_process_done_and_join() {
     job.manifest.sources[0].len = w::Number(job.bytes.len() as u64);
     job.manifest.sources[0].sha256 = w::hash(&job.bytes);
     job.commit_manifest();
+    // A separately owned paused worker supplies fresh control roundtrips
+    // throughout the real rejection, paced cleanup and reap below. Deliberate
+    // paid rest belongs to the unchanged product deadline, not the 2s bound
+    // on independent control progress.
+    let mut control_job = Job::new(0, 0, false, false);
+    control_job.start.foreground = true;
+    let mut independent = control_job.launch();
+    independent.start(&control_job.start);
+    assert!(matches!(independent.read(), w::WorkerOut::Progress(p) if p.phase == w::Phase::Paused));
     let mut worker = job.launch();
     let at = Instant::now();
     worker.start(&job.start);
-    let (done, metrics) = worker.done();
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let finished = AtomicBool::new(false);
+    let (done, metrics, roundtrips, maximum) = std::thread::scope(|scope| {
+        let controls = scope.spawn(|| {
+            let mut revision = 2;
+            let mut roundtrips = 0;
+            let mut maximum = Duration::ZERO;
+            while !finished.load(Ordering::Acquire) {
+                let elapsed = independent
+                    .timed_paused_activity(revision, Duration::from_secs(2))
+                    .expect("independent control stalled during paced rejection/cleanup");
+                maximum = maximum.max(elapsed);
+                roundtrips += 1;
+                revision += 1;
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            independent.cancel();
+            let (done, metrics) = independent.done();
+            assert_eq!(done.outcome, w::Outcome::Cancelled, "{metrics}");
+            (roundtrips, maximum)
+        });
+        // Also retire/join the independently owned controller if a native
+        // assertion fails; no detached test thread or child survives unwinding.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| worker.done()));
+        finished.store(true, Ordering::Release);
+        let (roundtrips, maximum) = controls.join().unwrap();
+        let (done, metrics) = result.unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+        (done, metrics, roundtrips, maximum)
+    });
+    assert!(roundtrips > 0);
+    assert!(maximum < Duration::from_secs(2));
+    assert!(
+        Instant::now() < worker.job_deadline,
+        "original 30s Done/reap deadline exceeded: {metrics}"
+    );
+    eprintln!(
+        "near-limit-cleanup independent_roundtrips={roundtrips} max_control_ns={}",
+        maximum.as_nanos()
+    );
     assert_eq!(done.outcome, w::Outcome::Failed);
     assert!(matches!(
         done.error.as_ref().unwrap().code,
         w::Code::UnsupportedIr | w::Code::ResourceLimit
     ));
-    assert!(at.elapsed() < Duration::from_secs(2));
     // The intentionally dense parse can itself exceed one CPU unit. That is a
     // causal negative, not a relaxed success threshold: it must fail ResourceLimit
     // and retain the measured overrun while cleanup still respects its bound.
@@ -2227,7 +2276,11 @@ async fn real_store_multi_mib_ir_and_typed_blob_bundle() {
     s.len = w::Number(job.bytes.len() as u64);
     s.sha256 = w::hash(&job.bytes);
     s.closed_seq = w::Number(closed.seq.unwrap().0);
-    let last = job.bytes.split_inclusive(|b| *b == b'\n').next_back().unwrap();
+    let last = job
+        .bytes
+        .split_inclusive(|b| *b == b'\n')
+        .next_back()
+        .unwrap();
     s.closed_line_sha256 = w::hash(&last[..last.len() - 1]);
     s.blobs = vec![w::Blob {
         sha256: w::Hex(reference.sha256.clone()),
