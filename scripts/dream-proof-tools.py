@@ -672,7 +672,32 @@ def build_inputs(run):
     return {"commit": commit, "source_sha256": source, "fixtures": fixtures, "recipe_sha256": sha(SCRIPT_BYTES),
             "compiler": compiler, "compiler_sha256": sha(read_regular(Path(compiler).resolve())),
             "sdk": sdk, "sdk_version": sdkversion.decode().strip(), "sdk_settings_sha256": sha(read_regular(Path(sdk) / "SDKSettings.json")),
-            "os_build": osbuild.decode().strip(), "release": platform.release(), "arch": os_arch()}
+            "os_build": osbuild.decode().strip(), "release": platform.release(), "arch": os_arch(),
+            "shared_cache_uuid": current_cache_uuid()}
+
+
+def current_cache_uuid():
+    # Public dyld.h API, also used by the frozen canonical Q2 controller. Read
+    # this process's already loaded platform; do not create a catalogue/helper.
+    import ctypes
+    try:
+        function = ctypes.CDLL(None)._dyld_get_shared_cache_uuid
+    except AttributeError as error:
+        raise Refused("current platform shared-cache identity unavailable") from error
+    function.argtypes = [ctypes.c_void_p]; function.restype = ctypes.c_bool
+    uuid = (ctypes.c_ubyte * 16)()
+    require(function(uuid), "current platform shared-cache identity unknown")
+    value = bytes(uuid).hex()
+    require(value != "0" * 32, "current platform shared-cache UUID is zero")
+    return value
+
+
+def basis_platform_current(basis, expected_uuid=None):
+    bound = basis["closure"]["platform"]
+    require(basis["build"]["platform"] == bound and bound["shared_cache_uuid"] == current_cache_uuid(),
+            "candidate platform/shared-cache identity changed")
+    if expected_uuid is not None:
+        require(bound["shared_cache_uuid"] == expected_uuid, "shared-cache birth/currentness mismatch")
 
 
 def previous_build(d, inputs, current_id):
@@ -841,7 +866,6 @@ def build_git(run, candidate, compiler, sdk, buildenv):
         for path in notices:
             exclusive(part / path.name, read_regular(path))
     # Version/image output is provenance only, not a lifetime qualification.
-    command(run, [str(bindir / "git"), "--version"])
 
 
 def stage_linked_archives(run, candidate, deps):
@@ -2664,6 +2688,8 @@ def validate_qualification(data, prefix):
     basis_data = ref_bytes(prefix, q["logs"][0], 49152)
     descriptor_data = ref_bytes(prefix, q["logs"][1], 16384)
     prepared_budget(data, lock_data, report, basis_data, descriptor_data)
+    basis = strict_json(basis_data, 49152)
+    basis_platform_current(basis)
     fields(q["tools"], "git gpg"); refs += list(q["tools"].values())
     checked_array(q["sources"]); require(len(q["sources"]) == len(PINS), "exact source authentication count required")
     for row, source in zip(q["sources"], PINS):
@@ -2729,6 +2755,8 @@ def bind_current_candidate(q, receipt, inputs, prefix, intent):
     require(q["builder"]["source_sha256"] == inputs["source_sha256"], "builder source/recipe currentness mismatch")
     require(q["builder"]["commit"] == inputs["commit"], "builder source commit changed")
     require(q["platform"]["os_build"] == inputs["os_build"] and q["platform"]["release"] == inputs["release"] and q["platform"]["arch"] == inputs["arch"], "OS/platform currentness mismatch")
+    basis = strict_json(ref_bytes(prefix, q["logs"][0], 49152), 49152)
+    basis_platform_current(basis, inputs["shared_cache_uuid"])
     require(receipt["os"] == {"release": inputs["release"], "arch": inputs["arch"]}, "proposal OS binding mismatch")
     require(q["compiler"]["path"] == inputs["compiler"] and q["compiler"]["sha256"] == inputs["compiler_sha256"], "compiler currentness mismatch")
     require(q["sdk"] == {"path": inputs["sdk"], "version": inputs["sdk_version"], "settings_sha256": inputs["sdk_settings_sha256"]}, "SDK currentness mismatch")
@@ -2954,6 +2982,31 @@ def component_result(raw, descriptor, actual_exit):
     return result
 
 
+def component_terminal(stderr, case):
+    # These are the selected Q2 source's own raw terminal receipts, not a
+    # second engine/result wire. Exit81 alone cannot distinguish a causal
+    # control from an additional formatter/write/close failure.
+    lines = stderr.decode("utf-8", errors="strict").splitlines()
+    terminal = [line for line in lines if line.startswith("private_candidate_terminal ")]
+    tail = [line for line in lines if line.startswith("private_candidate_exit_tail ")]
+    require(len(terminal) == len(tail) == 1 and not any(line.startswith("private_candidate_terminal_gate=failed") for line in lines), "canonical terminal receipt missing or failed")
+    def values(line):
+        pairs = [word.split("=", 1) for word in line.split()[1:]]
+        require(all(len(pair) == 2 for pair in pairs) and len({p[0] for p in pairs}) == len(pairs), "canonical terminal receipt tokens")
+        return dict(pairs)
+    row, end = values(terminal[0]), values(tail[0])
+    require(row["runtime_approved"] == "false" and row["result_complete"] == row["rss_known"] == row["format_paid"] == row["write_paid"] == "true"
+            and end["output_closed"] == "true", "canonical terminal persistence/clock/debt refusal")
+    for stem in ("formatter", "write"):
+        before, after = int(row[stem + "_cpu_start_ns"]), int(row[stem + "_cpu_end_ns"])
+        require(0 <= before <= after and after - before <= 1000000 and 0 <= int(row[stem + "_inclusive_ns"]) <= 1000000, "canonical terminal ordinary span exceeds gate")
+    require(0 <= int(row["close_max_cpu_ns"]) <= 1000000 and 0 <= int(end["close_max_ns"]) <= 1000000
+            and row["debt_charged_ns"] == row["debt_paid_ns"] and end["debt_charged_ns"] == end["debt_paid_ns"], "canonical terminal close/debt gate")
+    require(case in ("positive", "corrupt_proof"),
+            "selected Q2 exit81 controls lack independent persisted/final-tail verdicts; no successful qualification from missing terminal evidence")
+    return {"terminal": row, "exit_tail": end}
+
+
 def run_private_components(run, prefix, basis):
     selected = selected_q2_input()
     cases = private_dir(run / "components")
@@ -2990,6 +3043,7 @@ def run_private_components(run, prefix, basis):
         if ledger.exists(): record["ledger"] = retained_file(prefix, ledger)
         exclusive(case / "retained.json", canonical(record))
         result = component_result(report, descriptor, waited["exit_code"])
+        component_terminal(read_regular(case / "stderr", MAX_TAR, True), name)
         require(read_regular(output / "result.json", 65536, True) == report, "persisted Q2 result differs from unaltered stdout")
         records.append(record)
         exclusive(case / "checked.json", canonical({"check_exit": 0, "actual_exit": waited["exit_code"], "outcome": result["outcome"], "runtime_approved": False}))
@@ -4098,6 +4152,31 @@ class ComponentHandoffTests(unittest.TestCase):
             self.assertEqual(pending_commands(run), [case / "spawn-intent.json"])
             exclusive(case / "wait4.json", b'{"actual_wait4":true}')
             self.assertEqual(pending_commands(run), [])
+
+    def test_cached_shared_cache_identity_is_rechecked_even_with_same_os(self):
+        platform_pin = {"shared_cache_uuid": "1" * 32, "os_build": "26A434", "release": "27.0.0", "arch": "aarch64"}
+        basis = {"build": {"platform": dict(platform_pin)}, "closure": {"platform": dict(platform_pin)}}
+        with mock.patch.dict(basis_platform_current.__globals__, {"current_cache_uuid": lambda: "1" * 32}):
+            basis_platform_current(basis, "1" * 32)
+            with self.assertRaises(Refused): basis_platform_current(basis, "2" * 32)
+        with mock.patch.dict(basis_platform_current.__globals__, {"current_cache_uuid": lambda: "2" * 32}):
+            with self.assertRaises(Refused): basis_platform_current(basis)
+
+    def test_component_terminal_failure_cannot_be_hidden_by_expected_control_exit(self):
+        row = {"runtime_approved": "false", "result_complete": "true", "rss_known": "true", "format_paid": "true", "write_paid": "true",
+               "formatter_cpu_start_ns": "1", "formatter_cpu_end_ns": "2", "formatter_inclusive_ns": "1",
+               "write_cpu_start_ns": "3", "write_cpu_end_ns": "4", "write_inclusive_ns": "1",
+               "close_max_cpu_ns": "1", "debt_charged_ns": "9", "debt_paid_ns": "9"}
+        tail = "private_candidate_exit_tail output_closed=true close_max_ns=1 debt_charged_ns=9 debt_paid_ns=9 ordinary_max_ns=1\n"
+        def raw():
+            return ("private_candidate_terminal " + " ".join(k + "=" + v for k, v in row.items()) + "\n" + tail).encode()
+        component_terminal(raw(), "positive")
+        with self.assertRaisesRegex(Refused, "independent persisted/final-tail"):
+            component_terminal(raw(), "cancel")
+        row["write_paid"] = "false"
+        with self.assertRaises(Refused): component_terminal(raw(), "positive")
+        row["write_paid"] = "true"; row["write_inclusive_ns"] = "1000001"
+        with self.assertRaises(Refused): component_terminal(raw(), "positive")
 
 
 def unit(d, signature_only=False):
