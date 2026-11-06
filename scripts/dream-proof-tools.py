@@ -2885,7 +2885,7 @@ def private_descriptor(run, prefix, basis, case, output, selection):
     shared = file_pin(prefix, "provenance/pretest-basis.json")
     fixture = basis["fixture"]
     value = {"kind": "private_candidate_test", "run_id": ulid(), "nonce": ulid(),
-             "incarnation": basis["build"]["incarnation"], "deadline_ns": time.monotonic_ns() + 30_000_000_000,
+             "incarnation": basis["build"]["incarnation"], "deadline_ns": time.clock_gettime_ns(time.CLOCK_MONOTONIC) + 30_000_000_000,
              "os_build": basis["build"]["platform"]["os_build"], "arch": "aarch64",
              "probe_source_sha256": selection["source"]["sha256"], "probe_exe_sha256": selection["executable"]["sha256"],
              "prefix": dir_pin(prefix), "source_lock": file_pin(prefix, basis["build"]["source_lock"]["path"]),
@@ -2929,7 +2929,7 @@ def wait_component(child, case_dir, deadline_ns):
                       "max_rss_bytes": usage.ru_maxrss, "actual_wait4": True}
             exclusive(case_dir / "wait4.json", canonical(record))
             return record
-        if not announced and time.monotonic_ns() >= deadline_ns:
+        if not announced and time.clock_gettime_ns(time.CLOCK_MONOTONIC) >= deadline_ns:
             # A result file is deliberately NOT an exit indication. Keep the
             # process/parent alive until the canonical owner proves settlement.
             try:
@@ -4165,6 +4165,24 @@ class ComponentHandoffTests(unittest.TestCase):
             self.assertEqual(pending_commands(run), [case / "spawn-intent.json"])
             exclusive(case / "wait4.json", b'{"actual_wait4":true}')
             self.assertEqual(pending_commands(run), [])
+
+    def test_descriptor_uses_c_controller_clock_not_python_mach_clock(self):
+        # Inert file-pin construction only: no decoder, helper or fake proof.
+        # Darwin Python monotonic_ns and C CLOCK_MONOTONIC have distinct
+        # epochs/rates; the retained real refusal measured a 2.806s offset.
+        with tempfile.TemporaryDirectory(dir=TEST_TARGET) as temp:
+            root = Path(temp)
+            prefix = private_dir(root / "candidate"); private_dir(prefix / "bin"); private_dir(prefix / "provenance")
+            repo = private_dir(root / "fixture"); output = private_dir(root / "output")
+            for path in (prefix / "bin/git", prefix / "bin/gpg", prefix / "provenance/pretest-basis.json", prefix / "provenance/lock", repo / "public.asc"):
+                exclusive(path, b"inert unit bytes; never executed")
+            basis = {"build": {"incarnation": 1, "platform": {"os_build": "26A434"}, "source_lock": {"path": "provenance/lock"}},
+                     "fixture": {"repo": dir_pin(repo), "valid_commit": "1" * 40, "corrupt_commit": "2" * 40, "public_keys": {"path": "public.asc"}}}
+            selection = {"source": {"sha256": "3" * 64}, "executable": {"sha256": "4" * 64}}
+            with mock.patch.object(time, "clock_gettime_ns", return_value=100) as c_clock, mock.patch.object(time, "monotonic_ns", return_value=10**18):
+                descriptor, _ = private_descriptor(root, prefix, basis, "positive", output, selection)
+            self.assertEqual(descriptor["deadline_ns"], 30_000_000_100)
+            c_clock.assert_called_once_with(time.CLOCK_MONOTONIC)
 
     def test_cached_shared_cache_identity_is_rechecked_even_with_same_os(self):
         platform_pin = {"shared_cache_uuid": "1" * 32, "os_build": "26A434", "release": "27.0.0", "arch": "aarch64"}
