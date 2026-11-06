@@ -435,14 +435,17 @@ pub fn early_worker_entry() -> Option<i32> {
         return None;
     }
     let arg = |i, max| unsafe { bootstrap::borrowed(*argv.add(i), max) };
-    if arg(1, 5).ok() != Some(b"dream".as_slice())
-        || arg(2, 10).ok() != Some(b"inspect-c1".as_slice())
-    {
+    if arg(1, 5).ok() != Some(b"dream".as_slice()) {
         return None;
     }
+    let purpose = match arg(2, 12).ok() {
+        Some(b"inspect-c1") => bootstrap::Purpose::InspectC1,
+        Some(b"prepare-read") => bootstrap::Purpose::ReadPrepare,
+        _ => return None,
+    };
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (prelude_sample, entry_sample);
+        let _ = (prelude_sample, entry_sample, purpose);
         return Some(2);
     }
     #[cfg(target_os = "macos")]
@@ -472,18 +475,11 @@ pub fn early_worker_entry() -> Option<i32> {
             Some(t) => t,
             None => return Some(2),
         };
-        let mut gate = match unsafe {
-            bootstrap::Gate::wait(
-                t,
-                bootstrap::Purpose::InspectC1,
-                basename,
-                entry_ns,
-                prelude_at,
-            )
-        } {
-            Ok(gate) => gate,
-            Err(_) => return Some(2),
-        };
+        let mut gate =
+            match unsafe { bootstrap::Gate::wait(t, purpose, basename, entry_ns, prelude_at) } {
+                Ok(gate) => gate,
+                Err(_) => return Some(2),
+            };
         if gate.admit(0).is_err() {
             return Some(2);
         }
@@ -504,7 +500,12 @@ pub fn early_worker_entry() -> Option<i32> {
         if gate.check().is_err() {
             return Some(2);
         }
-        let code = run(path, maximum.clone(), gate);
+        let code = match purpose {
+            bootstrap::Purpose::InspectC1 => run::<C1Job>(path, maximum.clone(), gate),
+            bootstrap::Purpose::ReadPrepare => {
+                run::<super::read::ReadJob>(path, maximum.clone(), gate)
+            }
+        };
         let code = if maximum.load(Ordering::Acquire) > UNIT_NS {
             1
         } else {
@@ -542,11 +543,11 @@ async fn observe_reactor<T>(
     .await;
     (result, maximum.load(Ordering::Acquire))
 }
-fn cpu_ns() -> u64 {
+pub(crate) fn cpu_ns() -> u64 {
     bootstrap::prelude_clock().unwrap_or(u64::MAX)
 }
 #[cfg(target_os = "macos")]
-fn heaps() -> (u64, u64) {
+pub(crate) fn heaps() -> (u64, u64) {
     #[repr(C)]
     struct Statistics {
         blocks: u32,
@@ -567,14 +568,14 @@ fn heaps() -> (u64, u64) {
     (stats.size as u64, stats.peak.max(stats.size) as u64)
 }
 #[cfg(not(target_os = "macos"))]
-fn heaps() -> (u64, u64) {
+pub(crate) fn heaps() -> (u64, u64) {
     // No unmeasured heap certification on a platform without this allocator probe.
     (u64::MAX, u64::MAX)
 }
 fn heap() -> u64 {
     heaps().1
 }
-fn rss() -> u64 {
+pub(crate) fn rss() -> u64 {
     let mut r = std::mem::MaybeUninit::<libc::rusage>::uninit();
     if unsafe { libc::getrusage(libc::RUSAGE_SELF, r.as_mut_ptr()) } != 0 {
         return 0;
@@ -624,21 +625,47 @@ impl PublicationCustody {
         debug_assert!(r.nonce.iter().all(u8::is_ascii));
     }
 }
-struct Control {
-    cancel: AtomicU8,
-    foreground: AtomicBool,
-    deadline: Instant,
-    reactor: Arc<AtomicU64>,
-    memory: Arc<storage::Ledger>,
+pub(crate) struct Control {
+    pub(crate) cancel: AtomicU8,
+    pub(crate) foreground: AtomicBool,
+    pub(crate) deadline: Instant,
+    pub(crate) reactor: Arc<AtomicU64>,
+    pub(crate) memory: Arc<storage::Ledger>,
     accounting: Arc<Accounting>,
     publication: PublicationCustody,
     cleanup_uncertain: AtomicBool,
-    cleanup_cpu: AtomicU64,
-    cleanup_max: AtomicU64,
-    cleanup_overruns: AtomicU64,
+    pub(crate) helper: std::sync::Mutex<Option<HelperGroup>>,
+    pub(crate) cleanup_cpu: AtomicU64,
+    pub(crate) cleanup_max: AtomicU64,
+    pub(crate) cleanup_overruns: AtomicU64,
 }
 impl Control {
-    fn error(&self) -> Option<w::Code> {
+    /// Q2 uses the same admitted owner debt ledger; it never installs a second
+    /// ordinary-work scheduler or a native kind in the inspect-c1 profile.
+    pub(crate) fn read_pay(&self) {
+        self.accounting.pay();
+    }
+    pub(crate) fn observe_interval(&self, start: u64, end: u64) -> u64 {
+        observed_interval(&self.accounting, start, end)
+    }
+    #[cfg(test)]
+    pub(crate) fn fixture(deadline: Instant) -> Self {
+        Self {
+            cancel: AtomicU8::new(0),
+            foreground: AtomicBool::new(false),
+            deadline,
+            reactor: Arc::new(AtomicU64::new(0)),
+            memory: storage::Ledger::new(),
+            accounting: Arc::new(Accounting::new()),
+            publication: PublicationCustody::default(),
+            cleanup_uncertain: AtomicBool::new(false),
+            cleanup_cpu: AtomicU64::new(0),
+            cleanup_max: AtomicU64::new(0),
+            cleanup_overruns: AtomicU64::new(0),
+            helper: std::sync::Mutex::new(None),
+        }
+    }
+    pub(crate) fn error(&self) -> Option<w::Code> {
         if self.accounting.clock_failed.load(Ordering::Acquire)
             || self.accounting.resource_failed.load(Ordering::Acquire)
             || self.reactor.load(Ordering::Acquire) > UNIT_NS
@@ -654,31 +681,2300 @@ impl Control {
             2 => Some(w::Code::Deadline),
             3 => Some(w::Code::ProtocolError),
             4 => Some(w::Code::ResourceLimit),
+            5 => Some(w::Code::SourceUnavailable),
             _ if Instant::now() >= self.deadline => Some(w::Code::Deadline),
             _ => None,
         }
     }
 }
-struct Budget {
-    control: Arc<Control>,
-    progress: Arc<crossbeam_queue::ArrayQueue<Counters>>,
-    counters: Counters,
-    max_unit: u64,
-    heap_peak: u64,
-    overruns: u64,
-    paused: bool,
-    normalization_ready: bool,
-    normalization_units: [u64; 4],
+/// One explicitly owned proof-helper group; never used by inspect-c1.
+/// Its leader stays unreaped until signaling custody is retired, preventing ABA.
+pub(crate) struct HelperGroup {
+    pub(crate) pgid: i32,
+    pub(crate) running: bool,
+    pub(crate) retiring: bool,
+    pub(crate) changed: Instant,
+    pub(crate) ready: bool,
+    creation_settled: bool,
+    pub(crate) initial_stop_pending: bool,
+    pub(crate) confirmed_stopped: bool,
+    pub(crate) identity: super::resolve::HelperIdentity,
+    stop_requested: bool,
+    pub(crate) debt_until: Instant,
+    pub(crate) lane_cpu: u64,
+    members: [HelperMember; 2],
+    retired_members: [RetiredMember; 8],
+    stopped_roster: [i32; 8],
+    grant: HelperGrantLedger,
+    corroboration_pending: bool,
+    post_commit_pending: bool,
+    post_cpu: u64,
+    post_late_cpu: u64,
+    accounted_helper_cpu: u64,
+    rolled_user_ticks: u64,
+    rolled_system_ticks: u64,
+    grant_commit_pending: bool,
+    pipe_open: bool,
+    pipe_active: bool,
+    corroboration_revision: u64,
+    observed_post_revision: u64,
+    post_proof_pending: bool,
+    post_late_known: bool,
+    settled_cpu: Option<u64>,
+    usage_reconciled: bool,
+    accounting_settled: bool,
+    last_clock_ns: Option<u64>,
+    pub(crate) metrics: HelperMetrics,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct HelperAuditToken {
+    value: [u32; 8],
+}
+#[repr(C)]
+struct HelperTimebase {
+    numer: u32,
+    denom: u32,
+}
+#[derive(Clone, Copy, Default)]
+struct RetiredMember {
+    pid: i32,
+    birth: u64,
+    token: HelperAuditToken,
+    current: bool,
+}
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    static mach_task_self_: libc::mach_port_t;
+    #[link_name = "mach_timebase_info"]
+    fn helper_timebase_info(info: *mut HelperTimebase) -> i32;
+    fn task_name_for_pid(task: libc::mach_port_t, pid: i32, name: *mut libc::mach_port_t) -> i32;
+    fn proc_signal_with_audittoken(token: *const HelperAuditToken, signal: i32) -> i32;
+    fn proc_pidpath_audittoken(
+        token: *const HelperAuditToken,
+        buffer: *mut libc::c_void,
+        len: u32,
+    ) -> i32;
+    fn mach_port_deallocate(task: libc::mach_port_t, name: libc::mach_port_t) -> i32;
+}
+#[cfg(target_os = "macos")]
+fn helper_token_exited(token: &HelperAuditToken) -> Result<bool, i32> {
+    let mut path = [0u8; 4096];
+    let result =
+        unsafe { proc_pidpath_audittoken(token, path.as_mut_ptr().cast(), path.len() as u32) };
+    if result > 0 {
+        Ok(false)
+    } else {
+        match std::io::Error::last_os_error().raw_os_error() {
+            Some(libc::ESRCH) => Ok(true),
+            Some(code) => Err(code),
+            None => Err(libc::EIO),
+        }
+    }
+}
+#[cfg(target_os = "macos")]
+fn helper_ticks_ns(ticks: u64) -> Result<u64, ()> {
+    let mut timebase = HelperTimebase { numer: 0, denom: 0 };
+    if unsafe { helper_timebase_info(&mut timebase) } != 0
+        || timebase.numer == 0
+        || timebase.denom == 0
+    {
+        return Err(());
+    }
+    let ns = (u128::from(ticks) * u128::from(timebase.numer) + u128::from(timebase.denom) - 1)
+        / u128::from(timebase.denom);
+    u64::try_from(ns).map_err(|_| ())
+}
+#[cfg(target_os = "macos")]
+fn helper_token_signal(token: &HelperAuditToken, signal: i32) -> Result<(), i32> {
+    let result = unsafe { proc_signal_with_audittoken(token, signal) };
+    match result {
+        0 => Ok(()),
+        code if code > 0 => Err(code),
+        _ => Err(std::io::Error::last_os_error()
+            .raw_os_error()
+            .unwrap_or(libc::EIO)),
+    }
+}
+#[cfg(target_os = "macos")]
+fn helper_audit_member(pid: i32, parent: i32) -> Result<RetiredMember, ()> {
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+    if unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        )
+    } != size
+    {
+        return Err(());
+    }
+    let info = unsafe { info.assume_init() };
+    if info.pbi_pid != pid as u32
+        || info.pbi_ppid != parent as u32
+        || info.pbi_uid != unsafe { libc::geteuid() }
+    {
+        return Err(());
+    }
+    let birth = info
+        .pbi_start_tvsec
+        .checked_mul(1_000_000)
+        .and_then(|s| s.checked_add(info.pbi_start_tvusec))
+        .ok_or(())?;
+    let mut task = 0;
+    if unsafe { task_name_for_pid(mach_task_self_, pid, &mut task) } != 0 {
+        return Err(());
+    }
+    let mut token = HelperAuditToken::default();
+    let mut count = 8;
+    let result = unsafe {
+        libc::task_info(
+            task,
+            15,
+            (&mut token as *mut HelperAuditToken).cast(),
+            &mut count,
+        )
+    };
+    unsafe {
+        mach_port_deallocate(mach_task_self_, task);
+    }
+    if result != 0 || count != 8 || token.value[5] != pid as u32 {
+        return Err(());
+    }
+    let mut after = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
+    if unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            after.as_mut_ptr().cast(),
+            size,
+        )
+    } != size
+    {
+        return Err(());
+    }
+    let after = unsafe { after.assume_init() };
+    if after.pbi_pid != info.pbi_pid
+        || after.pbi_ppid != info.pbi_ppid
+        || after.pbi_start_tvsec != info.pbi_start_tvsec
+        || after.pbi_start_tvusec != info.pbi_start_tvusec
+    {
+        return Err(());
+    }
+    Ok(RetiredMember {
+        pid,
+        birth,
+        token,
+        current: true,
+    })
+}
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum HelperImagePhase {
+    #[default]
+    Unobserved,
+    ParentClone,
+    Descendant,
+    Exited,
+}
+#[derive(Clone, Copy, Default)]
+struct HelperSlotWindow {
+    pid: i32,
+    birth: u64,
+    start: u64,
+    version: u32,
+    ack_ns: Option<u64>,
+    through_closure: bool,
+}
+#[derive(Clone, Copy, Default)]
+struct HelperGrantLedger {
+    opened: bool,
+    t0_ns: u64,
+    close_ns: Option<u64>,
+    reserved: u8,
+    slots: [HelperSlotWindow; 2],
+    actual_baseline: u64,
+    rolled_baseline: u64,
+    charged: u64,
+    charged_once: bool,
+    controller_baseline: u64,
+    pipe_baseline: u64,
+    reported_w: u64,
+    reported_a: u64,
+    reported_c: u64,
+    closed: bool,
+}
+/// One bounded receipt: every raw field belongs to the same worst-Q grant.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct HelperGrantReceipt {
+    pub(crate) sequence: u16,
+    pub(crate) pid: i32,
+    pub(crate) pgid: i32,
+    pub(crate) birth: u64,
+    pub(crate) reserved: u8,
+    pub(crate) t0_ns: u64,
+    pub(crate) end_ns: [u64; 2],
+    pub(crate) close_ns: u64,
+    pub(crate) member_pid: [i32; 2],
+    pub(crate) member_birth: [u64; 2],
+    pub(crate) member_start: [u64; 2],
+    pub(crate) member_version: [u32; 2],
+    pub(crate) w_ns: u64,
+    pub(crate) a_ns: u64,
+    pub(crate) c_ns: u64,
+    pub(crate) q_ns: u64,
+    pub(crate) closed: bool,
+    pub(crate) controller_baseline_ns: u64,
+    pub(crate) controller_end_ns: u64,
+    pub(crate) pipe_baseline_ns: u64,
+    pub(crate) pipe_end_ns: u64,
+}
+#[derive(Clone, Copy, Default)]
+struct HelperMember {
+    pid: i32,
+    birth: u64,
+    cpu: u64,
+    rss_peak: u64,
+    start_abstime: u64,
+    image_phase: HelperImagePhase,
+    preexec_observations: u64,
+    audit_version: u32,
+    exec_stop_version: u32,
+    audit_token: HelperAuditToken,
+    user_ticks: u64,
+    system_ticks: u64,
+    exit_abstime: u64,
+}
+/// Fixed-size observations, distinct from allocator coverage. Process RSS and
+/// Rust heap are deliberately named separately; neither is whole-tree heap.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct HelperMetrics {
+    pub(crate) grants: u64,
+    pub(crate) charged_ns: u64,
+    pub(crate) max_charge_ns: u64,
+    pub(crate) debt_ns: u64,
+    pub(crate) controller_cpu_ns: u64,
+    pub(crate) pipe_cpu_ns: u64,
+    pub(crate) observed_direct_cpu_ns: u64,
+    pub(crate) observed_descendant_cpu_ns: u64,
+    pub(crate) rolled_descendant_cpu_ns: u64,
+    pub(crate) group_rss_peak: u64,
+    pub(crate) separate_rss_sum: u64,
+    pub(crate) mixed_heap_rss_peak: u64,
+    pub(crate) descendants: u64,
+    pub(crate) verified_descendants: u64,
+    pub(crate) initial_kernel_cpu_ns: u64,
+    pub(crate) first_failure_line: u32,
+    pub(crate) coverage_known: bool,
+    pub(crate) worst_grant: HelperGrantReceipt,
+    pub(crate) window_ns: u64,
+    pub(crate) active_cpu_ns: u64,
+    pub(crate) active_control_ns: u64,
+    pub(crate) roster_closures: u64,
+    pub(crate) reopened_slots: u64,
+    pub(crate) unknown_windows: u64,
+    pub(crate) clock_failures: u64,
+    pub(crate) post_units: u64,
+    pub(crate) post_cpu_ns: u64,
+    pub(crate) post_max_cpu_ns: u64,
+    pub(crate) late_kernel_cpu_ns: u64,
+    pub(crate) late_kernel_observations: u64,
+    pub(crate) reap_user_ns: u64,
+    pub(crate) reap_system_ns: u64,
+    pub(crate) reap_user_upper_ns: u64,
+    pub(crate) reap_system_upper_ns: u64,
+    pub(crate) reap_quantization_ns: u64,
+    pub(crate) reconciliation_unproven: u64,
+    pub(crate) unexplained_cpu_ns: u64,
+    pub(crate) reap_ri_user_ticks: u64,
+    pub(crate) reap_ri_system_ticks: u64,
+    pub(crate) reap_timebase_numer: u32,
+    pub(crate) reap_timebase_denom: u32,
+}
+impl HelperGroup {
+    pub(crate) fn settle_creation(&mut self, control: &Control) -> Result<(), ()> {
+        if self.creation_settled
+            || self.ready
+            || self.retiring
+            || control.error().is_some()
+            || control.accounting.now() < control.accounting.rest_until.load(Ordering::Acquire)
+            || Instant::now() < self.debt_until
+        {
+            return Err(());
+        }
+        self.creation_settled = true;
+        Ok(())
+    }
+    fn ledger_clock(&mut self) -> Result<u64, ()> {
+        match bootstrap::monotonic_ns() {
+            Ok(now) if self.last_clock_ns.is_none_or(|previous| now >= previous) => {
+                self.last_clock_ns = Some(now);
+                Ok(now)
+            }
+            Ok(_) => {
+                self.metrics.clock_failures = self.metrics.clock_failures.saturating_add(1);
+                self.metrics.coverage_known = false;
+                Err(())
+            }
+            Err(_) => {
+                self.metrics.clock_failures = self.metrics.clock_failures.saturating_add(1);
+                self.metrics.coverage_known = false;
+                Err(())
+            }
+        }
+    }
+    fn actual_cpu(&self) -> Result<u64, ()> {
+        if let Some(settled) = self.settled_cpu {
+            return Ok(settled);
+        }
+        self.members[0]
+            .cpu
+            .checked_add(
+                self.members[1]
+                    .cpu
+                    .max(self.metrics.rolled_descendant_cpu_ns),
+            )
+            .ok_or(())
+    }
+    pub(crate) fn pending_closure(&self) -> bool {
+        !self.accounting_settled
+            && (self.running
+                || self.grant_commit_pending
+                || (self.grant.opened && !self.grant.closed))
+    }
+    pub(crate) fn pending_corroboration(&self) -> bool {
+        self.corroboration_pending || self.post_commit_pending
+    }
+    pub(crate) fn closure_observed(&self) -> bool {
+        !self.running && self.confirmed_stopped && (!self.grant.opened || self.grant.closed)
+    }
+    pub(crate) fn begin_pipe(&mut self) -> Result<(), ()> {
+        if self.pipe_open {
+            return Err(());
+        }
+        self.pipe_open = true;
+        self.pipe_active = self.pending_closure();
+        Ok(())
+    }
+    pub(crate) fn pipe_is_open(&self) -> bool {
+        self.pipe_open
+    }
+    pub(crate) fn settle_quarantine(&mut self, control: &Control) -> bool {
+        let at = cpu_ns();
+        let gone = self.retired_members_exited();
+        let cpu = control.observe_interval(at, cpu_ns());
+        if self.pending_closure() {
+            self.lane_cpu = self.lane_cpu.saturating_add(cpu);
+            if gone {
+                self.finish_grant(control, 0);
+            }
+        }
+        if gone {
+            self.accounting_settled = true;
+            if !self.post_proof_pending {
+                self.corroboration_pending = false;
+            }
+        }
+        gone
+    }
+    pub(crate) fn account_pipe(
+        &mut self,
+        control: &Control,
+        cpu_ns: u64,
+        wall_ns: u64,
+    ) -> Result<(), ()> {
+        if !self.pipe_open {
+            return Err(());
+        }
+        self.pipe_open = false;
+        self.metrics.pipe_cpu_ns = self.metrics.pipe_cpu_ns.saturating_add(cpu_ns);
+        if cpu_ns == u64::MAX || wall_ns == u64::MAX {
+            self.metrics.clock_failures = self.metrics.clock_failures.saturating_add(1);
+            if self.pipe_active || self.pending_closure() {
+                self.lane_cpu = u64::MAX;
+            } else {
+                self.post_cpu = u64::MAX;
+            }
+            self.reject(control, 5);
+            return Err(());
+        }
+        if self.pipe_active || self.pending_closure() {
+            self.lane_cpu = self.lane_cpu.checked_add(cpu_ns).ok_or(())?;
+        } else {
+            // The read owner records/pays this actual ordinary unit through
+            // read_charge once. Only the attribution is recorded here.
+            self.metrics.post_units = self.metrics.post_units.saturating_add(1);
+            self.metrics.post_cpu_ns = self.metrics.post_cpu_ns.saturating_add(cpu_ns);
+            self.metrics.post_max_cpu_ns = self.metrics.post_max_cpu_ns.max(cpu_ns);
+            self.corroboration_pending = true;
+            self.corroboration_revision = self.corroboration_revision.checked_add(1).ok_or(())?;
+        }
+        self.pipe_active = false;
+        if cpu_ns > UNIT_NS {
+            self.reject(control, 4);
+            return Err(());
+        }
+        Ok(())
+    }
+    pub(crate) fn account_controller(&mut self, control: &Control, cpu: u64) -> Result<(), ()> {
+        self.metrics.controller_cpu_ns = self.metrics.controller_cpu_ns.saturating_add(cpu);
+        if cpu == u64::MAX {
+            self.metrics.clock_failures = self.metrics.clock_failures.saturating_add(1);
+            if self.pending_closure() {
+                self.lane_cpu = u64::MAX;
+            } else if self.post_commit_pending {
+                self.post_cpu = u64::MAX;
+            }
+            self.reject(control, 5);
+            return Err(());
+        }
+        if self.pending_closure() {
+            self.lane_cpu = self.lane_cpu.checked_add(cpu).ok_or(())?;
+        } else if self.post_commit_pending {
+            self.post_cpu = self.post_cpu.checked_add(cpu).ok_or(())?;
+        }
+        if cpu > UNIT_NS {
+            self.reject(control, 4);
+            return Err(());
+        }
+        Ok(())
+    }
+    fn open_grant(&mut self) -> Result<(), ()> {
+        let baseline = self.actual_cpu()?;
+        let rolled = self
+            .rolled_user_ticks
+            .checked_add(self.rolled_system_ticks)
+            .ok_or(())?;
+        let mut ledger = HelperGrantLedger {
+            opened: true,
+            reserved: self.identity.expected_members,
+            actual_baseline: baseline,
+            rolled_baseline: rolled,
+            controller_baseline: self.metrics.controller_cpu_ns,
+            pipe_baseline: self.metrics.pipe_cpu_ns,
+            ..HelperGrantLedger::default()
+        };
+        for index in 0..usize::from(ledger.reserved) {
+            let member = self.members[index];
+            let unknown = member.pid == 0 || member.image_phase == HelperImagePhase::Exited;
+            ledger.slots[index] = HelperSlotWindow {
+                pid: member.pid,
+                birth: member.birth,
+                start: member.start_abstime,
+                version: member.audit_version,
+                ack_ns: None,
+                through_closure: unknown,
+            };
+            self.metrics.unknown_windows = self
+                .metrics
+                .unknown_windows
+                .saturating_add(u64::from(unknown));
+        }
+        // This final checked clock precedes the actual CONT, including its
+        // complete delivery latency in every reserved slot's open interval.
+        ledger.t0_ns = self.ledger_clock()?;
+        self.grant = ledger;
+        self.lane_cpu = 0;
+        if self.pipe_open {
+            self.pipe_active = true;
+        }
+        Ok(())
+    }
+    fn note_incarnation(&mut self, index: usize, member: HelperMember) {
+        if !self.grant.opened {
+            return;
+        }
+        let slot = &mut self.grant.slots[index];
+        let changed = slot.pid != 0
+            && (slot.pid != member.pid
+                || slot.birth != member.birth
+                || slot.start != member.start_abstime
+                || slot.version != member.audit_version);
+        if changed {
+            slot.ack_ns = None;
+            slot.through_closure = true;
+            self.grant.closed = false;
+            self.grant.close_ns = None;
+            self.metrics.reopened_slots = self.metrics.reopened_slots.saturating_add(1);
+        }
+        slot.pid = member.pid;
+        slot.birth = member.birth;
+        slot.start = member.start_abstime;
+        slot.version = member.audit_version;
+    }
+    fn invalidate_slot(&mut self, index: usize) {
+        self.metrics.coverage_known = false;
+        self.confirmed_stopped = false;
+        if self.grant.opened {
+            let reopened = self.grant.slots[index].ack_ns.is_some() || self.grant.closed;
+            self.grant.slots[index].ack_ns = None;
+            self.grant.slots[index].through_closure = true;
+            self.grant.closed = false;
+            self.grant.close_ns = None;
+            self.metrics.reopened_slots = self
+                .metrics
+                .reopened_slots
+                .saturating_add(u64::from(reopened));
+        }
+    }
+    fn acknowledge_slot(&mut self, index: usize) -> Result<(), ()> {
+        if !self.grant.opened {
+            return Ok(());
+        }
+        let member = self.members[index];
+        self.note_incarnation(index, member);
+        let end = self.ledger_clock()?;
+        if end < self.grant.t0_ns {
+            self.metrics.coverage_known = false;
+            return Err(());
+        }
+        self.grant.slots[index].ack_ns.get_or_insert(end);
+        Ok(())
+    }
+    fn close_roster(&mut self) -> Result<(), ()> {
+        if !self.grant.opened {
+            return Ok(());
+        }
+        let close = self.ledger_clock()?;
+        if close < self.grant.t0_ns {
+            self.metrics.coverage_known = false;
+            return Err(());
+        }
+        for index in 0..usize::from(self.grant.reserved) {
+            if self.grant.slots[index].ack_ns.is_none() {
+                let empty = index == 1
+                    && (self.members[1].pid == 0
+                        || self.members[1].image_phase == HelperImagePhase::Exited)
+                    && self.rolled_user_ticks.checked_add(self.rolled_system_ticks)
+                        == Some(self.grant.rolled_baseline);
+                if !empty {
+                    self.metrics.coverage_known = false;
+                    return Err(());
+                }
+                self.grant.slots[index].ack_ns = Some(close);
+                self.grant.slots[index].through_closure = true;
+            }
+        }
+        self.grant.close_ns = Some(close);
+        self.grant.closed = true;
+        self.metrics.roster_closures = self.metrics.roster_closures.saturating_add(1);
+        Ok(())
+    }
+    fn pending_charge_lower_bound(&mut self) -> Result<u64, ()> {
+        if !self.grant.opened {
+            return Ok(0);
+        }
+        let now = self.ledger_clock()?;
+        let mut window = 0u64;
+        for slot in &self.grant.slots[..usize::from(self.grant.reserved)] {
+            let end = if self.grant.closed && slot.through_closure {
+                self.grant.close_ns.ok_or(())?
+            } else if slot.through_closure {
+                now
+            } else {
+                slot.ack_ns.unwrap_or(now)
+            };
+            window = window
+                .checked_add(end.checked_sub(self.grant.t0_ns).ok_or(())?)
+                .ok_or(())?;
+        }
+        let actual = self
+            .actual_cpu()?
+            .checked_sub(self.grant.actual_baseline)
+            .ok_or(())?;
+        window
+            .max(actual)
+            .checked_add(self.grant_control_cpu()?)
+            .ok_or(())
+    }
+    fn grant_control_cpu(&self) -> Result<u64, ()> {
+        if self.metrics.controller_cpu_ns == u64::MAX || self.metrics.pipe_cpu_ns == u64::MAX {
+            return Err(());
+        }
+        self.metrics
+            .controller_cpu_ns
+            .checked_sub(self.grant.controller_baseline)
+            .and_then(|cpu| {
+                self.metrics
+                    .pipe_cpu_ns
+                    .checked_sub(self.grant.pipe_baseline)
+                    .and_then(|pipe| cpu.checked_add(pipe))
+            })
+            .ok_or(())
+    }
+    fn actual_user_ticks(&self) -> Result<u64, ()> {
+        self.members[0]
+            .user_ticks
+            .checked_add(self.members[1].user_ticks.max(self.rolled_user_ticks))
+            .ok_or(())
+    }
+    fn actual_system_ticks(&self) -> Result<u64, ()> {
+        self.members[0]
+            .system_ticks
+            .checked_add(self.members[1].system_ticks.max(self.rolled_system_ticks))
+            .ok_or(())
+    }
+    /// Raw timeval components remain distinct. The explicit interval covers
+    /// only separately truncated microsecond representation (own+one child),
+    /// not the later exit/calcru cutoff. Every new system upper residual is
+    /// charged in full; the exact-host kernel/tool basis remains a prerequisite.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn reconcile_usage(
+        &mut self,
+        control: &Control,
+        user_ns: u64,
+        system_ns: u64,
+        rss: u64,
+    ) -> Result<(), ()> {
+        if self.usage_reconciled {
+            return Err(());
+        }
+        self.usage_reconciled = true;
+        self.metrics.reap_user_ns = user_ns;
+        self.metrics.reap_system_ns = system_ns;
+        self.metrics.reap_quantization_ns = u64::from(self.identity.expected_members)
+            .checked_mul(1000)
+            .ok_or(())?;
+        let width = self.metrics.reap_quantization_ns.checked_sub(1).ok_or(())?;
+        let user_upper = user_ns.checked_add(width).ok_or(())?;
+        let system_upper = system_ns.checked_add(width).ok_or(())?;
+        self.metrics.reap_user_upper_ns = user_upper;
+        self.metrics.reap_system_upper_ns = system_upper;
+        let user_ticks = self.actual_user_ticks()?;
+        let system_ticks = self.actual_system_ticks()?;
+        self.metrics.reap_ri_user_ticks = user_ticks;
+        self.metrics.reap_ri_system_ticks = system_ticks;
+        let mut timebase = HelperTimebase { numer: 0, denom: 0 };
+        if unsafe { helper_timebase_info(&mut timebase) } != 0
+            || timebase.numer == 0
+            || timebase.denom == 0
+        {
+            return Err(());
+        }
+        self.metrics.reap_timebase_numer = timebase.numer;
+        self.metrics.reap_timebase_denom = timebase.denom;
+        let user_before = helper_ticks_ns(user_ticks)?;
+        let system_before = helper_ticks_ns(system_ticks)?;
+        // A one-nanosecond enclosing RI representation interval is explicit;
+        // raw RI ticks/timebase and timeval values are never epsilon-clamped.
+        let user_lower = user_before.saturating_sub(1);
+        let system_lower = system_before.saturating_sub(1);
+        let user_stable = user_ns <= user_before && user_upper >= user_lower;
+        let system_forward = system_upper >= system_lower;
+        self.post_proof_pending = true;
+        self.post_commit_pending = true;
+        self.post_cpu = 0;
+        self.post_late_known = user_stable && system_forward;
+        self.post_late_cpu = if system_forward {
+            let kernel = system_upper.checked_sub(system_lower).ok_or(())?;
+            if user_stable {
+                kernel
+            } else {
+                user_upper
+                    .checked_sub(user_lower)
+                    .and_then(|user| kernel.checked_add(user))
+                    .unwrap_or(u64::MAX)
+            }
+        } else {
+            u64::MAX
+        };
+        self.settled_cpu = Some(user_upper.checked_add(system_upper).ok_or(())?);
+        if self.pending_closure() {
+            self.finish_grant(control, 0);
+            // Without a causal closed roster this is terminal accounting only;
+            // the full uncertainty window remains in its failed receipt.
+            self.post_late_cpu = 0;
+            self.post_late_known = true;
+        }
+        self.accounting_settled = self.retired_members_exited();
+        self.corroboration_pending = false;
+        if rss > storage::HELPERS {
+            self.reject(control, 4);
+            return Err(());
+        }
+        if !self.post_late_known {
+            self.metrics.reconciliation_unproven =
+                self.metrics.reconciliation_unproven.saturating_add(1);
+            self.metrics.coverage_known = false;
+            self.reject(control, 5);
+            return Err(());
+        }
+        self.control_verdict(control)
+    }
+    pub(crate) fn commit_post_observation(
+        &mut self,
+        control: &Control,
+        cpu_ns: u64,
+        wall_ns: u64,
+    ) -> Result<(), ()> {
+        if !self.post_proof_pending {
+            return Err(());
+        }
+        self.post_cpu = cpu_ns;
+        if wall_ns == u64::MAX || cpu_ns == u64::MAX {
+            self.metrics.clock_failures = self.metrics.clock_failures.saturating_add(1);
+            self.post_late_cpu = u64::MAX;
+            self.post_late_known = false;
+        }
+        self.post_proof_pending = false;
+        self.commit_stopped_unit(control);
+        self.control_verdict(control)
+    }
+    fn control_verdict(&self, control: &Control) -> Result<(), ()> {
+        if self.metrics.coverage_known && control.error().is_none() {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+    #[cfg(target_os = "macos")]
+    fn corroborate_stopped(&mut self) -> Result<(), ()> {
+        if !self.confirmed_stopped || self.pending_closure() || self.pipe_open {
+            return Err(());
+        }
+        let user = self.actual_user_ticks()?;
+        self.observed_post_revision = self.corroboration_revision;
+        self.post_cpu = 0;
+        self.post_late_cpu = 0;
+        self.post_late_known = true;
+        self.post_commit_pending = true;
+        for index in 0..2 {
+            if !self.member_continuity(index)? {
+                return Err(());
+            }
+        }
+        self.recheck_stopped_roster()?;
+        if self.pending_closure() || self.actual_user_ticks()? != user {
+            return Err(());
+        }
+        let actual = self.actual_cpu()?;
+        self.post_late_cpu = actual.checked_sub(self.accounted_helper_cpu).ok_or(())?;
+        self.accounted_helper_cpu = actual;
+        Ok(())
+    }
+    #[cfg(target_os = "macos")]
+    fn recheck_stopped_roster(&mut self) -> Result<(), ()> {
+        let result = self.recheck_stopped_roster_inner();
+        if result.is_err() {
+            for index in 0..usize::from(self.identity.expected_members) {
+                self.invalidate_slot(index);
+            }
+        }
+        result
+    }
+    #[cfg(target_os = "macos")]
+    fn recheck_stopped_roster_inner(&mut self) -> Result<(), ()> {
+        let mut pids = [0i32; 3];
+        let count = unsafe {
+            libc::proc_listpgrppids(
+                self.pgid,
+                pids.as_mut_ptr().cast(),
+                std::mem::size_of_val(&pids) as i32,
+            )
+        };
+        if count <= 0 || count as usize > usize::from(self.identity.expected_members) {
+            return Err(());
+        }
+        let count = count as usize;
+        if pids[..count]
+            .iter()
+            .any(|pid| !self.members.iter().any(|member| member.pid == *pid))
+        {
+            self.capture_members()?;
+            return Err(());
+        }
+        for member in self.members.into_iter().filter(|member| member.pid > 0) {
+            if !pids[..count].contains(&member.pid) {
+                if member.image_phase != HelperImagePhase::Exited || member.exit_abstime == 0 {
+                    return Err(());
+                }
+                continue;
+            }
+            if member.image_phase == HelperImagePhase::Exited {
+                let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
+                if unsafe { libc::proc_pid_rusage(member.pid, 1, usage.as_mut_ptr().cast()) } != 0 {
+                    return Err(());
+                }
+                let usage = unsafe { usage.assume_init() };
+                if usage.ri_proc_start_abstime != member.start_abstime
+                    || usage.ri_proc_exit_abstime == 0
+                {
+                    return Err(());
+                }
+                continue;
+            }
+            let mut children = [0i32; 3];
+            let found = unsafe {
+                libc::proc_listchildpids(
+                    member.pid,
+                    children.as_mut_ptr().cast(),
+                    std::mem::size_of_val(&children) as i32,
+                )
+            };
+            if found < 0
+                || found as usize >= children.len()
+                || children[..found as usize]
+                    .iter()
+                    .any(|pid| !pids[..count].contains(pid))
+            {
+                self.capture_members()?;
+                return Err(());
+            }
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    fn corroborate_stopped(&mut self) -> Result<(), ()> {
+        Err(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn reconcile_usage(
+        &mut self,
+        _: &Control,
+        _: u64,
+        _: u64,
+        _: u64,
+    ) -> Result<(), ()> {
+        Err(())
+    }
+    fn commit_stopped_unit(&mut self, control: &Control) {
+        let cost = self.post_cpu.saturating_add(self.post_late_cpu);
+        self.metrics.post_units = self.metrics.post_units.saturating_add(1);
+        self.metrics.post_cpu_ns = self.metrics.post_cpu_ns.saturating_add(self.post_cpu);
+        self.metrics.post_max_cpu_ns = self.metrics.post_max_cpu_ns.max(cost);
+        if self.post_late_known {
+            self.metrics.late_kernel_cpu_ns = self
+                .metrics
+                .late_kernel_cpu_ns
+                .saturating_add(self.post_late_cpu);
+            self.metrics.late_kernel_observations = self
+                .metrics
+                .late_kernel_observations
+                .saturating_add(u64::from(self.post_late_cpu != 0));
+        } else {
+            self.metrics.unexplained_cpu_ns = self
+                .metrics
+                .unexplained_cpu_ns
+                .saturating_add(self.post_late_cpu);
+        }
+        let debt_cost = cost.max(UNIT_NS);
+        let debt = debt_cost.saturating_mul(9);
+        self.metrics.debt_ns = self.metrics.debt_ns.saturating_add(debt);
+        control.helper_extend_debt(debt_cost);
+        self.debt_until = self
+            .debt_until
+            .max(Instant::now())
+            .checked_add(Duration::from_nanos(debt))
+            .unwrap_or(control.deadline);
+        self.post_commit_pending = false;
+        self.corroboration_pending =
+            !self.retiring && self.corroboration_revision != self.observed_post_revision;
+        self.post_cpu = 0;
+        self.post_late_cpu = 0;
+        if cost > UNIT_NS {
+            self.reject(control, 4);
+        }
+    }
+    /// A later required observation closes continuity, rather than treating one
+    /// TASKALLINFO struct as an atomic stop/exec/roster transaction.
+    #[cfg(target_os = "macos")]
+    fn member_continuity(&mut self, index: usize) -> Result<bool, ()> {
+        let result = self.member_continuity_inner(index);
+        if result.is_err() {
+            self.invalidate_slot(index);
+        }
+        result
+    }
+    #[cfg(target_os = "macos")]
+    fn member_continuity_inner(&mut self, index: usize) -> Result<bool, ()> {
+        use std::os::unix::ffi::OsStrExt;
+        let prior = self.members[index];
+        if prior.pid == 0 {
+            return Ok(true);
+        }
+        if prior.image_phase == HelperImagePhase::Exited
+            && prior.exit_abstime != 0
+            && helper_token_exited(&prior.audit_token) == Ok(true)
+        {
+            self.acknowledge_slot(index)?;
+            return Ok(true);
+        }
+        let mut raw = std::mem::MaybeUninit::<libc::proc_taskallinfo>::uninit();
+        let size = std::mem::size_of::<libc::proc_taskallinfo>() as i32;
+        if unsafe {
+            libc::proc_pidinfo(
+                prior.pid,
+                libc::PROC_PIDTASKALLINFO,
+                0,
+                raw.as_mut_ptr().cast(),
+                size,
+            )
+        } != size
+        {
+            if std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
+                return Err(());
+            }
+            self.exited_member_usage(prior.pid)?;
+            self.members[index].image_phase = HelperImagePhase::Exited;
+            self.acknowledge_slot(index)?;
+            return Ok(true);
+        }
+        let raw = unsafe { raw.assume_init() };
+        let info = raw.pbsd;
+        let task = raw.ptinfo;
+        let birth = info
+            .pbi_start_tvsec
+            .checked_mul(1_000_000)
+            .and_then(|n| n.checked_add(info.pbi_start_tvusec))
+            .ok_or(())?;
+        let parent = if index == 0 {
+            unsafe { libc::getpid() }
+        } else {
+            self.pgid
+        };
+        if info.pbi_pid != prior.pid as u32
+            || info.pbi_pgid != self.pgid as u32
+            || info.pbi_ppid != parent as u32
+            || info.pbi_uid != unsafe { libc::geteuid() }
+            || info.pbi_nice < 10
+            || birth != prior.birth
+        {
+            return Err(());
+        }
+        let mut image = [0u8; 4096];
+        let result = unsafe {
+            proc_pidpath_audittoken(
+                &prior.audit_token,
+                image.as_mut_ptr().cast(),
+                image.len() as u32,
+            )
+        };
+        if result <= 0 {
+            if std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
+                return Err(());
+            }
+            let current = helper_audit_member(prior.pid, parent)?;
+            self.retain_incarnation(current)?;
+            let mut member = prior;
+            member.audit_token = current.token;
+            member.audit_version = current.token.value[7];
+            if member.audit_version == prior.audit_version {
+                return Err(());
+            }
+            helper_token_signal(&member.audit_token, libc::SIGSTOP).map_err(|_| ())?;
+            member.exec_stop_version = member.audit_version;
+            self.note_incarnation(index, member);
+            self.members[index] = member;
+            self.confirmed_stopped = false;
+            let n = unsafe {
+                proc_pidpath_audittoken(
+                    &member.audit_token,
+                    image.as_mut_ptr().cast(),
+                    image.len() as u32,
+                )
+            };
+            if n <= 0 {
+                return Err(());
+            }
+            let end = image.iter().position(|n| *n == 0).ok_or(())?;
+            let allowed = index == 1
+                && current.birth == prior.birth
+                && member.audit_version > prior.audit_version
+                && prior.image_phase == HelperImagePhase::ParentClone
+                && self
+                    .identity
+                    .descendant_image
+                    .as_ref()
+                    .is_some_and(|expected| expected.as_os_str().as_bytes() == &image[..end]);
+            if !allowed {
+                return Err(());
+            }
+            self.members[index].image_phase = HelperImagePhase::Descendant;
+            self.metrics.verified_descendants =
+                self.metrics.verified_descendants.checked_add(1).ok_or(())?;
+            return Ok(false);
+        }
+        let end = image.iter().position(|n| *n == 0).ok_or(())?;
+        let expected = if index == 0 || prior.image_phase == HelperImagePhase::ParentClone {
+            &self.identity.image
+        } else {
+            self.identity.descendant_image.as_ref().ok_or(())?
+        };
+        if expected.as_os_str().as_bytes() != &image[..end]
+            || task.pti_threadnum != 1
+            || task.pti_numrunning != 0
+            || info.pbi_status != 4
+        {
+            return Err(());
+        }
+        let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
+        if unsafe { libc::proc_pid_rusage(prior.pid, 1, usage.as_mut_ptr().cast()) } != 0 {
+            return Err(());
+        }
+        let usage = unsafe { usage.assume_init() };
+        if usage.ri_proc_start_abstime != prior.start_abstime
+            || usage.ri_proc_exit_abstime != 0
+            || usage.ri_system_time < prior.system_ticks
+        {
+            self.invalidate_slot(index);
+            return Err(());
+        }
+        let user_changed = usage.ri_user_time != prior.user_ticks;
+        let cpu = helper_ticks_ns(
+            usage
+                .ri_user_time
+                .checked_add(usage.ri_system_time)
+                .ok_or(())?,
+        )?;
+        if cpu < prior.cpu {
+            return Err(());
+        }
+        self.members[index].cpu = cpu;
+        self.members[index].user_ticks = usage.ri_user_time;
+        self.members[index].system_ticks = usage.ri_system_time;
+        self.members[index].rss_peak = prior.rss_peak.max(usage.ri_resident_size);
+        if index == 0 {
+            if usage.ri_child_user_time < self.rolled_user_ticks
+                || usage.ri_child_system_time < self.rolled_system_ticks
+            {
+                return Err(());
+            }
+            self.rolled_user_ticks = usage.ri_child_user_time;
+            self.rolled_system_ticks = usage.ri_child_system_time;
+            self.metrics.observed_direct_cpu_ns = cpu;
+            self.metrics.rolled_descendant_cpu_ns = helper_ticks_ns(
+                usage
+                    .ri_child_user_time
+                    .checked_add(usage.ri_child_system_time)
+                    .ok_or(())?,
+            )?;
+        } else {
+            self.metrics.observed_descendant_cpu_ns = cpu;
+        }
+        if user_changed {
+            self.invalidate_slot(index);
+            return Err(());
+        }
+        self.acknowledge_slot(index)?;
+        Ok(true)
+    }
+    #[cfg(target_os = "macos")]
+    fn exited_member_usage(&mut self, pid: i32) -> Result<(), ()> {
+        let index = self
+            .members
+            .iter()
+            .position(|m| m.pid == pid && m.start_abstime != 0)
+            .ok_or(())?;
+        let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
+        if unsafe { libc::proc_pid_rusage(pid, 1, usage.as_mut_ptr().cast()) } != 0 {
+            return Err(());
+        }
+        let usage = unsafe { usage.assume_init() };
+        let invalid_user_after_ack = self.grant.opened
+            && self.grant.slots[index].ack_ns.is_some()
+            && usage.ri_user_time != self.members[index].user_ticks;
+        if usage.ri_proc_start_abstime != self.members[index].start_abstime
+            || usage.ri_proc_exit_abstime == 0
+        {
+            return Err(());
+        }
+        let cpu = helper_ticks_ns(
+            usage
+                .ri_user_time
+                .checked_add(usage.ri_system_time)
+                .ok_or(())?,
+        )?;
+        if cpu < self.members[index].cpu {
+            return Err(());
+        }
+        self.members[index].cpu = cpu;
+        self.members[index].user_ticks = usage.ri_user_time;
+        self.members[index].system_ticks = usage.ri_system_time;
+        self.members[index].exit_abstime = usage.ri_proc_exit_abstime;
+        if index == 0 {
+            let rolled = helper_ticks_ns(
+                usage
+                    .ri_child_user_time
+                    .checked_add(usage.ri_child_system_time)
+                    .ok_or(())?,
+            )?;
+            if rolled < self.metrics.rolled_descendant_cpu_ns {
+                return Err(());
+            }
+            self.metrics.observed_direct_cpu_ns = cpu;
+            self.metrics.rolled_descendant_cpu_ns = rolled;
+            self.rolled_user_ticks = usage.ri_child_user_time;
+            self.rolled_system_ticks = usage.ri_child_system_time;
+        } else {
+            self.metrics.observed_descendant_cpu_ns = cpu;
+        }
+        if invalid_user_after_ack {
+            self.invalidate_slot(index);
+            return Err(());
+        }
+        Ok(())
+    }
+    pub(crate) fn attached(identity: super::resolve::HelperIdentity) -> Self {
+        let now = Instant::now();
+        Self {
+            pgid: identity.pgid,
+            running: false,
+            retiring: false,
+            changed: now,
+            ready: false,
+            creation_settled: false,
+            initial_stop_pending: false,
+            confirmed_stopped: false,
+            identity,
+            stop_requested: false,
+            debt_until: now,
+            lane_cpu: 0,
+            members: [HelperMember::default(); 2],
+            retired_members: [RetiredMember::default(); 8],
+            stopped_roster: [0; 8],
+            grant: HelperGrantLedger::default(),
+            corroboration_pending: true,
+            post_commit_pending: false,
+            post_cpu: 0,
+            post_late_cpu: 0,
+            accounted_helper_cpu: 0,
+            rolled_user_ticks: 0,
+            rolled_system_ticks: 0,
+            grant_commit_pending: false,
+            pipe_open: false,
+            pipe_active: false,
+            corroboration_revision: 0,
+            observed_post_revision: 0,
+            post_proof_pending: false,
+            post_late_known: true,
+            settled_cpu: None,
+            usage_reconciled: false,
+            accounting_settled: false,
+            last_clock_ns: None,
+            metrics: HelperMetrics {
+                coverage_known: true,
+                ..HelperMetrics::default()
+            },
+        }
+    }
+    /// Capture descendant effects before any refusal or leader reap, including
+    /// an unexpected escaped child. Signals bind Darwin's PID version token;
+    /// an old token cannot affect a later process that reuses the numeric PID.
+    #[cfg(target_os = "macos")]
+    fn retain_incarnation(&mut self, member: RetiredMember) -> Result<(), ()> {
+        if let Some(prior) = self.retired_members.iter().find(|prior| {
+            prior.pid == member.pid
+                && prior.birth == member.birth
+                && prior.token.value[7] == member.token.value[7]
+        }) {
+            return if prior.current && prior.token.value == member.token.value {
+                Ok(())
+            } else {
+                Err(())
+            };
+        }
+        let free = self
+            .retired_members
+            .iter()
+            .position(|prior| prior.pid == 0)
+            .ok_or(())?;
+        // Store the new physical recipient before any phase/version verdict;
+        // prior incarnations remain retained for read-only exit queries.
+        for prior in self
+            .retired_members
+            .iter_mut()
+            .filter(|prior| prior.pid == member.pid)
+        {
+            prior.current = false;
+        }
+        self.retired_members[free] = member;
+        if let Some(index) = self.members.iter().position(|known| {
+            known.pid == member.pid
+                && known.birth == member.birth
+                && known.audit_version != 0
+                && known.audit_version != member.token.value[7]
+        }) {
+            let mut current = self.members[index];
+            current.audit_token = member.token;
+            current.audit_version = member.token.value[7];
+            self.note_incarnation(index, current);
+            if self.retiring {
+                self.metrics.coverage_known = false;
+            }
+        }
+        Ok(())
+    }
+    #[cfg(target_os = "macos")]
+    fn capture_members(&mut self) -> Result<(), ()> {
+        let mut parents = [0i32; 9];
+        parents[0] = self.pgid;
+        let mut cursor = 0;
+        let mut end = 1;
+        let mut valid = true;
+        while cursor < end {
+            let parent = parents[cursor];
+            cursor += 1;
+            let mut children = [0i32; 3];
+            let bytes = unsafe {
+                libc::proc_listchildpids(
+                    parent,
+                    children.as_mut_ptr().cast(),
+                    std::mem::size_of_val(&children) as i32,
+                )
+            };
+            if bytes < 0 || bytes as usize > children.len() {
+                return Err(());
+            }
+            let count = bytes as usize;
+            if count >= children.len() {
+                valid = false;
+            }
+            for &pid in &children[..count] {
+                if pid <= 0 {
+                    return Err(());
+                }
+                if !self.stopped_roster.contains(&pid) {
+                    // This exact child came from an owned parent's census.
+                    // The unreaped original leader still pins the group: stop
+                    // its newly discovered roster before costly token queries.
+                    let free = self
+                        .stopped_roster
+                        .iter()
+                        .position(|known| *known == 0)
+                        .ok_or(())?;
+                    self.stopped_roster[free] = pid;
+                    if unsafe { libc::kill(-self.pgid, libc::SIGSTOP) } != 0 {
+                        return Err(());
+                    }
+                    self.stop_requested = true;
+                    self.confirmed_stopped = false;
+                }
+                let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
+                let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+                if unsafe {
+                    libc::proc_pidinfo(
+                        pid,
+                        libc::PROC_PIDTBSDINFO,
+                        0,
+                        info.as_mut_ptr().cast(),
+                        size,
+                    )
+                } != size
+                {
+                    if std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+                        && self
+                            .retired_members
+                            .iter()
+                            .any(|m| m.pid == pid && helper_token_exited(&m.token) == Ok(true))
+                    {
+                        continue;
+                    }
+                    return Err(());
+                }
+                let info = unsafe { info.assume_init() };
+                if info.pbi_ppid != parent as u32 || info.pbi_uid != unsafe { libc::geteuid() } {
+                    return Err(());
+                }
+                let birth = info
+                    .pbi_start_tvsec
+                    .checked_mul(1_000_000)
+                    .and_then(|s| s.checked_add(info.pbi_start_tvusec))
+                    .ok_or(())?;
+                if self.retiring
+                    || !self
+                        .retired_members
+                        .iter()
+                        .any(|m| m.pid == pid && m.birth == birth)
+                {
+                    let member = helper_audit_member(pid, parent)?;
+                    self.retain_incarnation(member)?;
+                }
+                if end < parents.len() {
+                    parents[end] = pid;
+                    end += 1;
+                } else {
+                    valid = false;
+                }
+            }
+        }
+        let logical_children = self
+            .retired_members
+            .iter()
+            .enumerate()
+            .filter(|(index, member)| {
+                member.pid > 0
+                    && member.pid != self.pgid
+                    && !self.retired_members[..*index]
+                        .iter()
+                        .any(|prior| prior.pid == member.pid && prior.birth == member.birth)
+            })
+            .count();
+        if logical_children > usize::from(self.identity.expected_members - 1) {
+            self.metrics.coverage_known = false;
+            valid = false;
+        }
+        if valid { Ok(()) } else { Err(()) }
+    }
+    #[cfg(target_os = "macos")]
+    pub(crate) fn retire_members(&mut self) -> Result<(), ()> {
+        let mut valid = self.capture_members().is_ok();
+        if super::resolve::helper_exited(self.pgid) == Ok(false) {
+            match helper_audit_member(self.pgid, unsafe { libc::getpid() }) {
+                Ok(member) => valid &= self.retain_incarnation(member).is_ok(),
+                Err(()) => valid = false,
+            }
+        }
+        for member in self
+            .retired_members
+            .iter()
+            .filter(|m| m.pid > 0 && m.current)
+        {
+            if matches!(helper_token_signal(&member.token,libc::SIGSTOP),Err(code) if code!=libc::ESRCH)
+            {
+                valid = false;
+            }
+            if matches!(helper_token_signal(&member.token,libc::SIGKILL),Err(code) if code!=libc::ESRCH)
+            {
+                valid = false;
+            }
+        }
+        if valid { Ok(()) } else { Err(()) }
+    }
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn retire_members(&mut self) -> Result<(), ()> {
+        Err(())
+    }
+    #[cfg(target_os = "macos")]
+    pub(crate) fn retired_members_exited(&self) -> bool {
+        self.retired_members
+            .iter()
+            .filter(|member| member.pid > 0 && member.current)
+            .all(|member| {
+                if helper_token_exited(&member.token) != Ok(true) {
+                    return false;
+                }
+                // An old task token's ESRCH is not logical process exit: exec keeps
+                // PID/birth while replacing the token. A live same-birth recipient
+                // therefore keeps original custody, even after its parent reaped.
+                let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
+                let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+                if unsafe {
+                    libc::proc_pidinfo(
+                        member.pid,
+                        libc::PROC_PIDTBSDINFO,
+                        0,
+                        info.as_mut_ptr().cast(),
+                        size,
+                    )
+                } == size
+                {
+                    let info = unsafe { info.assume_init() };
+                    let birth = info
+                        .pbi_start_tvsec
+                        .checked_mul(1_000_000)
+                        .and_then(|n| n.checked_add(info.pbi_start_tvusec));
+                    return birth.is_some_and(|birth| birth != member.birth);
+                }
+                if std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
+                    return false;
+                }
+                let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
+                if unsafe { libc::proc_pid_rusage(member.pid, 1, usage.as_mut_ptr().cast()) } == 0 {
+                    let usage = unsafe { usage.assume_init() };
+                    return self.members.iter().any(|known| {
+                        known.pid == member.pid
+                            && known.birth == member.birth
+                            && known.start_abstime != 0
+                            && known.start_abstime == usage.ri_proc_start_abstime
+                            && usage.ri_proc_exit_abstime != 0
+                    });
+                }
+                std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+            })
+    }
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn retired_members_exited(&self) -> bool {
+        false
+    }
+    #[track_caller]
+    fn reject(&mut self, control: &Control, code: u8) {
+        if self.metrics.first_failure_line == 0 {
+            self.metrics.first_failure_line = std::panic::Location::caller().line();
+        }
+        self.ready = false;
+        self.metrics.coverage_known &= code != 5;
+        // Never replace an already observed cancellation/protocol outcome.
+        let _ = control
+            .cancel
+            .compare_exchange(0, code, Ordering::AcqRel, Ordering::Acquire);
+    }
+    /// Charge only endpoints belonging to this grant's completed causal roster.
+    /// Failed closure retains every uncertainty interval through settlement.
+    pub(crate) fn finish_grant(&mut self, control: &Control, controller_cpu: u64) {
+        self.metrics.controller_cpu_ns = self
+            .metrics
+            .controller_cpu_ns
+            .saturating_add(controller_cpu);
+        self.lane_cpu = self.lane_cpu.saturating_add(controller_cpu);
+        if !self.grant.opened {
+            return;
+        }
+        let now = self.ledger_clock().unwrap_or(u64::MAX);
+        let mut receipt = HelperGrantReceipt {
+            sequence: self.identity.sequence,
+            pid: self.identity.pid,
+            pgid: self.pgid,
+            birth: self.identity.start_identity,
+            reserved: self.grant.reserved,
+            t0_ns: self.grant.t0_ns,
+            close_ns: self.grant.close_ns.unwrap_or(now),
+            c_ns: self.grant_control_cpu().unwrap_or(u64::MAX),
+            closed: self.grant.closed,
+            controller_baseline_ns: self.grant.controller_baseline,
+            controller_end_ns: self.metrics.controller_cpu_ns,
+            pipe_baseline_ns: self.grant.pipe_baseline,
+            pipe_end_ns: self.metrics.pipe_cpu_ns,
+            ..HelperGrantReceipt::default()
+        };
+        let mut window = Some(0u64);
+        for index in 0..usize::from(self.grant.reserved) {
+            let slot = self.grant.slots[index];
+            let end = if !self.grant.closed {
+                now
+            } else if slot.through_closure {
+                self.grant.close_ns.unwrap_or(u64::MAX)
+            } else {
+                slot.ack_ns.unwrap_or(u64::MAX)
+            };
+            receipt.end_ns[index] = end;
+            receipt.member_pid[index] = slot.pid;
+            receipt.member_birth[index] = slot.birth;
+            receipt.member_start[index] = slot.start;
+            receipt.member_version[index] = slot.version;
+            window = window.and_then(|total| {
+                if end == u64::MAX {
+                    None
+                } else {
+                    end.checked_sub(self.grant.t0_ns)
+                        .and_then(|span| total.checked_add(span))
+                }
+            });
+        }
+        receipt.w_ns = window.unwrap_or(u64::MAX);
+        receipt.a_ns = self
+            .actual_cpu()
+            .ok()
+            .and_then(|actual| actual.checked_sub(self.grant.actual_baseline))
+            .unwrap_or(u64::MAX);
+        receipt.q_ns = receipt.w_ns.max(receipt.a_ns).saturating_add(receipt.c_ns);
+        let first = !self.grant.charged_once;
+        let additional = receipt
+            .q_ns
+            .max(self.grant.charged)
+            .saturating_sub(self.grant.charged);
+        self.grant.charged = self.grant.charged.max(receipt.q_ns);
+        self.grant.charged_once = true;
+        self.metrics.grants = self.metrics.grants.saturating_add(u64::from(first));
+        self.metrics.charged_ns = self.metrics.charged_ns.saturating_add(additional);
+        if receipt.q_ns >= self.metrics.max_charge_ns {
+            self.metrics.max_charge_ns = receipt.q_ns;
+            self.metrics.worst_grant = receipt;
+        }
+        self.metrics.window_ns = self.metrics.window_ns.saturating_add(
+            receipt
+                .w_ns
+                .max(self.grant.reported_w)
+                .saturating_sub(self.grant.reported_w),
+        );
+        self.metrics.active_cpu_ns = self.metrics.active_cpu_ns.saturating_add(
+            receipt
+                .a_ns
+                .max(self.grant.reported_a)
+                .saturating_sub(self.grant.reported_a),
+        );
+        self.metrics.active_control_ns = self.metrics.active_control_ns.saturating_add(
+            receipt
+                .c_ns
+                .max(self.grant.reported_c)
+                .saturating_sub(self.grant.reported_c),
+        );
+        self.grant.reported_w = self.grant.reported_w.max(receipt.w_ns);
+        self.grant.reported_a = self.grant.reported_a.max(receipt.a_ns);
+        self.grant.reported_c = self.grant.reported_c.max(receipt.c_ns);
+        let debt_cost = if first {
+            receipt.q_ns.max(UNIT_NS)
+        } else {
+            additional
+        };
+        let debt = debt_cost.saturating_mul(9);
+        self.metrics.debt_ns = self.metrics.debt_ns.saturating_add(debt);
+        control.helper_extend_debt(debt_cost);
+        self.debt_until = self
+            .debt_until
+            .max(Instant::now())
+            .checked_add(Duration::from_nanos(debt))
+            .unwrap_or(control.deadline);
+        self.running = false;
+        self.grant_commit_pending = false;
+        self.stop_requested = false;
+        self.lane_cpu = 0;
+        self.corroboration_pending = self.grant.closed;
+        if self.grant.closed {
+            self.accounted_helper_cpu = self.actual_cpu().unwrap_or(u64::MAX);
+        }
+        if receipt.q_ns > UNIT_NS {
+            self.reject(control, 4);
+        }
+        if !self.grant.closed || receipt.a_ns > receipt.w_ns || receipt.q_ns == u64::MAX {
+            self.metrics.coverage_known = false;
+            self.metrics.unknown_windows = self.metrics.unknown_windows.saturating_add(1);
+            self.reject(control, 5);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    pub(crate) fn sample(&mut self, control: &Control) -> Result<bool, ()> {
+        use std::os::unix::ffi::OsStrExt;
+        self.confirmed_stopped = false;
+        self.capture_members()?;
+        self.initial_stop_pending = false;
+        let mut pids = [0i32; 3];
+        let count = unsafe {
+            libc::proc_listpgrppids(
+                self.pgid,
+                pids.as_mut_ptr().cast(),
+                std::mem::size_of_val(&pids) as i32,
+            )
+        };
+        if count <= 0 || count as usize > pids.len() {
+            return Err(());
+        }
+        let count = count as usize;
+        if count > self.identity.expected_members as usize || count > 2 {
+            return Err(());
+        }
+        let mut all_stopped = true;
+        let mut fresh_exec_ack = false;
+        let mut rss_sum = 0u64;
+        for &pid in &pids[..count] {
+            if pid <= 0 {
+                return Err(());
+            }
+            if pid == self.pgid && super::resolve::helper_exited(pid).map_err(|_| ())? {
+                // Darwin BSD/task path queries refuse a zombie, although the
+                // unreaped typed leader still pins its identity and group.
+                if self.members[0].pid != pid
+                    || self.members[0].birth != self.identity.start_identity
+                {
+                    return Err(());
+                }
+                self.exited_member_usage(pid)?;
+                self.members[0].image_phase = HelperImagePhase::Exited;
+                self.acknowledge_slot(0)?;
+                continue;
+            }
+            // One kernel snapshot supplies both identity/status and task-thread
+            // quiescence. Preserve every predicate while avoiding a second
+            // per-member BSD/task round trip in the same bounded sample.
+            let mut raw = std::mem::MaybeUninit::<libc::proc_taskallinfo>::uninit();
+            let size = std::mem::size_of::<libc::proc_taskallinfo>();
+            if unsafe {
+                libc::proc_pidinfo(
+                    pid,
+                    libc::PROC_PIDTASKALLINFO,
+                    0,
+                    raw.as_mut_ptr().cast(),
+                    size as i32,
+                )
+            } != size as i32
+            {
+                if std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+                    && self
+                        .retired_members
+                        .iter()
+                        .any(|m| m.pid == pid && helper_token_exited(&m.token) == Ok(true))
+                {
+                    self.exited_member_usage(pid)?;
+                    if let Some(member) = self.members.iter_mut().find(|member| member.pid == pid) {
+                        member.image_phase = HelperImagePhase::Exited;
+                    }
+                    let index = self
+                        .members
+                        .iter()
+                        .position(|member| member.pid == pid)
+                        .ok_or(())?;
+                    self.acknowledge_slot(index)?;
+                    continue;
+                }
+                return Err(());
+            }
+            let raw = unsafe { raw.assume_init() };
+            let info = raw.pbsd;
+            let task = raw.ptinfo;
+            let birth = info
+                .pbi_start_tvsec
+                .checked_mul(1_000_000)
+                .and_then(|s| s.checked_add(info.pbi_start_tvusec))
+                .ok_or(())?;
+            if info.pbi_pid != pid as u32
+                || info.pbi_pgid != self.pgid as u32
+                || info.pbi_uid != unsafe { libc::geteuid() }
+                || info.pbi_nice < 10
+            {
+                return Err(());
+            }
+            let index = if pid == self.pgid {
+                if birth != self.identity.start_identity {
+                    return Err(());
+                }
+                0
+            } else {
+                if self.identity.expected_members != 2 || info.pbi_ppid != self.pgid as u32 {
+                    return Err(());
+                }
+                1
+            };
+            let prior = self.members[index];
+            if prior.pid != 0 && (prior.pid != pid || prior.birth != birth) {
+                return Err(());
+            }
+            if prior.image_phase == HelperImagePhase::Exited {
+                return Err(());
+            }
+            let image_phase;
+            let mut preexec_observations = prior.preexec_observations;
+            let mut first_verified_descendant = false;
+            let mut member_fresh_exec_ack = false;
+            let mut audit_token = prior.audit_token;
+            let mut audit_version = prior.audit_version;
+            let mut exec_stop_version = prior.exec_stop_version;
+            if info.pbi_status != 5 || prior.pid == 0 {
+                let mut incarnation = if prior.audit_version != 0 {
+                    RetiredMember {
+                        pid,
+                        birth,
+                        token: prior.audit_token,
+                        current: true,
+                    }
+                } else if let Some(member) = self
+                    .retired_members
+                    .iter()
+                    .find(|member| member.pid == pid && member.birth == birth && member.current)
+                {
+                    *member
+                } else {
+                    helper_audit_member(
+                        pid,
+                        if index == 0 {
+                            unsafe { libc::getpid() }
+                        } else {
+                            self.pgid
+                        },
+                    )?
+                };
+                self.retain_incarnation(incarnation)?;
+                let previous_version = incarnation.token.value[7];
+                let mut incarnation_changed = false;
+                let mut image = [0u8; 4096];
+                let mut len = unsafe {
+                    proc_pidpath_audittoken(
+                        &incarnation.token,
+                        image.as_mut_ptr().cast(),
+                        image.len() as u32,
+                    )
+                };
+                if len <= 0 {
+                    if std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
+                        return Err(());
+                    }
+                    // The BSD snapshot still described a live owned member,
+                    // but its prior task incarnation is gone. Retain the new
+                    // recipient before any image/version/timing refusal.
+                    let mut numeric_image = [0u8; 4096];
+                    if unsafe {
+                        libc::proc_pidpath(
+                            pid,
+                            numeric_image.as_mut_ptr().cast(),
+                            numeric_image.len() as u32,
+                        )
+                    } <= 0
+                    {
+                        return Err(());
+                    }
+                    let current = helper_audit_member(
+                        pid,
+                        if index == 0 {
+                            unsafe { libc::getpid() }
+                        } else {
+                            self.pgid
+                        },
+                    )?;
+                    self.retain_incarnation(current)?;
+                    if current.birth != birth || current.token.value[7] == previous_version {
+                        return Err(());
+                    }
+                    incarnation = current;
+                    incarnation_changed = true;
+                    if exec_stop_version != incarnation.token.value[7] {
+                        helper_token_signal(&incarnation.token, libc::SIGSTOP).map_err(|_| ())?;
+                        exec_stop_version = incarnation.token.value[7];
+                    }
+                    // A successful STOP on the old Git task says nothing about
+                    // the new GPG task. Require a later fresh quiescence sample.
+                    fresh_exec_ack = true;
+                    member_fresh_exec_ack = true;
+                    self.confirmed_stopped = false;
+                    len = unsafe {
+                        proc_pidpath_audittoken(
+                            &incarnation.token,
+                            image.as_mut_ptr().cast(),
+                            image.len() as u32,
+                        )
+                    };
+                    if len <= 0 || image != numeric_image {
+                        return Err(());
+                    }
+                }
+                audit_token = incarnation.token;
+                audit_version = incarnation.token.value[7];
+                let end = image.iter().position(|b| *b == 0).ok_or(())?;
+                let observed = &image[..end];
+                if index == 0 {
+                    if observed != self.identity.image.as_os_str().as_bytes() || incarnation_changed
+                    {
+                        return Err(());
+                    }
+                    image_phase = HelperImagePhase::Descendant;
+                } else {
+                    let expected = self.identity.descendant_image.as_ref().ok_or(())?;
+                    if observed == expected.as_os_str().as_bytes() {
+                        if (incarnation_changed
+                            && (audit_version <= previous_version
+                                || !matches!(
+                                    prior.image_phase,
+                                    HelperImagePhase::Unobserved | HelperImagePhase::ParentClone
+                                )))
+                            || (prior.image_phase == HelperImagePhase::ParentClone
+                                && !incarnation_changed)
+                        {
+                            return Err(());
+                        }
+                        if exec_stop_version != audit_version {
+                            // The first roster STOP may have reached the clone
+                            // before this exact task was captured. Stop this
+                            // known verifier incarnation once, even when the
+                            // earlier clone image was too brief to observe.
+                            helper_token_signal(&audit_token, libc::SIGSTOP).map_err(|_| ())?;
+                            exec_stop_version = audit_version;
+                            fresh_exec_ack = true;
+                            member_fresh_exec_ack = true;
+                            self.confirmed_stopped = false;
+                        }
+                        first_verified_descendant =
+                            prior.image_phase != HelperImagePhase::Descendant;
+                        image_phase = HelperImagePhase::Descendant;
+                    } else if !incarnation_changed
+                        && observed == self.identity.image.as_os_str().as_bytes()
+                        && matches!(
+                            prior.image_phase,
+                            HelperImagePhase::Unobserved | HelperImagePhase::ParentClone
+                        )
+                    {
+                        // A signed Git verifier's fork initially has the same
+                        // already provisioned image. This finite phase can only
+                        // advance to the exact provisioned verifier, then exit.
+                        image_phase = HelperImagePhase::ParentClone;
+                        preexec_observations = preexec_observations.checked_add(1).ok_or(())?;
+                    } else {
+                        return Err(());
+                    }
+                }
+                if index == 1 && prior.pid == 0 {
+                    self.metrics.descendants = self.metrics.descendants.checked_add(1).ok_or(())?;
+                }
+            } else {
+                image_phase = HelperImagePhase::Exited;
+            }
+            let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
+            if unsafe { libc::proc_pid_rusage(pid, 1, usage.as_mut_ptr().cast()) } != 0 {
+                return Err(());
+            }
+            let usage = unsafe { usage.assume_init() };
+            if usage.ri_proc_start_abstime == 0
+                || (prior.start_abstime != 0 && usage.ri_proc_start_abstime != prior.start_abstime)
+            {
+                return Err(());
+            }
+            if index == 0 && !self.ready && self.metrics.grants == 0 {
+                if usage.ri_user_time != 0 {
+                    return Err(());
+                }
+                self.metrics.initial_kernel_cpu_ns = self
+                    .metrics
+                    .initial_kernel_cpu_ns
+                    .max(helper_ticks_ns(usage.ri_system_time)?);
+            }
+            let cpu = usage
+                .ri_user_time
+                .checked_add(usage.ri_system_time)
+                .ok_or(())?;
+            let cpu = helper_ticks_ns(cpu)?;
+            if cpu < prior.cpu {
+                return Err(());
+            }
+            let invalid_user_after_ack = self.grant.opened
+                && self.grant.slots[index].ack_ns.is_some()
+                && audit_version == prior.audit_version
+                && usage.ri_user_time != prior.user_ticks;
+            rss_sum = rss_sum.checked_add(usage.ri_resident_size).ok_or(())?;
+            self.members[index] = HelperMember {
+                pid,
+                birth,
+                cpu,
+                rss_peak: prior.rss_peak.max(usage.ri_resident_size),
+                start_abstime: usage.ri_proc_start_abstime,
+                image_phase,
+                preexec_observations,
+                audit_version,
+                exec_stop_version,
+                audit_token,
+                user_ticks: usage.ri_user_time,
+                system_ticks: usage.ri_system_time,
+                exit_abstime: usage.ri_proc_exit_abstime,
+            };
+            self.note_incarnation(index, self.members[index]);
+            if first_verified_descendant {
+                self.metrics.verified_descendants =
+                    self.metrics.verified_descendants.checked_add(1).ok_or(())?;
+            }
+            if index == 0 {
+                self.metrics.observed_direct_cpu_ns = cpu;
+                let rolled = usage
+                    .ri_child_user_time
+                    .checked_add(usage.ri_child_system_time)
+                    .ok_or(())?;
+                let rolled = helper_ticks_ns(rolled)?;
+                if rolled < self.metrics.rolled_descendant_cpu_ns {
+                    return Err(());
+                }
+                self.metrics.rolled_descendant_cpu_ns = rolled;
+                self.rolled_user_ticks = usage.ri_child_user_time;
+                self.rolled_system_ticks = usage.ri_child_system_time;
+            } else {
+                self.metrics.observed_descendant_cpu_ns = cpu;
+            }
+            if invalid_user_after_ack {
+                self.invalidate_slot(index);
+                return Err(());
+            }
+            if image_phase == HelperImagePhase::Exited {
+                if usage.ri_proc_exit_abstime == 0 || helper_token_exited(&audit_token) != Ok(true)
+                {
+                    return Err(());
+                }
+                self.acknowledge_slot(index)?;
+            }
+            // Process status alone can precede task-thread quiescence. The
+            // n*wall grant requires one runnable thread per helper process.
+            if info.pbi_status != 5 {
+                if task.pti_threadnum != 1 || !(0..=1).contains(&task.pti_numrunning) {
+                    return Err(());
+                }
+                if index == 0 {
+                    self.initial_stop_pending = info.pbi_status == 4 && task.pti_numrunning == 1;
+                }
+                all_stopped &= info.pbi_status == 4 && task.pti_numrunning == 0;
+                if info.pbi_status == 4 && task.pti_numrunning == 0 && !member_fresh_exec_ack {
+                    self.acknowledge_slot(index)?;
+                }
+            }
+        }
+        all_stopped &= !fresh_exec_ack;
+        if !pids[..count].contains(&self.pgid) {
+            return Err(());
+        }
+        self.metrics.group_rss_peak = self.metrics.group_rss_peak.max(rss_sum);
+        let separate = self.members[0]
+            .rss_peak
+            .checked_add(self.members[1].rss_peak)
+            .ok_or(())?;
+        self.metrics.separate_rss_sum = self.metrics.separate_rss_sum.max(separate);
+        let mixed = heaps().0.checked_add(rss_sum).ok_or(())?;
+        self.metrics.mixed_heap_rss_peak = self.metrics.mixed_heap_rss_peak.max(mixed);
+        if rss_sum > storage::HELPERS || mixed > HEAP_MAX {
+            self.reject(control, 4);
+            return Err(());
+        }
+        if all_stopped {
+            // The first census precedes stop confirmation. Close membership
+            // AFTER quiescence so a child born during signal delivery cannot
+            // hide behind a retained stopped seal.
+            let mut final_pids = [0i32; 3];
+            let n = unsafe {
+                libc::proc_listpgrppids(
+                    self.pgid,
+                    final_pids.as_mut_ptr().cast(),
+                    std::mem::size_of_val(&final_pids) as i32,
+                )
+            };
+            if n < 0 || n as usize > final_pids.len() {
+                return Err(());
+            }
+            let n = n as usize;
+            let same = n == count
+                && final_pids[..n]
+                    .iter()
+                    .all(|pid| pids[..count].contains(pid));
+            if !same {
+                self.capture_members()?; // capture every newly observed effect before verdict
+                if n > self.identity.expected_members as usize {
+                    return Err(());
+                }
+                for member in self
+                    .retired_members
+                    .iter()
+                    .filter(|m| m.pid > 0 && m.current && !pids[..count].contains(&m.pid))
+                {
+                    if matches!(helper_token_signal(&member.token,libc::SIGSTOP),Err(code) if code!=libc::ESRCH)
+                    {
+                        return Err(());
+                    }
+                }
+                return Ok(false);
+            }
+            // Tentative endpoints become usable only after this SAME grant
+            // re-establishes current-task stop/exit continuity and a final
+            // complete roster. Every call here remains active controller CPU.
+            for index in 0..2 {
+                if !self.member_continuity(index)? {
+                    return Ok(false);
+                }
+            }
+            if self.metrics.rolled_descendant_cpu_ns > self.members[1].cpu {
+                let explained_exit = self.members[1].exit_abstime != 0
+                    && self.rolled_user_ticks == self.members[1].user_ticks
+                    && self.rolled_system_ticks >= self.members[1].system_ticks;
+                if !explained_exit {
+                    self.metrics.coverage_known = false;
+                    return Err(());
+                }
+            }
+            if self.identity.expected_members == 1
+                && (self.rolled_user_ticks != 0 || self.rolled_system_ticks != 0)
+            {
+                self.metrics.coverage_known = false;
+                return Err(());
+            }
+            self.recheck_stopped_roster()?;
+            self.close_roster()?;
+            self.confirmed_stopped = true;
+        }
+        Ok(all_stopped)
+    }
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn sample(&mut self, _: &Control) -> Result<bool, ()> {
+        Err(())
+    }
+}
+impl Control {
+    /// The helper cohort's conservative debt joins the canonical ledger. Its
+    /// measured owner/pipe CPU is already recorded by read_charge and control
+    /// ticks, so extending this debt must not add that CPU a second time.
+    fn helper_extend_debt(&self, cost: u64) {
+        let debt = if cost == u64::MAX {
+            self.accounting.clock_failed.store(true, Ordering::Release);
+            9 * SPAN_NS
+        } else {
+            match cost.checked_mul(9) {
+                Some(debt) => debt,
+                None => {
+                    self.accounting.clock_failed.store(true, Ordering::Release);
+                    9 * SPAN_NS
+                }
+            }
+        };
+        let now = self.accounting.now();
+        if self
+            .accounting
+            .rest_until
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |prior| {
+                prior.max(now).checked_add(debt)
+            })
+            .is_err()
+        {
+            self.accounting
+                .resource_failed
+                .store(true, Ordering::Release);
+        }
+        self.accounting.debt_total.fetch_add(debt, Ordering::AcqRel);
+    }
+    pub(crate) fn helper_controller_marker(&self) -> Option<(u16, u64)> {
+        self.helper
+            .lock()
+            .ok()?
+            .as_ref()
+            .map(|h| (h.identity.sequence, h.metrics.controller_cpu_ns))
+    }
+    pub(crate) fn helper_account_controller(&self, before: Option<(u16, u64)>, inclusive_cpu: u64) {
+        let at = cpu_ns();
+        let mut owner = self.helper.lock().unwrap_or_else(|p| p.into_inner());
+        let Some(h) = owner.as_mut() else {
+            return;
+        };
+        let already = before
+            .filter(|(sequence, _)| *sequence == h.identity.sequence)
+            .and_then(|(_, cpu)| h.metrics.controller_cpu_ns.checked_sub(cpu))
+            .unwrap_or(0);
+        let end = cpu_ns();
+        let tail = self.observe_interval(at, end);
+        let extra = inclusive_cpu
+            .checked_sub(already)
+            .and_then(|cpu| cpu.checked_add(tail))
+            .filter(|_| at != u64::MAX && end != u64::MAX)
+            .unwrap_or(u64::MAX);
+        let _ = h.account_controller(self, extra);
+        // The complete final control tick, including input/output and required
+        // clock checks, joins C before charging this grant. An admitted IO span
+        // cannot disappear merely because its owner has not reported it yet.
+        if h.grant_commit_pending && !(h.pipe_open && h.pipe_active) {
+            h.finish_grant(self, 0);
+        }
+        if h.post_commit_pending && !h.pending_closure() && !h.post_proof_pending {
+            h.commit_stopped_unit(self);
+        }
+    }
+    pub(crate) fn helper_tick(&self) {
+        let mut helper = self.helper.lock().unwrap_or_else(|poisoned| {
+            self.cancel.store(4, Ordering::Release);
+            poisoned.into_inner()
+        });
+        let Some(h) = helper.as_mut() else {
+            return;
+        };
+        if h.retiring {
+            return;
+        }
+        let cpu_start = cpu_ns();
+        let foreground = self.foreground.load(Ordering::Acquire);
+        let debts_paid = Instant::now() >= h.debt_until
+            && self.accounting.now() >= self.accounting.rest_until.load(Ordering::Acquire);
+        if h.grant_commit_pending {
+            // Physically stopped; the final owner-CPU handoff is still open.
+        } else if h.running {
+            match super::resolve::helper_exited(h.pgid) {
+                Ok(true) => {
+                    if !h.stop_requested && unsafe { libc::kill(-h.pgid, libc::SIGSTOP) } != 0 {
+                        h.reject(self, 5);
+                    }
+                    h.stop_requested = true;
+                }
+                Ok(false) => {}
+                Err(_) => h.reject(self, 5),
+            }
+            if !h.stop_requested
+                && (!h.ready
+                    || foreground
+                    || self.error().is_some()
+                    || h.changed.elapsed()
+                        >= Duration::from_micros(if h.identity.expected_members == 2 {
+                            50
+                        } else {
+                            100
+                        }))
+            {
+                if unsafe { libc::kill(-h.pgid, libc::SIGSTOP) } != 0 {
+                    h.reject(self, 5);
+                }
+                h.stop_requested = true;
+            }
+            if h.stop_requested {
+                match h.sample(self) {
+                    Ok(true) => {
+                        h.running = false;
+                        h.grant_commit_pending = true;
+                    }
+                    Ok(false) => {}
+                    Err(()) => h.reject(self, 5),
+                }
+            }
+        } else if h.creation_settled
+            && h.corroboration_pending
+            && !h.post_commit_pending
+            && !h.pipe_open
+            && debts_paid
+        {
+            if h.corroborate_stopped().is_err() {
+                h.corroboration_pending = false;
+                h.confirmed_stopped = false;
+                h.reject(self, 5);
+            }
+        } else if h.ready
+            && !h.pending_closure()
+            && !h.pending_corroboration()
+            && h.members[0].image_phase != HelperImagePhase::Exited
+            && !foreground
+            && self.error().is_none()
+            && debts_paid
+        {
+            if !h.confirmed_stopped || h.open_grant().is_err() {
+                h.reject(self, 5);
+            } else {
+                h.confirmed_stopped = false;
+                h.changed = Instant::now();
+                if unsafe { libc::kill(-h.pgid, libc::SIGCONT) } == 0 {
+                    h.running = true;
+                } else {
+                    h.reject(self, 5);
+                }
+            }
+        }
+        let cpu = self.observe_interval(cpu_start, cpu_ns());
+        let _ = h.account_controller(self, cpu);
+        if h.pending_closure() {
+            match h.pending_charge_lower_bound() {
+                Ok(cost) if cost > UNIT_NS => h.reject(self, 4),
+                Ok(_) => {}
+                Err(()) => h.reject(self, 5),
+            }
+        }
+    }
+}
+
+pub(crate) struct Budget {
+    pub(crate) control: Arc<Control>,
+    pub(crate) progress: Arc<crossbeam_queue::ArrayQueue<Counters>>,
+    pub(crate) counters: Counters,
+    pub(crate) max_unit: u64,
+    pub(crate) heap_peak: u64,
+    pub(crate) overruns: u64,
+    pub(crate) paused: bool,
+    pub(crate) normalization_ready: bool,
+    pub(crate) normalization_units: [u64; 4],
 }
 #[derive(Clone, Copy)]
-struct Counters {
-    phase: w::Phase,
-    bytes: u64,
-    envelopes: u64,
-    cpu: u64,
+pub(crate) struct Counters {
+    pub(crate) phase: w::Phase,
+    pub(crate) bytes: u64,
+    pub(crate) envelopes: u64,
+    pub(crate) cpu: u64,
 }
 impl Budget {
-    fn announce(&mut self, phase: w::Phase) {
+    pub(crate) fn new_read(
+        control: Arc<Control>,
+        progress: Arc<crossbeam_queue::ArrayQueue<Counters>>,
+    ) -> Self {
+        Self {
+            max_unit: control.accounting.inclusive_max.load(Ordering::Acquire),
+            control,
+            progress,
+            counters: Counters {
+                phase: w::Phase::Validate,
+                bytes: 0,
+                envelopes: 0,
+                cpu: 0,
+            },
+            heap_peak: 0,
+            overruns: 0,
+            paused: false,
+            normalization_ready: false,
+            normalization_units: [0; 4],
+        }
+    }
+    /// Admit a closed read batch through the canonical debt/foreground/heap
+    /// rules, without manufacturing an empty unit or unpaid preceding debt.
+    pub(crate) fn read_begin(&mut self) -> Result<(u64, Instant), w::Code> {
+        self.control.accounting.pay();
+        loop {
+            if let Some(error) = self.control.error() {
+                return Err(error);
+            }
+            if !self.control.foreground.load(Ordering::Acquire) {
+                break;
+            }
+            if !self.paused {
+                self.paused = true;
+                self.announce(w::Phase::Paused);
+            }
+            thread::sleep(Duration::from_millis(2));
+        }
+        if self.paused {
+            self.paused = false;
+            self.announce(w::Phase::Validate);
+        }
+        self.heap_peak = self.heap_peak.max(heap());
+        if self.heap_peak > HEAP_MAX {
+            return Err(w::Code::ResourceLimit);
+        }
+        let wall = Instant::now();
+        let cpu = cpu_ns();
+        if cpu == u64::MAX {
+            self.control
+                .accounting
+                .clock_failed
+                .store(true, Ordering::Release);
+            return Err(w::Code::ResourceLimit);
+        }
+        Ok((cpu, wall))
+    }
+    /// Record one already closed ordinary or purpose-admitted prepared-helper
+    /// span. The helper caller independently validates exact native2ms/25ms;
+    /// the inspect-c1 NativeKind array and its admission remain unchanged.
+    pub(crate) fn read_charge(
+        &mut self,
+        cpu: u64,
+        app: u64,
+        wall_ns: u64,
+        raw_limit: u64,
+    ) -> Result<(), w::Code> {
+        let known = cpu != u64::MAX && app != u64::MAX && wall_ns != u64::MAX;
+        let raw = if known { cpu } else { u64::MAX };
+        let app = if known { app } else { u64::MAX };
+        self.control
+            .accounting
+            .inclusive_wall_max
+            .fetch_max(wall_ns, Ordering::AcqRel);
+        self.control.accounting.charge(raw, app);
+        self.max_unit = self.max_unit.max(raw);
+        if known {
+            self.counters.cpu = self.counters.cpu.checked_add(cpu).unwrap_or_else(|| {
+                self.control
+                    .accounting
+                    .clock_failed
+                    .store(true, Ordering::Release);
+                u64::MAX
+            });
+        }
+        self.heap_peak = self.heap_peak.max(heap());
+        if !matches!(raw_limit, UNIT_NS | SPAN_NS)
+            || raw > raw_limit
+            || app > UNIT_NS
+            || self.heap_peak > HEAP_MAX
+        {
+            self.control
+                .accounting
+                .resource_failed
+                .store(true, Ordering::Release);
+            self.overruns = self.overruns.saturating_add(1);
+            return Err(w::Code::ResourceLimit);
+        }
+        self.control.error().map_or(Ok(()), Err)
+    }
+    pub(crate) fn capture_max(&self) -> u64 {
+        let maximum = self
+            .control
+            .accounting
+            .inclusive_max
+            .load(Ordering::Acquire)
+            .max(self.control.reactor.load(Ordering::Acquire));
+        self.control
+            .accounting
+            .captured_max
+            .store(maximum, Ordering::Release);
+        maximum
+    }
+    pub(crate) fn announce(&mut self, phase: w::Phase) {
         self.counters.phase = phase;
         self.progress.force_push(self.counters);
     }
@@ -711,14 +3007,14 @@ impl Budget {
         // No cancellation/timing decision may discard out.value.
         Ok(out)
     }
-    fn track<T: disposal::Drain>(
+    pub(crate) fn track<T: disposal::Drain>(
         &mut self,
         bytes: u64,
         f: impl FnOnce() -> Result<T, w::Code>,
     ) -> Result<storage::Tracked<T>, w::Code> {
         self.track_clock(bytes, f, cpu_ns)
     }
-    fn track_clock<T: disposal::Drain>(
+    pub(crate) fn track_clock<T: disposal::Drain>(
         &mut self,
         bytes: u64,
         f: impl FnOnce() -> Result<T, w::Code>,
@@ -729,14 +3025,14 @@ impl Budget {
         Ok(storage::Tracked { value, credit })
     }
     #[track_caller]
-    fn unit<T: disposal::Drain>(
+    pub(crate) fn unit<T: disposal::Drain>(
         &mut self,
         f: impl FnOnce() -> Result<T, w::Code>,
     ) -> Result<T, w::Code> {
         self.unit_clock(f, cpu_ns)
     }
     #[track_caller]
-    fn unit_clock<T: disposal::Drain>(
+    pub(crate) fn unit_clock<T: disposal::Drain>(
         &mut self,
         f: impl FnOnce() -> Result<T, w::Code>,
         mut clock: impl FnMut() -> u64,
@@ -812,7 +3108,7 @@ impl Budget {
 }
 /// Settlement is mandatory after cancellation. These small cleanup units retain
 /// the same CPU/duty rule, independently of foreground/expensive admission flags.
-fn cleanup_unit(control: &Control, f: impl FnOnce()) {
+pub(crate) fn cleanup_unit(control: &Control, f: impl FnOnce()) {
     cleanup_unit_clock(control, f, cpu_ns);
 }
 fn cleanup_unit_clock(control: &Control, f: impl FnOnce(), mut clock: impl FnMut() -> u64) {
@@ -841,20 +3137,20 @@ fn cleanup_unit_clock(control: &Control, f: impl FnOnce(), mut clock: impl FnMut
         control.cleanup_overruns.fetch_add(1, Ordering::AcqRel);
     }
 }
-struct Paced<T> {
+pub(crate) struct Paced<T> {
     value: Option<T>,
     step: fn(&mut T) -> bool,
     control: Arc<Control>,
 }
 impl<T> Paced<T> {
-    fn new(value: T, control: &Arc<Control>, step: fn(&mut T) -> bool) -> Self {
+    pub(crate) fn new(value: T, control: &Arc<Control>, step: fn(&mut T) -> bool) -> Self {
         Self {
             value: Some(value),
             step,
             control: control.clone(),
         }
     }
-    fn take_value(&mut self) -> T {
+    pub(crate) fn take_value(&mut self) -> T {
         self.value.take().unwrap()
     }
 }
@@ -895,7 +3191,10 @@ impl<T> Drop for Paced<T> {
     }
 }
 impl Budget {
-    fn cleanup(&mut self, f: impl FnOnce() -> Result<(), w::Code>) -> Result<(), w::Code> {
+    pub(crate) fn cleanup(
+        &mut self,
+        f: impl FnOnce() -> Result<(), w::Code>,
+    ) -> Result<(), w::Code> {
         let mut result = Ok(());
         cleanup_unit(&self.control, || {
             result = f();
@@ -910,10 +3209,10 @@ impl Budget {
 /// removes at most one collection entry/scalar payload; recursion follows only
 /// the preflight-bounded (32-deep) JSON path. No serialization, clone or heap
 /// allocation is needed to dispose of a rejected typed result.
-mod disposal {
+pub(crate) mod disposal {
     use super::*;
     use crate::protocol::*;
-    pub(super) trait Drain {
+    pub(crate) trait Drain {
         /// true: a bounded piece was removed; false: only fixed leaf fields remain.
         fn drain_step(&mut self) -> bool;
     }
@@ -1228,9 +3527,9 @@ mod disposal {
     }
 }
 
-struct Dir(File);
+pub(crate) struct Dir(File);
 impl Dir {
-    fn open(path: &Path) -> Result<Self, w::Code> {
+    pub(crate) fn open(path: &Path) -> Result<Self, w::Code> {
         let mut fd = File::open("/").map_err(|_| w::Code::StorageUnavailable)?;
         for c in path.components() {
             match c {
@@ -1264,13 +3563,34 @@ impl Dir {
             Err(w::Code::StorageUnavailable)
         }
     }
-    fn dir(&self, name: &str) -> Result<Self, w::Code> {
+    pub(crate) fn dir(&self, name: &str) -> Result<Self, w::Code> {
         let file = self.openat(name, libc::O_RDONLY | libc::O_DIRECTORY, 0)?;
         let d = Self(file);
         d.check()?;
         Ok(d)
     }
-    fn openat(&self, name: &str, flags: i32, mode: u32) -> Result<File, w::Code> {
+    /// Fresh directory description for bounded custody enumeration. Opening the
+    /// already-held directory itself avoids shared readdir offsets and follows
+    /// no pathname supplied by evidence or by a discovered directory entry.
+    pub(crate) fn inventory_fd(&self) -> Result<File, w::Code> {
+        self.check()?;
+        let fd = unsafe {
+            libc::openat(
+                self.0.as_raw_fd(),
+                c".".as_ptr(),
+                libc::O_RDONLY
+                    | libc::O_DIRECTORY
+                    | libc::O_NOFOLLOW
+                    | libc::O_CLOEXEC
+                    | libc::O_NONBLOCK,
+            )
+        };
+        if fd < 0 {
+            return Err(w::Code::StorageUnavailable);
+        }
+        Ok(unsafe { File::from_raw_fd(fd) })
+    }
+    pub(crate) fn openat(&self, name: &str, flags: i32, mode: u32) -> Result<File, w::Code> {
         if name.is_empty() || name.contains('/') || name == "." || name == ".." {
             return Err(w::Code::StorageUnavailable);
         }
@@ -1288,7 +3608,7 @@ impl Dir {
         }
         Ok(unsafe { File::from_raw_fd(fd) })
     }
-    fn file(&self, name: &str, max: u64) -> Result<(File, Metadata), w::Code> {
+    pub(crate) fn file(&self, name: &str, max: u64) -> Result<(File, Metadata), w::Code> {
         let f = self.openat(name, libc::O_RDONLY, 0).map_err(|e| {
             if io::Error::last_os_error().raw_os_error() == Some(libc::ENOENT) {
                 w::Code::SourceUnavailable
@@ -1309,7 +3629,7 @@ impl Dir {
         }
         Ok((f, m))
     }
-    fn unchanged(&self, name: &str, f: &File, before: &Metadata) -> Result<(), w::Code> {
+    pub(crate) fn unchanged(&self, name: &str, f: &File, before: &Metadata) -> Result<(), w::Code> {
         let (_, path) = self.file(name, INPUT_MAX)?;
         let after = f.metadata().map_err(|_| w::Code::SourceChanged)?;
         if identity(before) == identity(&after) && identity(before) == identity(&path) {
@@ -1319,7 +3639,7 @@ impl Dir {
         }
     }
     /// Directory-fd exclusive rename publishes without replacement or alias links.
-    fn publish(
+    pub(crate) fn publish(
         &self,
         name: &str,
         bytes: &[u8],
@@ -1479,7 +3799,7 @@ fn identity(m: &Metadata) -> (u64, u64, u64, i64, i64, i64, i64) {
         m.ctime_nsec(),
     )
 }
-fn read_bounded(
+pub(crate) fn read_bounded(
     dir: &Dir,
     name: &str,
     max: u64,
@@ -1902,9 +4222,9 @@ fn selected(
         credit: state_credit,
     })
 }
-struct Completed {
-    hash: w::Hex,
-    pages: u32,
+pub(crate) struct Completed {
+    pub(crate) hash: w::Hex,
+    pub(crate) pages: u32,
 }
 fn compute(
     path: PathBuf,
@@ -2220,7 +4540,7 @@ fn nonblocking(fd: RawFd) -> io::Result<()> {
     }
 }
 const OUT_FRAME: usize = 1024;
-struct Frame {
+pub(crate) struct Frame {
     bytes: [u8; OUT_FRAME],
     len: usize,
 }
@@ -2243,7 +4563,7 @@ impl Write for Frame {
         Ok(())
     }
 }
-fn framed(out: &w::WorkerOut) -> Frame {
+pub(crate) fn framed(out: &impl serde::Serialize) -> Frame {
     let mut frame = Frame {
         bytes: [0; OUT_FRAME],
         len: 0,
@@ -2345,6 +4665,7 @@ fn flat_control(bytes: &[u8]) -> Result<(), w::Code> {
     }
     Ok(())
 }
+#[cfg(test)]
 fn settled_result(
     control: &Control,
     result: Result<Completed, w::Error>,
@@ -2355,6 +4676,63 @@ fn settled_result(
         result
     }
 }
+/// Internal adapter only: the owner loop, queues, credits and actual join are shared.
+pub(crate) trait Job: Send + 'static {
+    type Error: Send + 'static;
+    fn purpose() -> bootstrap::Purpose {
+        bootstrap::Purpose::InspectC1
+    }
+    fn error(error: w::Error) -> Self::Error;
+    fn code(error: &Self::Error) -> w::Code;
+    fn hello() -> Frame;
+    fn decode(bytes: &[u8]) -> Result<w::WorkerIn, w::Code>;
+    fn progress(progress: w::Progress) -> Frame;
+    fn done(done: w::Done, error: Option<Self::Error>) -> Frame;
+    fn compute(
+        path: PathBuf,
+        start: w::Start,
+        control: Arc<Control>,
+        progress: Arc<crossbeam_queue::ArrayQueue<Counters>>,
+    ) -> Result<Completed, Self::Error>;
+}
+struct C1Job;
+impl Job for C1Job {
+    type Error = w::Error;
+    fn error(error: w::Error) -> Self::Error {
+        error
+    }
+    fn code(error: &Self::Error) -> w::Code {
+        error.code
+    }
+    fn hello() -> Frame {
+        framed(&w::WorkerOut::Hello(w::Hello {
+            protocol: w::Protocol::V1,
+            algorithm: w::Algorithm::D0C1,
+            schema_sha256: w::schema_hash(),
+            ir_major: 1,
+            ir_minor_max: 3,
+        }))
+    }
+    fn decode(bytes: &[u8]) -> Result<w::WorkerIn, w::Code> {
+        w::decode(bytes)
+    }
+    fn progress(progress: w::Progress) -> Frame {
+        framed(&w::WorkerOut::Progress(progress))
+    }
+    fn done(mut done: w::Done, error: Option<Self::Error>) -> Frame {
+        done.error = error;
+        framed(&w::WorkerOut::Done(done))
+    }
+    fn compute(
+        path: PathBuf,
+        start: w::Start,
+        control: Arc<Control>,
+        progress: Arc<crossbeam_queue::ArrayQueue<Counters>>,
+    ) -> Result<Completed, Self::Error> {
+        compute(path, start, control, progress)
+    }
+}
+
 type Active = (
     w::Start,
     Arc<Control>,
@@ -2366,13 +4744,13 @@ struct ComputeWork {
     control: Arc<Control>,
     progress: Arc<crossbeam_queue::ArrayQueue<Counters>>,
 }
-struct ParkedOwner {
+struct ParkedOwner<J: Job> {
     accounting: Arc<Accounting>,
     reactor: Arc<AtomicU64>,
     sender: Option<std::sync::mpsc::SyncSender<ComputeWork>>,
-    handle: Option<thread::JoinHandle<Result<Completed, w::Error>>>,
+    handle: Option<thread::JoinHandle<Result<Completed, J::Error>>>,
 }
-impl ParkedOwner {
+impl<J: Job> ParkedOwner<J> {
     fn settle_clock(&mut self, mut clock: impl FnMut() -> u64) {
         if self.sender.is_none() && self.handle.is_none() {
             return;
@@ -2403,7 +4781,7 @@ impl ParkedOwner {
         self.accounting.pay();
     }
 }
-impl Drop for ParkedOwner {
+impl<J: Job> Drop for ParkedOwner<J> {
     fn drop(&mut self) {
         self.settle_clock(cpu_ns);
     }
@@ -2423,7 +4801,11 @@ fn bootstrap_failure(
     }
     2
 }
-fn run(path: PathBuf, reactor: Arc<AtomicU64>, mut gate: bootstrap::Gate) -> i32 {
+pub(crate) fn run<J: Job>(
+    path: PathBuf,
+    reactor: Arc<AtomicU64>,
+    mut gate: bootstrap::Gate,
+) -> i32 {
     if gate.admit(1).is_err() {
         return 2;
     }
@@ -2443,11 +4825,11 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>, mut gate: bootstrap::Gate) -> i32
     let entry = move || {
         let at = cpu_ns();
         let result = match receiver.recv() {
-            Ok(w) => compute(w.path, w.start, w.control, w.progress),
-            Err(_) => Err(w::Error {
+            Ok(w) => J::compute(w.path, w.start, w.control, w.progress),
+            Err(_) => Err(J::error(w::Error {
                 code: w::Code::Cancelled,
                 source: None,
-            }),
+            })),
         };
         owner_result(&owner_accounting, at, result, cpu_ns)
     };
@@ -2469,7 +4851,7 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>, mut gate: bootstrap::Gate) -> i32
         Ok(out) => out,
         Err(_) => return 1,
     };
-    let mut owner = ParkedOwner {
+    let mut owner = ParkedOwner::<J> {
         accounting: accounting.clone(),
         reactor: reactor.clone(),
         sender: Some(sender),
@@ -2491,13 +4873,7 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>, mut gate: bootstrap::Gate) -> i32
     if pending.try_reserve_exact(33).is_err() {
         return 1;
     }
-    pending.push_back(framed(&w::WorkerOut::Hello(w::Hello {
-        protocol: w::Protocol::V1,
-        algorithm: w::Algorithm::D0C1,
-        schema_sha256: w::schema_hash(),
-        ir_major: 1,
-        ir_minor_max: 3,
-    })));
+    pending.push_back(J::hello());
     let mut offset = 0;
     let mut input = Vec::new();
     if input.try_reserve_exact(w::MAX_FRAME).is_err() {
@@ -2528,9 +4904,34 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>, mut gate: bootstrap::Gate) -> i32
         Ok(p) => p,
         Err(e) => return bootstrap_failure(e, gate.usage, &accounting, &reactor),
     };
+    if permit.purpose != J::purpose() {
+        return 2;
+    }
     drop(gate);
     bootstrap::merge_usage(bootstrap_usage, &reactor, &accounting.control_cpu);
     loop {
+        let read_control_at = (J::purpose() == bootstrap::Purpose::ReadPrepare).then(cpu_ns);
+        let helper_marker = if read_control_at.is_some() {
+            state
+                .as_ref()
+                .and_then(|(_, control, _)| control.helper_controller_marker())
+        } else {
+            None
+        };
+        let (has_helper, helper_running) = if read_control_at.is_some() {
+            state.as_ref().map_or((false, false), |(_, control, _)| {
+                control.helper.lock().map_or((true, false), |helper| {
+                    (
+                        helper.is_some(),
+                        helper
+                            .as_ref()
+                            .is_some_and(|helper| helper.running && !helper.retiring),
+                    )
+                })
+            })
+        } else {
+            (false, false)
+        };
         let mut fds = [
             libc::pollfd {
                 fd: 0,
@@ -2543,14 +4944,22 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>, mut gate: bootstrap::Gate) -> i32
                 revents: 0,
             },
         ];
-        unsafe { libc::poll(fds.as_mut_ptr(), 2, 2) };
-        let tick = cpu_ns();
+        if has_helper && !helper_running {
+            thread::sleep(Duration::from_millis(1));
+        }
+        unsafe { libc::poll(fds.as_mut_ptr(), 2, if has_helper { 0 } else { 2 }) };
+        let tick = read_control_at.unwrap_or_else(cpu_ns);
         let mut tick_guard = ControlTick {
             at: tick,
             part_at: tick,
             accounting: &accounting,
             max: &reactor,
         };
+        if read_control_at.is_some()
+            && let Some((_, control, _)) = &state
+        {
+            control.helper_tick();
+        }
         if !eof && (fds[0].revents & (libc::POLLIN | libc::POLLHUP)) != 0 {
             let n = unsafe { libc::read(0, chunk.as_mut_ptr().cast(), chunk.len()) };
             if n == 0 {
@@ -2572,8 +4981,7 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>, mut gate: bootstrap::Gate) -> i32
                     }
                     input.push(*byte);
                     if *byte == b'\n' {
-                        let msg =
-                            flat_control(&input).and_then(|()| w::decode::<w::WorkerIn>(&input));
+                        let msg = flat_control(&input).and_then(|()| J::decode(&input));
                         input.clear();
                         match (msg, &mut state) {
                             (Ok(w::WorkerIn::Start(s)), None)
@@ -2601,6 +5009,7 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>, mut gate: bootstrap::Gate) -> i32
                                     cleanup_cpu: AtomicU64::new(0),
                                     cleanup_max: AtomicU64::new(0),
                                     cleanup_overruns: AtomicU64::new(0),
+                                    helper: std::sync::Mutex::new(None),
                                 });
                                 let tx = Arc::new(crossbeam_queue::ArrayQueue::new(32));
                                 let rx = tx.clone();
@@ -2682,7 +5091,7 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>, mut gate: bootstrap::Gate) -> i32
                     }
                     last_counters = counter;
                     seq += 1;
-                    pending.push_back(framed(&w::WorkerOut::Progress(w::Progress {
+                    pending.push_back(J::progress(w::Progress {
                         protocol: w::Protocol::V1,
                         run_id: s.run_id.clone(),
                         nonce: s.nonce.clone(),
@@ -2691,21 +5100,27 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>, mut gate: bootstrap::Gate) -> i32
                         bytes: w::Number(counter.bytes),
                         envelopes: w::Number(counter.envelopes),
                         cpu_ns: w::Number(counter.cpu),
-                    })));
+                    }));
                 }
             }
             if owner.handle.as_ref().unwrap().is_finished() {
                 let (s, c, rx) = state.take().unwrap();
                 let h = owner.handle.take().unwrap();
                 drop(rx);
-                let result = h.join().unwrap_or(Err(w::Error {
-                    code: w::Code::WorkerLost,
-                    source: None,
-                }));
-                let result = settled_result(&c, result);
+                let result = h.join().unwrap_or_else(|_| {
+                    Err(J::error(w::Error {
+                        code: w::Code::WorkerLost,
+                        source: None,
+                    }))
+                });
+                let result = if let Some(code) = c.error() {
+                    Err(J::error(w::Error { code, source: None }))
+                } else {
+                    result
+                };
                 let (outcome, hash, pages, error, code) = match result {
                     Ok(r) => (w::Outcome::Completed, Some(r.hash), r.pages, None, 0),
-                    Err(e) if e.code == w::Code::Cancelled => {
+                    Err(e) if J::code(&e) == w::Code::Cancelled => {
                         (w::Outcome::Cancelled, None, 0, Some(e), 0)
                     }
                     Err(e) => (
@@ -2717,16 +5132,23 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>, mut gate: bootstrap::Gate) -> i32
                     ),
                 };
                 seq += 1;
-                pending.push_back(framed(&w::WorkerOut::Done(w::Done {
-                    protocol: w::Protocol::V1,
-                    run_id: s.run_id,
-                    nonce: s.nonce,
-                    seq: w::Number(seq),
-                    outcome,
-                    result_sha256: hash,
-                    pages,
+                let wire_error = error.as_ref().map(|error| w::Error {
+                    code: J::code(error),
+                    source: None,
+                });
+                pending.push_back(J::done(
+                    w::Done {
+                        protocol: w::Protocol::V1,
+                        run_id: s.run_id,
+                        nonce: s.nonce,
+                        seq: w::Number(seq),
+                        outcome,
+                        result_sha256: hash,
+                        pages,
+                        error: wire_error,
+                    },
                     error,
-                })));
+                ));
                 exit = Some(code);
                 settled_at = Some(Instant::now());
             }
@@ -2750,6 +5172,11 @@ fn run(path: PathBuf, reactor: Arc<AtomicU64>, mut gate: bootstrap::Gate) -> i32
                     return 2;
                 }
             }
+        }
+        if read_control_at.is_some()
+            && let Some((_, control, _)) = &state
+        {
+            control.helper_account_controller(helper_marker, interval(tick, cpu_ns()));
         }
         tick_guard.part(3);
         drop(tick_guard);
@@ -2798,6 +5225,7 @@ mod tests {
                 cleanup_cpu: AtomicU64::new(0),
                 cleanup_max: AtomicU64::new(0),
                 cleanup_overruns: AtomicU64::new(0),
+                helper: std::sync::Mutex::new(None),
             }),
             progress: Arc::new(crossbeam_queue::ArrayQueue::new(32)),
             counters: Counters {
@@ -2915,7 +5343,7 @@ mod tests {
                     })
                 })
                 .unwrap();
-            let mut owner = ParkedOwner {
+            let mut owner = ParkedOwner::<C1Job> {
                 accounting: accounting.clone(),
                 reactor: reactor.clone(),
                 sender: Some(sender),

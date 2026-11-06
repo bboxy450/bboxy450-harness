@@ -214,15 +214,15 @@ fn hash_prepared_image(path: &Path) -> Result<String, Invalid> {
     let digest = format!("{:x}", hash.finalize());
     SELECTED.with(|slot| {
         let mut slot = slot.borrow_mut();
-        if let Some(owner) = slot.as_mut() {
-            if !owner.tool_guards.iter().any(|g| g.path == path) {
-                owner.tool_guards.push(ToolGuard {
-                    file,
-                    path: path.to_owned(),
-                    metadata: after,
-                    expected: digest.clone(),
-                });
-            }
+        if let Some(owner) = slot.as_mut()
+            && !owner.tool_guards.iter().any(|g| g.path == path)
+        {
+            owner.tool_guards.push(ToolGuard {
+                file,
+                path: path.to_owned(),
+                metadata: after,
+                expected: digest.clone(),
+            });
         }
     });
     Ok(digest)
@@ -246,23 +246,28 @@ fn load_prepared_tools() -> Result<PreparedTools, Invalid> {
     {
         return Ok(tools);
     }
-    use std::{
-        io::Read,
-        os::unix::fs::{MetadataExt, OpenOptionsExt},
-    };
     let path = std::env::var_os("BBOXY_DREAM_HELPER_PROVISION")
         .map(PathBuf::from)
         .ok_or(Invalid("helper provision unavailable"))?;
     let expected = std::env::var("BBOXY_DREAM_HELPER_PROVISION_SHA256")
         .map_err(|_| Invalid("helper provision unavailable"))?;
-    if !path.is_absolute() || !valid_hex(&expected) {
+    load_prepared_tools_at(&path, &expected)
+}
+/// Consume only the path/hash already captured by the production admission
+/// boundary. Private API witnesses use this exact path without mutating env.
+fn load_prepared_tools_at(path: &Path, expected: &str) -> Result<PreparedTools, Invalid> {
+    use std::{
+        io::Read,
+        os::unix::fs::{MetadataExt, OpenOptionsExt},
+    };
+    if !path.is_absolute() || !valid_hex(expected) {
         return Err(Invalid("helper provision unavailable"));
     }
     checkpoint()?;
     let mut file = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
-        .open(&path)
+        .open(path)
         .map_err(|_| Invalid("helper provision unavailable"))?;
     let meta = file
         .metadata()
@@ -293,9 +298,9 @@ fn load_prepared_tools() -> Result<PreparedTools, Invalid> {
             .tool_guards
             .push(ToolGuard {
                 file,
-                path: path.clone(),
+                path: path.to_owned(),
                 metadata: meta,
-                expected: expected.clone(),
+                expected: expected.to_owned(),
             })
     });
     let tools: PreparedTools =
@@ -349,8 +354,12 @@ fn load_prepared_tools() -> Result<PreparedTools, Invalid> {
             return Err(Invalid("helper image proof unavailable"));
         }
     }
-    SELECTED.with(|slot| slot.borrow_mut().as_mut().unwrap().tools = Some(tools.clone()));
-    Ok(tools)
+    // No production tool pair currently has the reviewed lifetime basis required
+    // by decisions65126/65489/65654. Matching hashes and feature assertions are
+    // identity checks, not that approval. The separate qualification prerequisite
+    // must supply an authenticated prepared admission before this can succeed;
+    // until then, refuse before any native creation without minting authority.
+    Err(Invalid("helper lifetime qualification unavailable"))
 }
 /// The caller owns the single low-priority worker and its existing C1 budget.
 /// Both edges of every primitive are measured; callback errors stop proof work.
@@ -361,11 +370,28 @@ pub(crate) trait ProofPace {
         self.before()
     }
     fn after(&mut self) -> Result<(), Invalid>;
+    /// Close and pay the current ordinary batch before a native helper effect.
+    fn suspend(&mut self) -> Result<(), Invalid> {
+        self.after()
+    }
     fn reserve(&mut self, bytes: u64) -> Result<(), Invalid>;
     /// Register the exact group created by this owner. The existing independent
     /// control owner applies foreground/duty/cancel/deadline while before waits.
     fn helper_attach(&mut self, identity: HelperIdentity) -> Result<(), Invalid>;
     fn native_created(&mut self, span: NativeCreation) -> Result<(), Invalid>;
+    /// A reservation was consumed, but a beginning clock failed before the
+    /// native call. This is known call absence with unknown application cost;
+    /// it must never fabricate a native errno or an unknown physical effect.
+    fn helper_before_effect_refused(
+        &mut self,
+        _sequence: u16,
+        _credits: u16,
+        _cpu_ns: u64,
+        _wall_ns: u64,
+    ) -> Result<(), Invalid> {
+        self.helper_refused("resource_limit: helper beginning clock unavailable");
+        Err(Invalid("selected helper beginning clock unavailable"))
+    }
     fn helper_refused(&mut self, _reason: &'static str) {}
     fn helper_poll(&mut self, ticket: HelperTicket) -> Result<(), Invalid>;
     /// Stop controller signals before the pinned leader is reaped, then perform
@@ -375,7 +401,8 @@ pub(crate) trait ProofPace {
     fn helper_usage(
         &mut self,
         ticket: HelperTicket,
-        cpu_ns: u64,
+        user_ns: u64,
+        system_ns: u64,
         rss_bytes: u64,
     ) -> Result<(), Invalid>;
     /// Drain with the C1 cleanup lane even after cancellation or a failed clock.
@@ -529,7 +556,7 @@ impl SelectedScope {
 }
 impl Drop for SelectedScope {
     fn drop(&mut self) {
-        if let Err(_) = super::trust::cleanup_selected_scratch() {
+        if super::trust::cleanup_selected_scratch().is_err() {
             helper_refusal("helper scratch cleanup unproven");
             eprintln!("dream-read helper_scratch_cleanup=unproven");
         }
@@ -929,12 +956,25 @@ struct HelperStamp {
 #[cfg(test)]
 thread_local! { static FAIL_HELPER_CLOCK: std::cell::Cell<Option<HelperPhase>> = const { std::cell::Cell::new(None) }; }
 #[cfg(test)]
+thread_local! { static FAIL_HELPER_BEGIN_CLOCK: std::cell::Cell<Option<HelperPhase>> = const { std::cell::Cell::new(None) }; }
+#[cfg(test)]
+thread_local! { static NATIVE_HELPER_CALLS: std::cell::Cell<u16> = const { std::cell::Cell::new(0) }; }
+#[cfg(test)]
 thread_local! { static FAIL_HELPER_ERRNO: std::cell::Cell<Option<i32>> = const { std::cell::Cell::new(None) }; }
 fn helper_stamp(phase: HelperPhase, end: bool) -> HelperStamp {
     let cpu = super::c1::cpu_ns();
     #[cfg(test)]
     let cpu = FAIL_HELPER_CLOCK.with(|failure| {
         if end && failure.get() == Some(phase) {
+            failure.set(None);
+            u64::MAX
+        } else {
+            cpu
+        }
+    });
+    #[cfg(test)]
+    let cpu = FAIL_HELPER_BEGIN_CLOCK.with(|failure| {
+        if !end && failure.get() == Some(phase) {
             failure.set(None);
             u64::MAX
         } else {
@@ -972,9 +1012,9 @@ impl HelperProfile {
         };
         sample.cpu_total = sample.cpu_total.saturating_add(cpu);
         sample.cpu_max = sample.cpu_max.max(cpu);
-        // Raw inclusive is an observation across explicit waits, never a unit
-        // exemption. Every actual ordinary phase and combined spawn+stop still
-        // passes the unchanged1ms C1 clock boundary.
+        // Raw inclusive remains an observation, not a wrapper exemption. Exact
+        // creation has its named native bound; each ordinary phase and the
+        // combined surrounding application CPU retain their1ms fence.
         let limit = if phase == HelperPhase::Spawn {
             2_000_000
         } else {
@@ -1030,7 +1070,7 @@ fn helper_after() -> Result<(), Invalid> {
             .as_mut()
             .ok_or(Invalid("selected helper owner unavailable"))?
             .pace
-            .after()
+            .suspend()
     })
 }
 struct ToolRequest {
@@ -1428,6 +1468,8 @@ impl NativeSpawn {
         Ok(prepared)
     }
     fn create(&self, pid: &mut i32) -> i32 {
+        #[cfg(test)]
+        NATIVE_HELPER_CALLS.with(|calls| calls.set(calls.get().saturating_add(1)));
         let code = unsafe {
             libc::posix_spawn(
                 pid,
@@ -1501,11 +1543,59 @@ fn span_cpu(start: HelperStamp, end: HelperStamp) -> u64 {
     }
 }
 fn span_wall(start: HelperStamp, end: HelperStamp) -> u64 {
-    u64::try_from(end.wall.saturating_duration_since(start.wall).as_nanos()).unwrap_or(u64::MAX)
+    end.wall
+        .checked_duration_since(start.wall)
+        .and_then(|elapsed| u64::try_from(elapsed.as_nanos()).ok())
+        .unwrap_or(u64::MAX)
+}
+fn helper_timeval_ns(time: libc::timeval) -> u64 {
+    u64::try_from(time.tv_sec)
+        .ok()
+        .zip(
+            u64::try_from(time.tv_usec)
+                .ok()
+                .filter(|micros| *micros < 1_000_000),
+        )
+        .and_then(|(seconds, micros)| {
+            seconds
+                .checked_mul(1_000_000_000)
+                .and_then(|whole| whole.checked_add(micros * 1000))
+        })
+        .unwrap_or(u64::MAX)
 }
 fn helper_catch<T>(f: impl FnOnce() -> Result<T, Invalid>) -> Result<T, Invalid> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
         .unwrap_or(Err(Invalid("selected helper owner panicked")))
+}
+fn helper_begin_refusal(
+    sequence: u16,
+    credits: u16,
+    inclusive: HelperStamp,
+    spawn: Option<HelperStamp>,
+) -> Invalid {
+    let end = helper_stamp(HelperPhase::RawInclusive, true);
+    if let Some(spawn) = spawn {
+        let _ = helper_record(HelperPhase::Spawn, spawn, end);
+    }
+    let _ = helper_record(HelperPhase::RawInclusive, inclusive, end);
+    eprintln!(
+        "dream-read helper_pre_effect_refusal reservation_sequence={sequence} reserved_credits={credits} native_attempted=false effect=absent cost_known=false"
+    );
+    let _ = helper_catch(|| {
+        SELECTED.with(|slot| {
+            slot.borrow_mut()
+                .as_mut()
+                .ok_or(Invalid("selected helper owner unavailable"))?
+                .pace
+                .helper_before_effect_refused(
+                    sequence,
+                    credits,
+                    u64::MAX,
+                    span_wall(inclusive, end),
+                )
+        })
+    });
+    Invalid("selected helper beginning clock unavailable")
 }
 /// One exact owned process group, finite pre-reserved pipe storage and actual
 /// direct+descendant settlement on every path. No runtime or general helper pool.
@@ -1583,12 +1673,15 @@ fn selected_command_input_owned(
         )?;
         helper_boundary()?; // pay complete ordinary preparation rest before native purpose
         helper_after()?; // suspend the fresh ordinary clock; helper IO stays separate
-        let inclusive = HelperStamp {
-            cpu: super::c1::cpu_ns(),
-            wall: std::time::Instant::now(),
-        };
+        let inclusive = helper_stamp(HelperPhase::RawInclusive, false);
+        if inclusive.cpu == u64::MAX {
+            return Err(helper_begin_refusal(sequence, cost, inclusive, None));
+        }
         check_tool_guards()?; // immediate pre-effect identity revalidation belongs to app span
         let spawn = helper_stamp(HelperPhase::Spawn, false);
+        if spawn.cpu == u64::MAX {
+            return Err(helper_begin_refusal(sequence, cost, inclusive, Some(spawn)));
+        }
         let mut pid = 0;
         let native_code = prepared.create(&mut pid); // exact prepared native call; no application wrapper
         let spawn_end = helper_stamp(HelperPhase::Spawn, true);
@@ -1653,7 +1746,7 @@ fn selected_command_input_owned(
     };
     let mut first_poll = true;
     let observed = helper_catch(|| {
-        let app = spawn_end;
+        let retain_start = spawn_end;
         let birth = helper_birth(pgid); // PID remains retained and kernel-suspended even on failure
         let identity = HelperIdentity {
             sequence,
@@ -1673,6 +1766,9 @@ fn selected_command_input_owned(
                 .pace
                 .helper_attach(identity.clone())
         });
+        let retain_end = helper_stamp(HelperPhase::RetainStop, true);
+        let retention = helper_record(HelperPhase::RetainStop, retain_start, retain_end);
+        let app = retain_end;
         if let Some((read, write)) = prepared.output.take() {
             pipe = Some(read);
             drop(write);
@@ -1714,6 +1810,7 @@ fn selected_command_input_owned(
             .as_ref()
             .err()
             .or(attached.as_ref().err())
+            .or(retention.as_ref().err())
             .or(exact.as_ref().err())
             .or(app_profile.as_ref().err())
             .or(raw.as_ref().err())
@@ -1732,6 +1829,7 @@ fn selected_command_input_owned(
         });
         birth?;
         attached?;
+        retention?;
         exact?;
         app_profile?;
         raw?;
@@ -1941,12 +2039,8 @@ fn selected_command_input_owned(
         }
     }
     drop(settle);
-    let time_ns = |time: libc::timeval| {
-        (time.tv_sec as u64)
-            .saturating_mul(1_000_000_000)
-            .saturating_add((time.tv_usec as u64).saturating_mul(1000))
-    };
-    let cpu = time_ns(usage.ru_utime).saturating_add(time_ns(usage.ru_stime));
+    let user = helper_timeval_ns(usage.ru_utime);
+    let system = helper_timeval_ns(usage.ru_stime);
     #[cfg(target_os = "macos")]
     let rss = usage.ru_maxrss as u64;
     #[cfg(not(target_os = "macos"))]
@@ -1958,7 +2052,7 @@ fn selected_command_input_owned(
                     .as_mut()
                     .ok_or(Invalid("selected helper owner unavailable"))?
                     .pace
-                    .helper_usage(retained_ticket, cpu, rss)
+                    .helper_usage(retained_ticket, user, system, rss)
             })
         })
     } else {
@@ -3176,28 +3270,28 @@ impl super::c1::disposal::Drain for super::entry::Record {
 }
 impl super::c1::disposal::Drain for Resolver {
     fn drain_step(&mut self) -> bool {
-        if let Some(logs) = Arc::get_mut(&mut self.logs) {
-            if let Some(mut first) = logs.first_entry() {
-                if !first.get_mut().drain_step() {
-                    first.remove_entry();
-                }
-                return true;
+        if let Some(logs) = Arc::get_mut(&mut self.logs)
+            && let Some(mut first) = logs.first_entry()
+        {
+            if !first.get_mut().drain_step() {
+                first.remove_entry();
             }
+            return true;
         }
         if let Some(record) = self.records.table.iter_mut().next() {
-            if let Some(record) = Arc::get_mut(record) {
-                if record.record.drain_step() {
-                    return true;
-                }
+            if let Some(record) = Arc::get_mut(record)
+                && record.record.drain_step()
+            {
+                return true;
             }
             self.records.table.extract_if(|_| true).next();
             return true;
         }
         if let Some(trust) = self.trust.as_mut() {
-            if let Some(trust) = Arc::get_mut(trust) {
-                if trust.drain_step() {
-                    return true;
-                }
+            if let Some(trust) = Arc::get_mut(trust)
+                && trust.drain_step()
+            {
+                return true;
             }
             self.trust.take();
             return true;
@@ -3208,13 +3302,12 @@ impl super::c1::disposal::Drain for Resolver {
             }
             return true;
         }
-        if let Some(domains) = self.receipt_domains.as_mut() {
-            if domains.caches.pop().is_some()
+        if let Some(domains) = self.receipt_domains.as_mut()
+            && (domains.caches.pop().is_some()
                 || domains.sink_roots.pop().is_some()
-                || domains.native_repos.pop_first().is_some()
-            {
-                return true;
-            }
+                || domains.native_repos.pop_first().is_some())
+        {
+            return true;
         }
         self.roots.pop_first().is_some()
     }
@@ -3357,14 +3450,170 @@ impl super::c1::disposal::Drain for serde_yaml::Value {
 }
 
 #[cfg(test)]
+mod prepared_qualification_tests {
+    // Project-owned production-admission API witness; retain credit policy:
+    // https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+    use super::*;
+    use std::{
+        os::unix::fs::PermissionsExt,
+        time::{Duration, Instant},
+    };
+
+    #[test]
+    fn prepared_qualification_absent_and_forged_claims_refuse_before_native_birth() {
+        let home = tempfile::tempdir().unwrap();
+        let marker = home.path().join("unexpected-native-execution");
+        let claims = |values: &[&str]| values.iter().map(|v| (*v).to_owned()).collect();
+        let image = |name: &str, features: Vec<String>| {
+            let path = home.path().join(name);
+            let bytes = format!("#!/bin/sh\nprintf 'unexpected' > '{}'\n", marker.display());
+            std::fs::write(&path, &bytes).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            PreparedExecutable {
+                absolute_path: path,
+                sha256: super::super::fingerprint::digest(bytes.as_bytes()),
+                build: "private marker artifact; feature claims are not approval".into(),
+                features,
+            }
+        };
+        let git = image(
+            "git-marker",
+            claims(&["git-readonly", "openpgp-verify-absolute-gpg"]),
+        );
+        let gpg = image("gpg-marker", claims(&["public-key-stdin", "no-autostart"]));
+        let probe = image("probe-marker", vec![]);
+        let evidence = b"private unapproved assertions, never a host qualification";
+        std::fs::write(home.path().join("unapproved-evidence"), evidence).unwrap();
+        let tools = PreparedTools {
+            schema: "bboxy.dream.proof-tools/1".into(),
+            source_sha256: provision_source_sha256(),
+            os: PreparedOs {
+                release: current_release().unwrap(),
+                arch: std::env::consts::ARCH.into(),
+            },
+            git,
+            gpg,
+            capability: CapabilityReceipt {
+                probe_source_sha256: super::super::fingerprint::digest(include_bytes!(
+                    "../../tests/fixtures/dream-read/proof-helper-probe.c"
+                )),
+                probe_exe_sha256: probe.sha256.clone(),
+                evidence_sha256: super::super::fingerprint::digest(evidence),
+                features: claims(&[
+                    "darwin-start-suspended",
+                    "setpgroup",
+                    "cloexec-default",
+                    "birth-identity",
+                    "group-members-2",
+                    "descendant-cpu-rollup",
+                    "git-gpg-fixed-argv",
+                    "git-fork-before-gpg-exec",
+                    "single-threaded-helpers",
+                    "mach-timebase-cpu-ns",
+                    "audit-token-signals",
+                ]),
+            },
+        };
+        for case in [
+            "absent",
+            "stale-receipt",
+            "forged-exact-claims",
+            "stale-source",
+            "mismatched-os",
+            "mismatched-image",
+            "missing-feature",
+        ] {
+            let mut claimed = tools.clone();
+            match case {
+                "stale-source" => claimed.source_sha256 = "0".repeat(64),
+                "mismatched-os" => claimed.os.release.push_str("-not-this-host"),
+                "mismatched-image" => claimed.gpg.sha256 = "0".repeat(64),
+                "missing-feature" => claimed
+                    .capability
+                    .features
+                    .retain(|v| v != "single-threaded-helpers"),
+                _ => {}
+            }
+            let path = home.path().join(format!("{case}.json"));
+            let raw = serde_json::to_vec(&claimed).unwrap();
+            if case != "absent" {
+                std::fs::write(&path, &raw).unwrap();
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+            }
+            let expected = if case == "stale-receipt" {
+                "0".repeat(64)
+            } else {
+                super::super::fingerprint::digest(&raw)
+            };
+            let control = Arc::new(super::super::c1::Control::fixture(
+                Instant::now() + Duration::from_secs(30),
+            ));
+            NATIVE_HELPER_CALLS.with(|calls| calls.set(0));
+            let scope = SelectedScope::enter(
+                Arc::new(SelectedBindings::default()),
+                crate::dream::read::helper_fixture_clock(control.clone()),
+            )
+            .unwrap();
+            let error = load_prepared_tools_at(&path, &expected).unwrap_err();
+            let expected_error = match case {
+                "absent" => "helper provision unavailable",
+                "stale-receipt" => "source_changed: helper provision",
+                "stale-source" | "mismatched-os" | "missing-feature" => {
+                    "helper capability proof unavailable"
+                }
+                "mismatched-image" => "helper image proof unavailable",
+                _ => "helper lifetime qualification unavailable",
+            };
+            assert_eq!(error.0, expected_error, "{case}");
+            SELECTED.with(|slot| {
+                let slot = slot.borrow();
+                let owner = slot.as_ref().unwrap();
+                assert_eq!(owner.attempts, 0, "{case}: refusal precedes reservation");
+                assert!(!owner.helper_active, "{case}: no live helper");
+                assert!(owner.tools.is_none(), "{case}: no cached approval");
+                if case == "forged-exact-claims" {
+                    assert_eq!(
+                        owner.tool_guards.len(),
+                        3,
+                        "real receipt and both marker image bytes reached production custody checks"
+                    );
+                    for image in [&tools.git.absolute_path, &tools.gpg.absolute_path] {
+                        assert!(owner.tool_guards.iter().any(|guard| &guard.path == image));
+                    }
+                }
+            });
+            assert_eq!(
+                NATIVE_HELPER_CALLS.with(|calls| calls.get()),
+                0,
+                "{case}: exact native creation was never called"
+            );
+            assert!(
+                control.helper.lock().unwrap().is_none(),
+                "{case}: no process group"
+            );
+            assert!(
+                !marker.exists(),
+                "{case}: owned executable marker never ran"
+            );
+            drop(scope);
+            assert!(!selected(), "private admission owner actually disposed");
+            assert!(
+                control.error().is_none(),
+                "{case}: intended qualification verdict, not an unrelated budget failure"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
 mod selected_helper_process_tests {
     // Project-owned private process/API witnesses. Keep the policy with reuse:
     // https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
     use super::*;
-    use crate::dream::c1::{self, Control, storage};
+    use crate::dream::c1::{self, Control};
     use std::sync::{
         Mutex,
-        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     };
     use std::time::{Duration, Instant};
@@ -3383,6 +3632,9 @@ mod selected_helper_process_tests {
         paused: AtomicBool,
         stale_rejected: AtomicBool,
         native_calls: AtomicU64,
+        pre_effect_refusals: AtomicU64,
+        pre_effect_credits: AtomicU64,
+        pre_effect_unknown: AtomicBool,
         failed_positive_effect: AtomicBool,
         panic_at: Mutex<PanicAt>,
         marker: PathBuf,
@@ -3417,11 +3669,33 @@ mod selected_helper_process_tests {
         fn after(&mut self) -> Result<(), Invalid> {
             self.inner.after()
         }
+        fn suspend(&mut self) -> Result<(), Invalid> {
+            self.inner.suspend()
+        }
         fn boundary(&mut self) -> Result<(), Invalid> {
             self.inner.boundary()
         }
         fn helper_refused(&mut self, reason: &'static str) {
             self.inner.helper_refused(reason)
+        }
+        fn helper_before_effect_refused(
+            &mut self,
+            sequence: u16,
+            credits: u16,
+            cpu_ns: u64,
+            wall_ns: u64,
+        ) -> Result<(), Invalid> {
+            self.state
+                .pre_effect_refusals
+                .fetch_add(1, Ordering::AcqRel);
+            self.state
+                .pre_effect_credits
+                .fetch_add(u64::from(credits), Ordering::AcqRel);
+            self.state
+                .pre_effect_unknown
+                .store(cpu_ns == u64::MAX, Ordering::Release);
+            self.inner
+                .helper_before_effect_refused(sequence, credits, cpu_ns, wall_ns)
         }
         fn native_created(&mut self, span: NativeCreation) -> Result<(), Invalid> {
             self.state.native_calls.fetch_add(1, Ordering::AcqRel);
@@ -3484,10 +3758,11 @@ mod selected_helper_process_tests {
         fn helper_usage(
             &mut self,
             ticket: HelperTicket,
-            cpu: u64,
+            user: u64,
+            system: u64,
             rss: u64,
         ) -> Result<(), Invalid> {
-            self.inner.helper_usage(ticket, cpu, rss)
+            self.inner.helper_usage(ticket, user, system, rss)
         }
         fn cleanup(&mut self, step: &mut dyn FnMut() -> bool) {
             let active = self
@@ -3556,17 +3831,7 @@ mod selected_helper_process_tests {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&scratch, std::fs::Permissions::from_mode(0o700)).unwrap();
             bindings.scratch = Some(scratch);
-            let control = Arc::new(Control {
-                cancel: AtomicU8::new(0),
-                foreground: AtomicBool::new(false),
-                deadline: Instant::now() + deadline,
-                reactor: Arc::new(AtomicU64::new(0)),
-                memory: storage::Ledger::new(),
-                cleanup_cpu: AtomicU64::new(0),
-                cleanup_max: AtomicU64::new(0),
-                cleanup_overruns: AtomicU64::new(0),
-                helper: Mutex::new(None),
-            });
+            let control = Arc::new(Control::fixture(Instant::now() + deadline));
             let state = Arc::new(State {
                 control,
                 groups: Mutex::new(vec![]),
@@ -3574,6 +3839,9 @@ mod selected_helper_process_tests {
                 paused: AtomicBool::new(false),
                 stale_rejected: AtomicBool::new(false),
                 native_calls: AtomicU64::new(0),
+                pre_effect_refusals: AtomicU64::new(0),
+                pre_effect_credits: AtomicU64::new(0),
+                pre_effect_unknown: AtomicBool::new(false),
                 failed_positive_effect: AtomicBool::new(false),
                 panic_at: Mutex::new(panic_at),
                 marker: cwd.join("ready"),
@@ -3975,6 +4243,95 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
             at.elapsed() < Duration::from_millis(60),
             "backpressured stdin must retain cancel settlement bound"
         );
+    }
+    #[test]
+    fn helper_measurement_units_preserve_unknown_and_reversed_samples() {
+        assert_eq!(
+            helper_timeval_ns(libc::timeval {
+                tv_sec: 2,
+                tv_usec: 3
+            }),
+            2_000_003_000
+        );
+        for time in [
+            libc::timeval {
+                tv_sec: -1,
+                tv_usec: 0,
+            },
+            libc::timeval {
+                tv_sec: 0,
+                tv_usec: -1,
+            },
+            libc::timeval {
+                tv_sec: 0,
+                tv_usec: 1_000_000,
+            },
+            libc::timeval {
+                tv_sec: i64::MAX,
+                tv_usec: 0,
+            },
+        ] {
+            assert_eq!(helper_timeval_ns(time), u64::MAX);
+        }
+        let now = Instant::now();
+        let start = HelperStamp {
+            cpu: 10,
+            wall: now + Duration::from_millis(1),
+        };
+        let end = HelperStamp { cpu: 9, wall: now };
+        assert_eq!(span_cpu(start, end), u64::MAX);
+        assert_eq!(span_wall(start, end), u64::MAX);
+    }
+    #[test]
+    fn unknown_beginning_clocks_refuse_before_native_call_without_refunding_reservation() {
+        for phase in [HelperPhase::RawInclusive, HelperPhase::Spawn] {
+            let home = tempfile::tempdir().unwrap();
+            let run = Run::start_with(
+                home.path(),
+                SelectedBindings::default(),
+                false,
+                PanicAt::None,
+                Duration::from_secs(5),
+                move |cwd| {
+                    FAIL_HELPER_BEGIN_CLOCK.with(|failure| failure.set(Some(phase)));
+                    let result = selected_command(
+                        cwd,
+                        "/bin/sh",
+                        &["-c".into(), "printf unexpected > ready".into()],
+                        None,
+                    );
+                    assert_eq!(
+                        NATIVE_HELPER_CALLS.with(|calls| calls.get()),
+                        0,
+                        "a failed beginning clock cannot invoke posix_spawn"
+                    );
+                    assert_eq!(
+                        SELECTED.with(|slot| slot.borrow().as_ref().unwrap().attempts),
+                        1,
+                        "reserved creation credit is not refunded"
+                    );
+                    assert!(
+                        FAIL_HELPER_BEGIN_CLOCK
+                            .with(|failure| failure.get())
+                            .is_none(),
+                        "the intended BEGIN clock fault executed"
+                    );
+                    result.map(|(_, bytes)| vec![bytes])
+                },
+            );
+            let state = run.state.clone();
+            assert!(run.finish().is_err());
+            assert_eq!(state.native_calls.load(Ordering::Acquire), 0);
+            assert_eq!(state.pre_effect_refusals.load(Ordering::Acquire), 1);
+            assert_eq!(state.pre_effect_credits.load(Ordering::Acquire), 1);
+            assert!(state.pre_effect_unknown.load(Ordering::Acquire));
+            assert!(state.groups.lock().unwrap().is_empty());
+            assert_eq!(
+                state.control.error(),
+                Some(crate::dream::c1_wire::Code::ResourceLimit)
+            );
+            assert!(!home.path().join("ready").exists());
+        }
     }
     #[test]
     fn unknown_spawn_clock_refuses_after_retained_effect_actually_settles() {

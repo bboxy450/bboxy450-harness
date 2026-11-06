@@ -34,8 +34,11 @@ static void dispose_owned(void) {
 
 static uint64_t clock_ns(clockid_t id) {
     struct timespec t;
-    if (clock_gettime(id, &t)) _exit(80);
-    return (uint64_t)t.tv_sec * 1000000000ULL + (uint64_t)t.tv_nsec;
+    require(clock_gettime(id,&t)==0&&t.tv_sec>=0&&t.tv_nsec>=0&&t.tv_nsec<1000000000,"known clock and units");
+    __uint128_t raw=(__uint128_t)t.tv_sec*1000000000+(uint64_t)t.tv_nsec;require(raw<=UINT64_MAX,"clock range");
+    uint64_t now=(uint64_t)raw;static uint64_t last_monotonic=0;
+    if(id==CLOCK_MONOTONIC){require(now>=last_monotonic,"nonreversed monotonic clock");last_monotonic=now;}
+    return now;
 }
 static uint64_t ru_cpu(const struct rusage *r) {
     return ((uint64_t)r->ru_utime.tv_sec + (uint64_t)r->ru_stime.tv_sec) * 1000000000ULL
@@ -116,7 +119,12 @@ static struct image control_stop_ack(pid_t pid,uint64_t birth) {
     for (;;) {
         require(control_observe(pid,&current)&&current.birth==birth&&current.threads==1&&current.runnable<=1,"bounded control stop identity");
         if(current.status==4&&current.runnable==0)return current;
-        require(clock_ns(CLOCK_MONOTONIC)<until&&clock_ns(CLOCK_THREAD_CPUTIME_ID)-cpu<=1000000,"bounded actual control stop acknowledgement");
+        uint64_t used=clock_ns(CLOCK_THREAD_CPUTIME_ID)-cpu;
+        if(clock_ns(CLOCK_MONOTONIC)>=until||used>1000000) {
+            fprintf(stderr,"control_stop_unknown pid=%d status=%u runnable=%u threads=%u flags=%u cpu_ns=%llu user_ns=%llu system_ns=%llu controller_ns=%llu\n",pid,current.status,current.runnable,current.threads,current.flags,
+                (unsigned long long)current.cpu,(unsigned long long)current.user,(unsigned long long)current.system,(unsigned long long)used);
+            require(0,"bounded actual control stop acknowledgement");
+        }
     }
 }
 static audit_token_t capture_token(pid_t pid,uint64_t birth) {
@@ -150,6 +158,128 @@ static struct image confirmed_stop(pid_t pid,uint64_t birth,const char *absent_m
         require(clock_ns(CLOCK_THREAD_CPUTIME_ID)-cpu_start<=1000000,"ordinary actual stop observation <=1ms CPU");
         if(initial)usleep(100);
     }
+}
+// Decision65489 fixed-slot arithmetic, independently exercised below against
+// retained native identities. Required identity/census work is never post-seal.
+struct window_ledger {
+    uint64_t operation,sequence,t0,t_close,cpu_start,cpu_close,end[2],actual_cpu,pipe_actual,pipe_charged;
+    uint64_t windows,controller,charge;
+    unsigned slots,unknown_mask,ack_mask,identity_mask;
+    int roster_closed,source_complete,exec_pending,required_after_close,bad_clock,retired_open;
+};
+enum ledger_result { LEDGER_OK,LEDGER_CLOCK,LEDGER_IDENTITY,LEDGER_ROSTER,LEDGER_PIPE,LEDGER_COVERAGE,LEDGER_LIMIT };
+static enum ledger_result window_charge(struct window_ledger *g) {
+    g->windows=0;g->controller=0;g->charge=0;
+    if(g->bad_clock||g->t0==0||g->t_close<g->t0||g->cpu_close<g->cpu_start)return LEDGER_CLOCK;
+    if(g->operation==0||g->sequence==0||g->slots==0||g->slots>2||g->ack_mask!=((1u<<g->slots)-1)
+        ||g->identity_mask!=g->ack_mask||g->exec_pending||g->retired_open)return LEDGER_IDENTITY;
+    if(!g->roster_closed||!g->source_complete||g->required_after_close)return LEDGER_ROSTER;
+    if(g->pipe_charged!=g->pipe_actual)return LEDGER_PIPE;
+    for(unsigned i=0;i<g->slots;i++) {
+        if(g->end[i]<g->t0||g->end[i]>g->t_close)return LEDGER_CLOCK;
+        if((g->unknown_mask&(1u<<i))&&g->end[i]!=g->t_close)return LEDGER_ROSTER;
+        uint64_t n=g->end[i]-g->t0;if(g->windows>UINT64_MAX-n)return LEDGER_CLOCK;g->windows+=n;
+    }
+    uint64_t raw=g->cpu_close-g->cpu_start;if(raw>UINT64_MAX-g->pipe_charged)return LEDGER_CLOCK;
+    g->controller=raw+g->pipe_charged;
+    uint64_t helper=g->windows>g->actual_cpu?g->windows:g->actual_cpu;
+    if(helper>UINT64_MAX-g->controller)return LEDGER_CLOCK;g->charge=helper+g->controller;
+    if(g->actual_cpu>g->windows)return LEDGER_COVERAGE;
+    return g->charge<=1000000?LEDGER_OK:LEDGER_LIMIT;
+}
+static int additive_debt(uint64_t prior,uint64_t now,uint64_t cost,uint64_t *result) {
+    uint64_t n=cost>1000000?cost:1000000;if(n>UINT64_MAX/9)return 0;
+    uint64_t base=prior>now?prior:now;n*=9;if(base>UINT64_MAX-n)return 0;*result=base+n;return 1;
+}
+static void pay_window_debt(uint64_t *deadline,uint64_t cost) {
+    require(additive_debt(*deadline,clock_ns(CLOCK_MONOTONIC),cost,deadline),"additive ordinary debt clock");
+    for (;;) {uint64_t now=clock_ns(CLOCK_MONOTONIC);if(now>=*deadline)return;uint64_t left=*deadline-now;
+        usleep((useconds_t)((left>1000000?1000000:left)+999)/1000);}
+}
+static unsigned ledger_controls(void) {
+    struct window_ledger good={.operation=1,.sequence=1,.t0=100,.t_close=200,.cpu_start=10,.cpu_close=30,
+        .end={130,160},.actual_cpu=80,.slots=2,.ack_mask=3,.identity_mask=3,.roster_closed=1,.source_complete=1};
+    require(window_charge(&good)==LEDGER_OK&&good.windows==90&&good.controller==20&&good.charge==110,"unequal slot window golden");
+    struct window_ledger bad;unsigned count=0;
+#define REJECT(label,edit,expected) do {bad=good;edit;require(window_charge(&bad)==expected,label);count++;} while(0)
+    REJECT("backdated stop endpoint refuses",bad.end[0]=99,LEDGER_CLOCK);
+    REJECT("unknown birth cannot inherit endpoint",bad.unknown_mask=2,LEDGER_ROSTER);
+    REJECT("old exec endpoint cannot close new task",bad.exec_pending=1,LEDGER_IDENTITY);
+    REJECT("blocked or zero-delta is not stop ack",bad.ack_mask=1,LEDGER_IDENTITY);
+    REJECT("missing current audit identity refuses",bad.identity_mask=1,LEDGER_IDENTITY);
+    REJECT("one absent census is not closed roster",bad.roster_closed=0,LEDGER_ROSTER);
+    REJECT("unaccounted transient or unsupported source basis refuses",bad.source_complete=0,LEDGER_ROSTER);
+    REJECT("required controller cannot move after fake seal",bad.required_after_close=1,LEDGER_ROSTER);
+    REJECT("retired open slot remains coverage",bad.retired_open=1,LEDGER_IDENTITY);
+    REJECT("unexplained actual CPU above W refuses",bad.actual_cpu=91,LEDGER_COVERAGE);
+    REJECT("omitted pipe CPU refuses",bad.pipe_actual=1,LEDGER_PIPE);
+    REJECT("double pipe CPU refuses",bad.pipe_actual=1;bad.pipe_charged=2,LEDGER_PIPE);
+    REJECT("unknown or reversed clock refuses",bad.bad_clock=1,LEDGER_CLOCK);
+    REJECT("original sequence cannot be absent",bad.sequence=0,LEDGER_IDENTITY);
+    REJECT("inclusive ordinary1ms gate unchanged",bad.cpu_close=1000010,LEDGER_LIMIT);
+#undef REJECT
+    uint64_t debt=0;require(additive_debt(27000001,1,1,&debt)&&debt==36000001,"debt is additive and minimum9ms");count++;
+    require(debt!=9000001,"debt reset mutant rejected");count++;
+    // Descendant roll-up advances an already charged lifetime floor; adding
+    // direct+rolled totals would count the same descendant a second time.
+    uint64_t prior=7,own=7,rolled=9;require((own>rolled?own:rolled)-prior==2&&own+rolled-prior!=2,"double roll-up mutant rejected");count++;
+    return count;
+}
+static struct image acknowledged_member(pid_t pid,const struct image *original,const audit_token_t *expected,const char *path) {
+    (void)control_stop_ack(pid,original->birth);
+    struct image current;require(observe(pid,&current)&&current.pid==original->pid&&current.ppid==original->ppid&&current.pgid==original->pgid
+        &&current.birth==original->birth&&current.start_absolute==original->start_absolute&&current.threads==1&&current.status==4&&current.runnable==0
+        &&strcmp(current.path,path)==0,"identity/image/start-bound stopped member");
+    audit_token_t actual=control_token(pid,original->birth);require(memcmp(&actual,expected,sizeof(actual))==0,"original current audit incarnation");
+    struct image final;require(control_observe(pid,&final)&&final.birth==current.birth&&final.ppid==current.ppid&&final.pgid==current.pgid
+        &&final.status==4&&final.threads==1&&final.runnable==0,"stopped continuity after mandatory identity calls");
+    current.observed_at=clock_ns(CLOCK_MONOTONIC);return current;
+}
+static void complete_known_roster(pid_t leader,pid_t child,const struct image *a,const struct image *b,
+    const audit_token_t *ta,const audit_token_t *tb,const char *path,struct image *end_a,struct image *end_b) {
+    int ids[3]={0};int n=proc_listchildpids(leader,ids,sizeof(ids));require(n==1&&ids[0]==child,"stopped creator exact child edge");
+    memset(ids,0,sizeof(ids));require(proc_listchildpids(child,ids,sizeof(ids))==0,"stopped no-fork child closed edge");
+    memset(ids,0,sizeof(ids));n=proc_listpgrppids(leader,ids,sizeof(ids));
+    require(n==2&&((ids[0]==leader&&ids[1]==child)||(ids[0]==child&&ids[1]==leader)),"complete same-grant exact group roster");
+    *end_a=acknowledged_member(leader,a,ta,path);*end_b=acknowledged_member(child,b,tb,path);
+}
+struct native_window_evidence {struct window_ledger grant;uint64_t debt,late_cpu,post_cpu,start[2];uint32_t version[2];unsigned controls;};
+static struct native_window_evidence native_member_windows(pid_t leader,pid_t child,const char *path) {
+    struct native_window_evidence evidence;memset(&evidence,0,sizeof(evidence));evidence.controls=ledger_controls();
+    struct image a,b;require(observe(leader,&a)&&observe(child,&b),"retained native member baselines");
+    audit_token_t ta=control_token(leader,a.birth),tb=control_token(child,b.birth);
+    evidence.start[0]=a.start_absolute;evidence.start[1]=b.start_absolute;evidence.version[0]=ta.val[7];evidence.version[1]=tb.val[7];
+    require(a.status==4&&a.runnable==0&&b.status==4&&b.runnable==0,"closed attachment before member-window grant");
+    uint64_t before=a.rusage_cpu+b.rusage_cpu;struct window_ledger *g=&evidence.grant;
+    g->operation=a.start_absolute;g->sequence=1;g->slots=2;g->source_complete=1;
+    g->cpu_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);g->t0=clock_ns(CLOCK_MONOTONIC);
+    require(kill(-leader,SIGCONT)==0,"member-window original CONT delivery");
+    while(clock_ns(CLOCK_MONOTONIC)-g->t0<50000){}
+    require(kill(-leader,SIGSTOP)==0,"member-window original STOP request");
+    struct image end_a=acknowledged_member(leader,&a,&ta,path);g->end[0]=clock_ns(CLOCK_MONOTONIC);
+    uint64_t delayed=clock_ns(CLOCK_MONOTONIC);while(clock_ns(CLOCK_MONOTONIC)-delayed<50000){}
+    struct image end_b=acknowledged_member(child,&b,&tb,path);g->end[1]=clock_ns(CLOCK_MONOTONIC);
+    g->ack_mask=3;g->identity_mask=3;
+    complete_known_roster(leader,child,&a,&b,&ta,&tb,path,&end_a,&end_b);g->roster_closed=1;
+    g->t_close=clock_ns(CLOCK_MONOTONIC);g->cpu_close=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    require(end_a.rusage_cpu+end_b.rusage_cpu>=before,"monotonic observed active helper CPU");
+    g->actual_cpu=end_a.rusage_cpu+end_b.rusage_cpu-before;
+    enum ledger_result verdict=window_charge(g);
+    fprintf(stderr,"member_window op=%llu seq=%llu t0=%llu endpoint0=%llu endpoint1=%llu tclose=%llu W=%llu A=%llu C=%llu Q=%llu closed=%d verdict=%d\n",
+        (unsigned long long)g->operation,(unsigned long long)g->sequence,(unsigned long long)g->t0,(unsigned long long)g->end[0],(unsigned long long)g->end[1],
+        (unsigned long long)g->t_close,(unsigned long long)g->windows,(unsigned long long)g->actual_cpu,(unsigned long long)g->controller,(unsigned long long)g->charge,g->roster_closed,verdict);
+    fprintf(stderr,"member_identity slot=0 helper_sequence=1 pid=%d ppid=%d pgid=%d birth=%llu start_abstime=%llu audit_version=%u image_phase=canonical_probe_c\n",a.pid,a.ppid,a.pgid,(unsigned long long)a.birth,(unsigned long long)a.start_absolute,ta.val[7]);
+    fprintf(stderr,"member_identity slot=1 helper_sequence=2 pid=%d ppid=%d pgid=%d birth=%llu start_abstime=%llu audit_version=%u image_phase=canonical_probe_c\n",b.pid,b.ppid,b.pgid,(unsigned long long)b.birth,(unsigned long long)b.start_absolute,tb.val[7]);
+    pay_window_debt(&evidence.debt,g->charge);
+    require(verdict==LEDGER_OK&&g->end[1]>g->end[0],"real unequal-stop complete member-window ordinary grant");
+    uint64_t post=g->cpu_close;
+    struct image held_a=acknowledged_member(leader,&a,&ta,path),held_b=acknowledged_member(child,&b,&tb,path);
+    complete_known_roster(leader,child,&a,&b,&ta,&tb,path,&held_a,&held_b);
+    require(held_a.user==end_a.user&&held_b.user==end_b.user&&held_a.cpu>=end_a.cpu&&held_b.cpu>=end_b.cpu,"stable user-work and explained late-kernel deltas");
+    evidence.late_cpu=held_a.cpu-end_a.cpu+held_b.cpu-end_b.cpu;evidence.post_cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID)-post;
+    pay_window_debt(&evidence.debt,evidence.post_cpu+evidence.late_cpu);
+    require(evidence.post_cpu<=1000000&&evidence.late_cpu<=1000000-evidence.post_cpu,"inclusive post-closure ordinary1ms gate");
+    return evidence;
 }
 static pid_t suspended(const char *program, char *const argv[], char *const envp[], int own_group,
     uint64_t *cpu, uint64_t *wall) {
@@ -322,6 +452,7 @@ static int native_capability(const char *self, const char *root) {
     uint64_t stopped_user=child.user;usleep(20000);struct image held_child;
     require(observe(child_pid,&held_child)&&held_child.birth==child.birth&&held_child.status==4&&held_child.threads==1&&held_child.runnable==0&&held_child.user==stopped_user,
         "actual running own child STOP application and held user quiescence");
+    struct native_window_evidence windows=native_member_windows(pid,child_pid,self);
     require(kill(-pid,SIGCONT)==0,"resume after actual stop application witness");
     uint64_t child_cpu = 0,child_raw_cpu=0;
     until = clock_ns(CLOCK_MONOTONIC) + 2000000000ULL;
@@ -343,213 +474,26 @@ static int native_capability(const char *self, const char *root) {
     require(waited_cpu >= 12000000 && child_cpu > 0 && ru_cpu(&usage) >= waited_cpu,
         "leader wait4 descendant CPU rollup");
     int stale_error=token_capability(self,root);
-    printf("{\"created_suspended\":true,\"cloexec_default\":true,\"audit_token_signals\":true,\"running_child_stop_applied\":true,\"stale_pid_version_control\":true,\"mach_timebase_numer\":%u,\"mach_timebase_denom\":%u,\"sampled_child_cpu_raw\":%llu,\"initial_native_cpu_ns\":%llu,\"confirmed_native_cpu_ns\":%llu,\"native_bootstrap_reconciliation_ns\":%llu,\"stop_confirm_wall_ns\":%llu,\"held_user_cpu_delta_ns\":0,\"held_kernel_cpu_ns\":%llu,\"held_kernel_paid_debt_ns\":%llu,\"threads\":1,\"confirmed_runnable\":0,\"stale_audit_error\":%d,\"leader\":%d,\"child\":%d,\"pgid\":%d,\"leader_birth\":%llu,\"child_birth\":%llu,\"members\":2,\"sampled_child_cpu_ns\":%llu,\"waited_child_cpu_ns\":%llu,\"leader_wait4_cpu_ns\":%llu,\"group_peak_rss_bytes\":%llu,\"create_cpu_ns\":%llu,\"create_wall_ns\":%llu,\"reaped\":true}\n",
+    printf("{\"created_suspended\":true,\"cloexec_default\":true,\"audit_token_signals\":true,\"running_child_stop_applied\":true,\"stale_pid_version_control\":true,\"mach_timebase_numer\":%u,\"mach_timebase_denom\":%u,\"sampled_child_cpu_raw\":%llu,\"initial_native_cpu_ns\":%llu,\"confirmed_native_cpu_ns\":%llu,\"native_bootstrap_reconciliation_ns\":%llu,\"stop_confirm_wall_ns\":%llu,\"held_user_cpu_delta_ns\":0,\"held_kernel_cpu_ns\":%llu,\"held_kernel_paid_debt_ns\":%llu,\"threads\":1,\"confirmed_runnable\":0,\"stale_audit_error\":%d,\"leader\":%d,\"child\":%d,\"pgid\":%d,\"leader_birth\":%llu,\"child_birth\":%llu,\"members\":2,\"sampled_child_cpu_ns\":%llu,\"waited_child_cpu_ns\":%llu,\"leader_wait4_cpu_ns\":%llu,\"group_peak_rss_bytes\":%llu,\"create_cpu_ns\":%llu,\"create_wall_ns\":%llu,\"reaped\":true,\"member_windows\":{\"basis\":\"canonical_private_c_program_only\",\"operation\":%llu,\"sequence\":%llu,\"t0_ns\":%llu,\"endpoint_ns\":[%llu,%llu],\"tclose_ns\":%llu,\"W_ns\":%llu,\"A_ns\":%llu,\"C_ns\":%llu,\"Q_ns\":%llu,\"roster_closed\":true,\"late_kernel_ns\":%llu,\"post_cpu_ns\":%llu,\"debt_deadline_ns\":%llu,\"causal_controls\":%u}}\n",
         timebase.numer,timebase.denom,(unsigned long long)child_raw_cpu,(unsigned long long)initial_cpu,(unsigned long long)before.cpu,(unsigned long long)bootstrap_cpu,(unsigned long long)confirm_wall,
         (unsigned long long)held_kernel_cpu,(unsigned long long)(9*held_kernel_cpu),stale_error,pid, child_pid, pid, (unsigned long long)before.birth, (unsigned long long)child.birth,
         (unsigned long long)child_cpu, (unsigned long long)waited_cpu, (unsigned long long)ru_cpu(&usage),
-        (unsigned long long)peak_rss, (unsigned long long)create_cpu, (unsigned long long)create_wall);
+        (unsigned long long)peak_rss, (unsigned long long)create_cpu, (unsigned long long)create_wall,
+        (unsigned long long)windows.grant.operation,(unsigned long long)windows.grant.sequence,(unsigned long long)windows.grant.t0,
+        (unsigned long long)windows.grant.end[0],(unsigned long long)windows.grant.end[1],(unsigned long long)windows.grant.t_close,
+        (unsigned long long)windows.grant.windows,(unsigned long long)windows.grant.actual_cpu,(unsigned long long)windows.grant.controller,
+        (unsigned long long)windows.grant.charge,(unsigned long long)windows.late_cpu,(unsigned long long)windows.post_cpu,(unsigned long long)windows.debt,windows.controls);
     return 0;
-}
-static void child_image_phase(const struct image *child,const char *git,const char *gpg,
-    int *phase,unsigned *observations,uint64_t *peak) {
-    if(strcmp(child->path,git)==0) {
-        require(*phase==0&&++*observations<=16&&child->cpu<=1000000,"bounded monotonic approved Git fork-copy phase");
-        if(child->cpu>*peak)*peak=child->cpu;
-        fprintf(stderr,"git_fork_copy pid=%d birth=%llu path=%s cpu_ns=%llu user_ns=%llu system_ns=%llu status=%u runnable=%u thread_state=%d flags=%u observation=%u\n",child->pid,(unsigned long long)child->birth,child->path,(unsigned long long)child->cpu,
-            (unsigned long long)child->user,(unsigned long long)child->system,child->status,child->runnable,child->thread_state,child->flags,*observations);
-    }else {
-        require(strcmp(child->path,gpg)==0,"only exact Git fork-copy or provisioned GPG descendant image");
-        *phase=1;
-    }
-}
-struct exec_fence {
-    int phase,fork_known,gpg_known;
-    unsigned preexec_observations;
-    uint64_t preexec_peak_cpu;
-    audit_token_t fork_token,gpg_token;
-};
-static struct image stopped_signature_child(pid_t leader,pid_t pid,uint64_t birth,
-    const char *git,const char *gpg,struct exec_fence *fence) {
-    uint64_t until=clock_ns(CLOCK_MONOTONIC)+100000000ULL;struct image current;
-    uint64_t cpu_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);
-    for (;;) {
-        require(control_observe(pid,&current)&&current.birth==birth&&current.ppid==leader&&current.pgid==leader,
-            "signature child exact birth and ownership during exec");
-        require(proc_pidpath(pid,current.path,sizeof(current.path))>0,"bounded control exec image observation");
-        require(current.threads==1&&current.runnable<=1,"single-threaded child through exec fence");
-        child_image_phase(&current,git,gpg,&fence->phase,&fence->preexec_observations,&fence->preexec_peak_cpu);
-        if(fence->phase==0&&!fence->fork_known) {
-            fence->fork_token=control_token(pid,birth);fence->fork_known=1;
-            fprintf(stderr,"git_fork_stop_token pid=%u version=%u\n",fence->fork_token.val[5],fence->fork_token.val[7]);
-            require(proc_signal_with_audittoken(&fence->fork_token,SIGSTOP)==0,"one fork-task STOP receipt");
-        }
-        if(fence->phase==1&&!fence->gpg_known) {
-            require(fence->fork_known,"observed fork audit token before GPG exec");
-            fence->gpg_token=control_token(pid,birth);
-            require(fence->gpg_token.val[5]==(unsigned)pid&&fence->gpg_token.val[7]!=fence->fork_token.val[7],"new kernel PID-version on exact approved exec");
-            struct image exact;require(control_observe(pid,&exact)&&exact.birth==birth&&proc_pidpath(pid,exact.path,sizeof(exact.path))>0&&strcmp(exact.path,gpg)==0,"new token bound to exact GPG image");
-            // This recipient is the newly observed exec-task incarnation. The
-            // old task's successful STOP receipt never certifies this task.
-            require(proc_signal_with_audittoken(&fence->gpg_token,SIGSTOP)==0,"one fresh STOP for newly known GPG task");
-            fence->gpg_known=1;
-            fprintf(stderr,"git_exec_stop_token pid=%u old_version=%u new_version=%u\n",fence->gpg_token.val[5],fence->fork_token.val[7],fence->gpg_token.val[7]);
-        }
-        if(current.status==4&&current.runnable==0) {
-            if(fence->phase==1) {
-                audit_token_t actual=control_token(pid,birth);
-                require(memcmp(&actual,&fence->gpg_token,sizeof(actual))==0,"stable current GPG token at actual stop acknowledgement");
-            }
-            return current;
-        }
-        require(clock_ns(CLOCK_MONOTONIC)<until,"bounded exec-task actual stop acknowledgement");
-        require(clock_ns(CLOCK_THREAD_CPUTIME_ID)-cpu_start<=1000000,"ordinary exec-task control observation <=1ms CPU");
-    }
 }
 static int git_capability(char **argv) {
-    const char *git = argv[2], *gpg = argv[3], *cwd = argv[4], *home = argv[5],
-        *commit = argv[6], *tmp = argv[7], *trace = argv[8], *output = argv[9];
-    require(chdir(cwd) == 0, "explicit repository cwd");
-    char gp[4096], go[4096], gh[4096], tm[4096], tr[4096], hm[4096];
-    snprintf(gp,sizeof(gp),"gpg.program=%s",gpg);snprintf(go,sizeof(go),"gpg.openpgp.program=%s",gpg);
-    snprintf(gh,sizeof(gh),"GNUPGHOME=%s",home);snprintf(hm,sizeof(hm),"HOME=%s",home);
-    snprintf(tm,sizeof(tm),"TMPDIR=%s",tmp);snprintf(tr,sizeof(tr),"GIT_TRACE2_EVENT=%s",trace);
-    char *args[]={(char *)git,"--no-pager","--no-optional-locks","-c","core.fsmonitor=false",
-        "-c","core.hooksPath=/dev/null","-c","credential.helper=","-c","protocol.allow=never",
-        "-c","gpg.format=openpgp","-c",gp,"-c",go,"log","-1","--format=%G?%x00%GF%x00%GP",(char *)commit,NULL};
-    char *env[]={"PATH=/usr/bin:/bin:/opt/homebrew/bin","LANG=C","LC_ALL=C",hm,gh,tm,tr,
-        "GIT_CONFIG_NOSYSTEM=1","GIT_CONFIG_GLOBAL=/dev/null","GIT_TERMINAL_PROMPT=0",
-        "GIT_ASKPASS=/usr/bin/false","SSH_ASKPASS=/usr/bin/false",NULL};
-    int out=open(output,O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC,0600);require(out>=0,"private Git output");
-    int old=dup(1);require(old>=0 && dup2(out,1)>=0,"Git output binding");close(out);
-    uint64_t create_cpu=0,create_wall=0;pid_t pid=suspended(git,args,env,1,&create_cpu,&create_wall);
-    require(dup2(old,1)>=0,"restore probe output");close(old);
-    struct image leader, child;require(observe(pid,&leader)&&leader.pgid==pid&&leader.status==4
-        &&strcmp(leader.path,git)==0,"suspended exact Git image");
-    leader=confirmed_stop(pid,leader.birth,NULL,1);
-    audit_token_t leader_token=control_token(pid,leader.birth);
-    uint64_t leader_birth=leader.birth,leader_peak_cpu=leader.cpu,child_peak_cpu=0,peak_rss=leader.rss,waited_peak=leader.waited;
-    uint64_t child_birth=0,child_start_absolute=0,late_kernel_cpu=0,late_kernel_debt=0;
-    pid_t child_pid=0;unsigned samples=0,max_members=1,confirmed_stops=0;struct exec_fence fence;memset(&fence,0,sizeof(fence));
-    uint64_t prior_total=leader_peak_cpu,controller_at=clock_ns(CLOCK_THREAD_CPUTIME_ID),max_grant_charge=0,max_ordinary_cpu=0,shared_paid_debt=0;
-    uint64_t until=clock_ns(CLOCK_MONOTONIC)+5000000000ULL;
-    while (!exited(pid)) {
-        uint64_t control_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);
-        uint64_t resume_at=clock_ns(CLOCK_MONOTONIC);
-        require(kill(-pid,SIGCONT)==0,"Git group resume");
-        while(clock_ns(CLOCK_MONOTONIC)-resume_at<50000){}
-        kill(-pid,SIGSTOP);
-        if (exited(pid)) break;
-        leader=control_stop_ack(pid,leader_birth);
-        uint64_t all_stopped_at=leader.observed_at;
-        int members[3]={0};int count=proc_listchildpids(pid,members,sizeof(members));
-        require(count>=0 && count<=1,"Git group bound two");
-        int group[3]={0};int group_count=proc_listpgrppids(pid,group,sizeof(group));
-        require(group_count>=1&&group_count<=2,"actual private PGID member bound");
-        for(int i=0;i<group_count;i++) require(group[i]==pid||(count==1&&group[i]==members[0]),"only leader and direct GPG in exact PGID");
-        // The original STOP may predate fork. Stop the freshly observed exact
-        // group before spending any time on the new member's image/audit reads.
-        if(count==1&&child_pid==0)require(kill(-pid,SIGSTOP)==0,"one immediate fresh-roster pinned-group STOP");
-        if(count==1&&control_observe(members[0],&child)) {
-            require(child.ppid==pid&&child.pgid==pid&&child.threads==1&&child.runnable<=1,"actual control child ownership");
-            require(!child_pid||(child_pid==child.pid&&child_birth==child.birth),"stable control child generation");
-            child=stopped_signature_child(pid,child.pid,child.birth,git,gpg,&fence);
-            if(child.observed_at>all_stopped_at)all_stopped_at=child.observed_at;
-        }else if(count==1) {
-            struct rusage_info_v1 dead;
-            require(members[0]==child_pid&&child_start_absolute>0&&proc_pid_rusage(child_pid,RUSAGE_INFO_V1,(rusage_info_t *)&dead)==0
-                &&dead.ri_proc_start_abstime==child_start_absolute&&dead.ri_proc_exit_abstime>0,"exact control child closed before stop");
-            all_stopped_at=clock_ns(CLOCK_MONOTONIC);
-        }
-        uint64_t active_end=clock_ns(CLOCK_THREAD_CPUTIME_ID);
-        int child_live=0;
-        if (observe(pid,&leader)) {
-            require(leader.birth==leader_birth&&leader.pgid==pid,"Git leader identity retained");
-            audit_token_t current_leader=control_token(pid,leader_birth);
-            require(memcmp(&current_leader,&leader_token,sizeof(leader_token))==0&&strcmp(leader.path,git)==0,"leader cannot exec or change task incarnation");
-            require(leader.threads==1&&leader.runnable<=1,"single-threaded actual Git");
-            if (leader.cpu>leader_peak_cpu) leader_peak_cpu=leader.cpu;
-            if(leader.waited>waited_peak)waited_peak=leader.waited;
-            uint64_t rss=leader.rss;
-            if (count==1&&observe(members[0],&child)) {
-                require(child.ppid==pid&&child.pgid==pid,"GPG exact direct descendant");
-                require(child.threads==1&&child.runnable<=1,"single-threaded actual GPG");
-                require(!child_pid || (child_pid==child.pid&&child_birth==child.birth),"one stable Git-to-GPG identity");
-                require(child.status==4&&child.runnable==0,"actual stopped child retained through ordinary corroboration");
-                int grandchildren[2]={0};require(proc_listchildpids(child.pid,grandchildren,sizeof(grandchildren))==0,"GPG cannot add unobserved descendants");
-                child_pid=child.pid;child_birth=child.birth;child_start_absolute=child.start_absolute;max_members=2;child_live=1;
-                if (child.cpu>child_peak_cpu) child_peak_cpu=child.cpu;
-                rss+=child.rss;
-            } else if(count==1) {
-                struct rusage_info_v1 dead;
-                require(members[0]==child_pid&&child_start_absolute>0&&proc_pid_rusage(child_pid,RUSAGE_INFO_V1,(rusage_info_t *)&dead)==0
-                    &&dead.ri_proc_start_abstime==child_start_absolute&&dead.ri_proc_exit_abstime>0,"same observed GPG birth exited before stop");
-            }
-            if (rss>peak_rss) peak_rss=rss;
-        }
-        uint64_t stopped_leader_cpu=leader.cpu,stopped_child_cpu=child_live?child.cpu:0;
-        require(all_stopped_at>=resume_at,"ordered actual all-member stop acknowledgement");
-        uint64_t conservative_charge=2*(all_stopped_at-resume_at);
-        samples++;require(samples<=512&&clock_ns(CLOCK_MONOTONIC)<until,"bounded Git profile completion");
-        uint64_t pre_rest_cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID);usleep(9000);
-        struct image held;
-        int held_ok=observe(pid,&held);
-        if(!held_ok||held.birth!=leader_birth||held.status!=4||held.threads!=1||held.runnable!=0||(held.thread_state!=TH_STATE_STOPPED&&held.thread_state!=TH_STATE_WAITING)||held.user!=leader.user||held.cpu!=stopped_leader_cpu)
-            fprintf(stderr,"git_rest before_cpu_ns=%llu before_user_ns=%llu before_system_ns=%llu before_raw=%llu after_ok=%d after_cpu_ns=%llu after_user_ns=%llu after_system_ns=%llu after_raw=%llu before_ri_ns=%llu after_ri_ns=%llu status=%u threads=%u runnable=%u sample=%u before_thread_state=%d after_thread_state=%d before_thread_user_raw=%llu after_thread_user_raw=%llu before_thread_system_raw=%llu after_thread_system_raw=%llu\n",
-                (unsigned long long)stopped_leader_cpu,(unsigned long long)leader.user,(unsigned long long)leader.system,(unsigned long long)leader.raw_cpu,held_ok,
-                (unsigned long long)held.cpu,(unsigned long long)held.user,(unsigned long long)held.system,(unsigned long long)held.raw_cpu,
-                (unsigned long long)leader.rusage_cpu,(unsigned long long)held.rusage_cpu,held.status,held.threads,held.runnable,samples,leader.thread_state,held.thread_state,
-                (unsigned long long)leader.thread_user_raw,(unsigned long long)held.thread_user_raw,(unsigned long long)leader.thread_system_raw,(unsigned long long)held.thread_system_raw);
-        require(held_ok&&held.birth==leader_birth&&held.status==4&&held.threads==1&&held.runnable==0&&(held.thread_state==TH_STATE_STOPPED||held.thread_state==TH_STATE_WAITING)&&held.user==leader.user&&held.cpu>=stopped_leader_cpu,
-            "actual Git user work remains stopped through rest");
-        uint64_t late=held.cpu-stopped_leader_cpu;
-        if(held.cpu>leader_peak_cpu)leader_peak_cpu=held.cpu;
-        if(held.waited>waited_peak)waited_peak=held.waited;
-        if(child_live) {
-            require(observe(members[0],&held)&&held.birth==child_birth&&held.status==4&&held.threads==1&&held.runnable==0&&(held.thread_state==TH_STATE_STOPPED||held.thread_state==TH_STATE_WAITING)&&held.user==child.user&&held.cpu>=stopped_child_cpu,
-                "actual GPG user work remains stopped through rest");
-            late+=held.cpu-stopped_child_cpu;if(held.cpu>child_peak_cpu)child_peak_cpu=held.cpu;
-        }
-        require(late<=1000000&&late_kernel_cpu<=UINT64_MAX-late&&late_kernel_debt<=UINT64_MAX-9*late,"late kernel reconciliation bounds");
-        late_kernel_cpu+=late;late_kernel_debt+=9*late;
-        uint64_t total=leader_peak_cpu+(child_peak_cpu>waited_peak?child_peak_cpu:waited_peak);
-        uint64_t controller_end=clock_ns(CLOCK_THREAD_CPUTIME_ID);
-        require(total>=prior_total&&controller_end>=controller_at&&controller_end>=pre_rest_cpu,"monotonic helper/controller charge");
-        uint64_t actual_helper_delta=total-prior_total;
-        uint64_t helper_charge=actual_helper_delta>conservative_charge?actual_helper_delta:conservative_charge;
-        uint64_t active_controller_cpu=active_end-control_start;
-        uint64_t ordinary_controller_cpu=controller_end-active_end+control_start-controller_at;
-        if(ordinary_controller_cpu>max_ordinary_cpu)max_ordinary_cpu=ordinary_controller_cpu;
-        require(ordinary_controller_cpu<=1000000,"separately paid ordinary stopped-corroboration unit <=1ms");
-        uint64_t charge=helper_charge+active_controller_cpu;
-        if(charge>max_grant_charge)max_grant_charge=charge;
-        if(charge>1000000)fprintf(stderr,"git_grant charge_ns=%llu helper_delta_ns=%llu controller_ns=%llu late_kernel_ns=%llu sample=%u\n",
-            (unsigned long long)charge,(unsigned long long)(total-prior_total),(unsigned long long)active_controller_cpu,(unsigned long long)late,samples);
-        require(charge<=1000000,"full original helper grant plus controller and late reconciliation <=1ms");
-        uint64_t post=late+ordinary_controller_cpu;require(post<=1000000&&shared_paid_debt<=UINT64_MAX-9*post,"fresh shared reconciliation debt bounds");
-        shared_paid_debt+=9*post;prior_total=total;controller_at=controller_end;
-        // This is fresh debt after the observation. Earlier stopped rest is
-        // never banked as credit against a counter discovered later.
-        if(post)usleep((useconds_t)((9*post+999)/1000));
-        confirmed_stops++;
-    }
-    struct rusage_info_v1 final_usage;
-    if(proc_pid_rusage(pid,RUSAGE_INFO_V1,(rusage_info_t *)&final_usage)==0) {
-        uint64_t waited=absolute_ns(final_usage.ri_child_user_time+final_usage.ri_child_system_time);
-        if(waited>waited_peak)waited_peak=waited;
-    }
-    struct rusage usage;joined_group(pid,&usage);
-    uint64_t final_total=ru_cpu(&usage);if(final_total<prior_total)final_total=prior_total;
-    uint64_t closing_charge=final_total-prior_total+clock_ns(CLOCK_THREAD_CPUTIME_ID)-controller_at;
-    if(closing_charge>max_grant_charge)max_grant_charge=closing_charge;
-    require(closing_charge<=1000000,"final reaped CPU/controller reconciliation <=1ms");
-    usleep((useconds_t)((9*closing_charge+999)/1000));
-    require(child_pid>0&&child_birth>0&&child_peak_cpu>0&&max_members==2&&fence.fork_known&&fence.gpg_known&&fence.phase==1&&fence.preexec_observations>0,"observed finite actual Git-fork-to-GPG transition and GPG CPU/token before wait");
-    require(waited_peak>=child_peak_cpu&&ru_cpu(&usage)>=child_peak_cpu+leader_peak_cpu,"real Git waited descendant rollup without loss");
-    printf("{\"git_pid\":%d,\"gpg_pid\":%d,\"gpg_birth\":%llu,\"max_members\":%u,\"max_threads_per_process\":1,\"samples\":%u,\"confirmed_stopped_rests\":%u,\"git_fork_before_gpg_exec\":true,\"old_fork_pidversion\":%u,\"new_gpg_pidversion\":%u,\"exec_task_stop_applied\":true,\"preexec_observations\":%u,\"preexec_peak_cpu_ns\":%llu,\"max_full_grant_charge_ns\":%llu,\"max_stopped_corroboration_cpu_ns\":%llu,\"shared_reconciliation_paid_debt_ns\":%llu,\"stopped_rest_user_cpu_delta_ns\":0,\"late_kernel_cpu_ns\":%llu,\"late_kernel_paid_debt_ns\":%llu,\"exact_pgid_membership\":true,\"sampled_git_cpu_ns\":%llu,\"sampled_gpg_cpu_ns\":%llu,\"rolled_gpg_cpu_ns\":%llu,\"git_wait4_cpu_ns\":%llu,\"group_peak_rss_bytes\":%llu,\"create_cpu_ns\":%llu,\"create_wall_ns\":%llu,\"reaped\":true}\n",pid,child_pid,
-        (unsigned long long)child_birth,max_members,samples,confirmed_stops,fence.fork_token.val[7],fence.gpg_token.val[7],fence.preexec_observations,(unsigned long long)fence.preexec_peak_cpu,(unsigned long long)max_grant_charge,(unsigned long long)max_ordinary_cpu,(unsigned long long)shared_paid_debt,(unsigned long long)late_kernel_cpu,(unsigned long long)late_kernel_debt,(unsigned long long)leader_peak_cpu,
-        (unsigned long long)child_peak_cpu,(unsigned long long)waited_peak,(unsigned long long)ru_cpu(&usage),(unsigned long long)peak_rss,
-        (unsigned long long)create_cpu,(unsigned long long)create_wall);
-    return 0;
+    (void)argv;
+    // Decision65489 and Oracle01M6PXGPD8714R5DQCV7VEW37E: the exact current
+    // Git/GPG pair has no approved whole-command process/thread lifetime basis.
+    // Censuses and Trace2 alone cannot close its reserved unknown slot. Do not
+    // execute another CONT, infer a true flag, or mint an availability receipt.
+    printf("{\"profile\":\"read-helper-native/1\",\"availability\":\"verification_unproven\",\"whole_command_lifetime_coverage\":false,\"basis\":\"missing_supported_exact_tool_os_lifetime_capability\"}\n");
+    fprintf(stderr,"probe unavailable: verification_unproven missing supported exact Git/GPG whole-command process/thread lifetime basis\n");
+    return 81;
 }
 int main(int argc,char **argv) {
     require(atexit(dispose_owned)==0,"owned cleanup registration");
@@ -557,6 +501,7 @@ int main(int argc,char **argv) {
     if (!strcmp(argv[1],"cpu-child")) {require(argc==3,"child argc");cpu_child(argv[2]);}
     if (!strcmp(argv[1],"leader")) {require(argc==6,"leader argc");leader(argv[0],argv[2],argv[3],argv[4],argv[5]);}
     if (!strcmp(argv[1],"native")) {require(argc==3,"native argc");return native_capability(argv[0],argv[2]);}
+    if (!strcmp(argv[1],"ledger-controls")) {require(argc==2,"ledger argc");printf("{\"profile\":\"read-helper-native/1\",\"causal_controls\":%u,\"tool_availability\":\"verification_unproven\"}\n",ledger_controls());return 0;}
     if (!strcmp(argv[1],"git")) {require(argc==10,"Git argc");return git_capability(argv);}
     require(0,"unknown mode");return 81;
 }

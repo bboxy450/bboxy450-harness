@@ -319,8 +319,17 @@ land:
 	@set -eu; if [ -f ../../scripts/cache-env.sh ]; then . ../../scripts/cache-env.sh; fi; TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/land.py
 .PHONY: test-dream-mcp
 test-dream-mcp:
+	python3 -I tests/fixtures/dream-bootstrap/check.py
+	cargo build --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --bin bboxy450-harness
+	mkdir -p '$(TARGET_DIR)/dream-read-native-profile'
+	cp '$(TARGET_DIR)/release/bboxy450-harness' '$(TARGET_DIR)/dream-read-native-profile/worker'
+	printf '%s\n' 'dream-bootstrap/1' > '$(TARGET_DIR)/dream-read-native-profile/bootstrap-support.txt'
+	git rev-parse HEAD > '$(TARGET_DIR)/dream-read-native-profile/source-commit.txt'
+	rustc -Vv > '$(TARGET_DIR)/dream-read-native-profile/compiler.txt'
+	shasum -a 256 src/main.rs src/frontends/headless.rs src/dream/mod.rs src/dream/read.rs src/dream/read_wire.rs src/dream/worker.rs src/dream/c1.rs src/dream/bootstrap.rs src/dream/resolve.rs src/dream/trust.rs src/dream/audit.rs src/dream/graph.rs src/dream/recall.rs src/dream/receipt.rs src/dream/projection.rs src/dream/seal.rs tests/fixtures/dream-bootstrap/vectors.json tests/fixtures/dream-read/proof-helper-probe.c Cargo.toml Cargo.lock '$(TARGET_DIR)/dream-read-native-profile/worker' > '$(TARGET_DIR)/dream-read-native-profile/hashes.txt'
+	python3 -I -c 'import hashlib,pathlib,shutil,sys; p=pathlib.Path(sys.argv[1]); h=hashlib.sha256(p.read_bytes()).hexdigest(); d=p.with_name("worker-"+h); shutil.copy2(p,d); print("approved private read bootstrap artifact",d,h)' '$(TARGET_DIR)/dream-read-native-profile/worker'
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::read_wire:: -- --test-threads=1
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::worker::tests -- --test-threads=1
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib selected_helper_process_tests -- --test-threads=1
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::read::helper_tests -- --test-threads=1
-	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test dream_read --test dream_audit_broken --test dream_trust --test dream_seal --test dream_sinks --test dream_recall -- --test-threads=1 --nocapture
+	DREAM_READ_RUNNER='$(abspath $(TARGET_DIR))/dream-read-native-profile/worker' cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test dream_read --test dream_audit_broken --test dream_trust --test dream_seal --test dream_sinks --test dream_recall -- --test-threads=1 --nocapture

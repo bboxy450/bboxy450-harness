@@ -10,6 +10,8 @@
 mod fixture;
 #[path = "fixtures/dream/good/receipt_support.rs"]
 mod r;
+#[path = "fixtures/dream-read/root_fixture.rs"]
+mod root_fixture;
 #[path = "fixtures/dream/sinks/support.rs"]
 mod sinks;
 #[path = "fixtures/dream/good/audit_fixture.rs"]
@@ -17,15 +19,21 @@ mod sufficient;
 #[path = "fixtures/dream/good/support.rs"]
 mod support;
 use bboxy450_harness::{
-    dream::{entry, inspect, lower, read_wire as w, receipt, seal},
+    dream::{bootstrap as boot, entry, inspect, lower, read_wire as w, receipt, seal},
     protocol::*,
     redact::Set,
 };
 use std::{
     collections::BTreeMap,
     fs::File,
-    io::{BufRead, BufReader, Write},
-    os::unix::fs::PermissionsExt,
+    io::{BufRead, BufReader, Read, Write},
+    os::{
+        fd::{AsRawFd, FromRawFd},
+        unix::{
+            fs::{MetadataExt, PermissionsExt},
+            process::CommandExt,
+        },
+    },
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
     sync::{Arc, mpsc},
@@ -245,6 +253,15 @@ fn capability_command(
                 &retained.join(&name),
                 &std::fs::read(home.join(name)).unwrap(),
             );
+        }
+        for name in [
+            "native-probe.stdout",
+            "native-probe.stderr",
+            "native-probe.status",
+        ] {
+            if let Ok(bytes) = std::fs::read(home.join(name)) {
+                private_file(&retained.join(name), &bytes);
+            }
         }
         private_file(&retained.join("probe"), &std::fs::read(probe).unwrap());
         private_file(
@@ -605,33 +622,46 @@ struct Template {
 }
 impl Template {
     async fn publication() -> Self {
-        // Actual construction from dream_recall::publication_kind: completed lower,
-        // exact accepted publication/adoption suffix and final constructive outer seal.
-        let f = sinks::lower_fixture();
-        let mut resolver = f.resolver().await;
-        let store = sinks::lower_store(&f).await;
-        let outer = seal::Owner::default();
-        let plan = lower::prepare_at(
-            &store,
-            &mut resolver,
-            sinks::context_sink(&f),
-            "engine",
-            None,
-            &Set::default(),
-            4005,
-        )
-        .await
-        .unwrap();
-        let (store, published) = lower::publish(store, plan, outer.clone(), Set::default())
-            .unwrap()
-            .settle()
-            .await;
-        let published = published.unwrap();
-        let item = published.accepted.item;
-        let (store, _) = sinks::finish_run(store, &f, &outer).await;
+        Self::publication_root("fixture.invalid/dream/repo").await
+    }
+    async fn publication_root(root: &str) -> Self {
+        let (f, logs, publication) = if root == "fixture.invalid/dream/repo" {
+            // Actual construction from dream_recall::publication_kind: completed lower,
+            // exact accepted publication/adoption suffix and final constructive outer seal.
+            let f = sinks::lower_fixture();
+            let mut resolver = f.resolver().await;
+            let store = sinks::lower_store(&f).await;
+            let outer = seal::Owner::default();
+            let plan = lower::prepare_at(
+                &store,
+                &mut resolver,
+                sinks::context_sink(&f),
+                "engine",
+                None,
+                &Set::default(),
+                4005,
+            )
+            .await
+            .unwrap();
+            let (store, published) = lower::publish(store, plan, outer.clone(), Set::default())
+                .unwrap()
+                .settle()
+                .await;
+            let published = published.unwrap();
+            let item = published.accepted.item;
+            let (store, _) = sinks::finish_run(store, &f, &outer).await;
+            let mut logs = (*resolver.logs).clone();
+            logs.insert(store.session, store.events.clone());
+            let publication = event_pin(logs[&store.session].iter().find(|event| {
+            matches!(&event.event, Event::ItemCompleted {item: found,..} if *found == item)
+        }).unwrap());
+            (f, logs, publication)
+        } else {
+            let built = root_fixture::completed_publication(root).await;
+            let publication = event_pin(&built.publication);
+            (built.fixture, built.logs, publication)
+        };
         let provision = HelperProvision::build(&f);
-        let mut logs = (*resolver.logs).clone();
-        logs.insert(store.session, store.events.clone());
         assert!(
             logs.values().flatten().all(|event| !matches!(
                 &event.event,
@@ -642,9 +672,6 @@ impl Template {
             )),
             "preparation fixture must not invent Recall"
         );
-        let publication = event_pin(logs[&store.session].iter().find(|event| {
-            matches!(&event.event, Event::ItemCompleted {item: found,..} if *found == item)
-        }).unwrap());
         assert!(
             logs.len() <= 32,
             "fixture exceeds admitted finite source count"
@@ -746,7 +773,7 @@ impl Template {
             format!("{main}\n").into_bytes(),
         );
         add_file(&mut files,format!("{root_dir}/.git/config"),
-            b"[core]\nrepositoryformatversion = 0\nbare = false\n[remote \"origin\"]\nurl = https://fixture.invalid/dream/repo.git\n".to_vec());
+            format!("[core]\nrepositoryformatversion = 0\nbare = false\n[remote \"origin\"]\nurl = https://{root}.git\n").into_bytes());
         let mut catalogue = BTreeMap::new();
         for commit in text_git(&f, &["rev-list", "--all"]).lines() {
             let names = git(
@@ -764,7 +791,7 @@ impl Template {
                 catalogue.insert(
                     (path.to_owned(), commit.to_owned()),
                     w::RecordPin {
-                        root: w::Id("fixture.invalid/dream/repo".into()),
+                        root: w::Id(root.into()),
                         id: w::Id(id),
                         path: w::PathText(path.into()),
                         commit: w::Commit(commit.into()),
@@ -818,7 +845,7 @@ impl Template {
                 swarm_revision: w::Number(1),
                 workspace: w::Id("fixture".into()),
                 workspace_revision: w::Number(1),
-                root: w::Id("fixture.invalid/dream/repo".into()),
+                root: w::Id(root.into()),
                 root_revision: w::Number(1),
                 provider: w::Id("git".into()),
                 provider_epoch: w::Number(1),
@@ -831,8 +858,8 @@ impl Template {
             evidence: w::EvidenceBundle {
                 files: inventory,
                 roots: vec![w::RootBinding {
-                    root: w::Id("fixture.invalid/dream/repo".into()),
-                    repo: w::Id("fixture.invalid/dream/repo".into()),
+                    root: w::Id(root.into()),
+                    repo: w::Id(root.into()),
                     main: w::Commit(main),
                     dir: w::RelativePath(root_dir.into()),
                 }],
@@ -971,7 +998,7 @@ impl Template {
             let bytes = git(f, &["show", &format!("{main}:{path}")]);
             let record = entry::Record::parse(&bytes).unwrap();
             input.evidence.catalogue.push(w::RecordPin {
-                root: w::Id("fixture.invalid/dream/repo".into()),
+                root: self.input.context.root.clone(),
                 id: w::Id(record.front["id"].as_str().unwrap().into()),
                 path: w::PathText(path.into()),
                 commit: w::Commit(main.clone()),
@@ -992,6 +1019,7 @@ struct Job {
     input: w::Input,
     start: w::Start,
     provision: Option<Arc<HelperProvision>>,
+    captured_context: w::Context,
 }
 impl Job {
     fn materialize(mut input: w::Input, files: &BTreeMap<String, Vec<u8>>) -> Self {
@@ -1031,6 +1059,7 @@ impl Job {
         Self {
             home,
             path,
+            captured_context: input.context.clone(),
             input,
             start,
             provision: None,
@@ -1044,6 +1073,17 @@ impl Job {
         let bytes = w::canonical(&self.input).unwrap();
         self.start.input_sha256 = w::hash(&bytes);
         private_file(&self.path.join("input/manifest.json"), &bytes);
+    }
+    fn rebind_empty_scripted_root(&mut self, root: &str) {
+        assert!(
+            self.input.records.is_empty()
+                && self.input.publications.is_empty()
+                && self.input.evidence.roots.is_empty(),
+            "signed proof roots require construction before signing"
+        );
+        self.input.context.root = w::Id(root.into());
+        self.captured_context = self.input.context.clone();
+        self.rewrite_input();
     }
     fn empty() -> Self {
         let mut input: w::Input =
@@ -1344,18 +1384,304 @@ struct Runner {
     receiver: mpsc::Receiver<Vec<u8>>,
     reader: Option<thread::JoinHandle<()>>,
     stderr: PathBuf,
+    lease: Option<File>,
+    authority: PrivateAuthority,
+    job_deadline: Instant,
+    run_id: w::Ulid,
+    nonce: w::Ulid,
+    probe: bool,
+    binding_json: Vec<u8>,
+    launch_path: PathBuf,
+}
+type Stamp = (u64, u64, u64, i64, i64, i64, i64);
+fn stamp(path: &Path) -> Stamp {
+    let m = std::fs::symlink_metadata(path).unwrap();
+    assert!(m.is_file() && !m.file_type().is_symlink());
+    (
+        m.dev(),
+        m.ino(),
+        m.len(),
+        m.mtime(),
+        m.mtime_nsec(),
+        m.ctime(),
+        m.ctime_nsec(),
+    )
+}
+fn parent_cpu() -> u64 {
+    let mut t = std::mem::MaybeUninit::<libc::timespec>::uninit();
+    assert_eq!(
+        unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, t.as_mut_ptr()) },
+        0
+    );
+    let t = unsafe { t.assume_init() };
+    (t.tv_sec as u64)
+        .checked_mul(1_000_000_000)
+        .unwrap()
+        .checked_add(t.tv_nsec as u64)
+        .unwrap()
+}
+fn parent_rest(cpu: u64, end: Instant) {
+    if let Some(left) = Duration::from_nanos(9 * cpu.max(1_000_000)).checked_sub(end.elapsed()) {
+        thread::sleep(left);
+    }
+}
+fn parent_paid(at: u64) {
+    let used = parent_cpu().checked_sub(at).unwrap();
+    let end = Instant::now();
+    assert!(
+        used <= 1_000_000,
+        "ordinary private parent unit exceeds1ms: {used}"
+    );
+    parent_rest(used, end);
+}
+struct ApprovedRunner {
+    path: PathBuf,
+    hash: w::Hex,
+    guards: Vec<(PathBuf, Stamp)>,
+}
+fn bounded_parent_hash(path: &Path) -> w::Hex {
+    use sha2::{Digest, Sha256};
+    let mut file = File::open(path).unwrap();
+    let mut digest = Sha256::new();
+    let mut buf = [0u8; 65536];
+    loop {
+        let at = parent_cpu();
+        let n = file.read(&mut buf).unwrap();
+        digest.update(&buf[..n]);
+        parent_paid(at);
+        if n == 0 {
+            break;
+        }
+    }
+    w::Hex(format!("{:x}", digest.finalize()))
+}
+fn approved_runner() -> &'static ApprovedRunner {
+    static APPROVED: std::sync::OnceLock<ApprovedRunner> = std::sync::OnceLock::new();
+    let approved = APPROVED.get_or_init(|| {
+        // Adapted from https://github.com/bboxy450/bboxy450-harness/blob/main/tests/dream_c1.rs.
+        // Credit policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+        // This is an
+        // explicit ordinary artifact receipt, never an executable probe or fallback.
+        let path = PathBuf::from(
+            std::env::var_os("DREAM_READ_RUNNER")
+                .expect("explicit preapproved ordinary read worker required"),
+        );
+        assert!(path.is_absolute());
+        assert_eq!(std::fs::canonicalize(&path).unwrap(), path);
+        let folder = path.parent().unwrap();
+        assert_eq!(
+            std::fs::read(folder.join("bootstrap-support.txt")).unwrap(),
+            b"dream-bootstrap/1\n"
+        );
+        let source = std::fs::read_to_string(folder.join("source-commit.txt")).unwrap();
+        assert!(source.trim().len() == 40 && source.trim().bytes().all(|b| b.is_ascii_hexdigit()));
+        let compiler = std::fs::read_to_string(folder.join("compiler.txt")).unwrap();
+        assert!(
+            compiler.len() <= 16 * 1024
+                && compiler.starts_with("rustc ")
+                && compiler.contains("host: ")
+        );
+        let receipts = std::fs::read_to_string(folder.join("hashes.txt")).unwrap();
+        assert!(receipts.len() <= 16 * 1024);
+        let allowed = [
+            "src/main.rs",
+            "src/frontends/headless.rs",
+            "src/dream/mod.rs",
+            "src/dream/read.rs",
+            "src/dream/read_wire.rs",
+            "src/dream/worker.rs",
+            "src/dream/c1.rs",
+            "src/dream/bootstrap.rs",
+            "src/dream/resolve.rs",
+            "src/dream/trust.rs",
+            "src/dream/audit.rs",
+            "src/dream/graph.rs",
+            "src/dream/recall.rs",
+            "src/dream/receipt.rs",
+            "src/dream/projection.rs",
+            "src/dream/seal.rs",
+            "tests/fixtures/dream-bootstrap/vectors.json",
+            "tests/fixtures/dream-read/proof-helper-probe.c",
+            "Cargo.toml",
+            "Cargo.lock",
+        ];
+        let mut seen = std::collections::BTreeSet::new();
+        let mut guards = Vec::new();
+        let mut worker_hash = None;
+        for line in receipts.lines() {
+            let mut parts = line.split_whitespace();
+            let expected = parts.next().unwrap();
+            let name = parts.next().unwrap();
+            assert!(
+                parts.next().is_none()
+                    && expected.len() == 64
+                    && expected.bytes().all(|b| b.is_ascii_hexdigit())
+            );
+            assert!(seen.insert(name.to_owned()), "duplicate artifact receipt");
+            let target = if allowed.contains(&name) {
+                Path::new(env!("CARGO_MANIFEST_DIR")).join(name)
+            } else {
+                let candidate = PathBuf::from(name);
+                let candidate = if candidate.is_absolute() {
+                    candidate
+                } else {
+                    Path::new(env!("CARGO_MANIFEST_DIR")).join(candidate)
+                };
+                assert_eq!(
+                    std::fs::canonicalize(candidate).unwrap(),
+                    path,
+                    "unlisted source in provision receipt"
+                );
+                path.clone()
+            };
+            let before = stamp(&target);
+            let actual = bounded_parent_hash(&target);
+            assert_eq!(actual.0, expected, "preapproved bytes changed: {name}");
+            assert_eq!(stamp(&target), before);
+            if target == path {
+                assert!(worker_hash.replace(actual).is_none());
+            }
+            guards.push((target, before));
+        }
+        for name in allowed {
+            assert!(seen.contains(name), "missing source receipt: {name}");
+        }
+        for name in [
+            "bootstrap-support.txt",
+            "source-commit.txt",
+            "compiler.txt",
+            "hashes.txt",
+        ] {
+            let p = folder.join(name);
+            guards.push((p.clone(), stamp(&p)));
+        }
+        ApprovedRunner {
+            path,
+            hash: worker_hash.unwrap(),
+            guards,
+        }
+    });
+    let at = parent_cpu();
+    for (path, expected) in &approved.guards {
+        assert_eq!(
+            &stamp(path),
+            expected,
+            "approved build changed before birth"
+        );
+    }
+    parent_paid(at);
+    approved
+}
+struct PrivateAuthority {
+    manifest: Option<(PathBuf, Stamp)>,
+    worker: PathBuf,
+    worker_stamp: Stamp,
+    context: Option<w::Context>,
+}
+impl PrivateAuthority {
+    fn fresh(&self) {
+        // Two private immutable rows. This scripted fixture is not the term
+        // public/provider/root fence and never certifies that Q3 integration.
+        if let Some((path, expected)) = &self.manifest {
+            assert_eq!(&stamp(path), expected);
+        }
+        assert_eq!(stamp(&self.worker), self.worker_stamp);
+        if let Some(context) = &self.context {
+            assert!(context.generation.0 > 0 && context.grant_epoch.0 > 0);
+        }
+    }
+}
+fn bootstrap_pipe() -> (File, File) {
+    let mut p = [-1; 2];
+    assert_eq!(unsafe { libc::pipe(p.as_mut_ptr()) }, 0);
+    for fd in p {
+        assert!((3..=65535).contains(&fd));
+        assert_eq!(
+            unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) },
+            0
+        );
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        assert!(flags >= 0);
+        assert_eq!(
+            unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) },
+            0
+        );
+    }
+    unsafe { (File::from_raw_fd(p[0]), File::from_raw_fd(p[1])) }
 }
 impl Runner {
     fn start(job: &Job) -> Self {
+        Self::launch(job, false, |_, _| {})
+    }
+    fn launch(job: &Job, probe: bool, held: impl FnOnce(&mut Self, u64)) -> Self {
+        let approved = approved_runner();
+        let job_deadline = Instant::now() + Duration::from_secs(30);
+        let prepare_at = parent_cpu();
+        let job_deadline_ns = boot::monotonic_ns()
+            .unwrap()
+            .checked_add(30_000_000_000)
+            .unwrap();
         let stderr = job.path.join("worker.stderr");
         let err = File::create(&stderr).unwrap();
-        let mut command = Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"));
+        std::fs::set_permissions(&stderr, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let expected_schema = w::schema_hash();
+        let (read, write) = bootstrap_pipe();
+        let fd = read.as_raw_fd();
+        let birth = ulid::Ulid::new();
+        let op = w::Ulid(ulid::Ulid::new().to_string());
+        let run_id = if probe {
+            w::Ulid(ulid::Ulid::new().to_string())
+        } else {
+            job.start.run_id.clone()
+        };
+        let nonce = if probe {
+            w::Ulid(ulid::Ulid::new().to_string())
+        } else {
+            job.start.nonce.clone()
+        };
+        let launch_path = if probe {
+            job.home.path().join(&run_id.0)
+        } else {
+            job.path.clone()
+        };
+        static INCARNATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let incarnation = INCARNATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let binding = boot::Binding::new(
+            boot::Purpose::ReadPrepare,
+            probe,
+            &op,
+            &run_id,
+            &nonce,
+            incarnation,
+            (!probe).then_some(&job.captured_context),
+            &approved.hash,
+        )
+        .unwrap();
+        let binding_json = binding.bytes().unwrap();
+        let binding_hash = w::hash(&binding_json);
+        let environment = format!("1:{fd}:{birth}:{}", binding_hash.0);
+        let token = boot::token(environment.as_bytes()).unwrap();
+        let authority = PrivateAuthority {
+            manifest: (!probe).then(|| {
+                let path = job.path.join("input/manifest.json");
+                let identity = stamp(&path);
+                (path, identity)
+            }),
+            worker: approved.path.clone(),
+            worker_stamp: stamp(&approved.path),
+            context: (!probe).then(|| job.captured_context.clone()),
+        };
+        let (sender, receiver) = mpsc::sync_channel(64);
+        let mut command = Command::new(&approved.path);
         command
             .args(["dream", "prepare-read", "--job-dir"])
-            .arg(&job.path)
+            .arg(&launch_path)
             .env_clear()
             .env("PATH", "/usr/bin:/bin:/opt/homebrew/bin")
             .env("HOME", job.home.path())
+            .env("TMPDIR", job.home.path())
+            .env("LANG", "C.UTF-8")
+            .env(boot::ENV, environment)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(err);
@@ -1364,10 +1690,122 @@ impl Runner {
                 .env("BBOXY_DREAM_HELPER_PROVISION", &provision.receipt)
                 .env("BBOXY_DREAM_HELPER_PROVISION_SHA256", &provision.digest);
         }
-        let mut child = command.spawn().unwrap();
-        let stdout = child.stdout.take().unwrap();
-        let input = child.stdin.take();
-        let (sender, receiver) = mpsc::sync_channel(64);
+        unsafe {
+            command.pre_exec(move || {
+                if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
+                    Err(std::io::Error::last_os_error())
+                } else {
+                    Ok(())
+                }
+            });
+        }
+        parent_paid(prepare_at);
+        let native_at = parent_cpu();
+        let wall_at = Instant::now();
+        let child = command.spawn().unwrap();
+        let wall = wall_at.elapsed();
+        let spawn_return = boot::monotonic_ns();
+        let native_end = parent_cpu();
+        let birth_end = Instant::now();
+        // Returned Child and writer lease are owned before any cost/readiness
+        // verdict can reject a native effect. Drop always performs real reap.
+        let mut this = Self {
+            child,
+            input: None,
+            receiver,
+            reader: None,
+            stderr,
+            lease: Some(write),
+            authority,
+            job_deadline,
+            run_id,
+            nonce,
+            probe,
+            binding_json,
+            launch_path,
+        };
+        drop(read);
+        let readiness_ns = spawn_return
+            .unwrap()
+            .checked_add(boot::WINDOW_NS)
+            .unwrap()
+            .min(job_deadline_ns);
+        let marker_at = parent_cpu();
+        let marker = this.wait_marker(readiness_ns);
+        assert_eq!(
+            marker.trim(),
+            "dream-bootstrap state=waiting profile=dream-bootstrap/1 argv_admissions=0 channel_admissions=0 owner_admissions=0"
+        );
+        held(&mut this, readiness_ns);
+        parent_paid(marker_at);
+        let used = native_end.checked_sub(native_at).unwrap();
+        assert!(
+            used <= 2_000_000 && wall <= Duration::from_millis(25),
+            "private parent birth native allocation cpu={used} wall={wall:?}"
+        );
+        parent_rest(used, birth_end);
+        let setup_at = parent_cpu();
+        drop(command);
+        this.input = this.child.stdin.take();
+        let permit = boot::Permit {
+            purpose: boot::Purpose::ReadPrepare,
+            probe,
+            birth: token.birth,
+            run_id: boot::ulid(this.run_id.0.as_bytes()).unwrap(),
+            nonce: boot::ulid(this.nonce.0.as_bytes()).unwrap(),
+            binding: token.binding,
+            incarnation,
+            sequence: 1,
+            deadline_ns: readiness_ns,
+        };
+        boot::bound(
+            &permit,
+            &token,
+            boot::Purpose::ReadPrepare,
+            this.launch_path.file_name().unwrap().as_encoded_bytes(),
+        )
+        .unwrap();
+        let raw = boot::encode(&permit);
+        parent_paid(setup_at);
+        // One prepared fresh private-authority callback plus one tiny write.
+        // No hashing, parser, inference, retry or recursive debt at this fence.
+        let grant_at = parent_cpu();
+        this.authority.fresh();
+        assert!(Instant::now() < this.job_deadline && boot::monotonic_ns().unwrap() < readiness_ns);
+        let wrote = unsafe {
+            libc::write(
+                this.lease.as_ref().unwrap().as_raw_fd(),
+                raw.as_ptr().cast(),
+                raw.len(),
+            )
+        };
+        assert_eq!(
+            wrote,
+            boot::LENGTH as isize,
+            "single permit transfer failed; no retry"
+        );
+        assert!(parent_cpu().checked_sub(grant_at).unwrap() <= 1_000_000);
+        let hello_at = parent_cpu();
+        let hello = this.read_hello(readiness_ns);
+        assert_eq!(hello.protocol, w::Protocol::V1);
+        assert_eq!(hello.algorithm, w::Algorithm::ReadPrepare);
+        assert_eq!(hello.schema_sha256, expected_schema);
+        assert_eq!(hello.ir_major, 1);
+        assert_eq!(hello.ir_minor_max, 3);
+        assert!(
+            boot::monotonic_ns().unwrap() < readiness_ns,
+            "paid Hello exceeded original readiness"
+        );
+        assert!(
+            std::fs::read_to_string(&this.stderr)
+                .unwrap()
+                .contains("dream-bootstrap state=paid_hello profile=dream-bootstrap/1")
+        );
+        drop(this.lease.take());
+        parent_paid(hello_at);
+        let reader_at = parent_cpu();
+        let reader_wall = Instant::now();
+        let stdout = this.child.stdout.take().unwrap();
         let reader = thread::spawn(move || {
             let mut stdout = BufReader::new(stdout);
             loop {
@@ -1382,27 +1820,119 @@ impl Runner {
                 }
             }
         });
-        let mut this = Self {
-            child,
-            input,
-            receiver,
-            reader: Some(reader),
-            stderr,
-        };
-        let w::WorkerOut::Hello(hello) = this.next(Duration::from_secs(5)) else {
-            panic!("missing read Hello")
-        };
-        assert_eq!(hello.protocol, w::Protocol::V1);
-        assert_eq!(hello.algorithm, w::Algorithm::ReadPrepare);
-        assert_eq!(hello.schema_sha256, w::schema_hash());
+        let reader_wall = reader_wall.elapsed();
+        this.reader = Some(reader);
+        let reader_cpu = parent_cpu().checked_sub(reader_at).unwrap();
+        assert!(reader_cpu <= 2_000_000 && reader_wall <= Duration::from_millis(25));
+        parent_rest(reader_cpu, Instant::now());
         this
     }
+    fn wait_marker(&mut self, readiness_ns: u64) -> String {
+        loop {
+            assert!(
+                boot::monotonic_ns().unwrap() < readiness_ns,
+                "original readiness expired before wait marker"
+            );
+            let mut file = File::open(&self.stderr).unwrap();
+            let mut bytes = [0u8; 256];
+            let n = file.read(&mut bytes).unwrap();
+            if let Some(end) = bytes[..n].iter().position(|b| *b == b'\n') {
+                return std::str::from_utf8(&bytes[..=end]).unwrap().to_owned();
+            }
+            assert!(
+                self.child.try_wait().unwrap().is_none(),
+                "child refused before wait marker"
+            );
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+    fn read_hello(&mut self, readiness_ns: u64) -> w::Hello {
+        let fd = self.child.stdout.as_ref().unwrap().as_raw_fd();
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        assert!(flags >= 0);
+        assert_eq!(
+            unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) },
+            0
+        );
+        let mut bytes = [0u8; w::MAX_FRAME];
+        let mut filled = 0;
+        loop {
+            let remaining = readiness_ns
+                .checked_sub(boot::monotonic_ns().unwrap())
+                .expect("Hello readiness not reset");
+            let mut ready = libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            assert!(
+                unsafe { libc::poll(&mut ready, 1, remaining.div_ceil(1_000_000) as i32) } > 0,
+                "Hello readiness exceeded"
+            );
+            let n = unsafe {
+                libc::read(
+                    fd,
+                    bytes[filled..].as_mut_ptr().cast(),
+                    bytes.len() - filled,
+                )
+            };
+            assert!(n > 0, "Hello EOF/error is a refusal");
+            filled += n as usize;
+            if bytes[..filled].ends_with(b"\n") {
+                break;
+            }
+            assert!(filled < bytes.len());
+        }
+        assert_eq!(unsafe { libc::fcntl(fd, libc::F_SETFL, flags) }, 0);
+        let w::WorkerOut::Hello(hello) = w::decode(&bytes[..filled]).unwrap() else {
+            panic!("missing read Hello");
+        };
+        hello
+    }
     fn send(&mut self, msg: &impl serde::Serialize) {
-        let bytes = w::canonical(msg).unwrap();
+        let at = parent_cpu();
+        let mut value = serde_json::to_value(msg).unwrap();
+        let start = value["type"] == "start";
+        if start {
+            if let Some(timeout) = value["timeout_ms"]
+                .as_u64()
+                .filter(|v| (1..=30000).contains(v))
+            {
+                let remaining = self
+                    .job_deadline
+                    .checked_duration_since(Instant::now())
+                    .expect("original job deadline expired before Start")
+                    .as_millis();
+                assert!(remaining > 0);
+                value["timeout_ms"] = serde_json::json!(timeout.min(remaining as u64));
+            }
+        }
+        let mut bytes = w::canonical(&value).unwrap();
+        bytes.push(b'\n');
+        assert!(bytes.len() <= w::MAX_FRAME);
+        if start {
+            parent_paid(at);
+        }
         let input = self.input.as_mut().unwrap();
-        input.write_all(&bytes).unwrap();
-        input.write_all(b"\n").unwrap();
-        input.flush().unwrap();
+        if start {
+            let control_at = parent_cpu();
+            self.authority.fresh();
+            assert!(Instant::now() < self.job_deadline);
+            let wrote =
+                unsafe { libc::write(input.as_raw_fd(), bytes.as_ptr().cast(), bytes.len()) };
+            assert_eq!(
+                wrote,
+                bytes.len() as isize,
+                "single prepared Start transfer failed; no retry"
+            );
+            assert!(
+                parent_cpu().checked_sub(control_at).unwrap() <= 1_000_000,
+                "whole fresh Start callback/write exceeds1ms"
+            );
+        } else {
+            input.write_all(&bytes).unwrap();
+            input.flush().unwrap();
+        }
     }
     fn next(&mut self, timeout: Duration) -> w::WorkerOut {
         let line = self.receiver.recv_timeout(timeout).unwrap_or_else(|e| {
@@ -1439,6 +1969,49 @@ impl Runner {
         let stderr = std::fs::read_to_string(&self.stderr).unwrap();
         (done, code, stderr)
     }
+    fn finish_probe_refusal(mut self) -> String {
+        assert!(self.probe);
+        drop(self.input.take());
+        assert_eq!(
+            self.wait_exit(),
+            2,
+            "matching probe Start must permanently refuse"
+        );
+        match self.receiver.recv_timeout(Duration::from_secs(2)) {
+            Err(mpsc::RecvTimeoutError::Disconnected) => {}
+            other => {
+                panic!("probe post-Hello lane did not close empty after actual exit: {other:?}")
+            }
+        }
+        self.reader.take().unwrap().join().unwrap();
+        assert!(
+            self.receiver.try_recv().is_err(),
+            "probe produced a post-Hello protocol frame"
+        );
+        let metrics = std::fs::read_to_string(&self.stderr).unwrap();
+        assert!(metrics.len() <= 16 * 1024);
+        assert!(metrics.contains("dream-bootstrap state=paid_hello profile=dream-bootstrap/1"));
+        assert!(
+            metrics.contains("cutoff=joined_final_control_pre_telemetry"),
+            "missing post-join terminal receipt: {metrics}"
+        );
+        let native = metrics
+            .lines()
+            .find(|line| line.starts_with("dream-c1 native tag=compute_owner_create "))
+            .expect("actual parked owner receipt");
+        assert_eq!(metric(native, "count"), 1);
+        assert_eq!(metric(native, "effects"), 1);
+        assert!(
+            !metrics.contains("dream-read metrics ")
+                && !metrics.contains("dream-read helper_native "),
+            "probe entered source/proof compute: {metrics}"
+        );
+        assert!(
+            !self.launch_path.exists(),
+            "source-free probe created a job/input path"
+        );
+        metrics
+    }
     fn wait_exit(&mut self) -> i32 {
         let until = Instant::now() + Duration::from_secs(4);
         loop {
@@ -1455,16 +2028,57 @@ impl Runner {
 }
 impl Drop for Runner {
     fn drop(&mut self) {
+        drop(self.lease.take());
         self.input.take();
-        if self.child.try_wait().unwrap().is_none() {
-            self.child.kill().unwrap();
-            self.child.wait().unwrap();
-        }
+        drop(self.child.stdin.take());
+        // Unblock the bounded reader lane before waiting for cooperative EOF.
+        let (_sender, empty) = mpsc::channel();
+        drop(std::mem::replace(&mut self.receiver, empty));
+        settle_runner(&mut self.child);
         if let Some(reader) = self.reader.take() {
-            let (_sender, empty) = mpsc::channel();
-            drop(std::mem::replace(&mut self.receiver, empty));
-            reader.join().unwrap();
+            let until = Instant::now() + Duration::from_secs(2);
+            while !reader.is_finished() && Instant::now() < until {
+                thread::sleep(Duration::from_millis(1));
+            }
+            if reader.is_finished() {
+                let _ = reader.join();
+            } else {
+                eprintln!(
+                    "dream-read private_parent quarantine=reader_not_settled pid={} completion=unproven",
+                    self.child.id()
+                );
+            }
         }
+    }
+}
+fn settle_runner(child: &mut Child) {
+    // Adapted from the canonical C1 fixture: EOF2s, exact retained PID TERM,
+    // another2s, then final exact Child escalation. Never kill the worker first
+    // while its independent owner can still cancel/reap its helper descendants.
+    for terminate in [false, true] {
+        let until = Instant::now() + Duration::from_secs(2);
+        loop {
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            if Instant::now() >= until {
+                break;
+            }
+            thread::sleep(Duration::from_millis(2));
+        }
+        if !terminate {
+            unsafe {
+                libc::kill(child.id() as i32, libc::SIGTERM);
+            }
+        }
+    }
+    if !matches!(child.try_wait(), Ok(Some(_))) {
+        eprintln!(
+            "dream-read private_parent quarantine=forced_worker_exit pid={} helper_settlement=unproven",
+            child.id()
+        );
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }
 fn run(job: &Job) -> (w::Done, i32, String) {
@@ -1877,13 +2491,332 @@ async fn prepared_tool_capability_probe_has_stopped_start_and_actual_git_gpg_rol
     );
 }
 
+#[test]
+fn member_windows_use_post_ack_unequal_endpoints_and_closed_roster() {
+    // Only the canonical finite C program is launched here. No Git/GPG tool
+    // qualification or managed Read availability follows from this component.
+    let home = tempfile::Builder::new()
+        .prefix("dream-read-member-window-")
+        .tempdir_in("/private/tmp")
+        .unwrap();
+    let source = Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/dream-read/proof-helper-probe.c"
+    ));
+    let probe = home.path().join("probe");
+    provision_command(
+        Path::new("/usr/bin/clang"),
+        &[
+            "-O2",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            source.to_str().unwrap(),
+            "-o",
+            probe.to_str().unwrap(),
+        ],
+        home.path(),
+        None,
+    );
+    let control = capability_command(&probe, &["ledger-controls"], home.path(), "ledger-controls");
+    let controls: serde_json::Value = serde_json::from_slice(&control.stdout).unwrap();
+    assert_eq!(controls["causal_controls"], 18);
+    assert_eq!(controls["tool_availability"], "verification_unproven");
+    let native = home.path().join("native");
+    private_dir(&native);
+    let output = capability_command(
+        &probe,
+        &["native", native.to_str().unwrap()],
+        home.path(),
+        "native",
+    );
+    let evidence: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let ledger = &evidence["member_windows"];
+    assert_eq!(ledger["basis"], "canonical_private_c_program_only");
+    let t0 = ledger["t0_ns"].as_u64().unwrap();
+    let close = ledger["tclose_ns"].as_u64().unwrap();
+    let first = ledger["endpoint_ns"][0].as_u64().unwrap();
+    let second = ledger["endpoint_ns"][1].as_u64().unwrap();
+    assert!(t0 <= first && first < second && second <= close);
+    let windows = ledger["W_ns"].as_u64().unwrap();
+    let actual = ledger["A_ns"].as_u64().unwrap();
+    let controller = ledger["C_ns"].as_u64().unwrap();
+    assert_eq!(windows, (first - t0) + (second - t0));
+    assert!(
+        windows < 2 * (second - t0),
+        "unequal endpoints must retain their actual independent bounds"
+    );
+    assert!(actual <= windows, "unexplained A>W cannot acquire coverage");
+    assert_eq!(
+        ledger["Q_ns"].as_u64().unwrap(),
+        windows.max(actual) + controller
+    );
+    assert!(ledger["Q_ns"].as_u64().unwrap() <= 1_000_000);
+    assert!(
+        ledger["post_cpu_ns"].as_u64().unwrap() + ledger["late_kernel_ns"].as_u64().unwrap()
+            <= 1_000_000
+    );
+    assert!(
+        ledger["debt_deadline_ns"].as_u64().unwrap() >= close + 18_000_000,
+        "active and later ordinary units owe separate fresh minimum9ms rests"
+    );
+    assert_eq!(ledger["roster_closed"], true);
+    assert_eq!(evidence["reaped"], true);
+    for field in ["leader", "child"] {
+        let pid = evidence[field].as_i64().unwrap() as i32;
+        let name = format!("{field}_birth");
+        let birth = evidence[name.as_str()].as_u64().unwrap();
+        assert!(process_sample(pid).is_none_or(|now| now.birth != birth));
+    }
+    let unavailable = Command::new(&probe)
+        .args([
+            "git",
+            "/unsupported/git",
+            "/unsupported/gpg",
+            home.path().to_str().unwrap(),
+            home.path().to_str().unwrap(),
+            "unadmitted",
+            home.path().to_str().unwrap(),
+            "uncreated-trace",
+            "uncreated-output",
+        ])
+        .current_dir(home.path())
+        .env_clear()
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(unavailable.status.code(), Some(81));
+    let refusal: serde_json::Value = serde_json::from_slice(&unavailable.stdout).unwrap();
+    assert_eq!(refusal["availability"], "verification_unproven");
+    assert_eq!(refusal["whole_command_lifetime_coverage"], false);
+    assert!(
+        !home.path().join("uncreated-trace").exists()
+            && !home.path().join("uncreated-output").exists()
+    );
+    let retained = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join(format!(
+            "dream-read-member-window-component-{}",
+            ulid::Ulid::new()
+        ));
+    private_dir(&retained);
+    for (name, bytes) in [
+        ("ledger-controls.stdout", control.stdout),
+        ("native.stdout", output.stdout),
+        ("native.stderr", output.stderr),
+        ("unavailable.stdout", unavailable.stdout),
+        ("unavailable.stderr", unavailable.stderr),
+    ] {
+        private_file(&retained.join(name), &bytes);
+    }
+    private_file(
+        &retained.join("proof-helper-probe.c"),
+        &std::fs::read(source).unwrap(),
+    );
+    private_file(&retained.join("probe"), &std::fs::read(&probe).unwrap());
+    std::fs::set_permissions(
+        retained.join("probe"),
+        std::fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
+    private_file(&retained.join("component.json"),&w::canonical(&serde_json::json!({"profile":"read-helper-native/1","kind":"nonqualifying_component_evidence","source_sha256":w::hash(std::fs::read(source).unwrap()).0,"probe_sha256":w::hash(std::fs::read(&probe).unwrap()).0,"os":{"release":os_release(),"arch":std::env::consts::ARCH},"commands":{"compile":["/usr/bin/clang","-O2","-std=c11","-Wall","-Wextra","-Werror","proof-helper-probe.c","-o","probe"],"controls":["probe","ledger-controls"],"native":["probe","native","private-native-dir"]},"exits":{"compile":0,"controls":0,"native":0,"unavailable":81}})).unwrap());
+    eprintln!(
+        "member-window-component retained={} clang_exit=0 controls_exit=0 native_exit=0 unavailable_exit=81 basis=canonical_private_c_program_only",
+        retained.display()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_scripted_roots_are_selected_before_signing_and_preserve_completed_bytes() {
+    let roots = [
+        "fixture.invalid/dream/repo-a",
+        "fixture.invalid/dream/repo-b",
+    ];
+    let built = [
+        root_fixture::completed_publication(roots[0]).await,
+        root_fixture::completed_publication(roots[1]).await,
+    ];
+    assert_ne!(built[0].fixture.entry, built[1].fixture.entry);
+    for (root, built) in roots.into_iter().zip(&built) {
+        let f = &built.fixture;
+        assert_eq!(f.record.root, root);
+        assert_eq!(f.producer.repo, root);
+        assert_eq!(f.fixture.value["roots"][0]["repo"], root);
+        assert_eq!(
+            f.fixture
+                .repo
+                .git(&["config", "--get", "remote.origin.url"]),
+            format!("https://{root}.git")
+        );
+        let bytes = std::fs::read(f.fixture.repo.path.join(".bboxy/memories/lesson.md")).unwrap();
+        let record = bboxy450_harness::dream::trust::verify_bytes(
+            &bytes,
+            f.record.id.as_deref().unwrap(),
+            &["seat".into()],
+        )
+        .unwrap();
+        assert_eq!(record.front["scope"]["repos"], serde_json::json!([root]));
+        assert_eq!(record.validate_identity().unwrap().id().unwrap(), f.entry);
+        assert_eq!(entry::digest(&bytes), f.record.digest);
+        let mut immutable = BTreeMap::<PathBuf, Vec<u8>>::new();
+        immutable.insert(f.fixture.repo.path.join(".bboxy/memories/lesson.md"), bytes);
+        for (session, events) in &built.logs {
+            let Event::SessionStarted { meta } = &events[0].event else {
+                panic!("source header")
+            };
+            assert_eq!(meta.vcs.as_ref().unwrap().repo.as_deref(), Some(root));
+            let path = f.sessions.join(format!("{session}.jsonl"));
+            let bytes = std::fs::read(&path).unwrap();
+            assert_eq!(
+                bytes,
+                events
+                    .iter()
+                    .flat_map(|e| e.wire_bytes().unwrap())
+                    .collect::<Vec<_>>()
+            );
+            immutable.insert(path, bytes);
+            for event in events {
+                assert!(!matches!(
+                    &event.event,
+                    Event::ItemCompleted {
+                        body: Item::Recall { .. },
+                        ..
+                    }
+                ));
+                for blob in inspect::blobs(&event.event).unwrap() {
+                    let path = f
+                        .sessions
+                        .join(session.to_string())
+                        .join("blobs")
+                        .join(&blob.sha256);
+                    let bytes = std::fs::read(&path).unwrap();
+                    assert_eq!(w::hash(&bytes).0, blob.sha256);
+                    immutable.insert(path, bytes);
+                }
+            }
+        }
+        let mut resolver = root_fixture::resolver(f, root).await;
+        let audit = bboxy450_harness::dream::audit::run(&mut resolver, Set::default(), false, 4005)
+            .await
+            .unwrap();
+        assert_eq!(
+            audit.exit_code(),
+            0,
+            "private constructed proof root={root} findings={}",
+            serde_json::to_string(&audit.findings).unwrap()
+        );
+        for (path, bytes) in immutable {
+            assert_eq!(
+                std::fs::read(path).unwrap(),
+                bytes,
+                "completed proof bytes were rewritten"
+            );
+        }
+    }
+    eprintln!(
+        "two-root-construction roots=2 signed_before_packaging=true read_worker_started=false tool_qualification=unproven"
+    );
+}
+
+#[test]
+fn read_bootstrap_held_birth_has_zero_admission_then_paid_hello_start_and_actual_reap() {
+    let job = Job::empty();
+    let actual_pid = std::cell::Cell::new(0u32);
+    let mut worker = Runner::launch(&job, false, |held, original_readiness| {
+        actual_pid.set(held.child.id());
+        assert!(held.child.try_wait().unwrap().is_none());
+        assert!(held.lease.is_some());
+        assert!(exact_children(held.child.id() as i32).is_empty());
+        let marker = std::fs::read_to_string(&held.stderr).unwrap();
+        assert_eq!(
+            marker.trim(),
+            "dream-bootstrap state=waiting profile=dream-bootstrap/1 argv_admissions=0 channel_admissions=0 owner_admissions=0"
+        );
+        let mut stdout = libc::pollfd {
+            fd: held.child.stdout.as_ref().unwrap().as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        assert_eq!(
+            unsafe { libc::poll(&mut stdout, 1, 0) },
+            0,
+            "ungranted read worker emitted Hello"
+        );
+        thread::sleep(Duration::from_millis(15));
+        assert!(held.child.try_wait().unwrap().is_none());
+        assert!(boot::monotonic_ns().unwrap() < original_readiness);
+        assert!(!job.path.join("output/result.json").exists());
+    });
+    assert_eq!(
+        worker.child.id(),
+        actual_pid.get(),
+        "grant replaced or retried actual held birth"
+    );
+    assert!(worker.lease.is_none());
+    worker.send(&w::WorkerIn::Start(job.start.clone()));
+    let (done, exit, metrics) = worker.finish(&job);
+    assert_eq!(exit, 0, "{done:?} {metrics}");
+    assert_eq!(done.outcome, w::Outcome::Completed, "{done:?} {metrics}");
+    assert!(job.path.join("output/result.json").is_file());
+    assert!(metrics.contains("dream-bootstrap state=paid_hello profile=dream-bootstrap/1"));
+    assert!(metrics.contains("cutoff=joined_final_control_pre_telemetry"));
+    assert_memory_gate(&metrics);
+    eprintln!(
+        "read-bootstrap-held actual_reaped_pid={} original_readiness_not_reset=true {metrics}",
+        actual_pid.get()
+    );
+}
+
+#[test]
+fn read_bootstrap_probe_null_context_permanently_refuses_matching_start_before_source() {
+    let job = Job::empty();
+    let before = std::fs::read(job.path.join("input/manifest.json")).unwrap();
+    let mut probe = Runner::launch(&job, true, |held, original_readiness| {
+        assert!(!held.launch_path.exists());
+        assert!(held.child.try_wait().unwrap().is_none());
+        assert!(boot::monotonic_ns().unwrap() < original_readiness);
+    });
+    let binding: serde_json::Value = serde_json::from_slice(&probe.binding_json).unwrap();
+    assert_eq!(binding["purpose"], "read-prepare");
+    assert_eq!(binding["probe"], true);
+    assert!(
+        binding
+            .get("context")
+            .is_some_and(serde_json::Value::is_null)
+    );
+    assert_ne!(probe.run_id, job.start.run_id);
+    assert_ne!(probe.nonce, job.start.nonce);
+    let actual_pid = probe.child.id();
+    let mut hostile = job.start.clone();
+    hostile.run_id = probe.run_id.clone();
+    hostile.nonce = probe.nonce.clone();
+    // Deliberately adversarial transport: even matching approved probe IDs can
+    // never authorize Start. No public-parent integration claim is made here.
+    probe.send(&w::WorkerIn::Start(hostile));
+    let metrics = probe.finish_probe_refusal();
+    assert_eq!(
+        std::fs::read(job.path.join("input/manifest.json")).unwrap(),
+        before
+    );
+    assert!(!job.path.join("output/result.json").exists());
+    eprintln!(
+        "read-bootstrap-probe actual_reaped_pid={actual_pid} matching_start_refused=true context_explicit_null=true {metrics}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn qualifying_four_jobs_complete_real_proofs_with_foreground_debt_memory_and_reap() {
-    let template = Template::publication().await;
-    template.hide_originals();
+    let templates = [
+        Template::publication_root("fixture.invalid/dream/repo-a").await,
+        Template::publication_root("fixture.invalid/dream/repo-b").await,
+    ];
+    for template in &templates {
+        template.hide_originals();
+    }
     let jobs = (0..4)
-        .map(|_| {
-            let mut job = template.job();
+        .map(|index| {
+            let mut job = templates[index / 2].job();
             job.start.foreground = true;
             job
         })
@@ -1891,6 +2824,26 @@ async fn qualifying_four_jobs_complete_real_proofs_with_foreground_debt_memory_a
     assert!(jobs.iter().all(|j| !j.input.records.is_empty()
         && !j.input.publications.is_empty()
         && j.provision.is_some()));
+    let mut root_counts = BTreeMap::<&str, usize>::new();
+    for job in &jobs {
+        assert_eq!(job.input.context.account, jobs[0].input.context.account);
+        assert_eq!(job.captured_context.root, job.input.context.root);
+        assert!(
+            job.input
+                .records
+                .iter()
+                .all(|pin| pin.root == job.input.context.root)
+        );
+        *root_counts
+            .entry(job.input.context.root.0.as_str())
+            .or_default() += 1;
+    }
+    assert_eq!(
+        root_counts.len(),
+        2,
+        "four qualifying jobs require two genuinely signed roots"
+    );
+    assert!(root_counts.values().all(|count| *count == 2));
     let baseline = parent_live_heap();
     let mut workers = jobs
         .iter()
@@ -1938,9 +2891,9 @@ async fn qualifying_four_jobs_complete_real_proofs_with_foreground_debt_memory_a
     let observed = loop {
         if let Some(group) = worker_group(
             workers[0].as_ref().unwrap().child.id() as i32,
-            &template.provision,
+            &templates[0].provision,
         ) && group.len() == 2
-            && group[1].image == template.provision.gpg
+            && group[1].image == templates[0].provision.gpg
             && group[1].cpu > 0
         {
             break group;
@@ -1965,7 +2918,7 @@ async fn qualifying_four_jobs_complete_real_proofs_with_foreground_debt_memory_a
     let paused = loop {
         match worker_group(
             workers[0].as_ref().unwrap().child.id() as i32,
-            &template.provision,
+            &templates[0].provision,
         ) {
             None => break None,
             Some(group)
@@ -2013,7 +2966,7 @@ async fn qualifying_four_jobs_complete_real_proofs_with_foreground_debt_memory_a
     }
     if let Some(group) = worker_group(
         workers[0].as_ref().unwrap().child.id() as i32,
-        &template.provision,
+        &templates[0].provision,
     ) {
         assert!(
             group
@@ -2041,10 +2994,10 @@ async fn qualifying_four_jobs_complete_real_proofs_with_foreground_debt_memory_a
         sampled.saturating_sub(baseline) <= 32 * 1024 * 1024,
         "private fixture parent retained share"
     );
-    for (worker, job) in workers.iter_mut().zip(&jobs) {
+    for (index, (worker, job)) in workers.iter_mut().zip(&jobs).enumerate() {
         let (done, exit, metrics) = worker.take().unwrap().finish(job);
         assert_eq!(exit, 0, "{done:?} {metrics}");
-        assert_qualified_snapshot(job, &done, &template.entry);
+        assert_qualified_snapshot(job, &done, &templates[index / 2].entry);
         assert_memory_gate(&metrics);
         assert_proof_helper_gates(&metrics);
         eprintln!("qualified-four-job run={} {metrics}", job.start.run_id.0);
@@ -2512,12 +3465,21 @@ fn no_candidates_protocol_pause_cancel_and_descriptor_custody_are_separate() {
 fn selected_multi_mib_four_jobs_keep_control_and_measured_storage_limits() {
     let baseline = parent_live_heap();
     let jobs = (0..4)
-        .map(|_| {
+        .map(|index| {
             let mut job = Job::large(48, 64 * 1024);
             job.start.foreground = true;
+            job.rebind_empty_scripted_root(&format!("fixture-root-{}", index / 2));
             job
         })
         .collect::<Vec<_>>();
+    let mut roots = BTreeMap::<&str, usize>::new();
+    for job in &jobs {
+        assert_eq!(job.input.context.account, jobs[0].input.context.account);
+        assert_eq!(job.captured_context.root, job.input.context.root);
+        *roots.entry(job.input.context.root.0.as_str()).or_default() += 1;
+    }
+    assert_eq!(roots.len(), 2);
+    assert!(roots.values().all(|count| *count == 2));
     for job in &jobs {
         assert!(job.input.closed_sources[0].len.0 > 3 * 1024 * 1024);
     }

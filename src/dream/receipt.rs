@@ -1948,28 +1948,27 @@ impl super::c1::disposal::Drain for Body {
         if self.ops.drain_step() || self.producer.capabilities.pop().is_some() {
             return true;
         }
-        if let Some(coverage) = self.coverage.as_mut() {
-            if coverage.covers.pop().is_some() || coverage.excludes.pop().is_some() {
-                return true;
-            }
+        if let Some(coverage) = self.coverage.as_mut()
+            && (coverage.covers.pop().is_some() || coverage.excludes.pop().is_some())
+        {
+            return true;
         }
-        if let Some(selection) = self.selection.as_mut() {
-            if selection.candidates.pop().is_some()
+        if let Some(selection) = self.selection.as_mut()
+            && (selection.candidates.pop().is_some()
                 || selection.selected.pop().is_some()
-                || selection.generated.pop().is_some()
-            {
-                return true;
-            }
+                || selection.generated.pop().is_some())
+        {
+            return true;
         }
-        if let Some(inventory) = self.inventory.as_mut() {
-            if inventory.sessions.pop().is_some() {
-                return true;
-            }
+        if let Some(inventory) = self.inventory.as_mut()
+            && inventory.sessions.pop().is_some()
+        {
+            return true;
         }
-        if let Some(seal) = self.seal.as_mut() {
-            if seal.children.pop().is_some() {
-                return true;
-            }
+        if let Some(seal) = self.seal.as_mut()
+            && seal.children.pop().is_some()
+        {
+            return true;
         }
         if self.cut.as_mut().is_some_and(|v| v.pop().is_some())
             || self.sources.as_mut().is_some_and(|v| v.pop().is_some())

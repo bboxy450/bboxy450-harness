@@ -8,7 +8,7 @@
 //! Independent inspiration credit requested; retain the absolute policy above.
 pub(crate) use super::c1::{
     Budget, Completed, Control, Counters, Dir, Frame, Job, Paced, cleanup_unit, cpu_ns, disposal,
-    framed, heaps, read_bounded, rss, run, storage,
+    framed, heaps, read_bounded, rss, storage,
 };
 
 use super::{c1_wire as c, read_wire::BundleFile};
@@ -26,6 +26,27 @@ use std::{
 const INVENTORY_FILES: usize = 2048;
 const INVENTORY_DIRS: usize = 2048;
 const INVENTORY_PATH: usize = 4096;
+
+#[inline]
+fn batch_start(control: &Control, clock: impl FnOnce() -> u64) -> Result<u64, c::Code> {
+    let at = clock();
+    if control.observe_interval(at, at) == u64::MAX {
+        return Err(c::Code::ResourceLimit);
+    }
+    Ok(at)
+}
+#[inline]
+fn batch_exhausted(
+    control: &Control,
+    at: u64,
+    clock: impl FnOnce() -> u64,
+) -> Result<bool, c::Code> {
+    let used = control.observe_interval(at, clock());
+    if used == u64::MAX {
+        return Err(c::Code::ResourceLimit);
+    }
+    Ok(used >= 400_000)
+}
 
 #[derive(Clone, Copy)]
 enum ExpectedKind {
@@ -128,6 +149,7 @@ pub(crate) fn capture_custody(
     if files.len() > INVENTORY_FILES {
         return Err(c::Code::ResourceLimit);
     }
+    let custody_control = b.control.clone();
     // Manifest strings already own the borrowed keys. Reserve the bounded
     // directory index and conservative declared BTree-entry slots before growth;
     // libc's one directory-stream buffer remains existing helper headroom.
@@ -168,7 +190,7 @@ pub(crate) fn capture_custody(
     let mut validated = false;
     while slot < files.len() {
         b.unit(|| {
-            let at = cpu_ns();
+            let at = batch_start(&custody_control, cpu_ns)?;
             for _ in 0..64 {
                 let Some(file) = files.get(slot) else {
                     break;
@@ -237,7 +259,7 @@ pub(crate) fn capture_custody(
                     component = 0;
                     validated = false;
                 }
-                if cpu_ns().saturating_sub(at) >= 400_000 {
+                if batch_exhausted(&custody_control, at, cpu_ns)? {
                     break;
                 }
             }
@@ -255,7 +277,7 @@ pub(crate) fn capture_custody(
     let mut expected = plan.entries.iter().peekable();
     while expected.peek().is_some() {
         b.unit(|| {
-            let at = cpu_ns();
+            let at = batch_start(&custody_control, cpu_ns)?;
             for _ in 0..64 {
                 let Some((path, value)) = expected.next() else {
                     break;
@@ -266,7 +288,7 @@ pub(crate) fn capture_custody(
                     std::mem::size_of::<CustodyFile>() + path.rsplit('/').next().unwrap().len()
                 };
                 seal_bytes = seal_bytes.checked_add(size).ok_or(c::Code::ResourceLimit)?;
-                if cpu_ns().saturating_sub(at) >= 400_000 {
+                if batch_exhausted(&custody_control, at, cpu_ns)? {
                     break;
                 }
             }
@@ -307,7 +329,7 @@ pub(crate) fn capture_custody(
             // 64 simple actions share a unit, stopping at 400us of thread CPU;
             // the unchanged outer Budget still rejects any whole unit over 1ms.
             b.unit(|| {
-                let at = cpu_ns();
+                let at = batch_start(&custody_control, cpu_ns)?;
                 for _ in 0..64 {
                     let Some(name) = stream.next()? else {
                         ended = true;
@@ -366,7 +388,7 @@ pub(crate) fn capture_custody(
                         }
                         expected.seen = true;
                     }
-                    if cpu_ns().saturating_sub(at) >= 400_000 {
+                    if batch_exhausted(&custody_control, at, cpu_ns)? {
                         break;
                     }
                 }
@@ -388,7 +410,7 @@ pub(crate) fn capture_custody(
     let mut expected = plan.entries.values().peekable();
     while expected.peek().is_some() {
         b.unit(|| {
-            let at = cpu_ns();
+            let at = batch_start(&custody_control, cpu_ns)?;
             for _ in 0..64 {
                 let Some(value) = expected.next() else {
                     break;
@@ -396,7 +418,7 @@ pub(crate) fn capture_custody(
                 if !value.seen {
                     return Err(c::Code::SourceChanged);
                 }
-                if cpu_ns().saturating_sub(at) >= 400_000 {
+                if batch_exhausted(&custody_control, at, cpu_ns)? {
                     break;
                 }
             }
@@ -414,6 +436,7 @@ pub(crate) fn validate_custody(
     seal: &CustodySeal,
     b: &mut Budget,
 ) -> Result<(), c::Code> {
+    let custody_control = b.control.clone();
     for captured in &seal.directories {
         let held = expected_directory(input, &captured.path, b).map_err(custody_change)?;
         let directory = held.as_ref().unwrap_or(input);
@@ -430,7 +453,7 @@ pub(crate) fn validate_custody(
         let mut files = captured.files.iter().peekable();
         while files.peek().is_some() {
             b.unit(|| {
-                let at = cpu_ns();
+                let at = batch_start(&custody_control, cpu_ns)?;
                 for _ in 0..64 {
                     let Some(captured) = files.next() else {
                         break;
@@ -441,7 +464,7 @@ pub(crate) fn validate_custody(
                     if CustodyStamp::from(&metadata) != captured.stamp {
                         return Err(c::Code::SourceChanged);
                     }
-                    if cpu_ns().saturating_sub(at) >= 400_000 {
+                    if batch_exhausted(&custody_control, at, cpu_ns)? {
                         break;
                     }
                 }
@@ -586,40 +609,68 @@ mod tests {
     use super::*;
     use std::{
         os::unix::fs::PermissionsExt,
-        sync::{
-            Arc,
-            atomic::{AtomicBool, AtomicU8, AtomicU64},
-        },
+        sync::Arc,
         time::{Duration, Instant},
     };
     fn budget() -> Budget {
-        let control = Arc::new(Control {
-            cancel: AtomicU8::new(0),
-            foreground: AtomicBool::new(false),
-            deadline: Instant::now() + Duration::from_secs(30),
-            reactor: Arc::new(AtomicU64::new(0)),
-            memory: storage::Ledger::new(),
-            cleanup_cpu: AtomicU64::new(0),
-            cleanup_max: AtomicU64::new(0),
-            cleanup_overruns: AtomicU64::new(0),
-            helper: std::sync::Mutex::new(None),
-        });
-        Budget {
-            control,
-            progress: Arc::new(crossbeam_queue::ArrayQueue::new(32)),
-            counters: Counters {
-                phase: c::Phase::Validate,
-                bytes: 0,
-                envelopes: 0,
-                cpu: 0,
-            },
-            max_unit: 0,
-            heap_peak: 0,
-            overruns: 0,
-            last_end: None,
-            paused: false,
-            normalization_ready: false,
-            normalization_units: [0; 4],
+        let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(30)));
+        Budget::new_read(control, Arc::new(crossbeam_queue::ArrayQueue::new(32)))
+    }
+    #[test]
+    fn closure_batch_inner_clock_failures_are_sticky_with_finite_outer_samples() {
+        use std::os::fd::AsRawFd;
+        for (entry, ending, refused) in [
+            (u64::MAX, 200, true),
+            (100, u64::MAX, true),
+            (100, 99, true),
+            (100, 200, false),
+        ] {
+            let (_temp, input, _files) = fixture();
+            let mut b = budget();
+            let control = b.control.clone();
+            let mut held = Paced::new(None::<File>, &control, |file| {
+                file.take();
+                false
+            });
+            let mut observed = false;
+            let mut outer = [10, 110].into_iter();
+            let result: Result<(), c::Code> = b.unit_clock(
+                || {
+                    let at = batch_start(&control, || entry)?;
+                    let (file, metadata) = input.file("manifest.json", c::MAX_FRAME as u64)?;
+                    assert_eq!(metadata.len(), 2);
+                    *held = Some(file);
+                    observed = true;
+                    let _ = batch_exhausted(&control, at, || ending)?;
+                    Ok(())
+                },
+                || outer.next().unwrap(),
+            );
+            assert_eq!(
+                result,
+                if refused {
+                    Err(c::Code::ResourceLimit)
+                } else {
+                    Ok(())
+                }
+            );
+            // The outer interval recovered and stayed finite. Refusal therefore
+            // depends on the same sticky inner observer used by real custody,
+            // rather than an outer MAX or a coincidental expensive fixture.
+            assert_eq!(b.max_unit, 100);
+            assert_eq!(b.counters.cpu, 100);
+            assert_eq!(observed, entry != u64::MAX);
+            assert_eq!(control.error(), refused.then_some(c::Code::ResourceLimit));
+            if let Some(file) = held.as_ref() {
+                let fd = file.as_raw_fd();
+                assert!(unsafe { libc::fcntl(fd, libc::F_GETFD) } >= 0);
+                drop(held);
+                assert_eq!(unsafe { libc::fcntl(fd, libc::F_GETFD) }, -1);
+                assert_eq!(
+                    std::io::Error::last_os_error().raw_os_error(),
+                    Some(libc::EBADF)
+                );
+            }
         }
     }
     fn fixture() -> (tempfile::TempDir, Dir, Vec<BundleFile>) {

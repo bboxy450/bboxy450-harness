@@ -353,13 +353,17 @@ pub(crate) fn selected_key_command(
     args: &[String],
     home: Option<&Path>,
 ) -> Result<(i32, Vec<u8>), Invalid> {
-    let result=selected_key_command_owned(path,args,home);
-    if let Err(error)=&result{super::resolve::helper_refusal(error.0);}
+    let result = selected_key_command_owned(path, args, home);
+    if let Err(error) = &result {
+        super::resolve::helper_refusal(error.0);
+    }
     result
 }
 fn selected_key_command_owned(
-    path:&Path,args:&[String],home:Option<&Path>,
-)->Result<(i32,Vec<u8>),Invalid>{
+    path: &Path,
+    args: &[String],
+    home: Option<&Path>,
+) -> Result<(i32, Vec<u8>), Invalid> {
     let home = home.ok_or(Invalid("selected private public key custody unavailable"))?;
     let action = args
         .iter()
@@ -394,7 +398,9 @@ fn selected_key_command_owned(
     if bytes.is_empty() {
         return Err(Invalid("selected public key byte bound"));
     }
-    if bytes.len()>2*1024*1024{return Err(Invalid("resource_limit: selected public key byte bound"));}
+    if bytes.len() > 2 * 1024 * 1024 {
+        return Err(Invalid("resource_limit: selected public key byte bound"));
+    }
     let mut pipe_args = args.to_vec();
     pipe_args[action + 1] = "-".into();
     super::resolve::selected_command_input(path, "gpg", &pipe_args, Some(home), Some(bytes))
@@ -695,7 +701,13 @@ async fn private_home() -> Result<PublicHome, Invalid> {
     super::resolve::proof_blocking(|| {
         use std::os::unix::fs::DirBuilderExt;
         super::resolve::assert_proof_owner();
-        let base=if super::resolve::selected() { super::resolve::bindings().and_then(|bindings|bindings.scratch.clone()).ok_or(Invalid("helper private scratch unavailable"))? } else { PathBuf::from("/tmp") };
+        let base = if super::resolve::selected() {
+            super::resolve::bindings()
+                .and_then(|bindings| bindings.scratch.clone())
+                .ok_or(Invalid("helper private scratch unavailable"))?
+        } else {
+            PathBuf::from("/tmp")
+        };
         let path = base.join(format!("dream-public-{}", ulid::Ulid::new()));
         std::fs::DirBuilder::new()
             .mode(0o700)
@@ -717,14 +729,26 @@ async fn remove_home(mut home: PublicHome) -> Result<(), Invalid> {
     }
     crate::runtime::blocking(move || home.finish()).await
 }
-pub(crate) fn cleanup_selected_scratch()->Result<(),Invalid> {
-    if !super::resolve::selected(){return Ok(());}
-    if super::resolve::helper_active(){return Err(Invalid("helper still owns private scratch"));}
-    let Some(path)=super::resolve::bindings().and_then(|bindings|bindings.scratch.clone()) else{return Ok(());};
+pub(crate) fn cleanup_selected_scratch() -> Result<(), Invalid> {
+    if !super::resolve::selected() {
+        return Ok(());
+    }
+    if super::resolve::helper_active() {
+        return Err(Invalid("helper still owns private scratch"));
+    }
+    let Some(path) = super::resolve::bindings().and_then(|bindings| bindings.scratch.clone())
+    else {
+        return Ok(());
+    };
     use std::os::unix::fs::MetadataExt;
-    let meta=std::fs::symlink_metadata(&path).map_err(|_|Invalid("helper scratch unavailable"))?;
-    if !meta.is_dir()||meta.uid()!=unsafe{libc::geteuid()}||meta.mode()&0o077!=0{return Err(Invalid("helper scratch custody unavailable"));}
-    let mut scratch=PublicHome::new(path);scratch.keep_root=true;scratch.finish()
+    let meta =
+        std::fs::symlink_metadata(&path).map_err(|_| Invalid("helper scratch unavailable"))?;
+    if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
+        return Err(Invalid("helper scratch custody unavailable"));
+    }
+    let mut scratch = PublicHome::new(path);
+    scratch.keep_root = true;
+    scratch.finish()
 }
 pub struct Trust {
     policy: Policy,
@@ -742,7 +766,7 @@ impl Trust {
         }
         super::resolve::checkpoint()?;
         let mut policy = Policy::parse(bytes)?;
-        super::resolve::admit_policy_branches(policy.roots.iter().map(|root|root.branch.clone()))?;
+        super::resolve::admit_policy_branches(policy.roots.iter().map(|root| root.branch.clone()))?;
         let bindings =
             super::resolve::bindings().ok_or(Invalid("selected trust bindings unavailable"))?;
         let mut roots = BTreeMap::new();
@@ -781,7 +805,7 @@ impl Trust {
             )
             .await?;
             if bare != b"false\n"
-                || PathBuf::from(line(&actual)?) != root.path
+                || Path::new(line(&actual)?) != root.path
                 || line(&head)? != root.main
                 || line(&main)? != root.main
                 || crate::vcs::normalize_repo_key(line(&origin)?).as_deref()
