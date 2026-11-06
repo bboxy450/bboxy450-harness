@@ -31,7 +31,7 @@ use std::{
         fd::{AsRawFd, FromRawFd},
         unix::{
             fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
-            process::CommandExt,
+            process::{CommandExt, ExitStatusExt},
         },
     },
     path::{Path, PathBuf},
@@ -1017,8 +1017,27 @@ impl Template {
             .with_provision(self.provision.clone())
     }
 }
+// Adapted from this project's private seat fixture; retain failed owned inputs
+// without changing successful fixture cleanup or touching another test's HOME.
+struct ReadFailureHome(tempfile::TempDir);
+impl ReadFailureHome {
+    fn path(&self) -> &Path {
+        self.0.path()
+    }
+}
+impl Drop for ReadFailureHome {
+    fn drop(&mut self) {
+        if thread::panicking() {
+            self.0.disable_cleanup(true);
+            eprintln!(
+                "read-private-parent preserved_home={}",
+                self.0.path().display()
+            );
+        }
+    }
+}
 struct Job {
-    home: tempfile::TempDir,
+    home: ReadFailureHome,
     path: PathBuf,
     input: w::Input,
     start: w::Start,
@@ -1029,6 +1048,7 @@ impl Job {
     fn materialize(mut input: w::Input, files: &BTreeMap<String, Vec<u8>>) -> Self {
         let home = tempfile::Builder::new()
             .prefix("dream-read-")
+            .permissions(std::fs::Permissions::from_mode(0o700))
             .tempdir_in("/private/tmp")
             .unwrap();
         let run = w::Ulid(ulid::Ulid::new().to_string());
@@ -1061,7 +1081,7 @@ impl Job {
             foreground: false,
         };
         Self {
-            home,
+            home: ReadFailureHome(home),
             path,
             captured_context: input.context.clone(),
             input,
@@ -1448,6 +1468,51 @@ fn read_stdout(
         }
     }
 }
+#[derive(serde::Serialize)]
+struct HelloPollFailure {
+    stage: &'static str,
+    pid: u32,
+    run: String,
+    original_deadline_ns: u64,
+    poll_started_ns: u64,
+    post_poll_ns: Option<u64>,
+    poll_result: i32,
+    poll_revents: i16,
+    poll_errno: Option<i32>,
+    prior_status_known: bool,
+    prior_status_raw: Option<i32>,
+    prior_status_errno: Option<i32>,
+}
+impl HelloPollFailure {
+    fn observe(
+        child: &mut Child,
+        run: &w::Ulid,
+        deadline_ns: u64,
+        poll_started_ns: u64,
+        post_poll_ns: Option<u64>,
+        raw_poll: (libc::pollfd, i32, Option<i32>),
+    ) -> Self {
+        let (poll, result, errno) = raw_poll;
+        let prior_status = child.try_wait();
+        Self {
+            stage: "hello_poll",
+            pid: child.id(),
+            run: run.0.clone(),
+            original_deadline_ns: deadline_ns,
+            poll_started_ns,
+            post_poll_ns,
+            poll_result: result,
+            poll_revents: poll.revents,
+            poll_errno: errno,
+            prior_status_known: prior_status.is_ok(),
+            prior_status_raw: prior_status
+                .as_ref()
+                .ok()
+                .and_then(|s| s.map(|s| s.into_raw())),
+            prior_status_errno: prior_status.err().and_then(|e| e.raw_os_error()),
+        }
+    }
+}
 struct Runner {
     child: Child,
     input: Option<ChildStdin>,
@@ -1458,7 +1523,9 @@ struct Runner {
     stderr_pipe: Option<std::process::ChildStderr>,
     stderr_bytes: Vec<u8>,
     reaped: bool,
+    reap_status: Option<i32>,
     reap_usage: Option<libc::rusage>,
+    hello_failure: Option<HelloPollFailure>,
     lease: Option<File>,
     authority: PrivateAuthority,
     job_deadline: Instant,
@@ -1785,6 +1852,67 @@ fn bootstrap_pipe() -> (File, File) {
     }
     unsafe { (File::from_raw_fd(p[0]), File::from_raw_fd(p[1])) }
 }
+// Adapted from the canonical C1 entry observer. Keep the raw s/g/u/k/r/p
+// counters opaque: only the e/m monotonic chain shares the parent's clock.
+fn bootstrap_waiting_marker(trace: &[u8], observed_ns: u64) -> Result<Option<&str>, &'static str> {
+    let Some(first_end) = trace.iter().position(|b| *b == b'\n') else {
+        return if trace.len() > 256 {
+            Err("oversized entry")
+        } else {
+            Ok(None)
+        };
+    };
+    if first_end + 1 > 256 {
+        return Err("oversized entry");
+    }
+    let entry = std::str::from_utf8(&trace[..first_end]).map_err(|_| "entry UTF-8")?;
+    let mut fields = entry.split(' ');
+    if fields.next() != Some("dream-bootstrap") || fields.next() != Some("entry") {
+        return Err("entry must precede waiting and permit");
+    }
+    let mut values = [0; 8];
+    for (i, key) in ["s=", "g=", "e=", "m=", "u=", "k=", "r=", "p=", "ok="]
+        .iter()
+        .enumerate()
+    {
+        let number = fields
+            .next()
+            .and_then(|field| field.strip_prefix(key))
+            .ok_or("entry key order")?;
+        if number.is_empty()
+            || number.len() > 20
+            || (number.len() > 1 && number.starts_with('0'))
+            || !number.bytes().all(|b| b.is_ascii_digit())
+        {
+            return Err("entry numeric field");
+        }
+        let value = number.parse::<u64>().map_err(|_| "entry u64 overflow")?;
+        if i < values.len() {
+            values[i] = value;
+        } else if value > 1 || (value == 0 && [0, 4, 5, 6, 7].iter().any(|i| values[*i] != 0)) {
+            return Err("entry rusage status");
+        }
+    }
+    if fields.next().is_some() || values[2] > values[3] || values[3] > observed_ns {
+        return Err("entry fields or monotonic clock chain");
+    }
+    let waiting = &trace[first_end + 1..];
+    let Some(waiting_end) = waiting.iter().position(|b| *b == b'\n') else {
+        return if waiting.len() > 256 {
+            Err("oversized waiting")
+        } else {
+            Ok(None)
+        };
+    };
+    if waiting_end + 1 > 256 || waiting_end + 1 != waiting.len() {
+        return Err("exactly one entry then waiting required");
+    }
+    let waiting = std::str::from_utf8(waiting).map_err(|_| "waiting UTF-8")?;
+    if !waiting.starts_with("dream-bootstrap state=waiting ") {
+        return Err("entry must be followed by waiting");
+    }
+    Ok(Some(waiting))
+}
 impl Runner {
     fn start(job: &Job) -> Self {
         Self::launch(job, false, |_, _| {})
@@ -1898,7 +2026,9 @@ impl Runner {
             stderr_pipe: None,
             stderr_bytes,
             reaped: false,
+            reap_status: None,
             reap_usage: None,
+            hello_failure: None,
             lease: Some(write),
             authority,
             job_deadline,
@@ -2051,16 +2181,19 @@ impl Runner {
     fn wait_marker(&mut self, readiness_ns: u64) -> String {
         loop {
             self.drain_stderr();
+            let observed_ns = boot::monotonic_ns().unwrap();
             assert!(
-                boot::monotonic_ns().unwrap() < readiness_ns,
+                observed_ns < readiness_ns,
                 "original readiness expired before wait marker; stderr={}",
                 String::from_utf8_lossy(&self.stderr_bytes)
             );
-            if let Some(end) = self.stderr_bytes.iter().position(|b| *b == b'\n') {
-                assert!(end < 256);
-                return std::str::from_utf8(&self.stderr_bytes[..=end])
-                    .unwrap()
-                    .to_owned();
+            match bootstrap_waiting_marker(&self.stderr_bytes, observed_ns) {
+                Ok(Some(marker)) => return marker.to_owned(),
+                Ok(None) => {}
+                Err(error) => panic!(
+                    "bootstrap entry/waiting refused {error}; stderr={}",
+                    String::from_utf8_lossy(&self.stderr_bytes)
+                ),
             }
             let status = self.child.try_wait().unwrap();
             assert!(
@@ -2147,8 +2280,9 @@ impl Runner {
         let mut bytes = [0u8; w::MAX_FRAME];
         let mut filled = 0;
         loop {
+            let poll_started_ns = boot::monotonic_ns().unwrap();
             let remaining = readiness_ns
-                .checked_sub(boot::monotonic_ns().unwrap())
+                .checked_sub(poll_started_ns)
                 .expect("Hello readiness not reset");
             let mut ready = libc::pollfd {
                 fd,
@@ -2162,10 +2296,25 @@ impl Runner {
                 None
             };
             if polled <= 0 {
+                // Capture the actual post-poll clock before diagnostics or
+                // status observation; the pre-poll remaining time is not it.
+                let post_poll_ns = boot::monotonic_ns().ok();
+                let failure = HelloPollFailure::observe(
+                    &mut self.child,
+                    &self.run_id,
+                    readiness_ns,
+                    poll_started_ns,
+                    post_poll_ns,
+                    (ready, polled, rawerrno),
+                );
+                let prior_status_raw = failure.prior_status_raw;
+                self.hello_failure = Some(failure);
                 self.drain_stderr();
-                let status = self.child.try_wait().unwrap();
                 panic!(
-                    "Hello readiness exceeded: poll={polled} errno={rawerrno:?} status={status:?} original_remaining_ns={remaining} stderr={}",
+                    "Hello readiness exceeded: stage=hello_poll pid={} run={} poll={polled} revents={} errno={rawerrno:?} prior_status_raw={prior_status_raw:?} original_deadline_ns={readiness_ns} poll_started_ns={poll_started_ns} post_poll_ns={post_poll_ns:?} original_remaining_ns={remaining} stderr={}",
+                    self.child.id(),
+                    self.run_id.0,
+                    ready.revents,
                     String::from_utf8_lossy(&self.stderr_bytes)
                 );
             }
@@ -2341,6 +2490,7 @@ impl Runner {
             if pid > 0 {
                 assert_eq!(pid as u32, self.child.id());
                 self.reaped = true;
+                self.reap_status = Some(status);
                 self.reap_usage = Some(unsafe { usage.assume_init() });
                 return if libc::WIFEXITED(status) {
                     libc::WEXITSTATUS(status)
@@ -2392,16 +2542,81 @@ impl Runner {
         );
     }
 }
+#[derive(Debug, serde::Serialize)]
+struct SettlementSignal {
+    result: i32,
+    errno: Option<i32>,
+}
+#[derive(Debug, serde::Serialize)]
+struct RunnerSettlement {
+    pid: u32,
+    phase: &'static str,
+    started_ns: Option<u64>,
+    finished_ns: Option<u64>,
+    actual_status_raw: Option<i32>,
+    actual_exit_code: Option<i32>,
+    actual_signal: Option<i32>,
+    term: Option<SettlementSignal>,
+    kill: Option<SettlementSignal>,
+    observation_errors: u64,
+    first_observation_errno: Option<i32>,
+    wait_errno: Option<i32>,
+}
+impl RunnerSettlement {
+    fn status(&mut self, status: std::process::ExitStatus, phase: &'static str) {
+        self.phase = phase;
+        self.actual_status_raw = Some(status.into_raw());
+        self.actual_exit_code = status.code();
+        self.actual_signal = status.signal();
+    }
+    fn finish(mut self) -> Self {
+        self.finished_ns = boot::monotonic_ns().ok();
+        eprintln!(
+            "read-private-parent settlement={}",
+            serde_json::to_string(&self).unwrap()
+        );
+        self
+    }
+}
+fn retain_read_failure(
+    stderr: &Path,
+    pid: u32,
+    captured: &[u8],
+    mut record: serde_json::Value,
+) -> std::io::Result<PathBuf> {
+    if captured.len() > 64 * 1024 {
+        return Err(std::io::Error::other("failure stderr exceeds64KiB"));
+    }
+    let stderr_result = File::options()
+        .write(true)
+        .truncate(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(stderr)
+        .and_then(|mut file| file.write_all(captured));
+    record["stderr_persisted"] = stderr_result.is_ok().into();
+    record["stderr_errno"] = stderr_result.err().and_then(|e| e.raw_os_error()).into();
+    let bytes = serde_json::to_vec(&record)?;
+    if bytes.len() > 8192 {
+        return Err(std::io::Error::other("failure receipt exceeds8KiB"));
+    }
+    let path = stderr.with_file_name(format!("worker-failure-{pid}.json"));
+    let mut file = File::options()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)?;
+    file.write_all(&bytes)?;
+    Ok(path)
+}
 impl Drop for Runner {
     fn drop(&mut self) {
+        let failing = thread::panicking() || self.hello_failure.is_some();
         drop(self.lease.take());
         self.input.take();
         drop(self.child.stdin.take());
         let stop_at = Instant::now();
         self.stop_reader();
-        if !self.reaped {
-            settle_runner(&mut self.child);
-        }
+        let settlement = (!self.reaped).then(|| settle_runner(&mut self.child));
         if let Some(reader) = self.reader.take() {
             // The owned lane has only <=4KiB nonblocking reads, <=5ms polls,
             // and sends whose receiver was disposed above. Keep the handle
@@ -2421,37 +2636,132 @@ impl Drop for Runner {
                 );
             }
         }
+        if failing {
+            // Failure evidence has a fixed capture and at most16 nonblocking
+            // reads. A descendant retaining stderr cannot hold up this unwind.
+            let mut discarded = 0usize;
+            let mut stderr_errno = None;
+            for _ in 0..16 {
+                let Some(pipe) = self.stderr_pipe.as_mut() else {
+                    break;
+                };
+                let mut bytes = [0u8; 4096];
+                match pipe.read(&mut bytes) {
+                    Ok(0) => {
+                        self.stderr_pipe.take();
+                        break;
+                    }
+                    Ok(n) => {
+                        let keep = n.min((64usize * 1024).saturating_sub(self.stderr_bytes.len()));
+                        self.stderr_bytes.extend_from_slice(&bytes[..keep]);
+                        discarded += n - keep;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                    Err(error) => {
+                        stderr_errno = error.raw_os_error();
+                        break;
+                    }
+                }
+            }
+            let record = serde_json::json!({
+                "kind":"private_fixture_failure_evidence", "pid":self.child.id(),
+                "run":self.run_id.0, "hello":self.hello_failure,
+                "prior_wait4_status_raw":self.reap_status, "settlement":settlement,
+                "stderr_captured_bytes":self.stderr_bytes.len(), "stderr_discarded_bytes":discarded,
+                "stderr_eof":self.stderr_pipe.is_none(), "stderr_read_errno":stderr_errno,
+                "helper_settlement":"not_certified_by_fixture_child_reap", "cpu_accounting":"not_measured_by_failure_evidence"
+            });
+            let saved =
+                retain_read_failure(&self.stderr, self.child.id(), &self.stderr_bytes, record);
+            eprintln!(
+                "read-private-parent failure_evidence pid={} result={saved:?}",
+                self.child.id()
+            );
+        }
     }
 }
-fn settle_runner(child: &mut Child) {
+fn settle_runner(child: &mut Child) -> RunnerSettlement {
     // Adapted from the canonical C1 fixture: EOF2s, exact retained PID TERM,
     // another2s, then final exact Child escalation. Never kill the worker first
     // while its independent owner can still cancel/reap its helper descendants.
-    for terminate in [false, true] {
+    let mut receipt = RunnerSettlement {
+        pid: child.id(),
+        phase: "unproven",
+        started_ns: boot::monotonic_ns().ok(),
+        finished_ns: None,
+        actual_status_raw: None,
+        actual_exit_code: None,
+        actual_signal: None,
+        term: None,
+        kill: None,
+        observation_errors: 0,
+        first_observation_errno: None,
+        wait_errno: None,
+    };
+    for phase in ["eof", "term"] {
         let until = Instant::now() + Duration::from_secs(2);
         loop {
-            if matches!(child.try_wait(), Ok(Some(_))) {
-                return;
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    receipt.status(status, phase);
+                    return receipt.finish();
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    receipt.observation_errors += 1;
+                    if receipt.observation_errors == 1 {
+                        receipt.first_observation_errno = error.raw_os_error();
+                    }
+                    if error.kind() != std::io::ErrorKind::Interrupted {
+                        // No fresh unreaped identity means no safe signal and
+                        // no invented reap. Retain the actual unknown verdict.
+                        return receipt.finish();
+                    }
+                }
             }
             if Instant::now() >= until {
                 break;
             }
             thread::sleep(Duration::from_millis(2));
         }
-        if !terminate {
-            unsafe {
-                libc::kill(child.id() as i32, libc::SIGTERM);
+        if phase == "eof" {
+            let result = unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+            receipt.term = Some(SettlementSignal {
+                result,
+                errno: (result != 0)
+                    .then(|| std::io::Error::last_os_error().raw_os_error())
+                    .flatten(),
+            });
+        }
+    }
+    match child.try_wait() {
+        Ok(Some(status)) => receipt.status(status, "term"),
+        Err(error) => {
+            receipt.observation_errors += 1;
+            if receipt.observation_errors == 1 {
+                receipt.first_observation_errno = error.raw_os_error();
+            }
+        }
+        Ok(None) => {
+            eprintln!(
+                "dream-read private_parent quarantine=forced_worker_exit pid={} helper_settlement=unproven",
+                child.id()
+            );
+            let killed = child.kill();
+            receipt.kill = Some(SettlementSignal {
+                result: if killed.is_ok() { 0 } else { -1 },
+                errno: killed.err().and_then(|e| e.raw_os_error()),
+            });
+            match child.wait() {
+                Ok(status) => receipt.status(status, "kill"),
+                Err(error) => {
+                    receipt.wait_errno = error.raw_os_error();
+                }
             }
         }
     }
-    if !matches!(child.try_wait(), Ok(Some(_))) {
-        eprintln!(
-            "dream-read private_parent quarantine=forced_worker_exit pid={} helper_settlement=unproven",
-            child.id()
-        );
-        let _ = child.kill();
-        let _ = child.wait();
-    }
+    receipt.finish()
 }
 fn run(job: &Job) -> (w::Done, i32, String) {
     let mut worker = Runner::start(job);
@@ -3378,6 +3688,268 @@ async fn two_scripted_roots_are_selected_before_signing_and_preserve_completed_b
 }
 
 #[test]
+fn read_bootstrap_marker_owned_pipe_requires_exactly_one_canonical_entry() {
+    let waiting = "dream-bootstrap state=waiting profile=dream-bootstrap/1 argv_admissions=0 channel_admissions=0 owner_admissions=0\n";
+    let now = boot::monotonic_ns().unwrap();
+    let entry = format!("dream-bootstrap entry s=1 g=2 e={now} m={now} u=3 k=4 r=5 p=6 ok=1\n");
+    let valid = format!("{entry}{waiting}");
+    let mut cases = vec![
+        ("canonical", valid.clone().into_bytes(), true),
+        ("missing-entry", waiting.as_bytes().to_vec(), false),
+        (
+            "duplicate-entry",
+            format!("{entry}{entry}{waiting}").into_bytes(),
+            false,
+        ),
+        (
+            "unexpected-prefix",
+            format!("diagnostic\n{valid}").into_bytes(),
+            false,
+        ),
+        (
+            "unexpected-after-waiting",
+            format!("{valid}diagnostic\n").into_bytes(),
+            false,
+        ),
+        (
+            "wrong-key",
+            valid.replacen(" g=", " x=", 1).into_bytes(),
+            false,
+        ),
+        (
+            "leading-zero",
+            valid.replacen(" s=1 ", " s=01 ", 1).into_bytes(),
+            false,
+        ),
+        (
+            "overflow",
+            valid
+                .replacen(" s=1 ", " s=18446744073709551616 ", 1)
+                .into_bytes(),
+            false,
+        ),
+        (
+            "bad-status",
+            valid.replacen(" ok=1", " ok=2", 1).into_bytes(),
+            false,
+        ),
+        (
+            "failed-status-nonzero-counters",
+            valid.replacen(" ok=1", " ok=0", 1).into_bytes(),
+            false,
+        ),
+        (
+            "reversed-clock",
+            valid.replacen(&format!(" m={now}"), " m=0", 1).into_bytes(),
+            false,
+        ),
+        (
+            "future-clock",
+            valid
+                .replacen(&format!(" m={now}"), " m=18446744073709551615", 1)
+                .into_bytes(),
+            false,
+        ),
+        (
+            "wrong-waiting",
+            valid
+                .replacen("argv_admissions=0", "argv_admissions=1", 1)
+                .into_bytes(),
+            false,
+        ),
+        (
+            "oversized-entry",
+            [vec![b'x'; 257], b"\n".to_vec(), waiting.as_bytes().to_vec()].concat(),
+            false,
+        ),
+        (
+            "oversized-waiting",
+            [entry.as_bytes().to_vec(), vec![b'x'; 257], b"\n".to_vec()].concat(),
+            false,
+        ),
+    ];
+    cases.push((
+        "rusage-unavailable-raw-zeroes",
+        format!("dream-bootstrap entry s=0 g=2 e={now} m={now} u=0 k=0 r=0 p=0 ok=0\n{waiting}")
+            .into_bytes(),
+        true,
+    ));
+    for (case, bytes, expected) in cases {
+        let at = parent_cpu();
+        let deadline = boot::monotonic_ns()
+            .unwrap()
+            .checked_add(boot::WINDOW_NS)
+            .unwrap();
+        let (mut read, mut write) = bootstrap_pipe();
+        write.write_all(&bytes).unwrap();
+        drop(write);
+        let mut captured = Vec::with_capacity(512);
+        read.read_to_end(&mut captured).unwrap();
+        assert_eq!(captured, bytes, "{case}: actual pipe bytes changed");
+        assert!(captured.len() <= 512, "{case}: bounded prepermit capture");
+        let observed = boot::monotonic_ns().unwrap();
+        let verdict = bootstrap_waiting_marker(&captured, observed);
+        let admitted = matches!(verdict, Ok(Some(marker)) if marker.trim() == waiting.trim());
+        assert_eq!(admitted, expected, "{case}: {verdict:?}");
+        assert!(
+            observed < deadline,
+            "{case}: original250ms observation bound"
+        );
+        drop(read);
+        parent_paid(at);
+        eprintln!(
+            "read-bootstrap-marker case={case} actual_pipe_bytes={} exact_waiting={admitted} permit_writes=0 capture_limit=512 original_window_ns={}",
+            captured.len(),
+            boot::WINDOW_NS
+        );
+    }
+    // Real pipe reads may split either record. No partial entry or waiting
+    // record can admit a permit; the same complete bytes must still validate.
+    let at = parent_cpu();
+    let deadline = boot::monotonic_ns()
+        .unwrap()
+        .checked_add(boot::WINDOW_NS)
+        .unwrap();
+    let (mut read, mut write) = bootstrap_pipe();
+    let mut captured = Vec::with_capacity(512);
+    for (i, chunk) in [
+        &entry.as_bytes()[..entry.len() - 1],
+        &entry.as_bytes()[entry.len() - 1..],
+        &waiting.as_bytes()[..waiting.len() - 1],
+        &waiting.as_bytes()[waiting.len() - 1..],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        write.write_all(chunk).unwrap();
+        let mut bytes = vec![0; chunk.len()];
+        read.read_exact(&mut bytes).unwrap();
+        captured.extend_from_slice(&bytes);
+        let observed = boot::monotonic_ns().unwrap();
+        let marker = bootstrap_waiting_marker(&captured, observed).unwrap();
+        if i < 3 {
+            assert_eq!(marker, None, "partial record admitted a permit");
+        } else {
+            assert_eq!(marker, Some(waiting));
+        }
+        assert!(observed < deadline);
+    }
+    drop(write);
+    drop(read);
+    parent_paid(at);
+    eprintln!(
+        "read-bootstrap-marker case=fragmented actual_pipe_reads=4 permit_writes=0 original_deadline_not_reset=true"
+    );
+}
+
+#[test]
+fn read_bootstrap_failure_receipt_keeps_actual_poll_reap_and_private_home() {
+    let home = ReadFailureHome(
+        tempfile::Builder::new()
+            .prefix("dream-read-failure-control-")
+            .permissions(std::fs::Permissions::from_mode(0o700))
+            .tempdir_in("/private/tmp")
+            .unwrap(),
+    );
+    let root = home.path().to_owned();
+    let stderr = root.join("worker.stderr");
+    private_file(&stderr, b"");
+    struct OwnedControl(Child, bool);
+    impl Drop for OwnedControl {
+        fn drop(&mut self) {
+            drop(self.0.stdin.take());
+            if !self.1 {
+                let _ = settle_runner(&mut self.0);
+            }
+        }
+    }
+    let mut child = OwnedControl(
+        Command::new("/bin/cat")
+            .env_clear()
+            .env("HOME", &root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+        false,
+    );
+    let pid = child.0.id();
+    let started = boot::monotonic_ns().unwrap();
+    let deadline = started.checked_add(boot::WINDOW_NS).unwrap();
+    let mut poll = libc::pollfd {
+        fd: child.0.stdout.as_ref().unwrap().as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    // A zero-time poll of this held empty pipe is deterministic observation
+    // evidence only; this fixture never certifies a worker's Hello readiness.
+    let result = unsafe { libc::poll(&mut poll, 1, 0) };
+    let errno = (result < 0)
+        .then(|| std::io::Error::last_os_error().raw_os_error())
+        .flatten();
+    let after = boot::monotonic_ns().ok();
+    let failure = HelloPollFailure::observe(
+        &mut child.0,
+        &w::Ulid(ulid::Ulid::new().to_string()),
+        deadline,
+        started,
+        after,
+        (poll, result, errno),
+    );
+    assert_eq!(failure.poll_result, 0);
+    assert!(failure.post_poll_ns.unwrap() >= failure.poll_started_ns);
+    assert!(failure.prior_status_known && failure.prior_status_raw.is_none());
+    // Follow the original cleanup order: close the actual stdin first, allow
+    // the original two-second EOF phase, then escalate only if still needed.
+    drop(child.0.stdin.take());
+    let settlement = settle_runner(&mut child.0);
+    child.1 = settlement.actual_status_raw.is_some();
+    assert_eq!(settlement.actual_exit_code, Some(0));
+    assert_eq!(settlement.phase, "eof");
+    assert!(settlement.term.is_none() && settlement.kill.is_none());
+    assert_eq!(settlement.observation_errors, 0);
+    assert_eq!(
+        child.0.try_wait().unwrap().unwrap().into_raw(),
+        settlement.actual_status_raw.unwrap()
+    );
+    let mut captured = Vec::new();
+    child
+        .0
+        .stderr
+        .take()
+        .unwrap()
+        .take(64 * 1024 + 1)
+        .read_to_end(&mut captured)
+        .unwrap();
+    assert!(captured.len() <= 64 * 1024);
+    let record = serde_json::json!({"kind":"owned_fixture_observation_control", "pid":pid, "hello":failure, "settlement":settlement, "qualifying_readiness":false, "stderr_captured_bytes":captured.len(), "stderr_eof":true, "cpu_accounting":"not_measured_by_failure_evidence"});
+    let receipt = retain_read_failure(&stderr, pid, &captured, record).unwrap();
+    let unwind = std::panic::catch_unwind(move || {
+        let _owned_home = home;
+        panic!("source-known failure-home retention control");
+    });
+    assert!(unwind.is_err());
+    assert!(root.is_dir(), "panic erased the owned failure HOME");
+    assert_eq!(std::fs::metadata(&root).unwrap().mode() & 0o777, 0o700);
+    for path in [&stderr, &receipt] {
+        assert_eq!(std::fs::metadata(path).unwrap().mode() & 0o777, 0o600);
+    }
+    let bytes = std::fs::read(&receipt).unwrap();
+    assert!(bytes.len() <= 8192);
+    let saved: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(saved["pid"], pid);
+    assert_eq!(saved["settlement"]["actual_status_raw"], 0);
+    assert_eq!(saved["stderr_persisted"], true);
+    eprintln!(
+        "read-private-parent owned_failure_control pid={pid} receipt={} actual_status_raw=0 phase=eof term_attempted=false kill_attempted=false preserved_home={} receipt_bytes={} qualifying_readiness=false",
+        receipt.display(),
+        root.display(),
+        bytes.len()
+    );
+}
+
+#[test]
 fn read_bootstrap_held_birth_has_zero_admission_then_paid_hello_start_and_actual_reap() {
     let job = Job::empty();
     let actual_pid = std::cell::Cell::new(0u32);
@@ -3386,7 +3958,9 @@ fn read_bootstrap_held_birth_has_zero_admission_then_paid_hello_start_and_actual
         assert!(held.child.try_wait().unwrap().is_none());
         assert!(held.lease.is_some());
         assert!(exact_children(held.child.id() as i32).is_empty());
-        let marker = std::str::from_utf8(&held.stderr_bytes).unwrap();
+        let marker = bootstrap_waiting_marker(&held.stderr_bytes, boot::monotonic_ns().unwrap())
+            .unwrap()
+            .unwrap();
         assert_eq!(
             marker.trim(),
             "dream-bootstrap state=waiting profile=dream-bootstrap/1 argv_admissions=0 channel_admissions=0 owner_admissions=0"
