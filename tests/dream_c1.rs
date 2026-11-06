@@ -1182,12 +1182,172 @@ fn native_birth_diagnostic_and_guard_injected_boundaries() {
     };
     assert!(unknown_bad.verdict().is_err() && unknown_as_zero(unknown_bad));
 }
+fn birth_interval(start: u64, end: u64) -> Option<u64> {
+    if start == u64::MAX || end == u64::MAX {
+        None
+    } else {
+        end.checked_sub(start)
+    }
+}
+fn birth_costs(start: u64, call_start: u64, call_end: u64, end: u64) -> [Option<u64>; 3] {
+    [
+        birth_interval(call_start, call_end),
+        birth_interval(start, call_start)
+            .and_then(|before| birth_interval(call_end, end)?.checked_add(before)),
+        birth_interval(start, end),
+    ]
+}
+fn birth_verdict(
+    native: Option<u64>,
+    wall: Duration,
+    application: Option<u64>,
+    inclusive: Option<u64>,
+) -> Result<u64, &'static str> {
+    let native = native.ok_or("unknown native birth cost")?;
+    let application = application.ok_or("unknown birth application cost")?;
+    let inclusive = inclusive.ok_or("unknown inclusive birth cost")?;
+    if native > 2_000_000 {
+        return Err("native birth CPU allocation");
+    }
+    if wall > Duration::from_millis(25) {
+        return Err("native birth wall allocation");
+    }
+    if application > 1_000_000 {
+        return Err("birth application CPU allocation");
+    }
+    if inclusive > 3_000_000 {
+        return Err("inclusive birth CPU allocation");
+    }
+    if native.checked_add(application) != Some(inclusive) {
+        return Err("inconsistent birth CPU intervals");
+    }
+    Ok(inclusive)
+}
+fn birth_debt(inclusive: Option<u64>) -> Duration {
+    // Unknown cost remains a refusal, with finite mandatory settlement debt.
+    // Duration multiplication also retains a known overrun without u64-ns wrap.
+    Duration::from_nanos(inclusive.unwrap_or(3_000_000).max(1_000_000)) * 9
+}
+fn birth_readiness(sample: Option<u64>, lag: Option<Duration>) -> Option<u64> {
+    // The monotonic sample follows the native ending clock. Subtract the full
+    // wall bracket from actual spawn return through that sample's end, so the
+    // ending-clock probes cannot grant extra time beyond the original250ms.
+    sample?
+        .checked_sub(u64::try_from(lag?.as_nanos()).ok()?)?
+        .checked_add(boot::WINDOW_NS)
+}
 #[test]
 fn unavailable_or_reversed_parent_samples_never_become_zero_cost() {
     for (start, end) in [(u64::MAX, u64::MAX), (100, u64::MAX), (100, 99)] {
         assert!(std::panic::catch_unwind(|| parent_interval(start, end)).is_err());
     }
     assert_eq!(parent_interval(100, 101), 1);
+}
+#[test]
+fn fixture_birth_separates_native_application_and_full_inclusive_cost() {
+    // Real fixture verdict path: ordinary readiness work can legitimately take
+    // total CPU above2ms while exact native CPU remains within its own bound.
+    let [native, application, inclusive] = birth_costs(0, 100_000, 2_000_000, 2_100_000);
+    assert_eq!(
+        [native, application, inclusive],
+        [Some(1_900_000), Some(200_000), Some(2_100_000)]
+    );
+    assert_eq!(
+        birth_verdict(native, Duration::from_millis(25), application, inclusive),
+        Ok(2_100_000)
+    );
+    assert_eq!(birth_debt(inclusive), Duration::from_nanos(18_900_000));
+    assert_eq!(
+        birth_verdict(
+            Some(2_000_000),
+            Duration::from_millis(25),
+            Some(1_000_000),
+            Some(3_000_000)
+        ),
+        Ok(3_000_000)
+    );
+    for (native, wall, application, inclusive, expected) in [
+        (
+            Some(2_000_001),
+            Duration::ZERO,
+            Some(0),
+            Some(2_000_001),
+            "native birth CPU allocation",
+        ),
+        (
+            Some(1),
+            Duration::from_nanos(25_000_001),
+            Some(0),
+            Some(1),
+            "native birth wall allocation",
+        ),
+        (
+            Some(1),
+            Duration::ZERO,
+            Some(1_000_001),
+            Some(1_000_002),
+            "birth application CPU allocation",
+        ),
+        (
+            Some(2_000_000),
+            Duration::ZERO,
+            Some(1_000_000),
+            Some(3_000_001),
+            "inclusive birth CPU allocation",
+        ),
+        (
+            Some(1),
+            Duration::ZERO,
+            Some(1),
+            Some(3),
+            "inconsistent birth CPU intervals",
+        ),
+        (
+            None,
+            Duration::ZERO,
+            Some(1),
+            Some(2),
+            "unknown native birth cost",
+        ),
+        (
+            Some(1),
+            Duration::ZERO,
+            None,
+            Some(2),
+            "unknown birth application cost",
+        ),
+        (
+            Some(1),
+            Duration::ZERO,
+            Some(1),
+            None,
+            "unknown inclusive birth cost",
+        ),
+    ] {
+        assert_eq!(
+            birth_verdict(native, wall, application, inclusive),
+            Err(expected)
+        );
+    }
+    assert_eq!(birth_costs(0, 100, 99, 200)[0], None);
+    assert_eq!(birth_costs(0, 100, u64::MAX, 200)[0], None);
+    assert_eq!(birth_costs(0, 100, 150, u64::MAX)[1..], [None, None]);
+    assert_eq!(birth_debt(None), Duration::from_millis(27));
+    assert_eq!(birth_debt(Some(4_000_000)), Duration::from_millis(36));
+    assert_eq!(birth_debt(Some(0)), Duration::from_millis(9));
+}
+#[test]
+fn fixture_birth_readiness_does_not_add_ending_probe_time_to_original_window() {
+    assert_eq!(
+        birth_readiness(Some(1_000_000), Some(Duration::from_nanos(30_000))),
+        Some(970_000 + boot::WINDOW_NS)
+    );
+    assert_eq!(birth_readiness(None, Some(Duration::ZERO)), None);
+    assert_eq!(
+        birth_readiness(Some(1), Some(Duration::from_nanos(2))),
+        None
+    );
+    assert_eq!(birth_readiness(Some(u64::MAX), Some(Duration::ZERO)), None);
 }
 fn approved_runner() -> &'static (std::path::PathBuf, w::Hex) {
     use sha2::{Digest, Sha256};
@@ -1345,6 +1505,11 @@ struct HeldWorker {
     native_cpu: Option<u64>,
     native_wall: Duration,
     birth_diagnostic: Option<NativeBirthDiagnostic>,
+    application_cpu: Option<u64>,
+    inclusive_cpu: Option<u64>,
+    inclusive_wall: Duration,
+    birth_debt_paid: bool,
+    runner_hash: [u8; 64],
     marker: String,
     entry_trace: String,
     entry_observed_ns: u64,
@@ -1371,6 +1536,8 @@ impl HeldWorker {
         use std::os::unix::process::CommandExt;
         let job_deadline = Instant::now() + Duration::from_secs(30);
         let prepare_at = parent_cpu();
+        let mut runner_hash = [0u8; 64];
+        runner_hash.copy_from_slice(worker_hash.0.as_bytes());
         let expected_schema = w::schema_hash();
         let diagnostic_only =
             std::env::var_os("DREAM_C1_DIAGNOSTIC_ONLY").is_some_and(|v| v == "1");
@@ -1437,6 +1604,12 @@ impl HeldWorker {
         assert!(prepare_used <= 1_000_000);
         parent_rest(prepare_used, prepare_end);
         let launched = Instant::now();
+        let span_at = parent_cpu();
+        assert_ne!(
+            span_at,
+            u64::MAX,
+            "missing span clock must not create child"
+        );
         let native_at = parent_cpu();
         assert_ne!(
             native_at,
@@ -1446,14 +1619,20 @@ impl HeldWorker {
         let wall_at = Instant::now();
         // Retain actual Child before evaluating the ending native clock/verdict.
         let spawned = command.spawn();
-        let native_wall = wall_at.elapsed();
-        let spawn_return_ns = boot::monotonic_ns();
+        let spawn_return = Instant::now();
         let end_cpu = parent_cpu();
-        let birth_end = Instant::now();
-        let retain_at = parent_cpu();
+        let native_wall = spawn_return.duration_since(wall_at);
         let native_cpu = finite_parent_interval(native_at, end_cpu);
-        // A failed spawn also retains the ending samples before formatting.
-        // No returned Child means effect/settlement are unknown, never absence.
+        // Readiness and its full wall bracket are ordinary work after native
+        // return; the original250ms window never gains ending-clock time.
+        let return_sample = boot::monotonic_ns().ok();
+        let sample_end = Instant::now();
+        let readiness = birth_readiness(
+            return_sample,
+            sample_end.checked_duration_since(spawn_return),
+        );
+        // A failed spawn also retains ending samples before formatting. No
+        // returned Child means effect/settlement are unknown, never absence.
         let child = spawned.unwrap_or_else(|error| {
             panic!(
                 "native spawn returned no Child run={} artifact={} samples={:?} effect=unknown settlement=unknown error={error:?}",
@@ -1479,7 +1658,7 @@ impl HeldWorker {
                 sequence: 1,
                 deadline_ns: readiness_ns,
             },
-            birth_end,
+            birth_end: spawn_return,
             launched,
             readiness_ns,
             native_cpu,
@@ -1495,6 +1674,11 @@ impl HeldWorker {
                 permit_attempted: false,
                 diagnostic_only,
             }),
+            application_cpu: None,
+            inclusive_cpu: None,
+            inclusive_wall: Duration::ZERO,
+            birth_debt_paid: false,
+            runner_hash,
             marker: String::new(),
             entry_trace: String::new(),
             entry_observed_ns: 0,
@@ -1530,20 +1714,30 @@ impl HeldWorker {
             );
         }
         drop(read);
+        // The ordinary return half includes retained-record assembly and the
+        // original inherited-read FD close, before any marker wait or verdict.
+        let span_end = parent_cpu();
+        let birth_end = Instant::now();
+        let [native_cpu, application_cpu, inclusive_cpu] =
+            birth_costs(span_at, native_at, end_cpu, span_end);
+        result.native_cpu = native_cpu;
+        result.application_cpu = application_cpu;
+        result.inclusive_cpu = inclusive_cpu;
+        result.inclusive_wall = birth_end.duration_since(launched);
+        result.birth_end = birth_end;
         // The actual child/write lease is now retained even if readiness clock
         // capture fails. No timing verdict can lose the returned process.
-        result.readiness_ns = spawn_return_ns
-            .unwrap()
-            .checked_add(boot::WINDOW_NS)
-            .unwrap();
+        result.readiness_ns = match readiness {
+            Some(deadline) => deadline,
+            None => {
+                result.birth_refusal("spawn-return readiness unavailable");
+                panic!("spawn-return readiness unavailable");
+            }
+        };
         result.permit.deadline_ns = result.readiness_ns;
-        let retained_cpu = parent_interval(retain_at, parent_cpu());
-        let retained_end = Instant::now();
-        parent_rest(retained_cpu, retained_end);
-        assert!(
-            retained_cpu <= 1_000_000,
-            "native effect retention bookkeeping exceeds1ms"
-        );
+        // Retained-record assembly and the inherited-FD close are included
+        // in application_cpu/inclusive_cpu above. The single original birth
+        // debt is paid by pay_birth_debt; do not overlap a second retention debt.
         if bypass.is_empty() {
             result.marker = result.read_waiting();
         }
@@ -1608,7 +1802,34 @@ impl HeldWorker {
         if let Some(record) = &self.birth_diagnostic {
             record.applied_guard.set(Some(observed));
         }
-        observed.verdict()
+        birth_verdict(
+            self.native_cpu,
+            self.native_wall,
+            self.application_cpu,
+            self.inclusive_cpu,
+        )
+    }
+    fn pay_birth_debt(&mut self) {
+        if std::mem::replace(&mut self.birth_debt_paid, true) {
+            return;
+        }
+        if let Some(left) = birth_debt(self.inclusive_cpu).checked_sub(self.birth_end.elapsed()) {
+            std::thread::sleep(left);
+        }
+    }
+    fn birth_refusal(&self, reason: &'static str) {
+        // One bounded record: fixed labels, numeric fields, a static reason and
+        // exactly64 public hash bytes. No argv, permit, context or source data.
+        eprintln!(
+            "dream-c1 parent_birth_refusal reason={reason:?} pid={:?} native_cpu_ns={:?} native_wall_ns={} application_cpu_ns={:?} inclusive_cpu_ns={:?} inclusive_wall_ns={} runner_sha256={} grant_count=0 retry_count=0",
+            self.child.as_ref().map(Child::id),
+            self.native_cpu,
+            self.native_wall.as_nanos(),
+            self.application_cpu,
+            self.inclusive_cpu,
+            self.inclusive_wall.as_nanos(),
+            std::str::from_utf8(&self.runner_hash).unwrap()
+        );
     }
     fn grant_verdict(&self) -> Result<(), &'static str> {
         if self.permit.binding != self.frozen_binding {
@@ -1623,10 +1844,11 @@ impl HeldWorker {
         self.waiting_verdict()
             .expect("earliest controlled admission violation");
         assert!(self.child.as_mut().unwrap().try_wait().unwrap().is_none());
-        let cpu = self
-            .launch_verdict()
-            .expect("native birth verdict refused grant");
-        parent_rest(cpu, self.birth_end);
+        if let Err(reason) = self.launch_verdict() {
+            self.birth_refusal(reason);
+            panic!("native birth verdict refused grant: {reason}");
+        }
+        self.pay_birth_debt();
         let setup_at = parent_cpu();
         drop(self.prepared.take());
         let mut child = self.child.take().unwrap();
@@ -1718,6 +1940,11 @@ impl Drop for HeldWorker {
         drop(self.lease.take());
         if let Some(child) = self.child.as_mut() {
             drop(child.stdin.take());
+        }
+        // Revoke the lease before paying failure debt; keep the exact Child
+        // pinned through that rest and the existing escalation/reap path.
+        self.pay_birth_debt();
+        if let Some(child) = self.child.as_mut() {
             settle_owned(child);
             let status = child.try_wait().ok().flatten();
             retain_native_diagnostic(
@@ -2118,7 +2345,13 @@ fn source_blob_sequence_version_and_custody_controls() {
             }
         };
         job.commit_manifest();
-        let mut worker = job.launch();
+        let mut worker = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job.launch()))
+            .unwrap_or_else(|failure| {
+                eprintln!(
+                    "dream-c1 source_control_launch_refused mode={mode} expected={expected:?}"
+                );
+                std::panic::resume_unwind(failure)
+            });
         worker.start(&job.start);
         let (done, metrics) = worker.done();
         assert_eq!(done.outcome, w::Outcome::Failed, "mode {mode} {metrics}");
