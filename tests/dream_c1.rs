@@ -370,70 +370,743 @@ struct NativeBirthDiagnostic {
     permit_attempted: bool,
     diagnostic_only: bool,
 }
-impl NativeBirthDiagnostic {
-    fn row(&self, status: Option<std::process::ExitStatus>, via: &str) -> serde_json::Value {
-        use std::os::unix::process::ExitStatusExt;
-        let applied = self.applied_guard.get();
-        serde_json::json!({
-            "event": "dream-c1 parent_native_birth",
-            "pid": self.pid, "run_id": self.run.0, "artifact_sha256": self.artifact.0,
-            "cpu_start_ns": self.cpu_start_ns, "cpu_end_ns": self.cpu_end_ns,
-            "original": self.original,
-            "original_verdict": self.original.verdict().err(),
-            // Injection controls can deliberately change HeldWorker's samples;
-            // retain the original observation as well as the actually used one.
-            "applied_guard": applied,
-            "native_guard_admitted": applied.map(|s| s.verdict().is_ok()),
-            "permit_attempted": self.permit_attempted,
-            "actual_settled": status.is_some(), "settled_via": via,
-            "exit_code": status.and_then(|s| s.code()),
-            "exit_signal": status.and_then(|s| s.signal()),
-            "diagnostic_only": self.diagnostic_only, "runtime_conformance": false,
+#[derive(Clone, Copy, Debug)]
+enum NativeSettlement {
+    ExactPidWait4,
+    HeldDrop,
+    WorkerDrop,
+    Injected,
+}
+impl NativeSettlement {
+    fn label(self) -> &'static str {
+        match self {
+            Self::ExactPidWait4 => "exact_pid_wait4",
+            Self::HeldDrop => "held_drop_after_settle_owned",
+            Self::WorkerDrop => "worker_drop_after_settle_owned",
+            Self::Injected => "injected",
+        }
+    }
+}
+struct JsonOption<T>(Option<T>);
+impl<T: std::fmt::Display> std::fmt::Display for JsonOption<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            Some(value) => value.fmt(f),
+            None => f.write_str("null"),
+        }
+    }
+}
+impl std::fmt::Display for NativeBirthObservation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{{\"native_cpu_ns\":{},\"native_wall_ns\":{},\"cpu_over_budget\":{},\"wall_over_budget\":{},\"unknown_cpu\":{}}}",
+            JsonOption(self.native_cpu_ns),
+            self.native_wall_ns,
+            JsonOption(self.cpu_over_budget),
+            self.wall_over_budget,
+            self.unknown_cpu
+        )
+    }
+}
+#[derive(Clone, Copy)]
+struct NativeDiagnosticIdentity {
+    pid: u32,
+    run: [u8; 26],
+    artifact: [u8; 64],
+}
+impl NativeDiagnosticIdentity {
+    fn new(record: &NativeBirthDiagnostic) -> Option<Self> {
+        // Birth preparation already validated these identities. Recheck exact
+        // bounded alphabets so direct JSON requires neither escaping nor heap.
+        boot::ulid(record.run.0.as_bytes()).ok()?;
+        if !record.artifact.0.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        Some(Self {
+            pid: record.pid,
+            run: record.run.0.as_bytes().try_into().ok()?,
+            artifact: record.artifact.0.as_bytes().try_into().ok()?,
         })
     }
-    fn emit(self, status: Option<std::process::ExitStatus>, via: &str) -> Result<(), &'static str> {
-        // The original Child and all ending samples were retained before this
-        // record existed. Format/write only AFTER actual settlement, separately
-        // measured and paid; never include telemetry in the native span.
-        let at = parent_cpu();
-        let wrote = {
-            let row = self.row(status, via);
-            let mut stderr = std::io::stderr().lock();
-            serde_json::to_writer(&mut stderr, &row).is_ok() && stderr.write_all(b"\n").is_ok()
-        };
-        drop(self);
-        let used = finite_parent_interval(at, parent_cpu());
-        let end = Instant::now();
-        let used = used.ok_or("unknown native diagnostic bookkeeping cost")?;
-        if used.checked_mul(9).is_none() {
-            return Err("unpayable native diagnostic bookkeeping cost");
+    fn run(&self) -> &str {
+        std::str::from_utf8(&self.run).unwrap()
+    }
+    fn artifact(&self) -> &str {
+        std::str::from_utf8(&self.artifact).unwrap()
+    }
+}
+impl std::fmt::Debug for NativeDiagnosticIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NativeDiagnosticIdentity")
+            .field("pid", &self.pid)
+            .field("run", &self.run())
+            .field("artifact", &self.artifact())
+            .finish()
+    }
+}
+#[derive(Clone, Copy, Debug)]
+struct NativeBirthRow {
+    identity: NativeDiagnosticIdentity,
+    cpu_start_ns: Option<u64>,
+    cpu_end_ns: Option<u64>,
+    original: NativeBirthObservation,
+    applied_guard: Option<NativeBirthObservation>,
+    permit_attempted: bool,
+    settled: bool,
+    via: NativeSettlement,
+    exit_code: Option<i32>,
+    exit_signal: Option<i32>,
+    diagnostic_only: bool,
+}
+impl std::fmt::Display for NativeBirthRow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            concat!(
+                "{{\"event\":\"dream-c1 parent_native_birth\",\"pid\":{},",
+                "\"run_id\":\"{}\",\"artifact_sha256\":\"{}\",",
+                "\"cpu_start_ns\":{},\"cpu_end_ns\":{},\"original\":{},\"original_verdict\":"
+            ),
+            self.identity.pid,
+            self.identity.run(),
+            self.identity.artifact(),
+            JsonOption(self.cpu_start_ns),
+            JsonOption(self.cpu_end_ns),
+            self.original
+        )?;
+        match self.original.verdict().err() {
+            Some(reason) => write!(f, "\"{reason}\"")?,
+            None => f.write_str("null")?,
         }
-        parent_rest(used, end);
-        if !wrote {
-            return Err("native diagnostic output failed");
+        write!(
+            f,
+            concat!(
+                ",\"applied_guard\":{},\"native_guard_admitted\":{},",
+                "\"permit_attempted\":{},\"actual_settled\":{},\"settled_via\":\"{}\",",
+                "\"exit_code\":{},\"exit_signal\":{},\"diagnostic_only\":{},\"runtime_conformance\":false}}"
+            ),
+            JsonOption(self.applied_guard),
+            JsonOption(self.applied_guard.map(|s| s.verdict().is_ok())),
+            self.permit_attempted,
+            self.settled,
+            self.via.label(),
+            JsonOption(self.exit_code),
+            JsonOption(self.exit_signal),
+            self.diagnostic_only
+        )
+    }
+}
+const NATIVE_DIAGNOSTIC_CAPACITY: usize = 2048;
+struct NativeDiagnosticLine<const N: usize> {
+    bytes: [u8; N],
+    len: usize,
+}
+impl<const N: usize> NativeDiagnosticLine<N> {
+    fn new() -> Self {
+        Self {
+            bytes: [0; N],
+            len: 0,
         }
-        if used > 1_000_000 {
-            return Err("native diagnostic bookkeeping exceeds1ms");
-        }
-        if status.is_none() {
-            return Err("native diagnostic has no actual settlement");
-        }
+    }
+    fn format(&mut self, value: impl std::fmt::Display) -> bool {
+        use std::fmt::Write;
+        self.len = 0;
+        writeln!(self, "{value}").is_ok()
+    }
+    fn bytes(&self) -> &[u8] {
+        &self.bytes[..self.len]
+    }
+}
+impl<const N: usize> std::fmt::Write for NativeDiagnosticLine<N> {
+    fn write_str(&mut self, text: &str) -> std::fmt::Result {
+        let end = self.len.checked_add(text.len()).ok_or(std::fmt::Error)?;
+        let target = self.bytes.get_mut(self.len..end).ok_or(std::fmt::Error)?;
+        target.copy_from_slice(text.as_bytes());
+        self.len = end;
         Ok(())
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct NativeDiagnosticCost {
+    start_ns: Option<u64>,
+    end_ns: Option<u64>,
+    cpu_ns: Option<u64>,
+    owed_ns: Option<u64>,
+    over_budget: Option<bool>,
+    repayment_overflow: bool,
+}
+impl NativeDiagnosticCost {
+    fn new(start: u64, end: u64) -> Self {
+        let cpu_ns = finite_parent_interval(start, end);
+        let owed_ns = cpu_ns.and_then(|n| n.max(1_000_000).checked_mul(9));
+        Self {
+            start_ns: (start != u64::MAX).then_some(start),
+            end_ns: (end != u64::MAX).then_some(end),
+            cpu_ns,
+            owed_ns,
+            over_budget: cpu_ns.map(|n| n > 1_000_000),
+            repayment_overflow: cpu_ns.is_some() && owed_ns.is_none(),
+        }
+    }
+    fn accepted(self) -> bool {
+        self.over_budget == Some(false) && self.owed_ns.is_some() && !self.repayment_overflow
+    }
+}
+impl std::fmt::Display for NativeDiagnosticCost {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{{\"start_ns\":{},\"end_ns\":{},\"cpu_ns\":{},\"owed_ns\":{},\"over_budget\":{},\"repayment_overflow\":{}}}",
+            JsonOption(self.start_ns),
+            JsonOption(self.end_ns),
+            JsonOption(self.cpu_ns),
+            JsonOption(self.owed_ns),
+            JsonOption(self.over_budget),
+            self.repayment_overflow
+        )
+    }
+}
+fn native_diagnostic_step<T>(
+    clock: &mut impl FnMut() -> u64,
+    pay: &mut impl FnMut(NativeDiagnosticCost, Instant),
+    work: impl FnOnce() -> T,
+) -> (T, NativeDiagnosticCost) {
+    let start = clock();
+    let result = work();
+    let cost = NativeDiagnosticCost::new(start, clock());
+    pay(cost, Instant::now());
+    (result, cost)
+}
+#[derive(Clone, Copy, Debug)]
+struct NativeDiagnosticWrite {
+    attempted: bool,
+    requested: usize,
+    returned: Option<isize>,
+    errno: Option<i32>,
+}
+impl NativeDiagnosticWrite {
+    fn perform(
+        bytes: Option<&[u8]>,
+        output: &mut impl FnMut(&[u8]) -> (isize, Option<i32>),
+    ) -> Self {
+        match bytes {
+            Some(bytes) => {
+                let (returned, errno) = output(bytes);
+                Self {
+                    attempted: true,
+                    requested: bytes.len(),
+                    returned: Some(returned),
+                    errno,
+                }
+            }
+            None => Self {
+                attempted: false,
+                requested: 0,
+                returned: None,
+                errno: None,
+            },
+        }
+    }
+    fn complete(self) -> bool {
+        self.attempted && self.returned == Some(self.requested as isize) && self.errno.is_none()
+    }
+}
+impl std::fmt::Display for NativeDiagnosticWrite {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{{\"attempted\":{},\"requested\":{},\"returned\":{},\"errno\":{}}}",
+            self.attempted,
+            self.requested,
+            JsonOption(self.returned),
+            JsonOption(self.errno)
+        )
+    }
+}
+#[derive(Debug)]
+struct NativeDiagnosticMain {
+    pid: u32,
+    row: Option<NativeBirthRow>,
+    format_ok: bool,
+    output: NativeDiagnosticWrite,
+    costs: [NativeDiagnosticCost; 3], // format, one write, owned disposal
+}
+impl std::fmt::Display for NativeDiagnosticMain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // A failed main write can leave a partial JSON fragment. Fence it in
+        // this same bounded receipt attempt so the numeric receipt has a line.
+        if self.output.attempted && !self.output.complete() {
+            f.write_str("\n")?;
+        }
+        write!(
+            f,
+            concat!(
+                "{{\"event\":\"dream-c1 parent_native_bookkeeping\",\"cutoff\":\"after_birth_write_and_disposal\",",
+                "\"receipt_tail\":\"separately_measured_checked_paid; failure_outcome_retains_tail_samples\",",
+                "\"pid\":{},\"birth\":{},\"format_ok\":{},\"output\":{},",
+                "\"format\":{},\"write\":{},\"dispose\":{}}}"
+            ),
+            self.pid,
+            JsonOption(self.row),
+            self.format_ok,
+            self.output,
+            self.costs[0],
+            self.costs[1],
+            self.costs[2]
+        )
+    }
+}
+#[derive(Debug)]
+struct NativeDiagnosticOutcome {
+    main: NativeDiagnosticMain,
+    receipt_format_ok: bool,
+    receipt_output: NativeDiagnosticWrite,
+    receipt_costs: [NativeDiagnosticCost; 2], // format, one write
+}
+impl NativeDiagnosticOutcome {
+    fn accepted(&self) -> bool {
+        self.main.row.is_some_and(|r| r.settled)
+            && self.main.format_ok
+            && self.main.output.complete()
+            && self.receipt_format_ok
+            && self.receipt_output.complete()
+            && self
+                .main
+                .costs
+                .iter()
+                .chain(&self.receipt_costs)
+                .all(|c| c.accepted())
+    }
+}
+impl NativeBirthDiagnostic {
+    fn row(
+        &self,
+        status: Option<std::process::ExitStatus>,
+        via: NativeSettlement,
+    ) -> Option<NativeBirthRow> {
+        use std::os::unix::process::ExitStatusExt;
+        Some(NativeBirthRow {
+            identity: NativeDiagnosticIdentity::new(self)?,
+            cpu_start_ns: self.cpu_start_ns,
+            cpu_end_ns: self.cpu_end_ns,
+            original: self.original,
+            applied_guard: self.applied_guard.get(),
+            permit_attempted: self.permit_attempted,
+            settled: status.is_some(),
+            via,
+            exit_code: status.and_then(|s| s.code()),
+            exit_signal: status.and_then(|s| s.signal()),
+            diagnostic_only: self.diagnostic_only,
+        })
+    }
+    fn emit_with<const N: usize>(
+        self,
+        status: Option<std::process::ExitStatus>,
+        via: NativeSettlement,
+        mut clock: impl FnMut() -> u64,
+        mut output: impl FnMut(&[u8]) -> (isize, Option<i32>),
+        mut pay: impl FnMut(NativeDiagnosticCost, Instant),
+    ) -> NativeDiagnosticOutcome {
+        // Settlement precedes this entire function. No heap serializer or
+        // output occurs inside the original native birth span.
+        let pid = self.pid;
+        let ((mut line, row, format_ok), format_cost) =
+            native_diagnostic_step(&mut clock, &mut pay, || {
+                let mut line = NativeDiagnosticLine::<N>::new();
+                let row = self.row(status, via);
+                let ok = row.is_some_and(|r| line.format(r));
+                (line, row, ok)
+            });
+        let (output_record, write_cost) = native_diagnostic_step(&mut clock, &mut pay, || {
+            NativeDiagnosticWrite::perform(format_ok.then(|| line.bytes()), &mut output)
+        });
+        let (_, dispose_cost) = native_diagnostic_step(&mut clock, &mut pay, || drop(self));
+        let main = NativeDiagnosticMain {
+            pid,
+            row,
+            format_ok,
+            output: output_record,
+            costs: [format_cost, write_cost, dispose_cost],
+        };
+        // Finite terminal receipt: it reports completed main units, not its own
+        // future ending sample. Both receipt units still get measured/checked/
+        // paid; any failure returns their exact numeric/unknown samples to the
+        // enclosing failing test. No recursive receipt-for-receipt or assertion
+        // that the external test-harness error-reporting tail was measured.
+        let (receipt_format_ok, receipt_format_cost) =
+            native_diagnostic_step(&mut clock, &mut pay, || line.format(&main));
+        let (receipt_output, receipt_write_cost) =
+            native_diagnostic_step(&mut clock, &mut pay, || {
+                NativeDiagnosticWrite::perform(receipt_format_ok.then(|| line.bytes()), &mut output)
+            });
+        NativeDiagnosticOutcome {
+            main,
+            receipt_format_ok,
+            receipt_output,
+            receipt_costs: [receipt_format_cost, receipt_write_cost],
+        }
+    }
+    fn emit(
+        self,
+        status: Option<std::process::ExitStatus>,
+        via: NativeSettlement,
+    ) -> NativeDiagnosticOutcome {
+        self.emit_with::<NATIVE_DIAGNOSTIC_CAPACITY>(
+            status,
+            via,
+            parent_cpu,
+            |bytes| {
+                let written = unsafe { libc::write(2, bytes.as_ptr().cast(), bytes.len()) };
+                let errno = (written < 0)
+                    .then(|| std::io::Error::last_os_error().raw_os_error())
+                    .flatten();
+                (written, errno)
+            },
+            |cost, end| {
+                if cost.owed_ns.is_some() {
+                    // checked debt arithmetic above; no MAX/unknown becomes zero.
+                    parent_rest(cost.cpu_ns.unwrap(), end);
+                }
+            },
+        )
     }
 }
 fn retain_native_diagnostic(
     diagnostic: &mut Option<NativeBirthDiagnostic>,
     status: Option<std::process::ExitStatus>,
-    via: &str,
+    via: NativeSettlement,
 ) {
     if let Some(record) = diagnostic.take() {
         let outcome = record.emit(status, via);
-        // A diagnostic failure must fail a normal test, but never replace an
-        // original refusal with a second panic during owned-effect unwinding.
-        if !std::thread::panicking() {
-            outcome.expect("native birth diagnostic was not measured and retained");
+        if !outcome.accepted() {
+            // Only external, already-failing test-harness error reporting is
+            // beyond the explicit receipt cutoff. Keep numeric tail failures
+            // even during an earlier refusal's unwind; never double-panic.
+            if std::thread::panicking() {
+                let _ = writeln!(
+                    std::io::stderr().lock(),
+                    "\nnative diagnostic failure external_error_tail_unmeasured {outcome:?}"
+                );
+            } else {
+                panic!("native diagnostic failure external_error_tail_unmeasured {outcome:?}");
+            }
         }
     }
+}
+// Adapted from this project's bootstrap allocator witness. Keep the origin:
+// https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+struct NativeDiagnosticAllocator;
+thread_local! {
+    static NATIVE_DIAGNOSTIC_ALLOCATIONS: std::cell::Cell<Option<(usize, usize)>> = const { std::cell::Cell::new(None) };
+}
+unsafe impl std::alloc::GlobalAlloc for NativeDiagnosticAllocator {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        let _ = NATIVE_DIAGNOSTIC_ALLOCATIONS.try_with(|c| c.set(c.get().map(|(a, d)| (a + 1, d))));
+        unsafe { std::alloc::System.alloc(layout) }
+    }
+    unsafe fn dealloc(&self, p: *mut u8, layout: std::alloc::Layout) {
+        let _ = NATIVE_DIAGNOSTIC_ALLOCATIONS.try_with(|c| c.set(c.get().map(|(a, d)| (a, d + 1))));
+        unsafe { std::alloc::System.dealloc(p, layout) }
+    }
+    unsafe fn realloc(&self, p: *mut u8, layout: std::alloc::Layout, n: usize) -> *mut u8 {
+        let _ = NATIVE_DIAGNOSTIC_ALLOCATIONS.try_with(|c| c.set(c.get().map(|(a, d)| (a + 1, d))));
+        unsafe { std::alloc::System.realloc(p, layout, n) }
+    }
+}
+#[global_allocator]
+static NATIVE_DIAGNOSTIC_ALLOCATOR: NativeDiagnosticAllocator = NativeDiagnosticAllocator;
+fn injected_native_diagnostic() -> NativeBirthDiagnostic {
+    NativeBirthDiagnostic {
+        pid: 123,
+        run: w::Ulid("01ARZ3NDEKTSV4RRFFQ69G5FAV".into()),
+        artifact: w::hash(b"injected; never executed"),
+        cpu_start_ns: Some(100),
+        cpu_end_ns: Some(200),
+        original: NativeBirthObservation::new(Some(100), Duration::from_nanos(200)),
+        applied_guard: std::cell::Cell::new(None),
+        permit_attempted: false,
+        diagnostic_only: true,
+    }
+}
+#[test]
+fn native_birth_diagnostic_formatter_is_bounded_and_allocation_free() {
+    use std::os::unix::process::ExitStatusExt;
+    let record = injected_native_diagnostic();
+    let mut row = record
+        .row(
+            Some(std::process::ExitStatus::from_raw(2 << 8)),
+            NativeSettlement::WorkerDrop,
+        )
+        .unwrap();
+    // Independent field upper bounds, even where this combination cannot be an
+    // actual observation: u32<=10digits, u64<=20, u128<=39, signed status<=11.
+    row.identity.pid = u32::MAX;
+    row.cpu_start_ns = Some(u64::MAX - 1);
+    row.cpu_end_ns = Some(u64::MAX - 1);
+    row.original.native_cpu_ns = Some(u64::MAX - 1);
+    row.original.native_wall_ns = u128::MAX;
+    row.original.cpu_over_budget = Some(true);
+    row.original.wall_over_budget = false;
+    row.original.unknown_cpu = false;
+    row.applied_guard = Some(row.original);
+    row.exit_code = Some(i32::MIN);
+    row.exit_signal = Some(i32::MIN);
+    row.settled = false;
+    row.diagnostic_only = false;
+    let cost = NativeDiagnosticCost {
+        start_ns: Some(u64::MAX - 1),
+        end_ns: Some(u64::MAX - 1),
+        cpu_ns: Some(u64::MAX - 1),
+        owed_ns: Some(u64::MAX - 1),
+        over_budget: Some(false),
+        repayment_overflow: false,
+    };
+    let main = NativeDiagnosticMain {
+        pid: u32::MAX,
+        row: Some(row),
+        format_ok: false,
+        output: NativeDiagnosticWrite {
+            attempted: false,
+            requested: usize::MAX,
+            returned: Some(isize::MIN),
+            errno: Some(i32::MIN),
+        },
+        costs: [cost; 3],
+    };
+    let mut line = NativeDiagnosticLine::<NATIVE_DIAGNOSTIC_CAPACITY>::new();
+    NATIVE_DIAGNOSTIC_ALLOCATIONS.with(|c| c.set(Some((0, 0))));
+    let row_ok = line.format(row);
+    let row_bytes = line.len;
+    let receipt_ok = line.format(&main);
+    let receipt_bytes = line.len;
+    let counts = NATIVE_DIAGNOSTIC_ALLOCATIONS.with(|c| c.replace(None).unwrap());
+    assert!(row_ok && receipt_ok);
+    assert_eq!(counts, (0, 0));
+    assert_eq!(line.bytes().last(), Some(&b'\n'));
+    assert!(row_bytes < NATIVE_DIAGNOSTIC_CAPACITY && receipt_bytes < NATIVE_DIAGNOSTIC_CAPACITY);
+    eprintln!(
+        "native-diagnostic max_birth_bytes={row_bytes} max_receipt_bytes={receipt_bytes} fixed_capacity={NATIVE_DIAGNOSTIC_CAPACITY} allocations=0"
+    );
+    let mut exact = NativeDiagnosticLine::<4>::new();
+    let mut short = NativeDiagnosticLine::<3>::new();
+    NATIVE_DIAGNOSTIC_ALLOCATIONS.with(|c| c.set(Some((0, 0))));
+    assert!(exact.format(123));
+    assert!(!short.format(123));
+    let counts = NATIVE_DIAGNOSTIC_ALLOCATIONS.with(|c| c.replace(None).unwrap());
+    assert_eq!(exact.bytes(), b"123\n");
+    assert_eq!(counts, (0, 0), "overflow errors must not allocate either");
+    NATIVE_DIAGNOSTIC_ALLOCATIONS.with(|c| c.set(Some((0, 0))));
+    let allocating_control = std::hint::black_box(serde_json::json!({"pid": row.identity.pid}));
+    let counts = NATIVE_DIAGNOSTIC_ALLOCATIONS.with(|c| c.replace(None).unwrap());
+    assert!(
+        counts.0 > 0,
+        "the former Value-tree path must actually allocate"
+    );
+    drop(allocating_control);
+    let mut invalid = injected_native_diagnostic();
+    invalid.run.0 = "\"".repeat(26);
+    assert!(invalid.row(None, NativeSettlement::Injected).is_none());
+    invalid = injected_native_diagnostic();
+    invalid.artifact.0.replace_range(..1, "\"");
+    assert!(invalid.row(None, NativeSettlement::Injected).is_none());
+}
+#[test]
+fn native_birth_diagnostic_cost_boundaries_unknown_and_overflow() {
+    for (start, end, cpu, over, overflow, accepted) in [
+        (100, 100, Some(0), Some(false), false, true),
+        (100, 1_000_100, Some(1_000_000), Some(false), false, true),
+        (100, 1_000_101, Some(1_000_001), Some(true), false, false),
+        (u64::MAX, 100, None, None, false, false),
+        (100, u64::MAX, None, None, false, false),
+        (100, 99, None, None, false, false),
+        (0, u64::MAX - 1, Some(u64::MAX - 1), Some(true), true, false),
+    ] {
+        let cost = NativeDiagnosticCost::new(start, end);
+        assert_eq!(cost.cpu_ns, cpu);
+        assert_eq!(cost.over_budget, over);
+        assert_eq!(cost.repayment_overflow, overflow);
+        assert_eq!(cost.accepted(), accepted);
+        assert_eq!(
+            cost.owed_ns,
+            cpu.and_then(|n| n.max(1_000_000).checked_mul(9))
+        );
+        let mut line = NativeDiagnosticLine::<512>::new();
+        assert!(line.format(cost));
+        let json: serde_json::Value = serde_json::from_slice(line.bytes()).unwrap();
+        if let Some(cpu) = cpu {
+            assert_eq!(json["cpu_ns"].as_u64(), Some(cpu));
+        } else {
+            assert!(json["cpu_ns"].is_null());
+        }
+    }
+    let unknown = NativeDiagnosticCost::new(u64::MAX, 1);
+    assert!(!unknown.accepted() && unknown.cpu_ns.unwrap_or(0) <= 1_000_000);
+    let overflow = NativeDiagnosticCost::new(0, u64::MAX - 1);
+    assert!(!overflow.accepted() && overflow.owed_ns.is_none());
+    assert_ne!(
+        9_u64.wrapping_mul(u64::MAX - 1),
+        0,
+        "wrapping is not valid debt"
+    );
+}
+#[test]
+fn native_birth_diagnostic_steps_retain_numeric_effects_and_dispose_before_end() {
+    use std::os::unix::process::ExitStatusExt;
+    // Pure controller injection: no Child, command, pipe, file or sleep. Every
+    // main/tail phase can fail independently without losing its numeric samples.
+    for failed_phase in 0..=5 {
+        for failure in 0..3 {
+            let record = injected_native_diagnostic();
+            let mut samples: usize = 0;
+            let mut writes = 0;
+            let mut paid = [None; 5];
+            let mut pay_count = 0;
+            let mut receipt = [0; NATIVE_DIAGNOSTIC_CAPACITY];
+            let mut receipt_len = 0;
+            NATIVE_DIAGNOSTIC_ALLOCATIONS.with(|c| c.set(Some((0, 0))));
+            let outcome = record.emit_with::<NATIVE_DIAGNOSTIC_CAPACITY>(
+                Some(std::process::ExitStatus::from_raw(0)),
+                NativeSettlement::Injected,
+                || {
+                    samples += 1;
+                    if samples == 6 {
+                        assert!(
+                            NATIVE_DIAGNOSTIC_ALLOCATIONS.with(|c| c.get().unwrap().1) >= 2,
+                            "owned identity strings must be disposed BEFORE ending disposal sample"
+                        );
+                    }
+                    let phase = samples.div_ceil(2);
+                    if phase == failed_phase {
+                        match failure {
+                            0 => return if samples % 2 == 1 { 100 } else { 1_000_101 },
+                            1 => return u64::MAX,
+                            _ => return if samples % 2 == 1 { 0 } else { u64::MAX - 1 },
+                        }
+                    }
+                    100 + samples as u64
+                },
+                |bytes| {
+                    writes += 1;
+                    if writes == 2 {
+                        receipt[..bytes.len()].copy_from_slice(bytes);
+                        receipt_len = bytes.len();
+                    }
+                    (bytes.len() as isize, None)
+                },
+                |cost, _| {
+                    paid[pay_count] = cost.owed_ns;
+                    pay_count += 1;
+                },
+            );
+            let counts = NATIVE_DIAGNOSTIC_ALLOCATIONS.with(|c| c.replace(None).unwrap());
+            assert_eq!(counts.0, 0, "real typed/stack path must not allocate");
+            assert_eq!((samples, writes, pay_count), (10, 2, 5));
+            assert_eq!(outcome.accepted(), failed_phase == 0);
+            let all = [
+                outcome.main.costs[0],
+                outcome.main.costs[1],
+                outcome.main.costs[2],
+                outcome.receipt_costs[0],
+                outcome.receipt_costs[1],
+            ];
+            for (index, cost) in all.iter().enumerate() {
+                assert_eq!(cost.owed_ns, paid[index]);
+                if index + 1 == failed_phase {
+                    assert!(!cost.accepted());
+                    match failure {
+                        0 => assert_eq!(cost.cpu_ns, Some(1_000_001)),
+                        1 => assert_eq!(cost.cpu_ns, None),
+                        _ => assert!(cost.repayment_overflow),
+                    }
+                } else {
+                    assert!(cost.accepted());
+                }
+            }
+            let json: serde_json::Value = serde_json::from_slice(&receipt[..receipt_len]).unwrap();
+            assert_eq!(json["cutoff"], "after_birth_write_and_disposal");
+            assert_eq!(json["birth"]["actual_settled"], true);
+            assert_eq!(json["birth"]["pid"], 123);
+            if (1..=3).contains(&failed_phase) {
+                let label = ["format", "write", "dispose"][failed_phase - 1];
+                assert_eq!(json[label]["cpu_ns"].as_u64(), all[failed_phase - 1].cpu_ns);
+            }
+        }
+    }
+    for (failed_write, returned, errno) in [
+        (1, -1, Some(libc::EAGAIN)),
+        (1, 1, None),
+        (2, -1, Some(libc::EIO)),
+        (2, 1, None),
+    ] {
+        let mut writes = 0;
+        let mut emitted = [0; NATIVE_DIAGNOSTIC_CAPACITY * 2];
+        let mut emitted_len = 0;
+        let outcome = injected_native_diagnostic().emit_with::<NATIVE_DIAGNOSTIC_CAPACITY>(
+            Some(std::process::ExitStatus::from_raw(0)),
+            NativeSettlement::Injected,
+            || 100,
+            |bytes| {
+                writes += 1;
+                let effect = if writes == failed_write {
+                    (returned, errno)
+                } else {
+                    (bytes.len() as isize, None)
+                };
+                if effect.0 > 0 {
+                    let n = usize::try_from(effect.0).unwrap();
+                    emitted[emitted_len..emitted_len + n].copy_from_slice(&bytes[..n]);
+                    emitted_len += n;
+                }
+                effect
+            },
+            |_, _| {},
+        );
+        assert!(!outcome.accepted());
+        assert_eq!(writes, 2, "one attempt per record, no short/error retry");
+        let effect = if failed_write == 1 {
+            outcome.main.output
+        } else {
+            outcome.receipt_output
+        };
+        assert_eq!(effect.returned, Some(returned));
+        assert_eq!(effect.errno, errno);
+        if failed_write == 1 {
+            let final_line = emitted[..emitted_len]
+                .rsplit(|b| *b == b'\n')
+                .find(|line| !line.is_empty())
+                .unwrap();
+            let receipt: serde_json::Value = serde_json::from_slice(final_line).unwrap();
+            assert_eq!(receipt["event"], "dream-c1 parent_native_bookkeeping");
+            assert_eq!(receipt["output"]["returned"], returned);
+            assert_eq!(receipt["birth"]["pid"], 123);
+        }
+    }
+    let mut writes = 0;
+    let overflow = injected_native_diagnostic().emit_with::<1>(
+        Some(std::process::ExitStatus::from_raw(0)),
+        NativeSettlement::Injected,
+        || 100,
+        |_| {
+            writes += 1;
+            (0, None)
+        },
+        |_, _| {},
+    );
+    assert!(!overflow.accepted());
+    assert_eq!(writes, 0, "never submit a truncated row");
+    assert!(!overflow.main.format_ok && !overflow.receipt_format_ok);
+    let unsettled = injected_native_diagnostic().emit_with::<NATIVE_DIAGNOSTIC_CAPACITY>(
+        None,
+        NativeSettlement::Injected,
+        || 100,
+        |bytes| (bytes.len() as isize, None),
+        |_, _| {},
+    );
+    assert!(
+        !unsettled.accepted(),
+        "a synthetic status cannot invent settlement"
+    );
 }
 #[test]
 fn native_birth_diagnostic_and_guard_injected_boundaries() {
@@ -465,7 +1138,15 @@ fn native_birth_diagnostic_and_guard_injected_boundaries() {
             permit_attempted: false,
             diagnostic_only: true,
         };
-        let row = record.row(Some(std::process::ExitStatus::from_raw(2 << 8)), "injected");
+        let typed = record
+            .row(
+                Some(std::process::ExitStatus::from_raw(2 << 8)),
+                NativeSettlement::Injected,
+            )
+            .unwrap();
+        let mut line = NativeDiagnosticLine::<NATIVE_DIAGNOSTIC_CAPACITY>::new();
+        assert!(line.format(typed));
+        let row: serde_json::Value = serde_json::from_slice(line.bytes()).unwrap();
         assert_eq!(row["pid"], 123);
         assert_eq!(row["run_id"], record.run.0);
         assert_eq!(row["artifact_sha256"], record.artifact.0);
@@ -1042,7 +1723,7 @@ impl Drop for HeldWorker {
             retain_native_diagnostic(
                 &mut self.birth_diagnostic,
                 status,
-                "held_drop_after_settle_owned",
+                NativeSettlement::HeldDrop,
             );
         }
     }
@@ -1189,7 +1870,7 @@ impl Worker {
                 retain_native_diagnostic(
                     &mut self.birth_diagnostic,
                     Some(status),
-                    "exact_pid_wait4",
+                    NativeSettlement::ExactPidWait4,
                 );
                 return (status, unsafe { usage.assume_init() });
             }
@@ -1264,7 +1945,7 @@ impl Drop for Worker {
             retain_native_diagnostic(
                 &mut self.birth_diagnostic,
                 status,
-                "worker_drop_after_settle_owned",
+                NativeSettlement::WorkerDrop,
             );
         }
     }
