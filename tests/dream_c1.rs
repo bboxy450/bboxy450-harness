@@ -327,6 +327,180 @@ fn parent_interval(start: u64, end: u64) -> u64 {
     assert_ne!(end, u64::MAX, "unavailable parent ending clock");
     end.checked_sub(start).expect("reversed parent clock")
 }
+fn finite_parent_interval(start: u64, end: u64) -> Option<u64> {
+    (start != u64::MAX && end != u64::MAX)
+        .then(|| end.checked_sub(start))
+        .flatten()
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+struct NativeBirthObservation {
+    native_cpu_ns: Option<u64>,
+    native_wall_ns: u128,
+    cpu_over_budget: Option<bool>,
+    wall_over_budget: bool,
+    unknown_cpu: bool,
+}
+impl NativeBirthObservation {
+    fn new(cpu: Option<u64>, wall: Duration) -> Self {
+        let cpu = cpu.filter(|n| *n != u64::MAX);
+        Self {
+            native_cpu_ns: cpu,
+            native_wall_ns: wall.as_nanos(),
+            cpu_over_budget: cpu.map(|n| n > 2_000_000),
+            wall_over_budget: wall > Duration::from_millis(25),
+            unknown_cpu: cpu.is_none(),
+        }
+    }
+    fn verdict(self) -> Result<u64, &'static str> {
+        let cpu = self.native_cpu_ns.ok_or("unknown native birth cost")?;
+        if self.cpu_over_budget == Some(true) || self.wall_over_budget {
+            return Err("native birth allocation");
+        }
+        Ok(cpu)
+    }
+}
+struct NativeBirthDiagnostic {
+    pid: u32,
+    run: w::Ulid,
+    artifact: w::Hex,
+    cpu_start_ns: Option<u64>,
+    cpu_end_ns: Option<u64>,
+    original: NativeBirthObservation,
+    applied_guard: std::cell::Cell<Option<NativeBirthObservation>>,
+    permit_attempted: bool,
+    diagnostic_only: bool,
+}
+impl NativeBirthDiagnostic {
+    fn row(&self, status: Option<std::process::ExitStatus>, via: &str) -> serde_json::Value {
+        use std::os::unix::process::ExitStatusExt;
+        let applied = self.applied_guard.get();
+        serde_json::json!({
+            "event": "dream-c1 parent_native_birth",
+            "pid": self.pid, "run_id": self.run.0, "artifact_sha256": self.artifact.0,
+            "cpu_start_ns": self.cpu_start_ns, "cpu_end_ns": self.cpu_end_ns,
+            "original": self.original,
+            "original_verdict": self.original.verdict().err(),
+            // Injection controls can deliberately change HeldWorker's samples;
+            // retain the original observation as well as the actually used one.
+            "applied_guard": applied,
+            "native_guard_admitted": applied.map(|s| s.verdict().is_ok()),
+            "permit_attempted": self.permit_attempted,
+            "actual_settled": status.is_some(), "settled_via": via,
+            "exit_code": status.and_then(|s| s.code()),
+            "exit_signal": status.and_then(|s| s.signal()),
+            "diagnostic_only": self.diagnostic_only, "runtime_conformance": false,
+        })
+    }
+    fn emit(self, status: Option<std::process::ExitStatus>, via: &str) -> Result<(), &'static str> {
+        // The original Child and all ending samples were retained before this
+        // record existed. Format/write only AFTER actual settlement, separately
+        // measured and paid; never include telemetry in the native span.
+        let at = parent_cpu();
+        let wrote = {
+            let row = self.row(status, via);
+            let mut stderr = std::io::stderr().lock();
+            serde_json::to_writer(&mut stderr, &row).is_ok() && stderr.write_all(b"\n").is_ok()
+        };
+        drop(self);
+        let used = finite_parent_interval(at, parent_cpu());
+        let end = Instant::now();
+        let used = used.ok_or("unknown native diagnostic bookkeeping cost")?;
+        if used.checked_mul(9).is_none() {
+            return Err("unpayable native diagnostic bookkeeping cost");
+        }
+        parent_rest(used, end);
+        if !wrote {
+            return Err("native diagnostic output failed");
+        }
+        if used > 1_000_000 {
+            return Err("native diagnostic bookkeeping exceeds1ms");
+        }
+        if status.is_none() {
+            return Err("native diagnostic has no actual settlement");
+        }
+        Ok(())
+    }
+}
+fn retain_native_diagnostic(
+    diagnostic: &mut Option<NativeBirthDiagnostic>,
+    status: Option<std::process::ExitStatus>,
+    via: &str,
+) {
+    if let Some(record) = diagnostic.take() {
+        let outcome = record.emit(status, via);
+        // A diagnostic failure must fail a normal test, but never replace an
+        // original refusal with a second panic during owned-effect unwinding.
+        if !std::thread::panicking() {
+            outcome.expect("native birth diagnostic was not measured and retained");
+        }
+    }
+}
+#[test]
+fn native_birth_diagnostic_and_guard_injected_boundaries() {
+    use std::os::unix::process::ExitStatusExt;
+    let ns = Duration::from_nanos;
+    for (cpu, wall, cpu_over, wall_over, unknown, accepted) in [
+        (Some(0), 0, Some(false), false, false, true),
+        (Some(2_000_000), 25_000_000, Some(false), false, false, true),
+        (Some(2_000_001), 25_000_000, Some(true), false, false, false),
+        (Some(2_000_000), 25_000_001, Some(false), true, false, false),
+        (Some(2_000_001), 25_000_001, Some(true), true, false, false),
+        (None, 25_000_000, None, false, true, false),
+        (None, 25_000_001, None, true, true, false),
+        (Some(u64::MAX), 0, None, false, true, false),
+    ] {
+        let sample = NativeBirthObservation::new(cpu, ns(wall));
+        assert_eq!(sample.cpu_over_budget, cpu_over);
+        assert_eq!(sample.wall_over_budget, wall_over);
+        assert_eq!(sample.unknown_cpu, unknown);
+        assert_eq!(sample.verdict().is_ok(), accepted);
+        let record = NativeBirthDiagnostic {
+            pid: 123,
+            run: w::Ulid("01ARZ3NDEKTSV4RRFFQ69G5FAV".into()),
+            artifact: w::hash(b"injected; never executed"),
+            cpu_start_ns: Some(100),
+            cpu_end_ns: cpu.and_then(|n| n.checked_add(100)),
+            original: sample,
+            applied_guard: std::cell::Cell::new(Some(sample)),
+            permit_attempted: false,
+            diagnostic_only: true,
+        };
+        let row = record.row(Some(std::process::ExitStatus::from_raw(2 << 8)), "injected");
+        assert_eq!(row["pid"], 123);
+        assert_eq!(row["run_id"], record.run.0);
+        assert_eq!(row["artifact_sha256"], record.artifact.0);
+        assert_eq!(row["original"]["native_wall_ns"], wall);
+        assert_eq!(row["actual_settled"], true);
+        assert_eq!(row["exit_code"], 2);
+        assert_eq!(row["diagnostic_only"], true);
+        assert_eq!(row["runtime_conformance"], false);
+        if unknown {
+            assert!(row["original"]["native_cpu_ns"].is_null());
+        } else {
+            assert_eq!(row["original"]["native_cpu_ns"].as_u64(), cpu);
+        }
+    }
+    for (start, end) in [(u64::MAX, 100), (100, u64::MAX), (100, 99)] {
+        let cpu = finite_parent_interval(start, end);
+        assert_eq!(cpu, None);
+        assert!(NativeBirthObservation::new(cpu, ns(0)).verdict().is_err());
+    }
+    assert_eq!(finite_parent_interval(100, 100), Some(0));
+    assert_eq!(finite_parent_interval(100, 101), Some(1));
+    // Causal broken guards really admit the independently excessive/unknown
+    // sample that the shared guard rejects. No worker/process is needed.
+    let cpu_bad = NativeBirthObservation::new(Some(2_000_001), ns(0));
+    let omit_cpu = |s: NativeBirthObservation| s.native_cpu_ns.is_some() && !s.wall_over_budget;
+    assert!(cpu_bad.verdict().is_err() && omit_cpu(cpu_bad));
+    let wall_bad = NativeBirthObservation::new(Some(0), ns(25_000_001));
+    let omit_wall = |s: NativeBirthObservation| s.cpu_over_budget == Some(false);
+    assert!(wall_bad.verdict().is_err() && omit_wall(wall_bad));
+    let unknown_bad = NativeBirthObservation::new(None, ns(0));
+    let unknown_as_zero = |s: NativeBirthObservation| {
+        s.native_cpu_ns.unwrap_or(0) <= 2_000_000 && !s.wall_over_budget
+    };
+    assert!(unknown_bad.verdict().is_err() && unknown_as_zero(unknown_bad));
+}
 #[test]
 fn unavailable_or_reversed_parent_samples_never_become_zero_cost() {
     for (start, end) in [(u64::MAX, u64::MAX), (100, u64::MAX), (100, 99)] {
@@ -489,6 +663,7 @@ struct HeldWorker {
     readiness_ns: u64,
     native_cpu: Option<u64>,
     native_wall: Duration,
+    birth_diagnostic: Option<NativeBirthDiagnostic>,
     marker: String,
     entry_trace: String,
     entry_observed_ns: u64,
@@ -516,6 +691,16 @@ impl HeldWorker {
         let job_deadline = Instant::now() + Duration::from_secs(30);
         let prepare_at = parent_cpu();
         let expected_schema = w::schema_hash();
+        let diagnostic_only =
+            std::env::var_os("DREAM_C1_DIAGNOSTIC_ONLY").is_some_and(|v| v == "1");
+        if let Some(expected) = std::env::var_os("DREAM_C1_EXPECTED_WORKER_SHA256") {
+            assert_eq!(
+                expected,
+                worker_hash.0.as_str(),
+                "diagnostic artifact changed before birth"
+            );
+        }
+        let artifact = worker_hash.clone();
         let (read, write) = pipe_files();
         let fd = read.as_raw_fd();
         let birth = ulid::Ulid::new();
@@ -579,11 +764,24 @@ impl HeldWorker {
         );
         let wall_at = Instant::now();
         // Retain actual Child before evaluating the ending native clock/verdict.
-        let child = command.spawn().unwrap();
+        let spawned = command.spawn();
         let native_wall = wall_at.elapsed();
         let spawn_return_ns = boot::monotonic_ns();
         let end_cpu = parent_cpu();
         let birth_end = Instant::now();
+        let retain_at = parent_cpu();
+        let native_cpu = finite_parent_interval(native_at, end_cpu);
+        // A failed spawn also retains the ending samples before formatting.
+        // No returned Child means effect/settlement are unknown, never absence.
+        let child = spawned.unwrap_or_else(|error| {
+            panic!(
+                "native spawn returned no Child run={} artifact={} samples={:?} effect=unknown settlement=unknown error={error:?}",
+                run.0,
+                artifact.0,
+                NativeBirthObservation::new(native_cpu, native_wall)
+            )
+        });
+        let pid = child.id();
         let readiness_ns = 0;
         let inherited_read_number = read.as_raw_fd();
         let mut result = Self {
@@ -603,12 +801,19 @@ impl HeldWorker {
             birth_end,
             launched,
             readiness_ns,
-            native_cpu: if end_cpu == u64::MAX {
-                None
-            } else {
-                end_cpu.checked_sub(native_at)
-            },
+            native_cpu,
             native_wall,
+            birth_diagnostic: Some(NativeBirthDiagnostic {
+                pid,
+                run,
+                artifact,
+                cpu_start_ns: (native_at != u64::MAX).then_some(native_at),
+                cpu_end_ns: (end_cpu != u64::MAX).then_some(end_cpu),
+                original: NativeBirthObservation::new(native_cpu, native_wall),
+                applied_guard: std::cell::Cell::new(None),
+                permit_attempted: false,
+                diagnostic_only,
+            }),
             marker: String::new(),
             entry_trace: String::new(),
             entry_observed_ns: 0,
@@ -651,6 +856,13 @@ impl HeldWorker {
             .checked_add(boot::WINDOW_NS)
             .unwrap();
         result.permit.deadline_ns = result.readiness_ns;
+        let retained_cpu = parent_interval(retain_at, parent_cpu());
+        let retained_end = Instant::now();
+        parent_rest(retained_cpu, retained_end);
+        assert!(
+            retained_cpu <= 1_000_000,
+            "native effect retention bookkeeping exceeds1ms"
+        );
         if bypass.is_empty() {
             result.marker = result.read_waiting();
         }
@@ -711,11 +923,11 @@ impl HeldWorker {
         }
     }
     fn launch_verdict(&self) -> Result<u64, &'static str> {
-        let cpu = self.native_cpu.ok_or("unknown native birth cost")?;
-        if cpu > 2_000_000 || self.native_wall > Duration::from_millis(25) {
-            return Err("native birth allocation");
+        let observed = NativeBirthObservation::new(self.native_cpu, self.native_wall);
+        if let Some(record) = &self.birth_diagnostic {
+            record.applied_guard.set(Some(observed));
         }
-        Ok(cpu)
+        observed.verdict()
     }
     fn grant_verdict(&self) -> Result<(), &'static str> {
         if self.permit.binding != self.frozen_binding {
@@ -748,6 +960,7 @@ impl HeldWorker {
             reaped: false,
             launched: self.launched,
             bootstrap_lease: self.lease.take(),
+            birth_diagnostic: self.birth_diagnostic.take(),
             job_deadline: self.job_deadline,
         };
         let setup_cpu = parent_interval(setup_at, parent_cpu());
@@ -760,6 +973,9 @@ impl HeldWorker {
         let grant_at = parent_cpu();
         self.grant_verdict().expect("handoff refused");
         let bytes = boot::encode(&self.permit);
+        if let Some(record) = &mut worker.birth_diagnostic {
+            record.permit_attempted = true;
+        }
         let wrote = unsafe {
             libc::write(
                 worker.bootstrap_lease.as_ref().unwrap().as_raw_fd(),
@@ -822,6 +1038,12 @@ impl Drop for HeldWorker {
         if let Some(child) = self.child.as_mut() {
             drop(child.stdin.take());
             settle_owned(child);
+            let status = child.try_wait().ok().flatten();
+            retain_native_diagnostic(
+                &mut self.birth_diagnostic,
+                status,
+                "held_drop_after_settle_owned",
+            );
         }
     }
 }
@@ -834,6 +1056,7 @@ struct Worker {
     reaped: bool,
     launched: Instant,
     bootstrap_lease: Option<std::fs::File>,
+    birth_diagnostic: Option<NativeBirthDiagnostic>,
     job_deadline: Instant,
 }
 impl Worker {
@@ -962,9 +1185,13 @@ impl Worker {
             if pid > 0 {
                 assert_eq!(pid as u32, self.child.id());
                 self.reaped = true;
-                return (std::process::ExitStatus::from_raw(status), unsafe {
-                    usage.assume_init()
-                });
+                let status = std::process::ExitStatus::from_raw(status);
+                retain_native_diagnostic(
+                    &mut self.birth_diagnostic,
+                    Some(status),
+                    "exact_pid_wait4",
+                );
+                return (status, unsafe { usage.assume_init() });
             }
             if pid < 0 {
                 assert_eq!(
@@ -1033,6 +1260,12 @@ impl Drop for Worker {
             drop(self.bootstrap_lease.take());
             drop(self.input.take());
             settle_owned(&mut self.child);
+            let status = self.child.try_wait().ok().flatten();
+            retain_native_diagnostic(
+                &mut self.birth_diagnostic,
+                status,
+                "worker_drop_after_settle_owned",
+            );
         }
     }
 }
