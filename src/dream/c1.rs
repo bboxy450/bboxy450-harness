@@ -1134,9 +1134,10 @@ impl HelperGroup {
         // Unexpected/unknown identities go to the full custody-preserving
         // validator immediately. All hint CPU and elapsed time remain in Q.
         for member in self.members.iter().filter(|member| member.pid > 0) {
-            if member.pid == self.pgid && super::resolve::helper_exited(member.pid) == Ok(true) {
-                continue;
-            }
+            // helper_tick already sampled the retained unreaped leader here:
+            // positive exit invokes the full validator instead of this hint.
+            // An exit racing that earlier negative makes TASKALLINFO unavailable
+            // and immediately invokes the same complete exit/custody proof.
             let mut info = std::mem::MaybeUninit::<libc::proc_taskallinfo>::uninit();
             let size = std::mem::size_of::<libc::proc_taskallinfo>() as i32;
             if unsafe {
@@ -1450,6 +1451,9 @@ impl HelperGroup {
         }
         let member = self.members[index];
         self.note_incarnation(index, member);
+        if self.grant.slots[index].ack_ns.is_some() {
+            return Ok(()); // The same identity already owns this exact endpoint.
+        }
         let end = self.ledger_clock()?;
         if end < self.grant.t0_ns {
             self.metrics.coverage_known = false;
@@ -2940,6 +2944,30 @@ impl HelperGroup {
             {
                 return Err(());
             }
+            // Capture the previous ACK before installing this sample's first
+            // tentative endpoint. RI start identity, token/image and positive
+            // thread quiescence are already established; the remaining RSS/CPU
+            // bookkeeping is still contemporaneous controller C. Unknown or
+            // changed-exec slots retain their full through-closure windows.
+            let acknowledged_before_sample =
+                self.grant.opened && self.grant.slots[index].ack_ns.is_some();
+            if self.grant.opened
+                && !self.grant.slots[index].through_closure
+                && prior.pid == pid
+                && prior.birth == birth
+                && prior.start_abstime != 0
+                && prior.audit_version != 0
+                && prior.audit_version == audit_version
+                && prior.audit_token.value == audit_token.value
+                && prior.image_phase == HelperImagePhase::Descendant
+                && image_phase == HelperImagePhase::Descendant
+                && !member_fresh_exec_ack
+                && info.pbi_status == 4
+                && task.pti_threadnum == 1
+                && task.pti_numrunning == 0
+            {
+                self.acknowledge_slot(index)?;
+            }
             if index == 0 && !self.ready && self.metrics.grants == 0 {
                 if usage.ri_user_time != 0 {
                     return Err(());
@@ -2957,8 +2985,7 @@ impl HelperGroup {
             if cpu < prior.cpu {
                 return Err(());
             }
-            let invalid_user_after_ack = self.grant.opened
-                && self.grant.slots[index].ack_ns.is_some()
+            let invalid_user_after_ack = acknowledged_before_sample
                 && audit_version == prior.audit_version
                 && usage.ri_user_time != prior.user_ticks;
             rss_sum = rss_sum.checked_add(usage.ri_resident_size).ok_or(())?;

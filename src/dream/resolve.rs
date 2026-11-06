@@ -1827,48 +1827,67 @@ fn selected_command_input_owned(
         loop {
             helper_hook(retained_ticket, 1)?;
             let poll = helper_stamp(HelperPhase::FirstPoll, false);
-            if let Some(input) = input {
-                if sent == input.len() {
-                    stdin.take();
-                } else if let Some(stdin) = stdin.as_mut() {
-                    let end = (sent + 4096).min(input.len());
-                    match stdin.write(&input[sent..end]) {
-                        Ok(0) => return Err(Invalid("helper stdin stalled")),
-                        Ok(n) => sent += n,
+            let mut poll_end = poll;
+            let mut known_clock = poll.cpu != u64::MAX;
+            let mut exited = false;
+            // Reuse this admitted pipe span and its pre-reserved capture. Each
+            // round retains the nonreaping exit sample; a blocked/interrupted
+            // operation yields to the same control/debt handoff without retry.
+            // The finite batch also closes at the existing400us checkpoint,
+            // leaving the complete inclusive1ms verdict to helper_poll.
+            if known_clock {
+                for _ in 0..64 {
+                    let mut yield_io = false;
+                    if let Some(input) = input {
+                        if sent == input.len() {
+                            stdin.take();
+                        } else if let Some(stdin) = stdin.as_mut() {
+                            let end = (sent + chunk.len()).min(input.len());
+                            match stdin.write(&input[sent..end]) {
+                                Ok(0) => return Err(Invalid("helper stdin stalled")),
+                                Ok(n) => sent += n,
+                                Err(e)
+                                    if matches!(
+                                        e.kind(),
+                                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                                    ) => yield_io = true,
+                                Err(_) => return Err(Invalid("helper stdin unavailable")),
+                            }
+                        }
+                        if sent == input.len() {
+                            stdin.take();
+                        }
+                    }
+                    match pipe.read(&mut chunk) {
+                        Ok(0) => yield_io = true,
+                        Ok(n) => {
+                            if bytes.len() + n > OUTPUT {
+                                return Err(Invalid("resource_limit: helper output bound"));
+                            }
+                            bytes.extend_from_slice(&chunk[..n]);
+                        }
                         Err(e)
                             if matches!(
                                 e.kind(),
                                 std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
-                            ) => {}
-                        Err(_) => return Err(Invalid("helper stdin unavailable")),
+                            ) => yield_io = true,
+                        Err(_) => return Err(Invalid("helper output unavailable")),
+                    }
+                    exited = helper_exited(pgid)?;
+                    poll_end = helper_stamp(HelperPhase::FirstPoll, true);
+                    let used = span_cpu(poll, poll_end);
+                    known_clock = used != u64::MAX;
+                    if exited || yield_io || !known_clock || used >= 400_000 {
+                        break;
                     }
                 }
-                if sent == input.len() {
-                    stdin.take();
-                }
             }
-            match pipe.read(&mut chunk) {
-                Ok(n) => {
-                    if bytes.len() + n > OUTPUT {
-                        return Err(Invalid("resource_limit: helper output bound"));
-                    }
-                    bytes.extend_from_slice(&chunk[..n]);
-                }
-                Err(e)
-                    if matches!(
-                        e.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
-                    ) => {}
-                Err(_) => return Err(Invalid("helper output unavailable")),
-            }
-            let exited = helper_exited(pgid)?;
             if first_poll {
                 first_poll = false;
-                helper_record(
-                    HelperPhase::FirstPoll,
-                    poll,
-                    helper_stamp(HelperPhase::FirstPoll, true),
-                )?;
+                helper_record(HelperPhase::FirstPoll, poll, poll_end)?;
+            }
+            if !known_clock {
+                return Err(Invalid("helper IO checkpoint clock unavailable"));
             }
             if exited {
                 return Ok(());
