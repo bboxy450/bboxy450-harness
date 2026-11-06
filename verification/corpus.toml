@@ -2005,3 +2005,48 @@ frontend = "project"
 name = "BrokenHarnessDreamReadMemberWindowAccountingTailDebt"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamReadClosureCodec"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadClosureCodecShape"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadClosureCodecBefore"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadClosureCodecAfter"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadClosureCodecAba"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadClosureCodecIncarnation"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadClosureCodecOfflineIo"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadClosureCodecApproval"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadClosureCodecDebt"
+expected = "safety"
+frontend = "project"

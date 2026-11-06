@@ -8,6 +8,202 @@
 //! bytes, signatures, bounded process IO and allocator behavior remain witnesses.
 use super::*;
 
+/// Shared-codec/currentness projection, not a native lifetime theorem. Owner is
+/// the existing private controller; two platform values and three incarnations
+/// expose observed A-B-A. The nine profiles abstract independently checked
+/// codec, before/after Platform6, incarnation, offline IO, approval and debt facts.
+/// Only finite internal classification is weakly fair; no OS success is assumed.
+pub fn closure_codec(control: u8) -> Model {
+    let suffix = [
+        "",
+        "Shape",
+        "Before",
+        "After",
+        "Aba",
+        "Incarnation",
+        "OfflineIo",
+        "Approval",
+        "Debt",
+    ][control as usize];
+    let mut m = base(
+        &format!("DreamReadClosureCodec{suffix}"),
+        control != 0,
+        &[
+            ("phase", 5, 0),
+            ("profile", 8, 0),
+            ("platform", 1, 0),
+            ("observedChange", 1, 0),
+            ("incarnation", 2, 0),
+            ("codecBound", 1, 0),
+            ("beforeBound", 1, 0),
+            ("debtPaid", 1, 0),
+            ("offlinePayloadReads", 1, 0),
+            ("runtimeApproved", 1, 0),
+        ],
+    );
+    for profile in 0..=8 {
+        act(
+            &mut m,
+            &format!("ParseBoundProfile{profile}"),
+            eq(0, 0),
+            &[
+                (0, Int(1)),
+                (1, Int(profile)),
+                (5, Int(i64::from(profile != 1))),
+                (2, Int(i64::from(profile == 2))),
+                (7, Int(i64::from(profile != 8))),
+            ],
+        );
+    }
+    let shape = if control == 1 { Bool(true) } else { eq(5, 1) };
+    let before = if control == 2 { Bool(true) } else { eq(2, 0) };
+    for valid in 0..=1 {
+        act(
+            &mut m,
+            &format!("BeforeBirthFence{valid}"),
+            all([
+                eq(0, 1),
+                shape.clone(),
+                before.clone(),
+                if valid == 1 {
+                    all([eq(2, 0), eq(5, 1)])
+                } else {
+                    all([eq(2, 0), eq(5, 1)]).negate()
+                },
+            ]),
+            &[
+                (0, Int(2)),
+                (6, Int(valid)),
+                (8, Int(i64::from(control == 6))),
+            ],
+        );
+    }
+    // Separate observations preserve a mismatch even if the next sample is A.
+    for changed in 0..=1 {
+        act(
+            &mut m,
+            &format!("SettleThenObservePlatform{changed}"),
+            all([
+                eq(0, 2),
+                if changed == 1 {
+                    eq(1, 3).or(eq(1, 4))
+                } else {
+                    eq(1, 3).or(eq(1, 4)).negate()
+                },
+            ]),
+            &[
+                (0, Int(3)),
+                (2, Int(changed)),
+                (3, Int(changed)),
+                (4, Int(0)),
+            ],
+        );
+    }
+    act(
+        &mut m,
+        "ObservedBReturnsToAWithStickyRevocation",
+        all([eq(0, 3), eq(1, 4)]),
+        &[
+            (0, Int(4)),
+            (2, Int(0)),
+            (3, Int(i64::from(control != 4))),
+            (4, Int(2)),
+        ],
+    );
+    for stale in 0..=1 {
+        act(
+            &mut m,
+            &format!("OtherSettledObservation{stale}"),
+            all([
+                eq(0, 3),
+                eq(1, 4).negate(),
+                if stale == 1 {
+                    eq(1, 5)
+                } else {
+                    eq(1, 5).negate()
+                },
+            ]),
+            &[(0, Int(4)), (4, Int(stale))],
+        );
+    }
+    let current = all([
+        if control == 3 { Bool(true) } else { eq(2, 0) },
+        if control == 3 || control == 4 {
+            Bool(true)
+        } else {
+            eq(3, 0)
+        },
+        if control == 5 || control == 4 {
+            Bool(true)
+        } else {
+            eq(4, 0)
+        },
+        if control == 8 { Bool(true) } else { eq(7, 1) },
+    ]);
+    for valid in 0..=1 {
+        let exact = all([eq(2, 0), eq(3, 0), eq(4, 0), eq(7, 1)]);
+        act(
+            &mut m,
+            &format!("ConditionalComponentEvidenceAfterSettledFence{valid}"),
+            all([
+                eq(0, 4),
+                current.clone(),
+                if valid == 1 {
+                    exact.clone()
+                } else {
+                    exact.negate()
+                },
+            ]),
+            &[
+                (0, Int(5)),
+                (6, Int(valid)),
+                (9, Int(i64::from(control == 7))),
+            ],
+        );
+    }
+    for phase in 1..=4 {
+        let rejected = match phase {
+            1 => all([shape.clone(), before.clone()]).negate(),
+            4 => current.clone().negate(),
+            _ => Bool(false),
+        };
+        act(
+            &mut m,
+            &format!("RefusePhase{phase}"),
+            all([eq(0, phase), rejected]),
+            &[(0, Int(5))],
+        );
+    }
+    safe(
+        &mut m,
+        "BirthRequiresBoundCanonicalCodecAndBeforePlatform",
+        eq(0, 2).negate().or(eq(6, 1)),
+    );
+    for a in m
+        .actions
+        .iter_mut()
+        .filter(|a| a.name.starts_with("RefusePhase"))
+    {
+        a.updates.push((6, Int(1)));
+    }
+    safe(
+        &mut m,
+        "EvidenceRequiresSettledPlatformIncarnationAndPaidDebt",
+        eq(0, 5).negate().or(eq(6, 1)),
+    );
+    safe(&mut m, "OfflineProvenancePayloadsStayOffline", eq(8, 0));
+    safe(&mut m, "PrivateEvidenceNeverRuntimeApproval", eq(9, 0));
+    let fair = (0..m.actions.len()).collect();
+    progress(
+        &mut m,
+        "InternalBoundClassificationTerminates",
+        eq(0, 0).negate(),
+        eq(0, 5),
+        fair,
+    );
+    m
+}
+
 /// Seven independently observed facts at the authenticated selected revision.
 /// A bad fact can be absent, stale or invalid; the concrete verifier distinguishes
 /// Unproven from Fail. Neither variant is an eligible lesson in this abstraction.
@@ -4988,6 +5184,31 @@ pub fn git_sig_temp(control: u8) -> Model {
 mod tests {
     use super::*;
     #[test]
+    fn closure_codec_currentness_has_all_causal_controls() {
+        let good = closure_codec(0).check(100_000).unwrap();
+        assert!(good.violations.is_empty(), "{:?}", good.violations);
+        assert!(good.states.iter().any(|s| s[0] == 5 && s[1] == 0));
+        assert!(good.states.iter().any(|s| s[0] == 4
+            && s[1] == 4
+            && s[2] == 0
+            && s[3] == 1
+            && s[4] == 2));
+        for control in 1..=8 {
+            let broken = closure_codec(control).check(100_000).unwrap();
+            assert!(
+                !broken.violations.is_empty(),
+                "missing causal control {control}"
+            );
+            println!(
+                "control={control} states={} edges={} verdict=safety",
+                broken.states.len(),
+                broken.edges.iter().map(Vec::len).sum::<usize>()
+            );
+        }
+        println!("good states={}", good.states.len());
+    }
+
+    #[test]
     fn dream_read_git_signature_temp_binds_real_inode_and_both_selected_cases() {
         let good = git_sig_temp(0).check(100_000).unwrap();
         println!("HarnessDreamReadGitSigTemp: {} states", good.states.len());
@@ -5754,3 +5975,4 @@ mod tests {
         }
     }
 }
+

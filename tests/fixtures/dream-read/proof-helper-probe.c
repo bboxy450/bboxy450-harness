@@ -683,6 +683,7 @@ static int jfile(struct json_reader *r,struct private_file *f) {
     if(!strcmp(root,"candidate"))f->root=0;else if(!strcmp(root,"fixture"))f->root=1;else return 0;
     return 1;
 }
+static int private_canonical(const unsigned char *bytes,size_t len);
 static int private_decode(const unsigned char *bytes,size_t len,struct private_input *v) {
     if(!len||len>PRIVATE_INPUT_MAX||!private_utf8(bytes,len))return 0;
     memset(v,0,sizeof(*v));v->prefix.fd=v->repo.fd=v->output.fd=-1;
@@ -854,11 +855,18 @@ struct private_patch_span {unsigned source_index,patch_index,patch_mask;struct p
 struct private_patch_info {unsigned count;struct private_patch_span spans[128];struct private_slice raw;};
 static __attribute__((unused)) int jarray(struct json_reader *r) {if(r->depth>=(r->limit?r->limit:6)||!jchar(r,'['))return 0;r->depth++;return 1;}
 static __attribute__((unused)) int jarray_close(struct json_reader *r) {if(!r->depth||!jchar(r,']'))return 0;r->depth--;return 1;}
+static int private_relative_path(const char *path) {
+    if(!*path||*path=='/'||strchr(path,'\r')||strchr(path,'\n'))return 0;
+    const char *p=path;while(*p){const char *e=strchr(p,'/');size_t n=e?(size_t)(e-p):strlen(p);
+        if(!n||(n==1&&p[0]=='.')||(n==2&&p[0]=='.'&&p[1]=='.'))return 0;
+        if(!e)return 1;p=e+1;if(!*p)return 0;
+    }return 0;
+}
 static __attribute__((unused)) int jref(struct json_reader *r,struct private_ref *ref) {
     const unsigned char *start=r->p;char path[4097];
     if(!jobject(r)||!jkey(r,"len",1)||!ju64(r,&ref->len)||!jkey(r,"path",0))return 0;
     ref->path.data=r->p;
-    if(!jstring(r,path,sizeof(path))||!private_path(path,0))return 0;
+    if(!jstring(r,path,sizeof(path))||!private_relative_path(path))return 0;
     ref->path.len=(size_t)(r->p-ref->path.data);
     if(!jkey(r,"sha256",0)||!jhex(r,ref->sha)||!jclose(r))return 0;
     ref->raw.data=start;ref->raw.len=(size_t)(r->p-start);return private_ref_hook?private_ref_hook(ref):1;
@@ -868,6 +876,47 @@ static __attribute__((unused)) int private_inner_checkpoint(void) {
     if(now<private_cost.open_cpu)return private_fail("clock_unknown","reversed inner validation clock");
     if(now-private_cost.open_cpu>=400000)return private_end_unit(private_cost.open_cpu);
     if(clock_ns(CLOCK_MONOTONIC)>=private_cost.deadline)return private_fail("deadline","original inner validation deadline expired");return 1;
+}
+// Canonical depth is value/key depth, with the root at zero. Scalar leaves
+// count; the older reader's container counter is only a secondary stack bound.
+static int private_canonical_value(struct json_reader *r,unsigned depth) {
+    if(depth>10||r->p==r->end)return 0;
+    unsigned c=*r->p;
+    if(c=='{'||c=='[') {
+        r->p++;unsigned count=0;char prior[4097]={0};
+        while(r->p<r->end&&*r->p!=(c=='{'?'}':']')) {
+            if(count>=64||(count&&!jchar(r,',')))return 0;
+            if(c=='{') {char key[4097];if(depth==10||!jstring(r,key,sizeof(key)))return 0;
+                for(size_t i=0;key[i];i++)if((unsigned char)key[i]>127)return 0;
+                if((count&&strcmp(prior,key)>=0)||!jchar(r,':'))return 0;memcpy(prior,key,strlen(key)+1);
+            }
+            if(!private_canonical_value(r,depth+1)||!private_inner_checkpoint())return 0;count++;
+        }
+        return jchar(r,c=='{'?'}':']');
+    }
+    if(c=='"'){char value[4097];return jstring(r,value,sizeof(value));}
+    const char *literal=c=='t'?"true":c=='f'?"false":c=='n'?"null":NULL;
+    if(literal){size_t n=strlen(literal);if((size_t)(r->end-r->p)<n||memcmp(r->p,literal,n))return 0;r->p+=n;return 1;}
+    if(c=='-'){int64_t v;return ji64(r,&v);}uint64_t v;return ju64(r,&v);
+}
+static int private_canonical(const unsigned char *bytes,size_t len) {
+    if(!len||!private_utf8(bytes,len))return 0;struct json_reader r={bytes,bytes+len,0,10};
+    return private_canonical_value(&r,0)&&r.p==r.end;
+}
+// Fixed scalar registry reconciles every jref in SourceLock/Basis, including
+// offline provenance. It has no path resolver, file descriptor or IO effect.
+struct private_ref_binding {struct private_ref ref;unsigned root;};
+static struct private_ref_binding private_ref_bindings[256];
+static unsigned private_ref_binding_count;
+static int private_register_ref(const struct private_ref *ref) {
+    for(unsigned i=0;i<private_ref_binding_count;i++) {
+        const struct private_ref_binding *bound=&private_ref_bindings[i];
+        if(bound->root==private_ref_root&&bound->ref.path.len==ref->path.len&&!memcmp(bound->ref.path.data,ref->path.data,ref->path.len))
+            return bound->ref.len==ref->len&&!strcmp(bound->ref.sha,ref->sha);
+        if(!private_inner_checkpoint())return 0;
+    }
+    if(private_ref_binding_count>=256)return 0;
+    private_ref_bindings[private_ref_binding_count++]=(struct private_ref_binding){*ref,private_ref_root};return 1;
 }
 // BEGIN SOURCE_LOCK_VALIDATOR -- proof_review owns only this marked section.
 // Adapted from bboxy450-harness proof-tool sources.lock.json / patches.lock.json.
@@ -1068,8 +1117,8 @@ struct private_platform {
 struct private_abs {struct private_ref ref;uint64_t dev,ino;int64_t mtime_sec;uint32_t mtime_nsec;};
 struct private_macho {uint32_t cpu,subtype;char uuid[33];struct private_slice rpaths,loads;unsigned rpath_count,load_count;};
 struct private_node {struct private_slice id,install_name;unsigned kind,source,nullable;struct private_ref file,member_index;struct private_macho macho;char platform_uuid[33];};
-struct private_edge {struct private_slice from,to;unsigned mode;};
-struct private_link_map {unsigned tool,count;struct private_ref file;char output_sha[65];struct private_slice inputs;};
+struct private_load {struct private_slice name,target;unsigned mode,cache;};
+struct private_link_map {unsigned tool,count;struct private_ref file;char output_sha[65];struct private_slice output,inputs;};
 struct private_fixture {
     struct private_ref files[32],keys,payload,valid_signature,corrupt_signature;unsigned file_count;
     char ancestor[41],valid[41],corrupt[41],blob[41],signer[41];
@@ -1086,8 +1135,8 @@ struct private_basis {
     struct private_source_info source;struct private_build build;
     struct private_platform platform;struct private_fixture fixture;
     struct private_ref gpg_conf,common_conf;
-    struct private_node nodes[64];struct private_edge edges[128];struct private_link_map links[2];
-    unsigned node_count,edge_count,source_coverage,command_coverage;
+    struct private_node nodes[64];struct private_link_map links[64];
+    unsigned node_count,image_count,link_count,edge_count,source_coverage,command_coverage;
 };
 static int private_text(struct json_reader *r,struct private_slice *span,size_t max,int nonempty) {
     char text[4097];const unsigned char *start=r->p;
@@ -1106,7 +1155,7 @@ static int private_literal(struct json_reader *r,const char *expected) {
     return n<=4096&&jstring(r,text,n+1)&&!strcmp(text,expected);
 }
 static int private_sha40(struct json_reader *r,char out[41]) {return jstring(r,out,41)&&hex_value(out,40);}
-static int private_uuid(struct json_reader *r,char out[33]) {return jstring(r,out,33)&&hex_value(out,32);}
+static int private_uuid(struct json_reader *r,char out[33]) {return jstring(r,out,33)&&hex_value(out,32)&&strcmp(out,"00000000000000000000000000000000");}
 static int private_fingerprint(struct json_reader *r,char out[41]) {
     if(!jstring(r,out,41)||strlen(out)!=40)return 0;
     for(unsigned i=0;i<40;i++)if(!((out[i]>='0'&&out[i]<='9')||(out[i]>='A'&&out[i]<='F')))return 0;return 1;
@@ -1128,6 +1177,7 @@ static int private_platform_read(struct json_reader *r,struct private_platform *
     return jobject(r)&&jkey(r,"arch",1)&&private_literal(r,"aarch64")
         &&jkey(r,"darwin_machine",0)&&jstring(r,p->machine,sizeof(p->machine))&&(!strcmp(p->machine,"arm64")||!strcmp(p->machine,"aarch64"))
         &&jkey(r,"os_build",0)&&jstring(r,p->os_build,sizeof(p->os_build))&&private_os_build(p->os_build)
+        &&jkey(r,"premise",0)&&private_literal(r,"trusted_platform_boundary/1")
         &&jkey(r,"release",0)&&jstring(r,p->release,sizeof(p->release))&&private_decimal_version(p->release,1,2)
         &&jkey(r,"shared_cache_uuid",0)&&private_uuid(r,p->cache_uuid)&&jclose(r);
 }
@@ -1265,69 +1315,103 @@ static int private_fixture_read(struct json_reader *r,struct private_basis *b,co
     unsigned prior=private_ref_root;private_ref_root=1;
     int result=private_fixture_read_raw(r,b,outer);private_ref_root=prior;return result;
 }
-static int private_nullable_source(struct json_reader *r,unsigned *source,unsigned *nulls,unsigned bit) {
-    if(r->end-r->p>=4&&!memcmp(r->p,"null",4)){r->p+=4;*nulls|=bit;*source=0;return 1;}return private_source_index(r,source);
+// Shared C codec authority: signed builder b26d7cd3432e9cae3e6c68492afd73a82cc8f2e9.
+// Schema d70948ec375dae099ea1dac0b92dfb30ff87d7fcac94c98f42caa1c0ba2da8ec.
+// Offline provenance is scalar metadata here; parsing never opens a Ref payload.
+static int private_path_text(struct json_reader *r,struct private_slice *v) {
+    char text[4097];const unsigned char *start=r->p;
+    if(!jstring(r,text,sizeof(text))||!text[0]||strchr(text,'\r')||strchr(text,'\n'))return 0;
+    *v=(struct private_slice){start,(size_t)(r->p-start)};return 1;
 }
-static int private_nullable_ref(struct json_reader *r,struct private_ref *ref,unsigned *nulls,unsigned bit) {
-    if(r->end-r->p>=4&&!memcmp(r->p,"null",4)){r->p+=4;*nulls|=bit;memset(ref,0,sizeof(*ref));return 1;}return jref(r,ref);
+static int private_target_read(struct json_reader *r,struct private_load *load) {
+    if(!jobject(r))return 0;
+    if(r->end-r->p>=5&&!memcmp(r->p,"\"id\":",5)) {
+        load->cache=0;
+        return jkey(r,"id",1)&&private_text(r,&load->target,128,1)&&jkey(r,"kind",0)&&private_literal(r,"candidate")&&jclose(r);
+    }
+    load->cache=1;load->target=(struct private_slice){0};
+    return jkey(r,"kind",1)&&private_literal(r,"cache")&&jclose(r);
 }
-static int private_nullable_text(struct json_reader *r,struct private_slice *text,unsigned *nulls,unsigned bit) {
-    if(r->end-r->p>=4&&!memcmp(r->p,"null",4)){r->p+=4;*nulls|=bit;*text=(struct private_slice){0};return 1;}return private_text(r,text,2048,1);
-}
-static int private_nullable_uuid(struct json_reader *r,char uuid[33],unsigned *nulls,unsigned bit) {
-    if(r->end-r->p>=4&&!memcmp(r->p,"null",4)){r->p+=4;*nulls|=bit;uuid[0]=0;return 1;}return private_uuid(r,uuid);
+static int private_load_read(struct json_reader *r,struct private_load *load) {
+    char mode[16];const char *const modes[]={"load","weak","reexport","upward","lazy"};
+    if(!jobject(r)||!jkey(r,"mode",1)||!jstring(r,mode,sizeof(mode)))return 0;
+    load->mode=5;for(unsigned i=0;i<5;i++)if(!strcmp(mode,modes[i]))load->mode=i;
+    return load->mode<5&&jkey(r,"name",0)&&private_path_text(r,&load->name)
+        &&jkey(r,"target",0)&&private_target_read(r,load)&&jclose(r);
 }
 static int private_macho_read(struct json_reader *r,struct private_macho *m) {
-    return jobject(r)&&jkey(r,"cpu_subtype",1)&&j32(r,&m->subtype)&&jkey(r,"cpu_type",0)&&j32(r,&m->cpu)&&m->cpu==16777228
-        &&jkey(r,"fat",0)&&r->end-r->p>=5&&!memcmp(r->p,"false",5)&&(r->p+=5)
-        &&jkey(r,"loads",0)&&private_string_array(r,&m->loads,&m->load_count,NULL,0)
-        &&jkey(r,"rpaths",0)&&private_string_array(r,&m->rpaths,&m->rpath_count,NULL,0)&&jkey(r,"uuid",0)&&private_uuid(r,m->uuid)&&jclose(r);
-}
-static int private_nullable_macho(struct json_reader *r,struct private_macho *m,unsigned *nulls,unsigned bit) {
-    if(r->end-r->p>=4&&!memcmp(r->p,"null",4)){r->p+=4;*nulls|=bit;memset(m,0,sizeof(*m));return 1;}return private_macho_read(r,m);
+    if(!(jobject(r)&&jkey(r,"cpu_subtype",1)&&j32(r,&m->subtype)&&jkey(r,"cpu_type",0)&&j32(r,&m->cpu)&&m->cpu==16777228
+        &&jkey(r,"fat",0)&&r->end-r->p>=5&&!memcmp(r->p,"false",5)&&(r->p+=5)&&jkey(r,"loads",0)))return 0;
+    const unsigned char *start=r->p;m->load_count=0;if(!jarray(r))return 0;
+    while(r->p<r->end&&*r->p!=']') {struct private_load load;
+        if(m->load_count>=64||(m->load_count&&!jchar(r,','))||!private_load_read(r,&load)||!private_inner_checkpoint())return 0;m->load_count++;
+    }
+    if(!jarray_close(r))return 0;m->loads=(struct private_slice){start,(size_t)(r->p-start)};
+    if(!jkey(r,"rpaths",0))return 0;start=r->p;m->rpath_count=0;if(!jarray(r))return 0;
+    while(r->p<r->end&&*r->p!=']') {struct private_slice path;
+        if(m->rpath_count>=64||(m->rpath_count&&!jchar(r,','))||!private_path_text(r,&path)||!private_inner_checkpoint())return 0;m->rpath_count++;
+    }
+    if(!jarray_close(r))return 0;m->rpaths=(struct private_slice){start,(size_t)(r->p-start)};
+    return jkey(r,"uuid",0)&&private_uuid(r,m->uuid)&&jclose(r);
 }
 static int private_node_read(struct json_reader *r,struct private_node *n) {
     char kind[16];n->nullable=0;
-    if(!(jobject(r)&&jkey(r,"file",1)&&private_nullable_ref(r,&n->file,&n->nullable,1)
-        &&jkey(r,"id",0)&&private_text(r,&n->id,128,1)&&jkey(r,"install_name",0)&&private_nullable_text(r,&n->install_name,&n->nullable,2)
-        &&jkey(r,"kind",0)&&jstring(r,kind,sizeof(kind))&&jkey(r,"macho",0)&&private_nullable_macho(r,&n->macho,&n->nullable,4)
-        &&jkey(r,"member_index",0)&&private_nullable_ref(r,&n->member_index,&n->nullable,8)
-        &&jkey(r,"platform_uuid",0)&&private_nullable_uuid(r,n->platform_uuid,&n->nullable,16)
-        &&jkey(r,"source",0)&&private_nullable_source(r,&n->source,&n->nullable,32)&&jclose(r)))return 0;
-    if(!strcmp(kind,"binary")){n->kind=0;return n->nullable==(2|8|16)&&n->macho.subtype==0;}
-    if(!strcmp(kind,"dylib")){n->kind=1;return n->nullable==(8|16)&&n->macho.subtype==0;}
-    if(!strcmp(kind,"static")){n->kind=2;return n->nullable==(2|4|16);}
-    if(!strcmp(kind,"platform")){n->kind=3;return n->nullable==(1|8|32);}
-    return 0;
+    if(!(jobject(r)&&jkey(r,"file",1)&&jref(r,&n->file)&&jkey(r,"id",0)&&private_text(r,&n->id,128,1)&&jkey(r,"install_name",0)))return 0;
+    if(r->end-r->p>=4&&!memcmp(r->p,"null",4)){r->p+=4;n->nullable=2;n->install_name=(struct private_slice){0};}
+    else if(!private_path_text(r,&n->install_name))return 0;
+    if(!(jkey(r,"kind",0)&&jstring(r,kind,sizeof(kind))&&jkey(r,"macho",0)&&private_macho_read(r,&n->macho)
+        &&jkey(r,"source",0)&&private_source_index(r,&n->source)&&jclose(r)))return 0;
+    if(!strcmp(kind,"binary")){n->kind=0;return n->nullable==2&&n->macho.subtype==0;}
+    if(!strcmp(kind,"dylib")){n->kind=1;return !n->nullable;}return 0;
+}
+static int private_archive_read(struct json_reader *r,struct private_node *n) {
+    n->kind=2;
+    return jobject(r)&&jkey(r,"file",1)&&jref(r,&n->file)&&jkey(r,"id",0)&&private_text(r,&n->id,128,1)
+        &&jkey(r,"member_index",0)&&jref(r,&n->member_index)&&jkey(r,"source",0)&&private_source_index(r,&n->source)&&jclose(r);
+}
+static int private_static_use_read(struct json_reader *r,struct private_slice *id,uint32_t *count,char hash[65]) {
+    return jobject(r)&&jkey(r,"id",1)&&private_text(r,id,128,1)&&jkey(r,"member_count",0)&&j32(r,count)&&*count
+        &&jkey(r,"members_sha256",0)&&jhex(r,hash)&&jclose(r);
+}
+static int private_link_read(struct json_reader *r,struct private_link_map *m) {
+    if(!jobject(r)||!jkey(r,"file",1)||!jref(r,&m->file)||!jkey(r,"output",0)||!private_text(r,&m->output,128,1)
+        ||!jkey(r,"output_sha256",0)||!jhex(r,m->output_sha)||!jkey(r,"statics",0))return 0;
+    const unsigned char *start=r->p;m->count=0;if(!jarray(r))return 0;
+    while(r->p<r->end&&*r->p!=']') {struct private_slice id;uint32_t count;char hash[65];
+        if(m->count>=64||(m->count&&!jchar(r,','))||!private_static_use_read(r,&id,&count,hash)||!private_inner_checkpoint())return 0;m->count++;
+    }
+    if(!jarray_close(r))return 0;m->inputs=(struct private_slice){start,(size_t)(r->p-start)};
+    char tool[4];if(!jkey(r,"tool",0)||!jstring(r,tool,sizeof(tool))||!jclose(r))return 0;
+    if(!strcmp(tool,"git"))m->tool=0;else if(!strcmp(tool,"gpg"))m->tool=1;else return 0;return 1;
 }
 static int private_node_index(const struct private_basis *b,struct private_slice id) {
     for(unsigned i=0;i<b->node_count;i++)if(private_token_same(b->nodes[i].id,id))return (int)i;return -1;
 }
+static int private_id_order(struct private_slice a,struct private_slice b) {
+    char x[129],y[129];if(!private_token_text(a,x,sizeof(x))||!private_token_text(b,y,sizeof(y)))return 0;return strcmp(x,y);
+}
 static int private_closure_read(struct json_reader *r,struct private_basis *b) {
-    char mode[8];
-    if(!jobject(r)||!jkey(r,"edges",1)||!jarray(r))return 0;
-    while(r->p<r->end&&*r->p!=']') {
-        unsigned i=b->edge_count;if(i>=128||(i&&!jchar(r,',')))return 0;struct private_edge *e=&b->edges[i];
-        if(!jobject(r)||!jkey(r,"from",1)||!private_text(r,&e->from,128,1)||!jkey(r,"mode",0)||!jstring(r,mode,sizeof(mode))
-            ||!jkey(r,"to",0)||!private_text(r,&e->to,128,1)||!jclose(r))return 0;
-        if(!strcmp(mode,"load"))e->mode=0;else if(!strcmp(mode,"static"))e->mode=1;else return 0;
-        b->edge_count++;if(!private_inner_checkpoint())return 0;
-    }
-    if(!jarray_close(r)||!jkey(r,"link_maps",0)||!jarray(r))return 0;
-    for(unsigned i=0;i<2;i++) {
-        struct private_link_map *m=&b->links[i];
-        if((i&&!jchar(r,','))||!jobject(r)||!jkey(r,"file",1)||!jref(r,&m->file)||!jkey(r,"inputs",0)
-            ||!private_string_array(r,&m->inputs,&m->count,NULL,0)||!jkey(r,"output_sha256",0)||!jhex(r,m->output_sha)
-            ||!jkey(r,"tool",0)||!private_literal(r,i?"gpg":"git")||!jclose(r))return 0;
-        m->tool=i;
-    }
-    if(!jarray_close(r)||!jkey(r,"nodes",0)||!jarray(r))return 0;
+    b->node_count=b->image_count=b->link_count=b->edge_count=0;
+    if(!jobject(r)||!jkey(r,"images",1)||!jarray(r))return 0;
     while(r->p<r->end&&*r->p!=']') {
         unsigned i=b->node_count;if(i>=64||(i&&!jchar(r,','))||!private_node_read(r,&b->nodes[i]))return 0;
-        if(private_node_index(b,b->nodes[i].id)>=0)return 0;
+        if(private_node_index(b,b->nodes[i].id)>=0||(i>2&&private_id_order(b->nodes[i-1].id,b->nodes[i].id)>=0))return 0;
         b->node_count++;if(!private_inner_checkpoint())return 0;
     }
-    return jarray_close(r)&&jkey(r,"platform",0)&&private_platform_read(r,&b->platform)&&jclose(r)&&private_platform_same(&b->platform,&b->build.platform);
+    b->image_count=b->node_count;
+    if(b->image_count<2||!jarray_close(r)||!jkey(r,"link_maps",0)||!jarray(r))return 0;
+    while(r->p<r->end&&*r->p!=']') {unsigned i=b->link_count;
+        if(i>=64||(i&&!jchar(r,','))||!private_link_read(r,&b->links[i])||!private_inner_checkpoint())return 0;b->link_count++;
+    }
+    const char *const roots[]={"git","gpg"};struct private_slice raw;unsigned count;
+    if(b->link_count<2||!jarray_close(r)||!jkey(r,"platform",0)||!private_platform_read(r,&b->platform)
+        ||!jkey(r,"roots",0)||!private_string_array(r,&raw,&count,roots,2)||!jkey(r,"statics",0)||!jarray(r))return 0;
+    while(r->p<r->end&&*r->p!=']') {unsigned i=b->node_count;
+        if(i>=64||(i>b->image_count&&!jchar(r,','))||!private_archive_read(r,&b->nodes[i])||private_node_index(b,b->nodes[i].id)>=0
+            ||(i>b->image_count&&private_id_order(b->nodes[i-1].id,b->nodes[i].id)>=0)||!private_inner_checkpoint())return 0;
+        b->node_count++;
+    }
+    return jarray_close(r)&&jclose(r)&&private_platform_same(&b->platform,&b->build.platform);
 }
 static int private_command_index(struct json_reader *r,unsigned *out) {
     char name[129];if(!jstring(r,name,sizeof(name)))return 0;
@@ -1388,47 +1472,100 @@ static int private_review_read(struct json_reader *r,struct private_basis *b) {
     }
     return jarray_close(r)&&jclose(r)&&seen==255u&&b->source_coverage==127u&&b->command_coverage==65535u;
 }
-static int private_closure_bind(struct private_basis *b) {
-    unsigned roots[2]={64,64};char path[4097];
+// Ref consistency includes repeated offline metadata without opening its payload.
+static int private_ref_consistent(const struct private_ref *a,const struct private_ref *b) {
+    return !private_token_same(a->path,b->path)||(a->len==b->len&&!strcmp(a->sha,b->sha));
+}
+static int private_normalize(const char *base,const char *suffix,size_t floor,char out[4097]) {
+    size_t used=strlen(base);if(used>4096||used<floor)return 0;memcpy(out,base,used+1);
+    while(used>floor&&out[used-1]=='/')out[--used]=0;
+    const char *p=suffix;
+    while(*p){const char *end=strchr(p,'/');size_t len=end?(size_t)(end-p):strlen(p);
+        if(!len||(len==1&&*p=='.')){}
+        else if(len==2&&p[0]=='.'&&p[1]=='.'){
+            if(used<=floor)return 0;while(used&&out[used-1]!='/')used--;if(used)used--;
+            if(used<floor)return 0;out[used]=0;
+        } else {if(used+1+len>4096)return 0;out[used++]='/';memcpy(out+used,p,len);used+=len;out[used]=0;}
+        if(!end)break;p=end+1;
+    }
+    return used>floor;
+}
+static int private_load_resolves(const struct private_basis *b,unsigned from,const struct private_load *load,const char *prefix) {
+    char name[4097],path[4097],base[4097],resolved[4097],expected[4097];
+    if(!private_token_text(load->name,name,sizeof(name)))return 0;
+    const char *last=strrchr(name,'/');if(from<2&&!strcmp(last?last+1:name,"libobjc-env.dylib"))return 0;
+    size_t prefix_len=strlen(prefix);
+    if(load->cache)return (strncmp(name,prefix,prefix_len)||name[prefix_len]!='/')
+        &&(!strncmp(name,"/usr/lib/",9)||!strncmp(name,"/System/",8))&&private_path(name,1);
+    int to=private_node_index(b,load->target);if(to<2||(unsigned)to>=b->image_count||b->nodes[to].kind!=1
+        ||!private_token_text(b->nodes[to].file.path,path,sizeof(path)))return 0;
+    int n=snprintf(expected,sizeof(expected),"%s/%s",prefix,path);if(n<0||(size_t)n>=sizeof(expected))return 0;
+    if(name[0]=='/')return !strcmp(name,expected);
+    const char *suffix=NULL;
+    if(!strncmp(name,"@loader_path/",13)) {
+        if(!private_token_text(b->nodes[from].file.path,path,sizeof(path)))return 0;
+        char *slash=strrchr(path,'/');if(slash)*slash=0;else path[0]=0;
+        n=snprintf(base,sizeof(base),"%s/%s",prefix,path);suffix=name+13;
+    } else if(!strncmp(name,"@executable_path/",17)){n=snprintf(base,sizeof(base),"%s/bin",prefix);suffix=name+17;}
+    else return 0;
+    if(n<0||(size_t)n>=sizeof(base)||!private_normalize(base,suffix,prefix_len,resolved))return 0;
+    return !strncmp(resolved,prefix,prefix_len)&&resolved[prefix_len]=='/'&&!strcmp(resolved,expected);
+}
+static int private_closure_bind_prefix(struct private_basis *b,const char *prefix) {
+    const struct private_ref *refs[256];unsigned ref_count=0;b->edge_count=0;
+    uint64_t graph[64]={0},reached[2]={1,2},archives=0;
     for(unsigned i=0;i<b->node_count;i++) {
-        struct private_node *n=&b->nodes[i];
-        if(n->kind==3&&strcmp(n->platform_uuid,n->macho.uuid))return 0;
-        if(n->kind==0&&private_token_text(n->file.path,path,sizeof(path)))for(unsigned tool=0;tool<2;tool++)if(!strcmp(path,tool?"bin/gpg":"bin/git")) {
-            if(roots[tool]!=64||n->source!=(tool?1u:0u)||n->file.len!=b->build.tools[tool].ref.len||strcmp(n->file.sha,b->build.tools[tool].ref.sha))return 0;roots[tool]=i;
-        }
-    }
-    if(roots[0]>=64||roots[1]>=64)return 0;
-    for(unsigned i=0;i<b->edge_count;i++) {
-        const struct private_edge *e=&b->edges[i];int from=private_node_index(b,e->from),to=private_node_index(b,e->to);
-        if(from<0||to<0||(e->mode==1&&b->nodes[to].kind!=2)||(e->mode==0&&b->nodes[to].kind==2))return 0;
-        for(unsigned j=0;j<i;j++)if(private_token_same(e->from,b->edges[j].from)&&private_token_same(e->to,b->edges[j].to)&&e->mode==b->edges[j].mode)return 0;
-    }
-    uint64_t reached=(UINT64_C(1)<<roots[0])|(UINT64_C(1)<<roots[1]);
-    for(unsigned pass=0;pass<64;pass++) {
-        uint64_t prior=reached;
-        for(unsigned i=0;i<b->edge_count;i++){int from=private_node_index(b,b->edges[i].from),to=private_node_index(b,b->edges[i].to);if(reached&(UINT64_C(1)<<(unsigned)from))reached|=UINT64_C(1)<<(unsigned)to;}
-        if(reached==prior)break;
-    }
-    uint64_t all=b->node_count==64?UINT64_MAX:(UINT64_C(1)<<b->node_count)-1;
-    if(reached!=all)return 0;
-    for(unsigned tool=0;tool<2;tool++) {
-        const struct private_link_map *m=&b->links[tool];if(strcmp(m->output_sha,b->build.tools[tool].ref.sha))return 0;
-        struct json_reader r={m->inputs.data,m->inputs.data+m->inputs.len,0,10};if(!jarray(&r))return 0;uint64_t seen=0;
-        for(unsigned i=0;i<m->count;i++) {
-            struct private_slice id;if((i&&!jchar(&r,','))||!private_text(&r,&id,128,1))return 0;int node=private_node_index(b,id);
-            if(node<0||(seen&(UINT64_C(1)<<(unsigned)node)))return 0;seen|=UINT64_C(1)<<(unsigned)node;
+        struct private_node *node=&b->nodes[i];char id[129],path[4097];
+        if(!private_token_text(node->id,id,sizeof(id))||!private_token_text(node->file.path,path,sizeof(path)))return 0;
+        if(i<2){if(node->kind||strcmp(id,i?"gpg":"git")||strcmp(path,i?"bin/gpg":"bin/git")||node->source!=i)return 0;
+            if(node->file.len!=b->build.tools[i].ref.len||strcmp(node->file.sha,b->build.tools[i].ref.sha))return 0;}
+        else if(i<b->image_count&&node->kind!=1)return 0;
+        for(unsigned j=0;j<i;j++)if(private_token_same(node->file.path,b->nodes[j].file.path))return 0;
+        refs[ref_count++]=&node->file;if(node->kind==2)refs[ref_count++]=&node->member_index;
+        if(i>=b->image_count)continue;
+        struct json_reader r={node->macho.loads.data,node->macho.loads.data+node->macho.loads.len,0,10};if(!jarray(&r))return 0;
+        for(unsigned j=0;j<node->macho.load_count;j++){struct private_load load;
+            if(++b->edge_count>128||(j&&!jchar(&r,','))||!private_load_read(&r,&load)||!private_load_resolves(b,i,&load,prefix))return 0;
+            if(!load.cache){int to=private_node_index(b,load.target);graph[i]|=UINT64_C(1)<<(unsigned)to;}if(!private_inner_checkpoint())return 0;
         }
         if(!jarray_close(&r)||r.p!=r.end)return 0;
-        // Link evidence inputs must cover every static input reachable from this
-        // tool. Actual archive/member/load-command corroboration is a later guard.
-        uint64_t tool_reached=UINT64_C(1)<<roots[tool];
-        for(unsigned pass=0;pass<64;pass++){uint64_t prior=tool_reached;for(unsigned i=0;i<b->edge_count;i++){int from=private_node_index(b,b->edges[i].from),to=private_node_index(b,b->edges[i].to);if(tool_reached&(UINT64_C(1)<<(unsigned)from))tool_reached|=UINT64_C(1)<<(unsigned)to;}if(prior==tool_reached)break;}
-        for(unsigned i=0;i<b->node_count;i++)if(b->nodes[i].kind==2&&(tool_reached&(UINT64_C(1)<<i))&&!(seen&(UINT64_C(1)<<i)))return 0;
+    }
+    for(unsigned tool=0;tool<2;tool++)for(unsigned pass=0;pass<64;pass++) {
+        uint64_t prior=reached[tool];for(unsigned i=0;i<b->image_count;i++)if(reached[tool]&(UINT64_C(1)<<i))reached[tool]|=graph[i];
+        if(!private_inner_checkpoint())return 0;if(prior==reached[tool])break;
+    }
+    uint64_t image_mask=b->image_count==64?UINT64_MAX:(UINT64_C(1)<<b->image_count)-1;
+    if((reached[0]|reached[1])!=image_mask)return 0;
+    uint64_t rows[2]={0,0};unsigned prior_tool=0,prior_output=0;
+    for(unsigned i=0;i<b->link_count;i++) {
+        const struct private_link_map *map=&b->links[i];int output=private_node_index(b,map->output);
+        if(output<0||(unsigned)output>=b->image_count||!(reached[map->tool]&(UINT64_C(1)<<(unsigned)output))
+            ||(rows[map->tool]&(UINT64_C(1)<<(unsigned)output))||strcmp(map->output_sha,b->nodes[output].file.sha))return 0;
+        if(i&&(map->tool<prior_tool||(map->tool==prior_tool&&(output==(int)map->tool
+            ||(prior_output!=map->tool&&private_id_order(b->nodes[prior_output].id,map->output)>=0)))))return 0;
+        prior_tool=map->tool;prior_output=(unsigned)output;rows[map->tool]|=UINT64_C(1)<<(unsigned)output;
+        refs[ref_count++]=&map->file;
+        for(unsigned j=0;j<i;j++)if(private_token_same(map->output,b->links[j].output)) {
+            if(!private_token_same(map->file.raw,b->links[j].file.raw)||strcmp(map->output_sha,b->links[j].output_sha)
+                ||!private_token_same(map->inputs,b->links[j].inputs))return 0;
+        }
+        struct json_reader r={map->inputs.data,map->inputs.data+map->inputs.len,0,10};if(!jarray(&r))return 0;uint64_t selected=0;
+        for(unsigned j=0;j<map->count;j++){struct private_slice id;uint32_t count;char hash[65];
+            if(++b->edge_count>128||(j&&!jchar(&r,','))||!private_static_use_read(&r,&id,&count,hash))return 0;
+            int to=private_node_index(b,id);if(to<0||(unsigned)to<b->image_count||(selected&(UINT64_C(1)<<(unsigned)to)))return 0;
+            selected|=UINT64_C(1)<<(unsigned)to;if(!private_inner_checkpoint())return 0;
+        }
+        if(!jarray_close(&r)||r.p!=r.end)return 0;archives|=selected;
+    }
+    if(rows[0]!=reached[0]||rows[1]!=reached[1])return 0;
+    uint64_t all=b->node_count==64?UINT64_MAX:(UINT64_C(1)<<b->node_count)-1;if((archives|image_mask)!=all)return 0;
+    for(unsigned i=0;i<ref_count;i++)for(unsigned j=0;j<i;j++) {
+        if(!private_ref_consistent(refs[i],refs[j])||!private_inner_checkpoint())return 0;
     }
     return 1;
 }
 static __attribute__((unused)) int private_basis_read(const unsigned char *bytes,size_t len,struct private_basis *b,const struct private_input *outer) {
-    if(!len||len>49152||!private_utf8(bytes,len))return 0;
+    if(!len||len>49152||!private_canonical(bytes,len))return 0;
     struct json_reader r={bytes,bytes+len,0,10};const unsigned char *start;
     b->raw=(struct private_slice){bytes,len};b->node_count=b->edge_count=0;
     if(!jobject(&r)||!jkey(&r,"build",1))return 0;
@@ -1438,7 +1575,7 @@ static __attribute__((unused)) int private_basis_read(const unsigned char *bytes
     if(!jkey(&r,"config",0))return 0;start=r.p;if(!private_config_read(&r,b))return 0;b->config_raw=(struct private_slice){start,(size_t)(r.p-start)};
     if(!jkey(&r,"fixture",0))return 0;start=r.p;if(!private_fixture_read(&r,b,outer))return 0;b->fixture_raw=(struct private_slice){start,(size_t)(r.p-start)};
     return jkey(&r,"format",0)&&private_literal(&r,"bboxy.dream.private-pretest-basis/1")&&jkey(&r,"review",0)&&private_review_read(&r,b)
-        &&jclose(&r)&&r.p==r.end&&r.depth==0&&private_closure_bind(b)&&private_inner_checkpoint();
+        &&jclose(&r)&&r.p==r.end&&r.depth==0&&private_closure_bind_prefix(b,outer->prefix.path)&&private_inner_checkpoint();
 }
 
 // Copyright 2026 Boxy (bboxy450) and contributors.
@@ -1492,8 +1629,7 @@ struct private_guard_owner {
 };
 static struct private_guard_owner private_guards;
 #define PRIVATE_CORROBORATION_CAPACITY (1024u*1024u)
-#define PRIVATE_INNER_WORKING_CAPACITY (PRIVATE_METADATA_CAPACITY+sizeof(private_guards)+sizeof(struct private_basis)+32768u+49152u+PRIVATE_CORROBORATION_CAPACITY)
-_Static_assert(PRIVATE_INNER_WORKING_CAPACITY<=78u*1024u*1024u,"private physical working capacity");
+#define PRIVATE_CODEC_STACK_CAPACITY (12u*8194u+32768u)
 static int private_context_same(const struct private_engine_context *ctx) {
     return ctx&&ctx->outer==private_guards.outer&&ctx->basis==private_guards.basis&&ctx->input_sha256
         &&private_guards.input_hash&&!strcmp(ctx->input_sha256,private_guards.input_hash);
@@ -1531,7 +1667,7 @@ static __attribute__((unused)) struct private_guard *private_guard_ref(const str
 }
 // Absolute access is limited to the already typed compiler/linker identities
 // and the fixed SDKSettings.json suffix. It is not a Ref/path resolver API.
-static struct private_guard *private_guard_absolute(const struct private_engine_context *ctx,const struct private_ref *ref,
+static __attribute__((unused)) struct private_guard *private_guard_absolute(const struct private_engine_context *ctx,const struct private_ref *ref,
     const struct private_abs *identity,int executable) {
     if(!private_context_same(ctx)||private_guards.stage<1||ref->len>INT64_MAX)
         {private_fail("review_unbound","absolute build identity outside current bounded context");return NULL;}
@@ -1564,10 +1700,6 @@ static struct private_guard *private_guard_absolute(const struct private_engine_
 }
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-static int private_observe_ref(const struct private_ref *ref) {
-    const struct private_engine_context ctx={private_guards.outer,private_guards.basis,private_guards.input_hash};
-    return private_guard_ref(&ctx,ref,private_ref_root)!=NULL;
-}
 static int private_read_bound_ref(const struct private_engine_context *ctx,const struct private_ref *ref,int fixture_root,void *buffer,size_t capacity,size_t *len) {
     if(!buffer||!len||fixture_root<0||fixture_root>1||ref->len>capacity||capacity>2*1024*1024)
         return private_fail("resource_limit","private bounded input buffer");
@@ -1593,11 +1725,13 @@ static int private_read_bound_ref(const struct private_engine_context *ctx,const
     if(!private_guard_fresh(g))return 0;g->verified=1;*len=copied;return 1;
 }
 #pragma clang diagnostic pop
+static int private_actual_platform(const struct private_platform *platform);
 static int private_revalidate_context(const struct private_engine_context *ctx) {
+    if(private_failed)return 0;
     if(!private_context_same(ctx)||private_guards.stage!=2)return private_fail("review_unbound","full private basis currentness is not established");
     if(!private_root_current(&ctx->outer->prefix)||!private_root_current(&ctx->outer->repo)||!private_root_current(&ctx->outer->output))return 0;
     for(unsigned i=0;i<private_guards.count;i++)if(!private_guard_fresh(&private_guards.files[i])||!private_inner_checkpoint())return 0;
-    return private_end_unit(clock_ns(CLOCK_THREAD_CPUTIME_ID));
+    return private_actual_platform(&ctx->basis->platform)&&private_end_unit(clock_ns(CLOCK_THREAD_CPUTIME_ID));
 }
 // Copyright 2026 Boxy (bboxy450) and contributors.
 // SPDX-License-Identifier: LicenseRef-Respectful-Slop-1.0-Draft
@@ -1638,7 +1772,7 @@ static int private_actual_macho(const struct private_engine_context *ctx,const s
     if(!private_read_at(g,0,&header,sizeof(header)))return 0;
     uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);
     int valid=header.magic==MH_MAGIC_64&&(uint32_t)header.cputype==16777228u
-        &&(uint32_t)header.cpusubtype==node->macho.subtype&&node->macho.subtype==0
+        &&(uint32_t)header.cpusubtype==node->macho.subtype&&(node->kind||node->macho.subtype==0)
         &&header.filetype==(node->kind?MH_DYLIB:MH_EXECUTE)&&header.ncmds<=4096
         &&header.sizeofcmds<=2u*1024u*1024u&&g->len>=sizeof(header)
         &&header.sizeofcmds<=g->len-sizeof(header);
@@ -1672,7 +1806,10 @@ static int private_actual_macho(const struct private_engine_context *ctx,const s
             at=clock_ns(CLOCK_THREAD_CPUTIME_ID);
             if(command.cmd==LC_ID_DYLIB) {char expected[4097];valid=node->kind==1&&++id_count==1
                 &&private_token_text(node->install_name,expected,sizeof(expected))&&!strcmp(expected,name);}
-            else {valid=private_macho_expected(&loads,load_count,name);load_count++;}
+            else {struct private_load load;unsigned mode=command.cmd==LC_LOAD_DYLIB?0:command.cmd==LC_LOAD_WEAK_DYLIB?1:
+                    command.cmd==LC_REEXPORT_DYLIB?2:command.cmd==LC_LOAD_UPWARD_DYLIB?3:4;char expected[4097];
+                valid=(!load_count||jchar(&loads,','))&&private_load_read(&loads,&load)&&load.mode==mode
+                    &&private_token_text(load.name,expected,sizeof(expected))&&!strcmp(expected,name);load_count++;}
             if(!private_end_unit(at))return 0;if(!valid)return private_fail("review_unbound","actual Mach-O dylib names differ");
         } else if(command.cmd==LC_SEGMENT)return private_fail("review_unbound","32-bit segment in selected ARM64 image");
         offset+=command.cmdsize;
@@ -1697,6 +1834,7 @@ static int private_actual_config(const struct private_engine_context *ctx) {
 // or an ambient cache pathname. Cache UUID corroboration alone cannot certify
 // all per-image mappings or the candidate's future runtime loaded closure.
 static int private_actual_platform(const struct private_platform *platform) {
+    if(private_failed)return 0;
     uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);struct utsname host;char build[129];size_t length=sizeof(build);
     int known=uname(&host)==0&&sysctlbyname("kern.osversion",build,&length,NULL,0)==0&&length>0&&length<=sizeof(build)&&build[length-1]==0;
     int same=known&&!strcmp(platform->machine,host.machine)&&!strcmp(platform->release,host.release)&&!strcmp(platform->os_build,build);
@@ -2919,8 +3057,10 @@ static int engine_command(struct engine_owner *owner,struct engine_prepared *pre
     if(owner->result->group_gone&&owner->result->retired_coverage){engine_current=NULL;dispose_private_engine=NULL;}
 prepared_done:
     engine_dispose_prepared(prepared);
+    if(!owner->failed&&!private_revalidate_context(owner->context))engine_failure(owner,private_error,private_detail);
     if(!owner->failed)(void)engine_capture_drain(owner);
     engine_close_transferred(owner);
+    if(private_failed&&!owner->failed)engine_failure(owner,private_error,private_detail);
     if(form==12&&owner->verified_descendants!=1)return engine_failure(owner,"coverage_unknown","signature did not observe exactly one expected verifier incarnation");
     return !owner->failed;
 }
@@ -3147,6 +3287,8 @@ struct private_prepared_inner {
     struct private_engine_context context;
 };
 static struct private_prepared_inner private_prepared;
+#define PRIVATE_INNER_WORKING_CAPACITY (PRIVATE_CODEC_STACK_CAPACITY+sizeof(private_ref_bindings)+PRIVATE_METADATA_CAPACITY+sizeof(private_guards)+sizeof(private_prepared)+PRIVATE_CORROBORATION_CAPACITY)
+_Static_assert(PRIVATE_INNER_WORKING_CAPACITY<=78u*1024u*1024u,"private physical working capacity");
 static int private_pin_ref(const struct private_file *pin,struct private_ref *ref,char token[8195]) {
     size_t n=0;token[n++]='"';
     for(const unsigned char *p=(const unsigned char *)pin->path;*p;p++) {
@@ -3163,12 +3305,14 @@ static int private_guard_matches_pin(const struct private_guard *g,const struct 
         &&g->len==pin->len&&!strcmp(g->sha,pin->sha);
 }
 static int private_prepare_inner(struct private_input *outer,const char *input_hash,size_t descriptor_len) {
-    uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);memset(&private_prepared,0,sizeof(private_prepared));memset(&private_guards,0,sizeof(private_guards));
+    uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    private_cost.metadata=PRIVATE_INNER_WORKING_CAPACITY;
+    memset(&private_prepared,0,sizeof(private_prepared));memset(&private_guards,0,sizeof(private_guards));
     private_prepared.context=(struct private_engine_context){outer,&private_prepared.basis,input_hash};
     private_guards.outer=outer;private_guards.basis=&private_prepared.basis;private_guards.input_hash=input_hash;private_guards.stage=1;
     uint64_t logical=(uint64_t)descriptor_len+outer->source_lock.len+outer->build.len+8192u;
     if(logical>PRIVATE_EVIDENCE_MAX)return private_fail("resource_limit","logical descriptor basis source-lock result reservation exceeds128KiB");
-    private_cost.metadata=PRIVATE_METADATA_CAPACITY+sizeof(private_guards)+sizeof(private_prepared)+PRIVATE_CORROBORATION_CAPACITY;
+    private_cost.metadata=PRIVATE_INNER_WORKING_CAPACITY;
     if(private_cost.metadata>78u*1024u*1024u)return private_fail("resource_limit","private working-storage reservation");
     const struct private_file *pins[5]={&outer->source_lock,&outer->build,&outer->git,&outer->gpg,&outer->keys};
     for(unsigned i=0;i<5;i++)if(!private_pin_ref(pins[i],&private_prepared.pin_refs[i],private_prepared.pin_tokens[i]))return private_fail("input_invalid","canonical pretest path binding");
@@ -3181,24 +3325,16 @@ static int private_prepare_inner(struct private_input *outer,const char *input_h
         if(!g||!private_guard_matches_pin(g,pins[i]))return private_fail("review_unbound","pretest document FilePin identity differs");
     }
     at=clock_ns(CLOCK_THREAD_CPUTIME_ID);
-    private_ref_hook=private_observe_ref;private_ref_root=0;
-    int lock=private_source_lock_validate(private_prepared.source_lock,lengths[0],outer,&private_prepared.basis.source);
+    private_ref_binding_count=0;private_ref_hook=private_register_ref;private_ref_root=0;
+    int lock=private_canonical(private_prepared.source_lock,lengths[0])&&private_source_lock_validate(private_prepared.source_lock,lengths[0],outer,&private_prepared.basis.source);
     int parsed=lock&&private_basis_read(private_prepared.basis_bytes,lengths[1],&private_prepared.basis,outer);
     private_ref_hook=NULL;private_ref_root=0;
     int paid=private_end_unit(at);
     if(!paid)return 0;
     if(!parsed)return private_fail("review_unbound","strict pretest source-lock basis or cross-binding validation failed");
-    if(!private_guard_absolute(&private_prepared.context,&private_prepared.basis.build.compiler.ref,&private_prepared.basis.build.compiler,1)
-        ||!private_guard_absolute(&private_prepared.context,&private_prepared.basis.build.linker.ref,&private_prepared.basis.build.linker,1))return 0;
-    at=clock_ns(CLOCK_THREAD_CPUTIME_ID);char sdk[4097];struct private_file sdk_pin;memset(&sdk_pin,0,sizeof(sdk_pin));
-    int sdk_valid=private_token_text(private_prepared.basis.build.sdk_path,sdk,sizeof(sdk));
-    int sdk_n=sdk_valid?snprintf(sdk_pin.path,sizeof(sdk_pin.path),"%s/SDKSettings.json",sdk):-1;
-    sdk_pin.len=private_prepared.basis.build.sdk_settings.len;memcpy(sdk_pin.sha,private_prepared.basis.build.sdk_settings.sha,65);
-    struct private_ref sdk_ref;
-    sdk_valid=sdk_valid&&sdk_n>0&&(size_t)sdk_n<sizeof(sdk_pin.path)&&private_pin_ref(&sdk_pin,&sdk_ref,private_prepared.sdk_token);
-    if(!private_end_unit(at))return 0;
-    if(!sdk_valid)return private_fail("review_unbound","fixed current SDK settings path differs");
-    if(!private_guard_absolute(&private_prepared.context,&sdk_ref,NULL,0))return 0;
+    // Compiler/SDK/source/map/archive payloads were checked offline under the
+    // signed source-review premise. Runtime opens only admitted candidate,
+    // config, prepared-document and explicit fixture inputs; no catalogue scan.
     if(!private_actual_platform(&private_prepared.basis.platform)||!private_actual_config(&private_prepared.context)||!private_actual_fixture(&private_prepared.context))return 0;
     for(unsigned i=2;i<5;i++) {
         struct private_guard *g=private_guard_ref(&private_prepared.context,&private_prepared.pin_refs[i],pins[i]->root);
@@ -3212,8 +3348,8 @@ static int private_prepare_inner(struct private_input *outer,const char *input_h
         const struct private_node *node=&private_prepared.basis.nodes[i];
         if(node->kind<2&&!private_actual_macho(&private_prepared.context,node))return 0;
     }
-    // Actual source/Ref/Mach-O/link-map/SDK/cache/fixture corroboration must all
-    // complete before stage2. Shape/coverage alone never authorizes a helper.
+    // The conditional offline source-review binding is still unqualified.
+    // Codec/candidate checks alone never authorize a helper or live lesson.
     return private_fail("coverage_unknown","actual pretest reference closure and platform corroboration are not established");
 }
 

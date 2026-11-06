@@ -211,3 +211,5 @@ and the exact shared checker copies. These checks do not replace upstream terms.
   source hashing, helper tail accounting and their source/model mutants are
   project-owned. Keep this policy with extracts:
   https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+
+- The shared Dream closure decoder, offline vector/context runner, signed C preparation input snapshot and terminal-delivery regression witnesses are project-owned. The schema/vector bytes are copied from the signed builder authority b26d7cd3432e9cae3e6c68492afd73a82cc8f2e9 in this same project; retain their origin and this policy.
