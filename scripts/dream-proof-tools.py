@@ -4176,7 +4176,9 @@ class ComponentHandoffTests(unittest.TestCase):
             repo = private_dir(root / "fixture"); output = private_dir(root / "output")
             for path in (prefix / "bin/git", prefix / "bin/gpg", prefix / "provenance/pretest-basis.json", prefix / "provenance/lock", repo / "public.asc"):
                 exclusive(path, b"inert unit bytes; never executed")
-            basis = {"build": {"incarnation": 1, "platform": {"os_build": "26A434"}, "source_lock": {"path": "provenance/lock"}},
+            lock_bytes = read_regular(prefix / "provenance/lock", 32768, True)
+            basis = {"build": {"incarnation": 1, "platform": {"os_build": "26A434"},
+                               "source_lock": {"path": "provenance/lock", "len": len(lock_bytes), "sha256": sha(lock_bytes)}},
                      "fixture": {"repo": dir_pin(repo), "valid_commit": "1" * 40, "corrupt_commit": "2" * 40, "public_keys": {"path": "public.asc"}}}
             selection = {"source": {"sha256": "3" * 64}, "executable": {"sha256": "4" * 64}}
             with mock.patch.object(time, "clock_gettime_ns", return_value=100) as c_clock, mock.patch.object(time, "monotonic_ns", return_value=10**18):
