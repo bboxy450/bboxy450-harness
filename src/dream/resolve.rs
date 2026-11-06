@@ -978,6 +978,19 @@ thread_local! { static FAIL_HELPER_BEGIN_CLOCK: std::cell::Cell<Option<HelperPha
 thread_local! { static NATIVE_HELPER_CALLS: std::cell::Cell<u16> = const { std::cell::Cell::new(0) }; }
 #[cfg(test)]
 thread_local! { static FAIL_HELPER_ERRNO: std::cell::Cell<Option<i32>> = const { std::cell::Cell::new(None) }; }
+#[cfg(test)]
+#[derive(Clone, Copy, Default)]
+struct PreparationDropObservation {
+    live: u16,
+    drops: u16,
+    start_cpu: u64,
+    end_cpu: u64,
+}
+#[cfg(test)]
+thread_local! {
+    static PREPARATION_DROP: std::cell::Cell<PreparationDropObservation> = const { std::cell::Cell::new(PreparationDropObservation { live: 0, drops: 0, start_cpu: 0, end_cpu: 0 }) };
+    static PREPARATION_DROP_BURN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
 fn helper_stamp(phase: HelperPhase, end: bool) -> HelperStamp {
     let cpu = super::c1::cpu_ns();
     #[cfg(test)]
@@ -1279,6 +1292,22 @@ struct NativeSpawn {
 #[cfg(target_os = "macos")]
 impl Drop for NativeSpawn {
     fn drop(&mut self) {
+        #[cfg(test)]
+        PREPARATION_DROP_BURN.with(|burn| {
+            // Source-known negative: actual destructor CPU, never an injected
+            // ending sample or a changed application/native allocation.
+            let wanted = burn.take();
+            if wanted != 0 {
+                let at = super::c1::cpu_ns();
+                for _ in 0..1_000_000 {
+                    let now = super::c1::cpu_ns();
+                    if at == u64::MAX || now == u64::MAX || now < at || now - at >= wanted {
+                        break;
+                    }
+                    std::hint::spin_loop();
+                }
+            }
+        });
         unsafe {
             if self.actions_live {
                 libc::posix_spawn_file_actions_destroy(&mut self.actions);
@@ -1287,6 +1316,13 @@ impl Drop for NativeSpawn {
                 libc::posix_spawnattr_destroy(&mut self.attr);
             }
         }
+        #[cfg(test)]
+        PREPARATION_DROP.with(|state| {
+            let mut observation = state.get();
+            observation.live -= 1;
+            observation.drops += 1;
+            state.set(observation);
+        });
     }
 }
 #[cfg(target_os = "macos")]
@@ -1383,6 +1419,12 @@ impl NativeSpawn {
             input: if input { Some(native_pipe()?) } else { None },
             output: Some(native_pipe()?),
         };
+        #[cfg(test)]
+        PREPARATION_DROP.with(|state| {
+            let mut observation = state.get();
+            observation.live += 1;
+            state.set(observation);
+        });
         if unsafe { libc::posix_spawn_file_actions_init(&mut prepared.actions) } != 0 {
             return Err(Invalid("helper spawn preparation unavailable"));
         }
@@ -1488,6 +1530,23 @@ impl super::c1::disposal::Drain for NativeSpawn {
             || self.argv.pop().is_some()
             || self.envp.pop().is_some()
     }
+}
+#[cfg(target_os = "macos")]
+fn dispose_spawn_preparation(prepared: &mut ProofOwned<NativeSpawn>) {
+    let Some(value) = prepared.0.take() else {
+        return;
+    };
+    #[cfg(test)]
+    let disposal_at = super::c1::cpu_ns();
+    drop(value);
+    #[cfg(test)]
+    PREPARATION_DROP.with(|state| {
+        let disposal_end = super::c1::cpu_ns();
+        let mut observation = state.get();
+        observation.start_cpu = disposal_at;
+        observation.end_cpu = disposal_end;
+        state.set(observation);
+    });
 }
 fn helper_birth(pid: i32) -> Result<u64, Invalid> {
     #[cfg(target_os = "macos")]
@@ -1691,6 +1750,7 @@ fn selected_command_input_owned(
     let pgid = pid; // kernel START_SUSPENDED retains the typed positive effect before verdict
     #[cfg(target_os = "macos")]
     if pid <= 0 {
+        dispose_spawn_preparation(&mut prepared);
         let raw = helper_stamp(HelperPhase::RawInclusive, true);
         let cpu = span_cpu(spawn, spawn_end);
         let total = span_cpu(inclusive, raw);
@@ -1706,6 +1766,7 @@ fn selected_command_input_owned(
             credits: cost,
         };
         let _ = helper_record(HelperPhase::Spawn, spawn, spawn_end);
+        let _ = helper_record(HelperPhase::Postspawn, spawn_end, raw);
         let _ = helper_record(HelperPhase::RawInclusive, inclusive, raw);
         SELECTED.with(|slot| {
             slot.borrow_mut()
@@ -1775,6 +1836,14 @@ fn selected_command_input_owned(
                 return Err(Invalid("helper pipe setup unavailable"));
             }
         }
+        // The returned suspended effect and transferred pipe ends now have
+        // independent owners. These bounded (64 argv/16 env/32KiB) preparation
+        // buffers/actions are spent. Destroy them inside this existing measured
+        // Postspawn/RawInclusive application span, before native_created can
+        // grant CONT. Taking the value avoids a second paced Drop/debt floor
+        // after cancellation; later clock failures/application overruns keep
+        // the same real effect accounting and mandatory retirement/reap below.
+        dispose_spawn_preparation(&mut prepared);
         let end = helper_stamp(HelperPhase::RawInclusive, true);
         let native_cpu = span_cpu(spawn, spawn_end);
         let total = span_cpu(inclusive, end);
@@ -1936,6 +2005,11 @@ fn selected_command_input_owned(
                 descendant_image: request.descendant.clone(),
             })
         });
+        // Registration/FD setup may have unwound before the normal disposal.
+        // Keep the still-suspended positive effect/ticket and any untransferred
+        // pipe ends owned while this spent preparation is destroyed, before
+        // the failure's original full application/inclusive ending samples.
+        dispose_spawn_preparation(&mut prepared);
         let end = helper_stamp(HelperPhase::RawInclusive, true);
         let native_cpu = span_cpu(spawn, spawn_end);
         let total = span_cpu(inclusive, end);
@@ -3809,7 +3883,7 @@ mod selected_helper_process_tests {
         false
     }
 
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum PanicAt {
         None,
         Attach,
@@ -3827,6 +3901,8 @@ mod selected_helper_process_tests {
         pre_effect_credits: AtomicU64,
         pre_effect_unknown: AtomicBool,
         failed_positive_effect: AtomicBool,
+        preparation_live_before_grant: AtomicU64,
+        preparation_drops_before_grant: AtomicU64,
         panic_at: Mutex<PanicAt>,
         marker: PathBuf,
         pause_on_attach: bool,
@@ -3890,6 +3966,13 @@ mod selected_helper_process_tests {
         }
         fn native_created(&mut self, span: NativeCreation) -> Result<(), Invalid> {
             self.state.native_calls.fetch_add(1, Ordering::AcqRel);
+            let preparation = PREPARATION_DROP.with(|state| state.get());
+            self.state
+                .preparation_live_before_grant
+                .store(u64::from(preparation.live), Ordering::Release);
+            self.state
+                .preparation_drops_before_grant
+                .store(u64::from(preparation.drops), Ordering::Release);
             if span.rawerrno != 0 && span.identity.is_some() {
                 self.state
                     .failed_positive_effect
@@ -4049,6 +4132,8 @@ mod selected_helper_process_tests {
                 pre_effect_credits: AtomicU64::new(0),
                 pre_effect_unknown: AtomicBool::new(false),
                 failed_positive_effect: AtomicBool::new(false),
+                preparation_live_before_grant: AtomicU64::new(u64::MAX),
+                preparation_drops_before_grant: AtomicU64::new(0),
                 panic_at: Mutex::new(panic_at),
                 marker: cwd.join("ready"),
                 pause_on_attach: pause,
@@ -4122,28 +4207,102 @@ mod selected_helper_process_tests {
             }
         }
         fn finish(mut self) -> Result<Vec<Vec<u8>>, Invalid> {
-            let result = self
-                .result
-                .recv_timeout(Duration::from_secs(2))
-                .expect("private helper result must settle unattended");
-            self.owner.take().unwrap().join().unwrap();
-            self.stop.store(true, Ordering::Release);
-            self.controller.take().unwrap().join().unwrap();
-            assert!(
-                self.state
+            let result = self.result.recv_timeout(Duration::from_secs(2));
+            if result.is_err() {
+                let code = self.state.control.error();
+                let snapshot = self
+                    .state
                     .control
                     .helper
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
-                    .is_none(),
-                "no phantom group settlement"
-            );
-            for pgid in self.state.groups.lock().unwrap().iter().copied() {
-                assert_eq!(unsafe { libc::kill(-pgid, 0) }, -1);
-                assert_eq!(
-                    std::io::Error::last_os_error().raw_os_error(),
-                    Some(libc::ESRCH)
+                    .as_ref()
+                    .map(|h| {
+                        (
+                            h.identity.ticket(),
+                            (
+                                h.running,
+                                h.retiring,
+                                h.ready,
+                                h.closure_observed(),
+                                h.pending_closure(),
+                                h.pending_corroboration(),
+                                h.terminal_observation_pending(),
+                                h.pipe_is_open(),
+                            ),
+                            (
+                                h.debt_until
+                                    .saturating_duration_since(Instant::now())
+                                    .as_nanos(),
+                                h.metrics.grants,
+                                h.metrics.charged_ns,
+                                h.metrics.max_charge_ns,
+                                h.metrics.controller_cpu_ns,
+                                h.metrics.pipe_cpu_ns,
+                                h.metrics.first_failure_line,
+                                h.metrics.first_failure_sample_stage,
+                            ),
+                        )
+                    });
+                eprintln!(
+                    "dream-read fixture_result_failure limit_ns=2000000000 receive_error={:?} control_before_cancel={code:?} foreground={} owner_finished={} controller_finished={} native_calls={} preparation_live_before_grant={} groups={:?} helper_snapshot={snapshot:?} lifecycle_fields=running,retiring,ready,closure_observed,pending_closure,pending_corroboration,terminal_pending,pipe_open cost_fields=debt_remaining_ns,grants,charged_ns,max_q_ns,controller_cpu_ns,pipe_cpu_ns,first_failure_line,first_failure_stage",
+                    result.as_ref().err(),
+                    self.state.control.foreground.load(Ordering::Acquire),
+                    self.owner.as_ref().unwrap().is_finished(),
+                    self.controller.as_ref().unwrap().is_finished(),
+                    self.state.native_calls.load(Ordering::Acquire),
+                    self.state
+                        .preparation_live_before_grant
+                        .load(Ordering::Acquire),
+                    *self.state.groups.lock().unwrap(),
                 );
+                // The original two-second observation has FAILED. Preserve its
+                // state first, then use the same owned cancellation/retirement
+                // path to join; settlement cannot turn this timeout into pass.
+                let _ = self.state.control.cancel.compare_exchange(
+                    0,
+                    1,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                );
+            }
+            let owner = self.owner.take().unwrap().join();
+            self.stop.store(true, Ordering::Release);
+            let controller = self.controller.take().unwrap().join();
+            let empty = self
+                .state
+                .control
+                .helper
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_none();
+            let mut groups = vec![];
+            for pgid in self.state.groups.lock().unwrap().iter().copied() {
+                let status = unsafe { libc::kill(-pgid, 0) };
+                let errno = if status != 0 {
+                    std::io::Error::last_os_error().raw_os_error()
+                } else {
+                    None
+                };
+                groups.push((pgid, status, errno));
+            }
+            if result.is_err() {
+                eprintln!(
+                    "dream-read fixture_result_failure_settlement owner_joined={} controller_joined={} helper_slot_empty={empty} owned_group_status_errno={groups:?} control_after_settlement={:?}",
+                    owner.is_ok(),
+                    controller.is_ok(),
+                    self.state.control.error(),
+                );
+            }
+            // Settlement diagnostics never replace the original observation
+            // failure with a later join/status assertion's different outcome.
+            let result = result.expect("private helper result must settle unattended");
+            owner.unwrap();
+            controller.unwrap();
+            assert!(empty, "no phantom group settlement");
+            for (_, status, errno) in groups {
+                assert_eq!(status, -1);
+                assert_eq!(errno, Some(libc::ESRCH));
             }
             result
         }
@@ -4439,6 +4598,96 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
             settled_after < Duration::from_millis(60),
             "backpressured stdin must retain cancel settlement bound: {settled_after:?}"
         );
+    }
+    #[test]
+    fn spent_preparation_is_disposed_before_cancel_and_real_destructor_cost_refuses_birth() {
+        for (burn, point) in [
+            (2_000_000, PanicAt::Attach),
+            (2_000_000, PanicAt::None),
+            (0, PanicAt::None),
+        ] {
+            let home = tempfile::tempdir().unwrap();
+            let run = Run::start_with(
+                home.path(),
+                SelectedBindings::default(),
+                false,
+                point,
+                Duration::from_secs(5),
+                move |cwd| {
+                    PREPARATION_DROP_BURN.with(|control| control.set(burn));
+                    let result = command(cwd, "stall", None);
+                    let preparation = PREPARATION_DROP.with(|state| state.get());
+                    assert_eq!((preparation.live, preparation.drops), (0, 1));
+                    assert_eq!(PREPARATION_DROP_BURN.with(|control| control.get()), 0);
+                    let disposal = preparation
+                        .end_cpu
+                        .checked_sub(preparation.start_cpu)
+                        .filter(|_| {
+                            preparation.start_cpu != u64::MAX && preparation.end_cpu != u64::MAX
+                        })
+                        .unwrap();
+                    let (postspawn, native, inclusive) = SELECTED.with(|slot| {
+                        let slot = slot.borrow();
+                        let phases = &slot.as_ref().unwrap().helper_profile.phases;
+                        (
+                            phases[HelperPhase::Postspawn as usize].cpu_total,
+                            phases[HelperPhase::Spawn as usize].cpu_total,
+                            phases[HelperPhase::RawInclusive as usize].cpu_total,
+                        )
+                    });
+                    assert!(postspawn >= disposal && inclusive - native >= disposal);
+                    if burn != 0 {
+                        assert!(disposal >= burn && postspawn > 1_000_000);
+                        assert!(!cwd.join("ready").exists(), "failed birth received no CONT");
+                    }
+                    eprintln!(
+                        "dream-read preparation_disposal source_known=true burn_ns={burn} panic_at={point:?} live={} drops={} disposal_cpu_ns={disposal} postspawn_cpu_ns={postspawn} native_cpu_ns={native} inclusive_cpu_ns={inclusive} ready={}",
+                        preparation.live,
+                        preparation.drops,
+                        cwd.join("ready").exists(),
+                    );
+                    result.map(|(_, bytes)| vec![bytes])
+                },
+            );
+            if burn == 0 {
+                run.wait(|| home.path().join("ready").exists());
+                assert_eq!(
+                    run.state
+                        .preparation_live_before_grant
+                        .load(Ordering::Acquire),
+                    0,
+                    "no preparation object survives to the cancellation input"
+                );
+                run.state.control.cancel.store(1, Ordering::Release);
+            }
+            let state = run.state.clone();
+            assert!(run.finish().is_err());
+            assert_eq!(state.native_calls.load(Ordering::Acquire), 1);
+            assert_eq!(
+                state.preparation_live_before_grant.load(Ordering::Acquire),
+                0
+            );
+            assert_eq!(
+                state.preparation_drops_before_grant.load(Ordering::Acquire),
+                1
+            );
+            assert_eq!(
+                state.control.error(),
+                Some(if burn == 0 {
+                    crate::dream::c1_wire::Code::Cancelled
+                } else {
+                    crate::dream::c1_wire::Code::ResourceLimit
+                })
+            );
+            assert_eq!(state.groups.lock().unwrap().len(), 1);
+            assert_eq!(
+                *state.panic_at.lock().unwrap_or_else(|e| e.into_inner()),
+                PanicAt::None,
+                "the selected early registration fault actually executed"
+            );
+            // Run::finish requires the actual owner join, empty controller slot
+            // and ESRCH for this exact started group in BOTH arms.
+        }
     }
     #[test]
     fn helper_measurement_units_preserve_unknown_and_reversed_samples() {
