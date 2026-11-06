@@ -333,6 +333,8 @@ generated configuration, static link maps, recursive Mach-O/platform identities,
 the fixed command profile, a public-only presigned fixture and conditional source
 review. Six descriptor projections share that file. Hashes and review coverage
 do not grant runtime authority; missing canonical joined evidence still refuses.
+The current Darwin platform graph exceeds the ICD's 128-edge bound. The builder
+retains that exact failure and refuses emission rather than dropping load edges.
 `make test-dream-proof-tools` retains canonical native/ledger results and refuses
 to certify a real pair. A repeated component check reuses exact retained results,
 including failures, rather than retrying timing gates.

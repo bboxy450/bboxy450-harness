@@ -430,13 +430,24 @@ def check_sources(d):
     run = session(d, "source-custody")
     private_dir(run / "public-home"); private_dir(run / "src"); private_dir(run / "logs")
     snapshot = prepare_sources(d, run)
-    # One source-byte mutant in each hidden-work class must lose SOURCE input
-    # qualification. This is not the separately required reachable native
-    # mutant execution witness and never asserts that a census detects it.
+    # Direct entry mutants, rather than appended/unreachable marker text. Each
+    # changed actual Git main is compiled to an object and rejected by SOURCE
+    # custody. Objects are never linked/executed; no hidden effect is launched.
+    # This does not replace Q2's canonical before-birth/process witnesses or
+    # establish that a census would observe the corresponding hidden event.
+    _, cc, _ = command(run, ["/usr/bin/xcrun", "--find", "clang"])
+    _, sdk, _ = command(run, ["/usr/bin/xcrun", "--show-sdk-path"])
     path = run / "src/git-2.54.0/common-main.c"
     original = read_regular(path, MAX_ARCHIVE, True)
-    for name, code in [("spawn", b"fork();"), ("thread", b"pthread_create(0,0,0,0);"), ("service", b"start_new_service();")]:
-        mutated = original + b"\n/* deliberately changed private source input */\n" + code + b"\n"
+    include = b'#include "common-init.h"\n'
+    entry = b"\tint result;\n"
+    require(original.count(include) == 1 and original.count(entry) == 1, "Git main entry changed")
+    mutations = [("spawn", b"", b"\t(void)fork();\n", b"_fork"),
+                 ("thread", b"#include <pthread.h>\nstatic void *dream_hidden_thread(void *p) { return p; }\n", b"\t{ pthread_t t; (void)pthread_create(&t, NULL, dream_hidden_thread, NULL); }\n", b"_pthread_create"),
+                 ("service", b"#include <sys/socket.h>\n#include <sys/un.h>\n", b'\t{ struct sockaddr_un a = {.sun_family = AF_UNIX, .sun_path = "dream-private-service-mutant"}; int fd = socket(AF_UNIX, SOCK_STREAM, 0); (void)connect(fd, (struct sockaddr *)&a, sizeof a); }\n', b"_connect")]
+    outcomes = []
+    for name, headers, code, symbol in mutations:
+        mutated = original.replace(include, include + headers).replace(entry, entry + code)
         exclusive(run / "logs" / (name + ".source-input"), mutated)
         path.write_bytes(mutated)
         refused = False
@@ -447,8 +458,15 @@ def check_sources(d):
         finally:
             path.write_bytes(original)
         require(refused, f"changed source input retained qualification: {name}")
+        source = run / "logs" / (name + ".c")
+        obj = run / "logs" / (name + ".o")
+        exclusive(source, mutated)
+        command(run, [cc.decode().strip(), "-O0", "-DNO_OPENSSL", "-DNO_CURL", "-DNO_GETTEXT", "-DNO_PTHREADS", "-isysroot", sdk.decode().strip(), "-I" + str(path.parent), "-c", str(source), "-o", str(obj)])
+        _, undefined, _ = command(run, ["/usr/bin/nm", "-u", str(obj)])
+        require(symbol in undefined, "compiler removed the direct entry mutant call")
+        outcomes.append({"kind": name, "source_sha256": sha(mutated), "object_sha256": sha(read_regular(obj, MAX_ARCHIVE, True)), "entry_call": symbol.decode(), "SOURCE_qualified": False, "executed": False})
     verify_source_snapshot(run / "src", snapshot)
-    exclusive(run / "source-custody.json", canonical({"source_snapshot_sha256": sha(canonical(snapshot)), "changed_source_inputs_refused": ["spawn", "thread", "service"], "runtime_lifetime": "unproven"}))
+    exclusive(run / "source-custody.json", canonical({"source_snapshot_sha256": sha(canonical(snapshot)), "compiled_entry_mutants": outcomes, "runtime_lifetime": "unproven"}))
     print(f"authenticated source/patch custody checked at {run}; native lifetime qualification remains unproven", flush=True)
 
 
@@ -892,7 +910,40 @@ def capture_dyld_context(run, prefix, sdk):
         return {"shared_cache_uuid": uuid, "slide": all_images.slide, "base": all_images.base}
     snapshot = current()
     closure_retain_exact(run / "dyld-native-context.json", canonical({"sdk_headers": headers, "snapshot": snapshot, "api": "TASK_DYLD_INFO+mach_vm_read_overwrite on own task", "assumption": "SDK ABI and current platform dyld/shared-cache fidelity; no arbitrary-native theorem"}))
-    return snapshot, read, current
+    # Some system dylibs (notably libsystem_kernel) also have universal disk
+    # images with __TEXT at zero. dyld_info correctly reports every disk slice;
+    # none may be mistaken for the actual mapped native platform image. Public
+    # dyld.h APIs pin the already-loaded image's real header/slide/UUID instead.
+    count_images = lib._dyld_image_count
+    count_images.argtypes = []; count_images.restype = ctypes.c_uint32
+    image_name = lib._dyld_get_image_name
+    image_name.argtypes = [ctypes.c_uint32]; image_name.restype = ctypes.c_char_p
+    image_header = lib._dyld_get_image_header
+    image_header.argtypes = [ctypes.c_uint32]; image_header.restype = ctypes.c_void_p
+    image_slide = lib._dyld_get_image_vmaddr_slide
+    image_slide.argtypes = [ctypes.c_uint32]; image_slide.restype = ctypes.c_int64
+    count = count_images()
+    require(0 < count <= 4096, "own dyld image inventory bound")
+    loaded = {}
+    for index in range(count):
+        raw_name = image_name(index)
+        require(raw_name is not None and 0 < len(raw_name) <= 4096, "own dyld image name bound")
+        name = raw_name.decode("utf8")
+        if not (name.startswith("/usr/lib/") or name.startswith("/System/Library/")):
+            continue
+        address = image_header(index)
+        header = read(address, 32)
+        import struct
+        length = struct.unpack_from("<I", header, 20)[0]
+        require(length <= 256 * 1024 - 32, "own platform load-command bound")
+        raw = read(address, 32 + length)
+        macho, install, text = parse_macho(raw)
+        slide = image_slide(index)
+        require(install == name and text + slide == address and name not in loaded, "own platform mapping/identity mismatch")
+        loaded[name] = {"address": address, "slide": slide, "macho": macho, "install": install, "text": text, "header": retain_blob(prefix, raw)}
+    require(count_images() == count, "own image inventory changed during capture")
+    closure_retain_exact(run / "own-platform-images.json", canonical(loaded))
+    return snapshot, read, current, loaded
 
 
 def emit_closure(run, prefix):
@@ -908,7 +959,7 @@ def emit_closure(run, prefix):
     require(dyld_tool == dyld_tool.resolve(), "fixed dyld_info path required")
     dyld_identity = absolute_identity(dyld_tool)
     closure_retain_exact(run / "dyld-inspector.json", canonical(dyld_identity))
-    snapshot, read_vm, current_cache = capture_dyld_context(run, prefix, sdk)
+    snapshot, read_vm, current_cache, loaded_images = capture_dyld_context(run, prefix, sdk)
     _, os_output, _ = command(run, ["/usr/bin/sw_vers", "-buildVersion"])
     os_build = os_output.decode("ascii").strip()
     release, machine = platform.release(), platform.machine()
@@ -985,18 +1036,31 @@ def emit_closure(run, prefix):
                     target_id = "platform-" + sha(path.encode())[:20]
                     _, raw, err = command(run, [str(dyld_tool), "-uuid", "-load_commands", "-inits", path])
                     require(not err and len(raw) <= 2 * 1024 * 1024, "dyld_info image metadata failed/oversized")
-                    match = re.search(rb'segname: "__TEXT"\s+vmaddr: (0x[0-9a-fA-F]+)', raw)
-                    uuids = re.findall(rb"^\s*uuid: ([0-9A-Fa-f-]{36})\s*$", raw, re.MULTILINE)
+                    mapped = loaded_images.get(path)
+                    # Select by the actual mapped UUID, never by an architecture
+                    # nickname, first universal slice or an assumed cache path.
+                    view = raw
+                    if mapped is not None:
+                        sections = re.split(rb"(?m)^" + re.escape(path.encode()) + rb" \[[^\]\n]+\]:\n", raw)[1:]
+                        matching = [part for part in sections if mapped["macho"]["uuid"].encode() in part.replace(b"-", b"").lower()]
+                        require(len(matching) == 1, "actual mapped platform UUID absent/ambiguous in inspector output")
+                        view = matching[0]
+                    match = re.search(rb'segname: "__TEXT"\s+vmaddr: (0x[0-9a-fA-F]+)', view)
+                    uuids = re.findall(rb"^\s*uuid: ([0-9A-Fa-f-]{36})\s*$", view, re.MULTILINE)
                     require(match is not None and len(uuids) == 1, "dyld_info missing/ambiguous actual __TEXT/UUID")
-                    address = int(match[1], 16) + snapshot["slide"]
-                    require(address >= snapshot["base"], "cache image lies before actual shared-cache base")
+                    # Cache construction may rewrite __TEXT addresses while
+                    # retaining the slice UUID. The public loaded-image API,
+                    # not the disk layout at vmaddr zero, owns that address.
+                    text_address_expected = mapped["text"] if mapped is not None else int(match[1], 16)
+                    address = mapped["address"] if mapped is not None else text_address_expected + snapshot["slide"]
+                    require(mapped is not None or address >= snapshot["base"], "cache image lies before actual cache mapping")
                     header = read_vm(address, 32)
                     require(header[:4] == b"\xcf\xfa\xed\xfe", "cache image header unavailable")
                     length = struct.unpack_from("<I", header, 20)[0]
                     require(length <= 256 * 1024 - 32, "cache Mach-O command bound")
                     cache_bytes = read_vm(address, 32 + length)
                     actual, install, text_address = parse_macho(cache_bytes)
-                    require(install == path and text_address == int(match[1], 16) and actual["uuid"] == uuids[0].replace(b"-", b"").decode().lower(), "cache image/install-name/UUID mismatch")
+                    require(install == path and text_address == text_address_expected and actual["uuid"] == uuids[0].replace(b"-", b"").decode().lower(), "platform image/install-name/UUID mismatch")
                     node = {"id": target_id, "kind": "platform", "source": None, "file": None, "macho": actual, "member_index": None, "install_name": install, "platform_uuid": actual["uuid"]}
                     evidence.append({"image": path, "dyld_info": retain_blob(prefix, raw), "macho_header_commands": retain_blob(prefix, cache_bytes)})
                 else:
@@ -1253,6 +1317,9 @@ def capture_review(run, projections):
 def prepare_basis(run, prefix, closure):
     intent = strict_json(read_regular(run / "intent.json", 32768, True), 32768)
     inputs = intent["inputs"]
+    require(read_regular(ROOT / "scripts/dream-proof-tools.py") == SCRIPT_BYTES and sha(SCRIPT_BYTES) == inputs["source_sha256"], "builder recipe changed during its original build")
+    actual_fixtures = {str(p.relative_to(FIX)): sha(read_regular(p, MAX_TAR)) for p in sorted(FIX.rglob("*")) if p.is_file()}
+    require(actual_fixtures == inputs["fixtures"], "source/key/patch/review/fixture tuple changed during original build")
     metadata = strict_json(read_regular(run / "platform.json", 32768, True), 32768)
     # Capture exact actual outputs, not versions inferred from archive labels.
     def output(argv):

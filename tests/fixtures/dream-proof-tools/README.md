@@ -36,6 +36,10 @@ actual generated flags and recursive loaded closure remain required evidence.
 These patches are incomplete qualification work. Current-source tests check
 pins, custody and finite models; the complete command/error/constructor/platform
 closure review and actually executed real-tool mutants remain outstanding.
+The focused source gate also compiles three mutations at the actual Git main
+entry (fork, pthread_create and socket/connect), verifies that their input hashes
+lose SOURCE qualification, and retains the object bytes. Those objects are never
+linked or executed; this is distinct from a canonical native effect witness.
 Greps, symbol inventories, versions, absence of installed daemons and successful
 samples do not establish lifetime coverage.
 
