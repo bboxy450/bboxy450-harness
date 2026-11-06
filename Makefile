@@ -317,9 +317,12 @@ test-python-execute-boundaries: test-python-execute
 .PHONY: land
 land:
 	@set -eu; if [ -f ../../scripts/cache-env.sh ]; then . ../../scripts/cache-env.sh; fi; TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/land.py
-.PHONY: prepare-dream-read-c-probe test-dream-read-closure-codec
+.PHONY: prepare-dream-read-c-probe test-dream-read-c-preparation test-dream-read-closure-codec
+DREAM_READ_C_SOURCE_COMMIT ?= HEAD
 prepare-dream-read-c-probe:
-	python3 -I tests/fixtures/dream-read/prepare-c-probe.py --target-dir '$(abspath $(TARGET_DIR))'
+	python3 -I tests/fixtures/dream-read/prepare-c-probe.py --target-dir '$(abspath $(TARGET_DIR))' --source-commit '$(DREAM_READ_C_SOURCE_COMMIT)'
+test-dream-read-c-preparation:
+	python3 -I tests/fixtures/dream-read/check-c-preparation.py --target-dir '$(abspath $(TARGET_DIR))'
 test-dream-read-closure-codec:
 	mkdir -p '$(TARGET_DIR)/dream-read-closure-codec'
 	/usr/bin/clang -O2 -std=c11 -Wall -Wextra -Werror tests/fixtures/dream-read/closure-codec-controls.c -o '$(TARGET_DIR)/dream-read-closure-codec/controls'
