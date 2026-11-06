@@ -51,3 +51,10 @@ canonical probe's native/ledger results are separate evidence and its Git mode
 still refuses81. A new private-candidate mode requires Root's explicit source/
 executable freeze before consumption. No builder result fills Q2's absent
 Root-reviewed runtime admission literal or certifies a lesson.
+
+Decision65960 B corrects the implicit signature operand to the matcher
+`{git_signature_temp}`. `check --signature-corpus-only` exercises only the pinned
+source/corpus byte equivalence, case/substitution controls and updated Commands
+binding. It launches no Git/GPG/probe and creates no candidate. Its new Commands
+hash invalidates old pending tuples. Shared closure and Root's coherent frozen
+Q2 probe are still prerequisites for candidate regeneration and a real witness.

@@ -41,6 +41,18 @@ VERIFIER_SHA = "21cb9adcad96b7be404014ff6e9fb837160a2135455c217dec9efe196cf0661a
 AUTHORITY = Path("/Users/feral/mydev/bboxy450-term/target/dream-proof-component-authority-7m7jv65m")
 PROBE_SHA = "5493dbf0bda41ac33e4a27a9bc200f083e49501b0791d32cd255b731d6f82c33"
 Q2_SHA = "55aabc5e0efd081fe050db08a40e955ddb27ff5d8a442df1c6feb911ce8160af"
+GIT_SIGNATURE_TEMP = "{git_signature_temp}"
+# Root's authenticated source read set for decision65960 B. These are source
+# bytes only: no moving Q2 source/probe, GS1/GS2 decoder or runtime authority.
+SIGNATURE_SOURCE_RUN = ROOT / "target/dream-proof-tools/runs/01M6Q80DBV75S95DWFHZWDVE2F"
+SIGNATURE_SOURCE_PINS = {
+    "commit.c": "d02e4488fc271f1421dc7e825fd6d78244f4db1b47716927bc5dd8e7bb6c4583",
+    "gpg-interface.c": "191dd45b56d9992f3862f4696693c77019185ae785402686d483823468c53aed",
+    "tempfile.c": "a34ef38d1981b2b269436288685a4af3453d102bac2f29fc2449b8c98b6279d2",
+    "tempfile.h": "20c6e57636813f056554fdbb3a20652257aac3d93fd7dd367ec7b785f6f53a1a",
+    "wrapper.c": "788c07b315a6e98bfcaf78291b83b17e52579f17b604a94db5c149c017a83b04",
+    "run-command.c": "03bf7f114875b964cb9397893b3ddceafd4d71f51b908a9c02ae6ca7e2a4d67f",
+}
 MAX_ARCHIVE = 32 * 1024 * 1024
 MAX_TAR = 256 * 1024 * 1024
 MAX_INT = 2**53 - 1
@@ -1207,7 +1219,9 @@ def command_profile():
     result = [{"id": name, "tool": "git", "argv": argv, "members": 2 if name == "signature" else 1, "stdin": "none"} for name, argv in forms]
     result += [{"id": "show_keys", "tool": "gpg", "argv": ["--with-colons", "--show-keys", "-"], "members": 1, "stdin": "public_keys"},
                {"id": "import_keys", "tool": "gpg", "argv": ["--import", "-"], "members": 1, "stdin": "public_keys"},
-               {"id": "verify_child", "tool": "gpg", "argv": ["--keyid-format=long", "--status-fd=1", "--verify", "{signature}", "-"], "members": 1, "stdin": "commit_payload"}]
+               # Matcher only: Q2 binds Git's own temporary at GS1/GS2. The
+               # builder never expands it or launches this implicit form.
+               {"id": "verify_child", "tool": "gpg", "argv": ["--keyid-format=long", "--status-fd=1", "--verify", GIT_SIGNATURE_TEMP, "-"], "members": 1, "stdin": "commit_payload"}]
     return {"profile": "65126", "git_prefix": ["--no-pager", "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "credential.helper=", "-c", "protocol.allow=never", "-c", "gpg.format=openpgp", "-c", "gpg.program={gpg}", "-c", "gpg.openpgp.program={gpg}"],
             "gpg_prefix": ["--no-options", "--no-autostart", "--batch", "--no-tty"], "forms": result}
 
@@ -1225,12 +1239,60 @@ def private_config(run, prefix):
             "env": [{"name": k, "value": v} for k, v in values]}
 
 
-def prepare_fixture(run):
-    # Copied/adapted from Git v2.54.0 t7510's deterministic presigned objects.
-    # Origin/terms: https://github.com/git/git/blob/v2.54.0/t/t7510-signed-commit.sh
-    # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
-    # Construct loose objects with their specified bytes; never invoke signing,
-    # key generation, a secret packet, or an ambient Git configuration.
+def git_sha1_commit_parts(commit):
+    """Unfold these fixed SHA-1 fixtures without altering a single LF/byte.
+
+    Inspired by Git2.54.0 commit.c:1186-1229 (GPL-2.0): header records select
+    gpgsig; every gpgsig namespace record is omitted from the signed payload.
+    This independent byte-format check does not parse/verify OpenPGP or replace
+    Git. Original source: https://github.com/git/git/blob/v2.54.0/commit.c
+    Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+    """
+    require(type(commit) is bytes and len(commit) <= 2*1024*1024, "fixture commit byte bound")
+    records = []
+    stream = io.BytesIO(commit)
+    remainder = b""
+    for line in stream:
+        if line == b"\n":
+            remainder = line + stream.read()
+            break
+        if line.startswith(b" ") and records:
+            records[-1].append(line)
+        else:
+            records.append([line])
+    signature, payload = [], []
+    for record in records:
+        if record[0].startswith(b"gpgsig "):
+            signature.append(record[0][7:])
+            signature.extend(line[1:] for line in record[1:])
+        elif not record[0].startswith(b"gpgsig"):
+            payload.extend(record)
+    return b"".join(payload) + remainder, b"".join(signature)
+
+
+def corpus_signature_bindings(data, lock):
+    refs = {row["path"]: row for row in lock["files"]}
+    require(len(refs) == len(lock["files"]), "duplicate corpus Ref")
+    needed = {"valid.commit", "corrupt.commit", "valid-signature.asc", "corrupt-signature.asc", "valid-payload.txt"}
+    require(needed <= set(refs) and needed <= set(data), "missing corpus case Ref/bytes")
+    for name in needed:
+        validate_ref(refs[name])
+    results = []
+    for case in ("valid", "corrupt"):
+        commit = data[case + ".commit"]
+        body = b"commit " + str(len(commit)).encode() + b"\0" + commit
+        require(hashlib.sha1(body).hexdigest() == lock[case + "_commit"], "case commit object binding")
+        payload, extracted = git_sha1_commit_parts(commit)
+        expected = refs[case + "-signature.asc"]
+        require(extracted == data[expected["path"]] and len(extracted) == expected["len"] and sha(extracted) == expected["sha256"], "Git-extracted signature/case Ref mismatch")
+        payload_ref = refs["valid-payload.txt"]
+        require(payload == data[payload_ref["path"]] and len(payload) == payload_ref["len"] and sha(payload) == payload_ref["sha256"], "Git-extracted payload Ref mismatch")
+        results.append({"case": case, "commit": lock[case + "_commit"], "signature": expected, "extracted_len": len(extracted), "extracted_sha256": sha(extracted), "payload": payload_ref})
+    require(results[0]["signature"]["sha256"] != results[1]["signature"]["sha256"], "corrupt proof must retain distinct actual signature bytes")
+    return results
+
+
+def read_corpus():
     corpus = FIX / "corpus"
     lock = strict_json(read_regular(corpus / "corpus.lock.json", 32768), 32768)
     data = {}
@@ -1238,6 +1300,17 @@ def prepare_fixture(run):
         data[row["path"]] = pinned(read_regular(corpus / row["path"], 2*1024*1024), row["sha256"], "public fixture")
         require(len(data[row["path"]]) == row["len"], "public fixture length")
     require(b"PRIVATE KEY" not in data["public-keys.asc"] and b"SECRET KEY" not in data["public-keys.asc"], "public-only fixture required")
+    corpus_signature_bindings(data, lock)
+    return data, lock
+
+
+def prepare_fixture(run):
+    # Copied/adapted from Git v2.54.0 t7510's deterministic presigned objects.
+    # Origin/terms: https://github.com/git/git/blob/v2.54.0/t/t7510-signed-commit.sh
+    # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+    # Construct loose objects with their specified bytes; never invoke signing,
+    # key generation, a secret packet, or an ambient Git configuration.
+    data, lock = read_corpus()
     repo = private_dir(run / "fixture-repo")
     private_dir(repo / ".git")
     private_dir(repo / ".git/objects")
@@ -1281,11 +1354,10 @@ def prepare_fixture(run):
             "valid_signature": bypath["valid-signature.asc"], "corrupt_signature": bypath["corrupt-signature.asc"]}
 
 
-def capture_review(run, projections):
+def review_findings(run, patches):
     template = strict_json(read_regular(FIX / "review.lock.json", 32768), 32768)
     snapshot = strict_json(read_regular(run / "source-snapshot.json", MAX_TAR, True), MAX_TAR)
     names = {name: name + "-" + version for name, version, *_ in PINS}
-    patches = projections["build"]["patches"]
     findings = []
     for finding in template:
         row = dict(finding)
@@ -1311,7 +1383,37 @@ def capture_review(run, projections):
         require(row["phases"] == ["entry", "normal", "error", "cleanup", "initializer"] and row["finding"] == "conditional_source_review", "source review phases/conditional premise")
         require(0 < len(row["spans"]) <= 16 and len(row["rationale"].encode()) <= 512, "source review span/rationale bounds")
     require(set().union(*(set(f["commands"]) for f in findings)) == {f["id"] for f in command_profile()["forms"]}, "source review command coverage")
-    return {"bindings": {key: sha(canonical(value)) for key, value in projections.items()}, "findings": findings}
+    return findings
+
+
+def capture_review(run, projections):
+    require(projections["commands"] == command_profile(), "stale/substituted Commands projection; Git temporary matcher required")
+    return {"bindings": {key: sha(canonical(value)) for key, value in projections.items()}, "findings": review_findings(run, projections["build"]["patches"])}
+
+
+def check_signature_corpus(d):
+    # B-only source/corpus verification. No candidate, build, authentication,
+    # real Git/GPG, probe, timing gate or GS1/GS2 implementation is invoked.
+    unit(d, signature_only=True)
+    run = session(d, "signature-corpus")
+    rows = []
+    snapshot = strict_json(read_regular(SIGNATURE_SOURCE_RUN / "source-snapshot.json", MAX_TAR, True), MAX_TAR)
+    for name, digest in SIGNATURE_SOURCE_PINS.items():
+        path = SIGNATURE_SOURCE_RUN / "src/git-2.54.0" / name
+        require(snapshot["git-2.54.0/" + name]["sha256"] == digest, "B source snapshot binding")
+        source = pinned(read_regular(path, MAX_ARCHIVE, True), digest, "B authenticated Git source")
+        rows.append({"path": str(path), "len": len(source), "sha256": digest})
+    data, lock = read_corpus()
+    commands = command_profile()
+    patches = strict_json(read_regular(FIX / "patches.lock.json", 32768), 32768)
+    findings = review_findings(SIGNATURE_SOURCE_RUN, patches)
+    record = {"source_files": rows, "corpus_lock_sha256": sha(read_regular(FIX / "corpus/corpus.lock.json", 32768)),
+              "cases": corpus_signature_bindings(data, lock), "commands_sha256": sha(canonical(commands)),
+              "review_template_sha256": sha(read_regular(FIX / "review.lock.json", 32768)), "review_findings_sha256": sha(canonical(findings)),
+              "review_commands_binding_sha256": sha(canonical(commands)), "full_review_projection_sha256": None,
+              "source_extraction_equivalence": "fixed_SHA1_corpus_bytes", "cryptographic_verification": "not_run", "GS1_GS2": "Q2_owned_not_run"}
+    exclusive(run / "signature-corpus.json", canonical(record))
+    print(f"B source/corpus byte equivalence retained at {run}; commands={record['commands_sha256']}; real verifier witness remains unproven", flush=True)
 
 
 def prepare_basis(run, prefix, closure):
@@ -1566,6 +1668,7 @@ def file_refs(value):
 
 
 def bind_current_candidate(q, receipt, inputs, prefix, intent):
+    require(q["command_profile_sha256"] == sha(canonical(command_profile())), "Commands projection currentness mismatch")
     require(q["build_id"] == intent["build_id"] == prefix.name and q["incarnation"] == intent["incarnation"], "candidate birth/incarnation mismatch")
     require(q["builder"]["source_sha256"] == inputs["source_sha256"], "builder source/recipe currentness mismatch")
     require(q["builder"]["commit"] == inputs["commit"], "builder source commit changed")
@@ -1707,6 +1810,78 @@ def component(d):
 
 
 class ProvisioningTests(unittest.TestCase):
+    def test_git_signature_case_refs_match_unfolded_source_bytes(self):
+        data, lock = read_corpus()
+        cases = corpus_signature_bindings(data, lock)
+        for row in cases:
+            self.assertEqual(row["extracted_len"], 228)
+            self.assertEqual(row["extracted_sha256"], row["signature"]["sha256"])
+            payload, signature = git_sha1_commit_parts(data[row["case"] + ".commit"])
+            self.assertEqual(payload, data["valid-payload.txt"])
+            self.assertEqual(signature, data[row["signature"]["path"]])
+            self.assertEqual(signature.count(b"\n"), 7)
+            self.assertTrue(signature.endswith(b"-----END PGP SIGNATURE-----\n"))
+            self.assertNotIn(b"\r", signature)
+
+    def test_git_signature_wrong_case_refs_fail_even_with_matching_checksums(self):
+        data, lock = read_corpus()
+        changed = dict(data)
+        changed["valid-signature.asc"], changed["corrupt-signature.asc"] = data["corrupt-signature.asc"], data["valid-signature.asc"]
+        changed_lock = json.loads(canonical(lock))
+        for row in changed_lock["files"]:
+            if row["path"] in ("valid-signature.asc", "corrupt-signature.asc"):
+                row["len"] = len(changed[row["path"]]); row["sha256"] = sha(changed[row["path"]])
+        with self.assertRaisesRegex(Refused, "signature/case Ref mismatch"):
+            corpus_signature_bindings(changed, changed_lock)
+
+    def test_git_signature_alternate_header_and_message_are_not_selected(self):
+        data, _ = read_corpus()
+        original = data["valid.commit"]
+        payload, signature = git_sha1_commit_parts(original)
+        self.assertNotIn(b"gpgsig-sha256", payload)
+        self.assertNotIn(b"/NEAn0XO9RYS", signature)
+        # Message bytes are not reparsed as headers. LF, spaces and CR in the
+        # message remain exact, rather than normalized into another payload.
+        suffix = b"gpgsig message text\n folded message\r\n"
+        p, s = git_sha1_commit_parts(original + suffix)
+        self.assertEqual(p, payload + suffix)
+        self.assertEqual(s, signature)
+        # In the deliberately changed header case, selecting the alternate
+        # bytes gives a different signature, never the pinned SHA-1 Ref.
+        alternate = original.replace(b"gpgsig ", b"gpgsig-ignored ", 1).replace(b"gpgsig-sha256 ", b"gpgsig ", 1)
+        _, wrong = git_sha1_commit_parts(alternate)
+        self.assertNotEqual(wrong, signature)
+
+    def test_git_signature_whitespace_and_payload_substitution_refuse(self):
+        data, lock = read_corpus()
+        for name, replacement in (("valid-signature.asc", data["valid-signature.asc"][:-1]),
+                                  ("corrupt-signature.asc", data["valid-signature.asc"]),
+                                  ("valid-payload.txt", data["valid-payload.txt"] + b"\n")):
+            changed = dict(data); changed[name] = replacement
+            changed_lock = json.loads(canonical(lock))
+            row = next(r for r in changed_lock["files"] if r["path"] == name)
+            row["len"] = len(replacement); row["sha256"] = sha(replacement)
+            with self.assertRaises(Refused): corpus_signature_bindings(changed, changed_lock)
+
+    def test_git_signature_matcher_changes_commands_and_refuses_substitution(self):
+        current = command_profile()
+        child = next(f for f in current["forms"] if f["id"] == "verify_child")
+        self.assertEqual(child["argv"], ["--keyid-format=long", "--status-fd=1", "--verify", "{git_signature_temp}", "-"])
+        self.assertEqual(sum(GIT_SIGNATURE_TEMP in f["argv"] for f in current["forms"]), 1)
+        for operand in ("{signature}", "valid-signature.asc", "corrupt-signature.asc", "/scratch/.git_vtag_tmpABC123"):
+            stale = json.loads(canonical(current))
+            next(f for f in stale["forms"] if f["id"] == "verify_child")["argv"][3] = operand
+            self.assertNotEqual(sha(canonical(stale)), sha(canonical(current)))
+            with self.assertRaisesRegex(Refused, "Commands projection currentness"):
+                bind_current_candidate({"command_profile_sha256": sha(canonical(stale))}, {}, {}, Path("never-read-stale-prefix"), {})
+            with self.assertRaisesRegex(Refused, "stale/substituted Commands"):
+                capture_review(Path("never-read-stale-source"), {"commands": stale})
+        prefixed = json.loads(canonical(current))
+        form = next(f for f in prefixed["forms"] if f["id"] == "verify_child")
+        form["argv"] = prefixed["gpg_prefix"] + form["argv"]
+        with self.assertRaisesRegex(Refused, "stale/substituted Commands"):
+            capture_review(Path("never-read-prefixed-source"), {"commands": prefixed})
+
     def test_actual_link_map_literal_bytes_do_not_change_object_table(self):
         maps = sorted((TEST_TARGET.parent / "runs").glob("*/logs/git.link-map"))
         if not maps:
@@ -1752,7 +1927,7 @@ class ProvisioningTests(unittest.TestCase):
         self.assertEqual(len({f["id"] for f in profile["forms"]}), 16)
         byid = {f["id"]: f for f in profile["forms"]}
         self.assertEqual(byid["signature"]["members"], 2)
-        self.assertEqual(byid["verify_child"]["argv"], ["--keyid-format=long", "--status-fd=1", "--verify", "{signature}", "-"])
+        self.assertEqual(byid["verify_child"]["argv"], ["--keyid-format=long", "--status-fd=1", "--verify", GIT_SIGNATURE_TEMP, "-"])
         self.assertEqual(byid["last_touch"]["argv"], ["rev-list", "-1", "{commit}", "--", "{record}"])
 
     def test_platform_image_links_do_not_relax_private_file_custody(self):
@@ -1940,14 +2115,19 @@ class ProvisioningTests(unittest.TestCase):
                 self.assertEqual(list(Path(tmp).iterdir()), [])
 
 
-def unit(d):
+def unit(d, signature_only=False):
     global TEST_TARGET
     TEST_TARGET = private_dir(d / "unit")
-    result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(ProvisioningTests))
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(ProvisioningTests)
+    if signature_only:
+        suite = unittest.TestSuite(t for t in suite if t._testMethodName.startswith("test_git_signature_"))
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
     require(result.wasSuccessful(), "private provisioning regression failed")
 
 
-def check(d, component_only=False, source_only=False):
+def check(d, component_only=False, source_only=False, signature_corpus_only=False):
+    if signature_corpus_only:
+        return check_signature_corpus(d)
     if source_only:
         return check_sources(d)
     if not component_only:
@@ -1967,6 +2147,7 @@ def main():
     parser.add_argument("--target", type=Path, default=ROOT / "target")
     parser.add_argument("--component-only", action="store_true")
     parser.add_argument("--source-only", action="store_true")
+    parser.add_argument("--signature-corpus-only", action="store_true")
     args = parser.parse_args()
     os.umask(0o077)
     target = args.target.absolute()
@@ -1984,8 +2165,8 @@ def main():
         elif args.action == "unit":
             unit(d)
         else:
-            require(not (args.component_only and args.source_only), "choose one private focused check")
-            check(d, args.component_only, args.source_only)
+            require(sum((args.component_only, args.source_only, args.signature_corpus_only)) <= 1, "choose one private focused check")
+            check(d, args.component_only, args.source_only, args.signature_corpus_only)
     except (Refused, OSError, subprocess.TimeoutExpired) as error:
         print(f"REFUSED: {error}", file=sys.stderr)
         return 1

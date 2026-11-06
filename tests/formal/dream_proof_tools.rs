@@ -1011,6 +1011,187 @@ pub fn pretest_basis(control: u8) -> Model {
     m
 }
 
+/// Builder-only decision65960 B corpus/Commands contract (B a130538f,
+/// combined decision eb0b4af3). The actual verify_child operand is Git's own
+/// temporary. Commands argv[3] is only the {git_signature_temp} matcher, never
+/// expanded to a fixture Ref or directly launched by the builder.
+/// Two opaque signature-byte/Ref identities model exact extraction equality for
+/// valid/corrupt cases. Both cases may legitimately share the same signature
+/// bytes; cryptographic validity/corruption remains a real Git/GPG witness.
+/// Current Commands/case binding invalidates old pending tuples. No temporary,
+/// argv-observation, process, GS1/GS2, inode/cleanup or controller states appear:
+/// those are solely Q2-owned obligations. Only local invalid-tuple refusal is fair.
+pub fn signature_corpus(control: u8) -> Model {
+    let suffix = match control {
+        1 => "FixtureSubstitution",
+        2 => "ExtractedBytes",
+        3 => "WrongCaseRef",
+        4 => "StaleCommands",
+        5 => "StaleCase",
+        6 => "ExpandMatcher",
+        7 => "DirectLaunch",
+        _ => "",
+    };
+    let mut m = base(
+        &format!("DreamProofToolsSignatureCorpus{suffix}"),
+        control != 0,
+        &[
+            ("phase", 4, 0), // absent, prepared, bound, emitted, refused
+            ("case", 1, 0),  // valid/corrupt; not an assertion of proof outcome
+            ("expectedSignature", 1, 0),
+            ("extractedGpgsig", 1, 0),
+            ("selectedRef", 1, 0),
+            ("matcher", 2, 0), // legacy signature token, exact GitSigTemp, fixture path
+            ("commandsRevision", 2, 1), // current B tuple; one later immutable change
+            ("capturedCommands", 2, 0),
+            ("capturedCase", 1, 0),
+            ("tupleBound", 1, 0),
+            ("emitted", 1, 0),
+            ("matcherExpanded", 1, 0),
+            ("directLaunchIntent", 1, 0),
+            ("caseChanged", 1, 0),
+        ],
+    );
+    for (name, case, expected, extracted, reference, matcher, commands) in [
+        ("PrepareValidExactCorpus", 0, 0, 0, 0, 1, 1),
+        ("PrepareCorruptSharedSignatureCorpus", 1, 0, 0, 0, 1, 1),
+        ("PrepareCorruptDistinctSignatureCorpus", 1, 1, 1, 1, 1, 1),
+        ("PrepareLegacySignatureToken", 0, 0, 0, 0, 0, 1),
+        ("PrepareFixturePathSubstitution", 0, 0, 0, 0, 2, 1),
+        ("PrepareWrongExtractedGpgsigBytes", 0, 0, 1, 0, 1, 1),
+        ("PrepareOtherCaseCommitAndRef", 0, 0, 1, 1, 1, 1),
+        ("PrepareOldCommandsHashWithCurrentLabel", 0, 0, 0, 0, 1, 0),
+    ] {
+        act(
+            &mut m,
+            name,
+            eq(0, 0),
+            &[
+                (0, Int(1)),
+                (1, Int(case)),
+                (2, Int(expected)),
+                (3, Int(extracted)),
+                (4, Int(reference)),
+                (5, Int(matcher)),
+                (7, Int(commands)),
+                (8, Int(case)),
+            ],
+        );
+    }
+    let complete = all([
+        eq(5, 1),
+        Var(3).eq(Var(4)),
+        Var(4).eq(Var(2)),
+        Var(7).eq(Var(6)),
+        Var(8).eq(Var(1)),
+        eq(11, 0),
+        eq(12, 0),
+    ]);
+    act(
+        &mut m,
+        "BindExactCorpusCaseAndCurrentCommands",
+        all([
+            eq(0, 1),
+            if control == 1 { Bool(true) } else { eq(5, 1) },
+            if control == 2 {
+                Bool(true)
+            } else {
+                Var(3).eq(Var(4))
+            },
+            if control == 3 {
+                Bool(true)
+            } else {
+                Var(4).eq(Var(2))
+            },
+            if control == 4 {
+                Bool(true)
+            } else {
+                Var(7).eq(Var(6))
+            },
+            if control == 5 {
+                Bool(true)
+            } else {
+                Var(8).eq(Var(1))
+            },
+            eq(11, 0),
+            eq(12, 0),
+        ]),
+        &[(0, Int(2)), (9, Int(1))],
+    );
+    act(
+        &mut m,
+        "EmitBuilderBasisWithNewCommandsProjection",
+        all([eq(0, 2), eq(9, 1)]),
+        &[(0, Int(3)), (10, Int(1))],
+    );
+    act(
+        &mut m,
+        "ChangeCommandsInvalidatesPendingTuple",
+        all([eq(0, 1).or(eq(0, 2)), eq(6, 1)]),
+        &[(0, Int(1)), (6, Int(2)), (9, Int(0))],
+    );
+    act(
+        &mut m,
+        "ChangeSelectedCaseInvalidatesPendingTuple",
+        all([eq(0, 1).or(eq(0, 2)), eq(13, 0)]),
+        &[
+            (0, Int(1)),
+            (1, Int(1).minus(Var(1))),
+            (9, Int(0)),
+            (13, Int(1)),
+        ],
+    );
+    if control == 6 {
+        act(
+            &mut m,
+            "ExpandMatcherAsFixturePath",
+            eq(0, 1).or(eq(0, 2)),
+            &[(11, Int(1))],
+        );
+    }
+    if control == 7 {
+        act(
+            &mut m,
+            "TreatImplicitVerifyChildAsDirectBuilderCommand",
+            eq(0, 1).or(eq(0, 2)),
+            &[(12, Int(1))],
+        );
+    }
+    let reject = m.actions.len();
+    let invalid_pending = eq(0, 1).and(complete.negate());
+    act(
+        &mut m,
+        "RefuseChangedOrInexactBuilderSignatureTuple",
+        invalid_pending.clone(),
+        &[(0, Int(4)), (9, Int(0))],
+    );
+    let unbound = all([eq(9, 0), eq(10, 0)]);
+    for (name, required) in [
+        ("BoundSignatureCommandIsMatcher", eq(5, 1)),
+        ("CorpusExtractedSignatureEqualsRef", Var(3).eq(Var(4))),
+        ("CorpusRefIsForSelectedCase", Var(4).eq(Var(2))),
+        ("SignatureCommandsTupleIsCurrent", Var(7).eq(Var(6))),
+        ("SignatureCaseTupleIsCurrent", Var(8).eq(Var(1))),
+    ] {
+        safe(&mut m, name, unbound.clone().or(required));
+    }
+    safe(&mut m, "BuilderNeverExpandsGitSignatureMatcher", eq(11, 0));
+    safe(&mut m, "BuilderNeverDirectLaunchesVerifyChild", eq(12, 0));
+    safe(
+        &mut m,
+        "SignatureEmissionRequiresBoundTuple",
+        eq(10, 0).or(eq(9, 1)),
+    );
+    progress(
+        &mut m,
+        "InvalidBuilderSignatureTupleLocallyRefuses",
+        invalid_pending,
+        eq(0, 4),
+        vec![reject],
+    );
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = Vec::new();
     for (family, count) in [
@@ -1020,6 +1201,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (hidden_work as fn(u8) -> Model, 2),
         (source_seven as fn(u8) -> Model, 8),
         (pretest_basis as fn(u8) -> Model, 14),
+        (signature_corpus as fn(u8) -> Model, 7),
     ] {
         for control in 0..=count {
             out.push((
@@ -1281,5 +1463,68 @@ fn dream_proof_tools_typed_basis_good_model_is_nonvacuous() {
             .iter()
             .any(|s| s[0] == 2 && s[14] == 1 && s[19] == 1 && s[20] == 1),
         "six logical projections bind one charged physical basis manifest"
+    );
+}
+
+#[test]
+fn dream_proof_tools_signature_corpus_controls_are_causal() {
+    for (control, property) in [
+        (1, "BoundSignatureCommandIsMatcher"),
+        (2, "CorpusExtractedSignatureEqualsRef"),
+        (3, "CorpusRefIsForSelectedCase"),
+        (4, "SignatureCommandsTupleIsCurrent"),
+        (5, "SignatureCaseTupleIsCurrent"),
+        (6, "BuilderNeverExpandsGitSignatureMatcher"),
+        (7, "BuilderNeverDirectLaunchesVerifyChild"),
+    ] {
+        let bad = signature_corpus(control).check(100_000).unwrap();
+        assert!(
+            bad.violations
+                .iter()
+                .any(|v| v.property == property && v.cycle.is_empty()),
+            "signature-corpus control {control} did not reach safety invariant {property}"
+        );
+    }
+}
+
+#[test]
+fn dream_proof_tools_signature_corpus_good_model_is_nonvacuous() {
+    let good = signature_corpus(0).check(100_000).unwrap();
+    assert!(good.violations.is_empty());
+    for (case, signature) in [(0, 0), (1, 0), (1, 1)] {
+        assert!(
+            good.states.iter().any(|s| s[0] == 3
+                && s[1] == case
+                && s[2] == signature
+                && s[3] == signature
+                && s[4] == signature
+                && s[5] == 1
+                && s[10] == 1),
+            "case {case} can emit its exact corpus tuple with signature identity {signature}"
+        );
+    }
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[0] == 4 && s[3] != s[4] && s[9] == 0 && s[10] == 0),
+        "extracted bytes differing from the case Ref are refused before emission"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[0] == 4 && s[4] != s[2] && s[9] == 0 && s[10] == 0),
+        "other-case corpus/Ref substitution is refused before emission"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[0] == 1 && s[6] == 2 && s[7] == 1 && s[9] == 0 && s[10] == 0),
+        "changed Commands retain the old pending tuple as unbound"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[0] == 1 && s[8] != s[1] && s[3] == s[4] && s[9] == 0),
+        "matching signature bytes do not silently rebind a changed case"
     );
 }

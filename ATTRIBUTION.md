@@ -227,6 +227,10 @@ in `t/t7510-signed-commit.sh` and retains only the PUBLIC armor from its
 `t/lib-gpg/keyring.gpg`. Original GPL-2.0 terms remain attached. The corrupt
 control changes one signature byte; no private key, signing or key generation
 produced these fixtures. Real signature verification is a separate required gate.
+The independent byte-unfolding check is **Inspired by** Git's SHA-1 commit header
+format and `commit.c` source; it preserves the pinned corpus bytes and replaces
+no Git/OpenPGP implementation. Its source review retains Git's original GPL-2.0
+notices and links, and all copied upstream corpus/patch bytes keep their licenses.
 
 - The private dream-bootstrap/1 fixed permit, bounded earliest-entry/lease checks,
   canonical binding/layout vectors, independent checker and causal process/formal

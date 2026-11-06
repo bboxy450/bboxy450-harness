@@ -2447,3 +2447,43 @@ frontend = "project"
 name = "BrokenHarnessDreamProofToolsPretestBasisUnchargedCopy"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamProofToolsSignatureCorpus"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsSignatureCorpusFixtureSubstitution"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsSignatureCorpusExtractedBytes"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsSignatureCorpusWrongCaseRef"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsSignatureCorpusStaleCommands"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsSignatureCorpusStaleCase"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsSignatureCorpusExpandMatcher"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsSignatureCorpusDirectLaunch"
+expected = "safety"
+frontend = "project"
