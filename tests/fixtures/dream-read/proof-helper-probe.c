@@ -38,7 +38,9 @@ static pid_t retained_group=0,retained_child=0;
 static void (*dispose_private_engine)(void)=NULL;
 static void require(int ok,const char *label);
 static void dispose_owned(void) {
-    if(dispose_private_engine)dispose_private_engine();
+    // Private ownership has its own bounded, persisted quarantine path. Never
+    // follow that path with the generic blocking numeric-PGID fallback.
+    if(dispose_private_engine){dispose_private_engine();return;}
     if (retained_group>0) {pid_t pid=retained_group;retained_group=0;kill(-pid,SIGKILL);while(waitpid(pid,NULL,0)<0&&errno==EINTR){}}
     if (retained_child>0) {pid_t pid=retained_child;retained_child=0;kill(pid,SIGKILL);while(waitpid(pid,NULL,0)<0&&errno==EINTR){}}
 }
@@ -2202,7 +2204,7 @@ static __attribute__((unused)) int private_git_sig_release(struct private_git_si
 #define ENGINE_RECORD_MAX 4096u
 #define ENGINE_WORK_LIMIT (78u*1024u*1024u)
 struct engine_ticket {pid_t pid,pgid;uint64_t birth,start;uint16_t sequence;};
-struct engine_incarnation {pid_t pid;uint64_t birth,start;audit_token_t token;unsigned current;};
+struct engine_incarnation {pid_t pid;uint64_t birth,start;audit_token_t token;unsigned current,kill_attempted;int kill_result;};
 enum engine_image_phase {ENGINE_UNSEEN,ENGINE_CLONE,ENGINE_EXPECTED,ENGINE_EXITED};
 struct engine_member {
     struct image state;audit_token_t token;unsigned token_known,phase,stop_version;
@@ -2226,6 +2228,9 @@ struct engine_owner {
     unsigned command,grants,case_fired,record_count,child_created,child_settled;uint64_t hold_until,pipe_cpu;
     unsigned stop_pending,stop_terminal,stop_attempts;int stop_result,stop_errno;
     uint64_t stop_call_ns,stop_terminal_ns;
+    audit_token_t pending_token[2];unsigned pending_final_image_mask,pending_identity_lost;
+    unsigned settlement_quarantined,quarantine_recorded,quarantine_durable,group_kill_attempted;int group_kill_result;
+    uint64_t settlement_prepaid_cpu;
     uint64_t wait_user,wait_system,wait_rss;unsigned wait_observed;
     char image[4097],descendant[4097];
     int input,output,errors,ledger;size_t sent,out_len,err_len,ledger_bytes;
@@ -2237,6 +2242,7 @@ static struct engine_owner *engine_current=NULL;
 // This fixed owner outlives any ambiguous-effect return and the atexit hook.
 // A second command cannot replace a physically unsettled first owner.
 static struct engine_owner engine_storage;
+static void engine_emergency_dispose(void);
 // Scratch custody and the actual verifier argv survive all direct commands
 // and any refused owned effect. This is not a second controller or tool grant.
 static struct private_git_sig_temp engine_signature_storage={.scratch_fd=-1,.signature_fd=-1};
@@ -2264,7 +2270,7 @@ static void engine_sum(struct private_engine_metric *m,uint64_t value) {
 static int engine_failure(struct engine_owner *owner,const char *code,const char *detail) {
     owner->failed=1;private_fail(code,detail);
     owner->result->error_code=private_error;owner->result->error_detail=private_detail;
-    owner->result->outcome="failed";return 0;
+    owner->result->outcome=owner->settlement_quarantined?"quarantined":"failed";return 0;
 }
 static uint64_t engine_interval(uint64_t begin,uint64_t end) {
     return begin==UINT64_MAX||end==UINT64_MAX||end<begin?UINT64_MAX:end-begin;
@@ -2361,7 +2367,14 @@ static int engine_stop_result(struct engine_owner *owner,int result,int error,ui
     owner->stop_result=result;owner->stop_errno=error;owner->stop_call_ns=at;
     owner->stop_attempts++;
     if(result==0)return 1;
-    if(error==EPERM||error==ESRCH){owner->stop_pending=1;return 1;}
+    if(error==EPERM||error==ESRCH){
+        owner->stop_pending=1;owner->pending_final_image_mask=0;
+        for(unsigned i=0;i<owner->slots;i++)if(owner->members[i].token_known
+            &&owner->members[i].phase==ENGINE_EXPECTED&&owner->members[i].state.start_absolute) {
+            owner->pending_token[i]=owner->members[i].token;owner->pending_final_image_mask|=1u<<i;
+        }
+        return 1;
+    }
     return engine_failure(owner,"coverage_unknown","original group STOP effect unresolved");
 }
 static int engine_stop_group(struct engine_owner *owner) {
@@ -2374,6 +2387,14 @@ static int engine_stop_group(struct engine_owner *owner) {
 }
 static int engine_member_exit(struct engine_owner *owner,unsigned index) {
     struct engine_member *member=&owner->members[index];struct rusage_info_v1 usage;
+    if(owner->stop_pending&&(!owner->grant.source_complete||owner->pending_identity_lost
+        ||!(owner->pending_final_image_mask&(1u<<index))
+        ||memcmp(&member->token,&owner->pending_token[index],sizeof(member->token))))
+        return engine_failure(owner,"coverage_unknown","pending terminal lacks admitted final-image exec continuity");
+    // Public RI/BSDINFO does not expose a terminal exec version. Once a fully
+    // admitted final image vanishes, the no-further-exec relation is ONLY the
+    // bound source/platform premise. Live continuity below invalidates it on
+    // every observed change; unknown/pre-exec slots never acquire this premise.
     if(!member->token_known||!member->state.start_absolute||!engine_token_gone(&member->token))return 0;
     if(proc_pid_rusage(member->state.pid,RUSAGE_INFO_V1,(rusage_info_t *)&usage)!=0)
         return errno==ESRCH&&member->phase==ENGINE_EXITED&&member->exit_abstime!=0;
@@ -2394,6 +2415,28 @@ static int engine_member_exit(struct engine_owner *owner,unsigned index) {
     }
     member->phase=ENGINE_EXITED;return 1;
 }
+static int engine_pending_live_member(struct engine_owner *owner,unsigned index,const struct image *current) {
+    struct engine_member *member=&owner->members[index];audit_token_t before,after;char path[PROC_PIDPATHINFO_MAXSIZE];
+    if(owner->pending_identity_lost||!(owner->pending_final_image_mask&(1u<<index))
+        ||!member->token_known||member->phase!=ENGINE_EXPECTED||!owner->grant.source_complete)
+        goto changed;
+    if(!known_control_token(current->pid,current->birth,&before))goto changed;
+    if(memcmp(&before,&owner->pending_token[index],sizeof(before))) {
+        // Retain the newly observed real effect for identity-safe disposal,
+        // without reviving or admitting it as the original logical member.
+        (void)engine_owned_token(owner,current->pid,current->birth,current->start_absolute,&before);goto changed;
+    }
+    if(proc_pidpath_audittoken(&before,path,sizeof(path))<=0
+        ||!memchr(path,0,sizeof(path))||strcmp(path,index?owner->descendant:owner->image))goto changed;
+    struct rusage_info_v1 usage;
+    if(proc_pid_rusage(current->pid,RUSAGE_INFO_V1,(rusage_info_t *)&usage)!=0
+        ||!engine_usage(owner,index,&usage)||!known_control_token(current->pid,current->birth,&after)
+        ||memcmp(&before,&after,sizeof(before)))goto changed;
+    member->state.status=current->status;member->state.runnable=current->runnable;return 1;
+changed:
+    owner->pending_identity_lost=owner->coverage_lost=1;
+    return engine_failure(owner,"coverage_unknown","pending STOP observed missing or changed exec token path or RI identity");
+}
 static int engine_sample_member(struct engine_owner *owner,unsigned index,pid_t pid,int *ack) {
     *ack=0;struct engine_member *member=&owner->members[index];struct image current;
     // Terminal proof precedes live-thread/image predicates: a zombie may have
@@ -2413,7 +2456,9 @@ static int engine_sample_member(struct engine_owner *owner,unsigned index,pid_t 
         return engine_failure(owner,"coverage_unknown","member lineage birth group or one-thread predicate differs");
     if(member->phase==ENGINE_EXITED)return engine_failure(owner,"coverage_unknown","retired logical member revived");
     if(owner->stop_pending&&current.status!=SZOMB) {
-        *ack=0;return 1; // original t0 remains open; no STOP/CONT or image grant.
+        // A live pending member still requires exact bracketed audit/path/RI
+        // continuity. It receives no ACK and no second STOP/CONT on success.
+        *ack=0;return engine_pending_live_member(owner,index,&current);
     }
     if(index==0&&current.birth!=owner->ticket.birth)return engine_failure(owner,"coverage_unknown","leader birth differs");
     unsigned previous=member->token_known?member->token.val[7]:0;int fresh=0;
@@ -2555,6 +2600,8 @@ static int engine_roster(struct engine_owner *owner,int final,int *closed) {
     if(owner->stop_pending) {
         int done=0;
         if(!engine_direct_exited(owner,&done)||!done)return 1;
+        if(owner->pending_identity_lost||owner->pending_final_image_mask!=((1u<<owner->slots)-1))
+            return engine_failure(owner,"coverage_unknown","pending terminal source premise has unknown or pre-exec members");
         if(owner->slots==2&&!owner->members[1].state.pid)
             return engine_failure(owner,"coverage_unknown","pending terminal proof retains an unknown possible child");
         for(unsigned i=0;i<owner->slots;i++)if(owner->members[i].phase!=ENGINE_EXITED
@@ -2964,7 +3011,85 @@ static int engine_original_group_gone(struct engine_owner *owner) {
     // original settlement or a replacement generation. Never signal it again.
     return count==0;
 }
+static int engine_quarantine(struct engine_owner *owner,const char *detail) {
+    owner->settlement_quarantined=1;owner->retiring=1;
+    (void)engine_failure(owner,"settlement_unknown",detail);
+    owner->result->phase="quarantined";owner->result->outcome="quarantined";
+    owner->result->group_gone=owner->result->retired_coverage=0;
+    engine_current=owner;dispose_private_engine=engine_emergency_dispose;
+    // No endpoint/absence is minted for unresolved original work. Close the
+    // controller's measured unit, with unknown helper/late cost kept unknown.
+    uint64_t now=UINT64_MAX,cpu=UINT64_MAX;
+    (void)known_clock_ns(CLOCK_MONOTONIC,&now);(void)known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&cpu);
+    if(owner->grant.t0&&!owner->grant.roster_closed) {
+        owner->grant.cpu_close=cpu;owner->grant.actual_cpu=UINT64_MAX;
+        (void)engine_window_cost(owner,now,0);
+    }
+    engine_max(&owner->result->late_kernel_ns,UINT64_MAX);
+    // The attempt flag precedes every evidence write: unknown writes are not
+    // replayed at atexit. A successful persisted receipt links these unresolved
+    // identities to run/nonce/input. It is evidence, not live kernel custody
+    // after process exit or proof that a recovery consumer has acquired them.
+    if(!owner->quarantine_recorded) {
+        owner->quarantine_recorded=1;int durable=owner->ledger>=0;
+        if(owner->ledger>=0&&!engine_record(owner,"quarantined"))durable=0;
+        for(unsigned i=0;i<owner->retired_count;i++) {
+            const struct engine_incarnation *m=&owner->retired[i];char line[768];
+            int n=snprintf(line,sizeof(line),"{\"phase\":\"quarantine_identity\",\"input_sha256\":\"%s\",\"run_id\":\"%s\",\"nonce\":\"%s\",\"pid\":%d,\"pgid\":%d,\"birth\":%llu,\"start\":%llu,\"current\":%u,\"token\":[%u,%u,%u,%u,%u,%u,%u,%u],\"direct_reaped\":%u,\"unknown_child_pid\":%d,\"unknown_child_token\":%u,\"kill_attempted\":%u,\"kill_result\":%d,\"conditional_source_only\":true}\n",
+                owner->context->input_sha256,owner->context->outer->run,owner->context->outer->nonce,m->pid,owner->ticket.pgid,
+                (unsigned long long)m->birth,(unsigned long long)m->start,m->current,m->token.val[0],m->token.val[1],m->token.val[2],m->token.val[3],
+                m->token.val[4],m->token.val[5],m->token.val[6],m->token.val[7],owner->direct_reaped,
+                owner->members[1].state.pid,owner->members[1].token_known,m->kill_attempted,m->kill_result);
+            if(n<=0||(size_t)n>=sizeof(line)||owner->record_count>=ENGINE_RECORD_MAX
+                ||owner->ledger_bytes>ENGINE_CAPTURE_MAX||(size_t)n>ENGINE_CAPTURE_MAX-owner->ledger_bytes){durable=0;break;}
+            owner->record_count++;owner->ledger_bytes+=(size_t)n;
+            if(owner->ledger>=0) {if(write(owner->ledger,line,(size_t)n)!=n){durable=0;break;}}
+            else {durable=0;if(write(STDERR_FILENO,line,(size_t)n)!=n)break;}
+        }
+        if(owner->ledger<0||fsync(owner->ledger)!=0||owner->context->outer->output.fd<0
+            ||fsync(owner->context->outer->output.fd)!=0)durable=0;
+        owner->quarantine_durable=(unsigned)durable;
+        if(!durable)(void)engine_failure(owner,"settlement_unknown","quarantine evidence write or persistence failed; no retry and no durable-custody claim");
+        char receipt[256];int count=snprintf(receipt,sizeof(receipt),
+            "private_quarantine evidence_persisted=%s live_kernel_custody_after_exit=false recovery_handoff_proved=false created=%u reaped=%u group_gone=false retired_coverage=false\n",
+            durable?"true":"false",(unsigned)owner->result->created,(unsigned)owner->result->reaped);
+        if(count<=0||(size_t)count>=sizeof(receipt)||write(STDERR_FILENO,receipt,(size_t)count)!=count)
+            (void)engine_failure(owner,"settlement_unknown","quarantine persistence-status receipt is incomplete");
+        uint64_t used=engine_interval(private_cost.open_cpu,engine_now(owner,CLOCK_THREAD_CPUTIME_ID));
+        engine_max(&owner->result->cleanup_max_ns,used);
+        if(!owner->grant.t0||owner->grant.roster_closed)engine_sum(&owner->result->post_cpu_ns,used);
+        (void)engine_charge(owner,used,UINT64_MAX,1);
+    }
+    return 0;
+}
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+// Compile-only injected observation, not a second deadline or runtime option.
+static unsigned source_known_settlement_deadline_unknown;
+#endif
+static int engine_settlement_live(struct engine_owner *owner) {
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(source_known_settlement_deadline_unknown)
+        return engine_quarantine(owner,"source-known injected unknown original deadline observation");
+#endif
+    uint64_t now;
+    if(!known_clock_ns(CLOCK_MONOTONIC,&now))return engine_quarantine(owner,"settlement clock is unknown; original custody retained");
+    if(now>=owner->context->outer->deadline)return engine_quarantine(owner,"original settlement deadline reached; original custody retained");
+    return 1;
+}
+static int engine_settlement_poll_unit(struct engine_owner *owner) {
+    uint64_t used=engine_interval(private_cost.open_cpu,engine_now(owner,CLOCK_THREAD_CPUTIME_ID));
+    if(used==UINT64_MAX||UINT64_MAX-owner->settlement_prepaid_cpu<used)
+        return engine_quarantine(owner,"settlement control CPU is unknown or overflowing");
+    // Keep the ORIGINAL open member window and C start. Poll-unit debt is
+    // paid now; its CPU is subtracted only from the final payment, not Q or
+    // the original-window verdict, so every observed nanosecond is paid once.
+    owner->settlement_prepaid_cpu+=used;
+    if(!engine_charge(owner,used,used,1))return engine_quarantine(owner,"settlement control unit or original deadline refused");
+    return engine_settlement_live(owner);
+}
 static int engine_retire(struct engine_owner *owner,int *exit_code) {
+    if(owner->settlement_quarantined)return 0;
+    if(owner->direct_reaped)return owner->result->group_gone&&owner->result->retired_coverage;
     owner->result->phase="settling";owner->retiring=1;uint64_t at=private_cost.open_cpu;
     // Observe the original unreaped handle before settlement. A naturally
     // finished command is reaped without signalling its retired incarnation.
@@ -2974,7 +3099,7 @@ static int engine_retire(struct engine_owner *owner,int *exit_code) {
     int done=0;
     if(!known_exited(owner->ticket.pid,&done)) {
         owner->direct_custody=0;retained_group=0;
-        return engine_failure(owner,"settlement_unknown","settlement lacks original unreaped handle");
+        return engine_quarantine(owner,"settlement lacks original unreaped handle");
     }
     if(done&&!owner->failed) {
         int closed=0;
@@ -2986,30 +3111,41 @@ static int engine_retire(struct engine_owner *owner,int *exit_code) {
             struct engine_incarnation *member=&owner->retired[i];
             if(!member->current||((member->pid==owner->ticket.pid)!=(pass==1))
                 ||(member->pid==owner->ticket.pid&&done)||engine_physical_exit(member))continue;
-            int result=engine_token_signal(&member->token,SIGKILL);
-            if(result&&result!=ESRCH)engine_failure(owner,"settlement_unknown","retained incarnation kill unresolved");
+            if(member->kill_attempted)continue;
+            member->kill_attempted=1;member->kill_result=engine_token_signal(&member->token,SIGKILL);
+            if(member->kill_result&&member->kill_result!=ESRCH)engine_failure(owner,"settlement_unknown","retained incarnation kill unresolved");
         }
-        if(!done&&kill(-owner->ticket.pgid,SIGKILL)!=0&&errno!=ESRCH)
-            engine_failure(owner,"settlement_unknown","final unreaped group kill unresolved");
+        if(!done&&!owner->group_kill_attempted) {
+            owner->group_kill_attempted=1;errno=0;int raw=kill(-owner->ticket.pgid,SIGKILL);
+            owner->group_kill_result=raw?errno:0;
+            if(owner->group_kill_result&&owner->group_kill_result!=ESRCH)
+                engine_failure(owner,"settlement_unknown","final unreaped group kill unresolved");
+        }
     }
     struct rusage usage;int status=0;pid_t joined=0;
     for(;;) {
+        if(!engine_settlement_live(owner))return 0;
         if(!engine_direct_exited(owner,&done)) {
             owner->direct_custody=0;retained_group=0;
-            return engine_failure(owner,"settlement_unknown","actual direct wait ownership became unavailable");
+            return engine_quarantine(owner,"actual direct wait ownership became unavailable");
         }
         if(done) {
             if(!strcmp(owner->context->outer->case_name,"reap_delay")&&!owner->case_fired) {
-                owner->case_fired=1;usleep(20000);engine_failure(owner,"settlement_unknown","fixture refused completion while original handle remained unreaped");
+                owner->case_fired=1;engine_failure(owner,"settlement_unknown","fixture refused completion while original handle remained unreaped");
+                return engine_quarantine(owner,"source-known delayed reap retains the original unreaped handle");
             }
             joined=wait4(owner->ticket.pid,&status,WNOHANG,&usage);
             if(joined==owner->ticket.pid){retained_group=0;owner->direct_reaped=1;owner->direct_custody=0;owner->result->reaped++;break;}
             if(joined<0&&errno!=EINTR) {
                 owner->direct_custody=0;retained_group=0;
-                return engine_failure(owner,"settlement_unknown","actual direct wait4 unavailable");
+                return engine_quarantine(owner,"actual direct wait4 unavailable");
             }
         }
-        usleep(1000); // Only bounded mandatory ownership/control remains.
+        if(!engine_settlement_poll_unit(owner))return 0;
+        at=private_cost.open_cpu;
+        // This is bounded observation of the already consumed original effect,
+        // never a fresh deadline, helper grant, signal retry or source work.
+        usleep(1000);
     }
     *exit_code=WIFEXITED(status)?WEXITSTATUS(status):-1;
     if(owner->command==12&&owner->git_signature) {
@@ -3031,11 +3167,11 @@ static int engine_retire(struct engine_owner *owner,int *exit_code) {
         &&before_user!=UINT64_MAX&&user<=before_user&&user_upper+1>=before_user&&system_upper+1>=before_system)
         late=system_upper-(before_system?before_system-1:0);
     else engine_failure(owner,"coverage_unknown","final raw user/system cutoffs are not reconciled");
-    while(!engine_original_group_gone(owner)) {
-        owner->result->phase="quarantined";owner->result->outcome="quarantined";
-        owner->result->group_gone=owner->result->retired_coverage=0;
-        engine_failure(owner,"settlement_unknown","original member/group retirement remains owned");
-        usleep(1000); // Retain the owner; never invent settlement or send a reused group signal.
+    if(!engine_original_group_gone(owner)) {
+        // An unknown child/token cannot improve through an empty census or an
+        // unbounded sleep loop. Preserve original handles and paid raw evidence
+        // in explicit quarantine immediately, without claiming group absence.
+        return engine_quarantine(owner,"original member/group retirement remains unknown after actual leader reap");
     }
     owner->result->group_gone=1;
     // The implicit verifier is physically reaped by Git, not by a second Q2
@@ -3061,7 +3197,11 @@ static int engine_retire(struct engine_owner *owner,int *exit_code) {
             ||!engine_safe_sum(owner->grant.actual_cpu,late,&owner->grant.actual_cpu))owner->grant.actual_cpu=UINT64_MAX;
         engine_sum(&owner->result->late_kernel_ns,late);
         engine_window_cost(owner,engine_now(owner,CLOCK_MONOTONIC),0);owner->running=0;
-        engine_charge(owner,owner->grant.controller,owner->grant.charge,1);
+        uint64_t prepaid=owner->settlement_prepaid_cpu;
+        uint64_t actual=owner->grant.controller>=prepaid?owner->grant.controller-prepaid:UINT64_MAX;
+        uint64_t outstanding=owner->grant.charge>=prepaid?owner->grant.charge-prepaid:UINT64_MAX;
+        if(owner->grant.charge>1000000)engine_failure(owner,"resource_limit","original open settlement Q exceeds one millisecond");
+        engine_charge(owner,actual,outstanding,1);
     } else {
         if(!engine_safe_sum(used,late,&cost))cost=UINT64_MAX;
         engine_sum(&owner->result->post_cpu_ns,used);engine_sum(&owner->result->late_kernel_ns,late);
@@ -3076,19 +3216,15 @@ static int engine_retire(struct engine_owner *owner,int *exit_code) {
     owner->result->phase="settled";return !owner->failed;
 }
 static void engine_emergency_dispose(void) {
-    struct engine_owner *owner=engine_current;
-    if(!owner||owner->direct_reaped)return;
-    owner->retiring=1;
-    for(unsigned i=0;i<owner->retired_count;i++)if(owner->retired[i].current) {
-        // Cancellation escalates only the retained original identity. In
-        // particular a consumed pending STOP is never issued a second time.
-        engine_token_signal(&owner->retired[i].token,SIGKILL);
-    }
-    // Only a positive nonreaping ownership observation preserves permission
-    // for dispose_owned's final numeric group signal. A lost handle keeps
-    // token custody but must never signal a potentially reused numeric PGID.
-    int done=0;
-    if(!owner->direct_custody||!known_exited(owner->ticket.pid,&done))retained_group=0;
+    struct engine_owner *owner=engine_current;if(!owner)return;
+    // A quarantined original operation has already consumed cleanup/evidence
+    // effects. Atexit must not repeat them, block on waitpid, drop handles or
+    // signal a retired numeric PGID. A persisted claim/ledger records unresolved
+    // identities only; it cannot preserve a dead process's kernel handles.
+    if(owner->settlement_quarantined)return;
+    int status=-1;(void)engine_retire(owner,&status);
+    if(!owner->result->group_gone||!owner->result->retired_coverage)
+        (void)engine_quarantine(owner,"atexit retains unresolved original settlement");
 }
 static int engine_capture_drain(struct engine_owner *owner) {
     while(owner->output>=0||owner->errors>=0) {
@@ -3363,6 +3499,32 @@ static int engine_signature_umask_allowed(void) {
     mode_t mask=umask(0);umask(mask);
     return (mask&0600)?private_fail("review_unbound","controller umask strips required Git signature permissions"):1;
 }
+// Test-only low-level seams exercise this SAME functional flow with scripted
+// public outputs and physical-effect records. They are absent from the private
+// probe executable and cannot be selected by descriptor, argv or environment.
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+struct private_source_known_effects {
+    int (*current)(const struct private_engine_context *);
+    int (*command)(struct engine_owner *,struct engine_prepared *,unsigned,
+        const char *,const char *,const unsigned char *,size_t,int *);
+};
+static const struct private_source_known_effects *private_source_known_effects;
+#endif
+static int engine_pretest_current(const struct private_engine_context *context) {
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(private_source_known_effects&&private_source_known_effects->current)
+        return private_source_known_effects->current(context);
+#endif
+    return private_revalidate_context(context);
+}
+static int engine_fixed_command(struct engine_owner *owner,struct engine_prepared *prepared,unsigned form,
+    const char *home,const char *scratch,const unsigned char *input,size_t length,int *status) {
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(private_source_known_effects&&private_source_known_effects->command)
+        return private_source_known_effects->command(owner,prepared,form,home,scratch,input,length,status);
+#endif
+    return engine_command(owner,prepared,form,home,scratch,input,length,status);
+}
 static int engine_metric_bound(const struct private_engine_metric *m,uint64_t bound) {
     return m->observed&&m->known&&m->value<=bound;
 }
@@ -3394,7 +3556,7 @@ int private_command_engine(const struct private_engine_context *context,struct p
         ||context->basis->source_coverage!=127||context->basis->command_coverage!=65535||private_failed) {
         private_fail("review_unbound","command engine requires the internal completely bound conditional context");goto refused;
     }
-    if(!engine_owner_priority()||!private_revalidate_context(context)||!engine_signature_boundary_available(context))goto refused;
+    if(!engine_owner_priority()||!engine_pretest_current(context)||!engine_signature_boundary_available(context))goto refused;
     if(!engine_signature_umask_allowed())goto refused;
     if(!engine_original_claim(context,result))goto refused;
     char home[4097],scratch[4097];if(!engine_public_home(context,home,scratch))goto refused;
@@ -3432,7 +3594,7 @@ int private_command_engine(const struct private_engine_context *context,struct p
         owner->git_signature=&engine_signature_storage;owner->signature_buffer=input;owner->signature_capacity=ENGINE_INPUT_MAX;
         owner->ledger_bytes=ledger_bytes;owner->record_count=record_count;
         struct engine_prepared prepared;int status=-1;
-        if(!engine_command(owner,&prepared,form,home,scratch,input,length,&status)||!engine_semantic(owner,form,status)) {
+        if(!engine_fixed_command(owner,&prepared,form,home,scratch,input,length,&status)||!engine_semantic(owner,form,status)) {
             if(!private_failed)engine_failure(owner,"signature_unexpected","fixed fixture semantic relationship differs");all=0;
         } else {result->semantic_forms|=1u<<form;result->commands_completed++;}
         ledger_bytes=owner->ledger_bytes;record_count=owner->record_count;
@@ -3449,7 +3611,7 @@ int private_command_engine(const struct private_engine_context *context,struct p
         result->phase="quarantined";result->outcome="quarantined";goto refused;
     }
     free(input);free(capture);if(!private_end_unit(private_cost.open_cpu))all=0;
-    if(!all||!private_revalidate_context(context))goto refused;
+    if(!all||!engine_pretest_current(context))goto refused;
     engine_max(&result->ordinary_max_ns,private_cost.ordinary_max);
     engine_max(&result->debt_charged_ns,private_cost.debt);engine_max(&result->debt_paid_ns,private_cost.debt_paid);
     if(engine_complete_result(context,result))return 1;

@@ -4,6 +4,7 @@
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 // Synthetic source-known API/semantic/terminal controls. No real candidate,
 // source authentication, OpenPGP qualification or runtime approval is claimed.
+#define DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS 1
 #define main canonical_probe_main
 #include "proof-helper-probe.c"
 #undef main
@@ -36,7 +37,7 @@ static void fixture(int root) {
     strcpy(basis.fixture.valid_signature.sha,"d716c2d0807ca1339c774486d55d31768fa9f953df90872f2ceef4cb4568c792");
     strcpy(basis.fixture.corrupt_signature.sha,"cd9777c930d18c7b5b3603ad58a6f63bd64fca702d87bc4e518fca5c1cf0a17b");
     basis.fixture.record=(struct private_slice){(const unsigned char *)"\"second\"",8};
-    basis.fixture.origin=(struct private_slice){(const unsigned char *)"\"https://example.invalid/fixture.git\"",37};
+    basis.fixture.origin=(struct private_slice){(const unsigned char *)"\"https://example.invalid/fixture.git\"",sizeof("\"https://example.invalid/fixture.git\"")-1};
     memset(&private_guards,0,sizeof(private_guards));private_guards.outer=&outer;
     private_guards.basis=&basis;private_guards.input_hash=input_hash;private_guards.stage=1;
 }
@@ -87,6 +88,85 @@ static void semantic_controls(void) {
     reset();sig.settled=0;output(&owner,"B\0\0\n",4);require(!engine_semantic(&owner,12,0),"missing GS2 refuses bad-signature result");controls++;
     strcpy(outer.case_name,"positive");reset();private_guards_dispose();
 }
+static unsigned flow_variant,flow_commands;
+static int source_known_current(const struct private_engine_context *ctx) {
+    return private_context_same(ctx)&&private_guards.stage==2;
+}
+static int source_known_command(struct engine_owner *owner,struct engine_prepared *prepared,unsigned form,
+    const char *home,const char *scratch,const unsigned char *input,size_t length,int *status) {
+    (void)prepared;(void)home;(void)scratch;(void)input;(void)length;
+    flow_commands++;owner->command=form;owner->verified_descendants=owner->child_created=owner->child_settled=0;
+    unsigned slots=private_forms[form].members;owner->result->attempts+=(uint16_t)slots;
+    owner->result->created+=(uint16_t)slots;owner->result->reaped+=(uint16_t)slots;
+    if(owner->result->members_max<slots)owner->result->members_max=(uint8_t)slots;
+    owner->result->group_gone=owner->result->retired_coverage=1;*status=0;
+    struct private_engine_metric *metrics[]={&owner->result->ordinary_max_ns,&owner->result->controller_max_ns,&owner->result->cleanup_max_ns,
+        &owner->result->native_cpu_max_ns,&owner->result->native_wall_max_ns,&owner->result->inclusive_max_ns,&owner->result->W_ns,
+        &owner->result->A_ns,&owner->result->C_ns,&owner->result->Q_max_ns,&owner->result->post_cpu_ns,&owner->result->late_kernel_ns,
+        &owner->result->helper_group_rss_peak_bytes,&owner->result->probe_rss_peak_bytes};
+    for(unsigned i=0;i<sizeof(metrics)/sizeof(metrics[0]);i++)engine_max(metrics[i],1000+i);
+    char text[512];int n=0;
+    switch(form) {
+        case 0:output(owner,"false\n",6);break;
+        case 1:n=snprintf(text,sizeof(text),"%s\n",owner->context->outer->repo.path);output(owner,text,(size_t)n);break;
+        case 2:case 3:n=snprintf(text,sizeof(text),"%s\n",basis.fixture.valid);output(owner,text,(size_t)n);break;
+        case 4:output(owner,"commit\n",7);break;
+        case 5:case 14:output(owner,NULL,0);break;
+        case 6:n=snprintf(text,sizeof(text),"100644 blob %s\tsecond",basis.fixture.blob);output(owner,text,(size_t)n+1);break;
+        case 7:output(owner,"1\n",2);break;
+        case 8:n=snprintf(text,sizeof(text),"%s\n",engine_selected_commit(owner->context));output(owner,text,(size_t)n);break;
+        case 9:n=snprintf(text,sizeof(text),"%s\n",basis.fixture.blob);output(owner,text,(size_t)n);break;
+        case 10:output(owner,"dee19491977e73e485607928be1e1a34625a4ffd\n",41);break;
+        case 11:output(owner,"https://example.invalid/fixture.git\n",sizeof("https://example.invalid/fixture.git\n")-1);break;
+        case 12: {
+            int corrupt=!strcmp(outer.case_name,"corrupt_proof");
+            owner->verified_descendants=flow_variant==1?0:1;owner->child_created=owner->child_settled=1;
+            owner->members[1].exit_status_known=1;owner->members[1].exit_status=(corrupt?1:0)<<8;
+            owner->git_signature->bound=owner->git_signature->settled=1;
+            if(corrupt)output(owner,"B\0\0\n",4);
+            else {text[0]='G';text[1]=0;memcpy(text+2,basis.fixture.signer,40);text[42]=0;text[43]='\n';output(owner,text,44);}
+            if(flow_variant==2)*status=1;
+            break;
+        }
+        case 13:n=snprintf(text,sizeof(text),"fpr:::::::::%s:\n",basis.fixture.signer);output(owner,text,(size_t)n);break;
+        default:return 0;
+    }
+    // The surrounding actual owner still measures/pays its real ordinary work.
+    // The native/window/counter values above are SCRIPTED test records, never
+    // observations of a candidate, source authentication or qualification.
+    return private_end_unit(private_cost.open_cpu);
+}
+static void ref_for(struct private_ref *ref,const char *token,const void *bytes,size_t n) {
+    memset(ref,0,sizeof(*ref));ref->path=(struct private_slice){(const unsigned char *)token,strlen(token)};
+    ref->len=n;private_hash(bytes,n,ref->sha);
+}
+static void flow_controls(const char *root,int dir) {
+    const struct private_source_known_effects effects={source_known_current,source_known_command};
+    for(unsigned variant=0;variant<4;variant++) {
+        reset();fixture(dir);basis.source_coverage=127;basis.command_coverage=65535;private_guards.stage=2;
+        outer.prefix.fd=dir;strcpy(outer.repo.path,root);strcpy(outer.case_name,variant==3||variant==2?"corrupt_proof":"positive");
+        char out[4097];int n=snprintf(out,sizeof(out),"%s/flow-%u",root,variant);
+        require(n>0&&(size_t)n<sizeof(out)&&mkdir(out,0700)==0,"owned source-known flow output");
+        strcpy(outer.output.path,out);outer.output.fd=open(out,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);
+        require(outer.output.fd>=0,"owned source-known output custody");
+        const char config[]="batch\nno-tty\nno-autostart\nno-auto-key-retrieve\nno-auto-key-import\nauto-key-locate clear\nno-auto-check-trustdb\n";
+        ref_for(&basis.gpg_conf,"\"gpg.conf\"",config,sizeof(config)-1);ref_for(&basis.common_conf,"\"common.conf\"","",0);
+        ref_for(&basis.fixture.keys,"\"keys\"","SOURCE-KNOWN PUBLIC KEY INPUT\n",sizeof("SOURCE-KNOWN PUBLIC KEY INPUT\n")-1);
+        basis.fixture.valid_signature.path=(struct private_slice){(const unsigned char *)"\"valid-signature\"",sizeof("\"valid-signature\"")-1};
+        basis.fixture.corrupt_signature.path=(struct private_slice){(const unsigned char *)"\"corrupt-signature\"",sizeof("\"corrupt-signature\"")-1};
+        memset(&engine_signature_storage,0,sizeof(engine_signature_storage));engine_signature_storage.scratch_fd=engine_signature_storage.signature_fd=-1;
+        flow_variant=variant;flow_commands=0;private_source_known_effects=&effects;
+        struct private_engine_result r;memset(&r,0,sizeof(r));
+        int completed=private_dispatch(1,1,1,&context,&r);
+        private_source_known_effects=NULL;
+        require(completed==(variant==0||variant==3)&&flow_commands==15,"same functional validate/claim/15-command/semantic/settle flow");
+        require(r.engine_entered&&r.created==16&&r.reaped==16&&r.attempts==16,"scripted effects flow through real accounting owner");
+        if(completed)require(r.semantic_forms==32767&&r.commands_completed==15&&!strcmp(r.outcome,variant==3?"expected_rejection":"completed"),"same real flow completion and proof outcome");
+        else require(r.semantic_forms!=32767&&r.commands_completed==14&&!strcmp(r.observed_proof,"not_reached"),"missing verifier/generic error cannot complete corrupt proof");
+        reset();private_guards_dispose();require(close(outer.output.fd)==0,"source-known output close");outer.output.fd=-1;
+        controls++;
+    }
+}
 static void nominal_result(struct private_engine_result *r) {
     memset(r,0,sizeof(*r));r->phase="settled";r->outcome="refused";r->observed_proof="valid";
     r->engine_entered=1;r->semantic_forms=32767;r->commands_completed=15;
@@ -129,6 +209,29 @@ static void result_controls(void) {
     require(engine_complete_result(&context,&r)&&!strcmp(r.outcome,"expected_rejection"),"specific corrupt result classification");controls++;
     strcpy(outer.case_name,"positive");
 }
+static struct image fixture_stopped(pid_t pid) {
+    // The fixture child must have reached its OWN initial stop before the
+    // tight production observation. Pacing this setup avoids starving a newly
+    // forked utility-priority child in a controller busy loop. No native/1ms
+    // production gate or existing100ms readiness bound is widened.
+    uint64_t until=clock_ns(CLOCK_MONOTONIC)+100000000ULL;
+    for(;;) {
+        siginfo_t info;memset(&info,0,sizeof(info));
+        require(waitid(P_PID,pid,&info,WSTOPPED|WNOHANG|WNOWAIT)==0,"fixture original nonreaping stop notification");
+        if(info.si_pid==pid&&info.si_code==CLD_STOPPED) {
+            struct image first;require(control_observe(pid,&first),"fixture original stopped birth");
+            (void)control_stop_ack(pid,first.birth);return first;
+        }
+        if(clock_ns(CLOCK_MONOTONIC)>=until) {
+            (void)kill(pid,SIGKILL);require(0,"fixture initial stop readiness exhausted");
+        }
+        uint64_t used=clock_ns(CLOCK_THREAD_CPUTIME_ID)-private_cost.open_cpu;
+        if(used>=200000&&!private_end_unit(private_cost.open_cpu)) {
+            (void)kill(pid,SIGKILL);require(0,"fixture initial stop setup unit refused");
+        }
+        usleep(100);
+    }
+}
 static void process_control(const char *self,int live) {
     reset();require(engine_owner_priority(),"source-known controller priority");
     // A fixture-only fork isolates this terminal-classification witness from
@@ -146,7 +249,7 @@ static void process_control(const char *self,int live) {
     if(pid>0)retained_group=pid;
     uint64_t cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID)-cpu_begin,wall=clock_ns(CLOCK_MONOTONIC)-wall_begin;
     require(pid>0&&cpu<=2000000&&wall<=25000000,"source-known fork native2msCPU25mswall");
-    struct image first;require(control_observe(pid,&first),"original source-known fork identity");
+    struct image first=fixture_stopped(pid);
     struct private_engine_result result;memset(&result,0,sizeof(result));result.created=1;result.phase="git_reads";result.outcome="refused";result.observed_proof="not_reached";
     (void)control_stop_ack(pid,first.birth);
     struct engine_owner owner;memset(&owner,0,sizeof(owner));owner.context=&context;owner.result=&result;
@@ -209,17 +312,132 @@ static void process_control(const char *self,int live) {
         (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
     reset();controls++;
 }
+static void pending_exec_control(const char *self,int dir) {
+    reset();outer.deadline=private_cost.deadline;strcpy(outer.case_name,"positive");
+    int gate[2],ready[2];require(pipe(gate)==0&&pipe(ready)==0,"owned source-known exec gate and completion");
+    pid_t pid=fork();
+    if(pid==0) {
+        close(gate[1]);close(ready[0]);if(setpgid(0,0)!=0||raise(SIGSTOP)!=0)_exit(73);
+        char byte;if(read(gate[0],&byte,1)!=1)_exit(74);close(gate[0]);
+        char fd[32];snprintf(fd,sizeof(fd),"%d",ready[1]);execl(self,self,"pending-exec-child",fd,NULL);_exit(75);
+    }
+    require(pid>0,"source-known exec fork");retained_group=pid;close(gate[0]);close(ready[1]);
+    require(fcntl(ready[0],F_SETFL,O_NONBLOCK)==0,"owned source-known nonblocking exec completion");
+    struct image first=fixture_stopped(pid);
+    struct private_engine_result r;memset(&r,0,sizeof(r));r.created=1;r.phase="git_reads";r.outcome="refused";r.observed_proof="not_reached";
+    struct engine_owner owner;memset(&owner,0,sizeof(owner));owner.context=&context;owner.result=&r;
+    owner.input=owner.output=owner.errors=-1;owner.slots=1;owner.ticket=(struct engine_ticket){pid,pid,first.birth,0,1};
+    strcpy(owner.image,self);owner.members[0].state.pid=pid;owner.members[0].state.birth=first.birth;
+    int ack=0;require(engine_sample_member(&owner,0,pid,&ack)&&ack,"source-known exec original final image admitted");
+    owner.ticket.start=owner.members[0].state.start_absolute;owner.direct_custody=1;
+    owner.grant.operation=owner.ticket.start;owner.grant.sequence=1;owner.grant.slots=1;owner.grant.source_complete=1;
+    owner.grant.cpu_start=private_cost.open_cpu;uint64_t raw,user,system;
+    require(engine_actual_ticks(&owner,&raw,&user,&system),"source-known exec original CPU baseline");owner.grant_tick_before=raw;
+    owner.grant.t0=clock_ns(CLOCK_MONOTONIC);require(kill(-pid,SIGCONT)==0,"source-known exec single CONT");
+    owner.stop_requested=1;require(engine_stop_result(&owner,-1,EPERM,clock_ns(CLOCK_MONOTONIC)),"source-known injected pending failure");
+    require(write(gate[1],"x",1)==1&&close(gate[1])==0,"source-known fixture stimulates actual exec without another CONT");
+    char completed=0;int exec_ready=0;
+    while(clock_ns(CLOCK_MONOTONIC)<outer.deadline) {
+        ssize_t n=read(ready[0],&completed,1);if(n==1){exec_ready=completed=='x';break;}
+        require(n<0&&(errno==EAGAIN||errno==EINTR),"owned actual exec completion remains pending");usleep(100);
+    }
+    require(exec_ready&&close(ready[0])==0,"actual exec completion precedes this controlled observation");
+    unsigned old_version=owner.members[0].token.val[7];
+    while(!owner.pending_identity_lost&&clock_ns(CLOCK_MONOTONIC)<outer.deadline) {
+        if(!engine_sample_member(&owner,0,pid,&ack))break;
+        require(!ack&&!owner.grant.end[0],"pending original never acknowledged before actual exec negative");
+    }
+    require(owner.pending_identity_lost&&owner.coverage_lost&&owner.failed&&!owner.stop_terminal
+        &&owner.retired_count==2&&owner.retired[1].token.val[7]!=old_version,"observed real same-PID exec stickily invalidates pending continuity");
+    owner.ledger=openat(dir,"exec-ledger.ndjson",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);require(owner.ledger>=0,"owned actual exec negative ledger");
+    int status=-1;(void)engine_retire(&owner,&status);
+    require(owner.settlement_quarantined&&!r.group_gone&&!r.retired_coverage,"exec successor never becomes original terminal proof after cleanup");
+    unsigned kills=owner.retired[1].kill_attempted;dispose_owned();
+    require(owner.retired[1].kill_attempted==kills&&owner.stop_attempts==1,"atexit never repeats pending STOP or consumed kill");
+    if(!owner.direct_reaped) {
+        int done=0;while(!done&&clock_ns(CLOCK_MONOTONIC)<outer.deadline){require(known_exited(pid,&done),"fixture original WNOWAIT after safe exec cleanup");if(!done)usleep(100);}
+        require(done&&waitpid(pid,NULL,0)==pid,"fixture actual exec negative reap within original deadline");
+    }
+    int group[3];require(proc_listpgrppids(pid,group,sizeof(group))==0,"fixture exec negative actual group gone");retained_group=0;
+    printf("private_pending_exec_source_known actual_exec=true pid=%d birth=%llu original_version=%u successor_version=%u sticky_refusal=true original_terminal_proved=false actual_cleanup_reaped=true group_gone=true runtime_approved=false\n",
+        pid,(unsigned long long)owner.ticket.birth,old_version,owner.retired[1].token.val[7]);
+    require(close(owner.ledger)==0,"owned exec ledger close");engine_current=NULL;dispose_private_engine=NULL;reset();controls++;
+}
+static void settlement_control(const char *self,int dir,unsigned variant) {
+    unsigned unknown_deadline=variant==1,persistence_failure=variant==2;
+    reset();outer.output.fd=dir;outer.deadline=private_cost.deadline;strcpy(outer.case_name,"positive");
+    pid_t pid=fork();
+    if(pid==0){if(setpgid(0,0)!=0||raise(SIGSTOP)!=0)_exit(76);if(unknown_deadline){volatile unsigned work=1;for(;;)work=work*33+7;}_exit(0);}
+    require(pid>0,"owned source-known settlement fork");retained_group=pid;
+    struct image first=fixture_stopped(pid);
+    struct private_engine_result r;memset(&r,0,sizeof(r));r.created=1;r.phase="git_reads";r.outcome="refused";r.observed_proof="not_reached";
+    struct engine_owner owner;memset(&owner,0,sizeof(owner));owner.context=&context;owner.result=&r;
+    owner.input=owner.output=owner.errors=-1;owner.slots=unknown_deadline?1:2;owner.ticket=(struct engine_ticket){pid,pid,first.birth,0,1};
+    strcpy(owner.image,self);owner.members[0].state.pid=pid;owner.members[0].state.birth=first.birth;
+    int ack=0;require(engine_sample_member(&owner,0,pid,&ack)&&ack,"settlement source-known original attach");
+    owner.ticket.start=owner.members[0].state.start_absolute;owner.direct_custody=1;
+    owner.grant.operation=owner.ticket.start;owner.grant.sequence=1;owner.grant.slots=owner.slots;owner.grant.source_complete=1;
+    owner.grant.cpu_start=private_cost.open_cpu;uint64_t raw,u,k;require(engine_actual_ticks(&owner,&raw,&u,&k),"settlement original CPU baseline");owner.grant_tick_before=raw;
+    owner.grant.t0=clock_ns(CLOCK_MONOTONIC);require(kill(-pid,SIGCONT)==0,"settlement source-known one original CONT");
+    if(!unknown_deadline) {
+        int done=0;while(!done&&clock_ns(CLOCK_MONOTONIC)<outer.deadline)require(known_exited(pid,&done),"unknown-slot source-known original WNOWAIT");
+        require(done&&engine_member_exit(&owner,0),"unknown-slot source-known actual original terminal");
+        // One INJECTED unresolved reserved slot, not a second physical process.
+        // An empty census cannot close it or manufacture a token/start binding.
+        owner.members[1].state.pid=pid;owner.grant.unknown_mask=2;
+        (void)engine_failure(&owner,"coverage_unknown","source-known injected unresolved child/token slot");
+    }
+    const char *ledger_name=unknown_deadline?"deadline-ledger.ndjson":persistence_failure?"failed-receipt-ledger.ndjson":"unknown-ledger.ndjson";
+    owner.ledger=openat(dir,ledger_name,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+    if(persistence_failure){require(owner.ledger>=0&&close(owner.ledger)==0,"owned persistence negative creation");owner.ledger=openat(dir,ledger_name,O_RDONLY|O_NOFOLLOW|O_CLOEXEC);}
+    require(owner.ledger>=0,"owned settlement negative raw ledger");
+    source_known_settlement_deadline_unknown=unknown_deadline;
+    uint64_t began=clock_ns(CLOCK_MONOTONIC);int status=-1;int completed=engine_retire(&owner,&status);uint64_t ended=clock_ns(CLOCK_MONOTONIC);
+    source_known_settlement_deadline_unknown=0;
+    require(!completed&&owner.settlement_quarantined&&!r.group_gone&&!r.retired_coverage
+        &&!strcmp(r.outcome,"quarantined")&&engine_current==&owner,"unknown original settlement is bounded owned quarantine");
+    require(owner.quarantine_durable==!persistence_failure,"actual failed persistence never becomes a durable-evidence claim");
+    require(ended>=began&&ended<outer.deadline,"settlement negative returns inside the original thirty-second window");
+    unsigned direct_reaped=owner.direct_reaped,group_kills=owner.group_kill_attempted;uint16_t reported_reaps=r.reaped;
+    uint64_t exit_begin=clock_ns(CLOCK_MONOTONIC);dispose_owned();uint64_t exit_end=clock_ns(CLOCK_MONOTONIC);
+    require(owner.direct_reaped==direct_reaped&&r.reaped==reported_reaps&&owner.group_kill_attempted==group_kills
+        &&!r.group_gone&&!r.retired_coverage&&exit_end<outer.deadline,"atexit retains quarantine without blocking, replaying effects or asserting completion");
+    if(!owner.direct_reaped) {
+        int done=0;while(!done&&clock_ns(CLOCK_MONOTONIC)<outer.deadline){require(known_exited(pid,&done),"fixture original WNOWAIT after consumed kill");if(!done)usleep(100);}
+        require(done&&waitpid(pid,NULL,0)==pid,"fixture owner actually reaps its original within unchanged deadline");
+    }
+    int group[3];require(proc_listpgrppids(pid,group,sizeof(group))==0,"fixture negative actual physical group gone");retained_group=0;
+    printf("private_settlement_source_known injected_unknown_deadline=%u injected_unknown_slot=%u pid=%d original_deadline=%llu return_wall_ns=%llu atexit_wall_ns=%llu reported_created=%u reported_reaped=%u reported_group_gone=false reported_retired_coverage=false quarantine_retained_in_process=true full_audit_receipt=%s live_kernel_custody_after_exit=false recovery_handoff_proved=false fixture_cleanup_actual_reaped=true runtime_approved=false\n",
+        unknown_deadline,!unknown_deadline,pid,(unsigned long long)outer.deadline,(unsigned long long)(ended-began),(unsigned long long)(exit_end-exit_begin),r.created,r.reaped,owner.quarantine_durable?"true":"false");
+    require(close(owner.ledger)==0,"owned quarantine raw ledger close");engine_current=NULL;dispose_private_engine=NULL;reset();controls++;
+}
 int main(int argc,char **argv) {
     if(argc==2&&!strcmp(argv[1],"exit-child"))_exit(0);
+    if(argc==3&&!strcmp(argv[1],"pending-exec-child")){
+        int fd=atoi(argv[2]);if(fd<3||write(fd,"x",1)!=1||close(fd)!=0)_exit(77);
+        volatile unsigned work=1;for(;;)work=work*33+7;
+    }
     if(argc==2&&!strcmp(argv[1],"busy-child")){volatile uint64_t work=1;for(;;)work=work*33+7;}
     require(argc==1,"private source-known controls argc");require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
     int fd=openat(dir,"payload",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
     require(fd>=0&&write(fd,payload,sizeof(payload)-1)==sizeof(payload)-1&&close(fd)==0,"owned pinned unsigned public payload");
-    reset();fixture(dir);semantic_controls();result_controls();
+    // Adapted public signature bytes: https://github.com/git/git/blob/v2.54.0/t/t7510-signed-commit.sh
+    // Retain project credit/policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+    const char valid_signature[]="-----BEGIN PGP SIGNATURE-----\n\niHQEABECADQWIQRz11h0S+chaY7FTocTtvUezd5DDQUCX/uBDRYcY29tbWl0dGVy\nQGV4YW1wbGUuY29tAAoJEBO29R7N3kMNd+8AoK1I8mhLHviPH+q2I5fIVgPsEtYC\nAKCTqBh+VabJceXcGIZuF0Ry+udbBQ==\n=tQ0N\n-----END PGP SIGNATURE-----\n";
+    const char corrupt_signature[]="-----BEGIN PGP SIGNATURE-----\n\niHQEABECADQWIQRz11h0S+chaY7FTocTtvUezd5DDQUCX/uBDRYcY29tbWl0dGVy\nQGV4YW1wbGUuY29tAAoJEBO29R7N3kMNd+8AoK1I8mhLHviPH+q2I5fIVgPsEtYC\nAKCTqBh+VabJceXcGIZuF0Ry+udbBA==\n=M0H2\n-----END PGP SIGNATURE-----\n";
+    const char config[]="batch\nno-tty\nno-autostart\nno-auto-key-retrieve\nno-auto-key-import\nauto-key-locate clear\nno-auto-check-trustdb\n";
+    const char *names[]={"valid-signature","corrupt-signature","gpg.conf","common.conf","keys"};
+    const char *values[]={valid_signature,corrupt_signature,config,"","SOURCE-KNOWN PUBLIC KEY INPUT\n"};
+    for(unsigned i=0;i<5;i++) {
+        int own=openat(dir,names[i],O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);size_t length=strlen(values[i]);
+        require(own>=0&&write(own,values[i],length)==(ssize_t)length&&close(own)==0,"owned source-known flow input");
+    }
+    reset();fixture(dir);semantic_controls();result_controls();flow_controls(root,dir);
     char self[PROC_PIDPATHINFO_MAXSIZE];require(proc_pidpath(getpid(),self,sizeof(self))>0,"actual source-known image");
     process_control(self,0);process_control(self,1);
+    pending_exec_control(self,dir);settlement_control(self,dir,0);settlement_control(self,dir,1);settlement_control(self,dir,2);
     require(close(dir)==0,"owned fixture root close");
     printf("private_engine_controls=pass cases=%u synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=%s\n",controls,root);
     return 0;

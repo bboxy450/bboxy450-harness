@@ -15,6 +15,10 @@ use super::*;
 /// 1/2 mean within/over the unchanged1ms bound; debt1 means the full fresh9x rest.
 /// Native observations are not fair. Only enabled local classification/payment
 /// is weakly fair; explicit deadline preserves ownership in quarantine.
+/// The identity fact abstracts current live-token/image/RI checks and sticky
+/// observed exec refusal. RI v1 has no terminal pidversion: final-image exit
+/// continuity also depends on the existing reviewed no-further-exec premise.
+/// An unobserved transient exec is not independently excluded by this model.
 pub fn failed_stop_terminal(control: u8) -> Model {
     let suffix = ["", "ErrnoAck", "RetryStop", "Resume", "LeaderOnly", "Roster",
         "Identity", "FailedEndpoint", "Controller", "Pipe", "Late", "Quantum",
