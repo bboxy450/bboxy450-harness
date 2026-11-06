@@ -855,23 +855,6 @@ fn is_ir(path: &Path) -> io::Result<bool> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[tokio::test]
-    async fn inline_cpu_broken_control_is_rejected_by_the_actual_poll_budget() {
-        let result = budgeted(async {
-            let start = cpu_ns();
-            while cpu_ns().saturating_sub(start) < 2_000_000 {
-                std::hint::spin_loop();
-            }
-            Ok(Replay::default())
-        })
-        .await;
-        assert!(result.unwrap_err().to_string().contains("1ms CPU"));
-    }
-}
-
 /// Inspect only already validated immutable selected inputs. No filesystem/task/cache access.
 pub fn inspect_closed(
     logs: Vec<ClosedLog>,
@@ -1207,4 +1190,21 @@ pub(crate) fn inspection_storage_bound_budgeted(
         .and_then(|n| n.checked_add(cost_keys.checked_mul(4)?))
         .map(|n| n as u64)
         .ok_or_else(|| io::Error::other("resource limit"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn inline_cpu_broken_control_is_rejected_by_the_actual_poll_budget() {
+        let result = budgeted(async {
+            let start = cpu_ns();
+            while cpu_ns().saturating_sub(start) < 2_000_000 {
+                std::hint::spin_loop();
+            }
+            Ok(Replay::default())
+        })
+        .await;
+        assert!(result.unwrap_err().to_string().contains("1ms CPU"));
+    }
 }

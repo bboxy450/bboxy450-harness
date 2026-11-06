@@ -3477,10 +3477,10 @@ mod tests {
             .expect("test owner did not enter");
         let until = Instant::now() + Duration::from_millis(100);
         loop {
-            if let Some(p) = lane.pop() {
-                if p.phase == w::Phase::Paused {
-                    break;
-                }
+            if let Some(p) = lane.pop()
+                && p.phase == w::Phase::Paused
+            {
+                break;
             }
             assert!(
                 Instant::now() < until,
