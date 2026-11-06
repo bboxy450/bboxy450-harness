@@ -117,6 +117,8 @@ def agent():
             if '--hang-startup' in sys.argv:
                 continue
             result = {'protocolVersion':1,'agentInfo':{'name':sys.argv[3],'version':'fixture'}}
+            if sys.argv[3].endswith('-sysprompt'):
+                result['agentCapabilities'] = {'sessionCapabilities':{'systemPrompt':{}}}
         elif method == 'session/new':
             servers = request['params']['mcpServers']
             result = {'sessionId':'private-acp','configOptions':[{'id':'model','category':'model','currentValue':'default','options':[{'value':'fixture/model-A','name':'A'},{'value':'fixture/model-B','name':'B'}]}]}

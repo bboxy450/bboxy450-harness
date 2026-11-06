@@ -473,6 +473,35 @@ async fn reopen_switch_and_generation_context() {
     next.close_all().await;
 }
 #[tokio::test]
+async fn advertised_system_prompt_carries_launch_context() {
+    if isolated("advertised_system_prompt_carries_launch_context") {
+        return;
+    }
+    let f = Fixture::new();
+    f.profile("claude-sysprompt", "", Servers::new());
+    let host = f.host(CONTEXT, Servers::new());
+    let g = f.create(&host, "claude-sysprompt", Servers::new()).await;
+    reply(&turn(&g, "one request").await);
+    let j = f.journal("claude-sysprompt");
+    let new = j.iter().find(|r| r["method"] == "session/new").unwrap();
+    let system = &new["params"]["systemPrompt"];
+    assert_eq!(system["mode"], "append");
+    assert!(
+        system["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("ROLE: EXECUTOR")
+    );
+    let prompt = j.iter().find(|r| r["method"] == "session/prompt").unwrap();
+    assert_eq!(
+        prompt["params"]["prompt"],
+        json!([{"type":"text","text":"one request"}]),
+        "launch context must not repeat in the first prompt"
+    );
+    host.close_all().await;
+}
+
+#[tokio::test]
 async fn invalid_unavailable_and_absent_context_continue() {
     if isolated("invalid_unavailable_and_absent_context_continue") {
         return;

@@ -169,6 +169,8 @@ struct Agent {
     controls: AgentConfig,
     config_deadline: Option<Instant>,
     bootstrap_pending: bool,
+    /// the agent takes launcher instructions as a session system prompt (ACP `systemPrompt`)
+    system_prompt: bool,
     images_supported: bool,
     steering_supported: bool,
     startup_deadline: Option<Instant>,
@@ -393,9 +395,6 @@ impl AcpAgentActor {
         }
         for text in collisions {
             actor.notice(Level::Info, text).await?;
-        }
-        if !actor.launch_context.is_empty() {
-            actor.notice(Level::Info, "ACP v1 has no system-role field; admitted launcher instructions are supplied as bootstrap context in the first real prompt of each child session, without system-role priority.".into()).await?;
         }
         let task = bbt_rt::handle().spawn(actor.run());
         Ok((gateway, task))
@@ -1209,7 +1208,7 @@ impl AcpAgentActor {
         if agent.bootstrap_pending {
             agent.bootstrap_pending = false;
             agent.startup_deadline = None;
-            if !self.launch_context.is_empty() {
+            if !self.launch_context.is_empty() && !agent.system_prompt {
                 prompt.push(json!({"type":"text", "text":format!(
                     "Launcher context for this session (ACP v1 bootstrap context; supplied instructions, not a system-role transport):\n{}\n--- end launcher context ---", self.config.redactor.scrub(&self.launch_context)
                 )}));
@@ -1443,6 +1442,7 @@ impl AcpAgentActor {
             controls: AgentConfig::default(),
             config_deadline: None,
             bootstrap_pending: true,
+            system_prompt: false,
             images_supported: false,
             steering_supported: false,
             startup_deadline: Some(
@@ -1714,12 +1714,23 @@ impl AcpAgentActor {
                     .pointer("/agentInfo/version")
                     .and_then(Value::as_str)
                     .map(str::to_owned);
-                call(
-                    agent,
-                    Call::NewSession,
-                    "session/new",
-                    json!({ "cwd": cwd, "mcpServers": self.mcp_servers }),
-                )
+                // Append mode is the baseline every advertising agent accepts
+                // (claude-agent-acp: preset + append; codex-acp: developer instructions).
+                agent.system_prompt = result
+                    .pointer("/agentCapabilities/sessionCapabilities/systemPrompt")
+                    .is_some_and(Value::is_object);
+                let mut params = json!({ "cwd": cwd, "mcpServers": self.mcp_servers });
+                let fallback = !self.launch_context.is_empty() && !agent.system_prompt;
+                if agent.system_prompt && !self.launch_context.is_empty() {
+                    params["systemPrompt"] = json!({"mode": "append", "content": [
+                        {"type": "text", "text": self.config.redactor.scrub(&self.launch_context)}
+                    ]});
+                }
+                call(agent, Call::NewSession, "session/new", params)?;
+                if fallback {
+                    self.notice(Level::Info, "This agent takes no session system prompt; launcher instructions go in the first prompt as context.".into()).await?;
+                }
+                Ok(())
             }
             Call::NewSession => {
                 if self.yolo && let Some(mode) = unrestricted_mode(&result) {
