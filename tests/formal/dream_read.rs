@@ -494,6 +494,7 @@ pub fn helper(control: u8) -> Model {
         19 => "DreamReadHelperClockRelease",
         20 => "DreamReadHelperPanicRelease",
         21 => "DreamReadHelperRevokeRelease",
+        22 => "DreamReadHelperStopRetry",
         _ => "DreamReadHelper",
     };
     const ST: usize = 0;
@@ -558,7 +559,11 @@ pub fn helper(control: u8) -> Model {
             ("actualOriginalEffects", 2, 0),
             ("approvedMemberLimit", 2, 1),
             ("allStoppedOrExited", 1, 1),
-            ("stopRequested", 1, 0),
+            (
+                "stopOperationUnusedConsumedRawOkEsrchVerdictRefusedErrorRetried",
+                6,
+                0,
+            ),
             ("controllerRetired", 1, 0),
             ("allActuallyReaped", 1, 0),
             ("spanNoneNativeHelperApplication", 3, 0),
@@ -803,14 +808,86 @@ pub fn helper(control: u8) -> Model {
     }
     act(
         &mut m,
-        "RequestGroupStop",
+        "ConsumeStopOperationBeforeNativeEffect",
         all([eq(ST, 3), eq(REQUEST, 0)]),
         &[(REQUEST, Int(1))],
     );
+    // One selected logical STOP operation, not the total signals in a job.
+    // New roster/audit-version recipients have distinct retained operations;
+    // HelperExec covers their current-token stop custody. No send result alone
+    // establishes physical STOP, endpoint closure or coverage.
+    act(
+        &mut m,
+        "ObserveConsumedStopNativeRawSuccess",
+        all([eq(ST, 3), eq(REQUEST, 1), eq(RETIRED, 0)]),
+        &[(REQUEST, Int(2))],
+    );
+    act(
+        &mut m,
+        "ObserveConsumedStopEsrchWithPositiveRetainedLeaderExit",
+        all([
+            eq(ST, 3),
+            eq(REQUEST, 1),
+            eq(RETIRED, 0),
+            eq(CASE, 0),
+            eq(PLAN, 1),
+        ]),
+        &[(REQUEST, Int(3))],
+    );
+    act(
+        &mut m,
+        "RefuseStopVerdictAfterRetainedActualKernelSuccess",
+        all([
+            eq(ST, 3),
+            eq(REQUEST, 2),
+            eq(RETIRED, 0),
+            eq(CASE, 0),
+            eq(PLAN, 1),
+        ]),
+        &[
+            (REQUEST, Int(4)),
+            (ST, Int(7)),
+            (FAULT, Int(6)),
+            (COVER, Int(0)),
+            (TRUST, Int(0)),
+        ],
+    );
+    act(
+        &mut m,
+        "ObserveConsumedStopNativeFailureOrUnknownOutcome",
+        all([
+            eq(ST, 3),
+            eq(REQUEST, 1),
+            eq(RETIRED, 0),
+            eq(CASE, 0),
+            eq(PLAN, 1),
+        ]),
+        &[
+            (REQUEST, Int(5)),
+            (ST, Int(7)),
+            (FAULT, Int(6)),
+            (COVER, Int(0)),
+            (TRUST, Int(0)),
+        ],
+    );
+    if control == 22 {
+        act(
+            &mut m,
+            "BrokenRejectRetriesAlreadyConsumedStopAfterNativeVerdictRefusal",
+            all([
+                eq(ST, 7),
+                eq(REQUEST, 4).or(eq(REQUEST, 5)),
+                eq(RETIRED, 0),
+                eq(RELEASED, 0),
+                eq(EFFECTS, 1),
+            ]),
+            &[(REQUEST, Int(6))],
+        );
+    }
     act(
         &mut m,
         "ObserveAllMembersStoppedOrExited",
-        all([eq(ST, 3), eq(REQUEST, 1), eq(STOP, 0)]),
+        all([eq(ST, 3), eq(REQUEST, 2).or(eq(REQUEST, 3)), eq(STOP, 0)]),
         &[(STOP, Int(1))],
     );
     for count in 1..=2 {
@@ -819,7 +896,7 @@ pub fn helper(control: u8) -> Model {
             &format!("ConfirmStoppedMembers{count}"),
             all([
                 eq(ST, 3),
-                eq(REQUEST, 1),
+                eq(REQUEST, 2).or(eq(REQUEST, 3)),
                 eq(MEMBERS, count),
                 if control == 6 {
                     Bool(true)
@@ -967,7 +1044,6 @@ pub fn helper(control: u8) -> Model {
             (CONTROLLER, Int(0)),
             (DESCENDANT, Int(0)),
             (SPAN_MEMBERS, Int(0)),
-            (REQUEST, Int(0)),
             (APP_USED, Int(0)),
         ],
     );
@@ -1405,6 +1481,11 @@ pub fn helper(control: u8) -> Model {
             eq(OWED, 0),
             eq(KNOWN, 1),
         ])),
+    );
+    safe(
+        &mut m,
+        "StopAttemptIsNotRetriedAfterAnyNativeOutcome",
+        eq(REQUEST, 6).negate(),
     );
     progress(
         &mut m,
@@ -4272,9 +4353,590 @@ pub fn qualification(control: u8) -> Model {
     m
 }
 
+/// B observes one real Git-created signature inode at GS1 and GS2. It never
+/// proves which inode GPG opened. The reviewed no-other-writer/source premise,
+/// exact native identity and bounded measured IO remain independent witnesses.
+pub fn git_sig_temp(control: u8) -> Model {
+    let name = match control {
+        1 => "DreamReadGitSigTempFixturePath",
+        2 => "DreamReadGitSigTempNlink",
+        3 => "DreamReadGitSigTempGs2",
+        4 => "DreamReadGitSigTempExclusivity",
+        5 => "DreamReadGitSigTempWrongCase",
+        6 => "DreamReadGitSigTempCleanupIdentity",
+        7 => "DreamReadGitSigTempAba",
+        8 => "DreamReadGitSigTempForeignUid",
+        _ => "DreamReadGitSigTemp",
+    };
+    const ST: usize = 0;
+    const TMP: usize = 1;
+    const ARGV: usize = 2;
+    const GS: usize = 3;
+    const LEADER: usize = 4;
+    const CASE: usize = 5;
+    const PROFILE: usize = 6;
+    const ORIGINAL: usize = 7;
+    const NAMED: usize = 8;
+    const HELD: usize = 9;
+    const CONTENT: usize = 10;
+    const NLINK: usize = 11;
+    const ENTRIES: usize = 12;
+    const OWN: usize = 13;
+    const EPOCH: usize = 14;
+    const BOUND_CASE: usize = 15;
+    const ABSENCE: usize = 16;
+    const FOREIGN_UNLINK: usize = 17;
+    const PREMISE: usize = 18;
+    const CREATED: usize = 19;
+    const GS1_NLINK: usize = 20;
+    const GS1_ENTRIES: usize = 21;
+    const GS1_UID: usize = 22;
+    const ACK: usize = 23;
+    const RESULT: usize = 24;
+    const HELD_NLINK: usize = 25;
+    const BOUND_INODE: usize = 26;
+    let mut m = base(
+        name,
+        control != 0,
+        &[
+            (
+                "phaseChooseConfiguredScratchChildBoundReapedKilledRefusedDoneQuarantine",
+                9,
+                0,
+            ),
+            ("tmpAbsentGit1Git2PlantedSwapped", 4, 0),
+            ("argvNoneTemp1Temp2FixtureOther", 4, 0),
+            ("gsNoneBound1Bound2Settled", 3, 0),
+            ("leaderNoneRunningReapedKilledAndActuallyReaped", 3, 0),
+            ("selectedCaseValidCorrupt", 1, 0),
+            ("inputProfile", 14, 0),
+            ("originalGitInode", 2, 0),
+            ("currentNamedInode", 2, 0),
+            ("retainedFdInode", 2, 0),
+            ("heldBytesValidCorrupt", 2, 0),
+            ("observedNlink", 2, 0),
+            ("scratchEntries", 2, 0),
+            ("signatureFdOwned", 1, 0),
+            ("sameNameEpochA1B2A3", 2, 0),
+            ("boundBytesValidCorrupt", 2, 0),
+            ("postReapAbsenceAndHeldIdentityRehashObserved", 1, 0),
+            ("foreignInodeUnlinked", 1, 0),
+            ("reviewedSourceNoOtherWriterPremise", 1, 1),
+            ("nativeEffectCreated", 1, 0),
+            ("capturedGs1Nlink", 2, 0),
+            ("capturedGs1Entries", 2, 0),
+            ("capturedGs1UidMatches", 1, 0),
+            ("verifierIncarnationAcknowledged", 1, 0),
+            (
+                "resultPendingBCheckpointOkSignatureUnexpectedCoverageUnknownReviewUnboundQuarantineCancelled",
+                6,
+                0,
+            ),
+            ("heldInodeNlink", 2, 0),
+            ("boundOriginalInode", 2, 0),
+        ],
+    );
+    // Profiles are immutable facts, not guesses discovered by directory scans:
+    // clean, fixture argv, hardlink, extra entry, wrong case bytes, preplanted,
+    // symlink, foreign uid, early deletion, unavailable/racing observation,
+    // other argv, wrong mode/dev/size, invalid scratch/umask, absent source basis,
+    // and legacy fixture-token Commands (refused before any birth).
+    for case in 0..=1 {
+        for profile in 0..=14 {
+            act(
+                &mut m,
+                &format!("SelectCase{case}Profile{profile}"),
+                eq(ST, 0),
+                &[
+                    (ST, Int(1)),
+                    (CASE, Int(case)),
+                    (PROFILE, Int(profile)),
+                    (TMP, Int(if profile == 5 { 3 } else { 0 })),
+                    (PREMISE, Int(if profile == 13 { 0 } else { 1 })),
+                ],
+            );
+        }
+    }
+    let prebirth_ok = all([
+        eq(TMP, 0),
+        eq(PROFILE, 12).negate(),
+        eq(PROFILE, 14).negate(),
+        eq(PREMISE, 1),
+    ]);
+    act(
+        &mut m,
+        "RetainFreshPrivateEmptyScratchBeforeAnyBirth",
+        all([eq(ST, 1), prebirth_ok.clone()]),
+        &[(ST, Int(2))],
+    );
+    act(
+        &mut m,
+        "RefusePlantedUnsafeOrUnboundScratchBeforeBirth",
+        all([eq(ST, 1), prebirth_ok.negate()]),
+        &[(ST, Int(7)), (RESULT, Int(4))],
+    );
+    for inode in 1..=2 {
+        for case in 0..=1 {
+            for profile in 0..=14 {
+                act(
+                    &mut m,
+                    &format!("GitCreatesItsOwnTempInode{inode}Case{case}Profile{profile}"),
+                    all([eq(ST, 2), eq(CASE, case), eq(PROFILE, profile)]),
+                    &[
+                        (ST, Int(3)),
+                        (TMP, Int(if profile == 8 { 0 } else { inode })),
+                        (
+                            ARGV,
+                            Int(if profile == 1 {
+                                3
+                            } else if profile == 10 {
+                                4
+                            } else {
+                                inode
+                            }),
+                        ),
+                        (LEADER, Int(1)),
+                        (ORIGINAL, Int(inode)),
+                        (NAMED, Int(if profile == 8 { 0 } else { inode })),
+                        (CONTENT, Int(if profile == 4 { 2 - case } else { case + 1 })),
+                        (NLINK, Int(if profile == 2 { 2 } else { 1 })),
+                        (
+                            ENTRIES,
+                            Int(if profile == 3 {
+                                2
+                            } else if profile == 8 {
+                                0
+                            } else {
+                                1
+                            }),
+                        ),
+                        (CREATED, Int(1)),
+                    ],
+                );
+            }
+        }
+    }
+    let expected_hash = all([eq(CASE, 0), eq(CONTENT, 1)]).or(all([eq(CASE, 1), eq(CONTENT, 2)]));
+    let exact_argv = Var(ARGV).eq(Var(ORIGINAL));
+    let argv_guard = if control == 1 {
+        exact_argv.clone().or(eq(ARGV, 3))
+    } else {
+        exact_argv.clone()
+    };
+    let nlink_guard = if control == 2 {
+        Bool(true)
+    } else {
+        eq(NLINK, 1)
+    };
+    let entries_guard = if control == 4 {
+        Bool(true)
+    } else {
+        eq(ENTRIES, 1)
+    };
+    let hash_guard = if control == 5 {
+        expected_hash.clone().negate()
+    } else {
+        expected_hash.clone()
+    };
+    let uid_guard = if control == 8 {
+        Bool(true)
+    } else {
+        eq(PROFILE, 7).negate()
+    };
+    let gs1_ok = all([
+        argv_guard,
+        nlink_guard,
+        entries_guard,
+        hash_guard,
+        uid_guard,
+        Var(NAMED).eq(Var(ORIGINAL)),
+        eq(NAMED, 0).negate(),
+        eq(PROFILE, 6).negate(),
+        eq(PROFILE, 9).negate(),
+        eq(PROFILE, 11).negate(),
+    ]);
+    for uid in 0..=1 {
+        act(
+            &mut m,
+            &format!("Gs1BracketCurrentUnreapedIncarnationAndBindExactTempBeforeAckUid{uid}"),
+            all([
+                eq(ST, 3),
+                eq(LEADER, 1),
+                gs1_ok.clone(),
+                if uid == 0 {
+                    eq(PROFILE, 7)
+                } else {
+                    eq(PROFILE, 7).negate()
+                },
+            ]),
+            &[
+                (ST, Int(4)),
+                (GS, Var(ORIGINAL)),
+                (HELD, Var(ORIGINAL)),
+                (OWN, Int(1)),
+                (BOUND_CASE, Var(CONTENT)),
+                (BOUND_INODE, Var(ORIGINAL)),
+                (GS1_NLINK, Var(NLINK)),
+                (HELD_NLINK, Var(NLINK)),
+                (GS1_ENTRIES, Var(ENTRIES)),
+                (GS1_UID, Int(uid)),
+                (ACK, Int(1)),
+            ],
+        );
+    }
+    act(
+        &mut m,
+        "Gs1RefusesUnexpectedFileOrArgvWithoutAck",
+        all([eq(ST, 3), gs1_ok.clone().negate(), eq(PROFILE, 9).negate()]),
+        &[(ST, Int(7)), (RESULT, Int(2))],
+    );
+    act(
+        &mut m,
+        "Gs1UnavailableOrRacingObservationRetainsActualEffect",
+        all([eq(ST, 3), eq(PROFILE, 9)]),
+        &[(ST, Int(7)), (RESULT, Int(3))],
+    );
+    for inode in 1..=2 {
+        act(
+            &mut m,
+            &format!("SameNameSwapAwayFromHeldInode{inode}"),
+            all([eq(ST, 4), eq(HELD, inode), eq(EPOCH, 0)]),
+            &[
+                (TMP, Int(4)),
+                (NAMED, Int(3 - inode)),
+                (HELD_NLINK, Int(0)),
+                (EPOCH, Int(1)),
+            ],
+        );
+        act(
+            &mut m,
+            &format!("AbaRestoresSameLexicalNameButNotHeldInode{inode}"),
+            all([eq(ST, 4), eq(HELD, inode), eq(EPOCH, 1)]),
+            &[(EPOCH, Int(2))],
+        );
+        act(
+            &mut m,
+            &format!("NormalGitDeletesItsOwnInode{inode}AndLeaderIsActuallyReaped"),
+            all([eq(ST, 4), eq(NAMED, inode), eq(HELD, inode)]),
+            &[
+                (ST, Int(5)),
+                (LEADER, Int(2)),
+                (TMP, Int(0)),
+                (NAMED, Int(0)),
+                (HELD_NLINK, Int(0)),
+            ],
+        );
+    }
+    act(
+        &mut m,
+        "LeaderActuallyReapedWithUnexpectedNamedLeftover",
+        eq(ST, 4),
+        &[(ST, Int(5)), (LEADER, Int(2))],
+    );
+    act(
+        &mut m,
+        "HeldBytesChangeAfterGs1",
+        all([eq(ST, 4), expected_hash.clone()]),
+        &[(CONTENT, Int(3).minus(Var(CONTENT)))],
+    );
+    let gs2_ok = all([
+        eq(NAMED, 0),
+        eq(HELD_NLINK, 0),
+        Var(HELD).eq(Var(BOUND_INODE)),
+        Var(BOUND_INODE).eq(Var(ORIGINAL)),
+        Var(CONTENT).eq(Var(BOUND_CASE)),
+        expected_hash.clone(),
+    ]);
+    act(
+        &mut m,
+        "Gs2PostReapAbsenceHeldIdentityZeroLinksAndRehashThenClose",
+        all([eq(ST, 5), gs2_ok.clone()]),
+        &[
+            (ST, Int(8)),
+            (GS, Int(3)),
+            (ABSENCE, Int(1)),
+            (OWN, Int(0)),
+            (HELD, Int(0)),
+            (RESULT, Int(1)),
+        ],
+    );
+    act(
+        &mut m,
+        "Gs2UnexpectedPreservesRetainedInodeInOwnedQuarantine",
+        all([eq(ST, 5), gs2_ok.negate()]),
+        &[(ST, Int(9)), (RESULT, Int(2))],
+    );
+    act(
+        &mut m,
+        "Gs2UnavailableOrRacingObservationRetainsOriginalHeldCustody",
+        eq(ST, 5),
+        &[(ST, Int(9)), (RESULT, Int(3))],
+    );
+    if control == 3 {
+        act(
+            &mut m,
+            "BrokenAcceptWithoutGs2Observation",
+            eq(ST, 5),
+            &[
+                (ST, Int(8)),
+                (GS, Int(3)),
+                (OWN, Int(0)),
+                (HELD, Int(0)),
+                (RESULT, Int(1)),
+            ],
+        );
+    }
+    if control == 7 {
+        act(
+            &mut m,
+            "BrokenAbaNameReplayAcceptsStaleGs1Binding",
+            all([eq(ST, 5), eq(EPOCH, 2)]),
+            &[
+                (ST, Int(8)),
+                (GS, Int(3)),
+                (OWN, Int(0)),
+                (HELD, Int(0)),
+                (RESULT, Int(1)),
+            ],
+        );
+    }
+    act(
+        &mut m,
+        "ExactOriginalKillAndActualReapRetainsGsAndFileCustody",
+        eq(ST, 3).or(eq(ST, 4)).or(all([eq(ST, 7), eq(CREATED, 1)])),
+        &[(ST, Int(6)), (LEADER, Int(3))],
+    );
+    let cleanup = m.actions.len();
+    act(
+        &mut m,
+        "KilledLeftoverUnlinkOnlyOnHeldOriginalDevInoMatch",
+        all([
+            eq(ST, 6),
+            eq(GS, 1).or(eq(GS, 2)),
+            Var(NAMED).eq(Var(BOUND_INODE)),
+        ]),
+        &[
+            (ST, Int(8)),
+            (TMP, Int(0)),
+            (NAMED, Int(0)),
+            (HELD_NLINK, Int(0)),
+            (GS, Int(3)),
+            (OWN, Int(0)),
+            (HELD, Int(0)),
+            (RESULT, Int(6)),
+        ],
+    );
+    let quarantine = m.actions.len();
+    act(
+        &mut m,
+        "KilledUnknownOrSwappedNameStaysOwnedQuarantineWithoutUnlink",
+        all([
+            eq(ST, 6),
+            eq(GS, 0).or(Var(NAMED).eq(Var(BOUND_INODE)).negate()),
+        ]),
+        &[(ST, Int(9)), (RESULT, Int(5))],
+    );
+    if control == 6 {
+        act(
+            &mut m,
+            "BrokenKillCleanupUnlinksSameNameForeignInode",
+            all([
+                eq(ST, 6),
+                eq(GS, 1).or(eq(GS, 2)),
+                Var(NAMED).eq(Var(BOUND_INODE)).negate(),
+                eq(NAMED, 0).negate(),
+            ]),
+            &[
+                (ST, Int(8)),
+                (TMP, Int(0)),
+                (NAMED, Int(0)),
+                (FOREIGN_UNLINK, Int(1)),
+                (GS, Int(3)),
+                (OWN, Int(0)),
+                (HELD, Int(0)),
+                (RESULT, Int(6)),
+            ],
+        );
+    }
+    let bound = eq(GS, 0).negate();
+    safe(
+        &mut m,
+        "Gs1BindsActualGeneratedGitArgvNeverFixturePath",
+        bound.clone().negate().or(exact_argv),
+    );
+    safe(
+        &mut m,
+        "Gs1RequiresExactlyOneLink",
+        bound.clone().negate().or(eq(GS1_NLINK, 1)),
+    );
+    safe(
+        &mut m,
+        "Gs1RequiresExclusiveScratchEntry",
+        bound.clone().negate().or(eq(GS1_ENTRIES, 1)),
+    );
+    safe(
+        &mut m,
+        "Gs1BindsSelectedCaseRefNotOppositeCase",
+        bound
+            .clone()
+            .negate()
+            .or(all([eq(CASE, 0), eq(BOUND_CASE, 1)]).or(all([eq(CASE, 1), eq(BOUND_CASE, 2)]))),
+    );
+    safe(
+        &mut m,
+        "Gs1RequiresSameUid",
+        bound.clone().negate().or(eq(GS1_UID, 1)),
+    );
+    safe(
+        &mut m,
+        "Gs1RetainsOriginalGitInodeIdentity",
+        bound.negate().or(Var(BOUND_INODE).eq(Var(ORIGINAL))),
+    );
+    safe(
+        &mut m,
+        "BCheckpointOkRequiresActualGs2AbsenceAtReap",
+        eq(RESULT, 1).negate().or(all([
+            eq(GS, 3),
+            eq(LEADER, 2),
+            eq(ABSENCE, 1),
+            eq(NAMED, 0),
+            eq(TMP, 0),
+            eq(OWN, 0),
+            expected_hash,
+        ])),
+    );
+    safe(
+        &mut m,
+        "KillCleanupNeverUnlinksForeignInodeAfterSameNameAba",
+        eq(FOREIGN_UNLINK, 0),
+    );
+    safe(
+        &mut m,
+        "UnsafeOrUnboundScratchNeverCreatesNativeEffect",
+        eq(RESULT, 4).negate().or(eq(CREATED, 0)),
+    );
+    safe(
+        &mut m,
+        "NativeBirthRequiresExplicitReviewedSourcePremise",
+        eq(CREATED, 0).or(eq(PREMISE, 1)),
+    );
+    safe(
+        &mut m,
+        "VerifierAckRequiresGs1BoundCurrentUnreapedObservation",
+        eq(ACK, 0).or(all([eq(GS, 0).negate(), eq(PROFILE, 9).negate()])),
+    );
+    progress(
+        &mut m,
+        "KnownKilledOriginalEventuallyCleanedOrOwnedQuarantine",
+        eq(ST, 6),
+        eq(ST, 8).or(eq(ST, 9)),
+        vec![cleanup, quarantine],
+    );
+    if control != 0 {
+        let valid = all(m.invariants.iter().map(|i| i.condition.clone()));
+        for a in &mut m.actions {
+            a.guard = a.guard.clone().and(valid.clone());
+        }
+        act(
+            &mut m,
+            "ControlObserverStopsAtFirstFailedBoundary",
+            valid.negate(),
+            &[],
+        );
+    }
+    m
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dream_read_git_signature_temp_binds_real_inode_and_both_selected_cases() {
+        let good = git_sig_temp(0).check(100_000).unwrap();
+        println!("HarnessDreamReadGitSigTemp: {} states", good.states.len());
+        assert!(good.violations.is_empty(), "{:?}", good.violations);
+        for case in 0..=1 {
+            for inode in 1..=2 {
+                assert!(
+                    good.states
+                        .iter()
+                        .any(|s| s[5] == case && s[7] == inode && s[24] == 1 && s[16] == 1),
+                    "selected case{case} real inode{inode} reaches only the B custody checkpoint, not a cryptographic/runtime approval"
+                );
+            }
+        }
+        for profile in [1, 2, 3, 4, 6, 7, 8, 10, 11] {
+            assert!(
+                good.states
+                    .iter()
+                    .any(|s| s[6] == profile && s[24] == 2 && s[23] == 0 && s[19] == 1),
+                "unexpected argv/file profile{profile} retains actual effect without acknowledgement"
+            );
+            assert!(good.states.iter().all(|s| s[6] != profile || s[23] == 0));
+        }
+        for profile in [5, 12, 13, 14] {
+            assert!(good.states.iter().any(|s| s[6] == profile && s[24] == 4));
+            assert!(
+                good.states.iter().all(|s| s[6] != profile || s[19] == 0),
+                "planted/unsafe/unbound profile{profile} cannot create a helper"
+            );
+        }
+        assert!(
+            good.states.iter().any(|s| s[6] == 9
+                && s[24] == 3
+                && s[4] == 1
+                && s[19] == 1
+                && s[23] == 0),
+            "unavailable current-task bracket keeps the actual original effect without certification"
+        );
+        assert!(
+            good.states.iter().any(|s| s[14] == 2
+                && s[4] == 3
+                && s[24] == 5
+                && s[13] == 1
+                && s[8] != s[26]),
+            "same-name A1-B2-A3 kill preserves the foreign inode and original held fd in quarantine"
+        );
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[14] == 2 && s[4] == 2 && s[24] == 2 && s[13] == 1),
+            "normal reap with same-name substitution cannot reuse GS1 as GS2"
+        );
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[24] == 6 && s[8] == 0 && s[13] == 0 && s[4] == 3),
+            "kill cleanup can remove and release only its matching original inode after actual reap"
+        );
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[4] == 2 && s[24] == 3 && s[13] == 1 && s[3] != 0),
+            "unavailable GS2 keeps original held-file custody instead of partial certification"
+        );
+        for (control, invariant) in [
+            (1, "Gs1BindsActualGeneratedGitArgvNeverFixturePath"),
+            (2, "Gs1RequiresExactlyOneLink"),
+            (3, "BCheckpointOkRequiresActualGs2AbsenceAtReap"),
+            (4, "Gs1RequiresExclusiveScratchEntry"),
+            (5, "Gs1BindsSelectedCaseRefNotOppositeCase"),
+            (6, "KillCleanupNeverUnlinksForeignInodeAfterSameNameAba"),
+            (7, "BCheckpointOkRequiresActualGs2AbsenceAtReap"),
+            (8, "Gs1RequiresSameUid"),
+        ] {
+            let model = git_sig_temp(control);
+            let name = model.name.clone();
+            let broken = model.check(100_000).unwrap();
+            println!("{name}: {} states", broken.states.len());
+            assert!(
+                broken.violations.iter().any(|v| v.property == invariant),
+                "control{control}: {:?}",
+                broken.violations
+            );
+        }
+    }
+
     #[test]
     fn dream_read_qualification_separates_reviewed_program_premise_from_runtime_census() {
         let good = qualification(0).check(100_000).unwrap();
@@ -4747,6 +5409,32 @@ mod tests {
                     .any(|s| s[25] == fault && s[15] == 1 && s[26] == 0 && s[5] > 0)
             );
         }
+        for case in 0..=9 {
+            assert!(
+                good.states.iter().any(|s| s[22] == case && s[37] == 1),
+                "original input case {case} stays explored"
+            );
+        }
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[18] == 1 && s[0] == 3 && s[17] == 0),
+            "STOP is consumed before native effect/outcome and before physical proof"
+        );
+        assert!(
+            good.states.iter().any(|s| s[18] == 3 && s[17] == 0),
+            "ESRCH plus retained leader exit still proves no physical stopped seal"
+        );
+        for outcome in [4, 5] {
+            assert!(
+                good.states.iter().any(|s| s[18] == outcome
+                    && s[0] == 7
+                    && s[15] == 1
+                    && s[26] == 0
+                    && s[17] == 0),
+                "refused native outcome {outcome} retains its first operation/effect without stop proof"
+            );
+        }
         let expected = [
             "NativeEffectRequiresReservedAttempt",
             "TrustedOutputHasOnlyAdmittedMembers",
@@ -4769,6 +5457,7 @@ mod tests {
             "FaultCannotReleaseUnsettledOwnership",
             "FaultCannotReleaseUnsettledOwnership",
             "FaultCannotReleaseUnsettledOwnership",
+            "StopAttemptIsNotRetriedAfterAnyNativeOutcome",
         ];
         for (index, invariant) in expected.into_iter().enumerate() {
             let model = helper((index + 1) as u8);
@@ -4781,7 +5470,7 @@ mod tests {
                 "{} must causally violate {invariant}",
                 model.name
             );
-            if index >= 18 {
+            if (18..=20).contains(&index) {
                 assert!(
                     checked
                         .states

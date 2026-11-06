@@ -1945,3 +1945,53 @@ frontend = "project"
 name = "BrokenHarnessDreamReadQualificationInnerRevalidation"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadHelperStopRetry"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamReadGitSigTemp"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadGitSigTempFixturePath"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadGitSigTempNlink"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadGitSigTempGs2"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadGitSigTempExclusivity"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadGitSigTempWrongCase"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadGitSigTempCleanupIdentity"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadGitSigTempAba"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadGitSigTempForeignUid"
+expected = "safety"
+frontend = "project"

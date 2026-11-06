@@ -1171,7 +1171,7 @@ static const struct private_command_form private_forms[16]={
     {"signature","git","none",2,4,{"log","-1","--format=%G?%x00%GF%x00%GP","{commit}"}},
     {"show_keys","gpg","public_keys",1,3,{"--with-colons","--show-keys","-"}},
     {"import_keys","gpg","public_keys",1,2,{"--import","-"}},
-    {"verify_child","gpg","commit_payload",1,5,{"--keyid-format=long","--status-fd=1","--verify","{signature}","-"}}
+    {"verify_child","gpg","commit_payload",1,5,{"--keyid-format=long","--status-fd=1","--verify","{git_signature_temp}","-"}}
 };
 static const char *const private_git_prefix[]={"--no-pager","--no-optional-locks","-c","core.fsmonitor=false","-c","core.hooksPath=/dev/null","-c","credential.helper=","-c","protocol.allow=never","-c","gpg.format=openpgp","-c","gpg.program={gpg}","-c","gpg.openpgp.program={gpg}"};
 static const char *const private_gpg_prefix[]={"--no-options","--no-autostart","--batch","--no-tty"};
@@ -1813,6 +1813,238 @@ static __attribute__((unused)) void private_guards_dispose(void) {
     private_guards.count=0;private_guards.stage=0;private_guards.outer=NULL;private_guards.basis=NULL;private_guards.input_hash=NULL;
 }
 
+// BEGIN GIT_SIGNATURE_TEMP -- read_wire owns these shared B primitives.
+// Copyright 2026 Boxy (bboxy450) and contributors.
+// SPDX-License-Identifier: LicenseRef-Respectful-Slop-1.0-Draft
+// Origin: https://github.com/bboxy450/bboxy450-harness
+// Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+// Decision65960 section B: match Git's ACTUAL argv, never expand the matcher
+// or synthesize a verifier call. All raw work below belongs to the caller's
+// existing measured grant/post unit; these helpers add no scheduler or debt.
+// They do not prove which inode gpg opened before GS1. The private0700 scratch
+// having no other writer remains the explicit conditional source premise.
+#define PRIVATE_SIG_PROCARGS 8192u
+#define PRIVATE_SIG_INPUT_MAX (2u*1024u*1024u)
+struct private_git_sig_temp {
+    int scratch_fd,signature_fd,transient_fd;
+    unsigned initialized,ready,bound,settled,quarantined,records,signature_close_attempted,scratch_close_attempted,transient_close_attempted;
+    char scratch[4097],name[20],sha256[65];uint64_t len;
+    const struct private_engine_context *context;const struct private_ref *selected;
+    struct stat scratch_stat,signature_stat;mode_t recorded_umask;
+    pid_t pid;uint64_t birth;uint32_t pidversion;
+    unsigned char procargs[PRIVATE_SIG_PROCARGS];size_t procargs_len;
+    uint16_t argv_offset[6],argv_len[6];
+};
+static int private_sig_error(struct private_git_sig_temp *s,const char *code,const char *detail,int quarantine) {
+    if(quarantine)s->quarantined=1;return private_fail(code,detail);
+}
+static int private_sig_cost(struct private_git_sig_temp *s,uint64_t begin) {
+    uint64_t end;
+    if(!known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&end)||end<begin)
+        return private_sig_error(s,"clock_unknown","Git signature checkpoint clock unavailable or reversed",1);
+    if(end-begin>1000000)
+        return private_sig_error(s,"resource_limit","Git signature checkpoint exceeds one millisecond",1);
+    return 1;
+}
+static const struct private_ref *private_sig_selected(const struct private_engine_context *ctx) {
+    return !strcmp(ctx->outer->case_name,"corrupt_proof")?&ctx->basis->fixture.corrupt_signature:&ctx->basis->fixture.valid_signature;
+}
+static int private_sig_close_transient(struct private_git_sig_temp *s,DIR *dir) {
+    if(s->transient_fd<0||s->transient_close_attempted)return -1;
+    s->transient_close_attempted=1;
+    int result=dir?closedir(dir):close(s->transient_fd);
+    if(result!=0){s->quarantined=1;return -1;}
+    s->transient_fd=-1;s->transient_close_attempted=0;return 0;
+}
+// Exactly one bounded enumeration of the retained scratch. Dup shares its
+// offset, so explicitly rewind it before EVERY enumeration. Two persistent
+// descriptors are held; this directory duplicate is closed inside the unit.
+static int private_sig_entries(struct private_git_sig_temp *s,const char *expected) {
+    if(s->transient_fd>=0||s->transient_close_attempted)return -1;
+    int fd=dup(s->scratch_fd);if(fd<0)return -1;s->transient_fd=fd;
+    if(fcntl(fd,F_SETFD,FD_CLOEXEC)!=0||lseek(fd,0,SEEK_SET)<0){private_sig_close_transient(s,NULL);return -1;}
+    DIR *dir=fdopendir(fd);if(!dir){private_sig_close_transient(s,NULL);return -1;}
+    unsigned entries=0,matched=0;int result=1;
+    for(;;) {
+        errno=0;struct dirent *e=readdir(dir);int error=errno;
+        if(!e){if(error)result=-1;break;}
+        if(++entries>8){result=0;break;}
+        if(!strcmp(e->d_name,".")||!strcmp(e->d_name,".."))continue;
+        if(!expected||strcmp(e->d_name,expected)||matched++){result=0;break;}
+    }
+    if(result==1&&expected&&matched!=1)result=0;
+    if(private_sig_close_transient(s,dir)!=0)result=-1;return result;
+}
+static int private_sig_scratch_current(struct private_git_sig_temp *s) {
+    struct stat held,named;
+    if(fstat(s->scratch_fd,&held)!=0||fstatat(s->context->outer->output.fd,"t",&named,AT_SYMLINK_NOFOLLOW)!=0)return 0;
+    return S_ISDIR(held.st_mode)&&S_ISDIR(named.st_mode)&&held.st_uid==geteuid()&&named.st_uid==geteuid()
+        &&(held.st_mode&07777)==0700&&(named.st_mode&07777)==0700
+        &&held.st_dev==s->scratch_stat.st_dev&&held.st_ino==s->scratch_stat.st_ino
+        &&named.st_dev==held.st_dev&&named.st_ino==held.st_ino;
+}
+static __attribute__((unused)) int private_git_sig_before_birth(const struct private_engine_context *ctx,struct private_git_sig_temp *s) {
+    uint64_t begin;if(!known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&begin))return private_sig_error(s,"clock_unknown","Git scratch fence beginning clock unavailable",0);
+    if(!s->initialized||!s->ready||s->context!=ctx||!private_context_same(ctx)||s->bound||s->settled||s->quarantined
+        ||s->selected!=private_sig_selected(ctx)||s->selected->len!=s->len||strcmp(s->selected->sha,s->sha256))
+        return private_sig_error(s,"review_unbound","Git scratch or selected-case binding is not current before birth",0);
+    mode_t mask=umask(0);umask(mask);
+    if(mask!=s->recorded_umask||(mask&0600)||!private_sig_scratch_current(s)||private_sig_entries(s,NULL)!=1)
+        return private_sig_error(s,"review_unbound","fresh empty0700 Git scratch or recorded umask differs before birth",0);
+    return private_sig_cost(s,begin);
+}
+static __attribute__((unused)) int private_git_sig_prepare(const struct private_engine_context *ctx,struct private_git_sig_temp *s,const char *scratch) {
+    if(!ctx||!private_context_same(ctx)||!scratch||s->initialized)
+        return private_sig_error(s,"review_unbound","Git signature state cannot be rebound or prepared outside its context",0);
+    const struct private_ref *selected=private_sig_selected(ctx);
+    if(!selected->len||selected->len>=PRIVATE_SIG_INPUT_MAX||!private_guard_ref(ctx,selected,1))
+        return private_sig_error(s,"review_unbound","selected signature Ref exceeds existing input custody or allocation",0);
+    uint64_t begin;if(!known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&begin))return private_sig_error(s,"clock_unknown","Git scratch preparation clock unavailable",0);
+    char expected[4097];int n=snprintf(expected,sizeof(expected),"%s/t",ctx->outer->output.path);
+    if(n<=0||(size_t)n>=sizeof(expected)||strcmp(scratch,expected)||!private_path(scratch,1)
+        ||strcmp(private_forms[15].argv[3],"{git_signature_temp}"))
+        return private_sig_error(s,"review_unbound","Git scratch bytes or matcher-token contract differs",0);
+    memset(s,0,sizeof(*s));s->initialized=1;s->scratch_fd=s->signature_fd=s->transient_fd=-1;s->context=ctx;s->selected=selected;
+    memcpy(s->scratch,scratch,(size_t)n+1);s->len=selected->len;memcpy(s->sha256,selected->sha,65);
+    s->recorded_umask=umask(0);umask(s->recorded_umask);
+    // Retain the returned descriptor before a metadata or clock verdict.
+    s->scratch_fd=openat(ctx->outer->output.fd,"t",O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK);
+    if(s->scratch_fd<0||fstat(s->scratch_fd,&s->scratch_stat)!=0)
+        return private_sig_error(s,"review_unbound","owned fresh Git scratch descriptor unavailable",0);
+    s->ready=1;
+    if(!private_sig_cost(s,begin))return 0;
+    return private_git_sig_before_birth(ctx,s);
+}
+static int private_sig_arg(const struct private_git_sig_temp *s,unsigned index,const char *expected) {
+    size_t n=strlen(expected);return s->argv_len[index]==n&&!memcmp(s->procargs+s->argv_offset[index],expected,n);
+}
+// Raw KERN_PROCARGS2 layout only: argc, executable NUL, NUL padding, argc
+// NUL-terminated argv strings. Preserve the exact returned bytes and offsets.
+static int private_git_sig_match_argv(const struct private_engine_context *ctx,struct private_git_sig_temp *s,const unsigned char *bytes,size_t length) {
+    if(length<sizeof(int)||length>sizeof(s->procargs))return private_sig_error(s,"coverage_unknown","Git verifier procargs observation incomplete or oversize",1);
+    if(bytes!=s->procargs)memcpy(s->procargs,bytes,length);s->procargs_len=length;
+    int argc;memcpy(&argc,s->procargs,sizeof(argc));
+    if(argc!=6)return private_sig_error(s,"signature_unexpected","actual Git verifier argc differs",1);
+    size_t offset=sizeof(argc);const unsigned char *end=memchr(s->procargs+offset,0,length-offset);
+    if(!end)return private_sig_error(s,"coverage_unknown","procargs executable terminator unavailable",1);
+    offset=(size_t)(end-s->procargs)+1;while(offset<length&&!s->procargs[offset])offset++;
+    for(unsigned i=0;i<6;i++) {
+        if(offset>=length||(end=memchr(s->procargs+offset,0,length-offset))==NULL)
+            return private_sig_error(s,"coverage_unknown","actual verifier argv observation truncated",1);
+        size_t n=(size_t)(end-(s->procargs+offset));
+        if(offset>UINT16_MAX||n>UINT16_MAX)return private_sig_error(s,"coverage_unknown","actual verifier argv range unavailable",1);
+        s->argv_offset[i]=(uint16_t)offset;s->argv_len[i]=(uint16_t)n;offset+=(size_t)n+1;
+    }
+    char gpg[4097];
+    if(!private_token_text(ctx->basis->build.tools[1].ref.path,gpg,sizeof(gpg))
+        ||!private_sig_arg(s,0,gpg)||!private_sig_arg(s,1,"--keyid-format=long")
+        ||!private_sig_arg(s,2,"--status-fd=1")||!private_sig_arg(s,3,"--verify")||!private_sig_arg(s,5,"-"))
+        return private_sig_error(s,"signature_unexpected","actual Git verifier fixed argv differs",1);
+    size_t scratch_len=strlen(s->scratch),name_len=19;
+    const unsigned char *v=s->procargs+s->argv_offset[4];size_t n=s->argv_len[4];
+    if(n!=scratch_len+1+name_len||memcmp(v,s->scratch,scratch_len)||v[scratch_len]!='/'
+        ||memcmp(v+scratch_len+1,".git_vtag_tmp",13))
+        return private_sig_error(s,"signature_unexpected","actual Git signature path is not its exact TMPDIR temporary",1);
+    const unsigned char *name=v+scratch_len+1;
+    for(unsigned i=13;i<19;i++)if(!((name[i]>='a'&&name[i]<='z')||(name[i]>='A'&&name[i]<='Z')||(name[i]>='0'&&name[i]<='9')))
+        return private_sig_error(s,"signature_unexpected","actual Git signature suffix differs",1);
+    memcpy(s->name,name,19);s->name[19]=0;return 1;
+}
+static int private_sig_read(struct private_git_sig_temp *s,unsigned char *buffer,size_t capacity,char digest[65]) {
+    if(!buffer||capacity>PRIVATE_SIG_INPUT_MAX||s->len>=capacity)
+        return private_sig_error(s,"resource_limit","signature bytes exceed the existing reusable input buffer",1);
+    ssize_t n=pread(s->signature_fd,buffer,(size_t)s->len+1,0);
+    if(n<0)return private_sig_error(s,"coverage_unknown","retained Git signature read unavailable",1);
+    if((uint64_t)n!=s->len)return private_sig_error(s,"signature_unexpected","actual Git signature byte length differs",1);
+    private_hash(buffer,(size_t)s->len,digest);
+    if(strcmp(digest,s->sha256))return private_sig_error(s,"signature_unexpected","actual Git signature hash differs from selected case",1);return 1;
+}
+static int private_sig_record(struct private_git_sig_temp *s,const char *phase,const struct stat *st,const char *digest) {
+    uint64_t now;if(!known_clock_ns(CLOCK_MONOTONIC,&now))return private_sig_error(s,"clock_unknown","Git signature evidence clock unavailable",1);
+    char line[512];int n=snprintf(line,sizeof(line),"git_sig_temp {\"dev\":%llu,\"ino\":%llu,\"mode\":%u,\"name\":\"%s\",\"nlink\":%llu,\"phase\":\"%s\",\"pid\":%d,\"pidversion\":%u,\"sha256\":\"%s\",\"size\":%llu,\"t_ns\":%llu}\n",
+        (unsigned long long)st->st_dev,(unsigned long long)st->st_ino,(unsigned)(st->st_mode&07777),s->name,(unsigned long long)st->st_nlink,phase,s->pid,s->pidversion,digest,(unsigned long long)st->st_size,(unsigned long long)now);
+    if(s->records>=2||n<=0||(size_t)n>=sizeof(line))return private_sig_error(s,"resource_limit","two bounded Git signature evidence records exhausted",1);
+    s->records++;if(write(STDERR_FILENO,line,(size_t)n)!=n)return private_sig_error(s,"coverage_unknown","Git signature evidence write effect unresolved; no retry",1);return 1;
+}
+static int private_sig_token_path(const audit_token_t *retained,char path[PROC_PIDPATHINFO_MAXSIZE],const char *expected) {
+    audit_token_t token=*retained;
+    int n=proc_pidpath_audittoken(&token,path,PROC_PIDPATHINFO_MAXSIZE);
+    return n>0&&n<=PROC_PIDPATHINFO_MAXSIZE&&memchr(path,0,PROC_PIDPATHINFO_MAXSIZE)&&!strcmp(path,expected);
+}
+static __attribute__((unused)) int private_git_sig_gs1(const struct private_engine_context *ctx,struct private_git_sig_temp *s,pid_t pid,uint64_t birth,
+    const audit_token_t *retained,unsigned char *buffer,size_t capacity) {
+    uint64_t begin;if(!known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&begin))return private_sig_error(s,"clock_unknown","GS1 beginning clock unavailable",1);
+    if(!s->ready||s->context!=ctx||!private_context_same(ctx)||s->bound||s->settled||s->quarantined||!retained
+        ||pid<=0||retained->val[5]!=(unsigned)pid||!retained->val[7])
+        return private_sig_error(s,"coverage_unknown","GS1 does not name the retained current verifier incarnation",1);
+    s->pid=pid;s->birth=birth;s->pidversion=retained->val[7];
+    audit_token_t before,after;char path[PROC_PIDPATHINFO_MAXSIZE],gpg[4097];
+    if(!private_token_text(ctx->basis->build.tools[1].ref.path,gpg,sizeof(gpg))
+        ||!known_control_token(pid,birth,&before)||memcmp(&before,retained,sizeof(before))
+        ||!private_sig_token_path(retained,path,gpg))
+        return private_sig_error(s,"coverage_unknown","GS1 opening verifier token/path observation unavailable or changed",1);
+    int mib[3]={CTL_KERN,KERN_PROCARGS2,pid};size_t length=sizeof(s->procargs);
+    int observed=sysctl(mib,3,s->procargs,&length,NULL,0);
+    if(observed!=0||length>sizeof(s->procargs)||!private_sig_token_path(retained,path,gpg)
+        ||!known_control_token(pid,birth,&after)||memcmp(&before,&after,sizeof(after))||after.val[7]!=s->pidversion)
+        return private_sig_error(s,"coverage_unknown","GS1 bracketed procargs unavailable or verifier incarnation raced",1);
+    if(!private_git_sig_match_argv(ctx,s,s->procargs,length)||!private_sig_cost(s,begin))return 0;
+    // Retain the returned signature fd before any stat/hash/mode verdict.
+    s->signature_fd=openat(s->scratch_fd,s->name,O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK);
+    if(s->signature_fd<0)return private_sig_error(s,errno==ENOENT||errno==ELOOP?"signature_unexpected":"coverage_unknown","actual Git signature temporary cannot be opened",1);
+    if(fstat(s->signature_fd,&s->signature_stat)!=0)return private_sig_error(s,"coverage_unknown","GS1 actual signature metadata unavailable",1);
+    const struct stat *st=&s->signature_stat;
+    if(!S_ISREG(st->st_mode)||st->st_nlink!=1||(st->st_mode&07777)!=0600||st->st_uid!=geteuid()
+        ||st->st_dev!=s->scratch_stat.st_dev||st->st_size<0||(uint64_t)st->st_size!=s->len)
+        return private_sig_error(s,"signature_unexpected","GS1 signature kind link mode uid device or size differs",1);
+    char digest[65];if(!private_sig_read(s,buffer,capacity,digest)||!private_sig_cost(s,begin))return 0;
+    struct stat held,named;
+    if(fstat(s->signature_fd,&held)!=0||fstatat(s->scratch_fd,s->name,&named,AT_SYMLINK_NOFOLLOW)!=0)
+        return private_sig_error(s,errno==ENOENT?"signature_unexpected":"coverage_unknown","GS1 signature held/path observation unavailable",1);
+    if(!private_same_file(st,&held)||!private_same_file(&held,&named)||!private_sig_scratch_current(s))
+        return private_sig_error(s,"signature_unexpected","GS1 held signature path or scratch identity differs",1);
+    int entries=private_sig_entries(s,s->name);
+    if(entries!=1)return private_sig_error(s,entries==0?"signature_unexpected":"coverage_unknown","GS1 scratch is not exclusively the actual Git signature",1);
+    s->bound=1;
+    if(!private_sig_record(s,"GS1",&held,digest)||!private_sig_cost(s,begin))return 0;return 1;
+}
+static __attribute__((unused)) int private_git_sig_gs2(struct private_git_sig_temp *s,int leader_actual_reaped,int normal_exit,unsigned char *buffer,size_t capacity) {
+    uint64_t begin;if(!known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&begin))return private_sig_error(s,"clock_unknown","GS2 beginning clock unavailable",1);
+    if(!leader_actual_reaped||!s->bound||s->settled||s->signature_fd<0||s->signature_close_attempted)
+        return private_sig_error(s,"settlement_unknown","GS2 requires actual leader reap and the retained GS1 descriptor",1);
+    struct stat named;int present=fstatat(s->scratch_fd,s->name,&named,AT_SYMLINK_NOFOLLOW);int error=errno;
+    if(present==0) {
+        if(normal_exit)return private_sig_error(s,"signature_unexpected","Git left its signature temporary after normal exit",1);
+        if(named.st_dev!=s->signature_stat.st_dev||named.st_ino!=s->signature_stat.st_ino)
+            return private_sig_error(s,"settlement_unknown","killed Git signature name changed; owned scratch quarantined",1);
+        if(unlinkat(s->scratch_fd,s->name,0)!=0)return private_sig_error(s,"settlement_unknown","owned Git signature cleanup effect unresolved",1);
+        present=fstatat(s->scratch_fd,s->name,&named,AT_SYMLINK_NOFOLLOW);error=errno;
+    }
+    if(present==0||error!=ENOENT)return private_sig_error(s,"coverage_unknown","GS2 absence observation unavailable or raced",1);
+    struct stat held;
+    if(fstat(s->signature_fd,&held)!=0)return private_sig_error(s,"coverage_unknown","GS2 retained signature metadata unavailable",1);
+    if(!S_ISREG(held.st_mode)||held.st_dev!=s->signature_stat.st_dev||held.st_ino!=s->signature_stat.st_ino||held.st_nlink!=0
+        ||held.st_size<0||(uint64_t)held.st_size!=s->len)
+        return private_sig_error(s,normal_exit?"signature_unexpected":"settlement_unknown","GS2 retained signature identity links or size differs",1);
+    char digest[65];if(!private_sig_read(s,buffer,capacity,digest))return 0;
+    struct stat after;
+    if(fstat(s->signature_fd,&after)!=0)return private_sig_error(s,"coverage_unknown","GS2 retained posthash observation unavailable",1);
+    if(!private_same_file(&held,&after))return private_sig_error(s,"signature_unexpected","GS2 retained signature changed during rehash",1);
+    if(!private_sig_record(s,"GS2",&after,digest))return 0;
+    s->signature_close_attempted=1;int closed=close(s->signature_fd);
+    if(closed!=0)return private_sig_error(s,"settlement_unknown","GS2 signature close effect unknown; no retry",1);
+    s->signature_fd=-1;
+    if(!private_sig_cost(s,begin))return 0;s->settled=1;return 1;
+}
+static __attribute__((unused)) int private_git_sig_release(struct private_git_sig_temp *s) {
+    if(!s->initialized)return 1;
+    if(s->quarantined||s->signature_fd>=0||s->transient_fd>=0||(s->bound&&!s->settled)||s->scratch_close_attempted)
+        return private_sig_error(s,"settlement_unknown","Git signature state retains unresolved descriptors in quarantine",1);
+    if(s->scratch_fd>=0){s->scratch_close_attempted=1;if(close(s->scratch_fd)!=0)return private_sig_error(s,"settlement_unknown","Git scratch close effect unknown; no retry",1);s->scratch_fd=-1;s->scratch_close_attempted=0;}
+    s->ready=0;return 1;
+}
+// END GIT_SIGNATURE_TEMP
+
 // BEGIN COMMAND_ENGINE -- proof_review owns this marked section.
 // Copyright 2026 Boxy (bboxy450) and contributors.
 // SPDX-License-Identifier: LicenseRef-Respectful-Slop-1.0-Draft
@@ -1852,11 +2084,16 @@ struct engine_owner {
     char image[4097],descendant[4097];
     int input,output,errors,ledger;size_t sent,out_len,err_len,ledger_bytes;
     unsigned char *capture;const unsigned char *stdin_bytes;size_t stdin_len;
+    struct private_git_sig_temp *git_signature;
+    unsigned char *signature_buffer;size_t signature_capacity;
 };
 static struct engine_owner *engine_current=NULL;
 // This fixed owner outlives any ambiguous-effect return and the atexit hook.
 // A second command cannot replace a physically unsettled first owner.
 static struct engine_owner engine_storage;
+// Scratch custody and the actual verifier argv survive all direct commands
+// and any refused owned effect. This is not a second controller or tool grant.
+static struct private_git_sig_temp engine_signature_storage={.scratch_fd=-1,.signature_fd=-1};
 static volatile sig_atomic_t engine_cancel_signal=0;
 static void engine_cancel_handler(int signal) {(void)signal;engine_cancel_signal=1;}
 static __attribute__((unused)) int engine_owner_priority(void) {
@@ -2021,11 +2258,25 @@ static int engine_sample_member(struct engine_owner *owner,unsigned index,pid_t 
         if(strcmp(path,owner->image)||fresh)return engine_failure(owner,"coverage_unknown","direct executable incarnation differs");
         member->phase=ENGINE_EXPECTED;
     } else if(!strcmp(path,owner->descendant)) {
-        if(member->phase!=ENGINE_EXPECTED)owner->verified_descendants++;
-        member->phase=ENGINE_EXPECTED;
         if(member->stop_version!=token.val[7]) {
             if(engine_token_signal(&token,SIGSTOP)!=0)return engine_failure(owner,"coverage_unknown","first known verifier STOP unresolved");
             member->stop_version=token.val[7];fresh=1;
+        }
+        if(member->phase==ENGINE_EXPECTED) {
+            if(!owner->git_signature||!owner->git_signature->bound
+                ||owner->git_signature->pid!=pid||owner->git_signature->pidversion!=token.val[7])
+                return engine_failure(owner,"coverage_unknown","verified descendant incarnation changed after GS1");
+        } else {
+            // Decision B: retain the ACTUAL child argv and generated Git file
+            // before phase/count/ACK or another CONT. Every procargs, directory,
+            // FD/hash/receipt operation remains inside this open grant's C.
+            if(!owner->git_signature||!owner->signature_buffer
+                ||!private_git_sig_gs1(owner->context,owner->git_signature,pid,current.birth,&token,
+                    owner->signature_buffer,owner->signature_capacity))
+                return engine_failure(owner,private_failed?private_error:"coverage_unknown",
+                    private_failed?private_detail:"GS1 binding unavailable");
+            owner->verified_descendants++;
+            member->phase=ENGINE_EXPECTED;
         }
     } else if(!strcmp(path,owner->image)&&member->phase!=ENGINE_EXPECTED&&!fresh)member->phase=ENGINE_CLONE;
     else return engine_failure(owner,"coverage_unknown","unapproved or reverse image phase");
@@ -2316,12 +2567,12 @@ static int engine_put(struct engine_prepared *p,const char *text,char **out) {
     *out=p->bytes+p->used;memcpy(*out,text,n+1);p->used+=n+1;return 1;
 }
 static int engine_expand(const struct private_engine_context *context,const char *text,const char *home,const char *scratch,char out[4097]) {
-    const struct private_fixture *f=&context->basis->fixture;char gpg[4097],record[4097],branch[4097],signature[4097],relative[4097];
-    const struct private_ref *sig=!strcmp(context->outer->case_name,"corrupt_proof")?&f->corrupt_signature:&f->valid_signature;
+    // Both the B matcher and its retired fixture-path spelling are forbidden
+    // inputs to every expander. Only the actual argv observed at GS1 binds V.
+    if(strstr(text,"{git_signature_temp}")||strstr(text,"{signature}"))return 0;
+    const struct private_fixture *f=&context->basis->fixture;char gpg[4097],record[4097],branch[4097];
     if(!private_token_text(context->basis->build.tools[1].ref.path,gpg,sizeof(gpg))
-        ||!private_token_text(f->record,record,sizeof(record))||!private_token_text(f->policy_branch,branch,sizeof(branch))
-        ||!private_token_text(sig->path,relative,sizeof(relative)))return 0;
-    int n=snprintf(signature,sizeof(signature),"%s/%s",context->outer->repo.path,relative);if(n<=0||(size_t)n>=sizeof(signature))return 0;
+        ||!private_token_text(f->record,record,sizeof(record))||!private_token_text(f->policy_branch,branch,sizeof(branch)))return 0;
     const char *commit=!strcmp(context->outer->case_name,"corrupt_proof")?f->corrupt:f->valid;size_t used=0;
     while(*text) {
         const char *value=NULL;size_t take=1;
@@ -2329,7 +2580,7 @@ static int engine_expand(const struct private_engine_context *context,const char
             const char *end=strchr(text,'}');if(!end)return 0;take=(size_t)(end-text)+1;
 #define EXPAND(name,content) if(take==sizeof(name)-1&&!memcmp(text,name,take))value=(content)
             EXPAND("{gpg}",gpg);else EXPAND("{commit}",commit);else EXPAND("{ancestor}",f->ancestor);
-            else EXPAND("{record}",record);else EXPAND("{policy_branch}",branch);else EXPAND("{signature}",signature);
+            else EXPAND("{record}",record);else EXPAND("{policy_branch}",branch);
             else EXPAND("{home}",home);else EXPAND("{scratch}",scratch);else return 0;
 #undef EXPAND
         }
@@ -2418,6 +2669,11 @@ static int engine_birth(struct engine_owner *owner,struct engine_prepared *p) {
     }
     if(engine_cancel_signal||wall>=owner->context->outer->deadline) {
         engine_failure(owner,engine_cancel_signal?"cancelled":"deadline","creation revoked before any native effect");
+        uint64_t used=engine_interval(inclusive,engine_now(owner,CLOCK_THREAD_CPUTIME_ID));
+        engine_charge(owner,used,used,1);return 0;
+    }
+    if(owner->git_signature&&!private_git_sig_before_birth(owner->context,owner->git_signature)) {
+        engine_failure(owner,private_error,private_detail);
         uint64_t used=engine_interval(inclusive,engine_now(owner,CLOCK_THREAD_CPUTIME_ID));
         engine_charge(owner,used,used,1);return 0;
     }
@@ -2543,6 +2799,16 @@ static int engine_retire(struct engine_owner *owner,int *exit_code) {
         usleep(1000); // Only bounded mandatory ownership/control remains.
     }
     *exit_code=WIFEXITED(status)?WEXITSTATUS(status):-1;
+    if(owner->command==12&&owner->git_signature) {
+        // GS2 is impossible before the actual direct wait4 above. These reads,
+        // rehashes, identity-only unlink and receipts remain in this existing
+        // retirement C/post span. A failed observation retains FD quarantine.
+        if(!private_git_sig_gs2(owner->git_signature,owner->direct_reaped,
+            WIFEXITED(status)&&!engine_cancel_signal,owner->signature_buffer,owner->signature_capacity)) {
+            owner->git_signature->quarantined=1;
+            engine_failure(owner,private_error,private_detail);
+        }
+    }
     uint64_t user=engine_timeval(&usage.ru_utime),system=engine_timeval(&usage.ru_stime),before_cpu,before_user,before_system;
     owner->wait_observed=1;owner->wait_user=user;owner->wait_system=system;
     owner->wait_rss=usage.ru_maxrss<0?UINT64_MAX:(uint64_t)usage.ru_maxrss;
@@ -2558,7 +2824,8 @@ static int engine_retire(struct engine_owner *owner,int *exit_code) {
         engine_failure(owner,"settlement_unknown","original member/group retirement remains owned");
         usleep(1000); // Retain the owner; never invent settlement or send a reused group signal.
     }
-    owner->result->group_gone=owner->result->retired_coverage=1;
+    owner->result->group_gone=1;
+    owner->result->retired_coverage=!(owner->git_signature&&owner->git_signature->quarantined);
     uint64_t used=engine_interval(at,engine_now(owner,CLOCK_THREAD_CPUTIME_ID)),cost;
     if(owner->grant.t0&&!owner->grant.roster_closed) {
         owner->grant.cpu_close=engine_now(owner,CLOCK_THREAD_CPUTIME_ID);
@@ -2618,6 +2885,8 @@ static int engine_command(struct engine_owner *owner,struct engine_prepared *pre
     *status=-1;
     if(engine_current)return engine_failure(owner,"settlement_unknown","a previous physical owner remains retained");
     if(form>=15)return engine_failure(owner,"input_invalid","only fifteen fixed direct forms are admitted");
+    if(!owner->git_signature||!owner->git_signature->ready||owner->git_signature->quarantined)
+        return engine_failure(owner,"review_unbound","B scratch and selected-case custody are unavailable before birth");
     owner->command=form;owner->slots=private_forms[form].members;
     owner->input=owner->output=owner->errors=-1;owner->stdin_bytes=input;owner->stdin_len=input_len;
     if(input_len>ENGINE_INPUT_MAX){engine_failure(owner,"resource_limit","public input exceeds existing two-MiB limit");goto prepared_done;}
@@ -2741,11 +3010,51 @@ static int engine_original_claim(const struct private_engine_context *context,st
     result->phase="claim";return private_end_unit(private_cost.open_cpu);
 }
 static int engine_signature_boundary_available(const struct private_engine_context *context) {
-    (void)context;
+    const struct private_ref *selected=!strcmp(context->outer->case_name,"corrupt_proof")
+        ?&context->basis->fixture.corrupt_signature:&context->basis->fixture.valid_signature;
+    if(private_forms[15].argc!=5||strcmp(private_forms[15].argv[3],"{git_signature_temp}"))
+        return private_fail("review_unbound","current Commands lacks the unexpanded B matcher");
+    if(selected->len>=ENGINE_INPUT_MAX)
+        return private_fail("review_unbound","selected B bytes plus EOF observation exceed the existing input buffer");
+    if(engine_signature_storage.initialized)
+        return private_fail("review_unbound","the original B custody state cannot be rebound");
     // Deliberately unavailable, not a descriptor flag or generic true bypass.
-    // The Architect must baseline Git's actual private temporary signature,
-    // payload/status relationship and counter grain before this can admit birth.
-    return private_fail("review_unbound","Git temporary signature/payload, exact-head/tree/last-touch relations and settlement counter grain are not baselined");
+    // B's inode/argv checkpoints do not fill the independent fixture semantics,
+    // source/lifetime/closure or settlement-counter obligations.
+    return private_fail("review_unbound","exact-head/tree/last-touch relations, settlement counter grain and approved lifetime/closure remain unavailable");
+}
+static int engine_signature_prepare_record(const struct private_engine_context *context,
+    const struct private_git_sig_temp *signature,int ledger,size_t *bytes,unsigned *records) {
+    if(ledger<0||!signature->initialized||!signature->ready||signature->quarantined
+        ||signature->context!=context||signature->scratch_fd<0||signature->signature_fd>=0
+        ||signature->selected!=private_sig_selected(context)||signature->len!=signature->selected->len
+        ||strcmp(signature->sha256,signature->selected->sha))
+        return private_fail("review_unbound","prebirth signature receipt lacks retained original custody");
+    const char *selected=!strcmp(context->outer->case_name,"corrupt_proof")?"corrupt":"valid";
+    char line[512];int n=snprintf(line,sizeof(line),
+        "{\"phase\":\"git_sig_prepare\",\"input_sha256\":\"%s\",\"recorded_umask\":%u,\"scratch_dev\":%llu,\"scratch_ino\":%llu,"
+        "\"scratch_mode\":%u,\"scratch_uid\":%u,\"selected_case\":\"%s\",\"selected_len\":%llu,\"selected_sha256\":\"%s\"}\n",
+        context->input_sha256,(unsigned)signature->recorded_umask,
+        (unsigned long long)signature->scratch_stat.st_dev,(unsigned long long)signature->scratch_stat.st_ino,
+        (unsigned)(signature->scratch_stat.st_mode&07777),(unsigned)signature->scratch_stat.st_uid,
+        selected,(unsigned long long)signature->len,signature->sha256);
+    if(n<=0||(size_t)n>=sizeof(line)||*records>=ENGINE_RECORD_MAX||*bytes>ENGINE_CAPTURE_MAX
+        ||(size_t)n>ENGINE_CAPTURE_MAX-*bytes)
+        return private_fail("resource_limit","prebirth signature receipt exceeds existing ledger reservation");
+    // Reserve this one record before its write effect. Partial/failed writes
+    // consume the attempt and never receive an automatic retry or a birth.
+    *bytes+=(size_t)n;(*records)++;
+    if(write(ledger,line,(size_t)n)!=n)
+        return private_fail("settlement_unknown","prebirth signature receipt write effect unresolved; no retry");
+    if(fsync(ledger)!=0||fsync(context->outer->output.fd)!=0)
+        return private_fail("settlement_unknown","prebirth signature receipt persistence unavailable");
+    return 1;
+}
+static int engine_signature_umask_allowed(void) {
+    // Reject before creating a home/scratch whose permissions the mask could
+    // strip. Prepare later retains and rechecks this same controller property.
+    mode_t mask=umask(0);umask(mask);
+    return (mask&0600)?private_fail("review_unbound","controller umask strips required Git signature permissions"):1;
 }
 int private_command_engine(const struct private_engine_context *context,struct private_engine_result *result) {
     memset(result,0,sizeof(*result));result->phase="validate";result->outcome="refused";result->observed_proof="not_reached";
@@ -2755,15 +3064,20 @@ int private_command_engine(const struct private_engine_context *context,struct p
         private_fail("review_unbound","command engine requires the internal completely bound conditional context");goto refused;
     }
     if(!engine_owner_priority()||!private_revalidate_context(context)||!engine_signature_boundary_available(context))goto refused;
+    if(!engine_signature_umask_allowed())goto refused;
     if(!engine_original_claim(context,result))goto refused;
     char home[4097],scratch[4097];if(!engine_public_home(context,home,scratch))goto refused;
-    uint64_t declared=ENGINE_CAPTURE_MAX+ENGINE_INPUT_MAX+sizeof(engine_storage)+sizeof(struct engine_prepared);
+    uint64_t declared=ENGINE_CAPTURE_MAX+ENGINE_INPUT_MAX+sizeof(engine_storage)+sizeof(struct engine_prepared)+sizeof(engine_signature_storage);
     if(engine_current||declared>ENGINE_WORK_LIMIT||private_cost.metadata>ENGINE_WORK_LIMIT-declared) {
         private_fail("resource_limit","declared engine owner exceeds existing work-credit limit");goto refused;
     }
     unsigned char *capture=malloc(ENGINE_CAPTURE_MAX),*input=malloc(ENGINE_INPUT_MAX);
     if(!capture||!input){free(capture);free(input);private_fail("resource_limit","existing work-credit capture/input allocation failed");goto refused;}
-    engine_max(&result->metadata_bytes,private_cost.metadata+sizeof(engine_storage)+sizeof(struct engine_prepared));
+    engine_max(&result->metadata_bytes,private_cost.metadata+sizeof(engine_storage)+sizeof(struct engine_prepared)+sizeof(engine_signature_storage));
+    if(!private_git_sig_prepare(context,&engine_signature_storage,scratch)||!private_end_unit(private_cost.open_cpu)) {
+        (void)private_git_sig_release(&engine_signature_storage);
+        free(input);free(capture);(void)private_end_unit(private_cost.open_cpu);goto refused;
+    }
     struct sigaction ignore,old_pipe,old_term,old_child;memset(&ignore,0,sizeof(ignore));ignore.sa_handler=SIG_IGN;sigemptyset(&ignore.sa_mask);
     int pipe_set=sigaction(SIGPIPE,&ignore,&old_pipe)==0;ignore.sa_handler=engine_cancel_handler;
     int term_set=sigaction(SIGTERM,&ignore,&old_term)==0;engine_cancel_signal=0;
@@ -2773,6 +3087,10 @@ int private_command_engine(const struct private_engine_context *context,struct p
     const unsigned order[15]={13,14,0,1,2,3,4,5,6,7,8,9,10,11,12};int all=pipe_set&&term_set&&child_set&&ledger>=0;
     if(!all)private_fail("source_changed","private signal disposition or exclusive raw-ledger setup failed");
     size_t ledger_bytes=0;unsigned record_count=0;
+    if(all)all=engine_signature_prepare_record(context,&engine_signature_storage,ledger,&ledger_bytes,&record_count);
+    // File/directory persistence and every formatter/write/FD operation above
+    // are ordinary prebirth work. Close/pay the full unit before any helper.
+    if(!private_end_unit(private_cost.open_cpu))all=0;
     for(unsigned i=0;i<15&&all;i++) {
         unsigned form=order[i];result->phase=i<2?"public_keys":form==12?"git_signature":"git_reads";
         size_t length=0;
@@ -2780,6 +3098,7 @@ int private_command_engine(const struct private_engine_context *context,struct p
         if(engine_current){private_fail("settlement_unknown","prior original effect remains retained");all=0;break;}
         struct engine_owner *owner=&engine_storage;memset(owner,0,sizeof(*owner));
         owner->context=context;owner->result=result;owner->capture=capture;owner->ledger=ledger;
+        owner->git_signature=&engine_signature_storage;owner->signature_buffer=input;owner->signature_capacity=ENGINE_INPUT_MAX;
         owner->ledger_bytes=ledger_bytes;owner->record_count=record_count;
         struct engine_prepared prepared;int status=-1;
         if(!engine_command(owner,&prepared,form,home,scratch,input,length,&status)||!engine_semantic(owner,form,status)) {
@@ -2790,20 +3109,24 @@ int private_command_engine(const struct private_engine_context *context,struct p
     // Restoration and releases happen only after physical settlement. An
     // ambiguous original effect keeps its fixed owner and borrowed buffers;
     // atexit may use only its retained audit identities, never a reused PGID.
-    if(engine_current) {result->phase="quarantined";result->outcome="quarantined";goto refused;}
+    if(engine_current||engine_signature_storage.quarantined) {result->phase="quarantined";result->outcome="quarantined";goto refused;}
     if(child_set&&sigaction(SIGCHLD,&old_child,NULL)!=0)all=private_fail("settlement_unknown","private child disposition restore unresolved");
     if(term_set&&sigaction(SIGTERM,&old_term,NULL)!=0)all=private_fail("settlement_unknown","private cancel disposition restore unresolved");
     if(pipe_set&&sigaction(SIGPIPE,&old_pipe,NULL)!=0)all=private_fail("settlement_unknown","private pipe disposition restore unresolved");
     if(ledger>=0){if(fsync(ledger)!=0)all=private_fail("source_changed","raw ledger fsync unresolved");private_close(ledger);}
+    if(!private_git_sig_release(&engine_signature_storage)) {
+        result->phase="quarantined";result->outcome="quarantined";goto refused;
+    }
     free(input);free(capture);if(!private_end_unit(private_cost.open_cpu))all=0;
     if(!all||!private_revalidate_context(context))goto refused;
     // No semantic success can be inferred from transport or preparation. The
-    // missing actual signature and counter contract must replace this guard,
+    // remaining signature semantics and counter contract must replace this guard,
     // together with the prebirth guard, under a separately reviewed patch.
     private_fail("review_unbound","actual signature/proof and count relation has no baselined success predicate");
 refused:
     result->error_code=private_error;result->error_detail=private_detail;return 0;
 }
+
 
 // END COMMAND_ENGINE
 
