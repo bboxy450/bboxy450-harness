@@ -985,6 +985,9 @@ impl Drop for Worker {
 fn complete(job: &Job) -> (w::ResultDescriptor, Vec<w::Row>, String) {
     let mut worker = job.launch();
     worker.start(&job.start);
+    complete_worker(job, &mut worker)
+}
+fn complete_worker(job: &Job, worker: &mut Worker) -> (w::ResultDescriptor, Vec<w::Row>, String) {
     let (done, metrics) = worker.done();
     assert_eq!(done.outcome, w::Outcome::Completed, "{done:?} {metrics}");
     let bytes = std::fs::read(job.path.join("output/result.json")).unwrap();
@@ -1664,11 +1667,23 @@ fn paused_owner_does_not_delay_another_process_and_owned_kill_never_completes() 
     assert!(at.elapsed() < Duration::from_millis(100));
     let second = Job::new(0, 0, false, false);
     let at = Instant::now();
-    complete(&second);
+    let mut independent = second.launch();
+    independent.start(&second.start);
+    let phase = match independent.read() {
+        w::WorkerOut::Progress(progress) => progress.phase,
+        other => panic!("independent worker did not enter work: {other:?}"),
+    };
+    assert_ne!(phase, w::Phase::Paused);
+    let progress_elapsed = at.elapsed();
     assert!(
-        at.elapsed() < Duration::from_secs(2),
+        progress_elapsed < Duration::from_secs(2),
         "paused root held another worker"
     );
+    // Admission/work progress is the independent-owner boundary. Completion
+    // retains its original product deadline and all CPU, paid debt, publication
+    // and custody checks; deliberate paid rest is not a blocked owner.
+    let (_, _, metrics) = complete_worker(&second, &mut independent);
+    eprintln!("paused-independent progress_wall_ns={} phase={phase:?} {metrics}",progress_elapsed.as_nanos());
     assert!(
         std::fs::read_dir(first.path.join("output"))
             .unwrap()
