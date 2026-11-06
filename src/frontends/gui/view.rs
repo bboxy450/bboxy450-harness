@@ -726,6 +726,7 @@ impl HarnessView {
                 let bubble = super::face::prompt_bubble(
                     content,
                     &format!("YOU · {}", prompt.status),
+                    None,
                     true,
                     ink,
                 );
@@ -3277,11 +3278,12 @@ impl Preparer {
             )?;
             let id = ItemId(prompt.op.0);
             let source = faces.get(&id).is_some_and(|f| f.source);
-            let content =
+            let (content, toggle) =
                 super::face::prompt_content(doc.element.clone(), id, source, &prompt.text, &ink);
             let bubble = super::face::prompt_bubble(
                 content,
                 &format!("YOU · {}", prompt.status),
+                Some(toggle),
                 true,
                 &ink,
             );
@@ -3699,7 +3701,7 @@ mod onboarding_markdown_tests {
                 assert!(row.layout.rect.x <= 14., "centred row in {width}px pane: {:?}", row.layout.rect);
                 assert!(row.layout.rect.right() >= width - 14.);
             }
-            let bubble = super::super::face::prompt_bubble(named("copy", label("short")), "YOU", false, &ink)
+            let bubble = super::super::face::prompt_bubble(named("copy", label("short")), "YOU", None, false, &ink)
                 .layout(Rect::new(0., 0., width - 28., 80.), ctx, &metrics).unwrap();
             assert!((bubble.children[0].rect.w - (width - 28.)).abs() < 0.1);
         }

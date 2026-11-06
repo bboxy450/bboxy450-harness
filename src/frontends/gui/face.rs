@@ -1483,7 +1483,7 @@ pub fn prompt_content(
     source: bool,
     raw: &str,
     ink: &Ink,
-) -> c::Element {
+) -> (c::Element, c::Element) {
     let content = if source {
         let mut t = text(raw, 13.5, 400, ink.fg, true);
         t.preserve_whitespace = true;
@@ -1491,40 +1491,49 @@ pub fn prompt_content(
     } else {
         body
     };
-    vstack(
-        vec![
-            content.into(),
-            named(
-                format!("source/{id}/toggle"),
-                line(
-                    if source { "formatted" } else { "source" },
-                    10.5,
-                    500,
-                    ink.dim,
-                    true,
-                ),
-            )
-            .into(),
-        ],
-        2.,
-    )
+    // The toggle rides the caption row: no line of its own under the text.
+    let toggle = named(
+        format!("source/{id}/toggle"),
+        line(
+            if source { "formatted" } else { "source" },
+            10.5,
+            500,
+            ink.dim,
+            true,
+        ),
+    );
+    (content, toggle)
 }
 /// Shared bubble chrome; Markdown is prepared off the UI thread by Preparer.
-pub fn prompt_bubble(body: c::Element, caption: &str, pending: bool, ink: &Ink) -> c::Element {
-    let accent = if pending { ink.dim } else { ink.seat };
+pub fn prompt_bubble(
+    body: c::Element,
+    caption: &str,
+    toggle: Option<c::Element>,
+    pending: bool,
+    ink: &Ink,
+) -> c::Element {
+    let caption = line(
+        caption,
+        10.5,
+        600,
+        mix(ink_accent(pending, ink), ink.fg, 0.7),
+        false,
+    );
+    let header = match toggle {
+        Some(toggle) => hstack(vec![caption.into(), spacer(), toggle.into()], 6.),
+        None => caption,
+    };
+    let accent = ink_accent(pending, ink);
     let bubble = frame(
         Frame {
             fill: mix(accent, ink.surface, 0.2),
             border: Some(alpha(accent, 0.35)),
             radius: [14., 14., 4., 14.],
-            padding: [9., 13., 9., 13.],
-            gap: 2.,
+            padding: [6., 12., 7., 12.],
+            gap: 1.,
             ..Default::default()
         },
-        vec![
-            line(caption, 10.5, 600, mix(accent, ink.fg, 0.7), false).into(),
-            body.into(),
-        ],
+        vec![header.into(), body.into()],
     );
     hstack(
         vec![c::Item {
@@ -1539,6 +1548,9 @@ pub fn prompt_bubble(body: c::Element, caption: &str, pending: bool, ink: &Ink) 
         }],
         0.,
     )
+}
+fn ink_accent(pending: bool, ink: &Ink) -> Rgba {
+    if pending { ink.dim } else { ink.seat }
 }
 /// The runaway loop card (harness-spec.md): ask 30% border, ask 5% fill, radius 11.
 pub fn loop_card(children: Vec<c::Item>, ink: &Ink) -> c::Element {

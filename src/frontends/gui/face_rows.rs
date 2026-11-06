@@ -367,8 +367,9 @@ impl Preparer {
                     self.zoom.scale(),
                     &self.metrics,
                 )?;
-                let content = f::prompt_content(doc.element.clone(), id, face.source, &text, &ink);
-                let bubble = f::prompt_bubble(content, "YOU", false, &ink);
+                let (content, toggle) =
+                    f::prompt_content(doc.element.clone(), id, face.source, &text, &ink);
+                let bubble = f::prompt_bubble(content, "YOU", Some(toggle), false, &ink);
                 if !face.source {
                     rich = Some(doc);
                 }
@@ -1234,39 +1235,44 @@ impl Preparer {
                 };
                 inside.push(wrap(&term, output).into());
             } else if let Some(u) = &unified {
-                let mut panels = Vec::new();
+                let mut panel = code_panel(
+                    f::diff_view(
+                        &format!("diff/{}", change.as_ref().map_or(id, |c| c.id)),
+                        u,
+                        ink,
+                    ),
+                    &format!("codeout/{id}/diff"),
+                    (content_width - 48.).max(1.),
+                    360.,
+                    &self.metrics,
+                    ctx,
+                )?;
+                // The file name heads its own panel, on the code's inset.
                 if let Some(path) = u
                     .lines()
                     .find_map(|line| line.strip_prefix("+++ "))
                     .filter(|path| *path != "/dev/null")
+                    && let c::Element::Box(b) = &mut panel
                 {
-                    panels.push(
-                        f::line(
-                            path.strip_prefix("b/").unwrap_or(path),
-                            11.,
-                            500,
-                            ink.dim,
-                            true,
-                        )
-                        .into(),
+                    let header = f::frame(
+                        f::Frame {
+                            padding: [0., 0., 6., 0.],
+                            ..Default::default()
+                        },
+                        vec![
+                            f::line(
+                                path.strip_prefix("b/").unwrap_or(path),
+                                11.5,
+                                500,
+                                ink.dim,
+                                true,
+                            )
+                            .into(),
+                        ],
                     );
+                    b.children.insert(0, header.into());
                 }
-                panels.push(
-                    code_panel(
-                        f::diff_view(
-                            &format!("diff/{}", change.as_ref().map_or(id, |c| c.id)),
-                            u,
-                            ink,
-                        ),
-                        &format!("codeout/{id}/diff"),
-                        (content_width - 48.).max(1.),
-                        360.,
-                        &self.metrics,
-                        ctx,
-                    )?
-                    .into(),
-                );
-                inside.push(wrap(&change, super::column(panels, None)).into());
+                inside.push(wrap(&change, super::column(vec![panel.into()], None)).into());
             } else if let Some(text) = {
                 // describe() unwraps ACP's console envelope. Preserve actual Markdown
                 // fences (especially a tool result consisting of one Mermaid figure).
