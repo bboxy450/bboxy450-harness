@@ -2012,6 +2012,8 @@ static __attribute__((unused)) int private_git_sig_gs2(struct private_git_sig_te
     uint64_t begin;if(!known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&begin))return private_sig_error(s,"clock_unknown","GS2 beginning clock unavailable",1);
     if(!leader_actual_reaped||!s->bound||s->settled||s->signature_fd<0||s->signature_close_attempted)
         return private_sig_error(s,"settlement_unknown","GS2 requires actual leader reap and the retained GS1 descriptor",1);
+    if(!private_sig_scratch_current(s))
+        return private_sig_error(s,"settlement_unknown","GS2 retained scratch no longer names the original directory",1);
     struct stat named;int present=fstatat(s->scratch_fd,s->name,&named,AT_SYMLINK_NOFOLLOW);int error=errno;
     if(present==0) {
         if(normal_exit)return private_sig_error(s,"signature_unexpected","Git left its signature temporary after normal exit",1);
@@ -2030,6 +2032,8 @@ static __attribute__((unused)) int private_git_sig_gs2(struct private_git_sig_te
     struct stat after;
     if(fstat(s->signature_fd,&after)!=0)return private_sig_error(s,"coverage_unknown","GS2 retained posthash observation unavailable",1);
     if(!private_same_file(&held,&after))return private_sig_error(s,"signature_unexpected","GS2 retained signature changed during rehash",1);
+    if(!private_sig_scratch_current(s))
+        return private_sig_error(s,"settlement_unknown","GS2 scratch identity changed during settlement",1);
     if(!private_sig_record(s,"GS2",&after,digest))return 0;
     s->signature_close_attempted=1;int closed=close(s->signature_fd);
     if(closed!=0)return private_sig_error(s,"settlement_unknown","GS2 signature close effect unknown; no retry",1);

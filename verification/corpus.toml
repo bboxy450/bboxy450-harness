@@ -1995,3 +1995,8 @@ frontend = "project"
 name = "BrokenHarnessDreamReadGitSigTempForeignUid"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadGitSigTempScratchReplacement"
+expected = "safety"
+frontend = "project"

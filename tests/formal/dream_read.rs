@@ -4366,6 +4366,7 @@ pub fn git_sig_temp(control: u8) -> Model {
         6 => "DreamReadGitSigTempCleanupIdentity",
         7 => "DreamReadGitSigTempAba",
         8 => "DreamReadGitSigTempForeignUid",
+        9 => "DreamReadGitSigTempScratchReplacement",
         _ => "DreamReadGitSigTemp",
     };
     const ST: usize = 0;
@@ -4395,6 +4396,7 @@ pub fn git_sig_temp(control: u8) -> Model {
     const RESULT: usize = 24;
     const HELD_NLINK: usize = 25;
     const BOUND_INODE: usize = 26;
+    const SCRATCH_CURRENT: usize = 27;
     let mut m = base(
         name,
         control != 0,
@@ -4434,6 +4436,7 @@ pub fn git_sig_temp(control: u8) -> Model {
             ),
             ("heldInodeNlink", 2, 0),
             ("boundOriginalInode", 2, 0),
+            ("retainedScratchStillNamesOriginalDirectory", 1, 1),
         ],
     );
     // Profiles are immutable facts, not guesses discovered by directory scans:
@@ -4639,7 +4642,19 @@ pub fn git_sig_temp(control: u8) -> Model {
         all([eq(ST, 4), expected_hash.clone()]),
         &[(CONTENT, Int(3).minus(Var(CONTENT)))],
     );
+    act(
+        &mut m,
+        "ReplaceNamedScratchWhileRetainedOldDirectoryStillLooksValid",
+        all([eq(ST, 4).or(eq(ST, 5)), eq(SCRATCH_CURRENT, 1)]),
+        &[(SCRATCH_CURRENT, Int(0))],
+    );
+    let scratch_guard = if control == 9 {
+        Bool(true)
+    } else {
+        eq(SCRATCH_CURRENT, 1)
+    };
     let gs2_ok = all([
+        scratch_guard,
         eq(NAMED, 0),
         eq(HELD_NLINK, 0),
         Var(HELD).eq(Var(BOUND_INODE)),
@@ -4714,6 +4729,7 @@ pub fn git_sig_temp(control: u8) -> Model {
             eq(ST, 6),
             eq(GS, 1).or(eq(GS, 2)),
             Var(NAMED).eq(Var(BOUND_INODE)),
+            eq(SCRATCH_CURRENT, 1),
         ]),
         &[
             (ST, Int(8)),
@@ -4732,7 +4748,9 @@ pub fn git_sig_temp(control: u8) -> Model {
         "KilledUnknownOrSwappedNameStaysOwnedQuarantineWithoutUnlink",
         all([
             eq(ST, 6),
-            eq(GS, 0).or(Var(NAMED).eq(Var(BOUND_INODE)).negate()),
+            eq(GS, 0)
+                .or(Var(NAMED).eq(Var(BOUND_INODE)).negate())
+                .or(eq(SCRATCH_CURRENT, 0)),
         ]),
         &[(ST, Int(9)), (RESULT, Int(5))],
     );
@@ -4759,6 +4777,14 @@ pub fn git_sig_temp(control: u8) -> Model {
         );
     }
     let bound = eq(GS, 0).negate();
+    safe(
+        &mut m,
+        "SettlementRequiresCurrentNamedScratchBeforeReleaseOrUnlink",
+        eq(RESULT, 1)
+            .or(eq(RESULT, 6))
+            .negate()
+            .or(eq(SCRATCH_CURRENT, 1)),
+    );
     safe(
         &mut m,
         "Gs1BindsActualGeneratedGitArgvNeverFixturePath",
@@ -4924,6 +4950,10 @@ mod tests {
             (6, "KillCleanupNeverUnlinksForeignInodeAfterSameNameAba"),
             (7, "BCheckpointOkRequiresActualGs2AbsenceAtReap"),
             (8, "Gs1RequiresSameUid"),
+            (
+                9,
+                "SettlementRequiresCurrentNamedScratchBeforeReleaseOrUnlink",
+            ),
         ] {
             let model = git_sig_temp(control);
             let name = model.name.clone();

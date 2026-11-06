@@ -6966,6 +6966,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (dream_read::git_sig_temp(6), "safety"),
         (dream_read::git_sig_temp(7), "safety"),
         (dream_read::git_sig_temp(8), "safety"),
+        (dream_read::git_sig_temp(9), "safety"),
         (dream_read::helper(0), "pass"),
         (dream_read::helper(1), "safety"),
         (dream_read::helper(2), "safety"),
@@ -7099,7 +7100,6 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (dream_c1::worker(1), "safety"),
         (dream_c1::worker(2), "safety"),
         (dream_c1::worker(3), "safety"),
-
         (python_execution::model(0), "pass"),
         (python_execution::model(1), "safety"),
         (python_execution::model(2), "safety"),

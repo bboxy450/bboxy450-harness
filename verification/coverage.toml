@@ -22,6 +22,7 @@ models = [
     "BrokenHarnessDreamReadGitSigTempCleanupIdentity",
     "BrokenHarnessDreamReadGitSigTempAba",
     "BrokenHarnessDreamReadGitSigTempForeignUid",
+    "BrokenHarnessDreamReadGitSigTempScratchReplacement",
     "HarnessDreamReadQualification",
     "HarnessDreamReadQualificationAdversarial",
     "BrokenHarnessDreamReadQualificationNoBasis",

@@ -318,7 +318,7 @@ test-python-execute-boundaries: test-python-execute
 land:
 	@set -eu; if [ -f ../../scripts/cache-env.sh ]; then . ../../scripts/cache-env.sh; fi; TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/land.py
 .PHONY: test-dream-mcp
-DREAM_READ_SOURCES := Makefile src/main.rs src/frontends/headless.rs src/dream/mod.rs src/dream/read.rs src/dream/read_wire.rs src/dream/worker.rs src/dream/c1.rs src/dream/bootstrap.rs src/dream/resolve.rs src/dream/trust.rs src/dream/audit.rs src/dream/graph.rs src/dream/recall.rs src/dream/receipt.rs src/dream/projection.rs src/dream/seal.rs tests/fixtures/dream-bootstrap/vectors.json tests/fixtures/dream-read/proof-helper-probe.c tests/fixtures/dream-read/io-helper.c tests/fixtures/dream-read/root_fixture.rs tests/dream_read.rs Cargo.toml Cargo.lock
+DREAM_READ_SOURCES := Makefile src/main.rs src/frontends/headless.rs src/dream/mod.rs src/dream/read.rs src/dream/read_wire.rs src/dream/c1_wire.rs src/dream/fingerprint.rs src/dream/entry.rs src/dream/worker.rs src/dream/c1.rs src/dream/bootstrap.rs src/dream/resolve.rs src/dream/trust.rs src/dream/audit.rs src/dream/graph.rs src/dream/recall.rs src/dream/receipt.rs src/dream/projection.rs src/dream/seal.rs tests/fixtures/dream-bootstrap/vectors.json tests/fixtures/dream-read/proof-helper-probe.c tests/fixtures/dream-read/signature-boundary-controls.c tests/fixtures/dream-read/io-helper.c tests/fixtures/dream-read/root_fixture.rs tests/dream_read.rs Cargo.toml Cargo.lock
 test-dream-mcp:
 	python3 -I tests/fixtures/dream-bootstrap/check.py
 	mkdir -p '$(TARGET_DIR)/dream-read-native-profile'

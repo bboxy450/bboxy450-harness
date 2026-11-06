@@ -1627,6 +1627,9 @@ fn approved_runner() -> &'static ApprovedRunner {
             "src/dream/mod.rs",
             "src/dream/read.rs",
             "src/dream/read_wire.rs",
+            "src/dream/c1_wire.rs",
+            "src/dream/fingerprint.rs",
+            "src/dream/entry.rs",
             "src/dream/worker.rs",
             "src/dream/c1.rs",
             "src/dream/bootstrap.rs",
@@ -1640,6 +1643,7 @@ fn approved_runner() -> &'static ApprovedRunner {
             "src/dream/seal.rs",
             "tests/fixtures/dream-bootstrap/vectors.json",
             "tests/fixtures/dream-read/proof-helper-probe.c",
+            "tests/fixtures/dream-read/signature-boundary-controls.c",
             "tests/fixtures/dream-read/io-helper.c",
             "tests/fixtures/dream-read/root_fixture.rs",
             "tests/dream_read.rs",
@@ -2845,6 +2849,125 @@ async fn prepared_tool_capability_probe_has_stopped_start_and_actual_git_gpg_rol
         git["sampled_gpg_cpu_ns"],
         git["rolled_gpg_cpu_ns"],
         git["git_wait4_cpu_ns"]
+    );
+}
+
+#[test]
+fn signature_boundary_controls_refuse_before_helper_birth() {
+    // This includes the canonical controller in a test translation unit and
+    // calls its parser/prebirth APIs. It creates no Git/GPG helper and cannot
+    // establish the separately required real-pair signature witnesses.
+    let home = tempfile::Builder::new()
+        .prefix("dream-read-signature-boundary-")
+        .tempdir_in("/private/tmp")
+        .unwrap();
+    let source = Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/dream-read/signature-boundary-controls.c"
+    ));
+    let probe = home.path().join("controls");
+    provision_command(
+        Path::new("/usr/bin/clang"),
+        &[
+            "-O2",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            source.to_str().unwrap(),
+            "-o",
+            probe.to_str().unwrap(),
+        ],
+        home.path(),
+        None,
+    );
+    let output = capability_command(
+        &probe,
+        &[home.path().to_str().unwrap()],
+        home.path(),
+        "signature-boundary-controls",
+    );
+    let text = std::str::from_utf8(&output.stdout).unwrap();
+    for observation in [
+        "engine_B_controls=pass",
+        "token_refusals=5",
+        "no_direct_verify_child=true",
+        "selected_case_bound=true",
+        "no_rebind=true",
+        "prebirth_receipt=durable",
+        "ordinary_debt=paid",
+        "ledger_bound=pass",
+        "forbidden_umask=refused",
+        "wrong_case_receipt=refused",
+        "created=0",
+        "runtime_approved=false",
+        "scratch_settlement_controls=pass",
+        "current_scratch=settled",
+        "replaced_normal=quarantined",
+        "replaced_killed=quarantined",
+        "foreign_unlink=false",
+        "real_pair=false",
+    ] {
+        assert!(
+            text.split_whitespace().any(|word| word == observation),
+            "{text}"
+        );
+    }
+    eprint!("{text}");
+    // Causal source mutant, private to this test: removing both GS2 directory
+    // fences must fail the same real-file API assertions. No runtime switch or
+    // alternate product controller is introduced.
+    let mutant = home.path().join("mutant");
+    private_dir(&mutant);
+    let original = std::fs::read_to_string(source.with_file_name("proof-helper-probe.c")).unwrap();
+    let mut changed = original.clone();
+    for detail in [
+        "GS2 retained scratch no longer names the original directory",
+        "GS2 scratch identity changed during settlement",
+    ] {
+        let guard = format!(
+            "    if(!private_sig_scratch_current(s))\n        return private_sig_error(s,\"settlement_unknown\",\"{detail}\",1);\n"
+        );
+        assert_eq!(changed.matches(&guard).count(), 1);
+        changed = changed.replacen(&guard, "", 1);
+    }
+    assert_ne!(changed, original);
+    private_file(&mutant.join("proof-helper-probe.c"), changed.as_bytes());
+    let mutant_source = mutant.join("signature-boundary-controls.c");
+    private_file(&mutant_source, &std::fs::read(source).unwrap());
+    let mutant_probe = mutant.join("controls");
+    provision_command(
+        Path::new("/usr/bin/clang"),
+        &[
+            "-O2",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            mutant_source.to_str().unwrap(),
+            "-o",
+            mutant_probe.to_str().unwrap(),
+        ],
+        home.path(),
+        None,
+    );
+    let run = mutant.join("run");
+    private_dir(&run);
+    let broken = Command::new(&mutant_probe)
+        .arg(&run)
+        .env_clear()
+        .env("LANG", "C")
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(broken.status.code(), Some(81));
+    assert!(
+        String::from_utf8_lossy(&broken.stderr)
+            .contains("GS2 refuses detached scratch on normal or killed settlement")
+    );
+    eprintln!(
+        "signature_scratch_source_mutant expected_exit=81 observed_exit=81 causal_assertion=GS2_refuses_detached_scratch real_pair=false"
     );
 }
 
