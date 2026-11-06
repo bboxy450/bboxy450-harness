@@ -2316,3 +2316,152 @@ async fn quiet_code_large_mcp_expansion_raster_preserves_unicode_first_and_last_
     })
     .await;
 }
+
+/// Project-owned durable Python command-card witness. Preserve origin and policy:
+/// https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+#[tokio::test]
+async fn python_execution_cards_show_source_status_emitted_and_fold_get_pages() {
+    use bboxy450_harness::frontends::gui::{
+        bridge::FrameState,
+        rich::{Face, Faces},
+        view::{Preparer, find, layout_text},
+    };
+    use serde_json::json;
+    let temp = tempfile::tempdir().unwrap();
+    let call = |name: &str, args: serde_json::Value, value: serde_json::Value| Item::ToolCall {
+        call_id: ItemId::new().to_string(),
+        name: name.into(),
+        tool_kind: ToolKind::Other,
+        title: None,
+        server: Some("bboxy".into()),
+        input_raw: args.to_string(),
+        output: vec![OutputBlock::Json {
+            value: value.clone(),
+        }],
+        raw_output: Some(json!({"structuredContent":value})),
+        locations: vec![],
+        spill: None,
+    };
+    let emitted = json!(["first-emitted", "x".repeat(300), "last-emitted"]);
+    let (path, ids) = markdown_replay(
+        temp.path(),
+        vec![
+            (
+                call(
+                    "mcp__bboxy__python_execute",
+                    json!({"source":"print('python-source-head')\nemit('python-source-tail')"}),
+                    json!({"execution_id":"python-parent-17","status":"running","output":[{"text":"output-head\n"}],"emitted":[]}),
+                ),
+                Some(ItemStatus::Completed),
+            ),
+            (
+                call(
+                    "mcp.bboxy.python_execution_get",
+                    json!({"execution_id":"python-parent-17","cursor":"1"}),
+                    json!({"execution_id":"python-parent-17","status":"running","output":[{"text":"output-middle\n"}],"emitted":[]}),
+                ),
+                Some(ItemStatus::Completed),
+            ),
+            (
+                call(
+                    "mcp.bboxy.python_execution_get",
+                    json!({"execution_id":"python-parent-17","cursor":"2"}),
+                    json!({"execution_id":"python-parent-17","status":"completed","exit_code":0,"output":[{"text":"output-tail\n"}],"emitted":emitted}),
+                ),
+                Some(ItemStatus::Completed),
+            ),
+            (
+                call(
+                    "mcp__bboxy__python_execution_get",
+                    json!({"execution_id":"python-orphan-23"}),
+                    json!({"execution_id":"python-orphan-23","status":"running","output":[],"emitted":[]}),
+                ),
+                Some(ItemStatus::Completed),
+            ),
+            (
+                call(
+                    "mcp.bboxy.python_execution_get",
+                    json!({"execution_id":"python-parent-17","cursor":"2"}),
+                    json!({"execution_id":"python-parent-17","status":"running","output":[{"text":"stale-running-output"}],"emitted":["stale-running-emit"]}),
+                ),
+                Some(ItemStatus::Completed),
+            ),
+            (
+                call(
+                    "mcp.bboxy.python_execution_get",
+                    json!({"execution_id":"python-parent-17"}),
+                    json!({"execution_id":"python-parent-17","error":{"code":"execution_context_changed","message":"refused context read"}}),
+                ),
+                Some(ItemStatus::Failed {
+                    reason: "refused context read".into(),
+                    code: None,
+                }),
+            ),
+            (
+                call(
+                    "mcp.bboxy.python_execution_get",
+                    json!({"execution_id":"python-parent-17","cursor":"child:0:0"}),
+                    json!({"execution_id":"python-parent-17","status":"completed","encoding":"base64-json","data_base64":"Ynl0ZXM=","next_cursor":null}),
+                ),
+                Some(ItemStatus::Completed),
+            ),
+        ],
+    );
+    let source = Arc::new(
+        bboxy450_harness::frontends::gui::bridge::read_replay(path)
+            .await
+            .unwrap(),
+    );
+    runtime::blocking(move || {
+        let mut preparer = Preparer::default();
+        let mut state = FrameState { transcript: source.clone(), ready: true, replay: true, ..Default::default() };
+        state.prepared = Some(Arc::new(preparer.prepare(source.clone(), 900.).unwrap()));
+        let mut view = HarnessView::default();
+        let frame = view.render(&state, [900., 2200.]).unwrap();
+        let layout = frame.layout.as_ref().unwrap();
+        let collapsed = layout_text(layout);
+        for text in ["Run Python", "python-source-head", "completed", "exit 0", "first-emitted", "python-parent-17", "python-orphan-23"] {
+            assert!(collapsed.contains(text), "missing {text}: {collapsed}");
+        }
+        assert!(!collapsed.contains("last-emitted"), "compact emitted preview must be bounded");
+        assert!(find(layout, &format!("tool/{}", ids[0])).is_some());
+        assert!(find(layout, &format!("tool/{}", ids[1])).is_none(), "get must fold into its parent");
+        assert!(find(layout, &format!("tool/{}", ids[2])).is_none(), "later get must update its parent");
+        assert!(find(layout, &format!("tool/{}", ids[3])).is_some(), "orphan get retains its parent id");
+        assert!(find(layout, &format!("tool/{}", ids[4])).is_none(), "stale status-bearing poll still belongs to parent");
+        assert!(find(layout, &format!("tool/{}", ids[5])).is_some(), "refused reads stay visible");
+        assert!(collapsed.contains("execution_context_changed"), "refusal was swallowed: {collapsed}");
+        assert!(find(layout, &format!("tool/{}", ids[6])).is_some(), "nested recovery page keeps its own card");
+        let parent_head = layout_text(find(layout, &format!("toolhead/{}", ids[0])).unwrap());
+        assert!(parent_head.contains("completed") && parent_head.contains("exit 0"), "stale running poll regressed terminal state: {parent_head}");
+        let faces: Faces = [ids[0], ids[6]].into_iter().map(|id| (id, Face { output_closed: true, ..Default::default() })).collect();
+        state.prepared = Some(Arc::new(preparer.prepare_with_faces(source.clone(), 900., &faces).unwrap()));
+        state.faces = Arc::new(faces);
+        let frame = view.render(&state, [900., 2200.]).unwrap();
+        let expanded = layout_text(frame.layout.as_ref().unwrap());
+        for text in ["python-source-tail", "last-emitted", "output-head", "output-middle", "output-tail"] {
+            assert!(expanded.contains(text), "missing expanded {text}: {expanded}");
+        }
+        assert_eq!(expanded.matches("output-head").count(), 1);
+        assert_eq!(expanded.matches("output-middle").count(), 1);
+        assert_eq!(expanded.matches("output-tail").count(), 1);
+        assert!(!expanded.contains("stale-running-output"));
+        assert!(!expanded.contains("stale-running-emit"));
+        assert!(expanded.contains("Ynl0ZXM="), "child result bytes disappeared: {expanded}");
+        // Same get item/sequence, changed snapshot: its output still invalidates
+        // the parent's prepared-row cache.
+        let mut changed = (*source).clone();
+        if let Item::ToolCall { raw_output, output, .. } = &mut changed.items.get_mut(&ids[2]).unwrap().body {
+            let value = json!({"execution_id":"python-parent-17","status":"completed","exit_code":7,"output":[{"text":"updated-tail\n"}],"emitted":["cache-refreshed"]});
+            *raw_output = Some(json!({"structuredContent":value}));
+            *output = vec![OutputBlock::Json { value }];
+        }
+        state.transcript = Arc::new(changed);
+        state.prepared = Some(Arc::new(preparer.prepare_with_faces(state.transcript.clone(), 900., &state.faces).unwrap()));
+        let frame = view.render(&state, [900., 2200.]).unwrap();
+        let refreshed = layout_text(frame.layout.as_ref().unwrap());
+        for text in ["exit 7", "cache-refreshed", "updated-tail", "output-head", "output-middle"] {
+            assert!(refreshed.contains(text), "stale Python parent card: {refreshed}");
+        }
+    }).await;
+}

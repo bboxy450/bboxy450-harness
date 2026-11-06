@@ -20,7 +20,7 @@ formal=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(formal)
 class Gate(unittest.TestCase):
     def test_embedded_term_witness_keeps_actual_source_validation(self):
-        with tempfile.TemporaryDirectory() as own:
+        with tempfile.TemporaryDirectory() as own, patch.dict(formal.os.environ,{},clear=True):
             root=Path(own);child=root/'crates/bboxy450-harness';child.mkdir(parents=True)
             (root/'.gitmodules').write_text('')
             witness=root/'crates/bboxy450-term/src/rich_pane.rs'
@@ -30,6 +30,48 @@ class Gate(unittest.TestCase):
             self.assertEqual((child/resolved).resolve(),witness.resolve())
             missing=path.replace('rich_pane.rs','missing.rs')
             self.assertEqual(formal.implementation_reference(child,missing),missing)
+    def test_explicit_toolkit_witness_is_authoritative_and_missing_stays_missing(self):
+        with tempfile.TemporaryDirectory() as own:
+            root=Path(own);child=root/'harness';child.mkdir()
+            toolkit=root/'chosen-toolkit';witness=toolkit/'crates/bboxy450-term/src/rich_pane.rs'
+            witness.parent.mkdir(parents=True);witness.write_text('chosen witness')
+            path='../bboxy450-term/crates/bboxy450-term/src/rich_pane.rs'
+            fallback=root/'bboxy450-term/crates/bboxy450-term/src/rich_pane.rs'
+            fallback.parent.mkdir(parents=True);fallback.write_text('other witness')
+            with patch.dict(formal.os.environ,{'BBOXY_TOOLKIT_ROOT':str(toolkit)}):
+                resolved=formal.implementation_reference(child,path)
+                self.assertEqual((child/resolved).resolve(),witness.resolve())
+                witness.unlink()
+                resolved=formal.implementation_reference(child,path)
+                self.assertFalse((child/resolved).is_file(),'missing explicit witness must fail validation')
+                self.assertNotEqual((child/resolved).resolve(),fallback.resolve())
+    def test_managed_module_worktree_resolves_real_source_and_refuses_missing(self):
+        with tempfile.TemporaryDirectory() as own:
+            root=Path(own);toolkit=root/'source-term';toolkit.mkdir()
+            (toolkit/'.gitmodules').write_text('')
+            common=toolkit/'.git/modules/crates/bboxy450-harness'
+            subprocess.run(['git','init','--bare','--quiet',str(common)],check=True,
+                env={'PATH':formal.os.defpath,'HOME':str(root),'GIT_CONFIG_NOSYSTEM':'1'})
+            child=root/'managed/checkouts/worker';child.mkdir(parents=True)
+            gitdir=common/'worktrees/worker';gitdir.mkdir(parents=True)
+            (gitdir/'commondir').write_text('../..\n')
+            (gitdir/'HEAD').write_text('ref: refs/heads/worker\n')
+            (gitdir/'gitdir').write_text(str(child/'.git')+'\n')
+            (child/'.git').write_text('gitdir: '+str(gitdir)+'\n')
+            witness=toolkit/'crates/bboxy450-term/src/rich_pane.rs'
+            witness.parent.mkdir(parents=True);witness.write_text('actual managed witness')
+            path='../bboxy450-term/crates/bboxy450-term/src/rich_pane.rs'
+            with patch.dict(formal.os.environ,{},clear=True):
+                resolved=formal.implementation_reference(child,path)
+                self.assertEqual((child/resolved).resolve(),witness.resolve())
+                missing=path.replace('rich_pane.rs','missing.rs')
+                self.assertEqual(formal.implementation_reference(child,missing),missing)
+    def test_unavailable_git_metadata_cannot_create_a_witness(self):
+        with tempfile.TemporaryDirectory() as own:
+            path='../bboxy450-term/crates/bboxy450-term/src/rich_pane.rs'
+            with patch.dict(formal.os.environ,{},clear=True), patch.object(
+                    formal.subprocess,'check_output',side_effect=subprocess.TimeoutExpired('git',2)):
+                self.assertEqual(formal.implementation_reference(Path(own),path),path)
     def test_extra_controls_are_explicit_executed_negative_verdicts(self):
         with tempfile.TemporaryDirectory() as t:
             root=Path(t);(root/'verification').mkdir();(root/'witness.rs').write_text('')

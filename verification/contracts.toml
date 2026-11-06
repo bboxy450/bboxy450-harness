@@ -859,6 +859,30 @@ checks = ["make test-formal", "make test"]
 additional_checks = ["make test-python-execute"]
 
 [[contract]]
+name = "HarnessPythonWait"
+title = "Bounded MCP waits return durable execution handles and settle terminal results once"
+models = ["HarnessPythonWait", "BrokenHarnessPythonWaitCap", "BrokenHarnessPythonWaitDuplicate"]
+controls = [{name="BrokenHarnessPythonWaitCap",expected="safety"}, {name="BrokenHarnessPythonWaitDuplicate",expected="safety"}]
+sources = ["src/python_execute/mod.rs", "src/python_execute/server.rs", "tests/formal/python_execution.rs"]
+implementation_tests = ["src/python_execute/tests.rs", "tests/formal_nonvacuity.rs"]
+assumptions = "One durable execution, one request and two logical elapsed ticks abstract the documented 25s wait cap. The cap tick atomically returns a running handle; worker completion or cancellation atomically wakes a pending waiter. At most two duplicate/late worker completions are explored, including completion after cancellation or after a running reply. Weak fairness of enabled timer steps and terminal cancellation/deadline settlement is explicit; no fairness of worker or external IO is required. Actual Tokio clock scheduling, MCP transport write time, output encoding and optional progress delivery are implementation-only witnesses, not a wall-clock theorem."
+property = "WaitNeverExceedsCap; CapReturnsDurableHandle; TerminalSettlesOnce; TerminalWakesWaiter; WaitAlwaysReplies; ExecutionEventuallySettles. The cap control keeps waiting through the boundary and reaches a third tick; the duplicate control reapplies a late completion after terminal settlement."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-python-execute"]
+
+[[contract]]
+name = "HarnessPythonCatalogue"
+title = "Live catalogue refresh fences delayed A-B-A snapshots without replaying unknown effects"
+models = ["HarnessPythonCatalogue", "BrokenHarnessPythonCatalogueAba", "BrokenHarnessPythonCatalogueReplay"]
+controls = [{name="BrokenHarnessPythonCatalogueAba",expected="safety"}, {name="BrokenHarnessPythonCatalogueReplay",expected="safety"}]
+sources = ["src/mcp.rs", "src/mcp/python_broker.rs", "src/python_execute/server.rs", "tests/formal/python_execution.rs"]
+implementation_tests = ["src/python_execute/tests.rs", "src/python_execute/fixture.py", "tests/formal_nonvacuity.rs"]
+assumptions = "One live connection and three monotonic catalogue revisions carry public tool sets A-B-A. A tools/list_changed notification or unsent miss marks a refresh; a delayed listing publishes only for its exact revision. Weak fairness of enabled local refresh completion/discard is assumed after the finite sequence of catalogue changes; transport availability and real notification parsing remain implementation-only. One nested dispatch may time out with its effect unknown and never replays. The existing PythonExecution model independently fences connection/authority generation changes; catalogue refresh does not grant authority."
+property = "CleanCatalogueHasCurrentRevision; CatalogueEventuallyRefreshes; UnknownEffectNeverReplayed. The A-B-A control publishes an old A snapshot into the later A revision; the timeout control redispatches an unknown effect."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-python-execute"]
+
+[[contract]]
 name = "HarnessDreamC1BootstrapEntry"
 title = "One ordinary bounded entry precedes waiting and permit read inside control usage"
 models = ["HarnessDreamC1BootstrapEntry", "BrokenHarnessDreamC1BootstrapEntryLate", "BrokenHarnessDreamC1BootstrapEntryAllocation", "BrokenHarnessDreamC1BootstrapEntryDuplicate", "BrokenHarnessDreamC1BootstrapEntryNoObserve"]

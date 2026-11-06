@@ -63,7 +63,7 @@ pub(crate) mod relay;
 
 pub type Servers = BTreeMap<String, ServerConfig>;
 mod python_broker;
-pub(crate) use python_broker::Capture;
+pub(crate) use python_broker::{Capture, NESTED_CALL_TIMEOUT_MS};
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Origin {
     Profile,
@@ -254,6 +254,8 @@ struct Slot {
     generation: std::sync::atomic::AtomicU64,
     state: std::sync::atomic::AtomicU8,
     initialized: Notify,
+    catalogue_refresh: tokio::sync::Mutex<()>,
+    catalogue_epoch: Arc<Mutex<u64>>,
     /// Only a positively identified native bridge gets a second read lane.
     /// External/singleton MCP servers are never blindly duplicated.
     context: Option<Arc<Slot>>,
@@ -274,6 +276,8 @@ impl Slot {
             generation: 0.into(),
             state: 0.into(),
             initialized: Notify::new(),
+            catalogue_refresh: tokio::sync::Mutex::new(()),
+            catalogue_epoch: Arc::new(Mutex::new(0)),
             context: None,
         }
     }
@@ -590,6 +594,7 @@ impl Binding {
 }
 struct Handler {
     changed: Arc<Notify>,
+    catalogue_epoch: Arc<Mutex<u64>>,
 }
 impl ClientHandler for Handler {
     fn get_info(&self) -> ClientConfig {
@@ -598,6 +603,13 @@ impl ClientHandler for Handler {
         info
     }
     async fn on_tool_list_changed(&self, _: NotificationContext<RoleClient>) {
+        {
+            let mut epoch = self
+                .catalogue_epoch
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            *epoch = epoch.wrapping_add(1);
+        }
         self.changed.notify_one();
     }
 }
@@ -740,21 +752,19 @@ async fn supervise(
             let changed=Arc::new(Notify::new());
             let run=async {
                 let deadline=tokio::time::Instant::now()+Duration::from_secs(10);
-                let handshake=tokio::time::timeout_at(deadline,Handler {changed:changed.clone()}.serve(transport));
+                let handshake=tokio::time::timeout_at(deadline,Handler {changed:changed.clone(),catalogue_epoch:slot.catalogue_epoch.clone()}.serve(transport));
                 let service=tokio::select! {biased;_=cancel.cancelled()=>return Err("cancelled"),r=handshake=>r.map_err(|_|"initialize timed out")?.map_err(|_|"initialize failed")?};
                 let first=tokio::select! {biased;_=cancel.cancelled()=>{let _=service.cancel().await;return Err("cancelled");},r=tokio::time::timeout_at(deadline,service.peer().list_all_tools())=>r};
                 let tools=match first {Ok(Ok(tools))=>tools,_=>{let _=service.cancel().await;return Err("tools/list failed");}};
                 let schema_digest=python_broker::schema_id(&tools);
                 slot.ready.store(Arc::new(Some(Ready {generation,peer:service.peer().clone(),tools,schema_digest})));slot.state.store(1,Ordering::Release);slot.initialized.notify_waiters();
                 notice(&output,&cancel,Level::Info,format!("mcp {}: ready",slot.name)).await;
-                let peer=service.peer().clone();let stop_service=service.cancellation_token();
+                let stop_service=service.cancellation_token();
                 let mut completion=Box::pin(service.waiting());let mut finished=false;
                 loop {
                     tokio::select! {biased;_=cancel.cancelled()=>break,_=&mut completion=>{finished=true;break;},_=changed.notified()=> {
-                        tokio::select!{biased;_=cancel.cancelled()=>break,_=&mut completion=>{finished=true;break;},_=tokio::time::sleep(Duration::from_secs(1))=>{}}
-                        while changed.notified().now_or_never().is_some() {}
-                        let listed=tokio::select!{biased;_=cancel.cancelled()=>break,_=&mut completion=>{finished=true;break;},r=tokio::time::timeout(Duration::from_secs(10),peer.list_all_tools())=>r};
-                        if let Ok(Ok(tools))=listed {let schema_digest=python_broker::schema_id(&tools);slot.ready.store(Arc::new(Some(Ready {generation,peer:peer.clone(),tools,schema_digest})));slot.initialized.notify_waiters();}
+                        let deadline=tokio::time::Instant::now()+Duration::from_secs(10);
+                        tokio::select!{biased;_=cancel.cancelled()=>break,_=&mut completion=>{finished=true;break;},_=python_broker::refresh_catalogue(&slot,&cancel,deadline)=>{}}
                     }}
                 }
                 slot.ready.store(Arc::new(None));slot.state.store(2,Ordering::Release);slot.initialized.notify_waiters();
@@ -797,11 +807,11 @@ async fn supervise(
         tokio::select! {biased;_=cancel.cancelled()=>return,_=tokio::time::sleep(Duration::from_secs((1u64<<attempt).min(30)))=>{}}
     }
 }
-use futures_util::FutureExt;
 
 #[cfg(feature = "test-fixtures")]
 pub mod fixtures {
     use super::*;
+    use futures_util::FutureExt;
     /// An already fenced child tests idempotence; a lost sender tests cleanup.
     pub async fn finish_with_fenced_child_or_failed_handoff(
         program: &std::path::Path,

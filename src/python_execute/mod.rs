@@ -30,7 +30,7 @@ use std::{
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::UnixListener,
-    sync::{Mutex, Semaphore},
+    sync::{Mutex, Notify, Semaphore, mpsc},
 };
 use tokio_util::sync::CancellationToken;
 use ulid::Ulid;
@@ -41,6 +41,11 @@ const CALLS: usize = 128;
 const SOURCE: usize = 64 * 1024;
 const TIMEOUT: u64 = 600_000;
 const CALLBACKS_PER_RUN: usize = 8;
+/// MCP requests wait at most 25 seconds, below the usual 30-second client deadline.
+/// The execution itself keeps its independent durable wall deadline.
+const MAX_WAIT_MS: u64 = 25_000;
+const DEFAULT_WAIT_MS: u64 = 1_000;
+type Progress = Option<(Value, mpsc::Sender<Value>)>;
 
 pub(crate) struct Endpoint {
     dir: PathBuf,
@@ -74,7 +79,8 @@ impl Drop for Endpoint {
 struct Chunk {
     stream: String,
     text: String,
-    base64: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    base64: Option<String>,
 }
 #[derive(Serialize, Deserialize, Clone)]
 struct Child {
@@ -128,6 +134,7 @@ struct Run {
     token: String,
     authority: Mutex<Option<Value>>,
     callbacks: Arc<Semaphore>,
+    finished: Notify,
 }
 struct Inner {
     endpoint: Endpoint,
@@ -463,6 +470,7 @@ impl Service {
             token: Ulid::new().to_string(),
             authority: Mutex::new(Some(context)),
             callbacks: Arc::new(Semaphore::new(CALLBACKS_PER_RUN)),
+            finished: Notify::new(),
         });
         // Publish complete, fsynced bytes with no-replace. A crash cannot leave
         // a partially written final admission, and a competing client cannot
@@ -549,18 +557,19 @@ impl Service {
                 record.error = Some(error);
             }
             let _ = service.persist(&current).await;
+            current.finished.notify_waiters();
         });
         executions.retain(|task| !task.is_finished());
         executions.push(task);
         drop(executions);
-        tokio::time::sleep(Duration::from_millis(30)).await;
         Ok(self.view(&*run.record.lock().await, 0))
     }
     fn view(&self, record: &Record, offset: usize) -> Value {
         let mut end = offset.min(record.output.len());
         let mut bytes = 0;
         while end < record.output.len() && end - offset < 32 {
-            let size = record.output[end].text.len() + record.output[end].base64.len();
+            let size = record.output[end].text.len()
+                + record.output[end].base64.as_ref().map_or(0, String::len);
             if end > offset && bytes + size > 64 * 1024 {
                 break;
             }
@@ -569,7 +578,7 @@ impl Service {
         }
         json!({"execution_id":record.execution_id,"status":record.status,"cwd":record.cwd,
             "context":record.context,"pid":record.pid,"exit_code":record.exit_code,"signal":record.signal,
-            "output":record.output.get(offset..end).unwrap_or_default(),"next_cursor":(end<record.output.len()).then(||end.to_string()),
+            "output":record.output.get(offset..end).unwrap_or_default(),"next_cursor":(end<record.output.len() || matches!(record.status.as_str(),"starting"|"running"|"cancelling")).then(||end.to_string()),
             "omitted_bytes":record.omitted_bytes,"emitted":record.emitted,"children":record.children.iter().map(|c|json!({"id":c.id,"sequence":c.sequence,"kind":c.kind,"server":c.server,"tool":c.tool,"arguments_digest":c.arguments_digest,"server_generation":c.server_generation,"schema_digest":c.schema_digest,"status":c.status,"result_cursor":format!("child:{}:0",c.sequence)})).collect::<Vec<_>>(),
             "error":record.error.as_ref().map(|failure|failure.get("error").unwrap_or(failure)),
             "failure":record.error,"hints":record.error.as_ref().and_then(|failure|failure.get("hints")).cloned().unwrap_or_else(||json!([])),"retry_script":false})
@@ -580,10 +589,12 @@ impl Service {
         args: Value,
         prefetched: Option<Value>,
         expected: Option<Value>,
+        progress: Progress,
     ) -> Value {
+        let started = tokio::time::Instant::now();
         let allowed: &[&str] = match name {
-            "python_execute" => &["source", "inputs", "timeout_ms", "op_id"],
-            "python_execution_get" => &["execution_id", "cursor"],
+            "python_execute" => &["source", "inputs", "timeout_ms", "wait_ms", "op_id"],
+            "python_execution_get" => &["execution_id", "cursor", "wait_ms"],
             "python_execution_cancel" => &["execution_id", "op_id"],
             "python_execute_orient" => &[],
             _ => return envelope(fault("tool_unavailable", "unknown Python runtime tool")),
@@ -603,13 +614,14 @@ impl Service {
         if object
             .get("timeout_ms")
             .is_some_and(|v| v.as_u64().is_none())
+            || object.get("wait_ms").is_some_and(|v| v.as_u64().is_none())
             || object
                 .get("cursor")
                 .is_some_and(|v| v.as_str().is_none_or(|s| s.len() > 256))
         {
             return envelope(fault(
                 "invalid_arguments",
-                "timeout_ms must be an integer; cursor must be a string of at most 256 bytes",
+                "timeout_ms and wait_ms must be nonnegative integers; cursor must be a string of at most 256 bytes",
             ));
         }
         if object.contains_key("op_id") && id(&args, "op_id").is_err() {
@@ -640,6 +652,14 @@ impl Service {
                 "Nested execution context changed before admission; no new script was started",
             ));
         }
+        let wait_ms = args["wait_ms"]
+            .as_u64()
+            .unwrap_or(DEFAULT_WAIT_MS)
+            .min(MAX_WAIT_MS);
+        // Reserve the existing bounded publication-context query inside the cap.
+        let deadline = (started + Duration::from_millis(MAX_WAIT_MS - 2_000))
+            .min(tokio::time::Instant::now() + Duration::from_millis(wait_ms));
+        let get_args = args.clone();
         let result = match name {
             "python_execute" => self.execute(args, context.clone()).await,
             "python_execution_get" => self.get(args, context.clone()).await,
@@ -671,7 +691,26 @@ impl Service {
             "python_execute_orient" => Ok(self.orientation(context.clone()).await),
             _ => Err(fault("tool_unavailable", "unknown Python runtime tool")),
         };
-        let result = result.unwrap_or_else(|e| e);
+        let mut result = result.unwrap_or_else(|e| e);
+        if matches!(name, "python_execute" | "python_execution_get")
+            && let Some(execution) = result["execution_id"].as_str().and_then(|s| s.parse().ok())
+            && matches!(
+                result["status"].as_str(),
+                Some("starting" | "running" | "cancelling")
+            )
+            && !get_args["cursor"]
+                .as_str()
+                .is_some_and(|s| s.starts_with("child:"))
+        {
+            self.wait(execution, deadline, progress).await;
+            let mut args = if name == "python_execute" {
+                json!({"execution_id":execution})
+            } else {
+                get_args
+            };
+            args.as_object_mut().unwrap().remove("wait_ms");
+            result = self.get(args, context.clone()).await.unwrap_or_else(|e| e);
+        }
         // Proxy callers bracket their synchronous bridge request themselves.
         // Direct runtime MCP clients need the same publication fence here.
         if !proxy && name != "python_execution_cancel" {
@@ -688,6 +727,37 @@ impl Service {
             }
         }
         envelope(result)
+    }
+    async fn wait(&self, execution: Ulid, deadline: tokio::time::Instant, progress: Progress) {
+        let Some(run) = self.0.runs.lock().await.get(&execution).cloned() else {
+            return;
+        };
+        let mut tick = tokio::time::interval(Duration::from_secs(1));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut elapsed = 0;
+        loop {
+            // Register before inspecting state so completion cannot be lost.
+            let finished = run.finished.notified();
+            tokio::pin!(finished);
+            finished.as_mut().enable();
+            if !matches!(
+                run.record.lock().await.status.as_str(),
+                "starting" | "running" | "cancelling"
+            ) {
+                return;
+            }
+            tokio::select! { biased;
+                _ = tokio::time::sleep_until(deadline) => return,
+                _ = self.0.cancel.cancelled() => return,
+                _ = &mut finished => {},
+                _ = tick.tick(), if progress.is_some() => {
+                    if let Some((token, sender)) = &progress {
+                        let _ = sender.try_send(json!({"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":token,"progress":elapsed,"message":format!("Python execution {execution} is running")}}));
+                        elapsed += 1;
+                    }
+                }
+            }
+        }
     }
     async fn frontend_context(&self) -> Result<Value, Value> {
         let current = tokio::time::timeout(
@@ -731,9 +801,9 @@ impl Service {
         };
         let local = context["target"]["kind"] == "local";
         json!({"ready":version.is_some()&&local,"interpreter":interpreter,"version":version,"runtime":"owned CPython process; standard library and top-level await; ordinary host execution authority",
-            "cwd":context["cwd"],"context":context,"mcp_servers":self.0.mcp.servers(),"limits":{"source_bytes":SOURCE,"timeout_ms":TIMEOUT,"retained_output_bytes":OUTPUT,"callback_frame_bytes":FRAME,"nested_calls":CALLS,"active_executions":4,"active_callbacks_per_execution":CALLBACKS_PER_RUN,"connections":256},
+            "cwd":context["cwd"],"context":context,"mcp_servers":self.0.mcp.servers(),"limits":{"source_bytes":SOURCE,"timeout_ms":TIMEOUT,"wait_ms":MAX_WAIT_MS,"default_wait_ms":DEFAULT_WAIT_MS,"nested_call_timeout_ms":crate::mcp::NESTED_CALL_TIMEOUT_MS,"retained_output_bytes":OUTPUT,"callback_frame_bytes":FRAME,"nested_calls":CALLS,"active_executions":4,"active_callbacks_per_execution":CALLBACKS_PER_RUN,"connections":256},
             "policy":"Original MCP server authorization and credentials apply; parent Codex/Claude hooks are not automatically invoked per nested call. Python and subprocess use normal harness host authority, with durable nested receipts.",
-            "bindings":{"mcp":["await mcp.servers()","await mcp.tools(server, cursor=None)","await mcp.call(server, tool, arguments, op_id=None)"],"commands":["await commands.run([executable, *args], input=None, json_input=value, cwd=None, check=False)","await commands.rg('--json', pattern, path)","await commands.jq('.items', json_input=data)","await commands.shell('explicit pipeline')"],"python":["inputs", "execution", "workspace", "emit(value)"]},
+            "bindings":{"mcp":["await mcp.servers()","await mcp.tools(server, cursor=None)","await mcp.call(server, tool, arguments, op_id=None, timeout_ms=25000)"],"commands":["await commands.run([executable, *args], input=None, json_input=value, cwd=None, check=False)","await commands.rg('--json', pattern, path)","await commands.jq('.items', json_input=data)","await commands.shell('explicit pipeline')"],"python":["inputs", "execution", "workspace", "emit(value)"]},
             "examples":["emit({'cwd':execution.cwd,'json':json.dumps({'sorted':sorted([3,1,2])})})","servers=await mcp.servers()\nserver=next(item.name for item in servers if item.ready)\npage=await mcp.tools(server)\nemit({'server':server,'tools':[tool.name for tool in page.tools],'next_cursor':page.next_cursor})"],
             "workflow":"Discover your native server's current tools. Read knowledge_orient before KB edits; workspace_orient describes provisioning/selecting a source workspace when your current capability permits it. Existing managed writers retain their admitted source cwd and canonical KB. Use knowledge_commit for a substantial checkpoint, sharing or acceptance, rather than each draft edit.",
             "recovery":"Supply a caller-generated ULID op_id before effectful execution when handle recovery matters. Read python_execution_get and original nested operation IDs. Do not replay source with a new ID after lost output or unknown effects.",
@@ -908,7 +978,7 @@ impl Service {
                 "execution_timeout",
                 "Python exceeded its wall deadline; earlier effects may have completed",
             ));
-        } else if !output.cancelled && output.code != Some(0) {
+        } else if !output.cancelled && output.code != Some(0) && record.error.is_none() {
             let mut error = fault(
                 "python_failed",
                 "Python exited unsuccessfully; inspect retained stderr and original nested receipts before retrying any effect",
@@ -932,7 +1002,9 @@ impl Service {
             record.output.push(Chunk {
                 stream: stream.into(),
                 text: String::from_utf8_lossy(&bytes[..take]).into(),
-                base64: STANDARD.encode(&bytes[..take]),
+                base64: std::str::from_utf8(&bytes[..take])
+                    .is_err()
+                    .then(|| STANDARD.encode(&bytes[..take])),
             });
             record.output_bytes += take;
         }

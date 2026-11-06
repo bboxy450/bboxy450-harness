@@ -268,6 +268,175 @@ pub struct Tool<'a> {
     /// where a Search or Find looked (harness.js `where`): the head reads `in <path>`
     pub place: Option<String>,
 }
+/// Python's durable handle spans several MCP calls. Keep its presentation as one
+/// command with indexed output pages, so repeated polls neither duplicate nor
+/// erase output. Project-owned; retain the policy with extracted projections:
+/// https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PythonCell {
+    pub source: Option<String>,
+    pub execution_id: Option<String>,
+    pub status: Option<String>,
+    pub exit_code: Option<i64>,
+    pub emitted: Option<serde_json::Value>,
+    pub output: std::collections::BTreeMap<usize, String>,
+    pub error: Option<String>,
+    pub continued: bool,
+}
+impl PythonCell {
+    pub fn merge(&mut self, next: Self) {
+        if self.execution_id != next.execution_id {
+            return;
+        }
+        // Concurrent polls are ordered by call start in the transcript. A later
+        // row may therefore contain an older running snapshot than this one.
+        let terminal = |status: Option<&str>| {
+            status.is_some_and(|s| !matches!(s, "starting" | "running" | "cancelling"))
+        };
+        let stale = terminal(self.status.as_deref()) && !terminal(next.status.as_deref());
+        for (index, text) in next.output {
+            if stale {
+                self.output.entry(index).or_insert(text);
+            } else {
+                self.output.insert(index, text);
+            }
+        }
+        if next.status.is_some() && !stale {
+            self.status = next.status;
+            self.exit_code = next.exit_code;
+            self.error = next.error;
+        }
+        if let Some(emitted) = next.emitted {
+            let count = |value: &serde_json::Value| value.as_array().map_or(0, Vec::len);
+            let previous = self.emitted.as_ref().map_or(0, count);
+            if self.emitted.is_none()
+                || count(&emitted) > previous
+                || (count(&emitted) == previous && !stale)
+            {
+                self.emitted = Some(emitted);
+            }
+        }
+    }
+    pub fn preview(&self) -> String {
+        self.emitted
+            .as_ref()
+            .filter(|v| v.as_array().is_none_or(|a| !a.is_empty()))
+            .map(|value| format!("emit {}", raw_tool_output(value)))
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .chars()
+            .take(120)
+            .collect()
+    }
+    pub fn text(&self) -> String {
+        let mut parts = Vec::new();
+        if let Some(emitted) = &self.emitted
+            && emitted.as_array().is_none_or(|a| !a.is_empty())
+        {
+            parts.push(format!("Emitted\n{}", raw_tool_output(emitted)));
+        }
+        let output = self.output.values().cloned().collect::<String>();
+        if !output.is_empty() {
+            parts.push(output);
+        }
+        if let Some(error) = &self.error {
+            parts.push(error.clone());
+        }
+        parts.join("\n\n")
+    }
+}
+pub fn python_cell(
+    name: &str,
+    input_raw: &str,
+    output: &[OutputBlock],
+    raw: Option<&serde_json::Value>,
+) -> Option<PythonCell> {
+    use serde_json::Value;
+    let tool = mcp_tool(name).map_or(name, |(_, tool)| tool);
+    if !matches!(tool, "python_execute" | "python_execution_get") {
+        return None;
+    }
+    fn result(value: &Value) -> Option<Value> {
+        if let Some(value) = value.get("structuredContent")
+            && let Some(result) = result(value)
+        {
+            return Some(result);
+        }
+        if value.get("execution_id").is_some()
+            || value.get("status").is_some()
+            || value.get("error").is_some()
+        {
+            return Some(value.clone());
+        }
+        if let Some(text) = value.as_str()
+            && let Ok(value) = serde_json::from_str::<Value>(text)
+        {
+            return result(&value);
+        }
+        value
+            .get("content")
+            .and_then(Value::as_array)
+            .and_then(|content| {
+                content
+                    .iter()
+                    .find_map(|block| block.get("text").and_then(result))
+            })
+    }
+    let args: Value = serde_json::from_str(input_raw).unwrap_or(Value::Null);
+    let cursor = args["cursor"].as_str().unwrap_or("0");
+    // These pages contain exact nested-result bytes, not execution output.
+    // Preserve their ordinary MCP card, including its base64 recovery payload.
+    if tool == "python_execution_get" && cursor.starts_with("child:") {
+        return None;
+    }
+    let value = raw
+        .and_then(result)
+        .or_else(|| {
+            output.iter().find_map(|block| match block {
+                OutputBlock::Json { value } => result(value),
+                OutputBlock::Text { text } | OutputBlock::Error { text } => {
+                    result(&Value::String(unfence(text)))
+                }
+                _ => None,
+            })
+        })
+        .unwrap_or(Value::Null);
+    let offset = cursor.parse::<usize>().unwrap_or(0);
+    Some(PythonCell {
+        source: args["source"].as_str().map(str::to_owned),
+        execution_id: value["execution_id"]
+            .as_str()
+            .or_else(|| args["execution_id"].as_str())
+            .map(str::to_owned),
+        status: value["status"].as_str().map(str::to_owned),
+        exit_code: value["exit_code"].as_i64(),
+        emitted: value.get("emitted").cloned(),
+        output: value["output"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .enumerate()
+            .map(|(i, chunk)| {
+                (
+                    offset + i,
+                    chunk["text"]
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| {
+                            "[binary output; recover with the execution cursor]".into()
+                        }),
+                )
+            })
+            .collect(),
+        error: value
+            .get("error")
+            .filter(|v| !v.is_null())
+            .map(raw_tool_output),
+        continued: tool == "python_execution_get",
+    })
+}
 /// One grep hit (harness.js `hits`: `/^(.*?):(\d+):(.*)$/`): the file, its line and the
 /// matched text; a line without `:N:` is a file alone.
 pub fn hit_line(l: &str) -> (&str, Option<&str>, &str) {
@@ -383,7 +552,11 @@ pub fn describe<'a>(
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let out = unfence(&out);
+    let mut out = unfence(&out);
+    let python = python_cell(name, input_raw, output, None);
+    if let Some(cell) = &python {
+        out = cell.text();
+    }
     let kind = match tool_kind {
         ToolKind::Read => "read",
         ToolKind::Search => "search",
@@ -420,6 +593,20 @@ pub fn describe<'a>(
                 .join(", "),
             false,
             "other",
+        ),
+        _ if let Some(cell) = &python => (
+            if cell.continued {
+                "Continue Python"
+            } else {
+                "Run Python"
+            }
+            .into(),
+            cell.source
+                .clone()
+                .or_else(|| cell.execution_id.clone())
+                .unwrap_or_default(),
+            true,
+            "execute",
         ),
         // one heading for every harness: Claude `mcp__s__t`, Codex `mcp.s.t`
         n if let Some((server, tool)) = mcp_tool(n) => {
@@ -545,6 +732,84 @@ pub fn raw_tool_output(value: &serde_json::Value) -> String {
 #[cfg(test)]
 mod gui_polish_output_tests {
     use super::*;
+    #[test]
+    fn python_execution_cell_model_keeps_source_status_preview_and_pages() {
+        use serde_json::json;
+        for name in [
+            "python_execute",
+            "mcp__bboxy__python_execute",
+            "mcp.bboxy.python_execute",
+        ] {
+            let mut cell = python_cell(name, r#"{"source":"print('head')\nemit(1)"}"#, &[], Some(&json!({
+                "structuredContent":{"execution_id":"run-1","status":"running","output":[{"text":"head\n"}],"emitted":[1]}
+            }))).unwrap();
+            assert_eq!(cell.source.as_deref(), Some("print('head')\nemit(1)"));
+            assert_eq!(cell.status.as_deref(), Some("running"));
+            assert_eq!(cell.preview(), "emit [ 1 ]");
+            let page = python_cell("python_execution_get", r#"{"execution_id":"run-1","cursor":"1"}"#, &[
+                OutputBlock::Text { text: json!({"execution_id":"run-1","status":"completed","exit_code":0,"output":[{"text":"tail\n"}],"emitted":[1,2]}).to_string() }
+            ], None).unwrap();
+            assert!(page.continued);
+            assert_eq!(page.execution_id.as_deref(), Some("run-1"));
+            cell.merge(page.clone());
+            cell.merge(page);
+            assert_eq!(cell.status.as_deref(), Some("completed"));
+            assert_eq!(cell.exit_code, Some(0));
+            assert_eq!(
+                cell.output.values().cloned().collect::<String>(),
+                "head\ntail\n"
+            );
+            assert!(cell.text().contains("2"));
+            let stale = python_cell("python_execution_get", r#"{"execution_id":"run-1","cursor":"0"}"#, &[], Some(&json!({
+                "execution_id":"run-1","status":"running","output":[{"text":"stale-head"}],"emitted":[1]
+            }))).unwrap();
+            cell.merge(stale.clone());
+            assert_eq!(cell.status.as_deref(), Some("completed"));
+            assert_eq!(cell.exit_code, Some(0));
+            assert_eq!(cell.emitted, Some(json!([1, 2])));
+            assert_eq!(
+                cell.output.values().cloned().collect::<String>(),
+                "head\ntail\n"
+            );
+            cell.status = Some("failed".into());
+            cell.exit_code = Some(1);
+            cell.error = Some("retained terminal error".into());
+            cell.merge(stale);
+            assert_eq!(cell.status.as_deref(), Some("failed"));
+            assert_eq!(cell.exit_code, Some(1));
+            assert_eq!(cell.error.as_deref(), Some("retained terminal error"));
+            assert!(
+                python_cell(
+                    "python_execution_get",
+                    r#"{"execution_id":"run-1","cursor":"child:0:0"}"#,
+                    &[],
+                    Some(&json!({"execution_id":"run-1","status":"unknown"})),
+                )
+                .is_none(),
+                "child bytes stay in an ordinary MCP result card"
+            );
+            let child = describe(
+                "mcp__bboxy__python_execution_get",
+                ToolKind::Other,
+                r#"{"execution_id":"run-1","cursor":"child:0:0"}"#,
+                &[OutputBlock::Json {
+                    value: json!({"data_base64":"Ynl0ZXM=","encoding":"base64-json"}),
+                }],
+                "/",
+            );
+            assert!(child.out.contains("Ynl0ZXM="));
+            let refused = python_cell(
+                "python_execution_get",
+                r#"{"execution_id":"run-1"}"#,
+                &[],
+                Some(&json!({"execution_id":"run-1","error":{"code":"execution_context_changed"}})),
+            )
+            .unwrap();
+            assert!(refused.status.is_none());
+            assert!(refused.text().contains("execution_context_changed"));
+        }
+        assert!(python_cell("mcp__bboxy__unrelated", "{}", &[], None).is_none());
+    }
     #[test]
     fn mcp_headings_match_across_harnesses() {
         for name in ["mcp__bboxy__message_ack", "mcp.bboxy.message_ack"] {

@@ -279,7 +279,7 @@ for form in ['result_unknown','rpc_unknown']:
         )
         .await;
     assert_eq!(value["status"], "completed_with_errors", "{value}");
-    assert_eq!(value["emitted"][0]["count"], 185);
+    assert_eq!(value["emitted"][0]["count"], 186);
     assert_eq!(
         value["emitted"][0]["a"]["structuredContent"]["arguments"]["op_id"],
         42
@@ -445,10 +445,14 @@ async fn output_pages_and_partial_admission_do_not_corrupt_protocol_or_block_sta
         }
         let page = rig.call("python_execution_get", args).await;
         for part in page["output"].as_array().unwrap() {
-            bytes += STANDARD
-                .decode(part["base64"].as_str().unwrap())
-                .unwrap()
-                .len();
+            if let Some(encoded) = part["base64"].as_str() {
+                let exact = STANDARD.decode(encoded).unwrap();
+                assert!(std::str::from_utf8(&exact).is_err());
+                assert!(exact.iter().all(|b| *b == 0xff));
+                bytes += exact.len();
+            } else {
+                bytes += part["text"].as_str().unwrap().len();
+            }
         }
         cursor = page["next_cursor"].clone();
         if cursor.is_null() {
@@ -525,12 +529,184 @@ async fn large_nested_result_is_paged_as_complete_json_and_stdout_budget_is_expl
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn changed_mcp_catalogue_generation_is_refused_before_new_dispatch() {
+async fn changed_mcp_catalogue_is_live_without_restarting_python() {
     let rig = Rig::start().await;
-    let value=rig.run("import asyncio\nawait mcp.call('a','change',{})\nawait asyncio.sleep(1.2)\nawait mcp.call('a','write',{})").await;
-    assert_eq!(value["status"], "failed", "{value}");
-    assert!(!rig._dir.path().join("a.writes").exists());
-    assert_eq!(value["children"][1]["status"], "failed");
+    let value=rig.run("import asyncio\nawait mcp.call('a','change',{})\nfor _ in range(100):\n    page=await mcp.tools('a')\n    if page.tools[0].description.endswith(':1'):\n        break\n    await asyncio.sleep(0.01)\nelse:\n    raise AssertionError('list_changed was not consumed')\nadded=await mcp.call('a','added_1',{})\nemit(added.structured.name)").await;
+    assert_eq!(value["status"], "completed", "{value}");
+    assert_eq!(value["emitted"], json!(["added_1"]));
+    assert_eq!(value["children"].as_array().unwrap().len(), 2);
+    rig.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn missing_tool_refreshes_once_before_dispatch_and_never_replays() {
+    let rig = Rig::start().await;
+    let value=rig.run("await mcp.call('a','change_silent',{})\nadded=await mcp.call('a','added_1',{})\nemit(added.structured.name)\ntry:\n    await mcp.call('a','still_absent',{})\nexcept ToolError as error:\n    emit(error.code)").await;
+    assert_eq!(value["status"], "completed_with_errors", "{value}");
+    assert_eq!(value["emitted"], json!(["added_1", "tool_unavailable"]));
+    assert_eq!(value["children"].as_array().unwrap().len(), 3);
+    rig.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn managed_role_and_grant_change_refreshes_native_tools_for_new_execution() {
+    let rig = Rig::start_managed(true).await;
+    let path = rig._dir.path().join("context.json");
+    let mut context: Value =
+        serde_json::from_slice(&tokio::fs::read(&path).await.unwrap()).unwrap();
+    context["role"] = json!("executor");
+    tokio::fs::write(&path, serde_json::to_vec(&context).unwrap())
+        .await
+        .unwrap();
+    let before = rig
+        .run("emit({'role':execution.role,'epoch':execution.grant_epoch})")
+        .await;
+    assert_eq!(before["status"], "completed", "{before}");
+    assert_eq!(before["emitted"][0], json!({"role":"executor","epoch":1}));
+    let captured = rig.manager.capture();
+    let original = rig
+        .manager
+        .raw_call(
+            &captured,
+            "native",
+            "python_execution_context",
+            json!({}),
+            None,
+            &rig.services.cancel,
+        )
+        .await
+        .unwrap();
+    context["role"] = json!("oracle");
+    context["grant_epoch"] = json!(2);
+    tokio::fs::write(&path, serde_json::to_vec(&context).unwrap())
+        .await
+        .unwrap();
+    rig.manager
+        .raw_call(
+            &captured,
+            "native",
+            "python_execution_context",
+            json!({"payload":{"refresh_role":true}}),
+            None,
+            &rig.services.cancel,
+        )
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let page = rig.manager.tools_page(&captured, "native", 0).unwrap();
+            if page["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tool| tool["name"] == "native_oracle_only")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let after=rig.run("page=await mcp.tools('native')\nassert any(tool.name=='native_oracle_only' for tool in page.tools)\nresult=await mcp.call('native','native_oracle_only',{})\nemit({'role':execution.role,'epoch':execution.grant_epoch,'pid':result.structured.fixture_pid})").await;
+    assert_eq!(after["status"], "completed", "{after}");
+    assert_eq!(after["emitted"][0]["role"], "oracle");
+    assert_eq!(after["emitted"][0]["epoch"], 2);
+    assert_eq!(
+        after["emitted"][0]["pid"],
+        original["structuredContent"]["fixture_pid"]
+    );
+    assert_eq!(
+        rig.manager.capture()["native"].0,
+        captured["native"].0,
+        "native process connection restarted"
+    );
+    rig.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn delayed_catalogue_b_reply_is_discarded_after_a_b_a_notification() {
+    let rig = Rig::start().await;
+    let captured = rig.manager.capture();
+    let before = rig.manager.tools_page(&captured, "a", 0).unwrap();
+    assert!(
+        before["tools"][0]["description"]
+            .as_str()
+            .unwrap()
+            .ends_with(":0")
+    );
+    rig.manager
+        .raw_call(
+            &captured,
+            "a",
+            "echo",
+            json!({"payload":{"catalogue_aba":true}}),
+            None,
+            &rig.services.cancel,
+        )
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if rig._dir.path().join("a.aba-fresh-list-held").exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    // The old B snapshot has completed and the fresh A list is still held.
+    // An epoch-blind implementation exposes :1 here and fails deterministically.
+    let held = rig.manager.tools_page(&captured, "a", 0).unwrap();
+    assert_eq!(
+        held["tools"], before["tools"],
+        "stale B catalogue was published"
+    );
+    tokio::fs::write(rig._dir.path().join("a.aba-release"), b"release")
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let page = rig.manager.tools_page(&captured, "a", 0).unwrap();
+            if page["tools"][0]["description"]
+                .as_str()
+                .unwrap()
+                .ends_with(":2")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        rig.manager.capture()["a"].0,
+        captured["a"].0,
+        "A-B-A replaced the connection"
+    );
+    rig.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn nested_mcp_timeout_is_unknown_and_sent_only_once() {
+    let rig = Rig::start().await;
+    let started = tokio::time::Instant::now();
+    let value=rig.run("try:\n    await mcp.call('a','echo',{'payload':{'timeout':True}},timeout_ms=50)\nexcept ToolError as error:\n    emit({'code':error.code,'unknown':error.result['error']['unknown'],'op_id':error.request_op_id,'tool':error.tool})").await;
+    assert!(started.elapsed() < Duration::from_secs(2), "{value}");
+    assert_eq!(value["status"], "completed_with_errors", "{value}");
+    assert_eq!(value["children"][0]["status"], "unknown");
+    assert_eq!(value["emitted"][0]["code"], "timeout");
+    assert_eq!(value["emitted"][0]["unknown"], true);
+    assert_eq!(value["emitted"][0]["op_id"], value["children"][0]["id"]);
+    assert_eq!(value["emitted"][0]["tool"], "echo");
+    assert_eq!(
+        tokio::fs::read_to_string(rig._dir.path().join("a.timeout-dispatches"))
+            .await
+            .unwrap(),
+        "dispatch\n"
+    );
     rig.close().await;
 }
 
@@ -564,7 +740,7 @@ async fn managed_source_and_knowledge_stay_separate_and_revocation_fences_effect
     );
     assert!(!rig._dir.path().join("knowledge/source-only.txt").exists());
     assert_eq!(value["emitted"][0]["workspace"]["state"], "in_use");
-    let started=rig.call("python_execute",json!({"source":"import asyncio\nemit('admitted')\nawait asyncio.sleep(0.5)\nawait mcp.call('a','write',{})"})).await;
+    let started=rig.call("python_execute",json!({"wait_ms":0,"source":"import asyncio\nemit('admitted')\nawait asyncio.sleep(0.5)\nawait mcp.call('a','write',{})"})).await;
     let id: Ulid = started["execution_id"].as_str().unwrap().parse().unwrap();
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
@@ -679,6 +855,54 @@ async fn invalid_arguments_do_not_create_execution_and_concurrent_duplicates_sha
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn acp_shared_relay_forwards_live_catalogue_notifications() {
+    let mut rig = Rig::start().await;
+    let relay = crate::mcp::relay::Relay::shared(rig.manager.clone(), &mut rig.services)
+        .await
+        .unwrap();
+    let config = relay
+        .servers
+        .iter()
+        .find(|server| server["name"] == "a")
+        .unwrap();
+    let mut stream = tokio::net::UnixStream::connect(config["args"][1].as_str().unwrap())
+        .await
+        .unwrap();
+    stream
+        .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}\n")
+        .await
+        .unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    reader.read_line(&mut line).await.unwrap();
+    assert!(serde_json::from_str::<Value>(&line).unwrap()["result"]["tools"].is_array());
+    let result = rig
+        .manager
+        .raw_call(
+            &rig.manager.capture(),
+            "a",
+            "change",
+            json!({}),
+            None,
+            &rig.services.cancel,
+        )
+        .await
+        .unwrap();
+    assert_ne!(result["isError"], true);
+    line.clear();
+    tokio::time::timeout(Duration::from_secs(2), reader.read_line(&mut line))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&line).unwrap()["method"],
+        "notifications/tools/list_changed"
+    );
+    drop(reader);
+    rig.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn acp_shared_relay_runs_python_and_reconnects_without_retiring_other_clients() {
     let mut rig = Rig::start().await;
     let relay = crate::mcp::relay::Relay::shared(rig.manager.clone(), &mut rig.services)
@@ -717,5 +941,129 @@ async fn acp_shared_relay_runs_python_and_reconnects_without_retiring_other_clie
     let value = rig.finish(id).await;
     assert_eq!(value["status"], "completed", "{value}");
     assert_eq!(value["emitted"][0]["op_id"], 55);
+    rig.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn short_execution_returns_result_in_one_call_and_utf8_has_no_base64() {
+    let rig = Rig::start().await;
+    let value = rig
+        .call(
+            "python_execute",
+            json!({"source":"print('hello')\nemit(1)"}),
+        )
+        .await;
+    assert_eq!(value["status"], "completed", "{value}");
+    assert_eq!(value["exit_code"], 0);
+    assert_eq!(value["emitted"], json!([1]));
+    for chunk in value["output"].as_array().unwrap() {
+        assert!(chunk.get("base64").is_none(), "{chunk}");
+    }
+    rig.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn uncaught_tool_error_keeps_structured_code_message_and_original_operation() {
+    let rig = Rig::start().await;
+    let value = rig.run("await mcp.call('z','fail',{})").await;
+    assert_eq!(value["status"], "failed", "{value}");
+    assert_eq!(value["error"]["code"], "fixture_rejected");
+    assert_eq!(value["error"]["message"], "correct the payload");
+    assert_eq!(value["error"]["op_id"], value["children"][0]["id"]);
+    assert_eq!(value["error"]["tool"], "fail");
+    assert_eq!(value["error"]["server"], "z");
+    rig.close().await;
+}
+
+// Fake time makes a 60-second worker and the actual request cap unattended and fast.
+#[tokio::test]
+async fn sixty_second_worker_wait_is_capped_and_get_wait_observes_completion() {
+    let rig = Rig::start().await;
+    let done = rig.run("emit(1)").await;
+    let id: Ulid = done["execution_id"].as_str().unwrap().parse().unwrap();
+    let run = rig.service.0.runs.lock().await.get(&id).unwrap().clone();
+    run.record.lock().await.status = "running".into();
+    tokio::time::pause();
+    let worker = run.clone();
+    let completion = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        worker.record.lock().await.status = "completed".into();
+        worker.finished.notify_waiters();
+    });
+    let started = tokio::time::Instant::now();
+    let first = rig
+        .service
+        .dispatch(
+            "python_execution_get",
+            json!({"execution_id":id,"wait_ms":60000}),
+            None,
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(first["structuredContent"]["status"], "running", "{first}");
+    assert!(started.elapsed() <= Duration::from_millis(MAX_WAIT_MS));
+    assert!(first["structuredContent"]["next_cursor"].is_string());
+    tokio::time::advance(Duration::from_secs(20)).await;
+    let second_start = tokio::time::Instant::now();
+    let second = rig
+        .service
+        .dispatch(
+            "python_execution_get",
+            json!({"execution_id":id,"wait_ms":25000}),
+            None,
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(
+        second["structuredContent"]["status"], "completed",
+        "{second}"
+    );
+    assert!(second_start.elapsed() <= Duration::from_millis(MAX_WAIT_MS));
+    assert!(started.elapsed() >= Duration::from_secs(60));
+    assert!(started.elapsed() <= Duration::from_millis(60_010));
+    completion.await.unwrap();
+    tokio::time::resume();
+    rig.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn progress_tokens_receive_optional_notifications_and_control_remains_available() {
+    let rig = Rig::start().await;
+    let mut stream = tokio::net::UnixStream::connect(rig.service.0.endpoint.socket())
+        .await
+        .unwrap();
+    let request = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"python_execute","arguments":{"source":"import asyncio\nawait asyncio.sleep(0.2)\nemit(9)","wait_ms":1000},"_meta":{"progressToken":"test-progress"}}});
+    stream
+        .write_all(format!("{request}\n").as_bytes())
+        .await
+        .unwrap();
+    stream
+        .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\"}\n")
+        .await
+        .unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut progress = false;
+    let mut ping = false;
+    loop {
+        let mut line = String::new();
+        tokio::time::timeout(Duration::from_secs(3), reader.read_line(&mut line))
+            .await
+            .unwrap()
+            .unwrap();
+        let value: Value = serde_json::from_str(&line).unwrap();
+        if value["method"] == "notifications/progress" {
+            assert_eq!(value["params"]["progressToken"], "test-progress");
+            progress = true;
+        } else if value["id"] == 2 {
+            ping = true;
+        } else if value["id"] == 1 {
+            assert_eq!(value["result"]["structuredContent"]["emitted"], json!([9]));
+            break;
+        }
+    }
+    assert!(progress && ping);
+    drop(reader);
     rig.close().await;
 }

@@ -10,6 +10,91 @@ use sha2::{Digest, Sha256};
 use std::sync::atomic::Ordering;
 
 pub(crate) type Capture = BTreeMap<String, (u64, String)>;
+/// Default deadline for one nested Python MCP call, independent of the durable
+/// execution's wall deadline. A timeout never authorizes replay of its effect.
+pub(crate) const NESTED_CALL_TIMEOUT_MS: u64 = 25_000;
+
+fn same_generation(capture: &Capture, server: &str, ready: &Ready) -> bool {
+    capture
+        .get(server)
+        .is_some_and(|(generation, digest)| *generation == ready.generation && !digest.is_empty())
+}
+/// Refresh only the existing connection. Per-server serialization prevents late
+/// list replies from overwriting a newer catalogue; no new process is started.
+pub(super) async fn refresh_catalogue(
+    slot: &Slot,
+    cancel: &CancellationToken,
+    deadline: tokio::time::Instant,
+) -> Result<(), Value> {
+    let refresh = async {
+        let _guard = slot.catalogue_refresh.lock().await;
+        let epoch = *slot
+            .catalogue_epoch
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let current = slot.ready.load_full();
+        let ready = current.as_ref().as_ref().ok_or_else(|| {
+            failure(
+                "server_unavailable",
+                "configured MCP server is not ready",
+                false,
+            )
+        })?;
+        let tools = ready.peer.list_all_tools().await.map_err(|_| {
+            failure(
+                "catalogue_unavailable",
+                "MCP tools/list refresh failed; no tool call sent",
+                false,
+            )
+        })?;
+        if slot.generation.load(Ordering::Acquire) != ready.generation
+            || slot.ready.load().as_ref().is_none()
+        {
+            return Err(failure(
+                "server_generation_changed",
+                "MCP connection changed during refresh; no call sent",
+                false,
+            ));
+        }
+        let schema_digest = schema_id(&tools);
+        // Notification admission and publication share a short synchronous
+        // critical section; no IO or await occurs while holding it.
+        let current_epoch = slot
+            .catalogue_epoch
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if *current_epoch != epoch {
+            return Err(failure(
+                "catalogue_changed",
+                "MCP catalogue changed during listing; stale snapshot discarded, no call sent",
+                false,
+            ));
+        }
+        let published = slot.ready.compare_and_swap(
+            &current,
+            Arc::new(Some(Ready {
+                generation: ready.generation,
+                peer: ready.peer.clone(),
+                tools,
+                schema_digest,
+            })),
+        );
+        drop(current_epoch);
+        if !Arc::ptr_eq(&published, &current) {
+            return Err(failure(
+                "server_generation_changed",
+                "MCP connection changed before catalogue publication; no call sent",
+                false,
+            ));
+        }
+        slot.initialized.notify_waiters();
+        Ok(())
+    };
+    tokio::select! { biased;
+        _ = cancel.cancelled() => Err(failure("cancelled", "catalogue refresh cancelled; no call sent", false)),
+        result = tokio::time::timeout_at(deadline, refresh) => result.unwrap_or_else(|_| Err(failure("timeout", "catalogue refresh deadline exceeded; no call sent", false))),
+    }
+}
 fn native_server(slot: &Slot, ready: &Ready) -> bool {
     slot.origin == Origin::Launcher
         && ready.peer.peer_info().is_some_and(|info| {
@@ -139,10 +224,10 @@ impl Manager {
                 false,
             )
         })?;
-        if capture.get(server) != Some(&(ready.generation, ready.schema_digest.clone())) {
+        if !same_generation(capture, server, ready) {
             return Err(failure(
                 "server_generation_changed",
-                "MCP connection or catalogue changed; start a new execution",
+                "MCP connection changed; start a new execution",
                 false,
             ));
         }
@@ -201,6 +286,26 @@ impl Manager {
         expected: Option<&Value>,
         cancel: &CancellationToken,
     ) -> Result<Value, Value> {
+        self.guarded_call_with_timeout(
+            capture, server, tool, arguments, operation, expected, None, cancel,
+        )
+        .await
+    }
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Exact address, custody, deadline and cancellation are independent inputs"
+    )]
+    pub(crate) async fn guarded_call_with_timeout(
+        &self,
+        capture: &Capture,
+        server: &str,
+        tool: &str,
+        arguments: Value,
+        operation: Option<ulid::Ulid>,
+        expected: Option<&Value>,
+        timeout: Option<Duration>,
+        cancel: &CancellationToken,
+    ) -> Result<Value, Value> {
         let slot = self
             .slots
             .iter()
@@ -212,7 +317,23 @@ impl Manager {
                     false,
                 )
             })?;
-        let current = slot.ready.load_full();
+        let deadline = tokio::time::Instant::now()
+            + timeout.unwrap_or_else(|| Duration::from_secs(slot.config.timeout_s));
+        let mut current = slot.ready.load_full();
+        // A catalogue miss is pre-dispatch. Refresh once, then send at most
+        // one tool call. An error after dispatch is never retried here.
+        if let Some(ready) = current.as_ref().as_ref()
+            && same_generation(capture, server, ready)
+            && !ready.tools.iter().any(|definition| definition.name == tool)
+        {
+            refresh_catalogue(
+                slot,
+                cancel,
+                deadline.min(tokio::time::Instant::now() + Duration::from_secs(10)),
+            )
+            .await?;
+            current = slot.ready.load_full();
+        }
         let ready = current.as_ref().as_ref().ok_or_else(|| {
             failure(
                 "server_unavailable",
@@ -220,10 +341,10 @@ impl Manager {
                 false,
             )
         })?;
-        if capture.get(server) != Some(&(ready.generation, ready.schema_digest.clone())) {
+        if !same_generation(capture, server, ready) {
             return Err(failure(
                 "server_generation_changed",
-                "MCP connection or catalogue changed; no call sent",
+                "MCP connection changed; no call sent",
                 false,
             ));
         }
@@ -287,12 +408,25 @@ impl Manager {
             .map_err(|_| failure("invalid_arguments", "invalid MCP request envelope", false))?;
         let request = ClientRequest::CallToolRequest(CallToolRequest::new(params));
         let sent = tokio::select! { biased;
+            _ = tokio::time::sleep_until(deadline) => return Err(failure("timeout", "MCP call deadline exceeded; effect may have completed; inspect the original operation_status", true)),
             _ = cancel.cancelled() => return Err(failure("cancelled", "execution cancelled before dispatch", false)),
             _ = self.root.cancelled() => return Err(failure("session_closed", "harness session is closed", false)),
-            r = ready.peer.send_request_with_option(request, PeerRequestOptions::with_timeout(Duration::from_secs(slot.config.timeout_s))) => r,
+            r = ready.peer.send_request_with_option(request, PeerRequestOptions::with_timeout(deadline.saturating_duration_since(tokio::time::Instant::now()))) => r,
         }.map_err(|_|failure("transport_unknown", "MCP request outcome is unknown; do not replay the script", true))?;
         let request_id = sent.id.clone();
         let reply = tokio::select! { biased;
+            _ = tokio::time::sleep_until(deadline) => {
+                // Best effort cancellation does not establish whether the
+                // original effect happened, and never dispatches it again.
+                let _ = tokio::time::timeout(Duration::from_millis(20), ready.peer.notify_cancelled(CancelledNotificationParam::new(Some(request_id), Some("nested Python MCP call deadline exceeded".into())))).await;
+                let mut error = failure("timeout", "MCP call deadline exceeded; effect may have completed; inspect the original operation_status", true);
+                error["op_id"] = json!(operation);
+                error["tool"] = json!(tool);
+                if let Some(operation) = operation {
+                    error["data"]["hints"] = json!([{"reason":"Inspect the original operation; do not replay the timed-out effect", "method":"tools/call", "params":{"name":"operation_status", "arguments":{"original_op_id":operation}}}]);
+                }
+                return Err(error);
+            },
             _ = cancel.cancelled() => {
                 let _ = tokio::time::timeout(Duration::from_millis(100), ready.peer.notify_cancelled(CancelledNotificationParam::new(Some(request_id), Some("python execution cancelled".into())))).await;
                 return Err(failure("transport_unknown", "cancelled after MCP dispatch; the effect may have completed", true));
@@ -310,6 +444,12 @@ impl Manager {
         match reply {
             Ok(ServerResult::CallToolResult(result)) => serde_json::to_value(result).map(|value|self.redactor.value(value))
                 .map_err(|_|failure("invalid_result", "cannot encode MCP result", true)),
+            Err(rmcp::ServiceError::Timeout { .. }) => {
+                let mut error = failure("timeout", "MCP call deadline exceeded; effect may have completed; inspect the original operation_status", true);
+                error["op_id"] = json!(operation);
+                error["tool"] = json!(tool);
+                Err(error)
+            },
             Err(rmcp::ServiceError::McpError(error)) => Err(self.redactor.value(json!({"code":"mcp_error","rpc_code":error.code,"message":error.message,"data":error.data,"unknown":false}))),
             _ => Err(failure("transport_unknown", "MCP response unavailable; do not replay the script", true)),
         }
@@ -336,11 +476,10 @@ impl Manager {
                 // Fence the effect lane's captured identity too. The independent
                 // lane is only for this exact native context query; callers
                 // cannot address it to dispatch a mutation or broaden authority.
-                if capture.get(&slot.name) != Some(&(ready.generation, ready.schema_digest.clone()))
-                {
+                if !same_generation(capture, &slot.name, ready) {
                     return Err(failure(
                         "server_generation_changed",
-                        "Native MCP connection/catalogue changed; no new execution is admitted",
+                        "Native MCP connection changed; no new execution is admitted",
                         false,
                     ));
                 }

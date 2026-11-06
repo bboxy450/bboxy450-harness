@@ -28,6 +28,11 @@ class ToolError(RuntimeError):
         self.result = result
         data = result.get("structuredContent", result)
         self.code = data.get("error", {}).get("code", "tool_error")
+        self.message = data.get("error", {}).get("message", str(self.code))
+        detail = data.get("error", {})
+        nested = detail.get("data")
+        self.unknown = (detail.get("unknown", False) or data.get("status") == "unknown"
+                        or (isinstance(nested, dict) and nested.get("status") == "unknown"))
         self.hints = data.get("hints", [])
         self.request_op_id = result.get("request_op_id")
         self.server, self.tool = result.get("server"), result.get("tool")
@@ -83,9 +88,9 @@ class MCP:
     async def tools(self, server, cursor=None):
         return await _rpc("tools", {"server": server, "cursor": cursor})
 
-    async def call(self, server, tool, arguments, op_id=None):
+    async def call(self, server, tool, arguments, op_id=None, *, timeout_ms=None):
         response = await _rpc("call", {"server": server, "tool": tool,
-                                        "arguments": arguments, "op_id": op_id})
+                                        "arguments": arguments, "op_id": op_id, "timeout_ms": timeout_ms})
         result = response["result"]
         # Keep the exact result as .raw. .structured is only an alias; content,
         # refs, etags, metadata, media and structuredContent remain untouched.
@@ -192,6 +197,21 @@ async def _main():
 
 try:
     asyncio.run(_main())
+except ToolError as error:
+    # A private callback preserves structure without parsing user stderr.
+    # The receipt is observational; never retry the original nested operation.
+    try:
+        _rpc_sync("failure", {"failure": {
+            "error": {"code": error.code, "message": error.message,
+                      "op_id": error.request_op_id, "server": error.server,
+                      "tool": error.tool, "unknown": error.unknown},
+            "request_op_id": error.request_op_id, "server": error.server,
+            "tool": error.tool, "hints": error.hints,
+        }})
+    except BaseException:
+        pass
+    traceback.print_exc()
+    sys.exit(1)
 except BaseException:
     traceback.print_exc()
     sys.exit(1)

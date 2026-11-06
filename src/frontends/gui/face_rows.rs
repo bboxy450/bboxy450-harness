@@ -50,6 +50,18 @@ pub(super) fn drawn(model: &Transcript, id: &ItemId) -> bool {
             && (r.kind != ItemKind::UserMessage || r.completed.is_some())
     })
 }
+fn python_cell(row: &ViewItem) -> Option<crate::frontends::face_core::PythonCell> {
+    match &row.body {
+        Item::ToolCall {
+            name,
+            input_raw,
+            output,
+            raw_output,
+            ..
+        } => crate::frontends::face_core::python_cell(name, input_raw, output, raw_output.as_ref()),
+        _ => None,
+    }
+}
 /// harness-spec.md "Runaway loop card": first line, lowercased, letters only, 48 chars.
 fn line_key(markdown: &str) -> String {
     let first = markdown.trim().lines().next().unwrap_or("").to_lowercase();
@@ -118,10 +130,24 @@ impl Folds {
                 .get(id)
                 .is_some_and(|t| t.kind == ItemKind::ToolCall)
         };
+        let mut executions = HashMap::new();
         for id in &model.order {
             let r = &model.items[id];
             if f.parent.contains_key(id) {
                 continue;
+            }
+            if let Some(cell) = python_cell(r)
+                && let Some(execution) = cell.execution_id
+            {
+                if !cell.continued {
+                    executions.insert(execution, *id);
+                } else if cell.status.is_some()
+                    && let Some(parent) = executions.get(&execution)
+                {
+                    f.parent.insert(*id, *parent);
+                    f.kids.entry(*parent).or_default().push(*id);
+                    continue;
+                }
             }
             let to = match &r.body {
                 Item::Approval {
@@ -226,6 +252,19 @@ impl Folds {
             .find(|k| k.kind == kind)
             .cloned()
     }
+    fn python(
+        &self,
+        model: &Transcript,
+        row: &ViewItem,
+    ) -> Option<crate::frontends::face_core::PythonCell> {
+        let mut cell = python_cell(row)?;
+        for child in self.kids.get(&row.id).into_iter().flatten() {
+            if let Some(next) = model.items.get(child).and_then(python_cell) {
+                cell.merge(next);
+            }
+        }
+        Some(cell)
+    }
     pub fn deps(&self, model: &Transcript, id: &ItemId, p: &Preparer) -> u64 {
         // rows without folded children or a receipt carry no signature (0)
         let mut any = false;
@@ -264,6 +303,9 @@ impl Folds {
                     p.has_terminal_output(k),
                 )
                     .hash(&mut h);
+                if let Some(cell) = python_cell(r) {
+                    format!("{cell:?}").hash(&mut h);
+                }
             }
         }
         if any { h.finish() } else { 0 }
@@ -578,6 +620,7 @@ impl Preparer {
                 body.extend(command_panels(
                     &mut self.documents,
                     command,
+                    false,
                     id,
                     panel_width,
                     face,
@@ -883,6 +926,7 @@ impl Preparer {
             return Err("not a tool call".into());
         };
         let id = row.id;
+        let python = folds.python(model, row);
         let d = f::describe(name, tool_kind.clone(), input_raw, output, cwd);
         let approval = folds.kid(model, &id, ItemKind::Approval);
         let term = folds.kid(model, &id, ItemKind::Terminal);
@@ -892,7 +936,7 @@ impl Preparer {
             _ => (None, None),
         };
         let denied = matches!(decision, Some(ApprovalDecision::Deny { .. }));
-        let status = match &row.status {
+        let mut status = match &row.status {
             None if folds.asking.contains_key(&id) => f::Status::Asking,
             None => f::Status::Running,
             Some(_) if denied => f::Status::Denied,
@@ -916,7 +960,19 @@ impl Preparer {
             d.target = command.clone();
             d.mono = true;
         }
-        let original_command = if d.kind == "execute" {
+        if let Some(cell) = &python {
+            d.out = cell.text();
+            status = match cell.status.as_deref() {
+                Some("starting" | "running" | "cancelling") => f::Status::Running,
+                Some("completed") => f::Status::Done,
+                Some("cancelled" | "interrupted") => f::Status::Stopped,
+                Some(_) => f::Status::Failed,
+                None => status,
+            };
+        }
+        let original_command = if let Some(cell) = &python {
+            cell.source.clone()
+        } else if d.kind == "execute" {
             Some(if !d.target.is_empty() {
                 d.target.clone()
             } else if name.chars().any(char::is_whitespace) {
@@ -936,7 +992,23 @@ impl Preparer {
                 .filter(|t| super::super::rich::python_snippet(t).is_some())
                 .cloned()
         };
-        if let Some(command) = &original_command {
+        if let Some(cell) = &python {
+            d.kind = "execute";
+            d.mono = true;
+            d.verb = if cell.continued {
+                "Continue Python"
+            } else {
+                "Run Python"
+            }
+            .into();
+            d.target = f::compact_heading(
+                cell.source
+                    .as_deref()
+                    .or(cell.execution_id.as_deref())
+                    .unwrap_or("Python"),
+                80,
+            );
+        } else if let Some(command) = &original_command {
             let python = super::super::rich::python_snippet(command);
             d.kind = "execute";
             d.mono = true;
@@ -961,20 +1033,37 @@ impl Preparer {
             })
             .or_else(|| (d.kind == "edit" && d.out.starts_with("---")).then(|| d.out.clone()));
         let lines = d.out.lines().filter(|l| !l.is_empty()).count();
-        let meta = match d.kind {
-            // `exit N` only when N ≠ 0: success says nothing, the check mark already did
-            "execute" => exit
-                .filter(|e| *e != 0)
-                .map(|e| (format!("exit {e}"), Some(false))),
-            "read" if row.status.is_some() && lines > 0 => Some((format!("{lines} lines"), None)),
-            "search" if row.status.is_some() && lines > 0 => Some((
-                format!("{lines} hit{}", if lines == 1 { "" } else { "s" }),
-                None,
-            )),
-            _ if raw_output.is_some() && row.status.is_some() && lines > 0 => {
-                Some((format!("{lines} lines"), None))
+        let meta = if let Some(cell) = &python {
+            let mut label = cell.status.clone().unwrap_or_else(|| {
+                if cell.error.is_some() {
+                    "failed"
+                } else {
+                    "pending"
+                }
+                .into()
+            });
+            if let Some(exit) = cell.exit_code {
+                label.push_str(&format!(" · exit {exit}"));
             }
-            _ => None,
+            Some((label, cell.exit_code.map(|exit| exit == 0)))
+        } else {
+            match d.kind {
+                // `exit N` only when N ≠ 0: success says nothing, the check mark already did
+                "execute" => exit
+                    .filter(|e| *e != 0)
+                    .map(|e| (format!("exit {e}"), Some(false))),
+                "read" if row.status.is_some() && lines > 0 => {
+                    Some((format!("{lines} lines"), None))
+                }
+                "search" if row.status.is_some() && lines > 0 => Some((
+                    format!("{lines} hit{}", if lines == 1 { "" } else { "s" }),
+                    None,
+                )),
+                _ if raw_output.is_some() && row.status.is_some() && lines > 0 => {
+                    Some((format!("{lines} lines"), None))
+                }
+                _ => None,
+            }
         };
         let failed = matches!(status, f::Status::Failed | f::Status::Denied);
         // the terminal's output, else the call's: what an execute body shows
@@ -1021,6 +1110,34 @@ impl Preparer {
             )
             .into(),
         ];
+        if let Some(cell) = &python {
+            if let Some(execution) = &cell.execution_id {
+                kids.push(
+                    named(
+                        format!("python/{id}/execution"),
+                        f::line(format!("Execution {execution}"), 10.5, 400, ink.dim, true),
+                    )
+                    .into(),
+                );
+            }
+            let preview = cell.preview();
+            if !preview.is_empty() {
+                kids.push(
+                    named(
+                        format!("python/{id}/emitted"),
+                        f::line(preview, 11.5, 400, ink.fg, true),
+                    )
+                    .into(),
+                );
+            }
+            // Continuations share the parent card but preserve their addressable
+            // item nodes for visibility and replay witnesses.
+            for child in folds.kids.get(&id).into_iter().flatten() {
+                if model.items.get(child).and_then(python_cell).is_some() {
+                    kids.push(named(format!("item/{child}"), c::Element::Spacer).into());
+                }
+            }
+        }
         let mut inside: Vec<c::Item> = vec![];
         let mut rich = None;
         let caption = [
@@ -1050,6 +1167,7 @@ impl Preparer {
             inside.extend(command_panels(
                 &mut self.documents,
                 command,
+                python.is_some(),
                 id,
                 (content_width - 48.).max(1.),
                 face,
@@ -1346,9 +1464,14 @@ fn plain_box(
     )
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Source language and bounded command-panel geometry are independent presentation inputs"
+)]
 fn command_panels(
     documents: &mut super::super::rich::Documents,
     command: &str,
+    python_source: bool,
     id: ItemId,
     width: f32,
     face: &Face,
@@ -1357,7 +1480,8 @@ fn command_panels(
 ) -> Result<Vec<c::Item>, String> {
     let ctx = documents.context();
     let python = super::super::rich::python_snippet(command);
-    let long = command.contains('\n')
+    let long = python_source
+        || command.contains('\n')
         || command.chars().count() > 80
         || f::line(command, 12., 400, ink.fg, true)
             .natural(f32::INFINITY, ctx, metrics)?
@@ -1367,6 +1491,7 @@ fn command_panels(
         return Ok(vec![]);
     }
     let content = match &python {
+        _ if python_source => documents.code_element(command, metrics),
         Some(p) => documents.code_element(p.source, metrics),
         None => f::term_line(vec![(command.into(), ink.fg, 400, false)], 12., false),
     };

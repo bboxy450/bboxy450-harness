@@ -1323,6 +1323,36 @@ expected = "pass"
 frontend = "project"
 
 [[model]]
+name = "HarnessPythonWait"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessPythonWaitCap"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessPythonWaitDuplicate"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessPythonCatalogue"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessPythonCatalogueAba"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessPythonCatalogueReplay"
+expected = "safety"
+frontend = "project"
+
+[[model]]
 name = "BrokenHarnessPythonControlCapacity"
 expected = "liveness"
 frontend = "project"

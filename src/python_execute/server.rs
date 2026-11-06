@@ -11,8 +11,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 pub fn catalogue() -> Vec<Value> {
     let id = json!({"type":"string","pattern":"^[0-7][0-9A-HJKMNP-TV-Z]{25}$"});
     [
-        ("python_execute","Run full CPython in your current source workspace with inputs, emit, MCP discovery/calls and exact-argv commands bindings. Returns a durable handle promptly. Earlier effects are never replayed after lost output. Read python_execute_orient first.",json!({"source":{"type":"string","minLength":1,"maxLength":SOURCE},"inputs":{},"timeout_ms":{"type":"integer","minimum":10,"maximum":TIMEOUT},"op_id":id}),vec!["source"]),
-        ("python_execution_get","Read your session's Python execution and bounded output pages. child:N:OFFSET reads exact JSON result bytes for nested receipt N. Concatenate base64 pages before parsing; native recovery hints are not truncated.",json!({"execution_id":id,"cursor":{"type":"string","maxLength":256}}),vec!["execution_id"]),
+        ("python_execute","Run full CPython in your current source workspace. Waits up to wait_ms (default 1000, clamped to 25000 ms), returning short results inline and durable handles for long runs. Earlier effects are never replayed after lost output. Read python_execute_orient first.",json!({"source":{"type":"string","minLength":1,"maxLength":SOURCE},"inputs":{},"timeout_ms":{"type":"integer","minimum":10,"maximum":TIMEOUT},"wait_ms":{"type":"integer","minimum":0,"description":"Bounded result wait, clamped to 25000 ms; 0 returns immediately."},"op_id":id}),vec!["source"]),
+        ("python_execution_get","Read your session's Python execution and bounded output pages, optionally waiting for completion (wait_ms, default 1000, cap 25000 ms). UTF-8 output has text only; otherwise decode base64 for exact bytes. child:N:OFFSET reads exact JSON result bytes for nested receipt N.",json!({"execution_id":id,"cursor":{"type":"string","maxLength":256},"wait_ms":{"type":"integer","minimum":0}}),vec!["execution_id"]),
         ("python_execution_cancel","Cancel new work and retire the exact owned Python/command children. Earlier writes may have completed; inspect receipts. No script replay or rollback.",json!({"execution_id":id,"op_id":id}),vec!["execution_id"]),
         ("python_execute_orient","Read Python readiness, source workspace, current MCP server discovery, argv/jq bindings, limits and recovery examples. No package installation is required.",json!({}),vec![]),
     ].into_iter().map(|(name,description,properties,required)|json!({"name":name,"description":description,
@@ -24,7 +24,25 @@ impl Service {
     pub(super) async fn serve(&self, stream: tokio::net::UnixStream) {
         let (read, write) = stream.into_split();
         let mut reader = BufReader::new(read);
-        let writer = Arc::new(Mutex::new(write));
+        let (writer, mut outgoing) = mpsc::channel::<Value>(64);
+        let stop = self.0.cancel.clone();
+        let output = bbt_rt::handle().spawn(async move {
+            let mut write = write;
+            loop {
+                let value =
+                    tokio::select! {biased;_=stop.cancelled()=>break,value=outgoing.recv()=>value};
+                let Some(value) = value else { break };
+                let Ok(mut bytes) = serde_json::to_vec(&value) else {
+                    continue;
+                };
+                bytes.push(b'\n');
+                let sent =
+                    tokio::select! {biased;_=stop.cancelled()=>break,r=write.write_all(&bytes)=>r};
+                if sent.is_err() {
+                    break;
+                }
+            }
+        });
         let mut tasks = tokio::task::JoinSet::new();
         loop {
             let mut bytes = vec![];
@@ -47,12 +65,22 @@ impl Service {
             let service = self.clone();
             let writer = writer.clone();
             tasks.spawn(async move {
+                let progress = request["params"]["_meta"].get("progressToken").filter(|v| v.is_string() || v.is_number()).cloned().map(|token|(token,writer.clone()));
                 let result=match request["method"].as_str() {
                     Some("initialize")=>Ok(json!({"protocolVersion":request["params"]["protocolVersion"].as_str().unwrap_or("2025-11-25"),"capabilities":{"tools":{}},"serverInfo":{"name":"bboxy-python","version":env!("CARGO_PKG_VERSION")}})),
                     Some("ping")=>Ok(json!({})),
                     Some("tools/list")=>Ok(json!({"tools":catalogue()})),
-                    Some("tools/call")=>Ok(service.dispatch(request["params"]["name"].as_str().unwrap_or(""),request["params"]["arguments"].clone(),None,request["params"]["_meta"].get("bboxy450/python_context").cloned()).await),
-                    Some("python/proxy")=>Ok(service.dispatch(request["params"]["name"].as_str().unwrap_or(""),request["params"]["arguments"].clone(),Some(request["params"]["context"].clone()),None).await),
+                    Some("tools/call"|"python/proxy")=>{
+                        let proxy=request["method"]=="python/proxy";
+                        let name=request["params"]["name"].as_str().unwrap_or("");
+                        let mut args=request["params"]["arguments"].clone();
+                        if name=="python_execute" && args.is_object() && args.get("op_id").is_none() {args["op_id"]=json!(Ulid::new());}
+                        let handle=if name=="python_execute" {args["op_id"].clone()} else {args["execution_id"].clone()};
+                        match tokio::time::timeout(Duration::from_millis(MAX_WAIT_MS),service.dispatch(name,args,proxy.then(||request["params"]["context"].clone()),(!proxy).then(||request["params"]["_meta"].get("bboxy450/python_context").cloned()).flatten(),progress)).await {
+                            Ok(value)=>Ok(value),
+                            Err(_)=>{let mut error=fault("request_wait_timeout","MCP wait cap reached; inspect the retained execution handle before retrying any effect");error["execution_id"]=handle;error["retry_script"]=json!(false);Ok(envelope(error))}
+                        }
+                    },
                     Some("python/callback")=>service.callback(request["params"].clone()).await,
                     _=>Err(fault("method_not_found","unknown runtime protocol method")),
                 };
@@ -61,12 +89,14 @@ impl Service {
                     if bytes.len()>FRAME {
                         bytes=serde_json::to_vec(&json!({"jsonrpc":"2.0","id":request_id,"error":{"code":-32000,"message":"Python runtime response exceeds its frame limit","data":fault("response_too_large","Response exceeds 8 MiB; inspect the retained execution and page results instead of replaying source")}})).unwrap_or_default();
                     }
-                    bytes.push(b'\n');let _=writer.lock().await.write_all(&bytes).await;
+                    if let Ok(value)=serde_json::from_slice(&bytes) {let _=writer.send(value).await;}
                 }
             });
             while tasks.try_join_next().is_some() {}
         }
         while tasks.join_next().await.is_some() {}
+        drop(writer);
+        let _ = output.await;
     }
     async fn callback(&self, params: Value) -> Result<Value, Value> {
         let execution = id(&params, "execution_id")?;
@@ -90,9 +120,37 @@ impl Service {
         // batch cannot consume another run's emit capacity or deny get/cancel.
         let _execution_callback = tokio::select! {biased;_=run.cancel.cancelled()=>return Err(fault("cancelled","callback cancelled before admission")),r=run.callbacks.clone().acquire_owned()=>r.map_err(|_|fault("session_closed","callback admission closed"))?};
         let _callback = tokio::select! {biased;_=run.cancel.cancelled()=>return Err(fault("cancelled","callback cancelled before admission")),r=self.0.callbacks.clone().acquire_owned()=>r.map_err(|_|fault("session_closed","callback admission closed"))?};
-        self.check_context(&run).await?;
+        // Failure reporting is observational and must survive a revoked grant.
+        // Other callbacks still re-admit current authority before doing work.
+        if params["method"] != "failure" {
+            self.check_context(&run).await?;
+        }
         let args = &params["arguments"];
         match params["method"].as_str() {
+            Some("failure") => {
+                let value = self.0.redactor.value(args["failure"].clone());
+                if !value["error"]["code"].is_string() {
+                    return Err(fault(
+                        "invalid_arguments",
+                        "failure requires a structured error code",
+                    ));
+                }
+                let mut record = run.record.lock().await;
+                if record.status != "running" {
+                    return Err(fault(
+                        "execution_retired",
+                        "Terminal execution cannot report a failure",
+                    ));
+                }
+                if serde_json::to_vec(&value).map_or(usize::MAX, |v| v.len()) > 64 * 1024 {
+                    return Err(fault("output_limit", "failure budget is 64 KiB"));
+                }
+                record.error = Some(value);
+                self.save_record(&record)
+                    .await
+                    .map_err(|_| fault("execution_storage", "cannot persist Python failure"))?;
+                Ok(Value::Null)
+            }
             Some("servers") => Ok(self.0.mcp.servers()),
             Some("tools") => {
                 let server = args["server"]
@@ -152,6 +210,27 @@ impl Service {
                         "MCP call requires exact server/tool strings and a JSON arguments object",
                     ));
                 }
+                let call_timeout = if kind == "call" {
+                    let timeout = if args["timeout_ms"].is_null() {
+                        crate::mcp::NESTED_CALL_TIMEOUT_MS
+                    } else {
+                        args["timeout_ms"].as_u64().ok_or_else(|| {
+                            fault(
+                                "invalid_arguments",
+                                "nested MCP timeout_ms must be an integer",
+                            )
+                        })?
+                    };
+                    if !(10..=TIMEOUT).contains(&timeout) {
+                        return Err(fault(
+                            "invalid_arguments",
+                            "nested MCP timeout_ms must be 10..600000",
+                        ));
+                    }
+                    Some(Duration::from_millis(timeout))
+                } else {
+                    None
+                };
                 let operation = if args["op_id"].is_null() {
                     Ulid::new()
                 } else {
@@ -223,13 +302,14 @@ impl Service {
                         .ok_or_else(|| fault("invalid_arguments", "tool name required"))?;
                     self.0
                         .mcp
-                        .guarded_call(
+                        .guarded_call_with_timeout(
                             &run.capture(),
                             server,
                             tool,
                             args["arguments"].clone(),
                             Some(operation),
                             expected.as_ref().ok(),
+                            call_timeout,
                             &run.cancel,
                         )
                         .await

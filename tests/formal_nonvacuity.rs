@@ -1882,3 +1882,104 @@ fn wp8_owned_boundaries_reach_positive_and_broken_scenarios() {
         }
     }
 }
+
+#[test]
+fn python_wait_cap_terminal_duplicates_and_catalogue_aba_are_reachable() {
+    let m = model("HarnessPythonWait");
+    let c = m.check(100_000).unwrap();
+    assert!(c.violations.is_empty(), "{:?}", c.violations);
+    let phase = variable(&m, "phase");
+    let wait = variable(&m, "wait");
+    let elapsed = variable(&m, "elapsed");
+    let reply = variable(&m, "reply");
+    let completions = variable(&m, "completions");
+    assert!(
+        c.states
+            .iter()
+            .any(|s| s[phase] == 0 && s[wait] == 2 && s[elapsed] == 2)
+    );
+    assert!(
+        c.states
+            .iter()
+            .any(|s| s[phase] == 1 && s[wait] == 2 && s[reply] == 0),
+        "worker must remain durable after the running reply"
+    );
+    for terminal in [1, 2] {
+        assert!(
+            c.states
+                .iter()
+                .any(|s| s[phase] == terminal && s[completions] == 2),
+            "duplicate and late cancellation completions must be reachable"
+        );
+        assert!(
+            c.states
+                .iter()
+                .any(|s| s[phase] == terminal && s[reply] == terminal),
+            "pending wait must return the terminal result"
+        );
+    }
+    let bad = model("BrokenHarnessPythonWaitCap");
+    let checked = bad.check(100_000).unwrap();
+    assert!(
+        checked
+            .states
+            .iter()
+            .any(|s| s[variable(&bad, "elapsed")] == 3),
+        "cap control must actually exceed the cap"
+    );
+    assert!(
+        checked
+            .violations
+            .iter()
+            .any(|v| v.property == "WaitNeverExceedsCap")
+    );
+    assert!(
+        model("BrokenHarnessPythonWaitDuplicate")
+            .check(100_000)
+            .unwrap()
+            .violations
+            .iter()
+            .any(|v| v.property == "TerminalSettlesOnce")
+    );
+
+    let m = model("HarnessPythonCatalogue");
+    let c = m.check(100_000).unwrap();
+    assert!(c.violations.is_empty(), "{:?}", c.violations);
+    let epoch = variable(&m, "catalogue_epoch");
+    let cached = variable(&m, "cached_epoch");
+    let refresh = variable(&m, "refresh_epoch");
+    let refreshing = variable(&m, "refreshing");
+    let dirty = variable(&m, "dirty");
+    assert!(
+        c.states
+            .iter()
+            .any(|s| s[epoch] == 2 && s[refresh] == 0 && s[refreshing] == 1),
+        "old A listing must survive the later A catalogue revision"
+    );
+    assert!(
+        c.states
+            .iter()
+            .any(|s| s[epoch] == 2 && s[cached] == 2 && s[dirty] == 0),
+        "later A catalogue must refresh without a new connection"
+    );
+    assert!(
+        c.states.iter().any(|s| s[variable(&m, "unknown")] == 1),
+        "nested timeout must leave an unknown effect"
+    );
+    for (name, property) in [
+        (
+            "BrokenHarnessPythonCatalogueAba",
+            "CleanCatalogueHasCurrentRevision",
+        ),
+        (
+            "BrokenHarnessPythonCatalogueReplay",
+            "UnknownEffectNeverReplayed",
+        ),
+    ] {
+        let c = model(name).check(100_000).unwrap();
+        assert!(
+            c.violations.iter().any(|v| v.property == property),
+            "{name} control vacuous"
+        );
+    }
+}

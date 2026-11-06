@@ -96,6 +96,18 @@ checks the exact upstream disallowed-method catalogue at UI module boundaries,
 runs the feature tests and asserts every all-items kind has a nonblank,
 nonoverlapping framebuffer region. Screenshot: `.bboxy/runs/gui-smoke.png`.
 
+Python execution adds `HarnessPythonWait`: two logical ticks abstract the 25s
+MCP wait ceiling, terminal completion/cancellation wakes an active waiter, and
+duplicate or late worker completion cannot settle a durable execution twice.
+Its controls keep waiting past the cap or apply a duplicate terminal result.
+`HarnessPythonCatalogue` explores three exact live catalogue revisions with
+public sets A-B-A, delayed refresh completion and a timed-out unknown nested
+effect. Its controls publish an obsolete A listing or replay the unknown effect.
+Timer/terminal and local refresh actions are weakly fair; real transport writes,
+Tokio scheduling, progress notifications and bytes remain API/process witnesses.
+`formal_nonvacuity` asserts cap, cancellation, late/duplicate completion, delayed
+A-B-A listing and unknown-effect states are actually reachable.
+
 Protocol v0.2's optional ItemStarted.head and Terminal.live are projected from
 wire values as additive fields, so the frontend can build while E1b's typed
 core changes land independently. The in-process path reads the same fields

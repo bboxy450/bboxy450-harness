@@ -80,6 +80,32 @@ async fn serve(stream: UnixStream, manager: Manager, name: String, cancel: Cance
     let mut reader = BufReader::new(read);
     let writer = Arc::new(tokio::sync::Mutex::new(write));
     let mut tasks = tokio::task::JoinSet::new();
+    // A relay is a live MCP server too. Forward catalogue changes from the
+    // existing upstream slot, without polling or reopening its process.
+    if let Some(slot) = manager.slots.iter().find(|slot| slot.name == name).cloned() {
+        let writer = writer.clone();
+        let cancel = cancel.clone();
+        tasks.spawn(async move {
+            let mut previous = None;
+            loop {
+                let notified = slot.initialized.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                let current = slot.ready.load_full();
+                let version = current.as_ref().as_ref().map(|ready| (ready.generation, ready.schema_digest.clone()));
+                if previous.is_some() && previous != version {
+                    let notification = b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n";
+                    // Do not queue behind a blocked response for an optional
+                    // notification. A pre-dispatch tool miss also refreshes.
+                    if let Ok(mut writer) = writer.try_lock() {
+                        tokio::select! {biased;_=cancel.cancelled()=>return,_=writer.write_all(notification)=>{}}
+                    }
+                }
+                previous = version;
+                tokio::select! {biased;_=cancel.cancelled()=>return,_=notified=>{}}
+            }
+        });
+    }
     let capture = Arc::new(tokio::sync::Mutex::new(None::<Capture>));
     loop {
         let mut bytes = vec![];
@@ -106,7 +132,7 @@ async fn serve(stream: UnixStream, manager: Manager, name: String, cancel: Cance
         let capture = capture.clone();
         tasks.spawn(async move {
             let result=match request["method"].as_str() {
-                Some("initialize")=>Ok(json!({"protocolVersion":request["params"]["protocolVersion"].as_str().unwrap_or("2025-11-25"),"capabilities":{"tools":{}},"serverInfo":{"name":name,"version":env!("CARGO_PKG_VERSION")}})),
+                Some("initialize")=>Ok(json!({"protocolVersion":request["params"]["protocolVersion"].as_str().unwrap_or("2025-11-25"),"capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":name,"version":env!("CARGO_PKG_VERSION")}})),
                 Some("ping")=>Ok(json!({})),
                 Some("tools/list"|"tools/call")=>{
                     let deadline=tokio::time::Instant::now()+Duration::from_secs(10);

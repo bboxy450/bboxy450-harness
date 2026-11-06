@@ -195,3 +195,9 @@ and the exact shared checker copies. These checks do not replace upstream terms.
   sampling/formatting, finite entry-order/usage models and causal private process
   controls are project-owned. Preserve this origin and credit policy with extracts:
   https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+
+- Bounded Python result waits, optional progress, live nested MCP catalogues,
+  unknown-effect call deadlines, structured worker failures, lean byte output
+  and linked command-style execution cards are project-owned implementations.
+  Keep this source and policy with extracted runtime, rendering and formal witnesses:
+  https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.

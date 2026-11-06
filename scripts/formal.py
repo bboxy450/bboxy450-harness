@@ -100,13 +100,49 @@ def coverage(root, models):
 
 
 def implementation_reference(root, path):
-    """Keep an actual term witness valid in sibling and embedded checkouts."""
+    """Resolve actual term witnesses in sibling, embedded and managed worktrees.
+
+    BBOXY_TOOLKIT_ROOT is authoritative when supplied, including missing files.
+    Otherwise Git's common directory identifies the owning source checkout;
+    no peer worktree or fabricated replacement witness is inspected.
+    """
     prefix = "../bboxy450-term/"
+    if not path.startswith(prefix):
+        return path
+    root = Path(root).resolve()
+    supplied = os.environ.get("BBOXY_TOOLKIT_ROOT")
+    if supplied is not None:
+        toolkit = Path(supplied).expanduser()
+        if not toolkit.is_absolute():
+            toolkit = root / toolkit
+        return os.path.relpath(toolkit / path[len(prefix):], root)
+    if (root / path).is_file():
+        return path
+    candidates = []
     enclosing = root.parent.parent
-    if (not (root / path).is_file() and path.startswith(prefix)
-            and root == enclosing / "crates/bboxy450-harness"
+    if (root == enclosing / "crates/bboxy450-harness"
             and (enclosing / ".gitmodules").is_file()):
-        actual = enclosing / path[len(prefix):]
+        candidates.append(enclosing)
+    try:
+        common = Path(subprocess.check_output(
+            ["git", "rev-parse", "--git-common-dir"], cwd=root, text=True,
+            stderr=subprocess.DEVNULL, timeout=2).strip())
+        if not common.is_absolute():
+            common = root / common
+        common = common.resolve()
+        # Submodule worktrees share <toolkit>/.git/modules/...; ordinary
+        # harness worktrees share <harness>/.git beside the term repository.
+        for parent in [common, *common.parents]:
+            if parent.name == ".git":
+                if (parent.parent / ".gitmodules").is_file():
+                    candidates.append(parent.parent)
+                if parent == common:
+                    candidates.append(parent.parent.parent / "bboxy450-term")
+                break
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        pass
+    for toolkit in candidates:
+        actual = toolkit / path[len(prefix):]
         if actual.is_file():
             return os.path.relpath(actual, root)
     return path
