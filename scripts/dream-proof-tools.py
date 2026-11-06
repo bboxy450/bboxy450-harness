@@ -2123,9 +2123,13 @@ def prepare_basis(run, prefix, closure):
     projections = {"build": build, "closure": closure, "config": private_config(run, prefix), "commands": command_profile(), "fixture": prepare_fixture(run)}
     basis = {"format": "bboxy.dream.private-pretest-basis/1", **projections, "review": capture_review(run, projections)}
     raw = canonical(basis)
-    # Reserve the full canonical result ceiling and descriptor ceiling now.
-    # This is a reservation, not permission to fill past the aggregate cap.
-    require(len(raw) <= 49152 and len(raw) + lock["len"] + 65536 + 16384 <= 131072, "pre-test basis/result/descriptor reservation exceeds128KiB")
+    # The descriptor does not exist yet. Charge the materialized Basis/lock
+    # plus the bounded future result; private_descriptor charges its ACTUAL
+    # bytes before launch. Summing both individual ceilings rejected fitting
+    # inputs (47112+7176+65536+16384) before their descriptor was constructed.
+    # The final envelope is charged with the retained actual result before
+    # publication. Every phase keeps the same individual and aggregate caps.
+    prepared_budget(b"", ref_bytes(prefix, lock), b"\0" * 65536, raw)
     exclusive(prefix / "provenance/pretest-basis.json", raw)
     exclusive(run / "basis-ready.json", canonical({"basis": file_pin(prefix, "provenance/pretest-basis.json"), "source_lock": file_pin(prefix, lock["path"]), "probe_admitted": False}))
     return basis
@@ -3992,6 +3996,15 @@ class ProvisioningTests(unittest.TestCase):
         with self.assertRaises(Refused): prepared_budget(b"q", b"s", b"r", b"b" * 49153)
         with self.assertRaises(Refused): prepared_budget(b"q", b"s", b"r", b"b", b"d" * 16385)
         with self.assertRaises(Refused): prepared_budget(b"q", b"s", b"r" * 65537)
+
+    def test_prepared_budget_charges_materialized_descriptor_before_launch(self):
+        # Length-only regression from the retained failed source10 attempt;
+        # these inert bytes are no provenance, authentication or native proof.
+        basis, lock, result = b"b" * 47112, b"s" * 7176, b"r" * 65536
+        prepared_budget(b"", lock, result, basis)
+        prepared_budget(b"", lock, result, basis, b"d" * 4096)
+        with self.assertRaises(Refused): prepared_budget(b"", lock, result, basis, b"d" * 16384)
+        with self.assertRaises(Refused): prepared_budget(b"q" * 7153, lock, result, basis, b"d" * 4096)
 
     def test_zero_context_patches_match_every_exact_postimage(self):
         # Upstream C includes form-feed separators. Diff line numbers must count
