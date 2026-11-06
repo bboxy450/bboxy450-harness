@@ -31,6 +31,7 @@ import io
 import re
 import tempfile
 import unittest
+import zlib
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_BYTES = Path(__file__).read_bytes()
@@ -75,6 +76,19 @@ def sha(data):
 
 
 def canonical(value):
+    def check(node, depth=0):
+        require(depth <= 10, "JSON depth bound")
+        if isinstance(node, str):
+            require("\x00" not in node and not any(0xD800 <= ord(c) <= 0xDFFF for c in node), "JSON NUL/surrogate")
+        elif isinstance(node, dict):
+            for key, child in node.items():
+                require(isinstance(key, str) and key.isascii(), "ASCII JSON keys required")
+                check(key, depth + 1); check(child, depth + 1)
+        elif isinstance(node, list):
+            for child in node: check(child, depth + 1)
+        else:
+            require(node is None or type(node) in (int, bool), "JSON integers only")
+    check(value)
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
 
 
@@ -374,7 +388,7 @@ def build(d):
               "prefix": str(candidate), "device": info.st_dev, "inode": info.st_ino}))
     try:
         return build_new(d, run, candidate)
-    except (Refused, OSError, subprocess.TimeoutExpired) as error:
+    except Exception as error:
         # Do not manufacture absent effects after an unknown spawn/write. All
         # original start/PID/inode records remain; same-input retry is refused.
         if not (run / "terminal.json").exists():
@@ -653,11 +667,19 @@ def compile_sources(run, candidate):
         exclusive(run / "unsupported.json", canonical({"reason": "GnuPG configure failed; no dependency substitution authorized", "exit_code": status, "candidate": str(candidate), "build_id": run.name}))
         raise Refused(f"GnuPG configure exit={status}; inspect original logs and generated config in {run}; no additional source/library authorized")
     command(run, ["/usr/bin/make", "-j2", "gpg_LDFLAGS=-Wl,-map," + str(run / "logs/gpg.link-map")], cwd=work, extra_env=buildenv)
+    generated = read_regular(work / "config.h", MAX_ARCHIVE, True)
+    for macro in ("ENABLE_CARD_SUPPORT", "HAVE_LIBREADLINE", "USE_LDAP", "USE_TOFU"):
+        require(("/* #undef " + macro + " */").encode() in generated and not re.search(rb"^#define " + macro.encode() + rb"\b", generated, re.MULTILINE), "unexpected generated GPG feature: " + macro)
+    gcrypt = read_regular(run / "build/libgcrypt/config.h", MAX_ARCHIVE, True)
+    for macro in ("ENABLE_HMAC_BINARY_CHECK", "ENABLE_JENT_SUPPORT"):
+        require(("/* #undef " + macro + " */").encode() in gcrypt, "unexpected generated libgcrypt constructor/entropy feature")
     bindir = private_dir(candidate / "bin")
     exclusive(bindir / "gpg", read_regular(work / "g10/gpg"), executable=True)
     command(run, ["/usr/bin/otool", "-L", str(bindir / "gpg")])
     command(run, ["/usr/bin/otool", "-l", str(bindir / "gpg")])
     stage_linked_archives(run, candidate, deps)
+    closure = emit_closure(run, candidate)
+    prepare_basis(run, candidate, closure)
     exclusive(run / "build-complete.json", canonical({"candidate": str(candidate), "tools": {name: sha(read_regular(bindir / name, private=True)) for name in ("git", "gpg")}, "lifetime": "unproven_pending_canonical_private_probe"}))
     raise Refused(f"real pair built at {candidate}; exact canonical private-candidate probe freeze still required before joined qualification")
 
@@ -667,8 +689,15 @@ def build_git(run, candidate, compiler, sdk, buildenv):
     # package discovery is used. Real supported read/signature paths remain.
     work = run / "src/git-2.54.0"
     cflags = "-O2 -g0 -isysroot " + sdk + " -DDREAM_PROOF_GPG='\"" + str(candidate / "bin/gpg") + "\"'"
-    variables = ["CC=" + compiler, "CFLAGS=" + cflags, "LDFLAGS=-isysroot " + sdk + " -Wl,-map," + str(run / "logs/git.link-map"), "NO_PTHREADS=YesPlease", "NO_CURL=YesPlease", "NO_EXPAT=YesPlease", "NO_OPENSSL=YesPlease", "NO_GETTEXT=YesPlease", "NO_TCLTK=YesPlease", "NO_PERL=YesPlease", "NO_PYTHON=YesPlease", "USE_LIBPCRE=", "NO_FINK=YesPlease", "NO_DARWIN_PORTS=YesPlease", "NO_APPLE_COMMON_CRYPTO=YesPlease", "prefix=" + str(candidate)]
+    # config.mak.uname already disables the Darwin fsmonitor backend under
+    # NO_PTHREADS; its unconditional CoreServices link is unnecessary for these
+    # forms. The upstream make variable removes that unused framework, with
+    # real link/load evidence deciding the resulting closure.
+    variables = ["CC=" + compiler, "CFLAGS=" + cflags, "LDFLAGS=-isysroot " + sdk + " -Wl,-map," + str(run / "logs/git.link-map"), "BASIC_LDFLAGS=", "NO_PTHREADS=YesPlease", "NO_CURL=YesPlease", "NO_EXPAT=YesPlease", "NO_OPENSSL=YesPlease", "NO_GETTEXT=YesPlease", "NO_TCLTK=YesPlease", "NO_PERL=YesPlease", "NO_PYTHON=YesPlease", "USE_LIBPCRE=", "NO_FINK=YesPlease", "NO_DARWIN_PORTS=YesPlease", "NO_APPLE_COMMON_CRYPTO=YesPlease", "NO_HOMEBREW=YesPlease", "prefix=" + str(candidate)]
     command(run, ["/usr/bin/make", "-j2", *variables, "git"], cwd=work, extra_env=buildenv)
+    for filename in ("GIT-CFLAGS", "GIT-LDFLAGS"):
+        observed = read_regular(work / filename, MAX_ARCHIVE, True)
+        require(b"/opt/homebrew" not in observed and b"/usr/local" not in observed and b"CoreServices" not in observed, "ambient Homebrew/framework discovery in actual Git flags")
     bindir = private_dir(candidate / "bin")
     exclusive(bindir / "git", read_regular(work / "git"), executable=True)
     command(run, ["/usr/bin/otool", "-L", str(bindir / "git")])
@@ -689,27 +718,328 @@ def stage_linked_archives(run, candidate, deps):
     # Actual Darwin link maps decide runtime/static membership, including KSBA;
     # configure-required does not imply that a library was linked into a tool.
     archives = {}
+    selected = {}
     for name in ("git", "gpg"):
-        text = read_regular(run / "logs" / (name + ".link-map")).decode()
+        raw = read_regular(run / "logs" / (name + ".link-map"), 8 * 1024 * 1024, True)
         cwd = run / ("src/git-2.54.0" if name == "git" else "build/gnupg/g10")
-        for line in text.splitlines():
-            match = re.match(r"^\[\s*\d+\]\s+(.*\.a)\([^)]*\)\s*$", line)
-            if match:
-                path = Path(match.group(1))
-                if not path.is_absolute():
-                    path = cwd / path
-                path = path.resolve()
-                require(path.is_relative_to(run), f"unapproved static archive path: {path}")
-                archives[str(path)] = sha(read_regular(path, private=True))
+        for entry in parse_link_map_objects(raw, name):
+            match = re.fullmatch(rb"(.+\.a)\(([^()]*)\)", entry)
+            if not match:
+                continue
+            path = Path(link_map_path(match[1]))
+            if not path.is_absolute():
+                path = cwd / path
+            path = path.resolve()
+            require(path.is_relative_to(run.resolve()), f"unapproved static archive path: {path}")
+            archives[str(path)] = sha(read_regular(path, private=True))
+            selected.setdefault(str(path), {}).setdefault(name, []).append(link_map_path(match[2]))
     libdir = private_dir(candidate / "lib")
     summary = []
     for index, (name, digest) in enumerate(sorted(archives.items())):
         path = Path(name)
         staged_name = f"{index:02d}-" + path.name
-        exclusive(libdir / staged_name, pinned(read_regular(path, private=True), digest, "linked archive"))
+        closure_retain_exact(libdir / staged_name, pinned(read_regular(path, private=True), digest, "linked archive"))
         status, members, _ = command(run, ["/usr/bin/ar", "-t", name])
-        summary.append({"original_path": name, "staged": "lib/" + staged_name, "sha256": digest, "member_index_sha256": sha(members), "index_exit": status})
-    exclusive(run / "static-closure.json", canonical(summary))
+        require(len(members) <= 1024 * 1024 and b"\x00" not in members, "archive member-index bound")
+        full_index = [link_map_path(member) for member in members.split(b"\n") if member]
+        require(all(member in full_index for used in selected[name].values() for member in used), "link map selects a member absent from the real archive index")
+        summary.append({"original_path": name, "staged": "lib/" + staged_name, "sha256": digest, "member_index_sha256": sha(members), "member_index": retain_blob(candidate, members), "selected_members": selected[name], "index_exit": status})
+    closure_retain_exact(run / "static-closure.json", canonical(summary))
+
+
+def link_map_path(raw):
+    # Only paths/member names in the object table are text. Darwin link maps
+    # contain arbitrary literal-string bytes later in the symbol table; do not
+    # decode, replace, normalize or discard those bytes to obtain a text map.
+    require(0 < len(raw) <= 4096 and b"\x00" not in raw and b"\r" not in raw, "link-map path bound")
+    try:
+        return raw.decode("utf-8", errors="strict")
+    except UnicodeError as error:
+        raise Refused("non-UTF-8 object-table path is unsupported; original map retained") from error
+
+
+def parse_link_map_objects(raw, tool):
+    require(tool in ("git", "gpg") and len(raw) <= 8 * 1024 * 1024, "link-map input bound")
+    header = b"# Path: " + tool.encode() + b"\n# Arch: arm64\n# Object files:\n"
+    require(raw.startswith(header), "unexpected Darwin link-map header/architecture")
+    table, separator, _ = raw[len(header):].partition(b"# Sections:\n")
+    require(separator and len(table) <= 2 * 1024 * 1024, "missing/oversized link-map object table")
+    rows = table.split(b"\n")
+    require(rows[-1] == b"" and 1 < len(rows) <= 8193, "link-map object-row bound")
+    result = []
+    for index, line in enumerate(rows[:-1]):
+        match = re.fullmatch(rb"\[\s*([0-9]+)\]\s+([^\x00\r\n]+)", line)
+        require(match is not None and int(match[1]) == index, "malformed/duplicate/noncontiguous link-map object index")
+        require(len(match[2]) <= 4096, "link-map object path bound")
+        if index == 0:
+            require(match[2] == b"linker synthesized", "unexpected synthesized object entry")
+        else:
+            result.append(match[2])
+    return result
+
+
+def closure_retain_exact(path, data):
+    # Re-entry inspects the original named effect. It never replaces a file or
+    # generates a fresh name to hide an unknown/partial publication.
+    if path.exists():
+        require(read_regular(path, MAX_TAR, True) == data, f"retained closure effect differs: {path}")
+    else:
+        exclusive(path, data)
+
+
+def parse_macho(data, *, binary=False):
+    import struct
+    require(len(data) >= 32 and data[:4] == b"\xcf\xfa\xed\xfe", "thin little-endian Mach-O64 required; fat/unknown image unsupported")
+    _, cpu, subtype, filetype, count, commands_size, _, _ = struct.unpack_from("<8I", data)
+    require(cpu == 16777228 and 0 < count <= 4096 and commands_size <= 256 * 1024 and len(data) >= 32 + commands_size, "Mach-O CPU/load-command bounds")
+    require(filetype == (2 if binary else 6), "unexpected Mach-O file type")
+    if binary:
+        require(subtype == 0, "candidate ARM64 subtype must be exactly zero")
+    uuid = None
+    install = None
+    loads, rpaths = [], []
+    text_address = None
+    position = 32
+    def string_at(command, offset):
+        require(8 <= offset < len(command), "Mach-O string offset")
+        value, end, _ = command[offset:].partition(b"\x00")
+        require(end and 0 < len(value) <= 4096, "Mach-O string terminator/bound")
+        return link_map_path(value)
+    for _ in range(count):
+        require(position + 8 <= 32 + commands_size, "truncated Mach-O command")
+        cmd, size = struct.unpack_from("<2I", data, position)
+        require(size >= 8 and size % 8 == 0 and position + size <= 32 + commands_size, "invalid Mach-O command size")
+        command_bytes = data[position:position + size]
+        if cmd == 0x1b:  # LC_UUID; actual bytes, never a version-derived UUID.
+            require(size == 24 and uuid is None, "missing/duplicate/invalid LC_UUID")
+            uuid = command_bytes[8:24].hex()
+        elif cmd == 0xd:  # LC_ID_DYLIB
+            require(size >= 24 and install is None and not binary, "invalid LC_ID_DYLIB")
+            install = string_at(command_bytes, struct.unpack_from("<I", command_bytes, 8)[0])
+        elif cmd in (0xc, 0x80000018, 0x8000001f, 0x20, 0x80000023):
+            require(size >= 24, "invalid dylib load command")
+            loads.append(string_at(command_bytes, struct.unpack_from("<I", command_bytes, 8)[0]))
+        elif cmd == 0x8000001c:  # LC_RPATH
+            require(size >= 16, "invalid LC_RPATH")
+            rpaths.append(string_at(command_bytes, struct.unpack_from("<I", command_bytes, 8)[0]))
+        elif cmd == 0x19:  # LC_SEGMENT_64; __TEXT pins a cache image address.
+            require(size >= 72, "invalid LC_SEGMENT_64")
+            if command_bytes[8:24].split(b"\x00", 1)[0] == b"__TEXT":
+                require(text_address is None, "duplicate __TEXT segment")
+                text_address = struct.unpack_from("<Q", command_bytes, 24)[0]
+        position += size
+    require(position == 32 + commands_size and uuid is not None and uuid != "0" * 32, "Mach-O command/UUID completeness")
+    require(len(loads) == len(set(loads)) <= 64 and len(rpaths) == len(set(rpaths)) <= 64, "duplicate/oversized Mach-O load or rpath list")
+    return {"cpu_type": cpu, "cpu_subtype": subtype, "uuid": uuid, "fat": False, "rpaths": rpaths, "loads": loads}, install, text_address
+
+
+def capture_dyld_context(run, prefix, sdk):
+    """Read this builder's dyld metadata through SDK-declared Mach APIs only.
+
+    TASK_DYLD_INFO/struct task_dyld_info: SDK mach/task_info.h:260-272;
+    sharedCacheSlide/UUID/Base: SDK mach-o/dyld_images.h:128-176;
+    mach_vm_read_overwrite: SDK mach/mach_vm.h:191. No target process,
+    dlopen, injected code, helper controller, entitlement or guessed UUID.
+    """
+    import ctypes
+    require(ctypes.sizeof(ctypes.c_void_p) == 8, "64-bit builder ABI required")
+    headers = {}
+    for relative in ("mach/task_info.h", "mach/mach_vm.h", "mach-o/dyld_images.h", "mach-o/loader.h", "mach-o/dyld.h"):
+        headers[relative] = retain_blob(prefix, read_regular(Path(sdk) / "usr/include" / relative, platform_image=True))
+    lib = ctypes.CDLL(None)  # Already loaded platform exports; no library load.
+    try:
+        task = ctypes.c_uint32.in_dll(lib, "mach_task_self_").value
+        task_info = lib.task_info
+        read_vm = lib.mach_vm_read_overwrite
+    except (ValueError, AttributeError) as error:
+        raise Refused("required SDK-declared own-task dyld metadata APIs unavailable") from error
+    task_info.argtypes = [ctypes.c_uint32, ctypes.c_int32, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+    task_info.restype = ctypes.c_int32
+    read_vm.argtypes = [ctypes.c_uint32, ctypes.c_uint64, ctypes.c_uint64, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64)]
+    read_vm.restype = ctypes.c_int32
+    class TaskDyldInfo(ctypes.Structure):
+        _pack_ = 4  # task_info.h:91 applies pack(push, 4).
+        _fields_ = [("address", ctypes.c_uint64), ("size", ctypes.c_uint64), ("format", ctypes.c_int32)]
+    class AllImagesPrefix(ctypes.Structure):
+        _fields_ = [("version", ctypes.c_uint32), ("count", ctypes.c_uint32),
+                    ("array", ctypes.c_void_p), ("notification", ctypes.c_void_p),
+                    ("detached", ctypes.c_bool), ("initialized", ctypes.c_bool),
+                    ("dyldImage", ctypes.c_void_p), ("jit", ctypes.c_void_p),
+                    ("dyldVersion", ctypes.c_void_p), ("errorMessage", ctypes.c_void_p),
+                    ("terminationFlags", ctypes.c_uint64), ("symbolication", ctypes.c_void_p),
+                    ("systemOrder", ctypes.c_uint64), ("uuidCount", ctypes.c_uint64),
+                    ("uuidArray", ctypes.c_void_p), ("allInfosAddress", ctypes.c_void_p),
+                    ("initialCount", ctypes.c_uint64), ("errorKind", ctypes.c_uint64),
+                    ("errorClient", ctypes.c_void_p), ("errorTarget", ctypes.c_void_p),
+                    ("errorSymbol", ctypes.c_void_p), ("slide", ctypes.c_uint64),
+                    ("uuid", ctypes.c_ubyte * 16), ("base", ctypes.c_uint64)]
+    def read(address, length):
+        require(type(address) is int and 0 < address < 2**64 and 0 < length <= 256 * 1024 and address + length < 2**64, "own-cache read bounds")
+        buffer = ctypes.create_string_buffer(length)
+        actual = ctypes.c_uint64()
+        status = read_vm(task, address, length, ctypes.addressof(buffer), ctypes.byref(actual))
+        require(status == 0 and actual.value == length, f"own-cache metadata read unsupported: kern_return={status} size={actual.value}")
+        return buffer.raw
+    def current():
+        info = TaskDyldInfo()
+        count = ctypes.c_uint32(ctypes.sizeof(info) // ctypes.sizeof(ctypes.c_uint32))
+        status = task_info(task, 17, ctypes.byref(info), ctypes.byref(count))
+        require(status == 0 and count.value == 5 and info.format == 1 and info.size >= ctypes.sizeof(AllImagesPrefix), "TASK_DYLD_INFO format/length unavailable")
+        all_images = AllImagesPrefix.from_buffer_copy(read(info.address, ctypes.sizeof(AllImagesPrefix)))
+        require(all_images.version >= 15 and all_images.base > 0 and all_images.initialized and not all_images.detached, "shared-cache identity unavailable/detached")
+        uuid = bytes(all_images.uuid).hex()
+        require(uuid != "0" * 32, "unknown shared-cache UUID")
+        return {"shared_cache_uuid": uuid, "slide": all_images.slide, "base": all_images.base}
+    snapshot = current()
+    closure_retain_exact(run / "dyld-native-context.json", canonical({"sdk_headers": headers, "snapshot": snapshot, "api": "TASK_DYLD_INFO+mach_vm_read_overwrite on own task", "assumption": "SDK ABI and current platform dyld/shared-cache fidelity; no arbitrary-native theorem"}))
+    return snapshot, read, current
+
+
+def emit_closure(run, prefix):
+    """Return exact ICD Closure. Metadata only; never executes git or gpg.
+
+    All recursive load edges are retained, including weak/reexport edges. A
+    graph outside the ICD64-node/128-edge bounds refuses with original evidence.
+    """
+    import struct
+    meta = strict_json(read_regular(run / "platform.json", 32768, True), 32768)
+    sdk = Path(meta["sdk"])
+    dyld_tool = Path("/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/dyld_info")
+    require(dyld_tool == dyld_tool.resolve(), "fixed dyld_info path required")
+    dyld_identity = absolute_identity(dyld_tool)
+    closure_retain_exact(run / "dyld-inspector.json", canonical(dyld_identity))
+    snapshot, read_vm, current_cache = capture_dyld_context(run, prefix, sdk)
+    _, os_output, _ = command(run, ["/usr/bin/sw_vers", "-buildVersion"])
+    os_build = os_output.decode("ascii").strip()
+    release, machine = platform.release(), platform.machine()
+    require(re.fullmatch(r"[0-9]{2}[A-Z][0-9]{1,6}[a-z]?", os_build) is not None and re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,2}", release) is not None, "unknown OS build/release form")
+    require(machine in ("arm64", "aarch64") and os_arch() == "aarch64", "unsupported platform architecture")
+    platform_binding = {"arch": "aarch64", "darwin_machine": machine, "release": release, "os_build": os_build, "shared_cache_uuid": snapshot["shared_cache_uuid"]}
+    records = strict_json(read_regular(run / "static-closure.json", 1024 * 1024, True), 1024 * 1024)
+    require(type(records) is list and len(records) <= 64, "static closure bound")
+    nodes, edges, link_maps = [], [], []
+    image_ids, image_paths, pending = {}, {}, []
+    archive_ids = {}
+    evidence = []
+    def add_edge(source, target, mode):
+        edge = {"from": source, "to": target, "mode": mode}
+        require(edge not in edges and len(edges) < 128, f"recursive closure duplicate/edge bound at {source} -> {target}; no truncation")
+        edges.append(edge)
+    for row in records:
+        path = Path(row["original_path"])
+        source = {"libgit.a": "git", "libgcrypt.a": "libgcrypt", "libassuan.a": "libassuan", "libnpth.a": "npth", "libgpg-error.a": "libgpg-error", "libksba.a": "libksba"}.get(path.name)
+        if source is None:
+            require(path.is_relative_to(run / "build/gnupg") and path.name in ("libkeybox.a", "libcommonpth.a", "libregexp.a", "libgpgrl.a"), "unreviewed linked static archive")
+            source = "gnupg"
+        data = pinned(read_regular(prefix / row["staged"], MAX_TAR, True), row["sha256"], "staged linked archive")
+        node_id = "static-" + path.name.removesuffix(".a")
+        require(node_id not in archive_ids.values(), "duplicate static-node identity")
+        archive_ids[str(path)] = node_id
+        nodes.append({"id": node_id, "kind": "static", "source": source, "file": {"path": row["staged"], "len": len(data), "sha256": sha(data)}, "macho": None, "member_index": row["member_index"], "install_name": None, "platform_uuid": None})
+        ref_bytes(prefix, row["member_index"], 1024 * 1024)
+    for name in ("git", "gpg"):
+        raw = read_regular(run / "logs" / (name + ".link-map"), 8 * 1024 * 1024, True)
+        parse_link_map_objects(raw, name)
+        inputs = []
+        for row in records:
+            if name in row["selected_members"]:
+                node_id = archive_ids[row["original_path"]]
+                inputs.append(node_id)
+                add_edge(name, node_id, "static")
+        data = read_regular(prefix / "bin" / name, MAX_TAR, True)
+        macho, install, _ = parse_macho(data, binary=True)
+        require(install is None, "binary install name")
+        nodes.append({"id": name, "kind": "binary", "source": name if name == "git" else "gnupg", "file": {"path": "bin/" + name, "len": len(data), "sha256": sha(data)}, "macho": macho, "member_index": None, "install_name": None, "platform_uuid": None})
+        image_ids[str(prefix / "bin" / name)] = name
+        image_paths[name] = prefix / "bin" / name
+        pending.append((name, macho, prefix / "bin" / name))
+        link_maps.append({"tool": name, "file": retain_blob(prefix, raw), "output_sha256": sha(data), "inputs": inputs})
+    def system_path(path):
+        return path.startswith("/usr/lib/") or path.startswith("/System/Library/")
+    def resolve_load(load, owner, rpaths):
+        if load.startswith("@loader_path/"):
+            load = str(owner.parent / load[len("@loader_path/"):])
+        elif load.startswith("@executable_path/"):
+            load = str(prefix / "bin" / load[len("@executable_path/"):])
+        elif load.startswith("@rpath/"):
+            possible = []
+            for rpath in rpaths:
+                base = resolve_load(rpath, owner, [])
+                value = posixpath.normpath(base + "/" + load[len("@rpath/"):])
+                if system_path(value) or Path(value).is_file():
+                    possible.append(value)
+            require(len(possible) == 1, f"unresolved/ambiguous @rpath load: {load}")
+            return possible[0]
+        require(load.startswith("/") and "\x00" not in load and len(load.encode()) <= 4096, "unresolved/oversized image load")
+        result = posixpath.normpath(load)
+        require(system_path(result) or Path(result).is_relative_to(prefix), f"ambient/unapproved image load: {result}")
+        return result
+    while pending:
+        owner_id, macho, owner_path = pending.pop(0)
+        for load in macho["loads"]:
+            path = resolve_load(load, owner_path, macho["rpaths"])
+            target_id = image_ids.get(path)
+            if target_id is None:
+                require(len(nodes) < 64, f"recursive closure exceeds64 nodes at {path}; no omitted platform image")
+                if system_path(path):
+                    target_id = "platform-" + sha(path.encode())[:20]
+                    _, raw, err = command(run, [str(dyld_tool), "-uuid", "-load_commands", "-inits", path])
+                    require(not err and len(raw) <= 2 * 1024 * 1024, "dyld_info image metadata failed/oversized")
+                    match = re.search(rb'segname: "__TEXT"\s+vmaddr: (0x[0-9a-fA-F]+)', raw)
+                    uuids = re.findall(rb"^\s*uuid: ([0-9A-Fa-f-]{36})\s*$", raw, re.MULTILINE)
+                    require(match is not None and len(uuids) == 1, "dyld_info missing/ambiguous actual __TEXT/UUID")
+                    address = int(match[1], 16) + snapshot["slide"]
+                    require(address >= snapshot["base"], "cache image lies before actual shared-cache base")
+                    header = read_vm(address, 32)
+                    require(header[:4] == b"\xcf\xfa\xed\xfe", "cache image header unavailable")
+                    length = struct.unpack_from("<I", header, 20)[0]
+                    require(length <= 256 * 1024 - 32, "cache Mach-O command bound")
+                    cache_bytes = read_vm(address, 32 + length)
+                    actual, install, text_address = parse_macho(cache_bytes)
+                    require(install == path and text_address == int(match[1], 16) and actual["uuid"] == uuids[0].replace(b"-", b"").decode().lower(), "cache image/install-name/UUID mismatch")
+                    node = {"id": target_id, "kind": "platform", "source": None, "file": None, "macho": actual, "member_index": None, "install_name": install, "platform_uuid": actual["uuid"]}
+                    evidence.append({"image": path, "dyld_info": retain_blob(prefix, raw), "macho_header_commands": retain_blob(prefix, cache_bytes)})
+                else:
+                    relative = str(Path(path).relative_to(prefix))
+                    data = read_regular(path, MAX_TAR, True)
+                    actual, install, _ = parse_macho(data)
+                    require(install is not None, "private dylib install name missing")
+                    # This recipe currently builds all private libraries static;
+                    # an unexpected dylib needs an exact source/build mapping.
+                    raise Refused(f"unexpected private dylib requires source/link review: {relative} ({install})")
+                require(target_id not in image_paths, "image-ID hash collision")
+                nodes.append(node)
+                image_ids[path] = target_id
+                image_paths[target_id] = Path(path)
+                pending.append((target_id, actual, Path(path)))
+            add_edge(owner_id, target_id, "load")
+    # A linker can obtain symbols through a platform reexport. Preserve those
+    # actual SDK stub inputs as well as static archives; do not turn their
+    # presence into invented direct LC_LOAD edges from the executable.
+    for link_map in link_maps:
+        raw = ref_bytes(prefix, link_map["file"], 8 * 1024 * 1024)
+        for entry in parse_link_map_objects(raw, link_map["tool"]):
+            if not entry.endswith(b".tbd"):
+                continue
+            stub = Path(link_map_path(entry)).resolve()
+            require(stub.is_relative_to(sdk.resolve()), "link map names an ambient SDK stub")
+            data = read_regular(stub, 16 * 1024 * 1024, platform_image=True)
+            names = re.findall(rb"^install-name:\s*'([^'\x00\r\n]+)'\s*$", data, re.MULTILINE)
+            require(len(names) == 1, "unsupported/ambiguous SDK stub install name")
+            install_name = link_map_path(names[0])
+            target_id = image_ids.get(install_name)
+            require(target_id is not None, f"link-map SDK input absent from actual recursive loaded closure: {install_name}")
+            if target_id not in link_map["inputs"]:
+                require(len(link_map["inputs"]) < 64, "link-map input-node bound")
+                link_map["inputs"].append(target_id)
+            evidence.append({"sdk_stub": str(stub), "file": retain_blob(prefix, data), "install_name": install_name})
+    require(current_cache() == snapshot, "dyld shared-cache identity changed during closure capture")
+    require(absolute_identity(dyld_tool) == dyld_identity, "metadata inspector changed during closure capture")
+    require(len(nodes) <= 64 and len(edges) <= 128, "recursive closure exceeds typed budget")
+    closure_retain_exact(run / "platform-image-evidence.json", canonical(evidence))
+    closure = {"nodes": nodes, "edges": edges, "link_maps": link_maps, "platform": platform_binding}
+    closure_retain_exact(run / "closure.json", canonical(closure))
+    return closure
 
 
 def harden_owned_tree(root):
@@ -753,6 +1083,229 @@ def apply_profile(run):
 
 def blob_ref(data):
     return {"path": "provenance/blobs/" + sha(data), "len": len(data), "sha256": sha(data)}
+
+
+def retain_blob(prefix, data):
+    private_dir(prefix / "provenance")
+    private_dir(prefix / "provenance/blobs")
+    ref = blob_ref(data)
+    path = prefix / ref["path"]
+    if path.exists():
+        require(read_regular(path, MAX_TAR, True) == data, "existing provenance blob differs")
+    else:
+        exclusive(path, data)
+    return ref
+
+
+def retained_file(prefix, path):
+    return retain_blob(prefix, read_regular(path, MAX_TAR, True))
+
+
+def absolute_identity(path):
+    path = Path(path)
+    require(path.is_absolute() and path == path.resolve(), "fixed resolved absolute image required")
+    data = read_regular(path, MAX_TAR, platform_image=True)
+    s = path.stat()
+    return {"path": str(path), "len": len(data), "sha256": sha(data), "dev": s.st_dev, "ino": s.st_ino,
+            "mtime_sec": s.st_mtime_ns // 1000000000, "mtime_nsec": s.st_mtime_ns % 1000000000}
+
+
+def dir_pin(path):
+    s = check_private_dir(path).stat()
+    return {"path": str(path), "dev": s.st_dev, "ino": s.st_ino, "uid": s.st_uid}
+
+
+def file_pin(root, path, kind="candidate"):
+    data = read_regular(root / path, MAX_TAR, True)
+    s = (root / path).stat()
+    return {"root": kind, "path": str(path), "len": len(data), "sha256": sha(data), "dev": s.st_dev, "ino": s.st_ino,
+            "mtime_sec": s.st_mtime_ns // 1000000000, "mtime_nsec": s.st_mtime_ns % 1000000000}
+
+
+def command_profile():
+    # Exact profile65126. This is producer data; Q2 owns its sole strict
+    # canonical consumer/decoder and actual command execution semantics.
+    forms = [
+        ("root_bare", ["rev-parse", "--is-bare-repository"]),
+        ("root_top", ["rev-parse", "--show-toplevel"]),
+        ("policy_main", ["rev-parse", "--verify", "{policy_branch}"]),
+        ("origin_main", ["rev-parse", "--verify", "refs/remotes/origin/main"]),
+        ("object_type", ["cat-file", "-t", "{commit}"]),
+        ("ancestry", ["merge-base", "--is-ancestor", "{ancestor}", "{commit}"]),
+        ("tree_record", ["ls-tree", "-z", "{commit}", "--", "{record}"]),
+        ("show_record", ["show", "{commit}:{record}"]),
+        ("last_touch", ["rev-list", "-1", "{commit}", "--", "{record}"]),
+        ("blob_pin", ["rev-parse", "{commit}:{record}"]),
+        ("tree_pin", ["rev-parse", "{commit}^{tree}"]),
+        ("origin_url", ["config", "--get", "remote.origin.url"]),
+        ("signature", ["log", "-1", "--format=%G?%x00%GF%x00%GP", "{commit}"]),
+    ]
+    result = [{"id": name, "tool": "git", "argv": argv, "members": 2 if name == "signature" else 1, "stdin": "none"} for name, argv in forms]
+    result += [{"id": "show_keys", "tool": "gpg", "argv": ["--with-colons", "--show-keys", "-"], "members": 1, "stdin": "public_keys"},
+               {"id": "import_keys", "tool": "gpg", "argv": ["--import", "-"], "members": 1, "stdin": "public_keys"},
+               {"id": "verify_child", "tool": "gpg", "argv": ["--keyid-format=long", "--status-fd=1", "--verify", "{signature}", "-"], "members": 1, "stdin": "commit_payload"}]
+    return {"profile": "65126", "git_prefix": ["--no-pager", "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "credential.helper=", "-c", "protocol.allow=never", "-c", "gpg.format=openpgp", "-c", "gpg.program={gpg}", "-c", "gpg.openpgp.program={gpg}"],
+            "gpg_prefix": ["--no-options", "--no-autostart", "--batch", "--no-tty"], "forms": result}
+
+
+def private_config(run, prefix):
+    home = private_dir(run / "fixture-home")
+    private_dir(run / "fixture-scratch")
+    config = b"batch\nno-tty\nno-autostart\nno-auto-key-retrieve\nno-auto-key-import\nauto-key-locate clear\nno-auto-check-trustdb\n"
+    exclusive(home / "gpg.conf", config)
+    exclusive(home / "common.conf", b"")
+    values = [("GIT_CONFIG_NOSYSTEM", "1"), ("GIT_CONFIG_GLOBAL", "/dev/null"), ("GIT_TERMINAL_PROMPT", "0"),
+              ("GIT_ASKPASS", "/usr/bin/false"), ("SSH_ASKPASS", "/usr/bin/false"), ("LANG", "C"), ("LC_ALL", "C"),
+              ("PATH", "/usr/bin:/bin"), ("HOME", "{home}"), ("GNUPGHOME", "{home}"), ("TMPDIR", "{scratch}")]
+    return {"gpg_conf": retain_blob(prefix, config), "common_conf": retain_blob(prefix, b""),
+            "env": [{"name": k, "value": v} for k, v in values]}
+
+
+def prepare_fixture(run):
+    # Copied/adapted from Git v2.54.0 t7510's deterministic presigned objects.
+    # Origin/terms: https://github.com/git/git/blob/v2.54.0/t/t7510-signed-commit.sh
+    # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+    # Construct loose objects with their specified bytes; never invoke signing,
+    # key generation, a secret packet, or an ambient Git configuration.
+    corpus = FIX / "corpus"
+    lock = strict_json(read_regular(corpus / "corpus.lock.json", 32768), 32768)
+    data = {}
+    for row in lock["files"]:
+        data[row["path"]] = pinned(read_regular(corpus / row["path"], 2*1024*1024), row["sha256"], "public fixture")
+        require(len(data[row["path"]]) == row["len"], "public fixture length")
+    require(b"PRIVATE KEY" not in data["public-keys.asc"] and b"SECRET KEY" not in data["public-keys.asc"], "public-only fixture required")
+    repo = private_dir(run / "fixture-repo")
+    private_dir(repo / ".git")
+    private_dir(repo / ".git/objects")
+    private_dir(repo / ".git/refs"); private_dir(repo / ".git/refs/heads")
+    private_dir(repo / ".git/refs/remotes"); private_dir(repo / ".git/refs/remotes/origin")
+    def obj(kind, name):
+        body = data[name]
+        raw = kind.encode() + b" " + str(len(body)).encode() + b"\0" + body
+        oid = hashlib.sha1(raw).hexdigest()
+        private_dir(repo / ".git/objects" / oid[:2])
+        exclusive(repo / ".git/objects" / oid[:2] / oid[2:], zlib.compress(raw))
+        return oid
+    obj("blob", "first.blob")
+    require(obj("blob", "second.blob") == lock["record_blob"], "record blob differs")
+    obj("tree", "first.tree")
+    require(obj("tree", "selected.tree") == lock["selected_tree"], "tree differs")
+    for name in ("ancestor", "valid", "corrupt"):
+        require(obj("commit", name + ".commit") == lock["ancestor" if name == "ancestor" else name + "_commit"], "commit fixture differs")
+    branch = "refs/heads/proof-main"
+    origin = "https://example.invalid/bboxy450/private-presigned-fixture.git"
+    exclusive(repo / ".git/HEAD", ("ref: " + branch + "\n").encode())
+    exclusive(repo / (".git/" + branch), (lock["valid_commit"] + "\n").encode())
+    exclusive(repo / ".git/refs/remotes/origin/main", (lock["valid_commit"] + "\n").encode())
+    exclusive(repo / ".git/config", ("[core]\n\trepositoryformatversion = 0\n\tbare = false\n[remote \"origin\"]\n\turl = " + origin + "\n").encode())
+    exclusive(repo / "first.t", data["first.blob"])
+    exclusive(repo / "second", data["second.blob"])
+    for name in ("public-keys.asc", "valid-payload.txt", "valid-signature.asc", "corrupt-signature.asc"):
+        exclusive(repo / name, data[name])
+    files = []
+    for path in sorted(repo.rglob("*"), key=lambda p: p.relative_to(repo).as_posix().encode()):
+        if path.is_dir():
+            check_private_dir(path)
+        else:
+            raw = read_regular(path, 2*1024*1024, True)
+            files.append({"path": path.relative_to(repo).as_posix(), "len": len(raw), "sha256": sha(raw)})
+    require(len(files) <= 32, "private fixture inventory exceeds32 files")
+    bypath = {row["path"]: row for row in files}
+    return {"repo": dir_pin(repo), "files": files, "ancestor": lock["ancestor"], "valid_commit": lock["valid_commit"], "corrupt_commit": lock["corrupt_commit"],
+            "policy_branch": branch, "record_path": lock["record_path"], "record_blob": lock["record_blob"], "origin_url": origin,
+            "public_keys": bypath["public-keys.asc"], "signer_primary": lock["signer_primary"], "valid_payload": bypath["valid-payload.txt"],
+            "valid_signature": bypath["valid-signature.asc"], "corrupt_signature": bypath["corrupt-signature.asc"]}
+
+
+def capture_review(run, projections):
+    template = strict_json(read_regular(FIX / "review.lock.json", 32768), 32768)
+    snapshot = strict_json(read_regular(run / "source-snapshot.json", MAX_TAR, True), MAX_TAR)
+    names = {name: name + "-" + version for name, version, *_ in PINS}
+    patches = projections["build"]["patches"]
+    findings = []
+    for finding in template:
+        row = dict(finding)
+        spans = []
+        for span in row["spans"]:
+            path = names[span["source"]] + "/" + span["path"]
+            raw = read_regular(run / "src" / path, MAX_ARCHIVE, True)
+            require(snapshot[path]["sha256"] == sha(raw), "review span no longer matches authenticated postimage")
+            require(1 <= span["first"] <= span["last"] <= len(io.BytesIO(raw).readlines()), "source review line span")
+            spans.append({**span, "sha256": sha(raw)})
+        row["spans"] = spans
+        row["patches"] = [p["sha256"] for p in patches if p["source"] in [names[s] for s in row["sources"]]]
+        findings.append(row)
+    coverage = {"git_async": ("deny_async", {"git"}), "git_child": ("one_verify_child", {"git", "gnupg"}),
+                "git_shell": ("deny_shell", {"git"}), "gpg_service": ("deny_service", {"gnupg", "libgpg-error", "libassuan"}),
+                "gpg_thread": ("deny_thread", {"gnupg", "libgcrypt", "npth"}),
+                "libraries": ("review_only", {p[0] for p in PINS[2:]}), "input_config": ("fixed_inputs", {"git", "gnupg"}),
+                "platform": ("review_only", {"git", "gnupg"})}
+    require(len(findings) == 8 and {f["id"] for f in findings} == set(coverage), "source review eight findings")
+    for row in findings:
+        guard, required = coverage[row["id"]]
+        require(row["guard"] == guard and set(row["sources"]) >= required and set(row["sources"]) <= {s["source"] for s in row["spans"]}, "source review guard/span coverage")
+        require(row["phases"] == ["entry", "normal", "error", "cleanup", "initializer"] and row["finding"] == "conditional_source_review", "source review phases/conditional premise")
+        require(0 < len(row["spans"]) <= 16 and len(row["rationale"].encode()) <= 512, "source review span/rationale bounds")
+    require(set().union(*(set(f["commands"]) for f in findings)) == {f["id"] for f in command_profile()["forms"]}, "source review command coverage")
+    return {"bindings": {key: sha(canonical(value)) for key, value in projections.items()}, "findings": findings}
+
+
+def prepare_basis(run, prefix, closure):
+    intent = strict_json(read_regular(run / "intent.json", 32768, True), 32768)
+    inputs = intent["inputs"]
+    metadata = strict_json(read_regular(run / "platform.json", 32768, True), 32768)
+    # Capture exact actual outputs, not versions inferred from archive labels.
+    def output(argv):
+        _, out, err = command(run, argv)
+        return retain_blob(prefix, out + (b"\nSTDERR\n" + err if err else b""))
+    compiler = Path(metadata["compiler"]).resolve()
+    linker = Path(metadata["linker"]).resolve()
+    compiler_version = output([str(compiler), "--version"])
+    _, target, _ = command(run, [str(compiler), "-dumpmachine"])
+    reported = target.decode("ascii").strip()
+    require(re.fullmatch(r"(?:arm64|aarch64)-apple-darwin[0-9]+(?:\.[0-9]+){0,2}", reported) and reported.split("darwin")[1] == platform.release(), "compiler target/platform differs")
+    linker_version = output([str(linker), "-version_details"])
+    auth = strict_json(read_regular(run / "authenticated.json", 32768, True), 32768)
+    auth = [{**row, "status": retained_file(prefix, run / "public-home" / (row["name"] + ".status"))} for row in auth]
+    patch_data = read_regular(FIX / "patches.lock.json", 32768)
+    patches = strict_json(patch_data, 32768)
+    # Actual --help/configure/make invocations and their cleared environments
+    # are archived. Existing immutable records precede this metadata capture.
+    requests = [strict_json(read_regular(path, MAX_ARCHIVE, True), MAX_ARCHIVE) for path in sorted((run / "logs").glob("*.command.json"))]
+    recipe_commands = retain_blob(prefix, canonical(requests))
+    recipe_env = retain_blob(prefix, canonical([row["env"] for row in requests]))
+    generated = []
+    for name, version, *_ in PINS:
+        if name == "git":
+            config = run / "src/git-2.54.0/GIT-CFLAGS"
+            summary = canonical({filename: retained_file(prefix, run / "src/git-2.54.0" / filename) for filename in ("config.mak.uname", "GIT-LDFLAGS", "GIT-PREFIX", "GIT-VERSION-FILE")})
+        else:
+            config = run / "build" / name / "config.h"
+            summary = read_regular(run / "build" / name / "config.log", MAX_TAR, True)
+        generated.append({"source": name, "config": retained_file(prefix, config), "summary": retain_blob(prefix, summary)})
+    lock = retain_blob(prefix, read_regular(FIX / "sources.lock.json", 32768))
+    for row in source_lock()["sources"]:
+        keyname = "git" if row["name"] == "git" else "gnupg"
+        retain_blob(prefix, read_regular(FIX / (keyname + "-release-key.asc")))
+    for patch in patches:
+        retain_blob(prefix, read_regular(FIX / patch["patch"], 32768))
+    retain_blob(prefix, pinned(read_regular(AUTHORITY / "proof-helper-probe.c", 39130), PROBE_SHA, "current scoped frozen source"))
+    build = {"build_id": run.name, "incarnation": intent["incarnation"], "builder": {"commit": inputs["commit"], "source_sha256": inputs["source_sha256"]},
+             "source_lock": lock, "auth": auth, "patch_lock": retain_blob(prefix, patch_data), "patches": patches,
+             "recipe": {"file": retained_file(prefix, run / "recipe.py"), "commands": recipe_commands, "env": recipe_env},
+             "compiler": {"image": absolute_identity(compiler), "version": compiler_version, "target": "aarch64-apple-darwin", "reported_target": reported},
+             "linker": {"image": absolute_identity(linker), "version": linker_version},
+             "sdk": {"path": inputs["sdk"], "canonical_name": "macosx" + inputs["sdk_version"], "version": inputs["sdk_version"], "settings": retain_blob(prefix, read_regular(Path(inputs["sdk"]) / "SDKSettings.json"))},
+             "platform": closure["platform"], "generated": generated, "tools": {name: absolute_identity(prefix / "bin" / name) for name in ("git", "gpg")}}
+    projections = {"build": build, "closure": closure, "config": private_config(run, prefix), "commands": command_profile(), "fixture": prepare_fixture(run)}
+    basis = {"format": "bboxy.dream.private-pretest-basis/1", **projections, "review": capture_review(run, projections)}
+    raw = canonical(basis)
+    # Reserve the full canonical result ceiling and descriptor ceiling now.
+    # This is a reservation, not permission to fill past the aggregate cap.
+    require(len(raw) <= 49152 and len(raw) + lock["len"] + 65536 + 16384 <= 131072, "pre-test basis/result/descriptor reservation exceeds128KiB")
+    exclusive(prefix / "provenance/pretest-basis.json", raw)
+    exclusive(run / "basis-ready.json", canonical({"basis": file_pin(prefix, "provenance/pretest-basis.json"), "source_lock": file_pin(prefix, lock["path"]), "probe_admitted": False}))
+    return basis
 
 
 def source_lock():
@@ -926,9 +1479,10 @@ def validate_qualification(data, prefix):
     return q
 
 
-def prepared_budget(qualification, source_lock_bytes, component_report):
-    require(len(qualification) <= 131072 and len(source_lock_bytes) <= 32768 and len(component_report) <= 131072
-            and len(qualification) + len(source_lock_bytes) + len(component_report) <= 131072,
+def prepared_budget(qualification, source_lock_bytes, component_report, basis=b"", descriptor=b""):
+    require(len(qualification) <= 131072 and len(source_lock_bytes) <= 32768 and len(component_report) <= 65536
+            and len(basis) <= 49152 and len(descriptor) <= 16384
+            and sum(map(len, (qualification, source_lock_bytes, component_report, basis, descriptor))) <= 131072,
             "TOTAL prepared evidence exceeds 128KiB")
 
 
@@ -1086,6 +1640,54 @@ def component(d):
 
 
 class ProvisioningTests(unittest.TestCase):
+    def test_actual_link_map_literal_bytes_do_not_change_object_table(self):
+        maps = sorted((TEST_TARGET.parent / "runs").glob("*/logs/git.link-map"))
+        if not maps:
+            self.skipTest("requires retained real Darwin linker map")
+        raw = read_regular(maps[0], 8*1024*1024, True)
+        rows = parse_link_map_objects(raw, "git")
+        self.assertTrue(any(b"libgit.a(" in row for row in rows))
+        # Real regex literal strings in the retained map contain invalid UTF8.
+        # Their bytes remain intact and never become object-path text.
+        with self.assertRaises(UnicodeError): raw.decode("utf8")
+        self.assertEqual(rows, parse_link_map_objects(raw + b"\xff", "git"))
+        with self.assertRaises(Refused): parse_link_map_objects(raw.replace(b"# Arch: arm64", b"# Arch: x86_64", 1), "git")
+
+    def test_public_presigned_fixture_has_real_object_relationships(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TARGET) as tmp:
+            fixture = prepare_fixture(Path(tmp))
+            root = Path(fixture["repo"]["path"])
+            self.assertLessEqual(len(fixture["files"]), 32)
+            for ref in fixture["files"]:
+                self.assertEqual(sha(read_regular(root / ref["path"], 2*1024*1024, True)), ref["sha256"])
+            def obj(oid, kind):
+                raw = zlib.decompress(read_regular(root / ".git/objects" / oid[:2] / oid[2:], 32768, True))
+                self.assertEqual(hashlib.sha1(raw).hexdigest(), oid)
+                header, body = raw.split(b"\0", 1)
+                self.assertEqual(header, kind.encode() + b" " + str(len(body)).encode())
+                return body
+            valid = obj(fixture["valid_commit"], "commit")
+            corrupt = obj(fixture["corrupt_commit"], "commit")
+            ancestor = obj(fixture["ancestor"], "commit")
+            self.assertNotEqual(valid, corrupt)
+            self.assertIn(("parent " + fixture["ancestor"] + "\n").encode(), valid)
+            tree = obj(valid.splitlines()[0].split()[1].decode(), "tree")
+            self.assertIn(fixture["record_path"].encode() + b"\0" + bytes.fromhex(fixture["record_blob"]), tree)
+            first_tree = obj(ancestor.splitlines()[0].split()[1].decode(), "tree")
+            self.assertNotIn(fixture["record_path"].encode() + b"\0", first_tree)
+            self.assertEqual(obj(fixture["record_blob"], "blob"), b"1\n")
+            self.assertNotIn(b"PRIVATE KEY", read_regular(root / fixture["public_keys"]["path"]))
+            # Signature validity is deliberately not inferred by this codec.
+
+    def test_command_profile_retains_all_exact_forms_and_implicit_verify(self):
+        profile = command_profile()
+        self.assertEqual(len(profile["forms"]), 16)
+        self.assertEqual(len({f["id"] for f in profile["forms"]}), 16)
+        byid = {f["id"]: f for f in profile["forms"]}
+        self.assertEqual(byid["signature"]["members"], 2)
+        self.assertEqual(byid["verify_child"]["argv"], ["--keyid-format=long", "--status-fd=1", "--verify", "{signature}", "-"])
+        self.assertEqual(byid["last_touch"]["argv"], ["rev-list", "-1", "{commit}", "--", "{record}"])
+
     def test_platform_image_links_do_not_relax_private_file_custody(self):
         with tempfile.TemporaryDirectory(dir=TEST_TARGET) as tmp:
             path = Path(tmp) / "fixed-platform-image"
@@ -1183,6 +1785,10 @@ class ProvisioningTests(unittest.TestCase):
         prepared_budget(b"q" * 65536, b"s" * 32768, b"r" * 32768)
         with self.assertRaises(Refused): prepared_budget(b"q" * 65537, b"s" * 32768, b"r" * 32768)
         with self.assertRaises(Refused): prepared_budget(b"q", b"s" * 32769, b"r")
+        with self.assertRaises(Refused): prepared_budget(b"q" * 65536, b"s" * 32768, b"r" * 32768, b"b", b"d")
+        with self.assertRaises(Refused): prepared_budget(b"q", b"s", b"r", b"b" * 49153)
+        with self.assertRaises(Refused): prepared_budget(b"q", b"s", b"r", b"b", b"d" * 16385)
+        with self.assertRaises(Refused): prepared_budget(b"q", b"s", b"r" * 65537)
 
     def test_zero_context_patches_match_every_exact_postimage(self):
         # Upstream C includes form-feed separators. Diff line numbers must count
@@ -1248,7 +1854,7 @@ class ProvisioningTests(unittest.TestCase):
             with self.assertRaises(OSError): ref_bytes(root, ref)
 
     def test_strict_json_integer_and_total_bounds(self):
-        for data in (b'{"x":1,"x":1}', b'{"x": NaN}', b'{ "x":1}', b'{}\n', b'\xff'):
+        for data in (b'{"x":1,"x":1}', b'{"x": NaN}', b'{ "x":1}', b'{}\n', b'\xff', b'{"x":1.0}', b'{"x":-0}', b'{"x":"\\u0000"}', b'{"x":"\\ud800"}'):
             with self.assertRaises(Refused): strict_json(data, 128)
         with self.assertRaises(Refused): strict_json(b" " * 131073, 131072)
         for value in (-1, MAX_INT+1, True, 1.0):

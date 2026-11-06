@@ -27,6 +27,11 @@ Compression and public signature algorithms retain upstream behavior; portable
 Libgcrypt code changes its implementation choice, not the admitted algorithms.
 Libgpg-error/Libassuan/nPth guards refuse process/thread creation at their source
 seams. Libgcrypt selects upstream portable code with jitterentropy disabled.
+Its additional startup guards refuse ambient hwf.deny/FIPS configuration before
+reading it, and refuse optional syslog calls before socket/service effects.
+These refusals preserve failure rather than a cryptographic success. Darwin
+Git uses documented NO_HOMEBREW and removes its unused CoreServices framework;
+actual generated flags and recursive loaded closure remain required evidence.
 
 These patches are incomplete qualification work. Current-source tests check
 pins, custody and finite models; the complete command/error/constructor/platform

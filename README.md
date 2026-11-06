@@ -328,6 +328,11 @@ six-source baseline, authenticates the new source and preserves the mandatory
 library check. It substitutes no Homebrew binary libraries. Joined qualification
 still requires Root's frozen canonical private-candidate probe; normal Git mode
 remains `verification_unproven`.
+The builder emits one typed `provenance/pretest-basis.json` from real compiler,
+generated configuration, static link maps, recursive Mach-O/platform identities,
+the fixed command profile, a public-only presigned fixture and conditional source
+review. Six descriptor projections share that file. Hashes and review coverage
+do not grant runtime authority; missing canonical joined evidence still refuses.
 `make test-dream-proof-tools` retains canonical native/ledger results and refuses
 to certify a real pair. A repeated component check reuses exact retained results,
 including failures, rather than retrying timing gates.

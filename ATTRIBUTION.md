@@ -200,7 +200,7 @@ The recipe, byte/custody validators, regression witnesses and finite models in
 `tests/formal/dream_proof_tools.rs` are project-owned under this policy.
 
 **Adapted from Git 2.54.0** (https://github.com/git/git/tree/v2.54.0),
-**GnuPG 2.5.24**, **Libgpg-error 1.61**, **Libassuan 3.0.2** and **nPth 1.8**
+**GnuPG 2.5.24**, **Libgpg-error 1.61**, **Libgcrypt 1.12.4**, **Libassuan 3.0.2** and **nPth 1.8**
 (https://gnupg.org/): the private source guards in
 `tests/fixtures/dream-proof-tools/*.patch` retain their original upstream
 copyright and GPL/LGPL terms. They are not relicensed under the project license.
@@ -220,6 +220,13 @@ with bytes preserved. They identify public release material, not operator keys
 or runtime approval. Generated archives, source trees, scratch executables and
 build logs remain private outside Git. Source-built does not mean qualified;
 the current partial build and frozen Git component remain unsupported.
+
+**Copied from Git 2.54.0**: the public-only presigned corpus under
+`tests/fixtures/dream-proof-tools/corpus` reconstructs the deterministic objects
+in `t/t7510-signed-commit.sh` and retains only the PUBLIC armor from its
+`t/lib-gpg/keyring.gpg`. Original GPL-2.0 terms remain attached. The corrupt
+control changes one signature byte; no private key, signing or key generation
+produced these fixtures. Real signature verification is a separate required gate.
 
 - The private dream-bootstrap/1 fixed permit, bounded earliest-entry/lease checks,
   canonical binding/layout vectors, independent checker and causal process/formal

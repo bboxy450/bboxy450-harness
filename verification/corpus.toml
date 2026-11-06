@@ -2372,3 +2372,78 @@ frontend = "project"
 name = "BrokenHarnessDreamProofToolsSourceSevenOrderedPins"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamProofToolsPretestBasis"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPretestBasisMalformed"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPretestBasisProjectionBinding"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPretestBasisCoverage"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPretestBasisArchitecture"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPretestBasisCurrentness"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPretestBasisSelfHashCycle"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPretestBasisCustody"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPretestBasisMetadataBudget"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPretestBasisFixture"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPretestBasisStaleABA"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPretestBasisCrossCandidate"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPretestBasisUnapprovedRuntime"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPretestBasisBirthBeforeBinding"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsPretestBasisUnchargedCopy"
+expected = "safety"
+frontend = "project"

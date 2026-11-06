@@ -1,0 +1,77 @@
+# Adapted from Libgcrypt 1.12.4; original LGPL-2.1-or-later notices retained.
+# Origin: https://gnupg.org/ftp/gcrypt/libgcrypt/libgcrypt-1.12.4.tar.bz2
+# Project: bboxy450-harness — https://github.com/bboxy450/bboxy450-harness
+# Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+# Refuse ambient startup configuration and optional syslog before service effects.
+--- a/src/global.c
++++ b/src/global.c
+@@ -35,0 +36,16 @@
++
++/* bboxy450-harness public-only finite profile. Adapted from Libgcrypt
++ * 1.12.4, original LGPL-2.1-or-later terms/notices retained.
++ * https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
++ * Refuse optional system logging BEFORE its socket/service effect. Preserve
++ * an explicit failure, never a successful cryptographic verification. */
++static void
++dream_refuse_service (void)
++{
++  static const char message[] = "Dream profile: unsupported libgcrypt service/configuration\n";
++  (void)write (STDERR_FILENO, message, sizeof message - 1);
++  _exit (78);
++}
++#ifdef HAVE_SYSLOG
++# define syslog(...) dream_refuse_service ()
++#endif
+--- a/src/hwfeatures.c
++++ b/src/hwfeatures.c
+@@ -50,0 +51,16 @@
++
++/* bboxy450-harness public-only finite profile. Adapted from Libgcrypt
++ * 1.12.4, original LGPL-2.1-or-later terms/notices retained.
++ * https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
++ * Refuse optional system logging BEFORE its socket/service effect. Preserve
++ * an explicit failure, never a successful cryptographic verification. */
++static void
++dream_refuse_service (void)
++{
++  static const char message[] = "Dream profile: unsupported libgcrypt service/configuration\n";
++  (void)write (STDERR_FILENO, message, sizeof message - 1);
++  _exit (78);
++}
++#ifdef HAVE_SYSLOG
++# define syslog(...) dream_refuse_service ()
++#endif
+@@ -234,0 +251,5 @@
++  /* Unbound host configuration is Unsupported, including access errors. */
++  if (!access (fname, F_OK) || errno != ENOENT)
++    dream_refuse_service ();
++  return;
++
+--- a/src/fips.c
++++ b/src/fips.c
+@@ -40,0 +41,16 @@
++/* bboxy450-harness public-only finite profile. Adapted from Libgcrypt
++ * 1.12.4, original LGPL-2.1-or-later terms/notices retained.
++ * https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
++ * Refuse optional system logging BEFORE its socket/service effect. Preserve
++ * an explicit failure, never a successful cryptographic verification. */
++static void
++dream_refuse_service (void)
++{
++  static const char message[] = "Dream profile: unsupported libgcrypt service/configuration\n";
++  (void)write (STDERR_FILENO, message, sizeof message - 1);
++  _exit (78);
++}
++#ifdef HAVE_SYSLOG
++# define syslog(...) dream_refuse_service ()
++#endif
++
+@@ -153,0 +170,8 @@
++  /* Forced/ambient FIPS mode is outside this public-only profile. Refuse
++   * before any file contents, self-tests, syslog or downstream service. */
++  if (getenv ("LIBGCRYPT_FORCE_FIPS_MODE")
++      || !access (get_fips_force_file (), F_OK) || errno != ENOENT
++      || !access ("/proc/sys/crypto/fips_enabled", F_OK) || errno != ENOENT)
++    dream_refuse_service ();
++  return 0;
++

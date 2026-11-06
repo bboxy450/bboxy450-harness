@@ -724,6 +724,293 @@ pub fn source_seven(control: u8) -> Model {
     m
 }
 
+/// ICD 98a3023e: complete typed pre-test basis, one immutable manifest and six
+/// identical outer FilePins selecting fixed projections. Two candidates and
+/// epochs A1/B2/A3 are opaque identities, never reusable approval labels.
+/// Predicates represent strict canonical decoding, seven-source/auth/generated,
+/// eight-finding/five-phase/sixteen-command and reachable closure/span coverage,
+/// exact projection hashes, fixed config/fixture/probe bindings, aarch64 platform
+/// identity and charged metadata custody. Their real byte/cryptographic/native
+/// checks remain implementation obligations, not truths inferred from booleans.
+/// Recipe mapping preserves build/previous_build/source_snapshot/publication;
+/// Q2 alone owns the private decoder, canonical controller and runtime rejection.
+/// Only Reject is weakly fair; parsing, IO, birth, actual settlement and external
+/// Root admission have no success fairness. The result is permanently private.
+pub fn pretest_basis(control: u8) -> Model {
+    let suffix = match control {
+        1 => "Malformed",
+        2 => "ProjectionBinding",
+        3 => "Coverage",
+        4 => "Architecture",
+        5 => "Currentness",
+        6 => "SelfHashCycle",
+        7 => "Custody",
+        8 => "MetadataBudget",
+        9 => "Fixture",
+        10 => "StaleABA",
+        11 => "CrossCandidate",
+        12 => "UnapprovedRuntime",
+        13 => "BirthBeforeBinding",
+        14 => "UnchargedCopy",
+        _ => "",
+    };
+    let mut m = base(
+        &format!("DreamProofToolsPretestBasis{suffix}"),
+        control != 0,
+        &[
+            ("phase", 6, 0), // absent, parsed, bound, admitted, rejected, settling, settled
+            ("candidate", 1, 0),
+            ("epoch", 2, 0),
+            ("capturedCandidate", 2, 2),
+            ("capturedEpoch", 3, 3),
+            ("shapeValid", 1, 0),
+            ("projectionsBound", 1, 0),
+            ("coverage", 1, 0),
+            ("arch", 1, 0),
+            ("currentness", 1, 0),
+            ("acyclic", 1, 0),
+            ("custody", 1, 0),
+            ("metadataBudget", 1, 0),
+            ("fixtureBound", 1, 0),
+            ("innerBound", 1, 0),
+            ("helperBirths", 1, 0),
+            ("privateResult", 1, 0),
+            ("runtimeAdmitted", 1, 0),
+            ("defect", 17, 0),
+            ("basisCopies", 2, 0),
+            ("chargedCopies", 2, 0),
+            ("actualSettled", 1, 0),
+        ],
+    );
+    // Each mutation is independently reachable; defect labels identify the
+    // implementation witnesses represented by a failing finite predicate.
+    for (defect, name, invalid_field) in [
+        (0, "ParseCompleteTypedBasis", None),
+        (1, "ParseMissingInnerField", Some(5)),
+        (2, "ParseUnknownOrDuplicateInnerField", Some(5)),
+        (3, "ParseNoncanonicalOrMistypedInteger", Some(5)),
+        (4, "ParseWrongProjectionDigest", Some(6)),
+        (5, "ParseSixUnequalManifestPins", Some(6)),
+        (
+            6,
+            "ParseDroppedSourceAuthPatchNodeSpanCommandOrPhase",
+            Some(7),
+        ),
+        (7, "ParseArm64AsCanonicalOuterLabel", Some(8)),
+        (8, "ParseX86FatOrWrongMachO", Some(8)),
+        (9, "ParseWrongCompilerTarget", Some(8)),
+        (
+            10,
+            "ParseStaleSameVersionBinarySdkLibraryOrCacheUuid",
+            Some(9),
+        ),
+        (11, "ParseCurrentSourceOrFutureResultHashCycle", Some(10)),
+        (12, "ParseForeignRootOrUnsafeCustody", Some(11)),
+        (13, "ParseExceededCombinedMetadataReservation", Some(12)),
+        (14, "ParseForeignFixtureKeysOrCommit", Some(13)),
+        (15, "ParseSubstitutedFrozenProbe", Some(9)),
+        (16, "ParseCrossCandidateDescriptor", None),
+        (17, "ParseIncompleteSevenSourceOrReviewCoverage", Some(7)),
+    ] {
+        let mut updates = vec![
+            (0, Int(1)),
+            (
+                3,
+                if defect == 16 {
+                    Int(1).minus(Var(1))
+                } else {
+                    Var(1)
+                },
+            ),
+            (4, Var(2)),
+            (18, Int(defect)),
+            (19, Int(1)),
+            (20, Int(1)),
+        ];
+        for field in 5..=13 {
+            updates.push((field, Int(i64::from(invalid_field != Some(field)))));
+        }
+        act(&mut m, name, eq(0, 0), &updates);
+    }
+    let exact_epoch = Var(2).eq(Var(4));
+    let exact_candidate = Var(1).eq(Var(3));
+    let copies_charged = Var(19).le(Var(20));
+    let complete = all((5..=13).map(|field| eq(field, 1)))
+        .and(exact_epoch.clone())
+        .and(exact_candidate.clone())
+        .and(copies_charged.clone());
+    let controlled_fields = all((5..=13).map(|field| {
+        let omitted = match field {
+            5 => control == 1,
+            6 => control == 2,
+            7 => control == 3,
+            8 => control == 4,
+            9 => control == 5,
+            10 => control == 6,
+            11 => control == 7,
+            12 => control == 8,
+            13 => control == 9,
+            _ => false,
+        };
+        if omitted {
+            Bool(true)
+        } else {
+            eq(field, 1)
+        }
+    }));
+    let controlled_epoch = if control == 10 {
+        exact_epoch
+            .clone()
+            .or(all([eq(2, 0).or(eq(2, 2)), eq(4, 0).or(eq(4, 2))]))
+    } else {
+        exact_epoch.clone()
+    };
+    act(
+        &mut m,
+        "BindStrictTypedBasisAndSixFixedProjections",
+        all([
+            eq(0, 1),
+            controlled_fields,
+            controlled_epoch,
+            if control == 11 {
+                Bool(true)
+            } else {
+                exact_candidate.clone()
+            },
+            copies_charged.clone(),
+        ]),
+        &[(0, Int(2)), (14, Int(1))],
+    );
+    act(
+        &mut m,
+        "AdmitOriginalPrivateHelperOnlyAfterBinding",
+        all([
+            if control == 13 {
+                eq(0, 1).or(eq(0, 2))
+            } else {
+                eq(0, 2).and(eq(14, 1))
+            },
+            exact_epoch.clone(),
+            exact_candidate.clone(),
+            eq(9, 1),
+            eq(15, 0),
+        ]),
+        &[(0, Int(3)), (15, Int(1))],
+    );
+    // A-B-A never changes a captured snapshot's original epoch. After birth the
+    // same change retires into settlement rather than erasing/replacing its effect.
+    for phase in 0..=3 {
+        act(
+            &mut m,
+            &format!("ChangeCandidateIncarnationAtPhase{phase}"),
+            all([eq(0, phase), Var(2).lt(Int(2))]),
+            &[
+                (
+                    0,
+                    Int(if phase == 0 {
+                        0
+                    } else if phase == 3 {
+                        5
+                    } else {
+                        1
+                    }),
+                ),
+                (1, Int(1).minus(Var(1))),
+                (2, Var(2).plus(Int(1))),
+                (14, Int(0)),
+            ],
+        );
+    }
+    act(
+        &mut m,
+        "ChangeActualTupleBeforeBirth",
+        eq(0, 1).or(eq(0, 2)),
+        &[(0, Int(1)), (9, Int(0)), (14, Int(0))],
+    );
+    act(
+        &mut m,
+        "ChangeActualTupleAfterBirthKeepsOriginalEffect",
+        eq(0, 3),
+        &[(0, Int(5)), (9, Int(0)), (14, Int(0))],
+    );
+    if control == 14 {
+        act(
+            &mut m,
+            "DuplicateBasisWithoutWorkingStorageCredit",
+            all([eq(0, 1).or(eq(0, 2)), eq(19, 1)]),
+            &[(19, Int(2))],
+        );
+    }
+    let reject = m.actions.len();
+    let invalid_pending = eq(0, 1).or(eq(0, 2)).and(complete.clone().negate());
+    act(
+        &mut m,
+        "RejectMalformedOrUnboundBasisBeforeBirth",
+        invalid_pending.clone(),
+        &[(0, Int(4)), (14, Int(0))],
+    );
+    act(
+        &mut m,
+        "ObserveActualPrivateGroupAndRetiredSettlement",
+        eq(0, 3).or(eq(0, 5)),
+        &[(0, Int(6)), (14, Int(0)), (16, Int(1)), (21, Int(1))],
+    );
+    act(
+        &mut m,
+        "RuntimeRejectsPrivateCandidateResultKind",
+        eq(16, 1),
+        &[],
+    );
+    if control == 12 {
+        act(
+            &mut m,
+            "TreatPrivateResultAsRuntimeApproval",
+            eq(16, 1),
+            &[(17, Int(1))],
+        );
+    }
+    for (name, required) in [
+        ("InnerBindingRequiresCanonicalTypedBasis", eq(5, 1)),
+        ("InnerBindingRequiresOneManifestSixProjections", eq(6, 1)),
+        ("InnerBindingRequiresCompleteCoverage", eq(7, 1)),
+        ("InnerBindingRequiresCanonicalArchitecture", eq(8, 1)),
+        ("InnerBindingRequiresCurrentTuple", eq(9, 1)),
+        ("InnerBindingIsAcyclic", eq(10, 1)),
+        ("InnerBindingRequiresOwnedCustody", eq(11, 1)),
+        ("InnerBindingRequiresAggregateMetadataBudget", eq(12, 1)),
+        ("InnerBindingRequiresBoundFixture", eq(13, 1)),
+        ("InnerBindingRequiresCurrentIncarnation", exact_epoch),
+        ("InnerBindingRequiresSameCandidate", exact_candidate),
+    ] {
+        safe(&mut m, name, eq(14, 0).or(required));
+    }
+    safe(&mut m, "EveryBasisCopyHasWorkingCredit", copies_charged);
+    safe(
+        &mut m,
+        "PrivateBirthRequiresBoundBasis",
+        eq(0, 3).negate().or(eq(14, 1)),
+    );
+    safe(
+        &mut m,
+        "RejectedBasisHasNoHelperBirth",
+        eq(0, 4).negate().or(eq(15, 0)),
+    );
+    safe(
+        &mut m,
+        "PrivateResultRequiresActualSettlement",
+        eq(16, 0).or(eq(21, 1)),
+    );
+    safe(&mut m, "PrivateResultCannotAuthorizeRuntime", eq(17, 0));
+    progress(
+        &mut m,
+        "InvalidBasisLocallyRefuses",
+        invalid_pending,
+        eq(0, 4).or(eq(0, 5)).or(eq(0, 6)),
+        vec![reject],
+    );
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = Vec::new();
     for (family, count) in [
@@ -732,6 +1019,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (custody as fn(u8) -> Model, 6),
         (hidden_work as fn(u8) -> Model, 2),
         (source_seven as fn(u8) -> Model, 8),
+        (pretest_basis as fn(u8) -> Model, 14),
     ] {
         for control in 0..=count {
             out.push((
@@ -920,4 +1208,78 @@ fn dream_proof_tools_source_seven_good_basis_is_nonvacuous() {
             "mismatched pin/auth/generated/link/source field {field} is reachable and refused"
         );
     }
+}
+
+#[test]
+fn dream_proof_tools_typed_basis_controls_are_causal() {
+    for (control, property) in [
+        (1, "InnerBindingRequiresCanonicalTypedBasis"),
+        (2, "InnerBindingRequiresOneManifestSixProjections"),
+        (3, "InnerBindingRequiresCompleteCoverage"),
+        (4, "InnerBindingRequiresCanonicalArchitecture"),
+        (5, "InnerBindingRequiresCurrentTuple"),
+        (6, "InnerBindingIsAcyclic"),
+        (7, "InnerBindingRequiresOwnedCustody"),
+        (8, "InnerBindingRequiresAggregateMetadataBudget"),
+        (9, "InnerBindingRequiresBoundFixture"),
+        (10, "InnerBindingRequiresCurrentIncarnation"),
+        (11, "InnerBindingRequiresSameCandidate"),
+        (12, "PrivateResultCannotAuthorizeRuntime"),
+        (13, "PrivateBirthRequiresBoundBasis"),
+        (14, "EveryBasisCopyHasWorkingCredit"),
+    ] {
+        let bad = pretest_basis(control).check(100_000).unwrap();
+        assert!(
+            bad.violations
+                .iter()
+                .any(|v| v.property == property && v.cycle.is_empty()),
+            "typed-basis control {control} did not reach safety invariant {property}"
+        );
+    }
+}
+
+#[test]
+fn dream_proof_tools_typed_basis_good_model_is_nonvacuous() {
+    let good = pretest_basis(0).check(100_000).unwrap();
+    assert!(good.violations.is_empty());
+    for candidate in 0..=1 {
+        assert!(
+            good.states.iter().any(|s| s[0] == 6
+                && s[3] == candidate
+                && s[16] == 1
+                && s[17] == 0
+                && s[21] == 1),
+            "candidate {candidate} can yield a settled permanently private result"
+        );
+    }
+    for field in 5..=13 {
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[0] == 4 && s[field] == 0 && s[14] == 0 && s[15] == 0),
+            "invalid typed-basis field {field} reaches refusal before any helper birth"
+        );
+    }
+    assert!(
+        good.states.iter().any(|s| s[0] == 1
+            && s[1] == 0
+            && s[2] == 2
+            && s[3] == 0
+            && s[4] == 0
+            && s[14] == 0
+            && s[15] == 0),
+        "A1 typed input survives A-B-A without binding A3"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[0] == 5 && s[15] == 1 && s[14] == 0 && s[16] == 0),
+        "changed admitted tuple keeps its original effect for actual settlement"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[0] == 2 && s[14] == 1 && s[19] == 1 && s[20] == 1),
+        "six logical projections bind one charged physical basis manifest"
+    );
 }
