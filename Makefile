@@ -316,4 +316,4 @@ test-python-execute-boundaries: test-python-execute
 
 .PHONY: land
 land:
-	@set -eu; if [ -f ../../scripts/cache-env.sh ]; then . ../../scripts/cache-env.sh; fi; TARGET_DIR='$(abspath $(TARGET_DIR))' nice -n 10 python3 -I scripts/land.py
+	@set -eu; if [ -f ../../scripts/cache-env.sh ]; then . ../../scripts/cache-env.sh; fi; TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/land.py

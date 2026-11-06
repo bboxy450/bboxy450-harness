@@ -15,6 +15,7 @@ An enclosing app is landed separately with its combined current-source gate.
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -49,13 +50,27 @@ def source_digest():
 
 def gate(base):
     changed = git("diff", "--name-only", f"{base}...HEAD").splitlines()
+    # Native controller deadlines include process birth/Hello. Keep their
+    # canonical ordinary scheduling precondition; background only rustc below.
+    priority = os.getpriority(os.PRIO_PROCESS, 0)
+    if priority != 0:
+        raise RuntimeError(f"start make land at ordinary priority (nice=0), got {priority}")
+    compiler_wrapper = shutil.which("nice")
+    if not compiler_wrapper:
+        raise RuntimeError("nice is required to keep compiler work in the background")
+    print(f"land: controller nice={priority}; compiler wrapper={compiler_wrapper} (default increment 10)", flush=True)
     env = {k: v for k, v in os.environ.items() if not k.startswith("BBOXY_")}
     env.update(CARGO_HOME=os.environ.get("CARGO_HOME", str(Path.home() / ".cargo")),
                RUSTUP_HOME=os.environ.get("RUSTUP_HOME", str(Path.home() / ".rustup")),
                CARGO_BUILD_JOBS="2", BBOXY_CARGO_JOBS="2", BBOXY_CACHE_MODE="off",
                NEXTEST_TEST_THREADS="2", RUST_TEST_THREADS="2",
                BBOXY_CARGO_TARGET_DIR=str(TARGET), CARGO_TARGET_DIR=str(TARGET),
-               CARGO_INCREMENTAL="0",CARGO_BUILD_BUILD_DIR=str(TARGET),RUSTC_WRAPPER="",RUSTC_WORKSPACE_WRAPPER="")
+               CARGO_INCREMENTAL="0",CARGO_BUILD_BUILD_DIR=str(TARGET),
+               # Cargo passes the actual rustc executable as argv[1]. POSIX nice
+               # defaults to +10; Cargo/test controllers remain unwrapped.
+               RUSTC_WRAPPER=compiler_wrapper,RUSTC_WORKSPACE_WRAPPER="")
+    run([compiler_wrapper, sys.executable, "-I", "-c",
+         "import os; n=os.getpriority(os.PRIO_PROCESS,0); print('land: compiler-wrapper nice='+str(n),flush=True); assert n==10"], env=env)
     with tempfile.TemporaryDirectory(prefix="harness-land-") as private:
         env["HOME"] = private
         env["GNUPGHOME"] = str(Path(private) / "gnupg")
