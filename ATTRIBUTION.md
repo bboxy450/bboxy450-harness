@@ -200,7 +200,9 @@ The recipe, byte/custody validators, regression witnesses and finite models in
 `tests/formal/dream_proof_tools.rs` are project-owned under this policy.
 The strict `closure-boundary.schema.json`, synthetic canonical byte vectors and
 their offline validator retain this same origin and absolute policy URL. The
-Mach-O metadata interpretation and active-cache membership capture are
+private component parent, actual-wait4 handoff and refusal/quarantine controls
+are project-owned; they consume Q2's existing format and retain its raw evidence.
+The Mach-O metadata interpretation and active-cache membership capture are
 **Inspired by** Apple's public SDK `mach-o/loader.h`, `mach-o/dyld.h` and
 `mach-o/dyld_images.h`; no platform implementation is copied or certified.
 

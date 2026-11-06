@@ -46,7 +46,94 @@ VERIFIER_SHA = "21cb9adcad96b7be404014ff6e9fb837160a2135455c217dec9efe196cf0661a
 # Only an explicit live Root amendment can select a FUNCTIONAL immutable input.
 # The old5493 and a386 preflight checkpoints remain historical, not fallbacks.
 # This is an offline ingestion premise, never a runtime approval flag or API.
-ROOT_Q2_INPUT = None
+# Selected by the task ORACLE FREEZE AMENDMENT on 2026-11-06. Custody and all
+# preparation cross-bindings must still pass; selection alone admits nothing.
+ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/corrected-signed-preparation/dream-read-c-preparation/compile-7ov2n68v',
+          'dev': 16777234,
+          'ino': 180981045,
+          'uid': 501},
+ 'source': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/corrected-signed-preparation/dream-read-c-preparation/compile-7ov2n68v/source-30f27ccc6f9021ae884e1406c9f415898d6a7eb8/tests/fixtures/dream-read/proof-helper-probe.c',
+            'sha256': '140e808b40600086bbea9184057271e66c0655de0ece3650edec3c3fb3ec4c7c',
+            'ctime_ns': 1794002803962818861,
+            'dev': 16777234,
+            'ino': 180981080,
+            'len': 316739,
+            'mode': 33024,
+            'mtime_ns': 1794002803962674570,
+            'nlink': 1,
+            'size': 316739,
+            'uid': 501},
+ 'executable': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/corrected-signed-preparation/dream-read-c-preparation/compile-7ov2n68v/probe',
+                'sha256': '76f35824d7c2ca6fa336611d59333e01abde429eb1476b0bb5cbd4931c6eb56c',
+                'ctime_ns': 1794002803962105821,
+                'dev': 16777234,
+                'ino': 180981071,
+                'len': 268744,
+                'mode': 33088,
+                'mtime_ns': 1794002803931233017,
+                'nlink': 1,
+                'size': 268744,
+                'uid': 501},
+ 'preparation': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/corrected-signed-preparation/dream-read-c-preparation/compile-7ov2n68v/preparation-a4998fb7168936dffdf363e03e81c242c8ffcbe87c9d6e7279a9713fc4439458.json',
+                 'sha256': 'a4998fb7168936dffdf363e03e81c242c8ffcbe87c9d6e7279a9713fc4439458',
+                 'ctime_ns': 1794002804160615005,
+                 'dev': 16777234,
+                 'ino': 180981428,
+                 'len': 511507,
+                 'mode': 33024,
+                 'mtime_ns': 1794002804160424755,
+                 'nlink': 1,
+                 'size': 511507,
+                 'uid': 501},
+ 'source_commit': '30f27ccc6f9021ae884e1406c9f415898d6a7eb8',
+ 'signer_fingerprint': '9B07E849480C68328CA20684844ECC0587DE7AB0',
+ 'preparation_commit': 'b1171237cc73fc312cec6324d8ed3766705d8c2f',
+ 'preparation_signer_fingerprint': '9B07E849480C68328CA20684844ECC0587DE7AB0',
+ 'bindings': {'build': '184af3f21ce3492cf5206efd0f7241022b4eda65d605bd94ed84193b16a106c6',
+              'compiler': 'a3d577375b2a73419600eee3110f6bb210bbec0c10d5abd48022c9809ff23838',
+              'dependency_discovery': 'ef9441ff3e37c1b5c5e97c3c3fe0af65c20d37b3bbf8038dd551204c3517267b',
+              'executable': '840cc2cae66467b764d8893345a6dd9f8ee39f92d81834378568203cd5e5151a',
+              'header_inputs': '9d594b3999e7590bff941f0fcd0fb8f5e94d4094b72fecd4cf056258c071087e',
+              'inputs': '56ffa28bebca5a97ef265ff1c78fffca23be98b06c6b55d639f635f83183a33a',
+              'linker': '7cea27482a67bfa92b546ec35ad5ba71bcedd3910bd3b12df9e618fbcfbdf01c',
+              'platform': '994c24fbd511ae90c273cfcd5c5f3e78b99b70a35692800dcb48d289bdaab6e3',
+              'provisioning_source': '35260e817f41a3599b8c08cf7dc0b641816000d5ac0546f0f309782a4489ed93',
+              'sdk': '18544f8f94b14d8ac2da05b462679964250d8885f603422c994201d5e4e483ff',
+              'input_commits': 'e7446efc896d35bc2b6c908001d04cc7ee51e54ab6a1f8859af970353b31f289',
+              'preparation_commit': '5efdbbb5612f46ba5ce38f00c78714c70a4268b5f5831244549bcbcb11d21bc1',
+              'preparation_signer_fingerprint': '4e588b4e7396747b3b7b317d37a22c5981401da546e6eadebc4008472c4367e9',
+              'preparation_snapshot': 'e26ae89dcda4e8c7525c73f98c234d27365d2a0a431307d76b42be367ff4e762',
+              'retained_outputs': '871ce0c9f5d6a0a39ff3e98ccbc567fcff0bfaaca63905836248f004bc062a31',
+              'retained_root': '269fa1672c2d0898f5e8a8e46ead72f4bbe8888cda97756451e59c1123f2ce77',
+              'retained_directory_mode': '4962ec3a0b2818a90f5ef116da5f517a840b1071e51fba8ee2bef6af2f531067'},
+ 'build_closure': [{'path': '/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.osx.a',
+                    'sha256': '5f20304aa257ed57bcba9f64287497d0be09b8cc7a5a91479b6a274294a22dfe',
+                    'ctime_ns': 1790269621807429915,
+                    'dev': 16777234,
+                    'ino': 2620656,
+                    'len': 851696,
+                    'mode': 33188,
+                    'mtime_ns': 1787624113000000000,
+                    'nlink': 1,
+                    'size': 851696,
+                    'uid': 0},
+                   {'path': '/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libLTO.dylib',
+                    'sha256': '08bd424518673ef9371ded084a3d614a65da784f2d898226262eb8e203801732',
+                    'ctime_ns': 1790269623088330009,
+                    'dev': 16777234,
+                    'ino': 2621319,
+                    'len': 69069424,
+                    'mode': 33261,
+                    'mtime_ns': 1787717325000000000,
+                    'nlink': 1,
+                    'size': 69069424,
+                    'uid': 0}],
+ 'macho': {'cpu_type': 16777228,
+           'cpu_subtype': 0,
+           'uuid': '2fece13ecc04317eb13cfd19e9cf2504',
+           'fat': False,
+           'rpaths': [],
+           'loads': [{'mode': 'load', 'name': '/usr/lib/libSystem.B.dylib'}]}}
 Q2_PREPARATION_LIMIT = 2 * 1024 * 1024
 GIT_SIGNATURE_TEMP = "{git_signature_temp}"
 # Root's authenticated source read set for decision65960 B. These are source
@@ -547,8 +634,11 @@ def verify_source_snapshot(src, expected):
 def pending_commands(run):
     # The start record precedes native process creation. Lack of an exit is
     # unknown, including a crash between Popen and publishing its exact PID.
-    return [path for path in (run / "logs").glob("*.command.json")
-            if not path.with_name(path.name.replace(".command.json", ".exit.json")).exists()]
+    pending = [path for path in (run / "logs").glob("*.command.json")
+               if not path.with_name(path.name.replace(".command.json", ".exit.json")).exists()]
+    pending += [path for path in (run / "components").glob("*/spawn-intent.json")
+                if not (path.parent / "wait4.json").exists()]
+    return pending
 
 
 def refuse_unknown_build_effects(d):
@@ -719,9 +809,9 @@ def compile_sources(run, candidate):
     command(run, ["/usr/bin/otool", "-l", str(bindir / "gpg")])
     stage_linked_archives(run, candidate, deps)
     closure = emit_closure(run, candidate)
-    prepare_basis(run, candidate, closure)
+    basis = prepare_basis(run, candidate, closure)
     exclusive(run / "build-complete.json", canonical({"candidate": str(candidate), "tools": {name: sha(read_regular(bindir / name, private=True)) for name in ("git", "gpg")}, "lifetime": "unproven_pending_canonical_private_probe"}))
-    raise Refused(f"real pair built at {candidate}; exact canonical private-candidate probe freeze still required before joined qualification")
+    return qualify_candidate(run, candidate, basis)
 
 
 def build_git(run, candidate, compiler, sdk, buildenv):
@@ -2020,11 +2110,13 @@ def prepare_basis(run, prefix, closure):
 # Offline Q2 input ingestion. The selected receipt is build provenance, not a
 # runtime Basis, a second controller, or an uncharged prepared input catalogue.
 Q2_ID_FIELDS = "path sha256 ctime_ns dev ino len mode mtime_ns nlink size uid"
-Q2_RECEIPT_FIELDS = "basis build candidate_run compiler created dependency_discovery executable format header_inputs inputs limitations linker platform private_test provisioning_source runtime_approved schema_authority_commit sdk signature_verified signer_fingerprint source_commit source_snapshot whole_command_lifetime_proof"
-Q2_BINDINGS = "build compiler dependency_discovery executable header_inputs inputs linker platform provisioning_source sdk"
-Q2_INPUT_NAMES = ("Makefile", "src/dream/c1.rs", "src/dream/read.rs", "src/dream/resolve.rs", "src/dream/trust.rs",
+Q2_RECEIPT_FIELDS = "basis build candidate_run compiler created dependency_discovery executable format header_inputs input_commits inputs limitations linker platform preparation_commit preparation_signature_verified preparation_signer_fingerprint preparation_snapshot private_test provisioning_source retained_directory_mode retained_outputs retained_root runtime_approved schema_authority_commit sdk signature_verified signer_fingerprint source_commit source_snapshot whole_command_lifetime_proof"
+Q2_BINDINGS = "build compiler dependency_discovery executable header_inputs inputs linker platform provisioning_source sdk input_commits preparation_commit preparation_signer_fingerprint preparation_snapshot retained_outputs retained_root retained_directory_mode"
+Q2_PREPARATION_NAMES = ("Makefile", "tests/fixtures/dream-read/prepare-c-probe.py", "tests/fixtures/dream-read/check-c-preparation.py")
+Q2_SOURCE_NAMES = ("src/dream/c1.rs", "src/dream/read.rs", "src/dream/resolve.rs", "src/dream/trust.rs",
                   "tests/fixtures/dream-proof-tools/closure-boundary-vectors.json", "tests/fixtures/dream-proof-tools/closure-boundary.schema.json",
-                  "tests/fixtures/dream-read/prepare-c-probe.py", "tests/fixtures/dream-read/proof-helper-probe.c")
+                  "tests/fixtures/dream-read/proof-helper-probe.c")
+Q2_INPUT_NAMES = (*Q2_PREPARATION_NAMES, *Q2_SOURCE_NAMES)
 Q2_C_SOURCE = "tests/fixtures/dream-read/proof-helper-probe.c"
 
 
@@ -2117,6 +2209,101 @@ def q2_platform_file(expected, roots):
     finally: os.close(fd)
 
 
+def q2_private_directory(root, expected):
+    fields(expected, "kind path dev ino uid mode")
+    require(expected["kind"] == "directory", "Q2 retained directory kind")
+    base, path = Path(root["path"]), Path(expected["path"])
+    require(base.is_absolute() and base == base.resolve() and path.is_relative_to(base)
+            and str(path) == posixpath.normpath(str(path)), "Q2 retained directory outside selected root")
+    fd = os.open(base, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        for part in (None, *path.relative_to(base).parts):
+            if part is not None:
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+                os.close(fd); fd = child
+            info = os.fstat(fd)
+            require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700, "Q2 retained directory custody")
+            if part is None:
+                require((info.st_dev, info.st_ino, info.st_uid) == (root["dev"], root["ino"], root["uid"]), "Q2 retained root identity")
+        actual = {"kind": "directory", "path": str(path), "dev": info.st_dev, "ino": info.st_ino,
+                  "uid": info.st_uid, "mode": info.st_mode}
+        require(actual == expected, "Q2 retained directory identity changed")
+    finally: os.close(fd)
+
+
+def q2_header_file(root, pin, roots):
+    # The compiler's lexical include name, every symlink identity/target byte,
+    # and the final regular header are separate bound inputs. No alias collapse.
+    fields(pin, Q2_ID_FIELDS + " resolved_path snapshot symlinks")
+    identity = {key: pin[key] for key in Q2_ID_FIELDS.split()}
+    q2_identity_shape(identity)
+    lexical = Path(pin["path"])
+    require(lexical.is_absolute() and str(lexical) == posixpath.normpath(str(lexical))
+            and any(lexical.is_relative_to(base) for base in roots), "Q2 foreign lexical header")
+    links = pin["symlinks"]
+    require(type(links) is list and len(links) <= 40, "Q2 lexical symlink bound")
+    pending = list(lexical.parts[1:]); current = Path("/"); observed_links = []; copies = []
+    steps = 0
+    while pending:
+        steps += 1; require(steps <= 4096, "Q2 lexical header traversal bound")
+        part = pending.pop(0)
+        if part == "..": current = current.parent; continue
+        if part == ".": continue
+        current /= part
+        before = current.lstat()
+        if stat.S_ISLNK(before.st_mode):
+            require(len(observed_links) < len(links), "Q2 unbound header symlink")
+            expected = links[len(observed_links)]
+            fields(expected, Q2_ID_FIELDS + " snapshot target")
+            q2_identity_shape({key: expected[key] for key in Q2_ID_FIELDS.split()})
+            target = os.readlink(current); raw = os.fsencode(target); after = current.lstat()
+            attrs = ("st_dev", "st_ino", "st_size", "st_mode", "st_uid", "st_nlink", "st_mtime_ns", "st_ctime_ns")
+            require(all(getattr(before, key) == getattr(after, key) for key in attrs), "Q2 header symlink changed during read")
+            actual = {"path": str(current), "sha256": sha(raw), "ctime_ns": before.st_ctime_ns,
+                      "dev": before.st_dev, "ino": before.st_ino, "len": len(raw), "mode": before.st_mode,
+                      "mtime_ns": before.st_mtime_ns, "nlink": before.st_nlink, "size": before.st_size,
+                      "uid": before.st_uid, "target": target}
+            require(actual == {key: value for key, value in expected.items() if key != "snapshot"}, "Q2 header symlink identity/target mismatch")
+            copied, wire = q2_private_file(root, expected["snapshot"], collect=True)
+            require(wire == raw, "Q2 retained symlink target bytes")
+            copies.append(copied); observed_links.append(actual)
+            replacement = Path(target)
+            require(target and len(raw) <= 4096 and "\x00" not in target, "Q2 header symlink target bound")
+            if replacement.is_absolute(): current = Path("/"); pending = list(replacement.parts[1:]) + pending
+            else: current = current.parent; pending = list(replacement.parts) + pending
+        elif pending:
+            require(stat.S_ISDIR(before.st_mode), "Q2 lexical header non-directory")
+    require(len(observed_links) == len(links) and str(current) == pin["resolved_path"], "Q2 lexical header resolved path/symlink coverage")
+    q2_platform_file({**identity, "path": str(current)}, roots)
+    copied, _ = q2_private_file(root, pin["snapshot"])
+    require((copied["len"], copied["sha256"]) == (pin["len"], pin["sha256"]), "Q2 retained header bytes")
+    copies.append(copied)
+    return copies
+
+
+def q2_retained_outputs(root, rows, required):
+    require(type(rows) is list and 0 < len(rows) <= 8192, "Q2 retained output bound")
+    paths = []
+    for row in rows:
+        require(type(row) is dict and row.get("kind") in ("file", "directory"), "Q2 retained output kind")
+        if row["kind"] == "directory":
+            q2_private_directory(root, row)
+        else:
+            fields(row, Q2_ID_FIELDS + " kind")
+            identity = {key: row[key] for key in Q2_ID_FIELDS.split()}
+            require(stat.S_IMODE(identity["mode"]) in (0o400, 0o500), "Q2 retained output is not immutable")
+            q2_private_file(root, identity["path"], expected=identity, executable=bool(identity["mode"] & 0o100))
+        paths.append(row["path"])
+    require(len(paths) == len(set(paths)) and paths == sorted(paths), "Q2 retained output order/duplicate")
+    expected_paths = {root["path"]}
+    for name in required:
+        path = Path(name)
+        require(path.is_relative_to(Path(root["path"])), "Q2 required retained output outside root")
+        expected_paths.add(str(path))
+        expected_paths.update(str(parent) for parent in path.parents if parent.is_relative_to(Path(root["path"])))
+    require(set(paths) == expected_paths, "Q2 retained output coverage differs from actual referenced inputs")
+
+
 def q2_current_platform():
     import plistlib
     raw = read_regular("/System/Library/CoreServices/SystemVersion.plist", 65536, platform_image=True)
@@ -2138,12 +2325,13 @@ def ingest_q2_input(selection, *, current_platform=None):
 
 def _ingest_q2_input(selection, *, current_platform=None):
     require(selection is not None, "functional Q2 input is not selected by Root; historical preflights remain stopped")
-    fields(selection, "root source executable preparation source_commit signer_fingerprint bindings build_closure macho")
+    fields(selection, "root source executable preparation source_commit signer_fingerprint preparation_commit preparation_signer_fingerprint bindings build_closure macho")
     root = selection["root"]
     for name in ("source", "executable", "preparation"): q2_identity_shape(selection[name])
-    for name in ("source_commit",): hex_string(selection[name], 40)
-    hex_string(selection["signer_fingerprint"], 40, True)
-    require(selection["signer_fingerprint"] == "9B07E849480C68328CA20684844ECC0587DE7AB0", "Q2 selected signer is not the approved Boxy identity")
+    for name in ("source_commit", "preparation_commit"): hex_string(selection[name], 40)
+    for name in ("signer_fingerprint", "preparation_signer_fingerprint"):
+        hex_string(selection[name], 40, True)
+        require(selection[name] == "9B07E849480C68328CA20684844ECC0587DE7AB0", "Q2 selected signer is not the approved Boxy identity")
     fields(selection["bindings"], Q2_BINDINGS)
     for digest in selection["bindings"].values(): hex_string(digest)
     source, source_bytes = q2_private_file(root, selection["source"]["path"], expected=selection["source"], collect=True)
@@ -2163,19 +2351,31 @@ def _ingest_q2_input(selection, *, current_platform=None):
             and receipt["runtime_approved"] is False and receipt["whole_command_lifetime_proof"] is False, "Q2 preparation scope is not runtime authority")
     require(receipt["source_commit"] == selection["source_commit"] and receipt["signer_fingerprint"] == selection["signer_fingerprint"]
             and receipt["signature_verified"] is True, "Q2 selected signed provenance mismatch")
+    require(receipt["preparation_commit"] == selection["preparation_commit"]
+            and receipt["preparation_signer_fingerprint"] == selection["preparation_signer_fingerprint"]
+            and receipt["preparation_signature_verified"] is True, "Q2 selected signed preparation provenance mismatch")
     # signature_verified is only a receipt assertion. Authenticity is the
     # independently Root-selected signed commit and exact receipt/source bytes.
     for name, digest in selection["bindings"].items():
         require(q2_metadata_hash(receipt[name]) == digest, "Q2 selected preparation projection mismatch: " + name)
     require(receipt["executable"] == exe, "Q2 supplied executable/receipt cross-binding")
+    require(receipt["retained_root"] == root["path"] and receipt["retained_directory_mode"] == "0700", "Q2 retained root/custody binding")
     bounded_string(receipt["source_snapshot"], 4096)
+    bounded_string(receipt["preparation_snapshot"], 4096)
     snapshot = Path(receipt["source_snapshot"])
+    preparation_snapshot = Path(receipt["preparation_snapshot"])
     require(snapshot.is_relative_to(Path(root["path"])) and source["path"] == str(snapshot / Q2_C_SOURCE), "Q2 source snapshot path binding")
+    require(preparation_snapshot.is_relative_to(Path(root["path"])) and preparation_snapshot != snapshot,
+            "Q2 distinct preparation snapshot path binding")
     fields(receipt["inputs"], " ".join(Q2_INPUT_NAMES))
+    fields(receipt["input_commits"], " ".join(Q2_INPUT_NAMES))
     snapshot_data = {}
     for name, ref in receipt["inputs"].items():
         fields(ref, "len sha256"); checked_int(ref["len"], 0, MAX_ARCHIVE); hex_string(ref["sha256"])
-        actual, content = q2_private_file(root, snapshot / name, limit=MAX_ARCHIVE, collect=True)
+        preparation_input = name in Q2_PREPARATION_NAMES
+        require(receipt["input_commits"][name] == selection["preparation_commit" if preparation_input else "source_commit"],
+                "Q2 source/preparation input commit binding")
+        actual, content = q2_private_file(root, (preparation_snapshot if preparation_input else snapshot) / name, limit=MAX_ARCHIVE, collect=True)
         require(actual["len"] == ref["len"] and actual["sha256"] == ref["sha256"], "Q2 signed source snapshot bytes changed")
         snapshot_data[name] = content
         private_observed.append(actual)
@@ -2213,14 +2413,20 @@ def _ingest_q2_input(selection, *, current_platform=None):
         platform_observed.append(identity)
     require(sdk["settings"]["path"] == str(sdk_root / "SDKSettings.json"), "Q2 SDK settings path binding")
     build, deps = receipt["build"], receipt["dependency_discovery"]
-    fields(build, "argv exit_code stderr stderr_sha256 stdout stdout_sha256")
-    fields(deps, "argv exit_code stdout stdout_sha256")
+    fields(build, "argv cwd exit_code input output retained_stderr retained_stdout stderr stderr_sha256 stdout stdout_sha256")
+    fields(deps, "argv exit_code retained_stdout stdout stdout_sha256")
+    require(build["cwd"] == root["path"], "Q2 actual compiler retained cwd")
     for result in (build, deps):
         require(type(result["exit_code"]) is int and result["exit_code"] == 0, "Q2 actual preparation command failed")
         for stream in ("stdout", "stderr"):
             if stream in result:
                 require(type(result[stream]) is str, "Q2 compiler log type")
                 require(sha(result[stream].encode()) == result[stream + "_sha256"], "Q2 actual compiler log hash")
+                retained = result["retained_" + stream]
+                q2_identity_shape(retained)
+                observed, wire = q2_private_file(root, retained["path"], expected=retained, collect=True)
+                require(wire == result[stream].encode(), "Q2 actual retained compiler log bytes")
+                private_observed.append(observed)
     flags = compiler["flags"]
     checked_array(flags)
     for flag in flags: bounded_string(flag, 4096)
@@ -2230,13 +2436,13 @@ def _ingest_q2_input(selection, *, current_platform=None):
     argv = build["argv"]
     require(type(argv) is list and len(argv) == len(flags) + 4 and argv[:len(flags) + 1] == [compiler["path"], *flags] and argv[-2] == "-o", "Q2 exact recorded compile argv")
     compiled_source = Path(argv[len(flags) + 1])
-    built_source, _ = q2_private_file(root, compiled_source)
+    built_source, _ = q2_private_file(root, compiled_source, expected=build["input"])
     private_observed.append(built_source)
     require((built_source["len"], built_source["sha256"]) == (source["len"], source["sha256"]), "Q2 actual compiler source bytes")
     # Freezing may preserve a separately named immutable executable. The
     # original recorded output must still bind its actual bytes to that file;
     # an argv string or a same-version label alone supplies no such relation.
-    compiled_output, _ = q2_private_file(root, argv[-1], executable=True)
+    compiled_output, _ = q2_private_file(root, argv[-1], expected=build["output"], executable=True)
     require((compiled_output["len"], compiled_output["sha256"]) == (exe["len"], exe["sha256"]), "Q2 actual compiler output differs from supplied executable")
     # The supplied dependency command has its own selected projection. It need
     # not repeat verbose-only flags or an invented reconstruction recipe.
@@ -2250,16 +2456,12 @@ def _ingest_q2_input(selection, *, current_platform=None):
     require(len(dependency_paths) == len(set(dependency_paths)) and len(dependency_paths) <= 4096, "Q2 dependency closure bound/duplicates")
     headers = receipt["header_inputs"]
     require(type(headers) is dict and 0 < len(headers) <= 4096, "Q2 header closure bound")
-    expected_dependencies = set(headers) | {str(compiled_source), sdk["settings"]["path"]}
+    expected_dependencies = set(headers) | {str(compiled_source)}
     require(set(dependency_paths) == expected_dependencies, "Q2 incomplete dependency/header closure or unbound alias")
+    require(sdk["settings"]["path"] in headers, "Q2 SDK settings absent from lexical dependency closure")
     for name, pin in headers.items():
-        fields(pin, Q2_ID_FIELDS + " snapshot")
         require(name == pin["path"], "Q2 header path binding")
-        q2_platform_file({k: pin[k] for k in Q2_ID_FIELDS.split()}, roots)
-        platform_observed.append({k: pin[k] for k in Q2_ID_FIELDS.split()})
-        copied, _ = q2_private_file(root, pin["snapshot"])
-        private_observed.append(copied)
-        require((copied["len"], copied["sha256"]) == (pin["len"], pin["sha256"]), "Q2 retained header bytes")
+        private_observed.extend(q2_header_file(root, pin, roots))
     closure = selection["build_closure"]
     require(type(closure) is list and 0 < len(closure) <= 64, "Q2 selected build closure missing")
     for pin in closure: q2_identity_shape(pin)
@@ -2288,6 +2490,8 @@ def _ingest_q2_input(selection, *, current_platform=None):
         require(match and match[1].startswith(("/usr/lib/", "/System/Library/")), "Q2 unexpected nonplatform compiler load")
     actual_macho, install, _ = parse_macho(exe_bytes, binary=True)
     require(install is None and canonical(actual_macho) == canonical(selection["macho"]), "Q2 exact supplied executable Mach-O facts mismatch")
+    retained_required = {pin["path"] for pin in private_observed} | {source["path"], exe["path"], compiled_output["path"]}
+    q2_retained_outputs(root, receipt["retained_outputs"], retained_required)
     # Raw load facts and enumerated stable linker inputs do not prove resolved
     # transitive native closure, cache membership or compiler fidelity. Those
     # remain explicit independent Root-reviewed premises, not ingestion claims.
@@ -2299,6 +2503,8 @@ def _ingest_q2_input(selection, *, current_platform=None):
     for pin in private_observed: q2_private_file(root, pin["path"], expected=pin)
     q2_private_file(root, compiled_output["path"], expected=compiled_output, executable=True)
     for pin in platform_observed: q2_platform_file(pin, roots)
+    for pin in headers.values(): q2_header_file(root, pin, roots)
+    q2_retained_outputs(root, receipt["retained_outputs"], retained_required)
     require(receipt["platform"] == (q2_current_platform() if current_platform is None else current_platform), "Q2 observed platform change during ingestion")
     return {"source": source, "source_bytes": source_bytes, "executable": exe, "preparation": receipt_pin,
             "proposal_source_sha256": digest.hexdigest(), "scope": "offline input ingestion only; no launch or runtime grant"}
@@ -2454,7 +2660,10 @@ def validate_qualification(data, prefix):
     fields(q["component"], "authority_source probe_exe report")
     refs += list(q["component"].values())
     report = ref_bytes(prefix, q["component"]["report"], 131072)
-    prepared_budget(data, lock_data, report)
+    require(type(q["logs"]) is list and len(q["logs"]) >= 3 and q["logs"][0]["path"] == "provenance/pretest-basis.json", "qualification must retain actual Basis/descriptor/inventory")
+    basis_data = ref_bytes(prefix, q["logs"][0], 49152)
+    descriptor_data = ref_bytes(prefix, q["logs"][1], 16384)
+    prepared_budget(data, lock_data, report, basis_data, descriptor_data)
     fields(q["tools"], "git gpg"); refs += list(q["tools"].values())
     checked_array(q["sources"]); require(len(q["sources"]) == len(PINS), "exact source authentication count required")
     for row, source in zip(q["sources"], PINS):
@@ -2534,6 +2743,15 @@ def bind_current_candidate(q, receipt, inputs, prefix, intent):
 def check_inventory(prefix, q):
     check_private_dir(prefix)
     allowed = {"qualification.json", "receipt.candidate.json"} | {ref["path"] for ref in file_refs(q)}
+    inventory = strict_json(ref_bytes(prefix, q["logs"][-1]), MAX_TAR)
+    require(type(inventory) is list and len(inventory) <= 40000, "offline inventory log bound")
+    seen = []
+    for ref in inventory:
+        validate_ref(ref)
+        ref_bytes(prefix, ref)
+        seen.append(ref["path"])
+        allowed.add(ref["path"])
+    require(seen == sorted(set(seen)), "offline inventory log order/duplicates")
     licenses = strict_json(read_regular(FIX / "license-map.json", 32768), 32768)
     for component in licenses:
         for entry in component["license_files"]:
@@ -2613,14 +2831,229 @@ def publish_candidate(run, prefix, q, receipt, inputs):
 
 
 def component(d):
-    # Historical native/18-ledger records remain on disk and are never selected
-    # through a reconstructed compiler/flags key. No recompilation or fallback.
+    # Consume the original sealed witness; a test command never repeats a
+    # timing attempt, recompiles Q2, or replaces an unresolved original effect.
     selected_q2_input()
-    raise Refused("Q2 input ingested offline; functional component invocation still requires Root's explicit final-source amendment")
+    run = session(d, "component-check")
+    private_dir(run / "logs"); private_dir(run / "public-home")
+    inputs = build_inputs(run)
+    previous = previous_build(d, inputs, run.name)
+    require(previous is not None, "no sealed current-source candidate; run the authorized build first")
+    intent = strict_json(read_regular(previous / "intent.json", 32768, True), 32768)
+    locator, q = validate_candidate(Path(intent["prefix"]), intent, inputs)
+    require(q["candidate_status"] == "review_ready", "original component evidence is unsupported")
+    exclusive(run / "component-check.json", canonical(locator))
+    return locator
+
+
+def private_descriptor(run, prefix, basis, case, output, selection):
+    """Produce the existing ICD input; only Q2 decodes/runs its commands."""
+    require(case in ("positive", "corrupt_proof", "pause_resume", "cancel", "stale_incarnation",
+                     "clock_failure", "debt_overlap", "late_stop", "reap_delay"), "unknown canonical component case")
+    shared = file_pin(prefix, "provenance/pretest-basis.json")
+    fixture = basis["fixture"]
+    value = {"kind": "private_candidate_test", "run_id": ulid(), "nonce": ulid(),
+             "incarnation": basis["build"]["incarnation"], "deadline_ns": time.monotonic_ns() + 30_000_000_000,
+             "os_build": basis["build"]["platform"]["os_build"], "arch": "aarch64",
+             "probe_source_sha256": selection["source"]["sha256"], "probe_exe_sha256": selection["executable"]["sha256"],
+             "prefix": dir_pin(prefix), "source_lock": file_pin(prefix, basis["build"]["source_lock"]["path"]),
+             **{name: dict(shared) for name in ("build", "source_review", "closure", "config", "commands")},
+             "git": file_pin(prefix, "bin/git"), "gpg": file_pin(prefix, "bin/gpg"),
+             "fixture": {"repo": fixture["repo"], "manifest": dict(shared),
+                         "valid_commit": fixture["valid_commit"], "corrupt_commit": fixture["corrupt_commit"],
+                         "public_keys": file_pin(Path(fixture["repo"]["path"]), fixture["public_keys"]["path"], "fixture")},
+             "output": dir_pin(output), "case": case}
+    raw = canonical(value)
+    # Reserve the raw result before launch. The final envelope is checked
+    # against the SAME aggregate again before any publication.
+    prepared_budget(b"", ref_bytes(prefix, basis["build"]["source_lock"]), b"\0" * 65536,
+                    read_regular(prefix / shared["path"], 49152, True), raw)
+    return value, raw
+
+
+def wait_component(child, case_dir, deadline_ns):
+    """Hold the original child until actual wait4, including after refusal wire.
+
+    This is the offline test parent's wait, not another helper controller. It
+    issues no signals, timeout kill, replacement launch or settlement claim.
+    A live Q2 quarantine keeps BOTH owners alive and the exact Popen handle held.
+    """
+    announced = False
+    while True:
+        try:
+            pid, status, usage = os.wait4(child.pid, os.WNOHANG)
+        except OSError as error:
+            # Losing actual wait ownership is unresolved, never proof of exit.
+            # Do not retry an unknown reaping effect or let this parent die.
+            print(f"OWNED UNKNOWN: component pid={child.pid} wait4={error}; handle retained at {case_dir}", flush=True)
+            while True:
+                time.sleep(1)
+        if pid:
+            require(pid == child.pid, "wait4 returned a foreign component identity")
+            child.returncode = os.waitstatus_to_exitcode(status)
+            record = {"pid": pid, "wait_status": status, "exit_code": child.returncode,
+                      "user_cpu_ns": int(usage.ru_utime * 1_000_000_000),
+                      "system_cpu_ns": int(usage.ru_stime * 1_000_000_000),
+                      "max_rss_bytes": usage.ru_maxrss, "actual_wait4": True}
+            exclusive(case_dir / "wait4.json", canonical(record))
+            return record
+        if not announced and time.monotonic_ns() >= deadline_ns:
+            # A result file is deliberately NOT an exit indication. Keep the
+            # process/parent alive until the canonical owner proves settlement.
+            try:
+                exclusive(case_dir / "owned-pending.json", canonical({"pid": child.pid,
+                          "controller_reaped": False, "effect": "original_controller_handle_retained"}))
+            except OSError:
+                # Even a failed pending receipt cannot abandon actual custody.
+                pass
+            print(f"OWNED PENDING: component controller pid={child.pid}; retained {case_dir}; no timeout kill or retry", flush=True)
+            announced = True
+        time.sleep(0.01)
+
+
+def component_result(raw, descriptor, actual_exit):
+    """Check the selected producer's verdict/binding, without another decoder.
+
+    Q2 owns the complete result schema and causal engine. These checks cannot
+    mint a result, rewrite a refusal or turn private evidence into authority.
+    """
+    require(0 < len(raw) <= 65536 and raw.endswith(b"\n"), "canonical Q2 result/LF byte bound")
+    result = strict_json(raw[:-1], 65535)
+    require(result["kind"] == "private_candidate_result" and result["profile"] == "read-helper-native/1"
+            and result["runtime_approved"] is False and result["availability"] == "not_applicable_private_test",
+            "component output is not unapproved private evidence")
+    for key in ("run_id", "nonce", "incarnation", "case"):
+        require(result[key] == descriptor[key], "component original operation binding: " + key)
+    require(result["input_sha256"] == sha(canonical(descriptor)), "component input hash binding")
+    require(result["probe"] == {"source_sha256": descriptor["probe_source_sha256"], "exe_sha256": descriptor["probe_exe_sha256"]}, "component probe binding")
+    require(result["binding"] == {key: descriptor[key]["sha256"] for key in
+            ("source_lock", "build", "source_review", "closure", "config", "commands", "git", "gpg")}, "component pretest binding")
+    require(result["basis"] == {"kind": "conditional_on_bound_source_review", "review_sha256": descriptor["source_review"]["sha256"],
+            "whole_command_lifetime_proof": False}, "component conditional source premise")
+    case = descriptor["case"]
+    if case in ("positive", "corrupt_proof", "pause_resume"):
+        corrupt = case == "corrupt_proof"
+        require(actual_exit == (81 if case == "pause_resume" else 0) and result["phase"] == "settled"
+                and result["outcome"] == ("expected_rejection" if corrupt else "completed")
+                and result["observed_proof"] == ("invalid" if corrupt else "valid") and result["error"] is None,
+                "canonical real proof/component verdict failed; no timing retry")
+        require(result["settlement"] == {"created": 16, "reaped": 16, "group_gone": True, "retired_coverage": True}, "actual complete component settlement")
+        metrics = result["metrics"]
+        for key, bound in (("ordinary_max_ns", 1000000), ("controller_max_ns", 1000000), ("cleanup_max_ns", 1000000),
+                           ("native_cpu_max_ns", 2000000), ("native_wall_max_ns", 25000000), ("inclusive_max_ns", 3000000),
+                           ("Q_max_ns", 1000000), ("helper_group_rss_peak_bytes", 16 * 1024 * 1024), ("probe_rss_peak_bytes", 96 * 1024 * 1024)):
+            checked_int(metrics[key], 0, bound)
+        require(metrics["attempts"] == 16 and metrics["members_max"] == 2
+                and type(metrics["debt_charged_ns"]) is int and metrics["debt_charged_ns"] == metrics["debt_paid_ns"], "component debt/attempt/member conjunction")
+    else:
+        expected = {"cancel": "cancelled", "stale_incarnation": "coverage_unknown", "clock_failure": "clock_unknown",
+                    "debt_overlap": "coverage_unknown", "late_stop": "resource_limit", "reap_delay": "settlement_unknown"}
+        require(actual_exit == 81 and result["error"] is not None and result["error"]["code"] == expected[case]
+                and result["settlement"]["created"] > 0 and result["metrics"]["attempts"] > 0,
+                "canonical causal control did not reach its named engine failure")
+    return result
+
+
+def run_private_components(run, prefix, basis):
+    selected = selected_q2_input()
+    cases = private_dir(run / "components")
+    records = []
+    for name in ("positive", "corrupt_proof", "pause_resume", "cancel", "stale_incarnation", "clock_failure", "debt_overlap", "late_stop", "reap_delay"):
+        case = private_dir(cases / name)
+        output = private_dir(case / "output")
+        descriptor, raw = private_descriptor(run, prefix, basis, name, output, selected)
+        path = case / "pretest-input.json"; exclusive(path, raw)
+        argv = [selected["executable"]["path"], "private-candidate", str(path), sha(raw)]
+        exclusive(case / "spawn-intent.json", canonical({"argv": argv, "input_sha256": sha(raw), "build_id": run.name}))
+        # Files avoid a pipe deadlock while Q2 retains a live quarantine. Only
+        # the immutable selected executable is launched; it is never rebuilt.
+        with open(case / "stdout", "xb") as stdout, open(case / "stderr", "xb") as stderr:
+            child = subprocess.Popen(argv, cwd=case, env=env(case), stdin=subprocess.DEVNULL,
+                                     stdout=stdout, stderr=stderr, start_new_session=True)
+            record_error = None
+            try:
+                exclusive(case / "pid.json", canonical({"pid": child.pid, "pgid": child.pid, "input_sha256": sha(raw)}))
+            except OSError as error:
+                # A failed custody write cannot drop the already born child.
+                record_error = error
+            waited = wait_component(child, case, descriptor["deadline_ns"])
+            if record_error is not None:
+                raise record_error
+            stdout.flush(); os.fsync(stdout.fileno()); stderr.flush(); os.fsync(stderr.fileno())
+        report = read_regular(case / "stdout", 65536, True)
+        # Retain original raw bytes and all physical results even if semantic
+        # checks below refuse. No failed original operation is redispatched.
+        record = {"case": name, "descriptor": retained_file(prefix, path), "report": retain_blob(prefix, report),
+                  "stderr": retained_file(prefix, case / "stderr"), "wait4": retained_file(prefix, case / "wait4.json"),
+                  "actual_exit": waited["exit_code"], "argv": argv}
+        ledger = output / "ledger.ndjson"
+        if ledger.exists(): record["ledger"] = retained_file(prefix, ledger)
+        exclusive(case / "retained.json", canonical(record))
+        result = component_result(report, descriptor, waited["exit_code"])
+        require(read_regular(output / "result.json", 65536, True) == report, "persisted Q2 result differs from unaltered stdout")
+        records.append(record)
+        exclusive(case / "checked.json", canonical({"check_exit": 0, "actual_exit": waited["exit_code"], "outcome": result["outcome"], "runtime_approved": False}))
+        print(f"canonical private component {name} actual_exit={waited['exit_code']} check_exit=0", flush=True)
+    exclusive(run / "component-checks.json", canonical(records))
+    return records
+
+
+def qualify_candidate(run, prefix, basis):
+    records = run_private_components(run, prefix, basis)
+    first = records[0]
+    selected = selected_q2_input()
+    build = basis["build"]
+    source = strict_json(read_regular(run / "intent.json", 32768, True), 32768)["inputs"]
+    review = []
+    for finding in basis["review"]["findings"]:
+        refs = [retained_file(prefix, run / "src" / next(p[0] + "-" + p[1] for p in PINS if p[0] == span["source"]) / span["path"]) for span in finding["spans"]]
+        review.append({"id": finding["id"], "source_refs": refs, "finding": "established",
+                       "reason": "Finite coverage and exact patched-source binding established; conditional source/compiler/platform premise only. " + finding["rationale"]})
+    basis_ref = {"path": "provenance/pretest-basis.json", "len": len(canonical(basis)), "sha256": sha(canonical(basis))}
+    logs = [basis_ref, first["descriptor"]]
+    for record in records:
+        logs += [record[key] for key in ("report", "stderr", "wait4", "ledger") if key in record]
+    q = {"format": "bboxy.dream.proof-tool-qualification/1", "build_id": run.name,
+         "incarnation": build["incarnation"], "builder": build["builder"], "source_lock": build["source_lock"],
+         "sources": [{key: value for key, value in row.items() if key != "status"} for row in build["auth"]],
+         "patches": source_lock()["profile_patches"],
+         "compiler": {"path": build["compiler"]["image"]["path"], "sha256": build["compiler"]["image"]["sha256"], "version": build["compiler"]["version"]},
+         "sdk": {"path": build["sdk"]["path"], "version": build["sdk"]["version"], "settings_sha256": build["sdk"]["settings"]["sha256"]},
+         "platform": {key: build["platform"][key] for key in ("os_build", "release", "arch")},
+         "tools": {name: {"path": "bin/" + name, "len": build["tools"][name]["len"], "sha256": build["tools"][name]["sha256"]} for name in ("git", "gpg")},
+         "loaded_closure": [{"file": image["file"], "kind": "private", "identity": image["macho"]["uuid"], "assumption": "conditional native/compiler/platform/source premise"} for image in basis["closure"]["images"]],
+         "configs": [row["config"] for row in build["generated"]], "command_profile_sha256": sha(canonical(basis["commands"])),
+         "review": review, "component": {"authority_source": retain_blob(prefix, selected["source_bytes"]),
+                    "probe_exe": retain_blob(prefix, read_regular(selected["executable"]["path"])), "report": first["report"]},
+         "checks": [{"command": "component_result(" + row["case"] + ", actual_exit=" + str(row["actual_exit"]) + ")",
+                     "exit_code": 0, "source_sha256": sha(SCRIPT_BYTES), "log": row["report"]} for row in records],
+         "logs": logs, "candidate_status": "review_ready"}
+    q["platform"]["assumptions"] = [{"id": "conditional_source_compiler_platform", "evidence": retain_blob(prefix, canonical(basis["closure"]["platform"]))}]
+    # Offline inventory log binds all retained provenance (including transitive
+    # Basis/source-lock Refs). It is not another runtime authority/catalogue.
+    inventory = []
+    for path in sorted(prefix.rglob("*")):
+        if not path.is_dir():
+            data = read_regular(path, MAX_TAR, True)
+            inventory.append({"path": path.relative_to(prefix).as_posix(), "len": len(data), "sha256": sha(data)})
+    q["logs"].append(retain_blob(prefix, canonical(inventory)))
+    qbytes = canonical(q)
+    prepared_budget(qbytes, ref_bytes(prefix, q["source_lock"]), ref_bytes(prefix, first["report"]),
+                    canonical(basis), ref_bytes(prefix, first["descriptor"]))
+    proposal = {"schema": "bboxy.dream.proof-tools/1", "source_sha256": selected["proposal_source_sha256"],
+                "os": {"release": source["release"], "arch": source["arch"]},
+                **{name: {"absolute_path": str(prefix / "bin" / name), "sha256": q["tools"][name]["sha256"],
+                          "build": next(p[1] for p in PINS if p[0] == ("gnupg" if name == "gpg" else name)),
+                          "features": []} for name in ("git", "gpg")},
+                "capability": {"probe_source_sha256": selected["source"]["sha256"], "probe_exe_sha256": selected["executable"]["sha256"],
+                               "evidence_sha256": sha(qbytes), "features": []}}
+    locator = publish_candidate(run, prefix, q, proposal, source)
+    print(canonical(locator).decode(), flush=True)
+    return locator
 
 
 # Inert OFFLINE input-ingestion fixtures. No synthetic signature assertion is
-# cryptographic evidence; ROOT_Q2_INPUT remains unset and no file is executed.
+# cryptographic evidence; production selection is never exercised by these tests.
 SYNTHETIC_Q2_PLATFORM = {"machine": "arm64", "release": "27.0.0", "os_build": "26A434"}
 SYNTHETIC_Q2_COMMIT = "1" * 40
 SYNTHETIC_Q2_SIGNER = "9B07E849480C68328CA20684844ECC0587DE7AB0"  # label only, NOT a signature verdict
@@ -2705,7 +3138,7 @@ def _synthetic_q2_reseal_receipt(selection, receipt):
 def synthetic_q2_input(root):
     """Return one explicit, inert internal-test selection dictionary.
 
-    Nine snapshot names match Q2_INPUT_NAMES. The two actual public shared
+    The source and preparation snapshots match the corrected receipt. The two public shared
     authority files are copied privately; every other input/log/image is clearly
     synthetic. Source length intentionally differs from the old39130B source.
     Captured identity dictionaries come only from q2_private_file(...collect).
@@ -2719,9 +3152,11 @@ def synthetic_q2_input(root):
         raise AssertionError("synthetic dependency fixture uses unescaped private paths")
     root_pin = dir_pin(root)
     snapshot = root / "signed-inputs-synthetic-not-signed"
+    preparation_snapshot = root / "preparation-inputs-synthetic-not-signed"
+    preparation_commit = "3" * 40
     inputs = {}
     for name in Q2_INPUT_NAMES:
-        path = snapshot / name
+        path = (preparation_snapshot if name in Q2_PREPARATION_NAMES else snapshot) / name
         if name.endswith("closure-boundary.schema.json"):
             data = read_regular(FIX / "closure-boundary.schema.json", MAX_ARCHIVE)
             if sha(data) != CLOSURE_SCHEMA_SHA:
@@ -2734,7 +3169,7 @@ def synthetic_q2_input(root):
             data = b"/* INERT Q2 ingestion unit fixture; never compiled. */\n" + b" " * 40_100
         else:
             data = ("/* INERT input-ingestion fixture: " + name + " */\n").encode()
-        _synthetic_q2_write(root, path, data)
+        _synthetic_q2_write(root, path, data, 0o400)
         pin = _synthetic_q2_pin(root_pin, path)
         inputs[name] = {"len": pin["len"], "sha256": pin["sha256"]}
 
@@ -2742,7 +3177,7 @@ def synthetic_q2_input(root):
     source = _synthetic_q2_pin(root_pin, source_path)
     source_bytes = source_path.read_bytes()
     compiled_source = root / "build" / "inert-probe.c"
-    _synthetic_q2_write(root, compiled_source, source_bytes)
+    _synthetic_q2_write(root, compiled_source, source_bytes, 0o400)
 
     compiler_path = root / "toolchain" / "usr" / "bin" / "clang"
     linker_path = root / "toolchain" / "usr" / "bin" / "ld"
@@ -2750,21 +3185,34 @@ def synthetic_q2_input(root):
     sdk_root = root / "SDK" / "MacOSX27.0.sdk"
     settings_path = sdk_root / "SDKSettings.json"
     header_path = sdk_root / "usr" / "include" / "inert.h"
+    resolved_header = header_path.parent / "real" / "inert.h"
     header_snapshot = root / "header-snapshots" / "inert.h"
     _synthetic_q2_write(root, compiler_path, b"INERT compiler identity; never executed\n", 0o700)
     _synthetic_q2_write(root, linker_path, b"INERT linker identity; never executed\n", 0o700)
     _synthetic_q2_write(root, runtime_path, b"INERT archive identity; not a real archive\n")
     _synthetic_q2_write(root, settings_path, b'{"SyntheticIngestionOnly":true}\n')
     header_bytes = b"/* INERT retained SDK header, not compiled */\n"
-    _synthetic_q2_write(root, header_path, header_bytes)
-    _synthetic_q2_write(root, header_snapshot, header_bytes)
+    _synthetic_q2_write(root, resolved_header, header_bytes)
+    header_path.symlink_to("real/inert.h")
+    _synthetic_q2_write(root, header_snapshot, header_bytes, 0o400)
+    link_snapshot = root / "header-snapshots" / "inert-link"
+    _synthetic_q2_write(root, link_snapshot, b"real/inert.h", 0o400)
+    settings_snapshot = root / "header-snapshots" / "sdk-settings"
+    _synthetic_q2_write(root, settings_snapshot, settings_path.read_bytes(), 0o400)
 
     compiler = _synthetic_q2_pin(root_pin, compiler_path, executable=True)
     linker = _synthetic_q2_pin(root_pin, linker_path, executable=True)
     runtime = _synthetic_q2_pin(root_pin, runtime_path)
     settings = _synthetic_q2_pin(root_pin, settings_path)
-    header = _synthetic_q2_pin(root_pin, header_path)
-    header["snapshot"] = str(header_snapshot)
+    header = _synthetic_q2_pin(root_pin, resolved_header)
+    link_info = header_path.lstat()
+    header.update({"path": str(header_path), "resolved_path": str(resolved_header), "snapshot": str(header_snapshot),
+                   "symlinks": [{"path": str(header_path), "target": "real/inert.h", "len": len(b"real/inert.h"),
+                                 "sha256": sha(b"real/inert.h"), "ctime_ns": link_info.st_ctime_ns,
+                                 "dev": link_info.st_dev, "ino": link_info.st_ino, "mode": link_info.st_mode,
+                                 "mtime_ns": link_info.st_mtime_ns, "nlink": link_info.st_nlink,
+                                 "size": link_info.st_size, "uid": link_info.st_uid, "snapshot": str(link_snapshot)}]})
+    settings_header = {**settings, "resolved_path": str(settings_path), "snapshot": str(settings_snapshot), "symlinks": []}
     flags = ["-target", "arm64-apple-darwin", "-isysroot", str(sdk_root), "-O2", "-v"]
     compiler.update({
         "declared_dylibs": str(compiler_path) + ":\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1.0.0)\n",
@@ -2793,7 +3241,9 @@ def synthetic_q2_input(root):
     # token. This tests the actual shlex-based closure parser without running it.
     build_stderr = '"' + str(linker_path) + '" -o ' + str(original_output) + " " + str(runtime_path) + "\n"
     build = {
-        "argv": build_argv, "exit_code": 0,
+        "argv": build_argv, "cwd": str(root), "exit_code": 0,
+        "input": _synthetic_q2_pin(root_pin, compiled_source),
+        "output": _synthetic_q2_pin(root_pin, original_output, executable=True),
         "stderr": build_stderr, "stderr_sha256": sha(build_stderr.encode()),
         "stdout": "", "stdout_sha256": sha(b""),
     }
@@ -2804,6 +3254,11 @@ def synthetic_q2_input(root):
         "exit_code": 0, "stdout": dep_stdout,
         "stdout_sha256": sha(dep_stdout.encode()),
     }
+    for name, result, stream in (("build.stderr.log", build, "stderr"), ("build.stdout.log", build, "stdout"),
+                                 ("dependencies.log", dependency_discovery, "stdout")):
+        path = root / name
+        _synthetic_q2_write(root, path, result[stream].encode(), 0o400)
+        result["retained_" + stream] = _synthetic_q2_pin(root_pin, path)
     source_digest = hashlib.sha256(b"bboxy.dream.proof-tools/source/1\0")
     for name in ("resolve.rs", "trust.rs", "c1.rs", "read.rs"):
         content = (snapshot / "src/dream" / name).read_bytes()
@@ -2814,7 +3269,8 @@ def synthetic_q2_input(root):
         "created": "synthetic-unit-fixture-not-a-real-preparation",
         "dependency_discovery": dependency_discovery,
         "executable": executable, "format": "bboxy.dream.c-preparation/1",
-        "header_inputs": {str(header_path): header}, "inputs": inputs,
+        "header_inputs": {str(header_path): header, str(settings_path): settings_header}, "inputs": inputs,
+        "input_commits": {name: preparation_commit if name in Q2_PREPARATION_NAMES else SYNTHETIC_Q2_COMMIT for name in Q2_INPUT_NAMES},
         "limitations": ["INERT input-ingestion-only fixture; no signature, compile, native or runtime evidence"],
         "linker": linker, "platform": dict(SYNTHETIC_Q2_PLATFORM),
         "private_test": "not_applicable_private_test",
@@ -2829,8 +3285,26 @@ def synthetic_q2_input(root):
         # Synthetic assertions below test binding only; no signing happens.
         "signature_verified": True, "signer_fingerprint": SYNTHETIC_Q2_SIGNER,
         "source_commit": SYNTHETIC_Q2_COMMIT, "source_snapshot": str(snapshot),
+        "preparation_commit": preparation_commit, "preparation_signer_fingerprint": SYNTHETIC_Q2_SIGNER,
+        "preparation_signature_verified": True, "preparation_snapshot": str(preparation_snapshot),
+        "retained_root": str(root), "retained_directory_mode": "0700",
         "whole_command_lifetime_proof": False,
     }
+    # Only immutable preparation outputs enter this synthetic inventory. The
+    # inert toolchain/SDK stand in for external platform inputs, never outputs.
+    output_files = [source_path, executable_path, compiled_source, original_output, header_snapshot, link_snapshot, settings_snapshot,
+                    *(Path(build["retained_" + stream]["path"]) for stream in ("stdout", "stderr")),
+                    Path(dependency_discovery["retained_stdout"]["path"]),
+                    *((preparation_snapshot if name in Q2_PREPARATION_NAMES else snapshot) / name for name in Q2_INPUT_NAMES)]
+    outputs = {}
+    for path in output_files:
+        outputs[str(path)] = {"kind": "file", **_synthetic_q2_pin(root_pin, path, executable=bool(path.stat().st_mode & 0o100))}
+        for parent in path.parents:
+            if not parent.is_relative_to(root): break
+            info = parent.stat()
+            outputs[str(parent)] = {"kind": "directory", "path": str(parent), "dev": info.st_dev,
+                                    "ino": info.st_ino, "uid": info.st_uid, "mode": info.st_mode}
+    receipt["retained_outputs"] = [outputs[name] for name in sorted(outputs)]
     receipt_bytes = json.dumps(
         receipt, sort_keys=True, separators=(",", ":"),
         ensure_ascii=False, allow_nan=False,
@@ -2842,6 +3316,7 @@ def synthetic_q2_input(root):
         "root": root_pin, "source": source, "executable": executable,
         "preparation": preparation, "source_commit": SYNTHETIC_Q2_COMMIT,
         "signer_fingerprint": SYNTHETIC_Q2_SIGNER,
+        "preparation_commit": preparation_commit, "preparation_signer_fingerprint": SYNTHETIC_Q2_SIGNER,
         "bindings": {name: q2_metadata_hash(receipt[name]) for name in Q2_BINDINGS.split()},
         "build_closure": [runtime], "macho": macho,
     }
@@ -2852,7 +3327,7 @@ class Q2InputAdapterIngestionTests(unittest.TestCase):
 
     def setUp(self):
         api = ingest_q2_input.__globals__
-        self.assertIsNone(api["ROOT_Q2_INPUT"])
+        self.selection_before = copy.deepcopy(api["ROOT_Q2_INPUT"])
         parent = Path(globals().get("TEST_TARGET", ROOT / "target/dream-proof-tools/q2-input-adapter"))
         self.assertTrue(parent.is_dir(), "parent must supply an existing private test destination")
         self.temporary = tempfile.TemporaryDirectory(prefix="ingestion-only-", dir=parent)
@@ -2882,7 +3357,7 @@ class Q2InputAdapterIngestionTests(unittest.TestCase):
                     stack.enter_context(mock.patch.object(os, name, forbidden))
             stack.enter_context(mock.patch.object(api["urllib"].request, "urlopen", forbidden))
             yield
-        self.assertIsNone(api["ROOT_Q2_INPUT"])
+        self.assertEqual(api["ROOT_Q2_INPUT"], self.selection_before)
 
     def ingest(self, selection):
         return ingest_q2_input(selection, current_platform=dict(SYNTHETIC_Q2_PLATFORM))
@@ -2905,7 +3380,7 @@ class Q2InputAdapterIngestionTests(unittest.TestCase):
         api = ingest_q2_input.__globals__
         def forbidden_read(*args, **kwargs):
             raise AssertionError("missing selection reached filesystem input consumption")
-        with self.offline_only(), mock.patch.dict(api, {"q2_private_file": forbidden_read}):
+        with self.offline_only(), mock.patch.dict(api, {"q2_private_file": forbidden_read, "ROOT_Q2_INPUT": None}):
             with self.assertRaisesRegex(Refused, "not selected by Root"):
                 self.ingest(None)
             with self.assertRaisesRegex(Refused, "not selected by Root"):
@@ -2916,6 +3391,7 @@ class Q2InputAdapterIngestionTests(unittest.TestCase):
         def forbidden(*args, **kwargs):
             raise AssertionError("unset selection reached a file/session/native effect")
         replacements = {name: forbidden for name in ("session", "command", "invoke", "q2_private_file")}
+        replacements["ROOT_Q2_INPUT"] = None
         with mock.patch.dict(api, replacements):
             for function, args in ((fetch, (self.test_root,)), (build, (self.test_root,)), (check_sources, (self.test_root,)),
                                    (component, (self.test_root,)), (prepare_basis, (self.test_root, self.test_root, {})),
@@ -2946,7 +3422,7 @@ class Q2InputAdapterIngestionTests(unittest.TestCase):
         poisoned = {"PATH": "/inert-untrusted", "HOME": "/inert-untrusted", "SDKROOT": "/inert-untrusted", "CC": "/inert-untrusted", "DYLD_INSERT_LIBRARIES": "/inert-untrusted", "ROOT_Q2_INPUT": "/inert-untrusted", "Q2_PROBE": "/inert-untrusted"}
         with self.offline_only(), mock.patch.dict(os.environ, poisoned):
             self.ingest(selection)
-            with self.assertRaises(Refused):
+            with mock.patch.dict(ingest_q2_input.__globals__, {"ROOT_Q2_INPUT": None}), self.assertRaises(Refused):
                 selected_q2_input()
             for key in ("approved", "runtime_approved", "canonical_q2"):
                 with self.subTest(key=key), self.assertRaises(Refused):
@@ -2990,7 +3466,7 @@ class Q2InputAdapterIngestionTests(unittest.TestCase):
                     "compiler": receipt["compiler"]["path"],
                     "linker": receipt["linker"]["path"],
                     "sdk_settings": receipt["sdk"]["settings"]["path"],
-                    "header": header_name, "header_snapshot": header_pin["snapshot"],
+                    "header": header_pin["resolved_path"], "header_snapshot": header_pin["snapshot"],
                     "closure": selection["build_closure"][0]["path"],
                     "compiled_source": receipt["build"]["argv"][-3],
                     "compiled_output": receipt["build"]["argv"][-1],
@@ -3052,6 +3528,7 @@ class Q2InputAdapterIngestionTests(unittest.TestCase):
         pin = _synthetic_q2_pin(selection["root"], path, executable=True)
         selection["executable"] = pin
         receipt["executable"] = pin
+        receipt["build"]["output"] = _synthetic_q2_pin(selection["root"], receipt["build"]["argv"][-1], executable=True)
         _synthetic_q2_reseal_receipt(selection, receipt)
         with self.offline_only(), self.assertRaisesRegex(Refused, "Mach-O facts mismatch"):
             self.ingest(selection)
@@ -3109,6 +3586,45 @@ class Q2InputAdapterIngestionTests(unittest.TestCase):
         for key, value in (("machine", "x86_64"), ("release", "27.0.1"), ("os_build", "26A435")):
             with self.subTest(key=key), self.offline_only(), self.assertRaises(Refused):
                 ingest_q2_input(selection, current_platform={**SYNTHETIC_Q2_PLATFORM, key: value})
+
+    def test_q2_input_corrected_preparation_and_lexical_alias_bindings(self):
+        selection = self.fixture("corrected-positive")
+        receipt = _synthetic_q2_receipt(selection)
+        self.assertNotEqual(receipt["source_commit"], receipt["preparation_commit"])
+        alias = next(row for row in receipt["header_inputs"].values() if row["symlinks"])
+        self.assertNotEqual(alias["path"], alias["resolved_path"])
+        self.assertEqual(Path(alias["symlinks"][0]["snapshot"]).read_bytes(), b"real/inert.h")
+        with self.offline_only(): self.ingest(selection)
+
+    def test_q2_input_corrected_receipt_inner_controls(self):
+        for change in ("preparation_commit", "preparation_signer", "preparation_signature", "input_commit", "dropped_output",
+                       "directory_mode", "build_log", "symlink_target", "symlink_snapshot", "dropped_alias", "resolved_header"):
+            with self.subTest(change=change):
+                selection = self.fixture("corrected-" + change)
+                receipt = _synthetic_q2_receipt(selection)
+                alias = next(row for row in receipt["header_inputs"].values() if row["symlinks"])
+                if change == "preparation_commit": receipt["preparation_commit"] = receipt["source_commit"]
+                elif change == "preparation_signer": receipt["preparation_signer_fingerprint"] = "B" * 40
+                elif change == "preparation_signature": receipt["preparation_signature_verified"] = False
+                elif change == "input_commit": receipt["input_commits"][Q2_PREPARATION_NAMES[0]] = receipt["source_commit"]
+                elif change == "dropped_output": receipt["retained_outputs"].pop()
+                elif change == "directory_mode": receipt["retained_outputs"][0]["mode"] = stat.S_IFDIR | 0o755
+                elif change == "build_log": receipt["build"]["retained_stderr"] = dict(receipt["build"]["retained_stdout"])
+                elif change == "symlink_target": alias["symlinks"][0]["target"] = "foreign/inert.h"
+                elif change == "symlink_snapshot": alias["symlinks"][0]["snapshot"] = alias["snapshot"]
+                elif change == "dropped_alias": alias["symlinks"] = []
+                else: alias["resolved_path"] = alias["path"]
+                _synthetic_q2_reseal_receipt(selection, receipt)
+                with self.offline_only(), self.assertRaises(Refused): self.ingest(selection)
+
+    def test_q2_input_same_target_symlink_replacement_loses_identity(self):
+        selection = self.fixture("alias-identity")
+        receipt = _synthetic_q2_receipt(selection)
+        alias = next(row for row in receipt["header_inputs"].values() if row["symlinks"])
+        path = Path(alias["path"])
+        path.rename(path.with_name("retained-original-alias"))
+        path.symlink_to(alias["symlinks"][0]["target"])
+        with self.offline_only(), self.assertRaises(Refused): self.ingest(selection)
 
     def test_q2_input_large_receipt_remains_offline_only(self):
         selection = self.fixture("large-offline")
@@ -3509,11 +4025,87 @@ class ProvisioningTests(unittest.TestCase):
                 self.assertEqual(list(Path(tmp).iterdir()), [])
 
 
+class ComponentHandoffTests(unittest.TestCase):
+    """Inert host predicate/wait seams; no native or source qualification."""
+
+    def fixture(self, case="positive"):
+        descriptor = {"run_id": "1" * 26, "nonce": "2" * 26, "incarnation": 1, "case": case,
+                      "probe_source_sha256": "3" * 64, "probe_exe_sha256": "4" * 64}
+        descriptor.update({key: {"sha256": "5" * 64} for key in
+                           ("source_lock", "build", "source_review", "closure", "config", "commands", "git", "gpg")})
+        result = {"kind": "private_candidate_result", "profile": "read-helper-native/1",
+                  "runtime_approved": False, "availability": "not_applicable_private_test",
+                  **{key: descriptor[key] for key in ("run_id", "nonce", "incarnation", "case")},
+                  "input_sha256": sha(canonical(descriptor)),
+                  "probe": {"source_sha256": descriptor["probe_source_sha256"], "exe_sha256": descriptor["probe_exe_sha256"]},
+                  "binding": {key: descriptor[key]["sha256"] for key in
+                              ("source_lock", "build", "source_review", "closure", "config", "commands", "git", "gpg")},
+                  "basis": {"kind": "conditional_on_bound_source_review", "review_sha256": descriptor["source_review"]["sha256"], "whole_command_lifetime_proof": False},
+                  "phase": "settled", "outcome": "expected_rejection" if case == "corrupt_proof" else "completed",
+                  "observed_proof": "invalid" if case == "corrupt_proof" else "valid", "error": None,
+                  "settlement": {"created": 16, "reaped": 16, "group_gone": True, "retired_coverage": True},
+                  "metrics": {key: 1 for key in ("ordinary_max_ns", "controller_max_ns", "cleanup_max_ns", "native_cpu_max_ns",
+                               "native_wall_max_ns", "inclusive_max_ns", "Q_max_ns", "helper_group_rss_peak_bytes", "probe_rss_peak_bytes")}}
+        result["metrics"].update({"attempts": 16, "members_max": 2, "debt_charged_ns": 9, "debt_paid_ns": 9})
+        return descriptor, result
+
+    def test_component_raw_verdict_keeps_lf_and_private_boundary(self):
+        for case in ("positive", "corrupt_proof"):
+            descriptor, result = self.fixture(case)
+            raw = canonical(result) + b"\n"
+            self.assertEqual(component_result(raw, descriptor, 0), result)
+            with self.assertRaises(Refused): component_result(raw[:-1], descriptor, 0)
+            with self.assertRaises(Refused): component_result(raw, descriptor, 81)
+
+    def test_component_partial_stale_forged_and_unsettled_verdicts_refuse(self):
+        for key in ("approval", "binding", "nonce", "proof", "settlement", "clock", "resource", "debt"):
+            with self.subTest(key=key):
+                descriptor, result = self.fixture()
+                if key == "approval": result["runtime_approved"] = True
+                elif key == "binding": result["binding"]["git"] = "6" * 64
+                elif key == "nonce": result["nonce"] = "7" * 26
+                elif key == "proof": result["observed_proof"] = "not_reached"
+                elif key == "settlement": result["settlement"]["reaped"] = 15
+                elif key == "clock": result["metrics"]["ordinary_max_ns"] = None
+                elif key == "resource": result["metrics"]["inclusive_max_ns"] = 3000001
+                else: result["metrics"]["debt_paid_ns"] = 0
+                with self.assertRaises(Refused): component_result(canonical(result) + b"\n", descriptor, 0)
+
+    def test_component_refusal_wire_does_not_exit_or_kill_owned_controller(self):
+        # A mocked kernel wait seam distinguishes wire publication from actual
+        # wait4. No child/process is born and no synthetic result is published.
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory(dir=TEST_TARGET) as temp:
+            folder = Path(temp)
+            child = SimpleNamespace(pid=42, returncode=None)
+            usage = SimpleNamespace(ru_utime=0, ru_stime=0, ru_maxrss=4096)
+            sequence = [(0, 0, None), (42, 81 << 8, usage)]
+            with mock.patch.object(os, "wait4", side_effect=sequence) as waited, mock.patch.object(time, "sleep"):
+                result = wait_component(child, folder, 0)
+            self.assertEqual(waited.call_count, 2)
+            self.assertEqual(child.returncode, 81)
+            self.assertTrue(result["actual_wait4"])
+            pending = strict_json(read_regular(folder / "owned-pending.json", 32768, True), 32768)
+            self.assertIs(pending["controller_reaped"], False)
+
+    def test_component_unknown_spawn_or_refusal_wire_fences_replacement(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TARGET) as temp:
+            run = Path(temp)
+            private_dir(run / "logs"); private_dir(run / "components")
+            case = private_dir(run / "components/cancel")
+            exclusive(case / "spawn-intent.json", b"{}")
+            exclusive(case / "result.json", b'{"outcome":"quarantined"}\n')
+            self.assertEqual(pending_commands(run), [case / "spawn-intent.json"])
+            exclusive(case / "wait4.json", b'{"actual_wait4":true}')
+            self.assertEqual(pending_commands(run), [])
+
+
 def unit(d, signature_only=False):
     global TEST_TARGET
     TEST_TARGET = private_dir(d / "unit")
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(ProvisioningTests)
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(Q2InputAdapterIngestionTests))
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(ComponentHandoffTests))
     if signature_only:
         suite = unittest.TestSuite(t for t in suite if t._testMethodName.startswith("test_git_signature_"))
     result = unittest.TextTestRunner(verbosity=2).run(suite)
@@ -3536,12 +4128,7 @@ def check(d, component_only=False, source_only=False, signature_corpus_only=Fals
     if not component_only:
         unit(d)
     result = component(d)
-    require(result["ledger_exit"] == 0 and result["native_exit"] == 0, "canonical component failed; original excess/effect retained, no lucky retry")
-    if component_only:
-        return
-    # A marker, model verdict, syntax-valid receipt or builder label cannot fill
-    # Q2's absent Root-reviewed provisioning literal.
-    raise Refused("No complete source/build/closure-qualified Git/GPG candidate; supplied Git probe is verification_unproven; runtime authority remains absent")
+    return result
 
 
 def main():

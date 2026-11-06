@@ -1147,6 +1147,18 @@ checks = ["make test-formal", "make test"]
 additional_checks = ["make test-dream-proof-tools"]
 
 [[contract]]
+name = "HarnessDreamProofToolsComponentHost"
+title = "A private result wire never releases the original controller before actual terminal proof"
+models = ["HarnessDreamProofToolsComponentHost", "BrokenHarnessDreamProofToolsComponentHostWireIsExit", "BrokenHarnessDreamProofToolsComponentHostReplaceUnresolved"]
+controls = [{name="BrokenHarnessDreamProofToolsComponentHostWireIsExit", expected="safety"}, {name="BrokenHarnessDreamProofToolsComponentHostReplaceUnresolved", expected="safety"}]
+sources = ["scripts/dream-proof-tools.py", "tests/formal/dream_proof_tools.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/dream_proof_tools.rs", "scripts/dream-proof-tools.py"]
+assumptions = "Maps wait_component and component_result in the single builder recipe. One invocation has one opaque original handle/effect, one absent/successful/refused wire, independent actual controller wait4/helper settlement/full-debt observations, and at most two attempted effects solely for the broken replacement control. Ten finite variables give a Cartesian upper bound of4608 states. No fairness of result arrival, IO, actual exit, helper settlement, debt observation or OS scheduling; only local release/seal bookkeeping has weak fairness. Successful result validity and physical settlement are explicit external premises. Actual pinned source/executable/compiler/platform/byte custody, wait4/rusage and raw result/ledger/resource evidence remain implementation-only; no controller, native-lifetime or arbitrary-code theorem is added."
+property = "A refusal/quarantine wire can coexist with the same live controller. Unsettled original custody remains retained, release requires actual controller wait4 plus helper settlement and paid debt, unresolved effects are never replaced, bad results never qualify and every private candidate remains runtime-unapproved."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-dream-proof-tools"]
+
+[[contract]]
 name = "HarnessDreamProofToolsHiddenWork"
 title = "An empty runtime census cannot establish a source-qualified lifetime premise"
 models = ["HarnessDreamProofToolsHiddenWork", "BrokenHarnessDreamProofToolsHiddenWorkCensusQualification", "BrokenHarnessDreamProofToolsHiddenWorkUnqualifiedTrust"]

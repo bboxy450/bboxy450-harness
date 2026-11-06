@@ -328,9 +328,9 @@ six-source baseline, authenticates the new source and preserves the mandatory
 library check. It substitutes no Homebrew binary libraries. Joined qualification
 still requires Root's frozen canonical private-candidate probe; normal Git mode
 remains `verification_unproven`.
-The verifier input selection is currently unset. The offline adapter checks a
-future Root-selected source, supplied immutable executable and preparation
-receipt, including compiler, SDK, headers and selected build closure. It never
+The verifier consumes the task's frozen 30f27ccc source, supplied 76f35824
+executable and corrected a4998fb7 preparation receipt. The offline adapter checks
+compiler, SDK, lexical header aliases, retained outputs and build closure. It never
 recompiles a probe or discovers a replacement. Historical probe results and the
 signed C preflight remain separate evidence. Large preparation/header receipts
 stay offline; missing selection or incomplete bindings refuse before a new build
@@ -348,9 +348,13 @@ The earlier recursive-platform graph exceeded 128 edges; that failed build and
 all original evidence remain retained. `check --closure-projection-only` through
 the recipe records an explicitly incomplete C projection from the retained run,
 without executing its tools or creating a Basis, qualification or receipt.
-`make test-dream-proof-tools` retains canonical native/ledger results and refuses
-to certify a real pair. A repeated component check reuses exact retained results,
-including failures, rather than retrying timing gates.
+The build invokes only that supplied canonical private-candidate executable,
+retains unchanged reports and raw ledgers, and publishes a candidate receipt last
+only after the required component predicates pass. The parent retains the
+original controller handle through refusal or quarantine until actual `wait4`;
+a result wire never proves exit. `make test-dream-proof-tools` validates the
+original sealed evidence without repeating timing attempts. Incomplete or failed
+original effects refuse reuse.
 
 No Root admission is produced by this private build.
 Q2's separate current-source approval, real Git→GPG component test, qualifying

@@ -1518,12 +1518,129 @@ pub fn closure_boundary(control: u8) -> Model {
     m
 }
 
+/// One private component invocation and its retained original host handle.
+/// `wait_component` observes actual wait4 independently of a Q2 result wire;
+/// `component_result` can admit only a successful, physically settled result.
+/// Source/build/clock measurements are external premises, not finite proofs.
+/// Wire arrival, helper settlement, debt observation and actual exit have NO
+/// fairness; only local release and sealing bookkeeping is weakly fair.
+pub fn component_host(control: u8) -> Model {
+    let suffix = match control {
+        1 => "WireIsExit",
+        2 => "ReplaceUnresolved",
+        _ => "",
+    };
+    let mut m = base(
+        &format!("DreamProofToolsComponentHost{suffix}"),
+        control != 0,
+        &[
+            ("created", 1, 0),
+            ("wire", 2, 0), // absent, successful, refusal/quarantine
+            ("actualWait4", 1, 0),
+            ("helpersSettled", 1, 0),
+            ("debtPaid", 1, 0),
+            ("originalRetained", 1, 0),
+            ("effects", 2, 0),
+            ("hostReleased", 1, 0),
+            ("sealed", 1, 0),
+            ("runtimeApproved", 1, 0),
+        ],
+    );
+    act(
+        &mut m,
+        "CreateOneOriginalInvocation",
+        eq(0, 0),
+        &[(0, Int(1)), (5, Int(1)), (6, Int(1))],
+    );
+    for (name, wire) in [("ReceiveSuccessfulWire", 1), ("ReceiveRefusalWire", 2)] {
+        act(&mut m, name, all([eq(0, 1), eq(1, 0)]), &[(1, Int(wire))]);
+    }
+    // These observations may occur in any order or never occur. A refusal
+    // may be emitted while the same Q2 controller remains the quarantine owner.
+    for (name, variable) in [
+        ("ObserveActualControllerWait4", 2),
+        ("ObserveActualHelperSettlement", 3),
+        ("ObserveFullPaidDebt", 4),
+    ] {
+        act(&mut m, name, eq(0, 1), &[(variable, Int(1))]);
+    }
+    let terminal = all([eq(2, 1), eq(3, 1), eq(4, 1)]);
+    let release = m.actions.len();
+    act(
+        &mut m,
+        "ReleaseOnlyActualTerminalOriginal",
+        all([
+            eq(0, 1),
+            eq(5, 1),
+            Int(0).lt(Var(1)),
+            if control == 1 {
+                Bool(true)
+            } else {
+                terminal.clone()
+            },
+        ]),
+        &[(5, Int(0)), (7, Int(1))],
+    );
+    if control == 2 {
+        act(
+            &mut m,
+            "ReplaceUnresolvedOriginal",
+            all([eq(0, 1), eq(5, 1), eq(2, 0), eq(6, 1)]),
+            &[(6, Int(2))],
+        );
+    }
+    let seal = m.actions.len();
+    act(
+        &mut m,
+        "SealSuccessfulSettledCandidate",
+        all([eq(7, 1), eq(1, 1), terminal.clone()]),
+        &[(8, Int(1))],
+    );
+    safe(
+        &mut m,
+        "HostReleaseRequiresActualTerminalProof",
+        eq(7, 0).or(terminal.clone()),
+    );
+    safe(
+        &mut m,
+        "NoReplacementWhileOriginalUnresolved",
+        Var(6).le(Int(1)),
+    );
+    safe(
+        &mut m,
+        "UnsettledOriginalHandleRemainsRetained",
+        eq(0, 0).or(terminal.clone()).or(eq(5, 1)),
+    );
+    safe(
+        &mut m,
+        "BadWireNeverQualifiesCandidate",
+        eq(8, 0).or(all([eq(1, 1), eq(7, 1), terminal.clone()])),
+    );
+    safe(&mut m, "PrivateCandidateNeverRuntimeApproved", eq(9, 0));
+    progress(
+        &mut m,
+        "TerminalResultEventuallyReleasesHostBookkeeping",
+        all([Int(0).lt(Var(1)), terminal.clone()]),
+        eq(7, 1),
+        vec![release],
+    );
+    progress(
+        &mut m,
+        "SuccessfulTerminalResultEventuallySeals",
+        all([eq(1, 1), terminal]),
+        eq(8, 1),
+        vec![release, seal],
+    );
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = Vec::new();
     for (family, count) in [
         (publication as fn(u8) -> Model, 5),
         (binding as fn(u8) -> Model, 5),
         (custody as fn(u8) -> Model, 6),
+        (component_host as fn(u8) -> Model, 2),
         (hidden_work as fn(u8) -> Model, 2),
         (source_seven as fn(u8) -> Model, 8),
         (pretest_basis as fn(u8) -> Model, 14),
@@ -1572,6 +1689,13 @@ fn dream_proof_tools_controls_reach_their_named_failure() {
                 (4, "NoSignalAfterIdentityRetirement"),
                 (5, "CleanupRequiresActualReap"),
                 (6, "TrustRequiresActualReapAndPaidDebt"),
+            ],
+        ),
+        (
+            component_host as fn(u8) -> Model,
+            vec![
+                (1, "HostReleaseRequiresActualTerminalProof"),
+                (2, "NoReplacementWhileOriginalUnresolved"),
             ],
         ),
         (
@@ -1642,6 +1766,26 @@ fn dream_proof_tools_good_models_are_nonvacuous() {
             .iter()
             .any(|s| s[11] == 1 && s[9] == 1 && s[6] == 2),
         "actual reap and full payment can precede a trusted component"
+    );
+    let host = component_host(0).check(100_000).unwrap();
+    assert!(
+        host.states.iter().any(|s| s[1] == 2 && s[2] == 0 && s[5] == 1),
+        "refusal wire can precede actual controller exit while its original handle remains retained"
+    );
+    assert!(
+        host.states
+            .iter()
+            .any(|s| s[2] == 1 && s[3] == 0 && s[5] == 1),
+        "controller wait4 alone cannot discharge unsettled helper custody"
+    );
+    assert!(
+        host.states.iter().any(|s| s[8] == 1
+            && s[1] == 1
+            && s[2] == 1
+            && s[3] == 1
+            && s[4] == 1
+            && s[9] == 0),
+        "successful terminal evidence can seal a private, runtime-unapproved candidate"
     );
     let hidden = hidden_work(0).check(100_000).unwrap();
     for kind in 1..=3 {
