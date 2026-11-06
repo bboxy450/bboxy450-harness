@@ -1027,6 +1027,24 @@ def closure_member_frame(names):
     return b"".join(len(name).to_bytes(4, "big") + name for name in names)
 
 
+def closure_candidate_path(prefix, base_relative, suffix):
+    # The signed authority requires resolution to remain inside the prefix.
+    # Check every lexical step: a final normpath equality would allow an escape
+    # followed by re-entry. Raw load bytes remain unchanged in the projection.
+    closure_need(type(suffix) is str and suffix, "load_resolution")
+    parts = base_relative.split("/") if base_relative else []
+    for part in suffix.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            closure_need(parts, "load_resolution")
+            parts.pop()
+        else:
+            parts.append(part)
+    closure_need(parts, "load_resolution")
+    return prefix + "/" + "/".join(parts)
+
+
 def closure_context_validate(value, context):
     """Offline independent-evidence binding; never a Q2 runtime catalogue.
 
@@ -1088,7 +1106,8 @@ def closure_context_validate(value, context):
             closure_need(not name.startswith("@rpath"), "load_resolution")
             if load["target"]["kind"] == "cache":
                 closure_need(name.startswith(("/usr/lib/", "/System/Library/"))
-                             and posixpath.normpath(name) == name and name in cache_names, "cache_boundary")
+                             and posixpath.normpath(name) == name and name in cache_names
+                             and name != prefix and not name.startswith(prefix + "/"), "cache_boundary")
                 continue
             target = image_by_id[load["target"]["id"]]
             expected = prefix + "/" + target["file"]["path"]
@@ -1097,11 +1116,9 @@ def closure_context_validate(value, context):
                 if owner not in reachable[tool]:
                     continue
                 if name.startswith("@loader_path/"):
-                    actual = posixpath.normpath(prefix + "/" + posixpath.dirname(image["file"]["path"])
-                                               + "/" + name[len("@loader_path/"):])
+                    actual = closure_candidate_path(prefix, posixpath.dirname(image["file"]["path"]), name[len("@loader_path/"):])
                 elif name.startswith("@executable_path/"):
-                    actual = posixpath.normpath(prefix + "/" + posixpath.dirname(image_by_id[tool]["file"]["path"])
-                                               + "/" + name[len("@executable_path/"):])
+                    actual = closure_candidate_path(prefix, posixpath.dirname(image_by_id[tool]["file"]["path"]), name[len("@executable_path/"):])
                 else:
                     closure_need(name.startswith("/") and posixpath.normpath(name) == name, "load_resolution")
                     actual = name
@@ -1570,6 +1587,7 @@ def emit_closure(run, prefix, *, source_run=None, evidence_prefix=None):
             # drop it or describe a root-only approximation as complete.
             require(name.startswith(("/usr/lib/", "/System/Library/")) and posixpath.normpath(name) == name,
                     "unexpected private/foreign/unresolved image requires exact source/link review")
+            require(name != str(prefix) and not name.startswith(str(prefix) + "/"), "candidate-prefix image cannot use the trusted cache boundary")
             require(contains(name), "noncache candidate destination is Unsupported")
             cache_names.append(name)
             loads.append({**load, "target": {"kind": "cache"}})
@@ -2321,6 +2339,34 @@ def component(d):
 
 
 class ProvisioningTests(unittest.TestCase):
+    def test_closure_resolution_cannot_escape_then_reenter_or_disguise_candidate_as_cache(self):
+        corpus = closure_authority_file("closure-boundary-vectors.json", CLOSURE_VECTORS_SHA, 8 * 1024 * 1024)
+        vector = next(row for row in corpus["vectors"] if row["id"] == "valid-complete-candidate-graph")
+        frozen = next(row["value"] for row in corpus["contexts"] if row["id"] == vector["context_id"])
+        def fixture():
+            return closure_strict(bytes.fromhex(vector["wire_hex"])), closure_json_decode(closure_metadata_bytes(frozen))
+        for macro in ("@loader_path/", "@executable_path/"):
+            value, context = fixture()
+            value["images"][0]["macho"]["loads"][1]["name"] = macro + "../../codec-prefix/lib/private.dylib"
+            context["image_views"] = value["images"]
+            with self.assertRaisesRegex(Refused, "closure:load_resolution"):
+                validate_closure(value, context)
+        value, context = fixture()
+        context["prefix"] = "/usr/lib/codec-prefix"
+        forged = "/usr/lib/codec-prefix/lib/private.dylib"
+        value["images"][0]["macho"]["loads"][0]["name"] = forged
+        context["cache_names"].append(forged)
+        context["image_views"] = value["images"]
+        with self.assertRaisesRegex(Refused, "closure:cache_boundary"):
+            validate_closure(value, context)
+        value, context = fixture()
+        name = "@loader_path/../lib//./private.dylib"
+        value["images"][0]["macho"]["loads"][1]["name"] = name
+        context["image_views"] = value["images"]
+        self.assertEqual(validate_closure(value, context)["images"][0]["macho"]["loads"][1]["name"], name)
+        with self.assertRaisesRegex(Refused, "closure:load_resolution"):
+            closure_candidate_path("/private/codec-prefix", "bin", "")
+
     def test_signed_closure_codec_goldens(self):
         result = check_closure_vectors()
         self.assertEqual(result["count"], 324)
