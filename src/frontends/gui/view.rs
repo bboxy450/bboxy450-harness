@@ -124,6 +124,26 @@ pub fn find<'a>(n: &'a c::Layout, key: &str) -> Option<&'a c::Layout> {
         n.children.iter().find_map(|c| find(c, key))
     }
 }
+/// Every named node of a solved layout, first in pre-order like [`find`].
+struct NameIndex<'a>(HashMap<&'a str, &'a c::Layout>);
+impl<'a> NameIndex<'a> {
+    fn new(root: &'a c::Layout) -> Self {
+        fn walk<'a>(n: &'a c::Layout, out: &mut HashMap<&'a str, &'a c::Layout>) {
+            if let c::LayoutKind::Named(name) = &n.kind {
+                out.entry(name.as_str()).or_insert(n);
+            }
+            for child in &n.children {
+                walk(child, out);
+            }
+        }
+        let mut out = HashMap::new();
+        walk(root, &mut out);
+        Self(out)
+    }
+    fn get(&self, key: &str) -> Option<&'a c::Layout> {
+        self.0.get(key).copied()
+    }
+}
 fn contains(r: Rect, at: [f32; 2]) -> bool {
     at[0] >= r.x && at[0] < r.right() && at[1] >= r.y && at[1] < r.bottom()
 }
@@ -1414,7 +1434,10 @@ impl HarnessView {
             restored - solved,
             timer.elapsed() - restored,
         ];
-        let scroll_node = find(&layout, "transcript")
+        // One pass names every node; the per-item lookups below were each a
+        // whole-tree walk, quadratic in the transcript length on every frame.
+        let index = NameIndex::new(&layout);
+        let scroll_node = index.get("transcript")
             .and_then(|n| n.children.first())
             .ok_or("transcript layout missing")?;
         if let c::LayoutKind::ScrollView { content, offset } = scroll_node.kind {
@@ -1422,16 +1445,19 @@ impl HarnessView {
             frame.max_scroll = (content[1] - rows_h).max(0.);
         }
         for id in &model.order {
-            if let Some(node) = find(&layout, &format!("item/{id}")) {
+            if let Some(node) = index.get(&format!("item/{id}")) {
                 let r = intersection(node.rect, scroll_node.rect);
                 if r.w > 0. && r.h > 0. {
                     frame.visible.push((*id, model.items[id].kind.clone(), r));
+                } else {
+                    // Its toggles, hunks and approvals lie inside the row: off screen too.
+                    continue;
                 }
             }
             // a settled thought row is a hover zone: its chevron shows while hovered
             if model.items[id].kind == ItemKind::Reasoning {
                 let key = format!("reasoning/{id}/toggle");
-                if let Some(node) = find(&layout, &key) {
+                if let Some(node) = index.get(&key) {
                     let r = intersection(node.rect, scroll_node.rect);
                     if r.w > 0. && r.h > 0. {
                         frame.hover.push((r, key));
@@ -1446,7 +1472,7 @@ impl HarnessView {
                     (toggle.clone(), toggle),
                     (format!("item/{id}"), format!("msg/{id}")),
                 ] {
-                    if let Some(node) = find(&layout, &node_key) {
+                    if let Some(node) = index.get(&node_key) {
                         let r = intersection(node.rect, scroll_node.rect);
                         if r.w > 0. && r.h > 0. {
                             frame.hover.push((r, zone));
@@ -1471,7 +1497,7 @@ impl HarnessView {
                     super::rich::Toggle::Output,
                 ),
             ] {
-                if let Some(node) = find(&layout, &key) {
+                if let Some(node) = index.get(&key) {
                     let r = intersection(node.rect, scroll_node.rect);
                     if r.w > 0. && r.h > 0. {
                         frame.actions.push((r, Action::Toggle(*id, toggle)));
@@ -1479,7 +1505,7 @@ impl HarnessView {
                 }
             }
             for h in 0.. {
-                let Some(node) = find(&layout, &format!("diff/{id}/hunk/{h}/toggle")) else {
+                let Some(node) = index.get(&format!("diff/{id}/hunk/{h}/toggle")) else {
                     break;
                 };
                 let r = intersection(node.rect, scroll_node.rect);
@@ -1499,7 +1525,7 @@ impl HarnessView {
             {
                 for option in options {
                     let (text, decision) = approval(option.clone());
-                    if let Some(node) = find(&layout, &format!("approval/{id}/{text}")) {
+                    if let Some(node) = index.get(&format!("approval/{id}/{text}")) {
                         let r = intersection(node.rect, scroll_node.rect);
                         if r.w > 0. && r.h > 0. {
                             frame.actions.push((r, Action::Approval(*id, decision)));
@@ -1529,7 +1555,7 @@ impl HarnessView {
                 .is_some_and(|c| c.pending.is_none())
         {
             for category in ["model", "thought_level"] {
-                if let Some(node) = find(&layout, &format!("config/{category}")) {
+                if let Some(node) = index.get(&format!("config/{category}")) {
                     frame
                         .actions
                         .push((node.rect, Action::ConfigMenu(category.into())));
@@ -1542,7 +1568,7 @@ impl HarnessView {
                 // an error receipt's Switch profile opens the header's profile switcher
                 (format!("turn/{}/switch", turn.0), Action::Profiles),
             ] {
-                if let Some(node) = find(&layout, &key) {
+                if let Some(node) = index.get(&key) {
                     let r = intersection(node.rect, scroll_node.rect);
                     if r.w > 0. && r.h > 0. {
                         frame.actions.push((r, action));
@@ -1559,13 +1585,13 @@ impl HarnessView {
             ("empty/chip/1", Action::Chip(1)),
             ("empty/chip/2", Action::Chip(2)),
         ] {
-            if let Some(node) = find(&layout, key) {
+            if let Some(node) = index.get(key) {
                 frame.actions.push((node.rect, action));
             }
         }
         for prompt in state.pending_prompts.values() {
             let id = ItemId(prompt.op.0);
-            if let Some(node) = find(&layout, &format!("source/{id}/toggle")) {
+            if let Some(node) = index.get(&format!("source/{id}/toggle")) {
                 let r = intersection(node.rect, scroll_node.rect);
                 if r.w > 0. && r.h > 0. {
                     frame
@@ -1576,7 +1602,7 @@ impl HarnessView {
             }
         }
         for (key, action) in super::setup::actions(&state.onboarding) {
-            if let Some(node) = find(&layout, &key) {
+            if let Some(node) = index.get(&key) {
                 let r = intersection(node.rect, scroll_node.rect);
                 if r.w > 0. && r.h > 0. {
                     frame.actions.push((r, action));
