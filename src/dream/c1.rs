@@ -736,6 +736,10 @@ pub(crate) struct HelperGroup {
     fail_stop_verdict: bool,
     #[cfg(test)]
     injected_stop_errno: Option<i32>,
+    #[cfg(test)]
+    exit_before_pending_query: bool,
+    #[cfg(test)]
+    exit_before_member_query: bool,
     pub(crate) initial_stop_pending: bool,
     pub(crate) confirmed_stopped: bool,
     pub(crate) identity: super::resolve::HelperIdentity,
@@ -847,8 +851,73 @@ fn helper_token_signal(token: &HelperAuditToken, signal: i32) -> Result<(), i32>
             .unwrap_or(libc::EIO)),
     }
 }
+// Query unavailability is not an observed identity mismatch. Only the former
+// (or an observed exit-during-read) can seek independent original-terminal
+// proof; neither native errno nor this classification supplies an endpoint.
+// Numeric sample guards: audit subguards1 BSD query,2 BSD identity,3 birth
+// arithmetic,4 Mach task-name,5 task-info,6 audit shape/PID,7 final BSD query,
+// 8 final BSD identity; pending prefixes40/60, member prefix100. Pending49/69
+// are observed token changes;50/53/57 are task/path/RI query unavailable;
+// 56/58 are path/RI mismatch. Member81/84/93 are query unavailable;
+// 85/90/94/97 are token/path/RI/user-after-ACK mismatch.70–74 describe the
+// independent original-terminal gate;110–117 identify exact exit/RI guards.
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy)]
+enum HelperObservationKind {
+    NativeUnavailable,
+    ExitDuringRead,
+    Mismatch,
+}
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy)]
+struct HelperObservationFailure {
+    kind: HelperObservationKind,
+    guard: u8,
+    native_code: i32,
+}
+#[cfg(target_os = "macos")]
+impl HelperObservationFailure {
+    fn native(guard: u8, native_code: i32) -> Self {
+        Self {
+            kind: HelperObservationKind::NativeUnavailable,
+            guard,
+            native_code,
+        }
+    }
+    fn mismatch(guard: u8) -> Self {
+        Self {
+            kind: HelperObservationKind::Mismatch,
+            guard,
+            native_code: 0,
+        }
+    }
+    fn exited(guard: u8) -> Self {
+        Self {
+            kind: HelperObservationKind::ExitDuringRead,
+            guard,
+            native_code: 0,
+        }
+    }
+    fn shifted(mut self, base: u8) -> Self {
+        self.guard += base;
+        self
+    }
+}
+#[cfg(target_os = "macos")]
+impl From<()> for HelperObservationFailure {
+    fn from(_: ()) -> Self {
+        Self::mismatch(0)
+    }
+}
 #[cfg(target_os = "macos")]
 fn helper_audit_member(pid: i32, parent: i32) -> Result<RetiredMember, ()> {
+    helper_audit_member_checked(pid, parent).map_err(|_| ())
+}
+#[cfg(target_os = "macos")]
+fn helper_audit_member_checked(
+    pid: i32,
+    parent: i32,
+) -> Result<RetiredMember, HelperObservationFailure> {
     let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
     let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
     if unsafe {
@@ -861,23 +930,27 @@ fn helper_audit_member(pid: i32, parent: i32) -> Result<RetiredMember, ()> {
         )
     } != size
     {
-        return Err(());
+        return Err(HelperObservationFailure::native(
+            1,
+            std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
+        ));
     }
     let info = unsafe { info.assume_init() };
     if info.pbi_pid != pid as u32
         || info.pbi_ppid != parent as u32
         || info.pbi_uid != unsafe { libc::geteuid() }
     {
-        return Err(());
+        return Err(HelperObservationFailure::mismatch(2));
     }
     let birth = info
         .pbi_start_tvsec
         .checked_mul(1_000_000)
         .and_then(|s| s.checked_add(info.pbi_start_tvusec))
-        .ok_or(())?;
+        .ok_or(HelperObservationFailure::mismatch(3))?;
     let mut task = 0;
-    if unsafe { task_name_for_pid(mach_task_self_, pid, &mut task) } != 0 {
-        return Err(());
+    let task_status = unsafe { task_name_for_pid(mach_task_self_, pid, &mut task) };
+    if task_status != 0 {
+        return Err(HelperObservationFailure::native(4, task_status));
     }
     let mut token = HelperAuditToken::default();
     let mut count = 8;
@@ -892,8 +965,11 @@ fn helper_audit_member(pid: i32, parent: i32) -> Result<RetiredMember, ()> {
     unsafe {
         mach_port_deallocate(mach_task_self_, task);
     }
-    if result != 0 || count != 8 || token.value[5] != pid as u32 {
-        return Err(());
+    if result != 0 {
+        return Err(HelperObservationFailure::native(5, result));
+    }
+    if count != 8 || token.value[5] != pid as u32 {
+        return Err(HelperObservationFailure::mismatch(6));
     }
     let mut after = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
     if unsafe {
@@ -906,7 +982,10 @@ fn helper_audit_member(pid: i32, parent: i32) -> Result<RetiredMember, ()> {
         )
     } != size
     {
-        return Err(());
+        return Err(HelperObservationFailure::native(
+            7,
+            std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
+        ));
     }
     let after = unsafe { after.assume_init() };
     if after.pbi_pid != info.pbi_pid
@@ -914,7 +993,7 @@ fn helper_audit_member(pid: i32, parent: i32) -> Result<RetiredMember, ()> {
         || after.pbi_start_tvsec != info.pbi_start_tvsec
         || after.pbi_start_tvusec != info.pbi_start_tvusec
     {
-        return Err(());
+        return Err(HelperObservationFailure::mismatch(8));
     }
     Ok(RetiredMember {
         pid,
@@ -1070,6 +1149,10 @@ pub(crate) struct HelperMetrics {
     pub(crate) first_failed_stop: HelperStopReceipt,
     pub(crate) first_failure_line: u32,
     pub(crate) first_failure_sample_stage: u8,
+    pub(crate) continuity_query_fallbacks: u64,
+    pub(crate) continuity_terminal_observations: u64,
+    pub(crate) last_continuity_guard: u8,
+    pub(crate) last_continuity_native_code: i32,
     sample_stage: u8,
     pub(crate) coverage_known: bool,
     pub(crate) worst_grant: HelperGrantReceipt,
@@ -2078,15 +2161,15 @@ impl HelperGroup {
     /// TASKALLINFO struct as an atomic stop/exec/roster transaction.
     #[cfg(target_os = "macos")]
     fn member_continuity(&mut self, index: usize) -> Result<bool, ()> {
-        let result = self.member_continuity_inner(index);
-        if result.is_err() {
-            self.invalidate_slot(index);
+        match self.member_continuity_inner(index) {
+            Ok(stopped) => Ok(stopped),
+            Err(failure) => self.continuity_failure(failure),
         }
-        result
     }
     #[cfg(target_os = "macos")]
-    fn member_continuity_inner(&mut self, index: usize) -> Result<bool, ()> {
+    fn member_continuity_inner(&mut self, index: usize) -> Result<bool, HelperObservationFailure> {
         use std::os::unix::ffi::OsStrExt;
+        self.metrics.sample_stage = 80;
         let prior = self.members[index];
         if prior.pid == 0 {
             return Ok(true);
@@ -2097,6 +2180,19 @@ impl HelperGroup {
         {
             self.acknowledge_slot(index)?;
             return Ok(true);
+        }
+        self.metrics.sample_stage = 81;
+        #[cfg(test)]
+        if index == 0 && std::mem::take(&mut self.exit_before_member_query) {
+            assert_eq!(
+                helper_token_signal(&prior.audit_token, libc::SIGKILL),
+                Ok(())
+            );
+            let until = Instant::now() + Duration::from_secs(1);
+            while super::resolve::helper_exited(self.pgid) != Ok(true) {
+                assert!(Instant::now() < until);
+                thread::sleep(Duration::from_micros(100));
+            }
         }
         let mut raw = std::mem::MaybeUninit::<libc::proc_taskallinfo>::uninit();
         let size = std::mem::size_of::<libc::proc_taskallinfo>() as i32;
@@ -2110,8 +2206,9 @@ impl HelperGroup {
             )
         } != size
         {
-            if std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
-                return Err(());
+            let native_code = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+            if index == 0 || native_code != libc::ESRCH {
+                return Err(HelperObservationFailure::native(81, native_code));
             }
             self.exited_member_usage(prior.pid)?;
             self.members[index].image_phase = HelperImagePhase::Exited;
@@ -2121,6 +2218,7 @@ impl HelperGroup {
         let raw = unsafe { raw.assume_init() };
         let info = raw.pbsd;
         let task = raw.ptinfo;
+        self.metrics.sample_stage = 82;
         let birth = info
             .pbi_start_tvsec
             .checked_mul(1_000_000)
@@ -2131,6 +2229,7 @@ impl HelperGroup {
         } else {
             self.pgid
         };
+        self.metrics.sample_stage = 83;
         if info.pbi_pid != prior.pid as u32
             || info.pbi_pgid != self.pgid as u32
             || info.pbi_ppid != parent as u32
@@ -2138,8 +2237,9 @@ impl HelperGroup {
             || info.pbi_nice < 10
             || birth != prior.birth
         {
-            return Err(());
+            return Err(HelperObservationFailure::mismatch(0));
         }
+        self.metrics.sample_stage = 84;
         let mut image = [0u8; 4096];
         let result = unsafe {
             proc_pidpath_audittoken(
@@ -2149,17 +2249,26 @@ impl HelperGroup {
             )
         };
         if result <= 0 {
-            if std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
-                return Err(());
+            let native_code = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+            if native_code != libc::ESRCH {
+                return Err(HelperObservationFailure::native(84, native_code));
             }
-            let current = helper_audit_member(prior.pid, parent)?;
+            let current =
+                helper_audit_member_checked(prior.pid, parent).map_err(|f| f.shifted(100))?;
+            self.metrics.sample_stage = 85;
             self.retain_incarnation(current)?;
             let mut member = prior;
             member.audit_token = current.token;
             member.audit_version = current.token.value[7];
-            if member.audit_version == prior.audit_version {
-                return Err(());
+            if current.birth != prior.birth
+                || (index == 0 && current.token.value != prior.audit_token.value)
+            {
+                return Err(HelperObservationFailure::mismatch(0));
             }
+            if member.audit_version == prior.audit_version {
+                return Err(HelperObservationFailure::native(84, native_code));
+            }
+            self.metrics.sample_stage = 86;
             helper_token_signal(&member.audit_token, libc::SIGSTOP).map_err(|_| ())?;
             member.exec_stop_version = member.audit_version;
             self.note_incarnation(index, member);
@@ -2172,9 +2281,11 @@ impl HelperGroup {
                     image.len() as u32,
                 )
             };
+            self.metrics.sample_stage = 87;
             if n <= 0 {
-                return Err(());
+                return Err(HelperObservationFailure::mismatch(0));
             }
+            self.metrics.sample_stage = 88;
             let end = image.iter().position(|n| *n == 0).ok_or(())?;
             let allowed = index == 1
                 && current.birth == prior.birth
@@ -2186,38 +2297,55 @@ impl HelperGroup {
                     .as_ref()
                     .is_some_and(|expected| expected.as_os_str().as_bytes() == &image[..end]);
             if !allowed {
-                return Err(());
+                return Err(HelperObservationFailure::mismatch(0));
             }
             self.members[index].image_phase = HelperImagePhase::Descendant;
             self.metrics.verified_descendants =
                 self.metrics.verified_descendants.checked_add(1).ok_or(())?;
             return Ok(false);
         }
+        self.metrics.sample_stage = 89;
         let end = image.iter().position(|n| *n == 0).ok_or(())?;
         let expected = if index == 0 || prior.image_phase == HelperImagePhase::ParentClone {
             &self.identity.image
         } else {
             self.identity.descendant_image.as_ref().ok_or(())?
         };
-        if expected.as_os_str().as_bytes() != &image[..end]
-            || task.pti_threadnum != 1
-            || task.pti_numrunning != 0
-            || info.pbi_status != 4
-        {
-            return Err(());
+        self.metrics.sample_stage = 90;
+        if expected.as_os_str().as_bytes() != &image[..end] {
+            return Err(HelperObservationFailure::mismatch(0));
         }
+        // A same-incarnation zombie transition is not a task identity change;
+        // it still needs fresh original WNOWAIT plus the complete exit proof.
+        if info.pbi_status == libc::SZOMB {
+            return Err(HelperObservationFailure::exited(91));
+        }
+        if task.pti_threadnum == 0 {
+            return Err(HelperObservationFailure::exited(129));
+        }
+        self.metrics.sample_stage = 92;
+        if task.pti_threadnum != 1 || task.pti_numrunning != 0 || info.pbi_status != 4 {
+            return Err(HelperObservationFailure::mismatch(0));
+        }
+        self.metrics.sample_stage = 93;
         let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
         if unsafe { libc::proc_pid_rusage(prior.pid, 1, usage.as_mut_ptr().cast()) } != 0 {
-            return Err(());
+            return Err(HelperObservationFailure::native(
+                93,
+                std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
+            ));
         }
+        self.metrics.sample_stage = 94;
         let usage = unsafe { usage.assume_init() };
         if usage.ri_proc_start_abstime != prior.start_abstime
-            || usage.ri_proc_exit_abstime != 0
             || usage.ri_system_time < prior.system_ticks
         {
-            self.invalidate_slot(index);
-            return Err(());
+            return Err(HelperObservationFailure::mismatch(0));
         }
+        if usage.ri_proc_exit_abstime != 0 {
+            return Err(HelperObservationFailure::exited(95));
+        }
+        self.metrics.sample_stage = 96;
         let user_changed = usage.ri_user_time != prior.user_ticks;
         let cpu = helper_ticks_ns(
             usage
@@ -2226,7 +2354,7 @@ impl HelperGroup {
                 .ok_or(())?,
         )?;
         if cpu < prior.cpu {
-            return Err(());
+            return Err(HelperObservationFailure::mismatch(0));
         }
         self.members[index].cpu = cpu;
         self.members[index].user_ticks = usage.ri_user_time;
@@ -2236,7 +2364,7 @@ impl HelperGroup {
             if usage.ri_child_user_time < self.rolled_user_ticks
                 || usage.ri_child_system_time < self.rolled_system_ticks
             {
-                return Err(());
+                return Err(HelperObservationFailure::mismatch(0));
             }
             self.rolled_user_ticks = usage.ri_child_user_time;
             self.rolled_system_ticks = usage.ri_child_system_time;
@@ -2250,9 +2378,10 @@ impl HelperGroup {
         } else {
             self.metrics.observed_descendant_cpu_ns = cpu;
         }
+        self.metrics.sample_stage = 97;
         if user_changed {
             self.invalidate_slot(index);
-            return Err(());
+            return Err(HelperObservationFailure::mismatch(0));
         }
         if prior.image_phase == HelperImagePhase::Descendant {
             self.members[index].final_image_version = prior.audit_version;
@@ -2262,15 +2391,64 @@ impl HelperGroup {
     }
     /// A failed STOP is not an exec barrier. While the original leader lives,
     /// observe each exact current task and RI incarnation without signaling or
-    /// acknowledging any endpoint. A raced/unavailable observation refuses;
-    /// old-token disappearance never advances this live path to terminal proof.
+    /// acknowledging any endpoint. Query unavailability may seek one complete
+    /// independent original-terminal proof; an observed mismatch never does.
     #[cfg(target_os = "macos")]
-    fn pending_live_continuity(&mut self) -> Result<(), ()> {
-        let result = self.pending_live_continuity_inner();
+    fn pending_live_continuity(&mut self) -> Result<bool, ()> {
+        match self.pending_live_continuity_inner() {
+            Ok(()) => Ok(false),
+            Err(failure) => self.continuity_failure(failure),
+        }
+    }
+    #[cfg(target_os = "macos")]
+    fn continuity_failure(&mut self, mut failure: HelperObservationFailure) -> Result<bool, ()> {
+        if failure.guard == 0 {
+            failure.guard = self.metrics.sample_stage;
+        }
+        self.metrics.sample_stage = failure.guard;
+        self.metrics.last_continuity_guard = failure.guard;
+        self.metrics.last_continuity_native_code = failure.native_code;
+        let result = match failure.kind {
+            HelperObservationKind::Mismatch => Err(()),
+            HelperObservationKind::NativeUnavailable | HelperObservationKind::ExitDuringRead
+                if self.metrics.coverage_known && self.metrics.clock_failures == 0 =>
+            {
+                // This is ONE independent terminal observation, not a retry of
+                // the failed native query or any STOP/CONT. Neither query errno
+                // nor an exited leader alone completes the terminal conjunction.
+                self.metrics.continuity_query_fallbacks =
+                    self.metrics.continuity_query_fallbacks.saturating_add(1);
+                self.metrics.sample_stage = 70; // original WNOWAIT after raced query
+                match self.observe_leader_exit() {
+                    Ok(Some(hint)) => {
+                        self.metrics.sample_stage = 71; // full original terminal proof
+                        let proved = self.sample_exited_roster_with_hint(hint);
+                        if proved == Ok(true) {
+                            self.metrics.continuity_terminal_observations = self
+                                .metrics
+                                .continuity_terminal_observations
+                                .saturating_add(1);
+                        }
+                        proved
+                    }
+                    Ok(None) => {
+                        self.metrics.sample_stage = 72;
+                        Err(())
+                    }
+                    Err(()) => {
+                        self.metrics.sample_stage = 73;
+                        Err(())
+                    }
+                }
+            }
+            _ => {
+                self.metrics.sample_stage = 74;
+                Err(())
+            }
+        };
         if result.is_err() {
-            // Observed uncertainty or change is sticky even if a later numeric
-            // PID/RI sample looks like the original again. Retain all windows
-            // and physical recipients for original identity-safe retirement.
+            // Actual mismatch, or an unavailable query WITHOUT the complete
+            // independently proved original terminal conjunction, is sticky.
             self.metrics.coverage_known = false;
             for index in 0..usize::from(self.identity.expected_members) {
                 self.invalidate_slot(index);
@@ -2279,14 +2457,15 @@ impl HelperGroup {
         result
     }
     #[cfg(target_os = "macos")]
-    fn pending_live_continuity_inner(&mut self) -> Result<(), ()> {
+    fn pending_live_continuity_inner(&mut self) -> Result<(), HelperObservationFailure> {
         use std::os::unix::ffi::OsStrExt;
+        self.metrics.sample_stage = 39;
         if !self.metrics.coverage_known || self.metrics.clock_failures != 0 {
-            return Err(());
+            return Err(HelperObservationFailure::mismatch(0));
         }
         let mut rss_sum = 0u64;
         for index in 0..usize::from(self.identity.expected_members) {
-            self.metrics.sample_stage = 12;
+            self.metrics.sample_stage = 40;
             let prior = self.members[index];
             if prior.pid <= 0
                 || prior.start_abstime == 0
@@ -2297,12 +2476,12 @@ impl HelperGroup {
                     HelperImagePhase::Descendant | HelperImagePhase::Exited
                 )
             {
-                return Err(());
+                return Err(HelperObservationFailure::mismatch(0));
             }
             if prior.image_phase == HelperImagePhase::Exited {
                 self.exited_member_usage(prior.pid)?;
                 if prior.exit_abstime == 0 || helper_token_exited(&prior.audit_token) != Ok(true) {
-                    return Err(());
+                    return Err(HelperObservationFailure::mismatch(0));
                 }
                 continue;
             }
@@ -2311,14 +2490,31 @@ impl HelperGroup {
             } else {
                 self.pgid
             };
-            let current = helper_audit_member(prior.pid, parent)?;
+            #[cfg(test)]
+            if index == 0 && std::mem::take(&mut self.exit_before_pending_query) {
+                // Deterministic owned-process control: the original was just
+                // observed live; make it actually exit before the live query.
+                // Fixture synchronization is not a terminal proof or endpoint.
+                assert_eq!(
+                    helper_token_signal(&prior.audit_token, libc::SIGKILL),
+                    Ok(())
+                );
+                let until = Instant::now() + Duration::from_secs(1);
+                while super::resolve::helper_exited(self.pgid) != Ok(true) {
+                    assert!(Instant::now() < until);
+                    thread::sleep(Duration::from_micros(100));
+                }
+            }
+            let current =
+                helper_audit_member_checked(prior.pid, parent).map_err(|f| f.shifted(40))?;
             // Capture any actual exec successor before refusing it. No STOP is
             // sent to either old or new task, and no image transition is admitted.
             self.retain_incarnation(current)?;
+            self.metrics.sample_stage = 49;
             if current.birth != prior.birth || current.token.value != prior.audit_token.value {
-                return Err(());
+                return Err(HelperObservationFailure::mismatch(0));
             }
-            self.metrics.sample_stage = 13;
+            self.metrics.sample_stage = 50;
             let mut raw = std::mem::MaybeUninit::<libc::proc_taskallinfo>::uninit();
             let size = std::mem::size_of::<libc::proc_taskallinfo>() as i32;
             if unsafe {
@@ -2331,8 +2527,12 @@ impl HelperGroup {
                 )
             } != size
             {
-                return Err(());
+                return Err(HelperObservationFailure::native(
+                    50,
+                    std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
+                ));
             }
+            self.metrics.sample_stage = 51;
             let raw = unsafe { raw.assume_init() };
             let birth = raw
                 .pbsd
@@ -2340,20 +2540,32 @@ impl HelperGroup {
                 .checked_mul(1_000_000)
                 .and_then(|n| n.checked_add(raw.pbsd.pbi_start_tvusec))
                 .ok_or(())?;
-            if raw.pbsd.pbi_pid != prior.pid as u32
-                || raw.pbsd.pbi_ppid != parent as u32
-                || raw.pbsd.pbi_pgid != self.pgid as u32
-                || raw.pbsd.pbi_uid != unsafe { libc::geteuid() }
-                || raw.pbsd.pbi_nice < 10
-                || raw.pbsd.pbi_status == libc::SZOMB
-                || birth != prior.birth
-                || raw.ptinfo.pti_threadnum != 1
-                || !(0..=1).contains(&raw.ptinfo.pti_numrunning)
-            {
-                return Err(());
+            self.metrics.sample_stage = 52;
+            // Individual numeric guards distinguish observed identity changes
+            // from a task disappearing while its original process exits.
+            for (bad, guard) in [
+                (raw.pbsd.pbi_pid != prior.pid as u32, 120),
+                (raw.pbsd.pbi_ppid != parent as u32, 121),
+                (raw.pbsd.pbi_pgid != self.pgid as u32, 122),
+                (raw.pbsd.pbi_uid != unsafe { libc::geteuid() }, 123),
+                (raw.pbsd.pbi_nice < 10, 124),
+                (birth != prior.birth, 125),
+            ] {
+                if bad {
+                    return Err(HelperObservationFailure::mismatch(guard));
+                }
+            }
+            if raw.pbsd.pbi_status == libc::SZOMB || raw.ptinfo.pti_threadnum == 0 {
+                return Err(HelperObservationFailure::exited(128));
+            }
+            if raw.ptinfo.pti_threadnum != 1 {
+                return Err(HelperObservationFailure::mismatch(126));
+            }
+            if !(0..=1).contains(&raw.ptinfo.pti_numrunning) {
+                return Err(HelperObservationFailure::mismatch(127));
             }
             let mut path = [0u8; 4096];
-            self.metrics.sample_stage = 14;
+            self.metrics.sample_stage = 53;
             if unsafe {
                 proc_pidpath_audittoken(
                     &prior.audit_token,
@@ -2362,34 +2574,47 @@ impl HelperGroup {
                 )
             } <= 0
             {
-                return Err(());
+                return Err(HelperObservationFailure::native(
+                    53,
+                    std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
+                ));
             }
+            self.metrics.sample_stage = 54;
             let end = path.iter().position(|byte| *byte == 0).ok_or(())?;
             let expected = if index == 0 {
                 &self.identity.image
             } else {
                 self.identity.descendant_image.as_ref().ok_or(())?
             };
+            self.metrics.sample_stage = 56;
             if expected.as_os_str().as_bytes() != &path[..end] {
-                return Err(());
+                return Err(HelperObservationFailure::mismatch(0));
             }
             let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
-            self.metrics.sample_stage = 15;
+            self.metrics.sample_stage = 57;
             if unsafe { libc::proc_pid_rusage(prior.pid, 1, usage.as_mut_ptr().cast()) } != 0 {
-                return Err(());
+                return Err(HelperObservationFailure::native(
+                    57,
+                    std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
+                ));
             }
+            self.metrics.sample_stage = 58;
             let usage = unsafe { usage.assume_init() };
             if usage.ri_proc_start_abstime != prior.start_abstime
-                || usage.ri_proc_exit_abstime != 0
                 || usage.ri_user_time < prior.user_ticks
                 || usage.ri_system_time < prior.system_ticks
             {
-                return Err(());
+                return Err(HelperObservationFailure::mismatch(0));
             }
-            let after = helper_audit_member(prior.pid, parent)?;
+            if usage.ri_proc_exit_abstime != 0 {
+                return Err(HelperObservationFailure::exited(59));
+            }
+            let after =
+                helper_audit_member_checked(prior.pid, parent).map_err(|f| f.shifted(60))?;
             self.retain_incarnation(after)?;
+            self.metrics.sample_stage = 69;
             if after.birth != prior.birth || after.token.value != prior.audit_token.value {
-                return Err(());
+                return Err(HelperObservationFailure::mismatch(0));
             }
             let cpu = helper_ticks_ns(
                 usage
@@ -2398,7 +2623,7 @@ impl HelperGroup {
                     .ok_or(())?,
             )?;
             if cpu < prior.cpu {
-                return Err(());
+                return Err(HelperObservationFailure::mismatch(0));
             }
             self.members[index].cpu = cpu;
             self.members[index].user_ticks = usage.ri_user_time;
@@ -2409,7 +2634,7 @@ impl HelperGroup {
                 if usage.ri_child_user_time < self.rolled_user_ticks
                     || usage.ri_child_system_time < self.rolled_system_ticks
                 {
-                    return Err(());
+                    return Err(HelperObservationFailure::mismatch(0));
                 }
                 self.rolled_user_ticks = usage.ri_child_user_time;
                 self.rolled_system_ticks = usage.ri_child_system_time;
@@ -2432,12 +2657,12 @@ impl HelperGroup {
                 .ok_or(())?,
         );
         if rss_sum > storage::HELPERS {
-            return Err(());
+            return Err(HelperObservationFailure::mismatch(0));
         }
         // This census only refuses unknown births. It neither closes a slot nor
         // changes the source/platform premise into native absence-of-work proof.
         let mut pids = [0i32; 3];
-        self.metrics.sample_stage = 16;
+        self.metrics.sample_stage = 75;
         let count = unsafe {
             libc::proc_listpgrppids(
                 self.pgid,
@@ -2445,14 +2670,23 @@ impl HelperGroup {
                 std::mem::size_of_val(&pids) as i32,
             )
         };
-        if count <= 0
-            || count as usize > pids.len()
+        if count < 0 {
+            return Err(HelperObservationFailure::native(
+                75,
+                std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
+            ));
+        }
+        if count == 0 {
+            return Err(HelperObservationFailure::exited(75));
+        }
+        if count as usize > pids.len()
             || pids[..count as usize]
                 .iter()
                 .any(|pid| !self.members.iter().any(|m| m.pid == *pid))
         {
-            return Err(());
+            return Err(HelperObservationFailure::mismatch(76));
         }
+        self.metrics.sample_stage = 76;
         for member in self
             .members
             .iter()
@@ -2466,26 +2700,34 @@ impl HelperGroup {
                     std::mem::size_of_val(&children) as i32,
                 )
             };
-            if found < 0
-                || found as usize > children.len()
+            if found < 0 {
+                return Err(HelperObservationFailure::native(
+                    77,
+                    std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
+                ));
+            }
+            if found as usize > children.len()
                 || children[..found as usize]
                     .iter()
                     .any(|pid| member.pid != self.pgid || self.members[1].pid != *pid)
             {
-                return Err(());
+                return Err(HelperObservationFailure::mismatch(78));
             }
         }
         Ok(())
     }
     #[cfg(target_os = "macos")]
     fn exited_member_usage(&mut self, pid: i32) -> Result<(), ()> {
+        self.metrics.sample_stage = 110;
         let index = self
             .members
             .iter()
             .position(|m| m.pid == pid && m.start_abstime != 0)
             .ok_or(())?;
+        self.metrics.sample_stage = 111;
         let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
         if unsafe { libc::proc_pid_rusage(pid, 1, usage.as_mut_ptr().cast()) } != 0 {
+            self.metrics.sample_stage = 112;
             let known = self.members[index];
             if std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
                 && known.exit_abstime != 0
@@ -2507,17 +2749,20 @@ impl HelperGroup {
         let invalid_user_after_ack = self.grant.opened
             && self.grant.slots[index].ack_ns.is_some()
             && usage.ri_user_time != self.members[index].user_ticks;
+        self.metrics.sample_stage = 113;
         if usage.ri_proc_start_abstime != self.members[index].start_abstime
             || usage.ri_proc_exit_abstime == 0
         {
             return Err(());
         }
+        self.metrics.sample_stage = 114;
         let cpu = helper_ticks_ns(
             usage
                 .ri_user_time
                 .checked_add(usage.ri_system_time)
                 .ok_or(())?,
         )?;
+        self.metrics.sample_stage = 115;
         if cpu < self.members[index].cpu {
             return Err(());
         }
@@ -2525,6 +2770,7 @@ impl HelperGroup {
         self.members[index].user_ticks = usage.ri_user_time;
         self.members[index].system_ticks = usage.ri_system_time;
         self.members[index].exit_abstime = usage.ri_proc_exit_abstime;
+        self.metrics.sample_stage = 116;
         if index == 0 {
             let rolled = helper_ticks_ns(
                 usage
@@ -2542,6 +2788,7 @@ impl HelperGroup {
         } else {
             self.metrics.observed_descendant_cpu_ns = cpu;
         }
+        self.metrics.sample_stage = 117;
         if invalid_user_after_ack {
             self.invalidate_slot(index);
             return Err(());
@@ -2564,6 +2811,10 @@ impl HelperGroup {
             fail_stop_verdict: false,
             #[cfg(test)]
             injected_stop_errno: None,
+            #[cfg(test)]
+            exit_before_pending_query: false,
+            #[cfg(test)]
+            exit_before_member_query: false,
             initial_stop_pending: false,
             confirmed_stopped: false,
             identity,
@@ -3016,6 +3267,7 @@ impl HelperGroup {
     }
     #[cfg(target_os = "macos")]
     fn sample_exited_roster_with_hint(&mut self, hint: HelperExitHint) -> Result<bool, ()> {
+        self.metrics.sample_stage = 132;
         self.validate_exit_hint(&hint)?;
         if self.stop_outcome == HelperStopOutcome::PendingTerminal
             && (!self.metrics.coverage_known
@@ -3030,6 +3282,7 @@ impl HelperGroup {
             return Err(());
         }
         for index in 0..usize::from(self.identity.expected_members) {
+            self.metrics.sample_stage = 133;
             let member = self.members[index];
             if member.pid <= 0
                 || member.start_abstime == 0
@@ -3059,6 +3312,7 @@ impl HelperGroup {
             // exec is outside this conditional source premise, not a theorem
             // obtained from ESRCH plus a same-start RI record.
             self.exited_member_usage(member.pid)?;
+            self.metrics.sample_stage = 134;
             if self.members[index].exit_abstime == 0
                 || helper_token_exited(&member.audit_token) != Ok(true)
             {
@@ -3066,9 +3320,15 @@ impl HelperGroup {
             }
             self.members[index].image_phase = HelperImagePhase::Exited;
         }
-        if !self.retired_members_exited() || super::resolve::helper_exited(self.pgid) != Ok(true) {
+        self.metrics.sample_stage = 135;
+        if !self.retired_members_exited() {
             return Err(());
         }
+        self.metrics.sample_stage = 136;
+        if super::resolve::helper_exited(self.pgid) != Ok(true) {
+            return Err(());
+        }
+        self.metrics.sample_stage = 137;
         let mut pids = [0i32; 3];
         let count = unsafe {
             libc::proc_listpgrppids(
@@ -3080,6 +3340,7 @@ impl HelperGroup {
         if count < 0 || count as usize > pids.len() {
             return Err(());
         }
+        self.metrics.sample_stage = 138;
         if pids[..count as usize].iter().any(|pid| {
             !self
                 .members
@@ -3091,18 +3352,22 @@ impl HelperGroup {
             }
             return Err(());
         }
+        self.metrics.sample_stage = 139;
         if !self.closed_usage_covered() {
             self.metrics.coverage_known = false;
             return Err(());
         }
         for index in 0..usize::from(self.identity.expected_members) {
             if index == 0 {
+                self.metrics.sample_stage = 140;
                 self.validate_exit_hint(&hint)?;
+                self.metrics.sample_stage = 141;
                 self.acknowledge_slot_at(0, Some(hint.observed_ns))?;
             } else {
                 self.acknowledge_slot(index)?;
             }
         }
+        self.metrics.sample_stage = 142;
         self.close_roster()?;
         self.confirmed_stopped = true;
         if self.stop_outcome == HelperStopOutcome::PendingTerminal {
@@ -3173,10 +3438,7 @@ impl HelperGroup {
                 None => self.observe_leader_exit(),
             };
             return match observed {
-                Ok(None) => {
-                    self.pending_live_continuity()?;
-                    Ok(false)
-                }
+                Ok(None) => self.pending_live_continuity(),
                 Ok(Some(exit)) => self.sample_exited_roster_with_hint(exit),
                 Err(_) => Err(()),
             };
@@ -3667,6 +3929,7 @@ impl HelperGroup {
                     return Ok(false);
                 }
             }
+            self.metrics.sample_stage = 130;
             if !self.closed_usage_covered() {
                 self.metrics.coverage_known = false;
                 return Err(());
@@ -7547,6 +7810,11 @@ mod helper_admission_tests {
                 helper.sample(&control).is_err(),
                 "actual live exec must refuse"
             );
+            assert_eq!(
+                helper.metrics.continuity_query_fallbacks, 0,
+                "observed real exec is permanent refusal, never a raced-query exit candidate"
+            );
+            assert_eq!(helper.metrics.continuity_terminal_observations, 0);
             assert!(!helper.metrics.coverage_known && !helper.grant.closed);
             assert_eq!(helper.grant.slots[0].ack_ns, None);
             assert_eq!(helper.stop_outcome, HelperStopOutcome::PendingTerminal);
@@ -8328,6 +8596,231 @@ mod helper_admission_tests {
                 } else {
                     assert!(!helper.metrics.coverage_known && !helper.grant.closed);
                 }
+            }
+            control.read_pay();
+            proof.helper_detach(ticket).unwrap();
+            assert!(control.helper.lock().unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn continuity_query_races_require_independent_original_terminal_and_never_erase_exec() {
+        // Each mode owns an independent original process. Held-order test hooks
+        // cause actual exit between a negative WNOWAIT and the live query;
+        // they never fabricate its native result, identity or terminal endpoint.
+        for mode in ["pending_exit", "member_exit", "native_error_live"] {
+            let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
+            let mut proof = crate::dream::read::helper_fixture_clock(control.clone());
+            let mut attr = std::mem::MaybeUninit::<libc::posix_spawnattr_t>::uninit();
+            assert_eq!(unsafe { libc::posix_spawnattr_init(attr.as_mut_ptr()) }, 0);
+            let mut attr = unsafe { attr.assume_init() };
+            assert_eq!(unsafe { libc::posix_spawnattr_setpgroup(&mut attr, 0) }, 0);
+            assert_eq!(
+                unsafe {
+                    libc::posix_spawnattr_setflags(
+                        &mut attr,
+                        (libc::POSIX_SPAWN_START_SUSPENDED | libc::POSIX_SPAWN_SETPGROUP) as i16,
+                    )
+                },
+                0
+            );
+            let argv = [
+                c"sleep".as_ptr().cast_mut(),
+                c"30".as_ptr().cast_mut(),
+                std::ptr::null_mut(),
+            ];
+            let env = [c"LANG=C".as_ptr().cast_mut(), std::ptr::null_mut()];
+            let mut pid = 0;
+            let result = unsafe {
+                libc::posix_spawn(
+                    &mut pid,
+                    c"/bin/sleep".as_ptr(),
+                    std::ptr::null(),
+                    &attr,
+                    argv.as_ptr(),
+                    env.as_ptr(),
+                )
+            };
+            assert!(pid > 0, "retain the positive owned native effect");
+            let mut child = OwnedChild {
+                pid,
+                control: control.clone(),
+                reaped: false,
+            };
+            assert_eq!(unsafe { libc::posix_spawnattr_destroy(&mut attr) }, 0);
+            assert_eq!(result, 0);
+            let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
+            let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+            assert_eq!(
+                unsafe {
+                    libc::proc_pidinfo(
+                        pid,
+                        libc::PROC_PIDTBSDINFO,
+                        0,
+                        info.as_mut_ptr().cast(),
+                        size,
+                    )
+                },
+                size
+            );
+            let info = unsafe { info.assume_init() };
+            let identity = super::super::resolve::HelperIdentity {
+                sequence: 1,
+                pid,
+                pgid: pid,
+                start_identity: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec,
+                expected_members: 1,
+                image: std::fs::canonicalize("/bin/sleep").unwrap(),
+                descendant_image: None,
+            };
+            let ticket = identity.ticket();
+            proof.helper_attach(identity).unwrap();
+            let active_at = cpu_ns();
+            {
+                let mut owner = control.helper.lock().unwrap();
+                let helper = owner.as_mut().unwrap();
+                helper.open_grant().unwrap();
+                assert!(
+                    helper.observe_leader_exit().unwrap().is_none(),
+                    "held original is actually live"
+                );
+                helper.running = true;
+                helper.confirmed_stopped = false;
+                let observed = if mode == "member_exit" {
+                    assert_eq!(
+                        helper.request_group_stop(),
+                        Ok(HelperStopOutcome::Delivered)
+                    );
+                    let (_, hint) = helper.stop_observation_hint();
+                    let hint = hint.expect("the original is still kernel-stopped");
+                    helper.exit_before_member_query = true;
+                    helper.sample_with_hint(&control, Some(hint))
+                } else {
+                    assert_eq!(unsafe { libc::kill(-pid, libc::SIGCONT) }, 0);
+                    helper.injected_stop_errno = Some(libc::EPERM);
+                    assert_eq!(
+                        helper.request_group_stop(),
+                        Ok(HelperStopOutcome::PendingTerminal)
+                    );
+                    if mode == "pending_exit" {
+                        helper.exit_before_pending_query = true;
+                        helper.sample(&control)
+                    } else {
+                        // The failure is explicitly injected; the subsequent
+                        // actual original WNOWAIT is still negative and must refuse.
+                        helper.continuity_failure(HelperObservationFailure::native(41, libc::EIO))
+                    }
+                };
+                let expected_terminal = mode != "native_error_live";
+                assert_eq!(observed, if expected_terminal { Ok(true) } else { Err(()) });
+                assert!(
+                    !helper.exit_before_pending_query && !helper.exit_before_member_query,
+                    "the deterministic held-order effect actually ran"
+                );
+                assert_eq!(helper.metrics.continuity_query_fallbacks, 1);
+                assert_eq!(
+                    helper.metrics.continuity_terminal_observations,
+                    u64::from(expected_terminal)
+                );
+                assert_eq!(helper.metrics.stop_attempts, 1);
+                let _ = helper
+                    .account_controller(&control, control.observe_interval(active_at, cpu_ns()));
+                if expected_terminal {
+                    assert!(
+                        helper.grant.closed
+                            && helper.confirmed_stopped
+                            && helper.metrics.coverage_known
+                    );
+                    helper.finish_grant(&control, 0);
+                } else {
+                    assert!(
+                        !helper.grant.closed
+                            && !helper.confirmed_stopped
+                            && !helper.metrics.coverage_known
+                    );
+                    assert_eq!(helper.grant.slots[0].ack_ns, None);
+                    assert_eq!(super::super::resolve::helper_exited(pid), Ok(false));
+                    helper.reject(&control, 5);
+                    assert_eq!(
+                        helper_token_signal(&helper.members[0].audit_token, libc::SIGKILL),
+                        Ok(())
+                    );
+                }
+            }
+            let until = Instant::now() + Duration::from_secs(1);
+            while super::super::resolve::helper_exited(pid) != Ok(true) {
+                assert!(Instant::now() < until);
+                thread::sleep(Duration::from_micros(100));
+            }
+            if mode == "native_error_live" {
+                let mut owner = control.helper.lock().unwrap();
+                assert!(
+                    owner.as_mut().unwrap().sample_exited_roster().is_err(),
+                    "later actual exit cannot erase the failed independent terminal proof"
+                );
+            }
+            let reap_at = cpu_ns();
+            let reap_wall = Instant::now();
+            let mut status = 0;
+            let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+            loop {
+                let reaped = unsafe { libc::wait4(pid, &mut status, 0, usage.as_mut_ptr()) };
+                if reaped == pid {
+                    child.reaped = true;
+                    break;
+                }
+                assert_eq!(
+                    std::io::Error::last_os_error().raw_os_error(),
+                    Some(libc::EINTR)
+                );
+            }
+            let usage = unsafe { usage.assume_init() };
+            assert!(libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGKILL);
+            assert_eq!(unsafe { libc::kill(-pid, 0) }, -1);
+            assert_eq!(
+                std::io::Error::last_os_error().raw_os_error(),
+                Some(libc::ESRCH)
+            );
+            {
+                let mut owner = control.helper.lock().unwrap();
+                let helper = owner.as_mut().unwrap();
+                helper.retiring = true;
+                let user = (usage.ru_utime.tv_sec as u64 * 1_000_000
+                    + usage.ru_utime.tv_usec as u64)
+                    * 1000;
+                let system = (usage.ru_stime.tv_sec as u64 * 1_000_000
+                    + usage.ru_stime.tv_usec as u64)
+                    * 1000;
+                let _ = helper.reconcile_usage(&control, user, system, usage.ru_maxrss as u64);
+                let used = control.observe_interval(reap_at, cpu_ns());
+                let wall = u64::try_from(reap_wall.elapsed().as_nanos()).unwrap_or(u64::MAX);
+                let mut observed = Budget::new_read(
+                    control.clone(),
+                    Arc::new(crossbeam_queue::ArrayQueue::new(1)),
+                );
+                let _ = observed.read_charge(used, used, wall, UNIT_NS);
+                let _ = helper.commit_post_observation(&control, used, wall);
+                let receipt = helper.metrics.worst_grant;
+                eprintln!(
+                    "continuity_query_race source_known=true mode={mode} native_error_injected={} pid={pid} birth={} guard={} native_code={} fallback_attempts={} independent_terminal_observations={} stop_attempts={} t0_ns={} end_ns={} close_ns={} w_ns={} a_ns={} c_ns={} q_ns={} debt_ns={} wait4_pid={pid} wait4_user_ns={user} wait4_system_ns={system} coverage_known={} full_command_qualification=false",
+                    mode == "native_error_live",
+                    ticket.start_identity,
+                    helper.metrics.last_continuity_guard,
+                    helper.metrics.last_continuity_native_code,
+                    helper.metrics.continuity_query_fallbacks,
+                    helper.metrics.continuity_terminal_observations,
+                    helper.metrics.stop_attempts,
+                    receipt.t0_ns,
+                    receipt.end_ns[0],
+                    receipt.close_ns,
+                    receipt.w_ns,
+                    receipt.a_ns,
+                    receipt.c_ns,
+                    receipt.q_ns,
+                    helper.metrics.debt_ns,
+                    helper.metrics.coverage_known
+                );
+                assert_eq!(helper.metrics.stop_attempts, 1);
             }
             control.read_pay();
             proof.helper_detach(ticket).unwrap();

@@ -951,6 +951,11 @@ impl HelperSummary {
         );
         let last_stop = m.last_stop;
         let first_stop = m.first_failed_stop;
+        eprintln!(
+            "dream-read helper_continuity profile=read-helper-native/1 query_fallbacks={} terminal_observations={} last_guard={} last_native_code={}",
+            m.continuity_query_fallbacks, m.continuity_terminal_observations,
+            m.last_continuity_guard, m.last_continuity_native_code
+        );
         for (kind, receipt) in [("last", last_stop), ("first_failed", first_stop)] {
             if receipt.attempt != 0 {
                 eprintln!(
@@ -1712,6 +1717,16 @@ impl super::resolve::ProofPace for ProofClock {
             .saturating_add(h.metrics.initial_kernel_cpu_ns);
         m.stop_attempts = m.stop_attempts.saturating_add(h.metrics.stop_attempts);
         m.stop_failures = m.stop_failures.saturating_add(h.metrics.stop_failures);
+        m.continuity_query_fallbacks = m
+            .continuity_query_fallbacks
+            .saturating_add(h.metrics.continuity_query_fallbacks);
+        m.continuity_terminal_observations = m
+            .continuity_terminal_observations
+            .saturating_add(h.metrics.continuity_terminal_observations);
+        if h.metrics.last_continuity_guard != 0 {
+            m.last_continuity_guard = h.metrics.last_continuity_guard;
+            m.last_continuity_native_code = h.metrics.last_continuity_native_code;
+        }
         if h.metrics.last_stop.attempt != 0 {
             m.last_stop = h.metrics.last_stop;
         }
