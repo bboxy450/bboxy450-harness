@@ -74,6 +74,13 @@ def gate(base):
         run(["cargo", "clippy", "--offline", "--locked", "--jobs", "2", "-p", "bboxy450-harness", "--features", "acp-agent,test-fixtures", "--lib", "--test", "mcp_client", "--test", "acp_launch_context", "--test", "formal_models", "--target-dir", TARGET, "--", "-D", "warnings"], env=env)
         run(["cargo", "nextest", "run", "--offline", "--locked", "--jobs", "2", "-p", "bboxy450-harness", "--features", "acp-agent,test-fixtures", "--lib", "--target-dir", TARGET], env=env)
         integrations = {Path(p).stem for p in changed if p.startswith("tests/") and p.count("/") == 1 and p.endswith(".rs")}
+        if "dream_c1" in integrations:
+            # These native process fixtures require the explicitly prepared
+            # ordinary release worker, permit corpus and broken-control worker.
+            # Running their executable in an unprepared generic nextest lane is
+            # not a valid test environment; keep the existing canonical gate.
+            run(["make", "test-dream-c1-integration", f"TARGET_DIR={TARGET}"], env=env)
+            integrations.remove("dream_c1")
         if any(p.startswith(("src/mcp", "src/python_execute", "src/backend/acp_agent", "src/engine")) for p in changed):
             integrations.update(["mcp_client", "acp_launch_context"])
         if integrations:
