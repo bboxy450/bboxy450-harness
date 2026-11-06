@@ -345,6 +345,7 @@ impl Line {
             self.text(&digits[i..i + 1]);
         }
     }
+    #[inline(never)]
     fn send(&mut self) -> Result<(), Error> {
         // Only the managed private diagnostic pipe is changed; never mutate an
         // inherited operator terminal's file-description flags.
@@ -424,26 +425,67 @@ impl Entry {
     }
     fn format(&self, line: &mut Line) {
         line.text(b"dream-bootstrap entry");
-        for (key, value) in [
-            b" s=", b" g=", b" e=", b" m=", b" u=", b" k=", b" r=", b" p=",
-        ]
-        .iter()
-        .zip(&self.values)
-        {
-            line.text(*key);
-            line.number(*value);
-        }
+        line.text(b" s=");
+        line.number(self.values[0]);
+        line.text(b" g=");
+        line.number(self.values[1]);
+        line.text(b" e=");
+        line.number(self.values[2]);
+        line.text(b" m=");
+        line.number(self.values[3]);
+        line.text(b" u=");
+        line.number(self.values[4]);
+        line.text(b" k=");
+        line.number(self.values[5]);
+        line.text(b" r=");
+        line.number(self.values[6]);
+        line.text(b" p=");
+        line.number(self.values[7]);
         line.text(b" ok=");
         line.number(self.ok as u64);
     }
 }
 // No owned Line return/copy: one caller-owned buffer reused for both records.
+#[cfg(feature = "test-fixtures")]
 #[inline(never)]
 fn entry_line(e: u64, line: &mut Line) -> Result<(), Error> {
     let mut entry = Entry::default();
     entry.sample(e)?;
     entry.format(line);
     line.send()
+}
+// Separate bounded record storage from permit/decode storage; the single
+// observation at read_permit entry includes these calls and their entire CPU.
+#[inline(never)]
+fn waiting_record(
+    entry_ns: u64,
+    admissions: u8,
+    #[cfg(feature = "test-fixtures")] fixture: Option<&[u8]>,
+) -> Result<(), Error> {
+    let mut wait = Line::new(b"");
+    let mut entry = Entry::default();
+    #[cfg(feature = "test-fixtures")]
+    let late_entry = fixture == Some(b"entry_after_permit".as_slice());
+    #[cfg(not(feature = "test-fixtures"))]
+    let late_entry = false;
+    if !late_entry {
+        entry.sample(entry_ns)?;
+        entry.format(&mut wait);
+        wait.send()?;
+    }
+    #[cfg(feature = "test-fixtures")]
+    if fixture == Some(b"entry_duplicate".as_slice()) {
+        wait.len = 0;
+        entry.sample(entry_ns)?;
+        entry.format(&mut wait);
+        wait.send()?;
+    }
+    wait.len = 0;
+    wait.text(b"dream-bootstrap state=waiting profile=dream-bootstrap/1 argv_admissions=");
+    wait.number(admissions as u64);
+    wait.text(b" channel_admissions=0 owner_admissions=0");
+    wait.send()?;
+    Ok(())
 }
 /// One owned read descriptor and finite lease. No shared pool/lock or copied path.
 pub struct Gate {
@@ -463,43 +505,41 @@ const _: () = assert!(
         + std::mem::size_of::<Permit>()
         <= 1024
 );
-// Source storage phases, including a conservative Gate return slot throughout.
-// Entry sampling: Gate192 + Token52 + Identity24 + fd4 + Usage32 + deadline8
-// + Entry72 + Line264 + V4 scratch296 + timespec16 + scalar/argument scratch64
-// =1024 on aarch64 Darwin. V4's non-inlined sample returns BEFORE formatting/
-// fstat and BEFORE the128-byte permit buffer or decoded Permit exist. Formatting
-// reuses that same Line by reference (no by-value send copy); number scratch20
-// and fstat144 are smaller than the retired V4 scratch. Permit/retire phase is
-// the old892-byte aggregate +20 decimal +16 clock +64 scalar scratch =992.
-// This is owned layout, not a claim about OS/libSystem or compiler spill frames;
-// exact ordinary Mach-O prologues are separately retained with the build receipt.
+// Source-owned phase overlap. Parameter/scratch tuple: Gate::wait's purpose,
+// borrowed basename, entry/prelude clocks; waiting_record's entry/admissions;
+// sample's self/entry/status/raw reference. The formatting keys are unrolled,
+// so there is no hidden key array or zip iterator. Record sample/format/send
+// frames return before any permit/decode/Gate value exists. Exact compiler
+// cumulative active frames, including saved registers, are an artifact check.
 #[cfg(target_os = "macos")]
 const _: () = {
+    type Metadata = (
+        Purpose,
+        &'static [u8],
+        u64,
+        u64,
+        u64,
+        u8,
+        *mut Entry,
+        u64,
+        libc::c_int,
+        *const libc::rusage_info_v4,
+    );
+    const BASE: usize = std::mem::size_of::<Token>()
+        + std::mem::size_of::<Identity>()
+        + std::mem::size_of::<OwnedFd>()
+        + std::mem::size_of::<Usage>()
+        + 8
+        + std::mem::size_of::<Entry>()
+        + std::mem::size_of::<Line>()
+        + std::mem::size_of::<Metadata>();
     assert!(std::mem::size_of::<libc::rusage_info_v4>() == 296);
     assert!(
-        std::mem::size_of::<Gate>()
-            + std::mem::size_of::<Token>()
-            + std::mem::size_of::<Identity>()
-            + std::mem::size_of::<OwnedFd>()
-            + std::mem::size_of::<Usage>()
-            + 8
-            + std::mem::size_of::<Entry>()
-            + std::mem::size_of::<Line>()
-            + std::mem::size_of::<libc::rusage_info_v4>()
-            + std::mem::size_of::<libc::timespec>()
-            + 64
+        BASE + std::mem::size_of::<libc::rusage_info_v4>() + std::mem::size_of::<libc::timespec>()
             <= 1024
     );
     assert!(
-        std::mem::size_of::<Gate>()
-            + LENGTH
-            + std::mem::size_of::<Token>()
-            + std::mem::size_of::<Line>()
-            + std::mem::size_of::<libc::stat>()
-            + std::mem::size_of::<Permit>()
-            + 20
-            + 16
-            + 64
+        BASE + 20 + std::mem::size_of::<libc::stat>() + std::mem::size_of::<libc::timespec>()
             <= 1024
     );
 };
@@ -525,7 +565,9 @@ impl Gate {
             return Err(Error::Pipe);
         }
         let deadline = entry_ns.checked_add(WINDOW_NS).ok_or(Error::Clock)?;
-        let mut usage = Usage::default();
+        let usage = Usage::default();
+        #[cfg(feature = "test-fixtures")]
+        let mut usage = usage;
         #[cfg(feature = "test-fixtures")]
         let fixture = unsafe { environment(b"BBOXY_DREAM_BOOTSTRAP_TEST_BYPASS")? };
         #[cfg(feature = "test-fixtures")]
@@ -538,24 +580,42 @@ impl Gate {
             std::hint::black_box(&v);
             usage.admissions[0] = 1;
         }
-        let mut wait = Line::new(b"");
+        waiting_record(
+            entry_ns,
+            usage.admissions[0],
+            #[cfg(feature = "test-fixtures")]
+            fixture,
+        )?;
+        Self::read_permit(
+            t,
+            purpose,
+            basename,
+            entry_ns,
+            prelude_at,
+            fd,
+            id,
+            deadline,
+            usage,
+            #[cfg(feature = "test-fixtures")]
+            fixture,
+        )
+    }
+    #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
+    fn read_permit(
+        t: Token,
+        purpose: Purpose,
+        basename: &[u8],
+        entry_ns: u64,
+        prelude_at: u64,
+        fd: OwnedFd,
+        id: Identity,
+        deadline: u64,
+        mut usage: Usage,
+        #[cfg(feature = "test-fixtures")] fixture: Option<&[u8]>,
+    ) -> Result<Self, Error> {
         #[cfg(feature = "test-fixtures")]
         let late_entry = fixture == Some(b"entry_after_permit".as_slice());
-        #[cfg(not(feature = "test-fixtures"))]
-        let late_entry = false;
-        if !late_entry {
-            entry_line(entry_ns, &mut wait)?;
-        }
-        #[cfg(feature = "test-fixtures")]
-        if fixture == Some(b"entry_duplicate".as_slice()) {
-            wait.len = 0;
-            entry_line(entry_ns, &mut wait)?;
-        }
-        wait.len = 0;
-        wait.text(b"dream-bootstrap state=waiting profile=dream-bootstrap/1 argv_admissions=");
-        wait.number(usage.admissions[0] as u64);
-        wait.text(b" channel_admissions=0 owner_admissions=0");
-        wait.send()?;
         #[cfg(feature = "test-fixtures")]
         let skip_observe = fixture == Some(b"entry_noobserve".as_slice());
         #[cfg(not(feature = "test-fixtures"))]
@@ -617,8 +677,9 @@ impl Gate {
                 return Err(Error::Revoked);
             }
             filled += n as usize;
+            #[cfg(feature = "test-fixtures")]
             if late_entry {
-                wait.len = 0;
+                let mut wait = Line::new(b"");
                 entry_line(entry_ns, &mut wait)?;
             }
             usage.observe(at)?;
