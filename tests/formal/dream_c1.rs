@@ -1288,3 +1288,77 @@ fn bootstrap_handoff_earliest_gate_effects_and_controls_are_causal() {
         }
     }
 }
+
+// One child owns phases exec(0), entry(1), entry_emitted(2), waiting_emitted(3),
+// permit_read(4), Hello(5), refusal(6). Counts0..2, owned allocation0..1,
+// actual/observed CPU0..2 (1 is the unchanged budget) start at zero. Sampling,
+// formatting/write, waiting, observation and permit read are separate atomic
+// actions. WF covers only local waiting/observation/refusal, never OS entry,
+// syscall completion, parent permit delivery, clocks or heap implementation.
+pub fn bootstrap_entry(control: u8) -> Model {
+    let name = match control {
+        1 => "DreamC1BootstrapEntryLate",
+        2 => "DreamC1BootstrapEntryAllocation",
+        3 => "DreamC1BootstrapEntryDuplicate",
+        4 => "DreamC1BootstrapEntryNoObserve",
+        _ => "DreamC1BootstrapEntry",
+    };
+    let mut m = base(name, control != 0, &[
+        ("phase", 6, 0), ("entries", 2, 0), ("waiting", 1, 0),
+        ("permitReads", 1, 0), ("formatterOwnedAlloc", 1, 0),
+        ("recordCpu", 2, 0), ("observedCpu", 2, 0), ("observed", 1, 0),
+        ("permitReadsAtEntry", 1, 0),
+    ]);
+    act(&mut m, "EarlyEntry", eq(0, 0), &[(0, Int(1))]);
+    for cpu in 1..=2 {
+        act(&mut m, &format!("EmitEntryCpu{cpu}"), eq(0, 1), &[
+            (0, Int(2)), (1, Int(1)), (5, Int(cpu)),
+            (4, Int(if control == 2 { 1 } else { 0 })), (8, Var(3)),
+        ]);
+    }
+    let waiting = m.actions.len();
+    act(&mut m, "EmitUnchangedWaiting", eq(0, 2), &[(0, Int(3)), (2, Int(1))]);
+    let observe = m.actions.len();
+    act(&mut m, "ObserveWholePrelude", all([eq(0, 3), eq(7, 0)]), &[
+        (6, if control == 4 { Int(0) } else { Var(5) }), (7, Int(1)),
+    ]);
+    let refuse = m.actions.len();
+    act(&mut m, "RefuseOverBudget", all([eq(0, 3), eq(7, 1), Int(1).lt(Var(6))]), &[(0, Int(6))]);
+    act(&mut m, "PermitRead", all([eq(0, 3), eq(7, 1), Var(6).le(Int(1))]), &[(0, Int(4)), (3, Int(1))]);
+    act(&mut m, "PaidHelloAbstracted", eq(0, 4), &[(0, Int(5))]);
+    if control == 1 {
+        act(&mut m, "WaitingWithoutEntry", eq(0, 1), &[
+            (0, Int(3)), (2, Int(1)), (5, Int(1)),
+        ]);
+        act(&mut m, "EmitEntryAfterPermitRead", all([eq(0, 4), eq(1, 0)]), &[
+            (1, Int(1)), (8, Var(3)),
+        ]);
+    }
+    if control == 3 {
+        act(&mut m, "EmitEntryTwice", eq(0, 2), &[(1, Int(2))]);
+    }
+    safe(&mut m, "AtMostOneEntry", Var(1).le(Int(1)));
+    safe(&mut m, "EntryBeforeWaitingBeforePermitRead", all([
+        eq(8, 0), eq(2, 0).or(eq(1, 1)), eq(3, 0).or(eq(2, 1)),
+    ]));
+    safe(&mut m, "EntryFormatterOwnsNoAllocation", eq(4, 0));
+    safe(&mut m, "FullRecordCpuInsidePrepermitUsage", eq(7, 0).or(Var(6).eq(Var(5))));
+    progress(&mut m, "EmittedEntryLocallyObserved", eq(0, 2), eq(7, 1).or(eq(0, 6)), vec![waiting, observe, refuse]);
+    m
+}
+#[test]
+fn bootstrap_entry_controls_reach_the_intended_violation() {
+    let good = bootstrap_entry(0).check(100_000).unwrap();
+    assert!(good.violations.is_empty(), "{:?}", good.violations);
+    assert!(good.states.iter().any(|s| s[0] == 5 && s[1] == 1 && s[6] == 1));
+    assert!(good.states.iter().any(|s| s[0] == 6 && s[5] == 2 && s[6] == 2));
+    for (mode, property) in [(1, "EntryBeforeWaitingBeforePermitRead"),
+        (2, "EntryFormatterOwnsNoAllocation"), (3, "AtMostOneEntry"),
+        (4, "FullRecordCpuInsidePrepermitUsage")] {
+        let bad = bootstrap_entry(mode).check(100_000).unwrap();
+        assert!(bad.violations.iter().any(|v| v.property == property), "control {mode}: {:?}", bad.violations);
+        if mode == 1 {
+            assert!(bad.states.iter().any(|s| s[0] == 4 && s[1] == 1 && s[3] == 1 && s[8] == 1), "late control must actually emit after a permit read");
+        }
+    }
+}

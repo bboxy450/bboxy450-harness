@@ -433,6 +433,53 @@ fn pipe_files() -> (std::fs::File, std::fs::File) {
         )
     }
 }
+fn entry_verdict(trace: &str, observed_ns: u64) -> Result<[u64; 8], &'static str> {
+    let mut lines = trace.split_inclusive('\n');
+    let line = lines.next().ok_or("missing entry")?;
+    if line.len() > 256 || !line.ends_with('\n') {
+        return Err("incomplete or oversized entry");
+    }
+    let mut fields = line.trim_end_matches('\n').split(' ');
+    if fields.next() != Some("dream-bootstrap") || fields.next() != Some("entry") {
+        return Err("entry must precede waiting and permit");
+    }
+    let mut values = [0; 8];
+    for (i, key) in ["s=", "g=", "e=", "m=", "u=", "k=", "r=", "p=", "ok="]
+        .iter()
+        .enumerate()
+    {
+        let text = fields
+            .next()
+            .and_then(|f| f.strip_prefix(key))
+            .ok_or("entry key order")?;
+        if text.is_empty()
+            || text.len() > 20
+            || (text.len() > 1 && text.starts_with('0'))
+            || !text.bytes().all(|b| b.is_ascii_digit())
+        {
+            return Err("entry numeric field");
+        }
+        let value = text.parse::<u64>().map_err(|_| "entry u64 overflow")?;
+        if i < 8 {
+            values[i] = value;
+        } else if value > 1 || (value == 0 && [0, 4, 5, 6, 7].iter().any(|i| values[*i] != 0)) {
+            return Err("entry rusage status");
+        }
+    }
+    if fields.next().is_some() || values[2] > values[3] || values[3] > observed_ns {
+        return Err("entry fields or monotonic clock chain");
+    }
+    if !lines
+        .next()
+        .is_some_and(|l| l.starts_with("dream-bootstrap state=waiting ") && l.ends_with('\n'))
+        || lines.next().is_some()
+    {
+        return Err("exactly one entry then waiting required");
+    }
+    // e may precede the parent's spawn return. No unsigned subtraction or raw
+    // s/g/u/k/r/p conversion/classification is meaningful here.
+    Ok(values)
+}
 struct HeldWorker {
     child: Option<Child>,
     lease: Option<std::fs::File>,
@@ -443,6 +490,8 @@ struct HeldWorker {
     native_cpu: Option<u64>,
     native_wall: Duration,
     marker: String,
+    entry_trace: String,
+    entry_observed_ns: u64,
     expected_schema: w::Hex,
     prepared: Option<Command>,
     frozen_binding: [u8; 32],
@@ -451,7 +500,7 @@ struct HeldWorker {
 impl HeldWorker {
     fn spawn(path: &Path, nonce: &w::Ulid, context: Option<&w::Context>, probe: bool) -> Self {
         let (runner, worker_hash) = approved_runner();
-        Self::spawn_on(path, nonce, context, probe, runner, worker_hash, false)
+        Self::spawn_on(path, nonce, context, probe, runner, worker_hash, "")
     }
     #[allow(clippy::too_many_arguments)]
     fn spawn_on(
@@ -461,7 +510,7 @@ impl HeldWorker {
         probe: bool,
         runner: &Path,
         worker_hash: &w::Hex,
-        bypass: bool,
+        bypass: &str,
     ) -> Self {
         use std::os::unix::process::CommandExt;
         let job_deadline = Instant::now() + Duration::from_secs(30);
@@ -505,8 +554,8 @@ impl HeldWorker {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        if bypass {
-            command.env("BBOXY_DREAM_BOOTSTRAP_TEST_BYPASS", "1");
+        if !bypass.is_empty() {
+            command.env("BBOXY_DREAM_BOOTSTRAP_TEST_BYPASS", bypass);
         }
         unsafe {
             command.pre_exec(move || {
@@ -561,6 +610,8 @@ impl HeldWorker {
             },
             native_wall,
             marker: String::new(),
+            entry_trace: String::new(),
+            entry_observed_ns: 0,
             expected_schema,
             prepared: Some(command),
             frozen_binding: raw_binding,
@@ -577,7 +628,7 @@ impl HeldWorker {
                 .unwrap()
                 .as_raw_fd()
         );
-        if bypass {
+        if !bypass.is_empty() {
             eprintln!(
                 "bootstrap-fd-debug pid={} gate_read_fd={inherited_read_number} gate_write_fd={} stderr_read_fd={}",
                 result.child.as_ref().unwrap().id(),
@@ -600,7 +651,7 @@ impl HeldWorker {
             .checked_add(boot::WINDOW_NS)
             .unwrap();
         result.permit.deadline_ns = result.readiness_ns;
-        if !bypass {
+        if bypass.is_empty() {
             result.marker = result.read_waiting();
         }
         result
@@ -614,7 +665,7 @@ impl HeldWorker {
             .as_ref()
             .unwrap()
             .as_raw_fd();
-        let mut bytes = [0u8; 256];
+        let mut bytes = [0u8; 512];
         let mut n = 0;
         while n < bytes.len() {
             let left = self
@@ -641,13 +692,16 @@ impl HeldWorker {
                 unsafe { libc::read(stderr, bytes[n..].as_mut_ptr().cast(), bytes.len() - n) };
             assert!(count > 0, "bootstrap refused before wait marker");
             n += count as usize;
-            if bytes[..n].ends_with(b"\n") {
+            if bytes[..n].iter().filter(|b| **b == b'\n').count() >= 2 {
                 break;
             }
         }
-        String::from_utf8(bytes[..n].to_vec()).unwrap()
+        self.entry_observed_ns = boot::monotonic_ns().unwrap();
+        self.entry_trace = String::from_utf8(bytes[..n].to_vec()).unwrap();
+        self.entry_trace.lines().last().unwrap_or("").to_owned() + "\n"
     }
     fn waiting_verdict(&self) -> Result<(), &'static str> {
+        entry_verdict(&self.entry_trace, self.entry_observed_ns)?;
         if self.marker.trim()
             == "dream-bootstrap state=waiting profile=dream-bootstrap/1 argv_admissions=0 channel_admissions=0 owner_admissions=0"
         {
@@ -2473,7 +2527,7 @@ fn bootstrap_earliest_gate_bypass_control_rejects_actual_prepermit_allocation() 
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join(ulid::Ulid::new().to_string());
     let nonce = w::Ulid(ulid::Ulid::new().to_string());
-    let mut held = HeldWorker::spawn_on(&path, &nonce, None, true, &binary, &digest, true);
+    let mut held = HeldWorker::spawn_on(&path, &nonce, None, true, &binary, &digest, "1");
     // This is a deliberately invalid artifact, never a positive readiness
     // candidate. Revoke immediately, then retain/reap its actual effect. A cold
     // loader may not reach entry within250ms; that never grants extra readiness.
@@ -2506,4 +2560,256 @@ fn bootstrap_earliest_gate_bypass_control_rejects_actual_prepermit_allocation() 
     eprintln!(
         "bootstrap-earliest-causal-control actual_reaped_pid={pid} rejected_prepermit_allocation=true"
     );
+}
+
+// This private test-process calls the real Gate, never a term worker readiness
+// probe. The existing Make fixture-name filter executes its causal mutants too.
+#[test]
+fn bootstrap_earliest_gate_bypass_control_entry_process() {
+    use std::io::Read;
+    if let Ok(config) = std::env::var("DREAM_ENTRY_PRIVATE_CHILD") {
+        let mut parts = config.split(':');
+        let fd: i32 = parts.next().unwrap().parse().unwrap();
+        let burn: u64 = parts.next().unwrap().parse().unwrap();
+        let e = boot::monotonic_ns().unwrap();
+        let prelude = boot::prelude_clock().unwrap();
+        // Deliberately broken prelude CPU, in this test executable only. A full
+        // observe must refuse; skipping it causally admits the same real work.
+        while boot::prelude_clock().unwrap().checked_sub(prelude).unwrap() < burn {
+            std::hint::spin_loop();
+        }
+        let t = boot::Token {
+            fd,
+            birth: [0; 16],
+            binding: [0; 32],
+        };
+        let result = unsafe {
+            boot::Gate::wait(
+                t,
+                boot::Purpose::InspectC1,
+                b"00000000000000000000000000",
+                e,
+                prelude,
+            )
+        };
+        match result {
+            Ok(gate) => println!(
+                "entry-result admitted cpu={} prepermit={} max={} reads={}",
+                gate.usage.cpu_ns,
+                gate.usage.prepermit_cpu_ns,
+                gate.usage.max_cpu_ns,
+                gate.usage.reads
+            ),
+            Err(error) => println!("entry-result refused {error:?}"),
+        }
+        return;
+    }
+    let mut cases = vec![
+        ("ordinary", "", 0u64),
+        ("eof", "", 0),
+        ("pipe", "", 0),
+        ("overbudget", "", 2_000_000),
+    ];
+    if cfg!(feature = "test-fixtures") {
+        cases.extend([
+            ("late", "entry_after_permit", 0),
+            ("duplicate", "entry_duplicate", 0),
+            ("noobserve", "entry_noobserve", 2_000_000),
+        ]);
+    }
+    let binary = std::env::current_exe().unwrap();
+    eprintln!(
+        "entry-private-process profile=dream-bootstrap/1 test_executable=true artifact={} sha256={} features_test_fixtures={} source_bootstrap_sha256={} source_test_sha256={}",
+        binary.display(),
+        w::hash(std::fs::read(&binary).unwrap()).0,
+        cfg!(feature = "test-fixtures"),
+        w::hash(include_bytes!("../src/dream/bootstrap.rs")).0,
+        w::hash(include_bytes!("dream_c1.rs")).0,
+    );
+    for (case, fixture, burn) in cases {
+        use std::os::unix::process::CommandExt;
+        let (read, write) = pipe_files();
+        let fd = read.as_raw_fd();
+        let mut command = Command::new(&binary);
+        command
+            .args([
+                "--exact",
+                "bootstrap_earliest_gate_bypass_control_entry_process",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env_clear()
+            .env("DREAM_ENTRY_PRIVATE_CHILD", format!("{fd}:{burn}"))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if case == "pipe" {
+            command.stderr(Stdio::null());
+        }
+        if !fixture.is_empty() {
+            command.env("BBOXY_DREAM_BOOTSTRAP_TEST_BYPASS", fixture);
+        }
+        unsafe {
+            command.pre_exec(move || {
+                if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
+                    Err(std::io::Error::last_os_error())
+                } else {
+                    Ok(())
+                }
+            });
+        }
+        struct OwnedEntryChild(Child);
+        impl Drop for OwnedEntryChild {
+            fn drop(&mut self) {
+                settle_owned(&mut self.0);
+            }
+        }
+        let mut owned = OwnedEntryChild(command.spawn().unwrap());
+        drop(read);
+        if case == "pipe" {
+            settle_owned(&mut owned.0);
+            assert!(owned.0.wait().unwrap().success());
+            let mut output = String::new();
+            owned
+                .0
+                .stdout
+                .take()
+                .unwrap()
+                .read_to_string(&mut output)
+                .unwrap();
+            assert!(output.contains("entry-result refused Pipe"), "{output}");
+            eprintln!(
+                "entry-private-process case=pipe actual_reap_pid={} result={output:?}",
+                owned.0.id()
+            );
+            drop(write);
+            continue;
+        }
+        let stderr = owned.0.stderr.as_ref().unwrap().as_raw_fd();
+        let until = Instant::now() + Duration::from_secs(2);
+        let mut trace = Vec::new();
+        while !trace
+            .windows(b"owner_admissions=0\n".len())
+            .any(|w| w == b"owner_admissions=0\n")
+        {
+            assert!(
+                Instant::now() < until,
+                "{case}: missing actual waiting {trace:?}"
+            );
+            let mut poll = libc::pollfd {
+                fd: stderr,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            if unsafe { libc::poll(&mut poll, 1, 10) } > 0 {
+                let mut bytes = [0u8; 512];
+                let n = unsafe { libc::read(stderr, bytes.as_mut_ptr().cast(), bytes.len()) };
+                assert!(n > 0, "{case}: entry/waiting pipe closed {trace:?}");
+                trace.extend_from_slice(&bytes[..n as usize]);
+                assert!(trace.len() <= 1024);
+            }
+        }
+        let observed = boot::monotonic_ns().unwrap();
+        let before_permit = String::from_utf8(trace.clone()).unwrap();
+        if case == "late" || case == "duplicate" {
+            assert!(
+                entry_verdict(&before_permit, observed).is_err(),
+                "causal entry mutant accepted before permit"
+            );
+        } else {
+            let values = entry_verdict(&before_permit, observed).unwrap();
+            assert!(values[2] <= values[3] && values[3] <= observed);
+        }
+        if case != "eof" && case != "overbudget" {
+            let permit = boot::Permit {
+                purpose: boot::Purpose::InspectC1,
+                probe: true,
+                birth: [0; 16],
+                run_id: [0; 16],
+                nonce: [0; 16],
+                binding: [0; 32],
+                incarnation: 1,
+                sequence: 1,
+                deadline_ns: boot::monotonic_ns().unwrap() + boot::WINDOW_NS,
+            };
+            let bytes = boot::encode(&permit);
+            assert_eq!(
+                unsafe { libc::write(write.as_raw_fd(), bytes.as_ptr().cast(), bytes.len()) },
+                128
+            );
+            // Retain the real lease until the Gate has returned; no EOF-induced
+            // refusal can masquerade as the noobserve control's admission.
+            while owned.0.try_wait().unwrap().is_none() && Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+        drop(write);
+        settle_owned(&mut owned.0);
+        assert!(owned.0.wait().unwrap().success());
+        owned
+            .0
+            .stderr
+            .take()
+            .unwrap()
+            .read_to_end(&mut trace)
+            .unwrap();
+        let trace = String::from_utf8(trace).unwrap();
+        let mut output = String::new();
+        owned
+            .0
+            .stdout
+            .take()
+            .unwrap()
+            .read_to_string(&mut output)
+            .unwrap();
+        if case == "eof" {
+            assert!(output.contains("entry-result refused Revoked"), "{output}");
+        } else if case == "overbudget" {
+            assert!(output.contains("entry-result refused Limit"), "{output}");
+        } else {
+            assert!(
+                output.contains("entry-result admitted"),
+                "{case}: {output} {trace}"
+            );
+            if case == "ordinary" {
+                let receipt = output
+                    .lines()
+                    .find(|l| l.contains("entry-result admitted"))
+                    .unwrap();
+                assert!(metric(receipt, "prepermit") > 0);
+                assert!(metric(receipt, "max") <= 1_000_000);
+                assert!(metric(receipt, "cpu") >= metric(receipt, "prepermit"));
+            }
+        }
+        if case == "late" {
+            let waiting_at = trace.find("state=waiting").unwrap();
+            let entry_at = trace.find("dream-bootstrap entry ").unwrap();
+            assert!(
+                entry_at > waiting_at,
+                "late control must really emit after the read"
+            );
+            assert!(entry_verdict(&trace, boot::monotonic_ns().unwrap()).is_err());
+        }
+        if case == "duplicate" {
+            assert_eq!(trace.matches("dream-bootstrap entry ").count(), 2);
+        }
+        if case == "noobserve" {
+            // Same >1ms actual prelude refused above is incorrectly admitted by
+            // this mutant. This assertion records its intended rejection.
+            let receipt = output
+                .lines()
+                .find(|l| l.contains("entry-result admitted"))
+                .unwrap();
+            assert!(burn > 1_000_000 && metric(receipt, "max") <= 1_000_000);
+            assert!(
+                metric(receipt, "prepermit") < burn,
+                "mutant must actually omit the burnt CPU"
+            );
+        }
+        eprintln!(
+            "entry-private-process case={case} actual_reap_pid={} before_permit_bytes={} trace={trace:?} result={output:?}",
+            owned.0.id(),
+            before_permit.len()
+        );
+    }
 }

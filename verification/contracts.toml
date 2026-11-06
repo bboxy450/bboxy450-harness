@@ -857,3 +857,15 @@ assumptions = "Two executions, two shared work slots, one slot per execution and
 property = "IndependentRunRemainsResponsive; ControlRemainsResponsive. The old shared-connection-budget control must fail liveness when one execution fills it with stalled MCP work. No exactly-once or external rollback guarantee is implied."
 checks = ["make test-formal", "make test"]
 additional_checks = ["make test-python-execute"]
+
+[[contract]]
+name = "HarnessDreamC1BootstrapEntry"
+title = "One ordinary bounded entry precedes waiting and permit read inside control usage"
+models = ["HarnessDreamC1BootstrapEntry", "BrokenHarnessDreamC1BootstrapEntryLate", "BrokenHarnessDreamC1BootstrapEntryAllocation", "BrokenHarnessDreamC1BootstrapEntryDuplicate", "BrokenHarnessDreamC1BootstrapEntryNoObserve"]
+controls = [{name="BrokenHarnessDreamC1BootstrapEntryLate", expected="safety"}, {name="BrokenHarnessDreamC1BootstrapEntryAllocation", expected="safety"}, {name="BrokenHarnessDreamC1BootstrapEntryDuplicate", expected="safety"}, {name="BrokenHarnessDreamC1BootstrapEntryNoObserve", expected="safety"}]
+sources = ["src/dream/bootstrap.rs", "tests/formal/dream_c1.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/dream_c1.rs"]
+assumptions = "One child owns finite phases exec0/entry1/entry_emitted2/waiting_emitted3/permit_read4/Hello5/refused6. Entry count0..2, owned formatter allocation0..1, actual and observed record CPU0..2 (budget1), observation/order flags0..1, initially zero. Atomic early entry, record emission, waiting, full-prelude observation, permit read and abstract paid Hello. Weak fairness only of local waiting/observation/refusal actions, no scheduling/syscall/heap/clock/permit delivery fairness. Hello abstracts the unchanged debt/lease handoff covered by HarnessDreamC1BootstrapHandoff. Exact211-byte maximum, syscall sampling order, raw UNVERIFIED auxiliary counters, nonallocating formatter, finite clocks, one write, existing pipe validation and <=1KiB phase-overlap layout remain source/unit/process/artifact witnesses; no OS latency or Rust refinement theorem."
+property = "At most one entry; entry before waiting before any permit read; formatter owned allocation zero; complete record CPU inside unchanged prepermit usage. Raw counters supply no cost or phase authority."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-dream-c1"]

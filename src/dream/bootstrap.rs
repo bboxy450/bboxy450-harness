@@ -252,7 +252,10 @@ pub struct Usage {
 }
 impl Usage {
     fn observe(&mut self, at: u64) -> Result<(), Error> {
-        let used = cpu()?.checked_sub(at).ok_or(Error::Clock)?;
+        self.observe_end(at, cpu()?)
+    }
+    fn observe_end(&mut self, at: u64, end: u64) -> Result<(), Error> {
+        let used = end.checked_sub(at).ok_or(Error::Clock)?;
         self.cpu_ns = self.cpu_ns.checked_add(used).ok_or(Error::Clock)?;
         self.max_cpu_ns = self.max_cpu_ns.max(used);
         if used > CONTROL_NS {
@@ -342,7 +345,7 @@ impl Line {
             self.text(&digits[i..i + 1]);
         }
     }
-    fn send(mut self) -> Result<(), Error> {
+    fn send(&mut self) -> Result<(), Error> {
         // Only the managed private diagnostic pipe is changed; never mutate an
         // inherited operator terminal's file-description flags.
         let mut st = std::mem::MaybeUninit::<libc::stat>::uninit();
@@ -366,6 +369,82 @@ impl Line {
         }
     }
 }
+/// Ordinary entry evidence. Only e/m are CLOCK_MONOTONIC nanoseconds. All other
+/// counters are verbatim UNVERIFIED auxiliary data, never admission authority.
+#[derive(Default)]
+struct Entry {
+    values: [u64; 8], // s g e m u k r p
+    ok: bool,
+}
+impl Entry {
+    // Keep the 296-byte V4 scratch out of the formatter/write and permit frames.
+    #[inline(never)]
+    fn sample(&mut self, e: u64) -> Result<(), Error> {
+        self.values[2] = e;
+        self.values[3] = monotonic_ns()?;
+        if self.values[3] < e {
+            return Err(Error::Clock);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let mut raw = std::mem::MaybeUninit::<libc::rusage_info_v4>::uninit();
+            let status = unsafe {
+                libc::proc_pid_rusage(
+                    libc::getpid(),
+                    libc::RUSAGE_INFO_V4,
+                    raw.as_mut_ptr().cast(),
+                )
+            };
+            if status == 0 {
+                let raw = unsafe { raw.assume_init_ref() };
+                self.values[0] = raw.ri_proc_start_abstime;
+                self.values[4] = raw.ri_user_time;
+                self.values[5] = raw.ri_system_time;
+                self.values[6] = raw.ri_runnable_time;
+                self.values[7] = raw.ri_pageins;
+            }
+            self.rusage_status(status);
+            #[allow(deprecated)]
+            // Exact SDK primitive required by bootstrap ICD; no new dependency.
+            {
+                self.values[1] = unsafe { libc::mach_absolute_time() };
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        self.rusage_status(-1);
+        Ok(())
+    }
+    fn rusage_status(&mut self, status: i32) {
+        self.ok = status == 0;
+        if !self.ok {
+            for i in [0, 4, 5, 6, 7] {
+                self.values[i] = 0;
+            }
+        }
+    }
+    fn format(&self, line: &mut Line) {
+        line.text(b"dream-bootstrap entry");
+        for (key, value) in [
+            b" s=", b" g=", b" e=", b" m=", b" u=", b" k=", b" r=", b" p=",
+        ]
+        .iter()
+        .zip(&self.values)
+        {
+            line.text(*key);
+            line.number(*value);
+        }
+        line.text(b" ok=");
+        line.number(self.ok as u64);
+    }
+}
+// No owned Line return/copy: one caller-owned buffer reused for both records.
+#[inline(never)]
+fn entry_line(e: u64, line: &mut Line) -> Result<(), Error> {
+    let mut entry = Entry::default();
+    entry.sample(e)?;
+    entry.format(line);
+    line.send()
+}
 /// One owned read descriptor and finite lease. No shared pool/lock or copied path.
 pub struct Gate {
     fd: Option<OwnedFd>,
@@ -384,6 +463,46 @@ const _: () = assert!(
         + std::mem::size_of::<Permit>()
         <= 1024
 );
+// Source storage phases, including a conservative Gate return slot throughout.
+// Entry sampling: Gate192 + Token52 + Identity24 + fd4 + Usage32 + deadline8
+// + Entry72 + Line264 + V4 scratch296 + timespec16 + scalar/argument scratch64
+// =1024 on aarch64 Darwin. V4's non-inlined sample returns BEFORE formatting/
+// fstat and BEFORE the128-byte permit buffer or decoded Permit exist. Formatting
+// reuses that same Line by reference (no by-value send copy); number scratch20
+// and fstat144 are smaller than the retired V4 scratch. Permit/retire phase is
+// the old892-byte aggregate +20 decimal +16 clock +64 scalar scratch =992.
+// This is owned layout, not a claim about OS/libSystem or compiler spill frames;
+// exact ordinary Mach-O prologues are separately retained with the build receipt.
+#[cfg(target_os = "macos")]
+const _: () = {
+    assert!(std::mem::size_of::<libc::rusage_info_v4>() == 296);
+    assert!(
+        std::mem::size_of::<Gate>()
+            + std::mem::size_of::<Token>()
+            + std::mem::size_of::<Identity>()
+            + std::mem::size_of::<OwnedFd>()
+            + std::mem::size_of::<Usage>()
+            + 8
+            + std::mem::size_of::<Entry>()
+            + std::mem::size_of::<Line>()
+            + std::mem::size_of::<libc::rusage_info_v4>()
+            + std::mem::size_of::<libc::timespec>()
+            + 64
+            <= 1024
+    );
+    assert!(
+        std::mem::size_of::<Gate>()
+            + LENGTH
+            + std::mem::size_of::<Token>()
+            + std::mem::size_of::<Line>()
+            + std::mem::size_of::<libc::stat>()
+            + std::mem::size_of::<Permit>()
+            + 20
+            + 16
+            + 64
+            <= 1024
+    );
+};
 impl Gate {
     /// Called with borrowed, bounded argv basename before any Vec/PathBuf/Arc.
     /// # Safety
@@ -408,6 +527,8 @@ impl Gate {
         let deadline = entry_ns.checked_add(WINDOW_NS).ok_or(Error::Clock)?;
         let mut usage = Usage::default();
         #[cfg(feature = "test-fixtures")]
+        let fixture = unsafe { environment(b"BBOXY_DREAM_BOOTSTRAP_TEST_BYPASS")? };
+        #[cfg(feature = "test-fixtures")]
         if unsafe { environment(b"BBOXY_DREAM_BOOTSTRAP_TEST_BYPASS")? } == Some(b"1".as_slice()) {
             // Causal fixture: actual controlled allocation before permit. The
             // same source-bound marker checker MUST reject this artifact.
@@ -417,12 +538,31 @@ impl Gate {
             std::hint::black_box(&v);
             usage.admissions[0] = 1;
         }
-        let mut wait =
-            Line::new(b"dream-bootstrap state=waiting profile=dream-bootstrap/1 argv_admissions=");
+        let mut wait = Line::new(b"");
+        #[cfg(feature = "test-fixtures")]
+        let late_entry = fixture == Some(b"entry_after_permit".as_slice());
+        #[cfg(not(feature = "test-fixtures"))]
+        let late_entry = false;
+        if !late_entry {
+            entry_line(entry_ns, &mut wait)?;
+        }
+        #[cfg(feature = "test-fixtures")]
+        if fixture == Some(b"entry_duplicate".as_slice()) {
+            wait.len = 0;
+            entry_line(entry_ns, &mut wait)?;
+        }
+        wait.len = 0;
+        wait.text(b"dream-bootstrap state=waiting profile=dream-bootstrap/1 argv_admissions=");
         wait.number(usage.admissions[0] as u64);
         wait.text(b" channel_admissions=0 owner_admissions=0");
         wait.send()?;
-        usage.observe(prelude_at)?;
+        #[cfg(feature = "test-fixtures")]
+        let skip_observe = fixture == Some(b"entry_noobserve".as_slice());
+        #[cfg(not(feature = "test-fixtures"))]
+        let skip_observe = false;
+        if !skip_observe {
+            usage.observe(prelude_at)?;
+        }
         usage.prepermit_cpu_ns = usage.cpu_ns;
         let mut bytes = [0; LENGTH];
         let mut filled = 0;
@@ -477,6 +617,10 @@ impl Gate {
                 return Err(Error::Revoked);
             }
             filled += n as usize;
+            if late_entry {
+                wait.len = 0;
+                entry_line(entry_ns, &mut wait)?;
+            }
             usage.observe(at)?;
             usage.prepermit_cpu_ns = usage.cpu_ns;
         }
@@ -681,6 +825,82 @@ pub fn arguments() -> Option<(usize, *const *const libc::c_char)> {
 mod tests {
     use super::*;
     use crate::dream::c1_wire as w;
+    struct CountAllocator;
+    thread_local! {
+        static COUNT: Cell<Option<usize>> = const { Cell::new(None) };
+    }
+    unsafe impl std::alloc::GlobalAlloc for CountAllocator {
+        unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+            COUNT.with(|c| c.set(c.get().map(|n| n + 1)));
+            unsafe { std::alloc::System.alloc(layout) }
+        }
+        unsafe fn dealloc(&self, p: *mut u8, layout: std::alloc::Layout) {
+            unsafe { std::alloc::System.dealloc(p, layout) }
+        }
+        unsafe fn realloc(&self, p: *mut u8, layout: std::alloc::Layout, n: usize) -> *mut u8 {
+            COUNT.with(|c| c.set(c.get().map(|n| n + 1)));
+            unsafe { std::alloc::System.realloc(p, layout, n) }
+        }
+    }
+    #[global_allocator]
+    static ALLOCATOR: CountAllocator = CountAllocator;
+    #[test]
+    fn entry_exact_maximum_bytes_failure_fields_and_actual_formatter_allocations() {
+        let mut entry = Entry {
+            values: [u64::MAX; 8],
+            ok: true,
+        };
+        let mut line = Line::new(b"");
+        COUNT.with(|c| c.set(Some(0)));
+        entry.format(&mut line);
+        line.text(b"\n");
+        let allocations = COUNT.with(|c| c.replace(None).unwrap());
+        assert_eq!(allocations, 0);
+        assert_eq!(line.len, 211);
+        assert_eq!(&line.bytes[..line.len], b"dream-bootstrap entry s=18446744073709551615 g=18446744073709551615 e=18446744073709551615 m=18446744073709551615 u=18446744073709551615 k=18446744073709551615 r=18446744073709551615 p=18446744073709551615 ok=1\n");
+        for status in [-1, 1, i32::MIN] {
+            entry.values = [u64::MAX; 8];
+            entry.rusage_status(status);
+            line.len = 0;
+            entry.format(&mut line);
+            line.text(b"\n");
+            assert_eq!(&line.bytes[..line.len], b"dream-bootstrap entry s=0 g=18446744073709551615 e=18446744073709551615 m=18446744073709551615 u=0 k=0 r=0 p=0 ok=0\n");
+        }
+        entry.values = [0; 8];
+        entry.rusage_status(0);
+        assert!(entry.ok, "zero counters are still successful raw samples");
+        COUNT.with(|c| c.set(Some(0)));
+        let allocation_control = std::hint::black_box(Vec::<u8>::with_capacity(16));
+        let bad_count = COUNT.with(|c| c.replace(None).unwrap());
+        assert!(
+            bad_count > 0,
+            "allocator witness must detect actual allocation"
+        );
+        drop(allocation_control);
+    }
+    #[test]
+    fn entry_usage_keeps_finite_clock_budget_and_single_charge() {
+        let mut usage = Usage::default();
+        assert_eq!(usage.observe_end(100, 300), Ok(()));
+        assert_eq!(usage.cpu_ns, 200);
+        assert_eq!(usage.observe_end(300, 299), Err(Error::Clock));
+        assert_eq!(usage.cpu_ns, 200);
+        assert_eq!(usage.observe_end(0, CONTROL_NS + 1), Err(Error::Limit));
+        assert_eq!(usage.cpu_ns, CONTROL_NS + 201);
+        usage.cpu_ns = u64::MAX;
+        assert_eq!(usage.observe_end(0, 1), Err(Error::Clock));
+        eprintln!(
+            "entry-layout Gate={} Token={} Permit={} Line={} Usage={} Entry={} stat={} timespec={}",
+            std::mem::size_of::<Gate>(),
+            std::mem::size_of::<Token>(),
+            std::mem::size_of::<Permit>(),
+            std::mem::size_of::<Line>(),
+            std::mem::size_of::<Usage>(),
+            std::mem::size_of::<Entry>(),
+            std::mem::size_of::<libc::stat>(),
+            std::mem::size_of::<libc::timespec>()
+        );
+    }
     #[test]
     fn independent_canonical_bootstrap_corpus_and_binding_vectors() {
         let root = std::path::Path::new(concat!(

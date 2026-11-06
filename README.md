@@ -227,6 +227,19 @@ public wire numbers. Darwin is the implemented worker entry; GNU Linux recognize
 and refuses it before runtime through borrowed startup arguments. No additional
 platform execution guarantee is claimed; late async C1 entry refuses.
 
+Immediately before the unchanged waiting record, ordinary workers write one
+fixed entry line (maximum211 bytes including LF) from stack storage:
+`dream-bootstrap entry s=<u64> g=<u64> e=<u64> m=<u64> u=<u64> k=<u64> r=<u64> p=<u64> ok=<0|1>`.
+The existing early entry sample e and then m use CLOCK_MONOTONIC; next comes
+stack `proc_pid_rusage(getpid(), RUSAGE_INFO_V4)`, then g=`mach_absolute_time`,
+then one unbuffered write. Only e/m support clock-domain comparisons, with
+e<=m<=parent observation; e may precede parent spawn return. s/g/u/k/r/p remain
+verbatim UNVERIFIED auxiliary data: no units, subtraction, phase cause or cost
+authority is inferred. A failed rusage call sets only s/u/k/r/p to0 and ok=0;
+clock and pipe failures still refuse. Sampling, formatting, descriptor checks
+and both writes remain inside the existing single prepermit usage observation
+and unchanged1ms control limit. No new profile, public wire or admission exists.
+
 Bounded bootstrap diagnostic profile (duration units ns): `dream-bootstrap
 state=waiting profile=dream-bootstrap/1` has `argv_admissions=0`,
 `channel_admissions=0`, `owner_admissions=0` before the first controlled span.

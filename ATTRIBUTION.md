@@ -190,3 +190,8 @@ and the exact shared checker copies. These checks do not replace upstream terms.
   canonical binding/layout vectors, independent checker and causal process/formal
   witnesses are project-owned. Keep this origin and policy beside extracts:
   https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+
+- The ordinary fixed Dream bootstrap entry record, stack-only raw-counter
+  sampling/formatting, finite entry-order/usage models and causal private process
+  controls are project-owned. Preserve this origin and credit policy with extracts:
+  https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.

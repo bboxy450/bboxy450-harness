@@ -1326,3 +1326,32 @@ frontend = "project"
 name = "BrokenHarnessPythonControlCapacity"
 expected = "liveness"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamC1BootstrapEntry"
+expected = "pass"
+frontend = "project"
+
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapEntryLate"
+expected = "safety"
+frontend = "project"
+
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapEntryAllocation"
+expected = "safety"
+frontend = "project"
+
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapEntryDuplicate"
+expected = "safety"
+frontend = "project"
+
+
+[[model]]
+name = "BrokenHarnessDreamC1BootstrapEntryNoObserve"
+expected = "safety"
+frontend = "project"
