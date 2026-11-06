@@ -328,6 +328,13 @@ six-source baseline, authenticates the new source and preserves the mandatory
 library check. It substitutes no Homebrew binary libraries. Joined qualification
 still requires Root's frozen canonical private-candidate probe; normal Git mode
 remains `verification_unproven`.
+The verifier input selection is currently unset. The offline adapter checks a
+future Root-selected source, supplied immutable executable and preparation
+receipt, including compiler, SDK, headers and selected build closure. It never
+recompiles a probe or discovers a replacement. Historical probe results and the
+signed C preflight remain separate evidence. Large preparation/header receipts
+stay offline; missing selection or incomplete bindings refuse before a new build
+or component launch. Ingestion success grants no execution or runtime authority.
 The typed `provenance/pretest-basis.json` binds compiler, generated configuration,
 candidate Mach-O images, ordered static selections, the fixed command profile,
 public-only presigned fixture and conditional source review. Six descriptor
