@@ -6,28 +6,99 @@
 + * Credit reuse: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md */
 @@ -420,0 +424 @@
 +  return gpg_error (GPG_ERR_NOT_SUPPORTED); /* before any service connection */
---- a/g10/import.c
-+++ b/g10/import.c
-@@ -2526 +2526 @@
--      if (!from_sk && have_secret_key_with_kid (ctrl, keyid))
-+      if (0) /* Public-only: no secret material exists; omit secret-key advisory preference check. */
-@@ -2532 +2532 @@
--      if (!from_sk && have_secret_key_with_kid (ctrl, keyid))
-+      if (0) /* Public-only: no secret material exists; omit secret-key advisory preference check. */
 --- a/g10/parse-packet.c
 +++ b/g10/parse-packet.c
-@@ -1002,0 +1003,6 @@
-+  /* Public-only profile: reject secret packets before dispatch. */
+@@ -809,0 +810,10 @@
++
++  /* Adapted from GnuPG2.5.24 https://dev.gnupg.org/source/gnupg/browse/gnupg-2.5.24/g10/parse-packet.c; original GPL terms retained.
++ * Public-only profile; credit copied/adapted reuse accurately.
++ * https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md */
 +  if (pkttype == PKT_SECRET_KEY || pkttype == PKT_SECRET_SUBKEY)
 +    {
 +      log_error ("Dream: secret packet refused\n");
-+      return gpg_error (GPG_ERR_NOT_SUPPORTED);
++      rc = GPG_ERR_NOT_SUPPORTED;
++      goto leave; /* before packet skip/copy/filter and preserved error normalization */
 +    }
+--- a/g10/getkey.c
++++ b/g10/getkey.c
+@@ -4720,50 +4720,10 @@
+-  gpg_error_t err;
+-  KEYDB_HANDLE kdbhd;
+-  KEYDB_SEARCH_DESC desc;
+-  kbnode_t keyblock;
+-  kbnode_t node;
+-  int result = 0;
+-
+-  kdbhd = keydb_new (ctrl);
+-  if (!kdbhd)
+-    return 0;
+-  memset (&desc, 0, sizeof desc);
+-  desc.mode = KEYDB_SEARCH_MODE_LONG_KID;
+-  desc.u.kid[0] = keyid[0];
+-  desc.u.kid[1] = keyid[1];
+-  while (!result)
+-    {
+-      err = keydb_search (kdbhd, &desc, 1, NULL);
+-      if (err)
+-        break;
+-
+-      err = keydb_get_keyblock (kdbhd, &keyblock);
+-      if (err)
+-        {
+-          log_error (_("error reading keyblock: %s\n"), gpg_strerror (err));
+-          break;
+-        }
+-
+-      for (node = keyblock; node; node = node->next)
+-	{
+-          /* Bit 0 of the flags is set if the search found the key
+-             using that key or subkey.  Note: a search will only ever
+-             match a single key or subkey.  */
+-	  if ((node->flag & 1))
+-            {
+-              log_assert (node->pkt->pkttype == PKT_PUBLIC_KEY
+-                          || node->pkt->pkttype == PKT_PUBLIC_SUBKEY);
+-
+-              if (agent_probe_secret_key (NULL, node->pkt->pkt.public_key))
+-		result = 1; /* Secret key available.  */
+-	      else
+-		result = 0;
+-
+-	      break;
+-	    }
+-	}
+-      release_kbnode (keyblock);
+-    }
+-
+-  keydb_release (kdbhd);
+-  return result;
++/* Adapted from GnuPG2.5.24 https://dev.gnupg.org/source/gnupg/browse/gnupg-2.5.24/g10/getkey.c; original GPL terms retained.
++ * Public-only profile; credit copied/adapted reuse accurately.
++ * https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md */
++  /* The admitted owned home starts public-only; secret packets are refused
++   * before parsing/copying, and signing/decryption/enrollment are not admitted.
++   * Preserve upstream's real no-secret-key import/advisory behavior without
++   * consulting a service. This premise must be checked before runtime birth. */
++  (void)ctrl;
++  (void)keyid;
++  return 0;
 --- a/g10/gpg.c
 +++ b/g10/gpg.c
-@@ -4042,0 +4043,5 @@
+@@ -1092 +1092,4 @@
+-#define DEFAULT_AKL_LIST "local,wkd"
++/* Adapted from GnuPG2.5.24 https://dev.gnupg.org/source/gnupg/browse/gnupg-2.5.24/g10/gpg.c; original GPL terms retained.
++ * Public-only profile; credit copied/adapted reuse accurately.
++ * https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md */
++#define DEFAULT_AKL_LIST "clear" /* no implicit network lookup in this profile */
+@@ -2533 +2536 @@
+-    opt.autostart = 1;
++    opt.autostart = 0; /* public-only profile never starts services */
+@@ -4042,0 +4046,8 @@
 +/* Adapted from GnuPG (https://dev.gnupg.org/source/gnupg/browse/gnupg-2.5.24/g10/gpg.c); original GPL/LGPL terms retained.
 + * Public-only Dream profile guard by bboxy450-harness.
 + * Credit reuse: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md */
-+    if ((cmd != aShowKeys && cmd != aImport && cmd != aVerify) || opt.use_keyboxd)
++    if ((cmd != aShowKeys && cmd != aImport && cmd != aVerify)
++        || opt.use_keyboxd || opt.autostart || !opt.batch || opt.with_secret
++        || opt.flags.auto_key_import || opt.auto_key_locate
++        || (opt.keyserver_options.options & KEYSERVER_AUTO_KEY_RETRIEVE))
 +      log_fatal ("Dream: unsupported command/configuration before service work\n");

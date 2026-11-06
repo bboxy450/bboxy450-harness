@@ -20,6 +20,7 @@ from pathlib import Path
 import platform
 import posixpath
 import secrets
+import signal
 import stat
 import subprocess
 import sys
@@ -56,6 +57,7 @@ PINS = [
     ("libgcrypt", "1.12.4", "https://gnupg.org/ftp/gcrypt/libgcrypt/libgcrypt-1.12.4.tar.bz2", "d77f68f48879510e79a2f65977ccc68981781ea0923e5bdffac2a193ea3d660e", "8be53f19f43ffa0297aceb520be717de539d1bdad45b5538a57fd95610b1e2db"),
     ("libassuan", "3.0.2", "https://gnupg.org/ftp/gcrypt/libassuan/libassuan-3.0.2.tar.bz2", "d2931cdad266e633510f9970e1a2f346055e351bb19f9b78912475b8074c36f6", "5aa3c5cea6f42bcb96be9e1dd922b33ccb05e2f0565e93674e85ddcf8cd78e86"),
     ("npth", "1.8", "https://gnupg.org/ftp/gcrypt/npth/npth-1.8.tar.bz2", "8bd24b4f23a3065d6e5b26e98aba9ce783ea4fd781069c1b35d149694e90ca3e", "eb9314cf3867a438cb0fdd371125d44c57ba66086f152199ad5f40a9c9679acb"),
+    ("libksba", "1.8.1", "https://gnupg.org/ftp/gcrypt/libksba/libksba-1.8.1.tar.bz2", "c2f84393011827219ae117131dba8e7684c2bed0961eed11b0642c2acba440b5", "af99f325f81eb395d740bf48dc8e89903b141c10f69244e46e4caa1caec0577e"),
 ]
 
 
@@ -80,6 +82,11 @@ def private_dir(path):
     path = Path(path)
     if not path.exists():
         path.mkdir(mode=0o700)
+    return check_private_dir(path)
+
+
+def check_private_dir(path):
+    path = Path(path)
     s = path.lstat()
     require(stat.S_ISDIR(s.st_mode) and s.st_uid == os.getuid() and stat.S_IMODE(s.st_mode) == 0o700, f"unsafe private directory: {path}")
     return path
@@ -99,7 +106,7 @@ def read_regular(path, limit=MAX_TAR, private=False):
                 break
             data.extend(chunk)
         t = os.fstat(fd)
-        require(len(data) == s.st_size and (s.st_dev, s.st_ino, s.st_mtime_ns, s.st_size) == (t.st_dev, t.st_ino, t.st_mtime_ns, t.st_size), f"changed read: {path}")
+        require(len(data) == s.st_size and (s.st_dev, s.st_ino, s.st_mtime_ns, s.st_ctime_ns, s.st_size) == (t.st_dev, t.st_ino, t.st_mtime_ns, t.st_ctime_ns, t.st_size), f"changed read: {path}")
         return bytes(data)
     finally:
         os.close(fd)
@@ -148,6 +155,12 @@ def env(home):
     return {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "C", "LC_ALL": "C", "HOME": str(home), "GNUPGHOME": str(home), "TMPDIR": str(home), "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_TERMINAL_PROMPT": "0"}
 
 
+def os_arch():
+    # The unchanged DTO uses Rust std::env::consts::ARCH, whose Darwin ARM name
+    # is aarch64. Preserve the actual uname machine separately in private logs.
+    return {"arm64": "aarch64"}.get(platform.machine(), platform.machine())
+
+
 def invoke(argv, home, *, data=None, cwd=None, timeout=600):
     result = subprocess.run(argv, input=data, cwd=cwd, env=env(home), stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, check=False)
     return result
@@ -160,6 +173,27 @@ def gpg(home, args, data=None):
 def pinned(data, expected, label):
     require(sha(data) == expected, f"hash mismatch: {label}: actual {sha(data)} expected {expected}")
     return data
+
+
+def quarantine_cache(cache, run, source, error):
+    check_private_dir(cache)
+    path = cache / "quarantine.json"
+    if not path.exists():
+        info = cache.stat()
+        exclusive(path, canonical({"source": source[0], "archive_sha256": source[3], "original_run": run.name,
+                                  "device": info.st_dev, "inode": info.st_ino, "reason": str(error)[:2048]}))
+
+
+def cached_source(d, source, run):
+    cache = check_private_dir(d / "cache" / source[3])
+    require(not (cache / "quarantine.json").exists(), f"exact source cache is quarantined: {cache}; no implicit replacement or root refresh")
+    try:
+        archive = pinned(read_regular(cache / "archive", MAX_ARCHIVE, True), source[3], "cached source archive")
+        signature = pinned(read_regular(cache / "signature", MAX_ARCHIVE, True), source[4], "cached source signature")
+        return archive, signature
+    except (Refused, OSError) as error:
+        quarantine_cache(cache, run, source, error)
+        raise
 
 
 def download(url):
@@ -217,13 +251,23 @@ def authenticate(source, archive, signature, key, home):
 def session(d, kind):
     build_id = ulid()
     run = private_dir(d / "runs" / build_id)
-    exclusive(run / "identity.json", canonical({"build_id": build_id, "incarnation": time.monotonic_ns(), "kind": kind, "pid": os.getpid(), "created_ns": time.time_ns()}))
+    # Milliseconds stay exact in the declared JSON integer domain. The monotonic
+    # incarnation is retained with the original run, never reset on a refusal.
+    previous = []
+    for path in (d / "runs").glob("*/identity.json"):
+        record = strict_json(read_regular(path, 32768, True), 32768)
+        checked_int(record["incarnation"], 1)
+        previous.append(record["incarnation"])
+    incarnation = max(time.monotonic_ns(), max(previous, default=0) + 1)
+    checked_int(incarnation, 1)
+    exclusive(run / "identity.json", canonical({"build_id": build_id, "incarnation": incarnation, "kind": kind, "pid": os.getpid(), "created_ms": time.time_ns() // 1_000_000}))
     exclusive(run / "recipe.py", SCRIPT_BYTES)
     return run
 
 
 def fetch(d):
     run = session(d, "fetch")
+    pinned(read_regular(VERIFIER), VERIFIER_SHA, "independent bootstrap verifier")
     home = private_dir(run / "public-home")
     keys = {}
     for name, (url, digest) in KEYS.items():
@@ -236,6 +280,7 @@ def fetch(d):
     for source in PINS:
         name, _, url, digest, sigsha = source
         cache = private_dir(d / "cache" / digest)
+        require(not (cache / "quarantine.json").exists(), f"source cache quarantined: {cache}")
         archive = pinned(read_regular(cache / "archive", MAX_ARCHIVE, True), digest, name) if (cache / "archive").exists() else pinned(download(url), digest, name)
         sigurl = url[:-3] + ".sign" if name == "git" else url + ".sig"
         sigfile = FIX / (name + ".sig")
@@ -243,7 +288,11 @@ def fetch(d):
         if not sigfile.exists():
             exclusive(sigfile, signature)
         # A cached auth.json never substitutes for fresh crypto verification.
-        record, raw = authenticate(source, archive, signature, keys["git" if name == "git" else "gnupg"], home)
+        try:
+            record, raw = authenticate(source, archive, signature, keys["git" if name == "git" else "gnupg"], home)
+        except (Refused, OSError) as error:
+            quarantine_cache(cache, run, source, error)
+            raise
         for basename, data in [("archive", archive), ("signature", signature), ("auth.json", canonical(record)), ("auth.status", raw)]:
             path = cache / basename
             if path.exists():
@@ -304,27 +353,207 @@ def extract(archive, compression, parent, expected):
 
 
 def build(d):
+    refuse_unknown_build_effects(d)
     run = session(d, "build")
     home = private_dir(run / "public-home")
     src = private_dir(run / "src")
     private_dir(run / "build")
     private_dir(run / "logs")
-    candidate = private_dir(d / "candidates" / run.name)
     validate_lock(read_regular(FIX / "sources.lock.json", 32768))
     exclusive(run / "sources.lock.json", read_regular(FIX / "sources.lock.json", 32768))
+    inputs = build_inputs(run)
+    cached = previous_build(d, inputs, run.name)
+    if cached is not None:
+        # Full artifact/currentness/authentication validation is mandatory even
+        # for this builder's own winner; a journal marker never admits bytes.
+        return reuse_candidate(d, cached, run, inputs)
+    candidate = private_dir(d / "candidates" / run.name)
+    identity = strict_json(read_regular(run / "identity.json", 32768, True), 32768)
+    info = candidate.stat()
+    exclusive(run / "intent.json", canonical({"build_id": run.name, "incarnation": identity["incarnation"], "inputs": inputs,
+              "prefix": str(candidate), "device": info.st_dev, "inode": info.st_ino}))
+    try:
+        return build_new(d, run, candidate)
+    except (Refused, OSError, subprocess.TimeoutExpired) as error:
+        # Do not manufacture absent effects after an unknown spawn/write. All
+        # original start/PID/inode records remain; same-input retry is refused.
+        if not (run / "terminal.json").exists():
+            exclusive(run / "terminal.json", canonical({"outcome": "unsupported", "reason": str(error)[:2048], "effect_unknown": bool(pending_commands(run))}))
+        raise
+
+
+def build_new(d, run, candidate):
+    prepare_sources(d, run)
+    print(f"authenticated sources extracted: {run}; candidate prefix: {candidate}", flush=True)
+    return compile_sources(run, candidate)
+
+
+def prepare_sources(d, run):
+    home = run / "public-home"
+    src = run / "src"
     records = []
+    pinned(read_regular(VERIFIER), VERIFIER_SHA, "independent bootstrap verifier")
     for source in PINS:
         cache = d / "cache" / source[3]
-        archive = read_regular(cache / "archive", MAX_ARCHIVE, True)
-        signature = read_regular(cache / "signature", MAX_ARCHIVE, True)
+        archive, signature = cached_source(d, source, run)
         key = read_regular(FIX / (("git" if source[0] == "git" else "gnupg") + "-release-key.asc"), MAX_ARCHIVE)
-        record, raw = authenticate(source, archive, signature, key, home)
+        try:
+            record, raw = authenticate(source, archive, signature, key, home)
+        except (Refused, OSError) as error:
+            quarantine_cache(cache, run, source, error)
+            raise
         records.append(record)
         extract(archive, "xz" if source[0] == "git" else "bz2", src, source[0] + "-" + source[1])
     exclusive(run / "authenticated.json", canonical(records))
     apply_profile(run)
-    print(f"authenticated sources extracted: {run}; candidate prefix: {candidate}", flush=True)
-    compile_sources(run, candidate)
+    snapshot = expected_sources(d, src)
+    verify_source_snapshot(src, snapshot)
+    exclusive(run / "source-snapshot.json", canonical(snapshot))
+    return snapshot
+
+
+def check_sources(d):
+    run = session(d, "source-custody")
+    private_dir(run / "public-home"); private_dir(run / "src"); private_dir(run / "logs")
+    snapshot = prepare_sources(d, run)
+    # One source-byte mutant in each hidden-work class must lose SOURCE input
+    # qualification. This is not the separately required reachable native
+    # mutant execution witness and never asserts that a census detects it.
+    path = run / "src/git-2.54.0/common-main.c"
+    original = read_regular(path, MAX_ARCHIVE, True)
+    for name, code in [("spawn", b"fork();"), ("thread", b"pthread_create(0,0,0,0);"), ("service", b"start_new_service();")]:
+        mutated = original + b"\n/* deliberately changed private source input */\n" + code + b"\n"
+        exclusive(run / "logs" / (name + ".source-input"), mutated)
+        path.write_bytes(mutated)
+        refused = False
+        try:
+            verify_source_snapshot(run / "src", snapshot)
+        except Refused:
+            refused = True
+        finally:
+            path.write_bytes(original)
+        require(refused, f"changed source input retained qualification: {name}")
+    verify_source_snapshot(run / "src", snapshot)
+    exclusive(run / "source-custody.json", canonical({"source_snapshot_sha256": sha(canonical(snapshot)), "changed_source_inputs_refused": ["spawn", "thread", "service"], "runtime_lifetime": "unproven"}))
+    print(f"authenticated source/patch custody checked at {run}; native lifetime qualification remains unproven", flush=True)
+
+
+def expected_sources(d, src):
+    expected = {}
+    for name, version, _, digest, _ in PINS:
+        data = pinned(read_regular(d / "cache" / digest / "archive", MAX_ARCHIVE, True), digest, "source snapshot archive")
+        with tarfile.open(fileobj=io.BytesIO(tar_bytes(data, "xz" if name == "git" else "bz2")), mode="r:") as tar:
+            members = tar.getmembers()
+            require(len(members) <= 40000, "source snapshot entry bound")
+            for entry in members:
+                path = "/".join(Path(entry.name).parts)
+                require(path and not Path(path).is_absolute() and all(p not in ("", ".", "..") for p in path.split("/")) and path not in expected, "source snapshot path/duplicate")
+                if entry.isfile():
+                    with tar.extractfile(entry) as stream:
+                        contents = stream.read(MAX_ARCHIVE + 1)
+                    require(len(contents) == entry.size <= MAX_ARCHIVE, "source snapshot member bound")
+                    expected[path] = {"kind": "file", "sha256": sha(contents), "mode": 0o700 if entry.mode & 0o111 else 0o600}
+                elif entry.isdir():
+                    expected[path] = {"kind": "directory", "mode": 0o700}
+                else:
+                    require(entry.issym(), "source snapshot special file")
+                    expected[path] = {"kind": "symlink", "target": entry.linkname}
+    for patch in strict_json(read_regular(FIX / "patches.lock.json", 32768), 32768):
+        for file in patch["files"]:
+            key = patch["source"] + "/" + file["path"]
+            require(expected[key]["sha256"] == file["before"], "patch/source snapshot preimage differs")
+            expected[key]["sha256"] = file["after"]
+    return expected
+
+
+def verify_source_snapshot(src, expected):
+    # Whole-table equality catches a new constructor/helper or an alteration in
+    # any unpatched upstream file. It is one input-custody check, not a theorem
+    # about compiler fidelity, selected reachability or arbitrary native code.
+    observed = {}
+    stack = [Path(src)]
+    while stack:
+        parent = stack.pop()
+        check_private_dir(parent)
+        for entry in os.scandir(parent):
+            path = Path(entry.path)
+            key = path.relative_to(src).as_posix()
+            info = entry.stat(follow_symlinks=False)
+            if stat.S_ISLNK(info.st_mode):
+                observed[key] = {"kind": "symlink", "target": os.readlink(path)}
+            elif stat.S_ISDIR(info.st_mode):
+                observed[key] = {"kind": "directory", "mode": stat.S_IMODE(info.st_mode)}
+                stack.append(path)
+            else:
+                require(stat.S_ISREG(info.st_mode), "source special file changed")
+                observed[key] = {"kind": "file", "sha256": sha(read_regular(path, MAX_ARCHIVE, True)), "mode": stat.S_IMODE(info.st_mode)}
+    require(observed == expected, "SOURCE qualification lost: extracted/guarded source bytes, membership or custody changed")
+
+
+def pending_commands(run):
+    # The start record precedes native process creation. Lack of an exit is
+    # unknown, including a crash between Popen and publishing its exact PID.
+    return [path for path in (run / "logs").glob("*.command.json")
+            if not path.with_name(path.name.replace(".command.json", ".exit.json")).exists()]
+
+
+def refuse_unknown_build_effects(d):
+    for run in (d / "runs").iterdir():
+        path = run / "identity.json"
+        if path.exists() and strict_json(read_regular(path, 32768, True), 32768).get("kind") == "build":
+            private_dir(run)
+            pending = pending_commands(run)
+            require(not pending, f"original build effect unresolved at {run}; retain its ID/PID/prefix/inode, no replacement retry")
+
+
+def build_inputs(run):
+    _, cc, _ = command(run, ["/usr/bin/xcrun", "--find", "clang"])
+    _, sdkout, _ = command(run, ["/usr/bin/xcrun", "--show-sdk-path"])
+    _, sdkversion, _ = command(run, ["/usr/bin/xcrun", "--show-sdk-version"])
+    _, osbuild, _ = command(run, ["/usr/bin/sw_vers", "-buildVersion"])
+    _, commit, _ = command(run, ["/usr/bin/git", "--no-pager", "-c", "core.fsmonitor=false", "-C", str(ROOT), "rev-parse", "HEAD"])
+    # Private generated evidence is not source. Build source/patch/recipe changes
+    # must have a concrete commit before a review proposal can bind them.
+    command(run, ["/usr/bin/git", "--no-pager", "-c", "core.fsmonitor=false", "-C", str(ROOT), "diff", "--exit-code", "HEAD", "--", "Makefile", "scripts/dream-proof-tools.py", "tests/fixtures/dream-proof-tools", "tests/dream_proof_tools.rs", "tests/formal/dream_proof_tools.rs", "tests/formal/models.rs", "verification/corpus.toml", "verification/contracts.toml", "verification/coverage.toml"])
+    _, untracked, _ = command(run, ["/usr/bin/git", "--no-pager", "-C", str(ROOT), "ls-files", "--others", "--exclude-standard", "--", "scripts/dream-proof-tools.py", "tests/fixtures/dream-proof-tools", "tests/dream_proof_tools.rs", "tests/formal/dream_proof_tools.rs"])
+    require(not untracked, "uncommitted builder source/fixture inputs cannot bind a proposal")
+    compiler = cc.decode().strip()
+    sdk = sdkout.decode().strip()
+    fixtures = {str(p.relative_to(FIX)): sha(read_regular(p, MAX_TAR)) for p in sorted(FIX.rglob("*")) if p.is_file()}
+    # The source identifier is the retained recipe FileRef's exact byte hash;
+    # the separate complete fixture tuple also participates in cache equality.
+    source = sha(SCRIPT_BYTES)
+    commit = commit.decode().strip()
+    hex_string(commit, 40)
+    return {"commit": commit, "source_sha256": source, "fixtures": fixtures, "recipe_sha256": sha(SCRIPT_BYTES),
+            "compiler": compiler, "compiler_sha256": sha(read_regular(Path(compiler).resolve())),
+            "sdk": sdk, "sdk_version": sdkversion.decode().strip(), "sdk_settings_sha256": sha(read_regular(Path(sdk) / "SDKSettings.json")),
+            "os_build": osbuild.decode().strip(), "release": platform.release(), "arch": os_arch()}
+
+
+def previous_build(d, inputs, current_id):
+    winner = None
+    for run in sorted((d / "runs").iterdir()):
+        if run.name == current_id or not (run / "intent.json").exists():
+            continue
+        private_dir(run)
+        intent = strict_json(read_regular(run / "intent.json", 32768, True), 32768)
+        if intent["inputs"] != inputs:
+            continue
+        prefix = Path(intent["prefix"])
+        require(prefix == d / "candidates" / run.name, "original candidate path mismatch")
+        check_private_dir(prefix)
+        info = prefix.stat()
+        require((info.st_dev, info.st_ino) == (intent["device"], intent["inode"]), f"candidate incarnation/ABA changed at {prefix}")
+        if (prefix / "receipt.candidate.json").exists():
+            require(winner is None, "multiple same-input candidate effects require inspection, not winner guessing")
+            winner = run
+            continue
+        if (run / "terminal.json").exists():
+            terminal = strict_json(read_regular(run / "terminal.json", 32768, True), 32768)
+            raise Refused(f"retained original build {run.name} outcome={terminal['outcome']}: {terminal['reason']}; unchanged inputs do not authorize another attempt")
+        raise Refused(f"incomplete original build {run.name} retains its exact effect/prefix/inode; no blind restart or cleanup")
+    return winner
 
 
 def command(run, argv, *, cwd=None, extra_env=None, allow_failure=False):
@@ -334,22 +563,27 @@ def command(run, argv, *, cwd=None, extra_env=None, allow_failure=False):
     effective = env(run / "public-home")
     effective.update(extra_env or {})
     request = {"argv": argv, "cwd": str(cwd or run), "env": effective, "source_sha256": sha(SCRIPT_BYTES)}
+    require(len(argv) <= 64 and sum(len(s.encode()) + 1 for s in argv) + sum(len(k.encode()) + len(v.encode()) + 2 for k, v in effective.items()) <= 32768, "command argv/environment byte bound")
     exclusive(stem.with_suffix(".command.json"), canonical(request))
     # Every build is serial at this owner; make itself gets exactly two niced
     # jobs. A lost process outcome leaves this start record without an exit.
     with open(stem.with_suffix(".stdout"), "xb", opener=lambda p, flags: os.open(p, flags, 0o600)) as out, open(stem.with_suffix(".stderr"), "xb", opener=lambda p, flags: os.open(p, flags, 0o600)) as err:
-        child = subprocess.Popen(["/usr/bin/nice", "-n", "10", *argv], cwd=cwd or run, env=effective, stdout=out, stderr=err)
-        exclusive(stem.with_suffix(".pid.json"), canonical({"pid": child.pid, "operation": stem.name, "build_id": run.name}))
+        exclusive(stem.with_suffix(".spawn-intent.json"), canonical({"operation": stem.name, "build_id": run.name, "effect": "process_creation_pending"}))
+        child = subprocess.Popen(["/usr/bin/nice", "-n", "10", *argv], cwd=cwd or run, env=effective, stdout=out, stderr=err, start_new_session=True)
+        exclusive(stem.with_suffix(".pid.json"), canonical({"pid": child.pid, "pgid": child.pid, "operation": stem.name, "build_id": run.name}))
         try:
             status = child.wait(timeout=1200)
         except subprocess.TimeoutExpired:
-            child.terminate()
-            try:
-                child.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                child.kill()
-                child.wait()
-            exclusive(stem.with_suffix(".timeout.json"), canonical({"pid": child.pid, "exit_code": child.returncode}))
+            # This unreaped leader still pins the exact new session/group we
+            # created. Signal only that group, before wait/reap; never signal a
+            # numeric PGID afterward or claim escaped-descendant coverage.
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                try:
+                    os.killpg(child.pid, sig)
+                except ProcessLookupError:
+                    pass
+            child.wait()
+            exclusive(stem.with_suffix(".timeout.json"), canonical({"pid": child.pid, "exit_code": child.returncode, "descendant_coverage": "unknown"}))
             raise Refused(f"build command timeout; original command/PID/effect retained: {stem}")
         out.flush(); os.fsync(out.fileno())
         err.flush(); os.fsync(err.fileno())
@@ -367,14 +601,21 @@ def compile_sources(run, candidate):
     _, sdkout, _ = command(run, ["/usr/bin/xcrun", "--show-sdk-path"])
     sdk = sdkout.decode().strip()
     command(run, [compiler, "--version"])
-    command(run, ["/usr/bin/xcrun", "--find", "ld"])
+    _, ldout, _ = command(run, ["/usr/bin/xcrun", "--find", "ld"])
     command(run, ["/usr/bin/xcrun", "--show-sdk-version"])
     command(run, ["/usr/bin/sw_vers", "-buildVersion"])
-    exclusive(run / "platform.json", canonical({"compiler": compiler, "compiler_sha256": sha(read_regular(Path(compiler).resolve())), "sdk": sdk, "sdk_settings_sha256": sha(read_regular(Path(sdk) / "SDKSettings.json")), "os_release": platform.release(), "arch": platform.machine(), "trust_assumptions": ["independent bootstrap verifier", "compiler/linker and SDK fidelity", "native platform/libSystem implementation; no arbitrary native theorem"]}))
+    linker = ldout.decode().strip()
+    exclusive(run / "platform.json", canonical({"compiler": compiler, "compiler_sha256": sha(read_regular(Path(compiler).resolve())), "linker": linker, "linker_sha256": sha(read_regular(Path(linker).resolve())), "sdk": sdk, "sdk_settings_sha256": sha(read_regular(Path(sdk) / "SDKSettings.json")), "os_release": platform.release(), "arch": os_arch(), "machine": platform.machine(), "trust_assumptions": ["independent bootstrap verifier", "compiler/linker and SDK fidelity", "native platform/libSystem implementation; no arbitrary native theorem"]}))
+    tools = {}
+    for name in ("make", "patch", "otool", "ar", "ranlib", "nice", "sh"):
+        path = Path("/bin/sh") if name == "sh" else Path("/usr/bin") / name
+        tools[name] = {"path": str(path), "resolved_path": str(path.resolve()), "sha256": sha(read_regular(path.resolve()))}
+    tools["python"] = {"path": sys.executable, "resolved_path": str(Path(sys.executable).resolve()), "sha256": sha(read_regular(Path(sys.executable).resolve()))}
+    exclusive(run / "developer-tools.json", canonical(tools))
     deps = private_dir(run / "build" / "deps")
     buildenv = {"CC": compiler, "SDKROOT": sdk, "CFLAGS_FOR_BUILD": "-O2 -isysroot " + sdk, "CFLAGS": "-O2 -g0 -isysroot " + sdk, "CPPFLAGS": "-isysroot " + sdk + " -I" + str(deps / "include"), "LDFLAGS": "-L" + str(deps / "lib") + " -isysroot " + sdk,
                 "PATH": str(deps / "bin") + ":/usr/bin:/bin:/usr/sbin:/sbin", "PKG_CONFIG": "/usr/bin/false", "PKG_CONFIG_PATH": str(deps / "lib/pkgconfig"), "PKG_CONFIG_LIBDIR": str(deps / "lib/pkgconfig")}
-    order = [PINS[2], PINS[3], PINS[4], PINS[5]]
+    order = [PINS[2], PINS[3], PINS[4], PINS[5], PINS[6]]
     for source in order:
         name, version = source[:2]
         work = private_dir(run / "build" / name)
@@ -385,7 +626,7 @@ def compile_sources(run, candidate):
             flags += ["--disable-doc"]
         if name == "libgpg-error":
             flags += ["--disable-tests", "--disable-languages"]
-        elif name in ("libgcrypt", "libassuan"):
+        elif name in ("libgcrypt", "libassuan", "libksba"):
             flags += ["--with-libgpg-error-prefix=" + str(deps)]
         if name == "libgcrypt":
             # Xcode 27's assembler rejects this release's aarch64 frame
@@ -398,11 +639,12 @@ def compile_sources(run, candidate):
         require(b"unrecognized option" not in out + err, "configure ignored an option")
         command(run, ["/usr/bin/make", "-j2"], cwd=work, extra_env=buildenv)
         command(run, ["/usr/bin/make", "-j2", "install"], cwd=work, extra_env=buildenv)
+        harden_owned_tree(deps)
     build_git(run, candidate, compiler, sdk, buildenv)
     source = run / "src/gnupg-2.5.24"
     work = private_dir(run / "build/gnupg")
     _, helpout, _ = command(run, [str(source / "configure"), "--help"], cwd=work, extra_env=buildenv)
-    flags = ["--prefix=" + str(candidate), "--disable-gpgsm", "--disable-scdaemon", "--disable-dirmngr", "--disable-keyboxd", "--disable-tpm2d", "--disable-g13", "--disable-doc", "--disable-gpgtar", "--disable-wks-tools", "--disable-tests", "--disable-exec", "--disable-photo-viewers", "--disable-card-support", "--disable-ccid-driver", "--disable-dirmngr-auto-start", "--disable-sqlite", "--disable-tofu", "--disable-ldap", "--disable-gnutls", "--disable-ntbtls", "--disable-libdns", "--disable-bzip2", "--disable-nls", "--without-readline", "--with-libgpg-error-prefix=" + str(deps), "--with-libgcrypt-prefix=" + str(deps), "--with-libassuan-prefix=" + str(deps), "--with-npth-prefix=" + str(deps)]
+    flags = ["--prefix=" + str(candidate), "--disable-gpgsm", "--disable-scdaemon", "--disable-dirmngr", "--disable-keyboxd", "--disable-tpm2d", "--disable-g13", "--disable-doc", "--disable-gpgtar", "--disable-wks-tools", "--disable-tests", "--disable-exec", "--disable-photo-viewers", "--disable-card-support", "--disable-ccid-driver", "--disable-dirmngr-auto-start", "--disable-sqlite", "--disable-tofu", "--disable-ldap", "--disable-gnutls", "--disable-ntbtls", "--disable-libdns", "--disable-nls", "--without-readline", "--with-libgpg-error-prefix=" + str(deps), "--with-libgcrypt-prefix=" + str(deps), "--with-libassuan-prefix=" + str(deps), "--with-npth-prefix=" + str(deps), "--with-libksba-prefix=" + str(deps)]
     for flag in flags[1:]:
         require(supported_option(flag, helpout), f"unrecognized GnuPG configure option: {flag}")
     status, out, err = command(run, [str(source / "configure"), *flags], cwd=work, extra_env=buildenv, allow_failure=True)
@@ -410,7 +652,14 @@ def compile_sources(run, candidate):
     if status:
         exclusive(run / "unsupported.json", canonical({"reason": "GnuPG configure failed; no dependency substitution authorized", "exit_code": status, "candidate": str(candidate), "build_id": run.name}))
         raise Refused(f"GnuPG configure exit={status}; inspect original logs and generated config in {run}; no additional source/library authorized")
-    raise Refused("configure completed; guarded compilation pending source review")
+    command(run, ["/usr/bin/make", "-j2", "gpg_LDFLAGS=-Wl,-map," + str(run / "logs/gpg.link-map")], cwd=work, extra_env=buildenv)
+    bindir = private_dir(candidate / "bin")
+    exclusive(bindir / "gpg", read_regular(work / "g10/gpg"), executable=True)
+    command(run, ["/usr/bin/otool", "-L", str(bindir / "gpg")])
+    command(run, ["/usr/bin/otool", "-l", str(bindir / "gpg")])
+    stage_linked_archives(run, candidate, deps)
+    exclusive(run / "build-complete.json", canonical({"candidate": str(candidate), "tools": {name: sha(read_regular(bindir / name, private=True)) for name in ("git", "gpg")}, "lifetime": "unproven_pending_canonical_private_probe"}))
+    raise Refused(f"real pair built at {candidate}; exact canonical private-candidate probe freeze still required before joined qualification")
 
 
 def build_git(run, candidate, compiler, sdk, buildenv):
@@ -418,7 +667,7 @@ def build_git(run, candidate, compiler, sdk, buildenv):
     # package discovery is used. Real supported read/signature paths remain.
     work = run / "src/git-2.54.0"
     cflags = "-O2 -g0 -isysroot " + sdk + " -DDREAM_PROOF_GPG='\"" + str(candidate / "bin/gpg") + "\"'"
-    variables = ["CC=" + compiler, "CFLAGS=" + cflags, "LDFLAGS=-isysroot " + sdk, "NO_PTHREADS=YesPlease", "NO_CURL=YesPlease", "NO_EXPAT=YesPlease", "NO_OPENSSL=YesPlease", "NO_GETTEXT=YesPlease", "NO_TCLTK=YesPlease", "NO_PERL=YesPlease", "NO_PYTHON=YesPlease", "USE_LIBPCRE=", "NO_FINK=YesPlease", "NO_DARWIN_PORTS=YesPlease", "NO_APPLE_COMMON_CRYPTO=YesPlease", "prefix=" + str(candidate)]
+    variables = ["CC=" + compiler, "CFLAGS=" + cflags, "LDFLAGS=-isysroot " + sdk + " -Wl,-map," + str(run / "logs/git.link-map"), "NO_PTHREADS=YesPlease", "NO_CURL=YesPlease", "NO_EXPAT=YesPlease", "NO_OPENSSL=YesPlease", "NO_GETTEXT=YesPlease", "NO_TCLTK=YesPlease", "NO_PERL=YesPlease", "NO_PYTHON=YesPlease", "USE_LIBPCRE=", "NO_FINK=YesPlease", "NO_DARWIN_PORTS=YesPlease", "NO_APPLE_COMMON_CRYPTO=YesPlease", "prefix=" + str(candidate)]
     command(run, ["/usr/bin/make", "-j2", *variables, "git"], cwd=work, extra_env=buildenv)
     bindir = private_dir(candidate / "bin")
     exclusive(bindir / "git", read_regular(work / "git"), executable=True)
@@ -428,10 +677,58 @@ def build_git(run, candidate, compiler, sdk, buildenv):
         version = next(p[1] for p in PINS if p[0] == name)
         licensedir = private_dir(candidate / "licenses")
         part = private_dir(licensedir / name)
-        for path in (run / "src" / f"{name}-{version}").glob("COPYING*"):
+        source = run / "src" / f"{name}-{version}"
+        notices = sorted(source.glob("COPYING*")) + ([source / "AUTHORS"] if (source / "AUTHORS").is_file() else [])
+        for path in notices:
             exclusive(part / path.name, read_regular(path))
     # Version/image output is provenance only, not a lifetime qualification.
     command(run, [str(bindir / "git"), "--version"])
+
+
+def stage_linked_archives(run, candidate, deps):
+    # Actual Darwin link maps decide runtime/static membership, including KSBA;
+    # configure-required does not imply that a library was linked into a tool.
+    archives = {}
+    for name in ("git", "gpg"):
+        text = read_regular(run / "logs" / (name + ".link-map")).decode()
+        cwd = run / ("src/git-2.54.0" if name == "git" else "build/gnupg/g10")
+        for line in text.splitlines():
+            match = re.match(r"^\[\s*\d+\]\s+(.*\.a)\([^)]*\)\s*$", line)
+            if match:
+                path = Path(match.group(1))
+                if not path.is_absolute():
+                    path = cwd / path
+                path = path.resolve()
+                require(path.is_relative_to(run), f"unapproved static archive path: {path}")
+                archives[str(path)] = sha(read_regular(path, private=True))
+    libdir = private_dir(candidate / "lib")
+    summary = []
+    for index, (name, digest) in enumerate(sorted(archives.items())):
+        path = Path(name)
+        staged_name = f"{index:02d}-" + path.name
+        exclusive(libdir / staged_name, pinned(read_regular(path, private=True), digest, "linked archive"))
+        status, members, _ = command(run, ["/usr/bin/ar", "-t", name])
+        summary.append({"original_path": name, "staged": "lib/" + staged_name, "sha256": digest, "member_index_sha256": sha(members), "index_exit": status})
+    exclusive(run / "static-closure.json", canonical(summary))
+
+
+def harden_owned_tree(root):
+    root = Path(root)
+    for current, dirs, files in os.walk(root, followlinks=False):
+        path = Path(current)
+        require(path.lstat().st_uid == os.getuid() and not path.is_symlink(), "foreign scratch directory")
+        path.chmod(0o700)
+        for name in dirs + files:
+            child = path / name
+            info = child.lstat()
+            require(info.st_uid == os.getuid(), "foreign scratch artifact")
+            if stat.S_ISLNK(info.st_mode):
+                require(child.resolve().is_relative_to(root), "escaping private dependency symlink")
+            elif stat.S_ISDIR(info.st_mode):
+                child.chmod(0o700)
+            else:
+                require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1, "scratch special/hardlink artifact")
+                child.chmod(0o700 if info.st_mode & 0o111 else 0o600)
 
 
 def supported_option(flag, helpout):
@@ -589,15 +886,17 @@ def validate_qualification(data, prefix):
     fields(q["component"], "authority_source probe_exe report")
     refs += list(q["component"].values())
     report = ref_bytes(prefix, q["component"]["report"], 131072)
-    require(len(data) + len(lock_data) + len(report) <= 131072, "TOTAL prepared evidence exceeds 128KiB")
+    prepared_budget(data, lock_data, report)
     fields(q["tools"], "git gpg"); refs += list(q["tools"].values())
-    checked_array(q["sources"]); require(len(q["sources"]) == 6, "six source authentications required")
+    checked_array(q["sources"]); require(len(q["sources"]) == len(PINS), "exact source authentication count required")
     for row, source in zip(q["sources"], PINS):
         fields(row, "name archive_sha256 signature_sha256 signer_primary signer_subkey verifier_sha256 auth_exit auth_status_sha256")
+        checked_int(row["auth_exit"], -(2**31), 2**31-1)
         require(row["name"] == source[0] and row["archive_sha256"] == source[3] and row["signature_sha256"] == source[4] and row["verifier_sha256"] == VERIFIER_SHA and row["auth_exit"] == 0, "source authentication binding")
         for k in ("archive_sha256", "signature_sha256", "verifier_sha256", "auth_status_sha256"): hex_string(row[k])
         for k in ("signer_primary", "signer_subkey"): hex_string(row[k], 40, True)
         require(row["signer_primary"] in ([GIT_ROOT] if source[0] == "git" else GPG_ROOTS), "signer root")
+        require(row["signer_subkey"] in ([GIT_SUB] if source[0] == "git" else GPG_ROOTS), "signer subkey")
     fields(q["compiler"], "path sha256 version"); bounded_string(q["compiler"]["path"], 4096); hex_string(q["compiler"]["sha256"]); refs.append(q["compiler"]["version"])
     fields(q["sdk"], "path version settings_sha256")
     bounded_string(q["sdk"]["path"], 4096); bounded_string(q["sdk"]["version"], 128); hex_string(q["sdk"]["settings_sha256"])
@@ -627,6 +926,120 @@ def validate_qualification(data, prefix):
     return q
 
 
+def prepared_budget(qualification, source_lock_bytes, component_report):
+    require(len(qualification) <= 131072 and len(source_lock_bytes) <= 32768 and len(component_report) <= 131072
+            and len(qualification) + len(source_lock_bytes) + len(component_report) <= 131072,
+            "TOTAL prepared evidence exceeds 128KiB")
+
+
+def file_refs(value):
+    if isinstance(value, dict):
+        if set(value) == {"path", "len", "sha256"}:
+            yield value
+        else:
+            for child in value.values():
+                yield from file_refs(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from file_refs(child)
+
+
+def bind_current_candidate(q, receipt, inputs, prefix, intent):
+    require(q["build_id"] == intent["build_id"] == prefix.name and q["incarnation"] == intent["incarnation"], "candidate birth/incarnation mismatch")
+    require(q["builder"]["source_sha256"] == inputs["source_sha256"], "builder source/recipe currentness mismatch")
+    require(q["builder"]["commit"] == inputs["commit"], "builder source commit changed")
+    require(q["platform"]["os_build"] == inputs["os_build"] and q["platform"]["release"] == inputs["release"] and q["platform"]["arch"] == inputs["arch"], "OS/platform currentness mismatch")
+    require(receipt["os"] == {"release": inputs["release"], "arch": inputs["arch"]}, "proposal OS binding mismatch")
+    require(q["compiler"]["path"] == inputs["compiler"] and q["compiler"]["sha256"] == inputs["compiler_sha256"], "compiler currentness mismatch")
+    require(q["sdk"] == {"path": inputs["sdk"], "version": inputs["sdk_version"], "settings_sha256": inputs["sdk_settings_sha256"]}, "SDK currentness mismatch")
+    require(q["patches"] == source_lock()["profile_patches"], "profile patch binding mismatch")
+    require(q["component"]["authority_source"]["sha256"] == receipt["capability"]["probe_source_sha256"] == PROBE_SHA and q["component"]["authority_source"]["len"] == 39130, "canonical component source binding mismatch")
+    require(q["component"]["probe_exe"]["sha256"] == receipt["capability"]["probe_exe_sha256"], "canonical component executable binding mismatch")
+    for name in ("git", "gpg"):
+        require(q["tools"][name]["path"] == "bin/" + name and receipt[name]["absolute_path"] == str(prefix / "bin" / name) and q["tools"][name]["sha256"] == receipt[name]["sha256"], "tool image/path binding mismatch")
+
+
+def check_inventory(prefix, q):
+    check_private_dir(prefix)
+    allowed = {"qualification.json", "receipt.candidate.json"} | {ref["path"] for ref in file_refs(q)}
+    licenses = strict_json(read_regular(FIX / "license-map.json", 32768), 32768)
+    for component in licenses:
+        for entry in component["license_files"]:
+            path = "licenses/" + component["source"].rsplit("-", 1)[0] + "/" + entry["path"]
+            data = read_regular(prefix / path, MAX_TAR, True)
+            pinned(data, entry["sha256"], "preserved upstream license")
+            allowed.add(path)
+    for current, dirs, files in os.walk(prefix, followlinks=False):
+        check_private_dir(Path(current))
+        for name in dirs:
+            check_private_dir(Path(current) / name)
+        for name in files:
+            path = Path(current) / name
+            relative = str(path.relative_to(prefix))
+            require(relative in allowed, f"unmanifested candidate file: {relative}")
+            info = path.lstat()
+            mode = 0o700 if relative in ("bin/git", "bin/gpg") else 0o600
+            require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == mode, f"candidate file custody/mode: {relative}")
+
+
+def validate_candidate(prefix, intent, inputs):
+    check_private_dir(prefix)
+    info = prefix.stat()
+    require((info.st_dev, info.st_ino) == (intent["device"], intent["inode"]), "original prefix inode/incarnation changed")
+    qbytes = read_regular(prefix / "qualification.json", 131072, True)
+    receipt_bytes = read_regular(prefix / "receipt.candidate.json", 32768, True)
+    q = validate_qualification(qbytes, prefix)
+    receipt = validate_proposal(receipt_bytes)
+    require(receipt["capability"]["evidence_sha256"] == sha(qbytes), "qualification receipt hash mismatch")
+    bind_current_candidate(q, receipt, inputs, prefix, intent)
+    check_inventory(prefix, q)
+    return {"prefix": str(prefix), "build_id": q["build_id"], "receipt_sha256": sha(receipt_bytes), "evidence_sha256": sha(qbytes)}, q
+
+
+def reuse_candidate(d, previous, run, inputs):
+    intent = strict_json(read_regular(previous / "intent.json", 32768, True), 32768)
+    require(intent["inputs"] == inputs, "cache recipe/platform inputs changed")
+    locator, q = validate_candidate(Path(intent["prefix"]), intent, inputs)
+    home = private_dir(run / "reuse-public-home")
+    pinned(read_regular(VERIFIER), VERIFIER_SHA, "independent bootstrap verifier")
+    # A syntactically valid cached auth record is not authentication. Repeat the
+    # independent crypto check of every exact source before returning a winner.
+    for source, retained in zip(PINS, q["sources"]):
+        cache = d / "cache" / source[3]
+        keyname = "git" if source[0] == "git" else "gnupg"
+        archive, signature = cached_source(d, source, run)
+        try:
+            actual, _ = authenticate(source, archive, signature, read_regular(FIX / (keyname + "-release-key.asc"), MAX_ARCHIVE), home)
+        except (Refused, OSError) as error:
+            quarantine_cache(cache, run, source, error)
+            raise
+        for field in ("name", "archive_sha256", "signature_sha256", "signer_primary", "signer_subkey", "verifier_sha256", "auth_exit"):
+            require(actual[field] == retained[field], "cached source authentication differs")
+    exclusive(run / "reuse.json", canonical(locator))
+    require(q["candidate_status"] == "review_ready", f"cached candidate remains unsupported: {locator}")
+    print(canonical(locator).decode(), flush=True)
+    return locator
+
+
+def publish_candidate(run, prefix, q, receipt, inputs):
+    # These are review proposal bytes only. There is deliberately no Root
+    # admission argument, approved flag, authority-store write, or runtime grant.
+    intent = strict_json(read_regular(run / "intent.json", 32768, True), 32768)
+    qbytes = canonical(q)
+    receipt_bytes = canonical(receipt)
+    validate_qualification(qbytes, prefix)
+    validate_proposal(receipt_bytes)
+    require(receipt["capability"]["evidence_sha256"] == sha(qbytes), "proposal evidence mismatch before publication")
+    bind_current_candidate(q, receipt, inputs, prefix, intent)
+    check_inventory(prefix, q)
+    publish(prefix / "qualification.json", qbytes)
+    # No subsequent prefix write: the receipt is published LAST, no replacement.
+    publish(prefix / "receipt.candidate.json", receipt_bytes)
+    locator, _ = validate_candidate(prefix, intent, inputs)
+    exclusive(run / "terminal.json", canonical({"outcome": "sealed", "locator": locator, "candidate_status": q["candidate_status"]}))
+    return locator
+
+
 def component(d):
     source = pinned(read_regular(AUTHORITY / "proof-helper-probe.c", 39130), PROBE_SHA, "frozen Q2 probe")
     require(len(source) == 39130, "canonical probe length")
@@ -653,8 +1066,8 @@ def component(d):
                 print(f"retained canonical component evidence (no timing retry): {previous}", flush=True)
                 return record
         elif (previous / "component-start.json").exists():
-            old = strict_json(read_regular(previous / "component-start.json", 32768, True), 32768)
-            require(old != key, f"unknown original component effect retained; inspect {previous}; no retry")
+            strict_json(read_regular(previous / "component-start.json", 32768, True), 32768)
+            raise Refused(f"unknown original component effect retained; inspect {previous}; changed inputs do not authorize a replacement or erase its custody")
     exclusive(run / "component-start.json", canonical(key))
     probe = run / "proof-helper-probe.c"; exe = run / "proof-helper-probe"
     exclusive(probe, source)
@@ -673,6 +1086,95 @@ def component(d):
 
 
 class ProvisioningTests(unittest.TestCase):
+    def test_bad_cache_quarantines_its_exact_entry_without_replacement(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TARGET) as tmp:
+            d = Path(tmp); private_dir(d / "cache")
+            cache = private_dir(d / "cache" / PINS[0][3])
+            run = private_dir(d / "source-failure")
+            exclusive(cache / "archive", b"deliberately corrupt source bytes")
+            before = (cache / "archive").stat().st_ino
+            with self.assertRaises(Refused): cached_source(d, PINS[0], run)
+            self.assertTrue((cache / "quarantine.json").exists())
+            self.assertEqual((cache / "archive").stat().st_ino, before)
+            with self.assertRaisesRegex(Refused, "quarantined"):
+                cached_source(d, PINS[0], run)
+            self.assertEqual((cache / "archive").read_bytes(), b"deliberately corrupt source bytes")
+
+    def test_source_snapshot_rejects_added_and_modified_native_work(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TARGET) as tmp:
+            src = Path(tmp)
+            source = src / "startup.c"
+            data = b"/* private source-custody witness, not executable qualification */\nint main(void){return 0;}\n"
+            exclusive(source, data)
+            expected = {"startup.c": {"kind": "file", "sha256": sha(data), "mode": 0o600}}
+            verify_source_snapshot(src, expected)
+            for added in (b"fork();", b"pthread_create(0,0,0,0);", b"start_new_service();"):
+                source.write_bytes(data + added)
+                with self.assertRaisesRegex(Refused, "SOURCE qualification lost"):
+                    verify_source_snapshot(src, expected)
+            source.write_bytes(data)
+            exclusive(src / "hidden-constructor.c", b"/* unexpected source input */")
+            with self.assertRaisesRegex(Refused, "SOURCE qualification lost"):
+                verify_source_snapshot(src, expected)
+
+    def test_original_unknown_build_is_retained_before_replacement(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TARGET) as tmp:
+            d = Path(tmp); private_dir(d / "runs"); private_dir(d / "candidates")
+            run = private_dir(d / "runs" / "original")
+            private_dir(run / "logs")
+            exclusive(run / "identity.json", canonical({"kind": "build", "incarnation": 1}))
+            exclusive(run / "logs/000.command.json", canonical({"effect": "unknown", "original_operation": "original"}))
+            with self.assertRaisesRegex(Refused, "original build effect unresolved"):
+                refuse_unknown_build_effects(d)
+            self.assertEqual(sorted(p.name for p in (d / "runs").iterdir()), ["original"])
+            self.assertEqual(list((d / "candidates").iterdir()), [])
+
+    def test_failed_and_replaced_prefix_never_becomes_a_cache_winner(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TARGET) as tmp:
+            d = Path(tmp); private_dir(d / "runs"); private_dir(d / "candidates")
+            run = private_dir(d / "runs" / "original")
+            prefix = private_dir(d / "candidates" / "original")
+            info = prefix.stat(); inputs = {"opaque_source_input": "A1"}
+            exclusive(run / "intent.json", canonical({"inputs": inputs, "prefix": str(prefix), "device": info.st_dev, "inode": info.st_ino}))
+            exclusive(run / "terminal.json", canonical({"outcome": "unsupported", "reason": "retained test failure"}))
+            with self.assertRaisesRegex(Refused, "unchanged inputs"):
+                previous_build(d, inputs, "new")
+            self.assertIsNone(previous_build(d, {"opaque_source_input": "B2"}, "new"))
+            prefix.rename(d / "candidates/retired-original")
+            private_dir(prefix)
+            with self.assertRaisesRegex(Refused, "ABA changed"):
+                previous_build(d, inputs, "new")
+            self.assertEqual((d / "candidates/retired-original").stat().st_ino, info.st_ino)
+
+    def test_unknown_after_actual_link_retains_both_names_and_inode(self):
+        global sync_dir
+        with tempfile.TemporaryDirectory(dir=TEST_TARGET) as tmp:
+            path = Path(tmp) / "receipt.candidate.json"
+            original_sync = sync_dir
+            count = 0
+            def fail_after_link(parent):
+                nonlocal count
+                count += 1
+                if count == 2:
+                    raise OSError("injected parent fsync failure after actual link")
+                original_sync(parent)
+            sync_dir = fail_after_link
+            try:
+                with self.assertRaises(OSError): publish(path, b"owned exact bytes")
+            finally:
+                sync_dir = original_sync
+            pending = list(Path(tmp).glob("*.pending-*"))
+            self.assertEqual(len(pending), 1)
+            self.assertEqual(path.stat().st_ino, pending[0].stat().st_ino)
+            self.assertEqual(path.stat().st_nlink, 2)
+            with self.assertRaises(Refused): read_regular(path)
+            self.assertEqual(path.read_bytes(), b"owned exact bytes")
+
+    def test_prepared_budget_charges_all_three_original_byte_sequences(self):
+        prepared_budget(b"q" * 65536, b"s" * 32768, b"r" * 32768)
+        with self.assertRaises(Refused): prepared_budget(b"q" * 65537, b"s" * 32768, b"r" * 32768)
+        with self.assertRaises(Refused): prepared_budget(b"q", b"s" * 32769, b"r")
+
     def test_zero_context_patches_match_every_exact_postimage(self):
         # Upstream C includes form-feed separators. Diff line numbers must count
         # LF, not Python's wider Unicode splitlines boundaries. Verify the real
@@ -763,7 +1265,9 @@ def unit(d):
     require(result.wasSuccessful(), "private provisioning regression failed")
 
 
-def check(d, component_only=False):
+def check(d, component_only=False, source_only=False):
+    if source_only:
+        return check_sources(d)
     if not component_only:
         unit(d)
     result = component(d)
@@ -780,6 +1284,7 @@ def main():
     parser.add_argument("action", choices=["fetch", "build", "check", "unit"])
     parser.add_argument("--target", type=Path, default=ROOT / "target")
     parser.add_argument("--component-only", action="store_true")
+    parser.add_argument("--source-only", action="store_true")
     args = parser.parse_args()
     os.umask(0o077)
     target = args.target.absolute()
@@ -797,7 +1302,8 @@ def main():
         elif args.action == "unit":
             unit(d)
         else:
-            check(d, args.component_only)
+            require(not (args.component_only and args.source_only), "choose one private focused check")
+            check(d, args.component_only, args.source_only)
     except (Refused, OSError, subprocess.TimeoutExpired) as error:
         print(f"REFUSED: {error}", file=sys.stderr)
         return 1

@@ -35,7 +35,7 @@ help:
 	  'make test-formal-parity         Native/Java TLC graph and verdict parity' \
 	  'make land                       Signed rebase, focused gates, source-bound evidence and main push' \
 	  'make test-python-execute         Real CPython, commands, current-context MCP and durable recovery' \
-	  'make fetch-dream-proof-tools    Authenticate six fixed upstream source archives (HTTPS)' \
+	  'make fetch-dream-proof-tools    Authenticate seven fixed upstream source archives (HTTPS)' \
 	  'make build-dream-proof-tools    Private offline candidate build; refuses unsupported inputs' \
 	  'make test-dream-proof-tools     Private source/custody and canonical component checks' \
 	  'make verify-gui-polish          Focused MCP output, prompt projection, loader and changed model checks' \

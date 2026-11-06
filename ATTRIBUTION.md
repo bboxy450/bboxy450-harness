@@ -208,6 +208,12 @@ The adjacent `license-map.json` maps every patch and release to its upstream
 terms and preserved license files. Libgcrypt 1.12.4 is a source dependency;
 its original LGPL terms and bundled licenses remain attached.
 
+**Built on Libksba1.8.1**, https://gnupg.org/ftp/gcrypt/libksba/, as the explicitly
+pinned seventh source. Its library retains LGPL-3.0-or-later OR GPL-2.0-or-later
+terms and original notices; other components retain their per-file licenses.
+Its source signatures, license-map entries and actual linked/build-only evidence
+are provenance, not runtime authority.
+
 Public maintainer certificates and detached release signatures in that fixture
 directory are **Copied from** the exact primary URLs in `sources.lock.json`,
 with bytes preserved. They identify public release material, not operator keys

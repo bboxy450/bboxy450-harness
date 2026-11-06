@@ -2327,3 +2327,48 @@ frontend = "project"
 name = "BrokenHarnessDreamProofToolsHiddenWorkUnqualifiedTrust"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamProofToolsSourceSeven"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsSourceSevenSixSource"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsSourceSevenStaleLock"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsSourceSevenMissingAuth"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsSourceSevenMismatchedAuth"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsSourceSevenGenerated"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsSourceSevenLinked"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsSourceSevenSource"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsSourceSevenOrderedPins"
+expected = "safety"
+frontend = "project"

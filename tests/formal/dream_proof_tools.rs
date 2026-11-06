@@ -8,6 +8,12 @@
 //! Source authentication, byte custody, actual fsync/link, and canonical component
 //! measurements remain independent process witnesses. In particular the frozen Q2
 //! probe's Git mode currently returns 81 (unproven); these models certify no tool.
+//! Recipe mapping: build/previous_build retain original intent and inode on
+//! failure/restart; refuse_unknown_build_effects fences unresolved commands;
+//! publish_candidate seals qualification before the no-replace receipt;
+//! bind_current_candidate rechecks the entire source/platform/tool tuple.
+//! Whole-source snapshot checks bind the reviewed guard bytes, while real hidden
+//! native mutants and compiler/platform fidelity remain separate obligations.
 use super::*;
 
 /// Two builders own distinct immutable candidates. Stages encode the finite
@@ -562,6 +568,162 @@ pub fn hidden_work(control: u8) -> Model {
     m
 }
 
+/// One prepared source/build evidence snapshot has either six or seven sources.
+/// The current ordered tuple preserves the original six pins and appends exactly
+/// Libksba 1.8.1 as source seven. Boolean predicates abstract actual cryptographic
+/// verdicts and byte comparisons; they do not authenticate source by themselves.
+/// Recipe mapping: source_snapshot binds the exact source bytes; build and
+/// previous_build require matching source-lock/auth/generated/link evidence;
+/// publish_candidate cannot promote an obsolete six-source basis by relabeling it.
+/// SourceSeven is a finite admission constraint, not runtime approval, compiler
+/// correctness, whole-native-code coverage or a claim to detect unseen events.
+/// No IO completion, successful authentication, review or approval is fair.
+pub fn source_seven(control: u8) -> Model {
+    let suffix = match control {
+        1 => "SixSource",
+        2 => "StaleLock",
+        3 => "MissingAuth",
+        4 => "MismatchedAuth",
+        5 => "Generated",
+        6 => "Linked",
+        7 => "Source",
+        8 => "OrderedPins",
+        _ => "",
+    };
+    let mut m = base(
+        &format!("DreamProofToolsSourceSeven{suffix}"),
+        control != 0,
+        &[
+            ("phase", 3, 0), // absent, prepared, auth observed, qualified basis
+            ("sourceCount", 7, 0),
+            ("lockCurrent", 1, 0),
+            ("orderedPins", 1, 0),
+            ("authenticatedCount", 7, 0),
+            ("authenticatedBytesMatch", 1, 0),
+            ("generatedCurrent", 1, 0),
+            ("linkedCurrent", 1, 0),
+            ("sourceCurrent", 1, 0),
+            ("qualified", 1, 0),
+            ("reused", 1, 0),
+        ],
+    );
+    // The relabeled six-source input is deliberately distinct from a genuinely
+    // current seven-source lock: a claimed current label cannot repair omission.
+    for (name, count, current_lock, ordered) in [
+        ("PrepareExactSevenSourceBasis", 7, 1, 1),
+        ("PrepareRelabeledSixSourceBasis", 6, 1, 1),
+        ("PrepareStaleSevenSourceLock", 7, 0, 1),
+        ("PrepareChangedOriginalOrSeventhPin", 7, 1, 0),
+    ] {
+        act(
+            &mut m,
+            name,
+            eq(0, 0),
+            &[
+                (0, Int(1)),
+                (1, Int(count)),
+                (2, Int(current_lock)),
+                (3, Int(ordered)),
+                (6, Int(1)),
+                (7, Int(1)),
+                (8, Int(1)),
+            ],
+        );
+    }
+    act(
+        &mut m,
+        "ObserveAuthenticationOfPreparedSourceSet",
+        eq(0, 1),
+        &[(0, Int(2)), (4, Var(1)), (5, Int(1))],
+    );
+    act(
+        &mut m,
+        "ObserveOnlySixAuthenticationVerdicts",
+        all([eq(0, 1), eq(1, 7)]),
+        &[(0, Int(2)), (4, Int(6)), (5, Int(1))],
+    );
+    act(
+        &mut m,
+        "ObserveMismatchedAuthenticationBytes",
+        eq(0, 1),
+        &[(0, Int(2)), (4, Var(1)), (5, Int(0))],
+    );
+    for (field, name) in [
+        (6, "ChangedGeneratedConfig"),
+        (7, "ChangedLinkedClosure"),
+        (8, "ChangedSourceSnapshot"),
+    ] {
+        act(
+            &mut m,
+            name,
+            eq(0, 2).or(eq(0, 3)),
+            &[(field, Int(0)), (0, Int(2)), (9, Int(0)), (10, Int(0))],
+        );
+    }
+    let exact_basis = all([
+        eq(1, 7),
+        eq(2, 1),
+        eq(3, 1),
+        Var(4).eq(Var(1)),
+        eq(5, 1),
+        eq(6, 1),
+        eq(7, 1),
+        eq(8, 1),
+    ]);
+    let controlled_basis = all([
+        if control == 1 { Bool(true) } else { eq(1, 7) },
+        if control == 2 { Bool(true) } else { eq(2, 1) },
+        if control == 8 { Bool(true) } else { eq(3, 1) },
+        if control == 3 {
+            Bool(true)
+        } else {
+            Var(4).eq(Var(1))
+        },
+        if control == 4 { Bool(true) } else { eq(5, 1) },
+        if control == 5 { Bool(true) } else { eq(6, 1) },
+        if control == 6 { Bool(true) } else { eq(7, 1) },
+        if control == 7 { Bool(true) } else { eq(8, 1) },
+    ]);
+    act(
+        &mut m,
+        "QualifyExactSevenSourceBasis",
+        all([eq(0, 2), controlled_basis.clone()]),
+        &[(0, Int(3)), (9, Int(1))],
+    );
+    act(
+        &mut m,
+        "ReuseOnlyCurrentAuthenticatedSourceBuild",
+        all([eq(0, 3), eq(9, 1), controlled_basis]),
+        &[(10, Int(1))],
+    );
+    let idle = all([eq(9, 0), eq(10, 0)]);
+    for (name, required) in [
+        ("SourceBasisRequiresExactlySeven", eq(1, 7)),
+        ("SourceBasisRequiresCurrentLock", eq(2, 1)),
+        ("SourceBasisAuthenticatesEverySource", Var(4).eq(Var(1))),
+        ("SourceBasisRequiresMatchingAuthenticatedBytes", eq(5, 1)),
+        ("SourceBasisRequiresGeneratedCurrentness", eq(6, 1)),
+        ("SourceBasisRequiresLinkedCurrentness", eq(7, 1)),
+        ("SourceBasisRequiresSourceCurrentness", eq(8, 1)),
+        ("SourceBasisPreservesOrderedPins", eq(3, 1)),
+    ] {
+        safe(&mut m, name, idle.clone().or(required));
+    }
+    safe(
+        &mut m,
+        "ReuseRequiresQualifiedSourceBasis",
+        eq(10, 0).or(eq(9, 1)),
+    );
+    // Retaining the exact predicate makes the abstraction's complete premise
+    // explicit even when the causal controls remove one admission conjunct.
+    safe(
+        &mut m,
+        "QualifiedSevenSourceBasisIsExact",
+        idle.or(exact_basis),
+    );
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = Vec::new();
     for (family, count) in [
@@ -569,6 +731,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (binding as fn(u8) -> Model, 5),
         (custody as fn(u8) -> Model, 6),
         (hidden_work as fn(u8) -> Model, 2),
+        (source_seven as fn(u8) -> Model, 8),
     ] {
         for control in 0..=count {
             out.push((
@@ -692,6 +855,69 @@ fn dream_proof_tools_good_models_are_nonvacuous() {
                 && s[6] == 0
                 && s[7] == 0),
             "empty census after hidden kind {kind} must remain unqualified"
+        );
+    }
+}
+
+#[test]
+fn dream_proof_tools_source_seven_controls_are_causal() {
+    for (control, property) in [
+        (1, "SourceBasisRequiresExactlySeven"),
+        (2, "SourceBasisRequiresCurrentLock"),
+        (3, "SourceBasisAuthenticatesEverySource"),
+        (4, "SourceBasisRequiresMatchingAuthenticatedBytes"),
+        (5, "SourceBasisRequiresGeneratedCurrentness"),
+        (6, "SourceBasisRequiresLinkedCurrentness"),
+        (7, "SourceBasisRequiresSourceCurrentness"),
+        (8, "SourceBasisPreservesOrderedPins"),
+    ] {
+        let bad = source_seven(control).check(100_000).unwrap();
+        assert!(
+            bad.violations
+                .iter()
+                .any(|v| v.property == property && v.cycle.is_empty()),
+            "source-seven control {control} did not reach safety invariant {property}"
+        );
+    }
+}
+
+#[test]
+fn dream_proof_tools_source_seven_good_basis_is_nonvacuous() {
+    let good = source_seven(0).check(100_000).unwrap();
+    assert!(good.violations.is_empty());
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[0] == 3 && s[1] == 7 && s[4] == 7 && s[9] == 1 && s[10] == 1),
+        "an exact authenticated seven-source current basis can qualify and be reused"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[0] == 2 && s[1] == 6 && s[2] == 1 && s[4] == 6 && s[9] == 0),
+        "a fully authenticated relabeled six-source basis is reachable but unqualified"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[0] == 2 && s[1] == 7 && s[2] == 0 && s[4] == 7 && s[9] == 0),
+        "a stale seven-source lock remains unqualified despite complete authentication"
+    );
+    assert!(
+        good.states
+            .iter()
+            .any(|s| s[0] == 2 && s[1] == 7 && s[4] == 6 && s[9] == 0),
+        "missing seventh authentication is reachable without qualifying the seven-source basis"
+    );
+    for field in [3, 5, 6, 7, 8] {
+        assert!(
+            good.states.iter().any(|s| s[0] == 2
+                && s[1] == 7
+                && s[4] == 7
+                && s[field] == 0
+                && s[9] == 0
+                && s[10] == 0),
+            "mismatched pin/auth/generated/link/source field {field} is reachable and refused"
         );
     }
 }
