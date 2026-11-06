@@ -1167,10 +1167,10 @@ fn foreground_pause_stale_activity_cancel_eof_and_deadline_settle() {
         worker.start(&job.start);
         let begin = Instant::now();
         loop {
-            if let w::WorkerOut::Progress(p) = worker.read() {
-                if p.phase == w::Phase::Paused {
-                    break;
-                }
+            if let w::WorkerOut::Progress(p) = worker.read()
+                && p.phase == w::Phase::Paused
+            {
+                break;
             }
         }
         assert!(begin.elapsed() < Duration::from_millis(100));
@@ -1655,10 +1655,10 @@ fn paused_owner_does_not_delay_another_process_and_owned_kill_never_completes() 
     worker.start(&first.start);
     let at = Instant::now();
     loop {
-        if let w::WorkerOut::Progress(p) = worker.read() {
-            if p.phase == w::Phase::Paused {
-                break;
-            }
+        if let w::WorkerOut::Progress(p) = worker.read()
+            && p.phase == w::Phase::Paused
+        {
+            break;
         }
     }
     assert!(at.elapsed() < Duration::from_millis(100));
@@ -1689,10 +1689,10 @@ fn paused_owner_does_not_delay_another_process_and_owned_kill_never_completes() 
     first.start.foreground = false;
     killed.start(&first.start);
     loop {
-        if let w::WorkerOut::Progress(p) = killed.read() {
-            if p.phase == w::Phase::Validate {
-                break;
-            }
+        if let w::WorkerOut::Progress(p) = killed.read()
+            && p.phase == w::Phase::Validate
+        {
+            break;
         }
     }
     killed.child.kill().unwrap();
@@ -2065,10 +2065,10 @@ fn cancel_after_retained_state_growth_reaps_with_paced_teardown() {
     let mut worker = job.launch();
     worker.start(&job.start);
     loop {
-        if let w::WorkerOut::Progress(p) = worker.read() {
-            if p.envelopes.0 >= 100 {
-                break;
-            }
+        if let w::WorkerOut::Progress(p) = worker.read()
+            && p.envelopes.0 >= 100
+        {
+            break;
         }
     }
     let begin = Instant::now();
@@ -2212,7 +2212,7 @@ async fn real_store_multi_mib_ir_and_typed_blob_bundle() {
     s.len = w::Number(job.bytes.len() as u64);
     s.sha256 = w::hash(&job.bytes);
     s.closed_seq = w::Number(closed.seq.unwrap().0);
-    let last = job.bytes.split_inclusive(|b| *b == b'\n').last().unwrap();
+    let last = job.bytes.split_inclusive(|b| *b == b'\n').next_back().unwrap();
     s.closed_line_sha256 = w::hash(&last[..last.len() - 1]);
     s.blobs = vec![w::Blob {
         sha256: w::Hex(reference.sha256.clone()),
