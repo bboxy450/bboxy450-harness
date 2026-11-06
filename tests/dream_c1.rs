@@ -2551,9 +2551,17 @@ fn bootstrap_earliest_gate_bypass_control_rejects_actual_prepermit_allocation() 
         held.marker.contains("argv_admissions=1"),
         "mutant did not execute its controlled allocation"
     );
-    assert!(
-        held.waiting_verdict().is_err(),
-        "actual earliest-gate checker accepted the causal bypass"
+    // This negative was collected through actual reap rather than positive
+    // readiness. Validate its real entry evidence first, so a missing entry
+    // cannot accidentally stand in for rejection of the actual allocation.
+    held.entry_trace = held.marker.clone();
+    held.entry_observed_ns = boot::monotonic_ns().unwrap();
+    entry_verdict(&held.entry_trace, held.entry_observed_ns).unwrap();
+    held.marker = held.entry_trace.lines().last().unwrap().to_owned() + "\n";
+    assert_eq!(
+        held.waiting_verdict(),
+        Err("controlled bootstrap span preceded permit"),
+        "the checker must reject the allocation itself"
     );
     let pid = held.child.as_ref().unwrap().id();
     assert!(!path.exists());
