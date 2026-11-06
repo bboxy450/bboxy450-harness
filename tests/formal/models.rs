@@ -6974,6 +6974,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (dream_read::failed_stop_terminal(14), "safety"),
         (dream_read::failed_stop_terminal(15), "safety"),
         (dream_read::failed_stop_terminal(16), "safety"),
+        (dream_read::failed_stop_terminal(17), "safety"),
         (dream_read::close_receive(0), "pass"),
         (dream_read::close_receive(1), "safety"),
         (dream_read::close_retirement(0), "pass"),

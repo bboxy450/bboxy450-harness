@@ -2620,9 +2620,15 @@ static int engine_pipe_io(struct engine_owner *owner) {
         if(owner->sent==owner->stdin_len){int fd=owner->input;owner->input=-1;if(close(fd)!=0)return engine_failure(owner,"source_changed","owned stdin close unresolved");}
         else {
             size_t n=owner->stdin_len-owner->sent;if(n>sizeof(bytes))n=sizeof(bytes);
-            ssize_t sent=write(owner->input,owner->stdin_bytes+owner->sent,n);
-            if(sent>0)owner->sent+=(size_t)sent;
-            else if(sent==0||(errno!=EAGAIN&&errno!=EWOULDBLOCK&&errno!=EINTR))return engine_failure(owner,"coverage_unknown","owned nonblocking stdin failed");
+            // This controller alone owns STOP state. Recheck immediately at
+            // EACH bounded write, including the next chunk of a partial input.
+            // Pending/terminal observation permits output drain and charging,
+            // but never new command payload for the consumed original grant.
+            if(!owner->stop_pending&&!owner->stop_terminal) {
+                ssize_t sent=write(owner->input,owner->stdin_bytes+owner->sent,n);
+                if(sent>0)owner->sent+=(size_t)sent;
+                else if(sent==0||(errno!=EAGAIN&&errno!=EWOULDBLOCK&&errno!=EINTR))return engine_failure(owner,"coverage_unknown","owned nonblocking stdin failed");
+            }
         }
     }
     for(unsigned stream=0;stream<2;stream++) {

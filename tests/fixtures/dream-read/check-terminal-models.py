@@ -20,14 +20,14 @@ ROOT = Path(__file__).resolve().parents[3]
 SUFFIXES = (
     "", "ErrnoAck", "RetryStop", "Resume", "LeaderOnly", "Roster", "Identity",
     "FailedEndpoint", "Controller", "Pipe", "Late", "Quantum", "Clock", "Debt",
-    "Reap", "UnknownExit", "WorkWhilePending",
+    "Reap", "UnknownExit", "WorkWhilePending", "PayloadWhilePending",
 )
 NAMES = [("Broken" if index else "") + "HarnessDreamReadFailedStop" + suffix
          for index, suffix in enumerate(SUFFIXES)]
 EXPECTED_PROPERTIES = {
     "ErrnoAck": "ConsumedFailureNeverBecomesStopAck",
     **{name: "PendingTerminalNeverRepeatsStopOrContinuesOrWorks"
-       for name in ("RetryStop", "Resume", "WorkWhilePending")},
+       for name in ("RetryStop", "Resume", "WorkWhilePending", "PayloadWhilePending")},
     **{name: "TerminalNeedsEveryIndependentOriginalFact" for name in (
         "LeaderOnly", "Roster", "Identity", "FailedEndpoint", "Controller",
         "Pipe", "Late", "Quantum", "Clock", "UnknownExit")},
@@ -64,7 +64,7 @@ def main():
     java, jar, pins = formal.tools(args.tools_target.resolve())
     rows = [line.split("\t") for line in (models / "manifest.tsv").read_text().splitlines()]
     if [row[0] for row in rows] != NAMES:
-        raise ValueError("focused native manifest must contain exactly all17 ordered decision66050 models")
+        raise ValueError("focused native manifest must contain exactly all18 ordered decision66050 models")
     generated_inputs = [models / "manifest.tsv", *(models / (name + suffix)
         for name in NAMES for suffix in (
             ".tla", ".cfg", "Graph.cfg", ".metadata.json", ".states", ".edges", ".native-trace"))]
@@ -120,7 +120,7 @@ def main():
     unchanged = before == after and generated_before == generated_after
     passed = unchanged and all(row["passed"] for row in results)
     evidence = {
-        "scope": "decision66050 all17 finite models only; no full-corpus or implementation refinement receipt",
+        "scope": "decision66050 all18 finite models only; no full-corpus or implementation refinement receipt",
         "passed": passed, "exit_code": 0 if passed else 1, "models": results,
         "native_state_cap": 100000, "reference_timeout_seconds": 60,
         "source_sha256_before": before, "source_sha256_after": after,

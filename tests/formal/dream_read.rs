@@ -22,7 +22,7 @@ use super::*;
 pub fn failed_stop_terminal(control: u8) -> Model {
     let suffix = ["", "ErrnoAck", "RetryStop", "Resume", "LeaderOnly", "Roster",
         "Identity", "FailedEndpoint", "Controller", "Pipe", "Late", "Quantum",
-        "Clock", "Debt", "Reap", "UnknownExit", "WorkWhilePending"][control as usize];
+        "Clock", "Debt", "Reap", "UnknownExit", "WorkWhilePending", "PayloadWhilePending"][control as usize];
     let mut m = base(&format!("DreamReadFailedStop{suffix}"), control != 0, &[
         ("phase", 6, 0), ("profile", 13, 0), ("rawErrnoEpermEsrch", 2, 0),
         ("consumedStopAttempts", 2, 0), ("leaderWnowaitOriginal", 1, 0),
@@ -32,7 +32,7 @@ pub fn failed_stop_terminal(control: u8) -> Model {
         ("lateAndRetiredIncluded", 1, 0), ("qWithinOrOver1ms", 2, 0),
         ("clockKnownOrdered", 1, 0), ("freshRestDebt", 1, 0),
         ("actualExactWait4AndGroupSettlement", 1, 0),
-        ("stoppedAck", 1, 0), ("continueCount", 1, 0), ("proofWork", 1, 0),
+        ("stoppedAck", 1, 0), ("continueCount", 1, 0), ("proofOrPayloadWork", 1, 0),
         ("terminalClassified", 1, 0), ("ownershipReleased", 1, 0),
     ]);
     const P: usize = 0; const CASE: usize = 1; const ERR: usize = 2;
@@ -96,7 +96,8 @@ pub fn failed_stop_terminal(control: u8) -> Model {
     ]), &[(DEBT, Int(0))]);
     for (mutant, name, slot) in [(2, "BrokenRepeatConsumedStop", ATT),
         (3, "BrokenContinueWhileTerminalPending", CONT),
-        (16, "BrokenProofWorkWhileTerminalPending", WORK)] {
+        (16, "BrokenProofWorkWhileTerminalPending", WORK),
+        (17, "BrokenPayloadWriteWhileTerminalPending", WORK)] {
         if control == mutant {
             act(&mut m, name, eq(P, 1), &[(slot, Int(if slot == ATT { 2 } else { 1 }))]);
         }
@@ -132,7 +133,7 @@ mod failed_stop_terminal_tests {
             std::fs::create_dir_all(root).unwrap();
         }
         let mut manifest = String::new();
-        for control in 0..=16 {
+        for control in 0..=17 {
             let model = failed_stop_terminal(control);
             let checked = model.check(100_000).unwrap();
             assert!(checked.violations.iter().all(|v| v.property != "TypeOK"));

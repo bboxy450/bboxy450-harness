@@ -952,17 +952,29 @@ impl HelperSummary {
         let last_stop = m.last_stop;
         let first_stop = m.first_failed_stop;
         eprintln!(
-            "dream-read helper_continuity profile=read-helper-native/1 query_fallbacks={} terminal_observations={} last_guard={} last_native_code={}",
-            m.continuity_query_fallbacks, m.continuity_terminal_observations,
-            m.last_continuity_guard, m.last_continuity_native_code
+            "dream-read helper_continuity profile=read-helper-native/1 query_fallbacks={} terminal_observations={} pending_observations={} last_guard={} last_native_code={}",
+            m.continuity_query_fallbacks,
+            m.continuity_terminal_observations,
+            m.continuity_pending_observations,
+            m.last_continuity_guard,
+            m.last_continuity_native_code
         );
         for (kind, receipt) in [("last", last_stop), ("first_failed", first_stop)] {
             if receipt.attempt != 0 {
                 eprintln!(
                     "dream-read helper_stop_identity kind={} sequence={} pid={} pgid={} birth={} start_abstime={} audit_version={} attempt={} result={} errno={} observed_ns={} injected={}",
-                    kind, receipt.sequence, receipt.pid, receipt.pgid, receipt.birth,
-                    receipt.start_abstime, receipt.audit_version, receipt.attempt,
-                    receipt.result, receipt.rawerrno, receipt.observed_ns, receipt.injected
+                    kind,
+                    receipt.sequence,
+                    receipt.pid,
+                    receipt.pgid,
+                    receipt.birth,
+                    receipt.start_abstime,
+                    receipt.audit_version,
+                    receipt.attempt,
+                    receipt.result,
+                    receipt.rawerrno,
+                    receipt.observed_ns,
+                    receipt.injected
                 );
             }
         }
@@ -1230,7 +1242,7 @@ impl super::resolve::ProofPace for ProofClock {
             // ordinary debt. Open the single IO handoff before grants become ready.
             h.settle_creation(&control)
                 .map_err(|_| super::entry::Invalid("helper creation handoff refused"))?;
-            h.begin_pipe()
+            h.begin_pipe_accounting()
                 .map_err(|_| super::entry::Invalid("helper IO handoff already open"))?;
             self.helper_clock = Some(cpu_ns());
             self.helper_wall = Some(Instant::now());
@@ -1408,7 +1420,7 @@ impl super::resolve::ProofPace for ProofClock {
         if had_pipe {
             let _ = h.account_pipe(&control, pending, pending_wall);
         }
-        h.begin_pipe()
+        h.begin_pipe_accounting()
             .map_err(|_| super::entry::Invalid("retirement owner scope already open"))?;
         drop(helper);
         // This existing owner reports its whole stop-wait prefix before the
@@ -1499,7 +1511,7 @@ impl super::resolve::ProofPace for ProofClock {
             .filter(|h| h.identity.ticket() == ticket)
             .ok_or(super::entry::Invalid("helper retirement custody changed"))?;
         if !merged_retirement {
-            h.begin_pipe()
+            h.begin_pipe_accounting()
                 .map_err(|_| super::entry::Invalid("retirement signal scope already open"))?;
         }
         h.retiring = true; // serialized handoff BEFORE final signals or any reap
@@ -1723,6 +1735,9 @@ impl super::resolve::ProofPace for ProofClock {
         m.continuity_terminal_observations = m
             .continuity_terminal_observations
             .saturating_add(h.metrics.continuity_terminal_observations);
+        m.continuity_pending_observations = m
+            .continuity_pending_observations
+            .saturating_add(h.metrics.continuity_pending_observations);
         if h.metrics.last_continuity_guard != 0 {
             m.last_continuity_guard = h.metrics.last_continuity_guard;
             m.last_continuity_native_code = h.metrics.last_continuity_native_code;
@@ -1741,6 +1756,38 @@ impl super::resolve::ProofPace for ProofClock {
         self.helper_clock = None;
         self.helper_wall = None;
         Ok(())
+    }
+    fn helper_payload_write(
+        &mut self,
+        ticket: super::resolve::HelperTicket,
+        write: &mut dyn FnMut() -> std::io::Result<usize>,
+    ) -> Result<std::io::Result<usize>, super::entry::Invalid> {
+        let control = self.budget.borrow().control.clone();
+        let helper = control
+            .helper
+            .lock()
+            .map_err(|_| super::entry::Invalid("helper input custody unavailable"))?;
+        let h = helper
+            .as_ref()
+            .filter(|h| h.identity.ticket() == ticket)
+            .ok_or(super::entry::Invalid("helper input custody mismatch"))?;
+        if h.retiring || control.error().is_some() {
+            return Err(super::entry::Invalid("helper input owner stopped"));
+        }
+        if h.payload_input_blocked() || !h.ready || control.foreground.load(Ordering::Acquire) {
+            return Ok(Err(std::io::ErrorKind::WouldBlock.into()));
+        }
+        if !h.payload_pipe_is_open() || self.helper_clock.is_none() {
+            return Err(super::entry::Invalid(
+                "helper input has no admitted IO span",
+            ));
+        }
+        // Keep the same owner mutex through this one prechecked nonblocking,
+        // at-most4KiB write. STOP consumption cannot interleave with admission.
+        // Existing helper IO clocks charge this whole call, including the lock.
+        let result = write();
+        drop(helper);
+        Ok(result)
     }
     fn helper_poll(&mut self, ticket: HelperTicket) -> Result<(), super::entry::Invalid> {
         let control = self.budget.borrow().control.clone();
@@ -1804,7 +1851,8 @@ impl super::resolve::ProofPace for ProofClock {
                 .as_mut()
                 .filter(|h| h.identity.ticket() == ticket && !h.retiring)
                 .ok_or(super::entry::Invalid("helper custody mismatch"))?;
-            let blocked = (h.pending_closure() && !h.running)
+            let blocked = h.terminal_observation_pending()
+                || (h.pending_closure() && !h.running)
                 || h.pending_corroboration()
                 || Instant::now() < h.debt_until
                 || control.foreground.load(Ordering::Acquire)
@@ -3098,6 +3146,84 @@ mod helper_tests {
             .unwrap()
             .identity
             .ticket()
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn payload_write_is_fenced_between_batch_rounds_by_the_original_owner() {
+        use std::io::{Read, Write};
+        use std::os::unix::net::UnixStream;
+        for accounting_only in [false, true] {
+            let (mut clock, _, control) = owner();
+            let (mut child, pid) = retirement_child(&control);
+            control.read_pay();
+            control.foreground.store(false, Ordering::Release);
+            control.helper.lock().unwrap().as_mut().unwrap().ready = true;
+            let ticket = retirement_ticket(&control);
+            let (mut input, mut observed) = UnixStream::pair().unwrap();
+            input.set_nonblocking(true).unwrap();
+            observed.set_nonblocking(true).unwrap();
+            if accounting_only {
+                control
+                    .helper
+                    .lock()
+                    .unwrap()
+                    .as_mut()
+                    .unwrap()
+                    .begin_pipe_accounting()
+                    .unwrap();
+                clock.helper_clock = Some(cpu_ns());
+                clock.helper_wall = Some(Instant::now());
+            } else {
+                begin_fixture_pipe(&mut clock, &control);
+            }
+            let mut writes = 0;
+            let mut write = || {
+                assert!(
+                    control.helper.try_lock().is_err(),
+                    "write holds original owner"
+                );
+                writes += 1;
+                input.write(b"first")
+            };
+            let first = clock.helper_payload_write(ticket, &mut write);
+            if accounting_only {
+                assert!(
+                    first.is_err(),
+                    "accounting entry carries no payload authority"
+                );
+                assert_eq!(writes, 0);
+            } else {
+                assert_eq!(first.unwrap().unwrap(), 5);
+                control
+                    .helper
+                    .lock()
+                    .unwrap()
+                    .as_mut()
+                    .unwrap()
+                    .fixture_consume_pending_stop()
+                    .unwrap();
+                let refused = clock.helper_payload_write(ticket, &mut write).unwrap();
+                assert_eq!(refused.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+                assert_eq!(writes, 1, "next batch round never invokes the writer");
+            }
+            let mut bytes = [0; 16];
+            if !accounting_only {
+                assert_eq!(observed.read(&mut bytes).unwrap(), 5);
+                assert_eq!(&bytes[..5], b"first");
+            }
+            assert_eq!(
+                observed.read(&mut bytes).unwrap_err().kind(),
+                std::io::ErrorKind::WouldBlock,
+                "no bytes crossed the revoked or accounting-only boundary"
+            );
+            // This is a source-known admission-state control, not a native
+            // failed-signal or qualification claim. Cancel and actually reap
+            // its own still-stopped child through the existing retirement lane.
+            control.cancel.store(1, Ordering::Release);
+            let _ = clock.helper_retire(ticket);
+            assert!(control.helper.lock().unwrap().as_ref().unwrap().retiring);
+            reap_private_child(&mut child, pid);
+        }
     }
     #[cfg(target_os = "macos")]
     #[test]

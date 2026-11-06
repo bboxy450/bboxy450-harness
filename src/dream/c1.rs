@@ -745,6 +745,7 @@ pub(crate) struct HelperGroup {
     pub(crate) identity: super::resolve::HelperIdentity,
     stop_requested: bool,
     stop_outcome: HelperStopOutcome,
+    query_terminal_pending: bool,
     pub(crate) debt_until: Instant,
     pub(crate) lane_cpu: u64,
     members: [HelperMember; 2],
@@ -761,6 +762,7 @@ pub(crate) struct HelperGroup {
     grant_commit_pending: bool,
     pipe_open: bool,
     pipe_active: bool,
+    payload_admitted: bool,
     corroboration_revision: u64,
     observed_post_revision: u64,
     post_proof_pending: bool,
@@ -901,6 +903,16 @@ impl HelperObservationFailure {
     fn shifted(mut self, base: u8) -> Self {
         self.guard += base;
         self
+    }
+    fn is_proc_esrch(self) -> bool {
+        // Mach status3 is not errno ESRCH. Only these libproc query guards
+        // record errno; task-name/task-info kernel statuses never enter here.
+        matches!(self.kind, HelperObservationKind::NativeUnavailable)
+            && self.native_code == libc::ESRCH
+            && matches!(
+                self.guard,
+                41 | 47 | 50 | 53 | 57 | 61 | 67 | 75 | 77 | 81 | 84 | 93 | 101 | 107
+            )
     }
 }
 #[cfg(target_os = "macos")]
@@ -1151,6 +1163,7 @@ pub(crate) struct HelperMetrics {
     pub(crate) first_failure_sample_stage: u8,
     pub(crate) continuity_query_fallbacks: u64,
     pub(crate) continuity_terminal_observations: u64,
+    pub(crate) continuity_pending_observations: u64,
     pub(crate) last_continuity_guard: u8,
     pub(crate) last_continuity_native_code: i32,
     sample_stage: u8,
@@ -1208,6 +1221,33 @@ impl HelperGroup {
     }
     pub(crate) fn needs_active_poll(&self) -> bool {
         self.running && !self.retiring && !self.admission_failed
+    }
+    /// Before terminal proof, only the already owned raw IO/control handoff
+    /// remains available. No new payload-pipe scope may be opened.
+    pub(crate) fn terminal_observation_pending(&self) -> bool {
+        self.stop_outcome == HelperStopOutcome::PendingTerminal
+    }
+    /// Once a failed STOP is consumed, neither pending observation nor proved
+    /// terminal permits another stdin payload effect. Raw drain is separate.
+    pub(crate) fn payload_input_blocked(&self) -> bool {
+        matches!(
+            self.stop_outcome,
+            HelperStopOutcome::PendingTerminal | HelperStopOutcome::TerminalProven
+        )
+    }
+    #[cfg(test)]
+    pub(crate) fn fixture_consume_pending_stop(&mut self) -> Result<(), ()> {
+        // Byte-admission control only: consume the real transition machinery,
+        // retain the exact current receipt and label its injected errno. The
+        // test-only signal hook performs NO native STOP or other new effect.
+        if self.stop_requested {
+            return Err(());
+        }
+        self.injected_stop_errno = Some(libc::EPERM);
+        match self.request_group_stop()? {
+            HelperStopOutcome::PendingTerminal => Ok(()),
+            _ => Err(()),
+        }
     }
     fn signal_group_stop(&mut self) -> HelperStopReceipt {
         #[cfg(test)]
@@ -1513,12 +1553,26 @@ impl HelperGroup {
         self.retiring && self.accounting_settled
     }
     pub(crate) fn begin_pipe(&mut self) -> Result<(), ()> {
+        if self.terminal_observation_pending() {
+            return Err(());
+        }
+        self.begin_pipe_accounting()?;
+        self.payload_admitted = true;
+        Ok(())
+    }
+    /// A bounded accounting/raw-drain/retirement span carries no authority for
+    /// stdin bytes, including when it began before a terminal transition.
+    pub(crate) fn begin_pipe_accounting(&mut self) -> Result<(), ()> {
         if self.pipe_open {
             return Err(());
         }
         self.pipe_open = true;
         self.pipe_active = self.pending_closure();
+        self.payload_admitted = false;
         Ok(())
+    }
+    pub(crate) fn payload_pipe_is_open(&self) -> bool {
+        self.pipe_open && self.payload_admitted && !self.admission_failed
     }
     pub(crate) fn pipe_is_open(&self) -> bool {
         self.pipe_open
@@ -1551,6 +1605,7 @@ impl HelperGroup {
             return Err(());
         }
         self.pipe_open = false;
+        self.payload_admitted = false;
         self.metrics.pipe_cpu_ns = self.metrics.pipe_cpu_ns.saturating_add(cpu_ns);
         if cpu_ns == u64::MAX || wall_ns == u64::MAX {
             self.metrics.clock_failures = self.metrics.clock_failures.saturating_add(1);
@@ -2408,10 +2463,37 @@ impl HelperGroup {
         self.metrics.sample_stage = failure.guard;
         self.metrics.last_continuity_guard = failure.guard;
         self.metrics.last_continuity_native_code = failure.native_code;
+        let eligible_query = failure.is_proc_esrch();
+        let stop = self.metrics.last_stop;
+        let defer_original_query = eligible_query
+            && failure.guard == 41
+            && self.stop_outcome == HelperStopOutcome::PendingTerminal
+            && self.stop_requested
+            && self.running
+            && !self.retiring
+            && !self.admission_failed
+            && self.grant.opened
+            && !self.grant.closed
+            && stop.result == -1
+            && matches!(stop.rawerrno, libc::EPERM | libc::ESRCH)
+            && stop.sequence == self.identity.sequence
+            && stop.pid == self.identity.pid
+            && stop.pgid == self.pgid
+            && stop.birth == self.identity.start_identity
+            && stop.start_abstime == self.members[0].start_abstime
+            && stop.audit_version == self.members[0].audit_version
+            && stop.attempt == self.metrics.stop_attempts
+            && self.members[0].pid == self.identity.pid
+            && self.members[0].birth == self.identity.start_identity
+            && self.members[0].audit_version != 0
+            && self.members[0].final_image_version == self.members[0].audit_version;
         let result = match failure.kind {
             HelperObservationKind::Mismatch => Err(()),
             HelperObservationKind::NativeUnavailable | HelperObservationKind::ExitDuringRead
-                if self.metrics.coverage_known && self.metrics.clock_failures == 0 =>
+                if (eligible_query
+                    || matches!(failure.kind, HelperObservationKind::ExitDuringRead))
+                    && self.metrics.coverage_known
+                    && self.metrics.clock_failures == 0 =>
             {
                 // This is ONE independent terminal observation, not a retry of
                 // the failed native query or any STOP/CONT. Neither query errno
@@ -2422,8 +2504,9 @@ impl HelperGroup {
                 match self.observe_leader_exit() {
                     Ok(Some(hint)) => {
                         self.metrics.sample_stage = 71; // full original terminal proof
+                        let was_pending = self.query_terminal_pending;
                         let proved = self.sample_exited_roster_with_hint(hint);
-                        if proved == Ok(true) {
+                        if proved == Ok(true) && !was_pending {
                             self.metrics.continuity_terminal_observations = self
                                 .metrics
                                 .continuity_terminal_observations
@@ -2433,7 +2516,22 @@ impl HelperGroup {
                     }
                     Ok(None) => {
                         self.metrics.sample_stage = 72;
-                        Err(())
+                        if defer_original_query {
+                            // BSDINFO(arg0) ESRCH is not exit. Decision66050
+                            // already permits bounded exact observation while
+                            // this consumed failed STOP remains pending. Keep
+                            // the ORIGINAL windows open and every controller/
+                            // pipe cost in Q; helper_tick enforces the unchanged
+                            // <=1ms/deadline before any further work can resume.
+                            self.query_terminal_pending = true;
+                            self.metrics.continuity_pending_observations = self
+                                .metrics
+                                .continuity_pending_observations
+                                .saturating_add(1);
+                            Ok(false)
+                        } else {
+                            Err(())
+                        }
                     }
                     Err(()) => {
                         self.metrics.sample_stage = 73;
@@ -2505,8 +2603,8 @@ impl HelperGroup {
                     thread::sleep(Duration::from_micros(100));
                 }
             }
-            let current =
-                helper_audit_member_checked(prior.pid, parent).map_err(|f| f.shifted(40))?;
+            let current = helper_audit_member_checked(prior.pid, parent)
+                .map_err(|f| f.shifted(if index == 0 { 40 } else { 150 }))?;
             // Capture any actual exec successor before refusing it. No STOP is
             // sent to either old or new task, and no image transition is admitted.
             self.retain_incarnation(current)?;
@@ -2609,8 +2707,8 @@ impl HelperGroup {
             if usage.ri_proc_exit_abstime != 0 {
                 return Err(HelperObservationFailure::exited(59));
             }
-            let after =
-                helper_audit_member_checked(prior.pid, parent).map_err(|f| f.shifted(60))?;
+            let after = helper_audit_member_checked(prior.pid, parent)
+                .map_err(|f| f.shifted(if index == 0 { 60 } else { 160 }))?;
             self.retain_incarnation(after)?;
             self.metrics.sample_stage = 69;
             if after.birth != prior.birth || after.token.value != prior.audit_token.value {
@@ -2820,6 +2918,7 @@ impl HelperGroup {
             identity,
             stop_requested: false,
             stop_outcome: HelperStopOutcome::None,
+            query_terminal_pending: false,
             debt_until: now,
             lane_cpu: 0,
             members: [HelperMember::default(); 2],
@@ -2836,6 +2935,7 @@ impl HelperGroup {
             grant_commit_pending: false,
             pipe_open: false,
             pipe_active: false,
+            payload_admitted: false,
             corroboration_revision: 0,
             observed_post_revision: 0,
             post_proof_pending: false,
@@ -3372,6 +3472,13 @@ impl HelperGroup {
         self.confirmed_stopped = true;
         if self.stop_outcome == HelperStopOutcome::PendingTerminal {
             self.stop_outcome = HelperStopOutcome::TerminalProven;
+        }
+        if self.query_terminal_pending {
+            self.metrics.continuity_terminal_observations = self
+                .metrics
+                .continuity_terminal_observations
+                .saturating_add(1);
+            self.query_terminal_pending = false;
         }
         Ok(true)
     }
@@ -7370,6 +7477,84 @@ mod helper_admission_tests {
     }
 
     #[test]
+    fn terminal_payload_fence_keeps_accounting_and_raw_drain_separate_from_stdin_authority() {
+        // State/accounting controls only: no fixture PID is signalled and no
+        // payload callback runs here. The adapter's real write uses this same
+        // predicate while holding Control.helper through the bounded effect.
+        for state in [
+            HelperStopOutcome::None,
+            HelperStopOutcome::PendingTerminal,
+            HelperStopOutcome::TerminalProven,
+        ] {
+            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+            let mut helper = accounting_group();
+            helper.grant.opened = true;
+            helper.grant.reserved = 1;
+            helper.grant.t0_ns = bootstrap::monotonic_ns().unwrap();
+            helper.stop_outcome = state;
+            assert_eq!(
+                helper.terminal_observation_pending(),
+                state == HelperStopOutcome::PendingTerminal
+            );
+            assert_eq!(
+                helper.payload_input_blocked(),
+                state != HelperStopOutcome::None
+            );
+            let original_t0 = helper.grant.t0_ns;
+            helper.begin_pipe_accounting().unwrap();
+            assert!(helper.pipe_is_open() && helper.pipe_active);
+            assert!(
+                !helper.payload_pipe_is_open(),
+                "accounting scope never authorizes stdin"
+            );
+            helper.account_pipe(&control, 100, 100).unwrap();
+            assert!(!helper.pipe_is_open() && !helper.payload_admitted);
+            if state == HelperStopOutcome::PendingTerminal {
+                assert!(
+                    helper.begin_pipe().is_err(),
+                    "pending cannot open a new transport scope"
+                );
+                assert!(!helper.pipe_is_open() && !helper.payload_admitted);
+            } else {
+                helper.begin_pipe().unwrap();
+                assert!(helper.payload_pipe_is_open());
+                if state == HelperStopOutcome::TerminalProven {
+                    assert!(
+                        helper.payload_input_blocked(),
+                        "terminal raw drain is allowed, but per-write stdin admission remains blocked"
+                    );
+                }
+                helper.account_pipe(&control, 100, 100).unwrap();
+                assert!(!helper.payload_pipe_is_open() && !helper.payload_admitted);
+            }
+            assert_eq!(
+                helper.grant.t0_ns, original_t0,
+                "accounting never resets the original grant"
+            );
+            assert_eq!(helper.stop_outcome, state);
+        }
+        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+        let mut prequeued = accounting_group();
+        prequeued.begin_pipe().unwrap();
+        assert!(
+            !prequeued.pipe_active && prequeued.payload_pipe_is_open(),
+            "paid stopped prequeue remains a payload scope; active is cost attribution only"
+        );
+        prequeued.account_pipe(&control, 100, 100).unwrap();
+        let mut failed = accounting_group();
+        failed.grant.opened = true;
+        failed.admission_failed = true;
+        failed.begin_pipe().unwrap();
+        assert!(failed.pipe_is_open() && failed.pipe_active);
+        assert!(
+            !failed.payload_pipe_is_open(),
+            "failed helper cannot authorize a payload callback"
+        );
+        failed.account_pipe(&control, 100, 100).unwrap();
+        assert!(!failed.payload_admitted);
+    }
+
+    #[test]
     fn controller_finalization_tail_charges_once_without_idle_debt_or_lost_observation() {
         let control = Control::fixture(Instant::now() + Duration::from_secs(2));
         let mut helper = accounting_group();
@@ -8717,7 +8902,11 @@ mod helper_admission_tests {
                     !helper.exit_before_pending_query && !helper.exit_before_member_query,
                     "the deterministic held-order effect actually ran"
                 );
-                assert_eq!(helper.metrics.continuity_query_fallbacks, 1);
+                assert_eq!(
+                    helper.metrics.continuity_query_fallbacks,
+                    u64::from(expected_terminal),
+                    "other native errors are fatal, with no terminal observation attempt"
+                );
                 assert_eq!(
                     helper.metrics.continuity_terminal_observations,
                     u64::from(expected_terminal)
@@ -8821,6 +9010,253 @@ mod helper_admission_tests {
                     helper.metrics.coverage_known
                 );
                 assert_eq!(helper.metrics.stop_attempts, 1);
+            }
+            control.read_pay();
+            proof.helper_detach(ticket).unwrap();
+            assert!(control.helper.lock().unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn esrch_live_query_remains_unacknowledged_pending_until_terminal_or_real_budget_failure() {
+        assert!(
+            !HelperObservationFailure::native(44, libc::ESRCH).is_proc_esrch(),
+            "Mach status3 is not a proc errno"
+        );
+        assert!(!HelperObservationFailure::native(41, libc::EIO).is_proc_esrch());
+        for mode in ["delayed_exit", "over_q", "unknown_clock", "delivered_esrch"] {
+            let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
+            let mut proof = crate::dream::read::helper_fixture_clock(control.clone());
+            let mut attr = std::mem::MaybeUninit::<libc::posix_spawnattr_t>::uninit();
+            assert_eq!(unsafe { libc::posix_spawnattr_init(attr.as_mut_ptr()) }, 0);
+            let mut attr = unsafe { attr.assume_init() };
+            assert_eq!(unsafe { libc::posix_spawnattr_setpgroup(&mut attr, 0) }, 0);
+            assert_eq!(
+                unsafe {
+                    libc::posix_spawnattr_setflags(
+                        &mut attr,
+                        (libc::POSIX_SPAWN_START_SUSPENDED | libc::POSIX_SPAWN_SETPGROUP) as i16,
+                    )
+                },
+                0
+            );
+            let argv = [
+                c"sleep".as_ptr().cast_mut(),
+                c"30".as_ptr().cast_mut(),
+                std::ptr::null_mut(),
+            ];
+            let env = [c"LANG=C".as_ptr().cast_mut(), std::ptr::null_mut()];
+            let mut pid = 0;
+            let result = unsafe {
+                libc::posix_spawn(
+                    &mut pid,
+                    c"/bin/sleep".as_ptr(),
+                    std::ptr::null(),
+                    &attr,
+                    argv.as_ptr(),
+                    env.as_ptr(),
+                )
+            };
+            assert!(pid > 0, "retain the positive owned native effect");
+            let mut child = OwnedChild {
+                pid,
+                control: control.clone(),
+                reaped: false,
+            };
+            assert_eq!(unsafe { libc::posix_spawnattr_destroy(&mut attr) }, 0);
+            assert_eq!(result, 0);
+            let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
+            let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+            assert_eq!(
+                unsafe {
+                    libc::proc_pidinfo(
+                        pid,
+                        libc::PROC_PIDTBSDINFO,
+                        0,
+                        info.as_mut_ptr().cast(),
+                        size,
+                    )
+                },
+                size
+            );
+            let info = unsafe { info.assume_init() };
+            let identity = super::super::resolve::HelperIdentity {
+                sequence: 1,
+                pid,
+                pgid: pid,
+                start_identity: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec,
+                expected_members: 1,
+                image: std::fs::canonicalize("/bin/sleep").unwrap(),
+                descendant_image: None,
+            };
+            let ticket = identity.ticket();
+            proof.helper_attach(identity).unwrap();
+            let active_at = cpu_ns();
+            {
+                let mut owner = control.helper.lock().unwrap();
+                let helper = owner.as_mut().unwrap();
+                helper.open_grant().unwrap();
+                helper.running = true;
+                helper.confirmed_stopped = false;
+                if mode == "delivered_esrch" {
+                    assert_eq!(
+                        helper.request_group_stop(),
+                        Ok(HelperStopOutcome::Delivered)
+                    );
+                } else {
+                    assert_eq!(unsafe { libc::kill(-pid, libc::SIGCONT) }, 0);
+                    helper.injected_stop_errno = Some(libc::EPERM);
+                    assert_eq!(
+                        helper.request_group_stop(),
+                        Ok(HelperStopOutcome::PendingTerminal)
+                    );
+                }
+                assert_eq!(super::super::resolve::helper_exited(pid), Ok(false));
+                // Explicit source-known injection of the exact BSD query outcome.
+                // The actual original is still live and cannot supply an exit ACK.
+                let observed =
+                    helper.continuity_failure(HelperObservationFailure::native(41, libc::ESRCH));
+                if mode == "delivered_esrch" {
+                    assert!(
+                        observed.is_err(),
+                        "a query cannot create failed-STOP authority"
+                    );
+                    assert!(!helper.query_terminal_pending && !helper.metrics.coverage_known);
+                    assert_eq!(helper.metrics.continuity_pending_observations, 0);
+                    helper.reject(&control, 5);
+                } else {
+                    assert_eq!(observed, Ok(false));
+                    assert!(helper.query_terminal_pending && helper.metrics.coverage_known);
+                    assert_eq!(helper.metrics.continuity_pending_observations, 1);
+                    assert_eq!(helper.stop_outcome, HelperStopOutcome::PendingTerminal);
+                    assert!(helper.open_grant().is_err());
+                    assert!(helper.request_group_stop().is_err());
+                }
+                assert!(!helper.confirmed_stopped && !helper.grant.closed && helper.running);
+                assert_eq!(helper.grant.slots[0].ack_ns, None);
+                assert_eq!(helper.metrics.continuity_terminal_observations, 0);
+                assert_eq!(helper.metrics.stop_attempts, 1);
+                let _ = helper
+                    .account_controller(&control, control.observe_interval(active_at, cpu_ns()));
+                if mode == "over_q" {
+                    // Conservative old-window fault: expand, never shorten, the
+                    // original live interval and exercise the real tick's Q guard.
+                    helper.grant.t0_ns = bootstrap::monotonic_ns()
+                        .unwrap()
+                        .checked_sub(2 * UNIT_NS)
+                        .unwrap();
+                }
+                if mode == "unknown_clock" {
+                    helper.last_clock_ns = Some(u64::MAX);
+                }
+            }
+            if matches!(mode, "over_q" | "unknown_clock") {
+                control.helper_tick();
+                let owner = control.helper.lock().unwrap();
+                let helper = owner.as_ref().unwrap();
+                assert!(helper.admission_failed && !helper.ready && !helper.confirmed_stopped);
+                assert_eq!(helper.metrics.continuity_terminal_observations, 0);
+                assert_eq!(helper.metrics.stop_attempts, 1);
+                assert_eq!(super::super::resolve::helper_exited(pid), Ok(false));
+                if mode == "over_q" {
+                    assert_eq!(control.error(), Some(w::Code::ResourceLimit));
+                } else {
+                    assert!(helper.metrics.clock_failures > 0 && !helper.metrics.coverage_known);
+                }
+            }
+            {
+                let owner = control.helper.lock().unwrap();
+                let helper = owner.as_ref().unwrap();
+                assert_eq!(
+                    helper_token_signal(&helper.members[0].audit_token, libc::SIGKILL),
+                    Ok(())
+                );
+            }
+            let until = Instant::now() + Duration::from_secs(1);
+            while super::super::resolve::helper_exited(pid) != Ok(true) {
+                assert!(Instant::now() < until);
+                thread::sleep(Duration::from_micros(100));
+            }
+            if mode == "delayed_exit" {
+                control.helper_tick();
+                let mut owner = control.helper.lock().unwrap();
+                let helper = owner.as_mut().unwrap();
+                assert!(helper.grant.closed && helper.confirmed_stopped);
+                assert!(!helper.query_terminal_pending);
+                assert_eq!(helper.metrics.continuity_terminal_observations, 1);
+                assert_eq!(helper.stop_outcome, HelperStopOutcome::TerminalProven);
+                let finalize_at = cpu_ns();
+                helper.finish_grant(&control, 0);
+                helper.account_finalization_tail(
+                    &control,
+                    control.observe_interval(finalize_at, cpu_ns()),
+                );
+            }
+            let reap_at = cpu_ns();
+            let reap_wall = Instant::now();
+            let mut status = 0;
+            let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+            loop {
+                let reaped = unsafe { libc::wait4(pid, &mut status, 0, usage.as_mut_ptr()) };
+                if reaped == pid {
+                    child.reaped = true;
+                    break;
+                }
+                assert_eq!(
+                    std::io::Error::last_os_error().raw_os_error(),
+                    Some(libc::EINTR)
+                );
+            }
+            let usage = unsafe { usage.assume_init() };
+            assert!(libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGKILL);
+            assert_eq!(unsafe { libc::kill(-pid, 0) }, -1);
+            assert_eq!(
+                std::io::Error::last_os_error().raw_os_error(),
+                Some(libc::ESRCH)
+            );
+            {
+                let mut owner = control.helper.lock().unwrap();
+                let helper = owner.as_mut().unwrap();
+                helper.retiring = true;
+                let user = (usage.ru_utime.tv_sec as u64 * 1_000_000
+                    + usage.ru_utime.tv_usec as u64)
+                    * 1000;
+                let system = (usage.ru_stime.tv_sec as u64 * 1_000_000
+                    + usage.ru_stime.tv_usec as u64)
+                    * 1000;
+                let _ = helper.reconcile_usage(&control, user, system, usage.ru_maxrss as u64);
+                let used = control.observe_interval(reap_at, cpu_ns());
+                let wall = u64::try_from(reap_wall.elapsed().as_nanos()).unwrap_or(u64::MAX);
+                let mut observed = Budget::new_read(
+                    control.clone(),
+                    Arc::new(crossbeam_queue::ArrayQueue::new(1)),
+                );
+                let _ = observed.read_charge(used, used, wall, UNIT_NS);
+                let _ = helper.commit_post_observation(&control, used, wall);
+                let receipt = helper.metrics.worst_grant;
+                eprintln!(
+                    "continuity_esrch_pending source_known_injected_query=true mode={mode} pid={pid} birth={} native_guard={} native_code={} pending_observations={} terminal_observations={} stop_attempts={} t0_ns={} end_ns={} close_ns={} w_ns={} a_ns={} c_ns={} q_ns={} debt_ns={} wait4_pid={pid} wait4_user_ns={user} wait4_system_ns={system} clock_failures={} resource_verdict={:?} full_command_qualification=false",
+                    ticket.start_identity,
+                    helper.metrics.last_continuity_guard,
+                    helper.metrics.last_continuity_native_code,
+                    helper.metrics.continuity_pending_observations,
+                    helper.metrics.continuity_terminal_observations,
+                    helper.metrics.stop_attempts,
+                    receipt.t0_ns,
+                    receipt.end_ns[0],
+                    receipt.close_ns,
+                    receipt.w_ns,
+                    receipt.a_ns,
+                    receipt.c_ns,
+                    receipt.q_ns,
+                    helper.metrics.debt_ns,
+                    helper.metrics.clock_failures,
+                    control.error()
+                );
+                assert_eq!(helper.metrics.stop_attempts, 1);
+                if mode != "delayed_exit" {
+                    assert!(helper.admission_failed);
+                }
             }
             control.read_pay();
             proof.helper_detach(ticket).unwrap();

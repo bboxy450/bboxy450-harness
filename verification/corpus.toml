@@ -2160,3 +2160,8 @@ frontend = "project"
 name = "BrokenHarnessDreamReadFailedStopWorkWhilePending"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadFailedStopPayloadWhilePending"
+expected = "safety"
+frontend = "project"

@@ -404,6 +404,13 @@ pub(crate) trait ProofPace {
     }
     fn helper_refused(&mut self, _reason: &'static str) {}
     fn helper_poll(&mut self, ticket: HelperTicket) -> Result<(), Invalid>;
+    /// Authorize each bounded input write under the existing controller owner.
+    /// A consumed failed STOP may revoke input between two writes in a batch.
+    fn helper_payload_write(
+        &mut self,
+        ticket: HelperTicket,
+        write: &mut dyn FnMut() -> std::io::Result<usize>,
+    ) -> Result<std::io::Result<usize>, Invalid>;
     /// Stop controller signals before the pinned leader is reaped, then perform
     /// the last group kill while that leader still prevents pgid reuse.
     fn helper_retire(&mut self, ticket: HelperTicket) -> Result<(), Invalid>;
@@ -1843,14 +1850,27 @@ fn selected_command_input_owned(
                             stdin.take();
                         } else if let Some(stdin) = stdin.as_mut() {
                             let end = (sent + chunk.len()).min(input.len());
-                            match stdin.write(&input[sent..end]) {
+                            let written = SELECTED.with(|slot| {
+                                slot.borrow_mut()
+                                    .as_mut()
+                                    .ok_or(Invalid("helper input owner unavailable"))?
+                                    .pace
+                                    .helper_payload_write(retained_ticket, &mut || {
+                                        stdin.write(&input[sent..end])
+                                    })
+                            })?;
+                            match written {
                                 Ok(0) => return Err(Invalid("helper stdin stalled")),
                                 Ok(n) => sent += n,
                                 Err(e)
                                     if matches!(
                                         e.kind(),
-                                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
-                                    ) => yield_io = true,
+                                        std::io::ErrorKind::WouldBlock
+                                            | std::io::ErrorKind::Interrupted
+                                    ) =>
+                                {
+                                    yield_io = true
+                                }
                                 Err(_) => return Err(Invalid("helper stdin unavailable")),
                             }
                         }
@@ -1870,7 +1890,10 @@ fn selected_command_input_owned(
                             if matches!(
                                 e.kind(),
                                 std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
-                            ) => yield_io = true,
+                            ) =>
+                        {
+                            yield_io = true
+                        }
                         Err(_) => return Err(Invalid("helper output unavailable")),
                     }
                     exited = helper_exited(pgid)?;
@@ -3928,6 +3951,13 @@ mod selected_helper_process_tests {
         }
         fn helper_retire(&mut self, ticket: HelperTicket) -> Result<(), Invalid> {
             self.inner.helper_retire(ticket)
+        }
+        fn helper_payload_write(
+            &mut self,
+            ticket: HelperTicket,
+            write: &mut dyn FnMut() -> std::io::Result<usize>,
+        ) -> Result<std::io::Result<usize>, Invalid> {
+            self.inner.helper_payload_write(ticket, write)
         }
         fn helper_detach(&mut self, ticket: HelperTicket) -> Result<(), Invalid> {
             self.inner.helper_detach(ticket)

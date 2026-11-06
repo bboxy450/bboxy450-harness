@@ -232,6 +232,46 @@ static struct image fixture_stopped(pid_t pid) {
         usleep(100);
     }
 }
+// Owned kernel pipes exercise the same current controller's 8KiB transfer:
+// one4KiB chunk precedes a consumed STOP failure; the remaining chunk cannot
+// enter the pipe in pending or terminal state. No new helper/controller exists.
+struct pending_stdin_fixture {
+    int input_read,output_peer,error_peer;unsigned char payload[8192],*capture;
+};
+static void pending_stdin_prepare(struct engine_owner *owner,struct pending_stdin_fixture *fixture) {
+    int input[2],output[2],errors[2];
+    require(owner->input<0&&owner->output<0&&owner->errors<0&&pipe(input)==0&&pipe(output)==0&&pipe(errors)==0,"owned pending stdin fixture pipes");
+    fixture->input_read=input[0];fixture->output_peer=output[1];fixture->error_peer=errors[1];
+    owner->input=input[1];owner->output=output[0];owner->errors=errors[0];
+    int fds[]={input[0],input[1],output[0],output[1],errors[0],errors[1]};
+    for(unsigned i=0;i<6;i++)require(fcntl(fds[i],F_SETFL,O_NONBLOCK)==0&&fcntl(fds[i],F_SETFD,FD_CLOEXEC)==0,"owned pending fixture nonblocking descriptors");
+    memset(fixture->payload,'p',sizeof(fixture->payload));fixture->capture=malloc(ENGINE_CAPTURE_MAX);
+    require(fixture->capture!=NULL,"owned bounded pending fixture capture");
+    owner->capture=fixture->capture;owner->stdin_bytes=fixture->payload;owner->stdin_len=sizeof(fixture->payload);
+}
+static void pending_stdin_first_chunk(struct engine_owner *owner,struct pending_stdin_fixture *fixture) {
+    require(!owner->stop_pending&&!owner->stop_terminal&&engine_pipe_io(owner)&&owner->sent==4096,"one actual bounded input chunk before pending transition");
+    unsigned char bytes[4096];require(read(fixture->input_read,bytes,sizeof(bytes))==sizeof(bytes)&&!memcmp(bytes,fixture->payload,sizeof(bytes)),"actual pipe contains the first admitted chunk only");
+}
+static void pending_stdin_refusals(struct engine_owner *owner,struct pending_stdin_fixture *fixture) {
+    require(owner->stop_pending&&owner->sent==4096&&owner->sent<owner->stdin_len,"actual consumed failure occurs during the bounded input transfer");
+    require(write(fixture->output_peer,"o",1)==1&&write(fixture->error_peer,"e",1)==1,"owned output remains drainable during pending terminal observation");
+    require(engine_pipe_io(owner)&&owner->sent==4096&&owner->out_len==1&&owner->err_len==1
+        &&owner->capture[0]=='o'&&owner->capture[ENGINE_CAPTURE_MAX-1]=='e',"pending stdin refuses the next chunk while stdout/stderr drain");
+    unsigned char byte;errno=0;require(read(fixture->input_read,&byte,1)==-1&&(errno==EAGAIN||errno==EWOULDBLOCK),"pending input pipe received zero new payload bytes");
+    // Exercise the terminal snapshot as a separate source-known API control;
+    // preserve/restore the actual original pending signal/identity state.
+    unsigned pending=owner->stop_pending,terminal=owner->stop_terminal;
+    owner->stop_pending=0;owner->stop_terminal=1;
+    require(engine_pipe_io(owner)&&owner->sent==4096,"terminal stdin refuses every remaining payload chunk");
+    errno=0;require(read(fixture->input_read,&byte,1)==-1&&(errno==EAGAIN||errno==EWOULDBLOCK),"terminal input pipe received zero new payload bytes");
+    owner->stop_pending=pending;owner->stop_terminal=terminal;
+    require(close(owner->input)==0&&close(owner->output)==0&&close(owner->errors)==0
+        &&close(fixture->input_read)==0&&close(fixture->output_peer)==0&&close(fixture->error_peer)==0,"owned pending transport fixture closes exact descriptors");
+    owner->input=owner->output=owner->errors=-1;
+    printf("private_pending_stdin_source_known pid=%d pre_transition_bytes=4096 total_input_bytes=8192 pending_new_bytes=0 terminal_new_bytes=0 stdout_drained=1 stderr_drained=1 pipe_cpu_subset_ns=%llu no_second_signal=true real_candidate_created=0 runtime_approved=false\n",
+        owner->ticket.pid,(unsigned long long)owner->pipe_cpu);
+}
 static void process_control(const char *self,int live) {
     reset();require(engine_owner_priority(),"source-known controller priority");
     // A fixture-only fork isolates this terminal-classification witness from
@@ -258,9 +298,11 @@ static void process_control(const char *self,int live) {
     (void)control_stop_ack(pid,first.birth);
     int ack=0;require(engine_sample_member(&owner,0,pid,&ack)&&ack,"original stopped attach before user work");
     owner.ticket.start=owner.members[0].state.start_absolute;owner.direct_custody=1;
+    struct pending_stdin_fixture transport;pending_stdin_prepare(&owner,&transport);
     owner.grant.operation=owner.ticket.start;owner.grant.sequence=1;owner.grant.slots=1;owner.grant.source_complete=1;owner.grant.cpu_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);
     require(engine_actual_ticks(&owner,&owner.grant_tick_before,&cpu,&wall),"original baseline CPU ticks");
     owner.grant.t0=clock_ns(CLOCK_MONOTONIC);require(kill(-pid,SIGCONT)==0,"one original source-known CONT");
+    pending_stdin_first_chunk(&owner,&transport);
     uint64_t until=clock_ns(CLOCK_MONOTONIC)+250000000ULL;int done=0;
     if(live) {
         struct rusage_info_v1 usage;
@@ -270,6 +312,7 @@ static void process_control(const char *self,int live) {
     require(live||done,"positive original terminal before injection");
     owner.stop_requested=1;uint64_t failed_at=clock_ns(CLOCK_MONOTONIC);
     require(engine_stop_result(&owner,-1,EPERM,failed_at)&&owner.stop_pending&&!owner.stop_terminal,"injected consumed failure is pending only");
+    pending_stdin_refusals(&owner,&transport);
     int closed=0;require(engine_roster(&owner,1,&closed),"same-controller independent original observation");
     require(closed==!live,"running child cannot acquire terminal classification");
     require(owner.stop_attempts==1&&engine_stop_group(&owner)&&owner.stop_attempts==1,"pending consumed STOP is never repeated");
@@ -310,6 +353,7 @@ static void process_control(const char *self,int live) {
         owner.grant.charge<=1000000?"true":"false",(unsigned long long)owner.wait_user,(unsigned long long)owner.wait_system,
         (unsigned long long)result.late_kernel_ns.value,result.late_kernel_ns.known,(unsigned long long)result.post_cpu_ns.value,
         (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+    free(transport.capture);owner.capture=NULL;
     reset();controls++;
 }
 static void pending_exec_control(const char *self,int dir) {
