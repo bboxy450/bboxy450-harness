@@ -1815,3 +1815,133 @@ frontend = "project"
 name = "BrokenHarnessDreamReadQualificationEarlyTrust"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowFailedAdmissionSample"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowInitialCreation"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowInitialDebt"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationPrivateIntegrity"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationPrivateSevenSources"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationPrivateIdentity"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationPrivatePins"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationPrivateTestPremise"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationPrivateDuplicate"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationPrivateRestart"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationPrivateRuntimeApproval"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationPrivateLifetime"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationPrivateToRuntime"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationPrivateNormalBirth"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationPrivateSelfReference"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationPrivateSettlement"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationPrivateDebt"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationPrivateAba"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationInnerCoverage"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationInnerStale"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationInnerArch"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationInnerBudget"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationInnerCandidate"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationInnerProjection"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationInnerSyntax"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadQualificationInnerRevalidation"
+expected = "safety"
+frontend = "project"

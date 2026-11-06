@@ -496,278 +496,923 @@ pub fn helper(control: u8) -> Model {
         21 => "DreamReadHelperRevokeRelease",
         _ => "DreamReadHelper",
     };
-    const ST:usize=0; const INC:usize=1; const CAP:usize=2; const ATT:usize=3;
-    const TICKET:usize=4; const MEMBERS:usize=5; const EXTRA:usize=6;
-    const OWNER:usize=7; const DEBT:usize=8; const OWED:usize=9;
-    const FG:usize=10; const DEADLINE:usize=11; const COVER:usize=12;
-    const TRUST:usize=13; const CONSUMED:usize=14; const EFFECTS:usize=15;
-    const PLAN:usize=16; const STOP:usize=17; const REQUEST:usize=18;
-    const RETIRED:usize=19; const REAPED:usize=20; const SPAN:usize=21;
-    const CASE:usize=22; const LABEL:usize=23; const GRANTS:usize=24;
-    const FAULT:usize=25; const RELEASED:usize=26; const RESERVED:usize=27;
-    const NATIVE:usize=28; const CHARGED:usize=29; const CONTROLLER:usize=30;
-    const DESCENDANT:usize=31; const SPAN_MEMBERS:usize=32; const KNOWN:usize=33;
-    const READY:usize=34; const OUTPUT:usize=35; const APP_USED:usize=36;
-    const CONFIG:usize=37; const REFUSED:usize=38; const INVALID:usize=39;
-    let mut m = base(name, control != 0, &[
-        ("state",7,0), ("incarnationA1B2A3",2,0), ("effectIncarnation",2,0),
-        ("creationAttempts",2,0), ("creationTicket",2,0), ("members",2,0),
-        ("unadmittedMember",1,0), ("workOwnerMainHelperNone",2,0),
-        ("debt",2,0), ("observedUnrestedCharge",2,0), ("foreground",1,0),
-        ("deadline",1,0), ("coverage",1,0), ("outputTrusted",1,0),
-        ("originalEffectConsumed",1,0), ("actualOriginalEffects",2,0),
-        ("approvedMemberLimit",2,1), ("allStoppedOrExited",1,1),
-        ("stopRequested",1,0), ("controllerRetired",1,0), ("allActuallyReaped",1,0),
-        ("spanNoneNativeHelperApplication",3,0), ("inputCase",9,0),
-        ("labelNoneApplicationNative",2,0), ("hasGranted",1,0),
-        ("faultNoneClockPanicRevokeEffectResourceMember",6,0), ("ownershipReleased",1,0),
-        ("lastCreationReserved",1,0), ("nativeCreationCertified",1,0),
-        ("spanCharged",1,0), ("controllerCharged",1,0), ("descendantCharged",1,0),
-        ("membersAtSpan",2,0), ("accountingKnown",1,1), ("actualReapReady",1,0),
-        ("outputObserved",1,0), ("applicationSpanUsed",1,0), ("configured",1,0),
-        ("staleReplyRefused",1,0), ("invalidated",1,0),
-    ]);
+    const ST: usize = 0;
+    const INC: usize = 1;
+    const CAP: usize = 2;
+    const ATT: usize = 3;
+    const TICKET: usize = 4;
+    const MEMBERS: usize = 5;
+    const EXTRA: usize = 6;
+    const OWNER: usize = 7;
+    const DEBT: usize = 8;
+    const OWED: usize = 9;
+    const FG: usize = 10;
+    const DEADLINE: usize = 11;
+    const COVER: usize = 12;
+    const TRUST: usize = 13;
+    const CONSUMED: usize = 14;
+    const EFFECTS: usize = 15;
+    const PLAN: usize = 16;
+    const STOP: usize = 17;
+    const REQUEST: usize = 18;
+    const RETIRED: usize = 19;
+    const REAPED: usize = 20;
+    const SPAN: usize = 21;
+    const CASE: usize = 22;
+    const LABEL: usize = 23;
+    const GRANTS: usize = 24;
+    const FAULT: usize = 25;
+    const RELEASED: usize = 26;
+    const RESERVED: usize = 27;
+    const NATIVE: usize = 28;
+    const CHARGED: usize = 29;
+    const CONTROLLER: usize = 30;
+    const DESCENDANT: usize = 31;
+    const SPAN_MEMBERS: usize = 32;
+    const KNOWN: usize = 33;
+    const READY: usize = 34;
+    const OUTPUT: usize = 35;
+    const APP_USED: usize = 36;
+    const CONFIG: usize = 37;
+    const REFUSED: usize = 38;
+    const INVALID: usize = 39;
+    let mut m = base(
+        name,
+        control != 0,
+        &[
+            ("state", 7, 0),
+            ("incarnationA1B2A3", 2, 0),
+            ("effectIncarnation", 2, 0),
+            ("creationAttempts", 2, 0),
+            ("creationTicket", 2, 0),
+            ("members", 2, 0),
+            ("unadmittedMember", 1, 0),
+            ("workOwnerMainHelperNone", 2, 0),
+            ("debt", 2, 0),
+            ("observedUnrestedCharge", 2, 0),
+            ("foreground", 1, 0),
+            ("deadline", 1, 0),
+            ("coverage", 1, 0),
+            ("outputTrusted", 1, 0),
+            ("originalEffectConsumed", 1, 0),
+            ("actualOriginalEffects", 2, 0),
+            ("approvedMemberLimit", 2, 1),
+            ("allStoppedOrExited", 1, 1),
+            ("stopRequested", 1, 0),
+            ("controllerRetired", 1, 0),
+            ("allActuallyReaped", 1, 0),
+            ("spanNoneNativeHelperApplication", 3, 0),
+            ("inputCase", 9, 0),
+            ("labelNoneApplicationNative", 2, 0),
+            ("hasGranted", 1, 0),
+            ("faultNoneClockPanicRevokeEffectResourceMember", 6, 0),
+            ("ownershipReleased", 1, 0),
+            ("lastCreationReserved", 1, 0),
+            ("nativeCreationCertified", 1, 0),
+            ("spanCharged", 1, 0),
+            ("controllerCharged", 1, 0),
+            ("descendantCharged", 1, 0),
+            ("membersAtSpan", 2, 0),
+            ("accountingKnown", 1, 1),
+            ("actualReapReady", 1, 0),
+            ("outputObserved", 1, 0),
+            ("applicationSpanUsed", 1, 0),
+            ("configured", 1, 0),
+            ("staleReplyRefused", 1, 0),
+            ("invalidated", 1, 0),
+        ],
+    );
     let exact = Var(INC).eq(Var(CAP));
     let admitted = if control == 4 {
-        exact.clone().or(all([eq(INC,2),eq(CAP,0)]))
-    } else { exact.clone() };
-    let native_ok = all([eq(CASE,3).negate(),eq(CASE,4).negate(),eq(CASE,5).negate()]);
+        exact.clone().or(all([eq(INC, 2), eq(CAP, 0)]))
+    } else {
+        exact.clone()
+    };
+    let native_ok = all([
+        eq(CASE, 3).negate(),
+        eq(CASE, 4).negate(),
+        eq(CASE, 5).negate(),
+    ]);
     let native_guard = native_ok.clone().or(match control {
-        12 => eq(CASE,3), 13 => eq(CASE,4), 14 => eq(CASE,5), _ => Bool(false),
+        12 => eq(CASE, 3),
+        13 => eq(CASE, 4),
+        14 => eq(CASE, 5),
+        _ => Bool(false),
     });
-    let quiet = eq(MEMBERS,0).or(eq(STOP,1));
-    let idle = all([eq(DEBT,0),eq(OWED,0),eq(SPAN,0)]);
+    let quiet = eq(MEMBERS, 0).or(eq(STOP, 1));
+    let idle = all([eq(DEBT, 0), eq(OWED, 0), eq(SPAN, 0)]);
     // One input class at a time keeps the complete graph finite and tractable.
     // Classes cover wrong executable/suspend capability, native CPU/wall/raw,
     // ordinary application overrun, runnable-window overrun and attempt edges.
     for case in 0..=9 {
-        act(&mut m,&format!("ConfigureCase{case}"),all([eq(CONFIG,0),eq(ST,0)]),&[
-            (CASE,Int(case)),(CONFIG,Int(1)),
-            (ATT,Int(if case==8 {2} else if case==9 {1} else {0})),
-        ]);
+        act(
+            &mut m,
+            &format!("ConfigureCase{case}"),
+            all([eq(CONFIG, 0), eq(ST, 0)]),
+            &[
+                (CASE, Int(case)),
+                (CONFIG, Int(1)),
+                (
+                    ATT,
+                    Int(if case == 8 {
+                        2
+                    } else if case == 9 {
+                        1
+                    } else {
+                        0
+                    }),
+                ),
+            ],
+        );
     }
     for need in 1..=2 {
         for before in 0..=2 {
             let valid = before + need <= 2;
-            act(&mut m,&format!("ReserveAttempt{before}Need{need}"),all([
-                eq(CONFIG,1),eq(ST,0),eq(TICKET,0),eq(CONSUMED,0),eq(FAULT,0),
-                eq(ATT,before),eq(FG,0),eq(DEADLINE,0),idle.clone(),
-                if valid || control==1 {Bool(true)} else {Bool(false)},
-            ]),&[(ATT,Int((before+need).min(2))),(TICKET,Int(need)),(PLAN,Int(need)),
-                (CAP,Var(INC)),(RESERVED,Int(i64::from(valid)))]);
+            act(
+                &mut m,
+                &format!("ReserveAttempt{before}Need{need}"),
+                all([
+                    eq(CONFIG, 1),
+                    eq(ST, 0),
+                    eq(TICKET, 0),
+                    eq(CONSUMED, 0),
+                    eq(FAULT, 0),
+                    eq(ATT, before),
+                    eq(FG, 0),
+                    eq(DEADLINE, 0),
+                    idle.clone(),
+                    if valid || control == 1 {
+                        Bool(true)
+                    } else {
+                        Bool(false)
+                    },
+                ]),
+                &[
+                    (ATT, Int((before + need).min(2))),
+                    (TICKET, Int(need)),
+                    (PLAN, Int(need)),
+                    (CAP, Var(INC)),
+                    (RESERVED, Int(i64::from(valid))),
+                ],
+            );
         }
     }
     for cost in 1..=2 {
         for initially_stopped in 0..=1 {
-            act(&mut m,&format!("CreateSuspendedCost{cost}Stopped{initially_stopped}"),all([
-                eq(ST,0),eq(CONFIG,1),eq(TICKET,0).negate(),eq(CONSUMED,0),eq(MEMBERS,0),
-                eq(DEADLINE,0),eq(FAULT,0),eq(FG,0),admitted.clone(),idle.clone(),
-                if control==3 {Bool(true)} else {eq(CASE,1).negate()},
-                if control==5 {Bool(true)} else {eq(CASE,2).negate()},
-                if initially_stopped==0 {eq(CASE,2)} else {eq(CASE,2).negate()},
-                if cost==1 {native_ok.clone()} else {native_ok.clone().negate()},
-                Var(EFFECTS).lt(Int(2)),
-            ]),&[(ST,Int(1)),(MEMBERS,Int(1)),(OWNER,Int(0)),(STOP,Int(initially_stopped)),
-                (CONSUMED,Int(1)),(EFFECTS,Var(EFFECTS).plus(Int(1))), (TICKET,Int(0)),
-                (SPAN,Int(1)),(LABEL,Int(2)),(OWED,Int(cost)),(CHARGED,Int(0)),
-                (COVER,Int(0)),(NATIVE,Int(0))]);
+            act(
+                &mut m,
+                &format!("CreateSuspendedCost{cost}Stopped{initially_stopped}"),
+                all([
+                    eq(ST, 0),
+                    eq(CONFIG, 1),
+                    eq(TICKET, 0).negate(),
+                    eq(CONSUMED, 0),
+                    eq(MEMBERS, 0),
+                    eq(DEADLINE, 0),
+                    eq(FAULT, 0),
+                    eq(FG, 0),
+                    admitted.clone(),
+                    idle.clone(),
+                    if control == 3 {
+                        Bool(true)
+                    } else {
+                        eq(CASE, 1).negate()
+                    },
+                    if control == 5 {
+                        Bool(true)
+                    } else {
+                        eq(CASE, 2).negate()
+                    },
+                    if initially_stopped == 0 {
+                        eq(CASE, 2)
+                    } else {
+                        eq(CASE, 2).negate()
+                    },
+                    if cost == 1 {
+                        native_ok.clone()
+                    } else {
+                        native_ok.clone().negate()
+                    },
+                    Var(EFFECTS).lt(Int(2)),
+                ]),
+                &[
+                    (ST, Int(1)),
+                    (MEMBERS, Int(1)),
+                    (OWNER, Int(0)),
+                    (STOP, Int(initially_stopped)),
+                    (CONSUMED, Int(1)),
+                    (EFFECTS, Var(EFFECTS).plus(Int(1))),
+                    (TICKET, Int(0)),
+                    (SPAN, Int(1)),
+                    (LABEL, Int(2)),
+                    (OWED, Int(cost)),
+                    (CHARGED, Int(0)),
+                    (COVER, Int(0)),
+                    (NATIVE, Int(0)),
+                ],
+            );
         }
     }
-    act(&mut m,"AttachExactSuspendedIdentityBeforeGrant",all([
-        eq(ST,1),eq(STOP,1),admitted.clone(),eq(FAULT,0),eq(DEADLINE,0),
-    ]),&[(ST,Int(2))]);
+    act(
+        &mut m,
+        "AttachExactSuspendedIdentityBeforeGrant",
+        all([
+            eq(ST, 1),
+            eq(STOP, 1),
+            admitted.clone(),
+            eq(FAULT, 0),
+            eq(DEADLINE, 0),
+        ]),
+        &[(ST, Int(2))],
+    );
     for cost in 1..=2 {
-        act(&mut m,&format!("ChargeNativeInclusiveScope{cost}"),all([
-            eq(ST,2),eq(SPAN,1),eq(CHARGED,0),eq(OWED,cost),eq(KNOWN,1),
-            native_guard.clone(),eq(STOP,1),
-        ]),&[(DEBT,Int(cost)),(CHARGED,Int(1)),(OWNER,Int(2)),
-            (COVER,Int(1)),(NATIVE,Int(1)),(CONTROLLER,Int(1)),(DESCENDANT,Int(1))]);
+        act(
+            &mut m,
+            &format!("ChargeNativeInclusiveScope{cost}"),
+            all([
+                eq(ST, 2),
+                eq(SPAN, 1),
+                eq(CHARGED, 0),
+                eq(OWED, cost),
+                eq(KNOWN, 1),
+                native_guard.clone(),
+                eq(STOP, 1),
+            ]),
+            &[
+                (DEBT, Int(cost)),
+                (CHARGED, Int(1)),
+                (OWNER, Int(2)),
+                (COVER, Int(1)),
+                (NATIVE, Int(1)),
+                (CONTROLLER, Int(1)),
+                (DESCENDANT, Int(1)),
+            ],
+        );
     }
-    act(&mut m,"GrantOneBoundedGroupQuantum",all([
-        eq(ST,2).or(eq(ST,4)),eq(STOP,1),eq(OWNER,2),idle.clone(),
-        eq(FG,0),eq(DEADLINE,0),eq(FAULT,0),eq(KNOWN,1),eq(NATIVE,1),
-        admitted.clone(),
-    ]),&[(ST,Int(3)),(STOP,Int(0)),(REQUEST,Int(0)),(OWNER,Int(1)),
-        (GRANTS,Int(1)),(SPAN,Int(2)),(LABEL,Int(1)),(KNOWN,Int(0)),
-        (CHARGED,Int(0)),(CONTROLLER,Int(0)),(DESCENDANT,Int(0))]);
-    act(&mut m,"ApprovedImplicitGpgAppears",all([eq(ST,3),eq(STOP,0),eq(PLAN,2),eq(MEMBERS,1)]),&[(MEMBERS,Int(2))]);
+    act(
+        &mut m,
+        "GrantOneBoundedGroupQuantum",
+        all([
+            eq(ST, 2).or(eq(ST, 4)),
+            eq(STOP, 1),
+            eq(OWNER, 2),
+            idle.clone(),
+            eq(FG, 0),
+            eq(DEADLINE, 0),
+            eq(FAULT, 0),
+            eq(KNOWN, 1),
+            eq(NATIVE, 1),
+            admitted.clone(),
+        ]),
+        &[
+            (ST, Int(3)),
+            (STOP, Int(0)),
+            (REQUEST, Int(0)),
+            (OWNER, Int(1)),
+            (GRANTS, Int(1)),
+            (SPAN, Int(2)),
+            (LABEL, Int(1)),
+            (KNOWN, Int(0)),
+            (CHARGED, Int(0)),
+            (CONTROLLER, Int(0)),
+            (DESCENDANT, Int(0)),
+        ],
+    );
+    act(
+        &mut m,
+        "ApprovedImplicitGpgAppears",
+        all([eq(ST, 3), eq(STOP, 0), eq(PLAN, 2), eq(MEMBERS, 1)]),
+        &[(MEMBERS, Int(2))],
+    );
     for count in 1..=2 {
-        let mut updates = vec![(MEMBERS,Int(2)),(EXTRA,Int(1))];
-        if control != 2 { updates.extend([(ST,Int(7)),(FAULT,Int(6)),(KNOWN,Int(0)),(COVER,Int(0))]); }
-        act(&mut m,&format!("ObserveMemberBeyondAdmittedLimit{count}"),all([
-            eq(ST,3),eq(MEMBERS,count),eq(PLAN,count),eq(EXTRA,0),
-        ]),&updates);
+        let mut updates = vec![(MEMBERS, Int(2)), (EXTRA, Int(1))];
+        if control != 2 {
+            updates.extend([
+                (ST, Int(7)),
+                (FAULT, Int(6)),
+                (KNOWN, Int(0)),
+                (COVER, Int(0)),
+            ]);
+        }
+        act(
+            &mut m,
+            &format!("ObserveMemberBeyondAdmittedLimit{count}"),
+            all([eq(ST, 3), eq(MEMBERS, count), eq(PLAN, count), eq(EXTRA, 0)]),
+            &updates,
+        );
     }
-    act(&mut m,"RequestGroupStop",all([eq(ST,3),eq(REQUEST,0)]),&[(REQUEST,Int(1))]);
-    act(&mut m,"ObserveAllMembersStoppedOrExited",all([eq(ST,3),eq(REQUEST,1),eq(STOP,0)]),&[(STOP,Int(1))]);
+    act(
+        &mut m,
+        "RequestGroupStop",
+        all([eq(ST, 3), eq(REQUEST, 0)]),
+        &[(REQUEST, Int(1))],
+    );
+    act(
+        &mut m,
+        "ObserveAllMembersStoppedOrExited",
+        all([eq(ST, 3), eq(REQUEST, 1), eq(STOP, 0)]),
+        &[(STOP, Int(1))],
+    );
     for count in 1..=2 {
-        act(&mut m,&format!("ConfirmStoppedMembers{count}"),all([
-            eq(ST,3),eq(REQUEST,1),eq(MEMBERS,count),
-            if control==6 {Bool(true)} else {eq(STOP,1)},
-        ]),&[(ST,Int(4)),(OWNER,Int(2)),(OWED,Int(count)),(SPAN_MEMBERS,Int(count)),(KNOWN,Int(1)),
-            (SPAN,Int(2)),(LABEL,Int(1)),(CHARGED,Int(0))]);
+        act(
+            &mut m,
+            &format!("ConfirmStoppedMembers{count}"),
+            all([
+                eq(ST, 3),
+                eq(REQUEST, 1),
+                eq(MEMBERS, count),
+                if control == 6 {
+                    Bool(true)
+                } else {
+                    eq(STOP, 1)
+                },
+            ]),
+            &[
+                (ST, Int(4)),
+                (OWNER, Int(2)),
+                (OWED, Int(count)),
+                (SPAN_MEMBERS, Int(count)),
+                (KNOWN, Int(1)),
+                (SPAN, Int(2)),
+                (LABEL, Int(1)),
+                (CHARGED, Int(0)),
+            ],
+        );
     }
     for count in 1..=2 {
-        let omit_descendant = control==7 && count==2;
-        let omit_controller = control==8;
-        act(&mut m,&format!("ChargeFullRunnableWallMembersAndController{count}"),all([
-            eq(ST,4),eq(STOP,1),eq(SPAN,2),eq(CHARGED,0),eq(KNOWN,1),
-            eq(OWED,count),if control==15 {Bool(true)} else {eq(CASE,7).negate()},
-        ]),&[(DEBT,Int(count-i64::from(omit_descendant||omit_controller))),
-            (CHARGED,Int(1)),(COVER,Int(1)),(CONTROLLER,Int(i64::from(!omit_controller))),
-            (DESCENDANT,Int(i64::from(!omit_descendant)))]);
+        let omit_descendant = control == 7 && count == 2;
+        let omit_controller = control == 8;
+        act(
+            &mut m,
+            &format!("ChargeFullRunnableWallMembersAndController{count}"),
+            all([
+                eq(ST, 4),
+                eq(STOP, 1),
+                eq(SPAN, 2),
+                eq(CHARGED, 0),
+                eq(KNOWN, 1),
+                eq(OWED, count),
+                if control == 15 {
+                    Bool(true)
+                } else {
+                    eq(CASE, 7).negate()
+                },
+            ]),
+            &[
+                (
+                    DEBT,
+                    Int(count - i64::from(omit_descendant || omit_controller)),
+                ),
+                (CHARGED, Int(1)),
+                (COVER, Int(1)),
+                (CONTROLLER, Int(i64::from(!omit_controller))),
+                (DESCENDANT, Int(i64::from(!omit_descendant))),
+            ],
+        );
     }
     for cost in 1..=2 {
-        act(&mut m,&format!("OrdinaryApplicationSpan{cost}"),all([
-            eq(CONFIG,1),eq(APP_USED,0),eq(FAULT,0),eq(DEADLINE,0),eq(FG,0),
-            if control==9 {idle.clone().or(all([eq(ST,3),eq(DEBT,0),eq(OWED,0)]))} else {idle.clone()},
-            if control==9 {eq(ST,2).or(eq(ST,3)).or(eq(ST,4))}
-                else {all([eq(ST,2).or(eq(ST,4)),quiet.clone(),eq(OWNER,1).negate()])},
-            if cost==2 {eq(CASE,6)} else {eq(CASE,6).negate()},
-        ]),&[(OWNER,Int(0)),(OWED,Int(cost)),(SPAN,Int(3)),(LABEL,Int(1)),
-            (CHARGED,Int(0)),(APP_USED,Int(1))]);
-        act(&mut m,&format!("ChargeOrdinaryApplication{cost}"),all([
-            eq(SPAN,3),eq(CHARGED,0),eq(OWED,cost),eq(KNOWN,1),
-            if control==11 {Bool(true)} else {eq(CASE,6).negate()},
-        ]),&[(DEBT,Int(cost)),(CHARGED,Int(1)),(OWNER,Int(2)),
-            (LABEL,Int(if control==11 && cost==2 {2} else {1})),
-            (CONTROLLER,Int(1)),(DESCENDANT,Int(1))]);
+        act(
+            &mut m,
+            &format!("OrdinaryApplicationSpan{cost}"),
+            all([
+                eq(CONFIG, 1),
+                eq(APP_USED, 0),
+                eq(FAULT, 0),
+                eq(DEADLINE, 0),
+                eq(FG, 0),
+                if control == 9 {
+                    idle.clone().or(all([eq(ST, 3), eq(DEBT, 0), eq(OWED, 0)]))
+                } else {
+                    idle.clone()
+                },
+                if control == 9 {
+                    eq(ST, 2).or(eq(ST, 3)).or(eq(ST, 4))
+                } else {
+                    all([
+                        eq(ST, 2).or(eq(ST, 4)),
+                        quiet.clone(),
+                        eq(OWNER, 1).negate(),
+                    ])
+                },
+                if cost == 2 {
+                    eq(CASE, 6)
+                } else {
+                    eq(CASE, 6).negate()
+                },
+            ]),
+            &[
+                (OWNER, Int(0)),
+                (OWED, Int(cost)),
+                (SPAN, Int(3)),
+                (LABEL, Int(1)),
+                (CHARGED, Int(0)),
+                (APP_USED, Int(1)),
+            ],
+        );
+        act(
+            &mut m,
+            &format!("ChargeOrdinaryApplication{cost}"),
+            all([
+                eq(SPAN, 3),
+                eq(CHARGED, 0),
+                eq(OWED, cost),
+                eq(KNOWN, 1),
+                if control == 11 {
+                    Bool(true)
+                } else {
+                    eq(CASE, 6).negate()
+                },
+            ]),
+            &[
+                (DEBT, Int(cost)),
+                (CHARGED, Int(1)),
+                (OWNER, Int(2)),
+                (LABEL, Int(if control == 11 && cost == 2 { 2 } else { 1 })),
+                (CONTROLLER, Int(1)),
+                (DESCENDANT, Int(1)),
+            ],
+        );
     }
     let mut settle = vec![];
     for debt in 1..=2 {
         settle.push(m.actions.len());
-        act(&mut m,&format!("RestAfterConfirmedWork{debt}"),all([
-            eq(DEBT,debt),eq(OWED,debt),eq(CHARGED,1),eq(OWNER,2),eq(KNOWN,1),quiet.clone(),
-        ]),&[(DEBT,Int(debt-1)),(OWED,Int(debt-1))]);
+        act(
+            &mut m,
+            &format!("RestAfterConfirmedWork{debt}"),
+            all([
+                eq(DEBT, debt),
+                eq(OWED, debt),
+                eq(CHARGED, 1),
+                eq(OWNER, 2),
+                eq(KNOWN, 1),
+                quiet.clone(),
+            ]),
+            &[(DEBT, Int(debt - 1)), (OWED, Int(debt - 1))],
+        );
     }
-    act(&mut m,"ReconcilePaidSpanWithoutResettingAnotherDebt",all([
-        eq(DEBT,0),eq(OWED,0),eq(CHARGED,1),eq(OWNER,2),quiet.clone(),
-    ]),&[(SPAN,Int(0)),(LABEL,Int(0)),(CHARGED,Int(0)),(CONTROLLER,Int(0)),
-        (DESCENDANT,Int(0)),(SPAN_MEMBERS,Int(0)),(REQUEST,Int(0)),(APP_USED,Int(0))]);
+    act(
+        &mut m,
+        "ReconcilePaidSpanWithoutResettingAnotherDebt",
+        all([
+            eq(DEBT, 0),
+            eq(OWED, 0),
+            eq(CHARGED, 1),
+            eq(OWNER, 2),
+            quiet.clone(),
+        ]),
+        &[
+            (SPAN, Int(0)),
+            (LABEL, Int(0)),
+            (CHARGED, Int(0)),
+            (CONTROLLER, Int(0)),
+            (DESCENDANT, Int(0)),
+            (SPAN_MEMBERS, Int(0)),
+            (REQUEST, Int(0)),
+            (APP_USED, Int(0)),
+        ],
+    );
     for foreground in 0..=1 {
-        act(&mut m,&format!("ObserveForeground{foreground}WithoutDebtReset"),all([
-            eq(RELEASED,0),eq(FG,foreground).negate(),
-            eq(ST,2).or(eq(ST,3)).or(eq(ST,4)).or(eq(ST,5).and(eq(DEBT,0).negate())),
-        ]),&[(FG,Int(foreground))]);
+        act(
+            &mut m,
+            &format!("ObserveForeground{foreground}WithoutDebtReset"),
+            all([
+                eq(RELEASED, 0),
+                eq(FG, foreground).negate(),
+                eq(ST, 2)
+                    .or(eq(ST, 3))
+                    .or(eq(ST, 4))
+                    .or(eq(ST, 5).and(eq(DEBT, 0).negate())),
+            ]),
+            &[(FG, Int(foreground))],
+        );
     }
-    act(&mut m,"IoCompletionKeepsDebt",all([eq(RELEASED,0),eq(DEBT,0).negate(),eq(ST,2).or(eq(ST,4))]),&[]);
-    if control==10 {
-        act(&mut m,"BrokenForegroundOrIoDebtReset",all([eq(CHARGED,1),eq(DEBT,0).negate()]),&[(DEBT,Int(0)),(FG,Int(1))]);
+    act(
+        &mut m,
+        "IoCompletionKeepsDebt",
+        all([
+            eq(RELEASED, 0),
+            eq(DEBT, 0).negate(),
+            eq(ST, 2).or(eq(ST, 4)),
+        ]),
+        &[],
+    );
+    if control == 10 {
+        act(
+            &mut m,
+            "BrokenForegroundOrIoDebtReset",
+            all([eq(CHARGED, 1), eq(DEBT, 0).negate()]),
+            &[(DEBT, Int(0)), (FG, Int(1))],
+        );
     }
-    act(&mut m,"ObserveOriginalOutputBeforeSettlement",all([
-        eq(ST,3).or(eq(ST,4)),Var(GRANTS).lt(Int(1)).negate(),eq(FAULT,0),
-    ]),&[(OUTPUT,Int(1))]);
-    act(&mut m,"ObserveDeadline",all([eq(RELEASED,0),eq(DEADLINE,0)]),&[(DEADLINE,Int(1))]);
+    act(
+        &mut m,
+        "ObserveOriginalOutputBeforeSettlement",
+        all([
+            eq(ST, 3).or(eq(ST, 4)),
+            Var(GRANTS).lt(Int(1)).negate(),
+            eq(FAULT, 0),
+        ]),
+        &[(OUTPUT, Int(1))],
+    );
+    act(
+        &mut m,
+        "ObserveDeadline",
+        all([eq(RELEASED, 0), eq(DEADLINE, 0)]),
+        &[(DEADLINE, Int(1))],
+    );
     for fault in 1..=3 {
-        let mut updates = vec![(ST,Int(7)),(FAULT,Int(fault)),(COVER,Int(0)),(TRUST,Int(0)),
-            (KNOWN,Int(if fault==3 {1} else {0}))];
-        if fault!=3 {
+        let mut updates = vec![
+            (ST, Int(7)),
+            (FAULT, Int(fault)),
+            (COVER, Int(0)),
+            (TRUST, Int(0)),
+            (KNOWN, Int(if fault == 3 { 1 } else { 0 })),
+        ];
+        if fault != 3 {
             // Unknown accounting is terminal for content. Quotient only dead
             // span annotations; retain every outstanding debt/ownership fact.
-            updates.extend([(SPAN,Int(0)),(LABEL,Int(0)),(CHARGED,Int(0)),
-                (CONTROLLER,Int(0)),(DESCENDANT,Int(0)),(SPAN_MEMBERS,Int(0)),
-                (NATIVE,Int(0)),(OUTPUT,Int(0)),(GRANTS,Int(0)),(APP_USED,Int(0))]);
+            updates.extend([
+                (SPAN, Int(0)),
+                (LABEL, Int(0)),
+                (CHARGED, Int(0)),
+                (CONTROLLER, Int(0)),
+                (DESCENDANT, Int(0)),
+                (SPAN_MEMBERS, Int(0)),
+                (NATIVE, Int(0)),
+                (OUTPUT, Int(0)),
+                (GRANTS, Int(0)),
+                (APP_USED, Int(0)),
+            ]);
         }
-        act(&mut m,&format!("ObserveClockPanicRevoke{fault}"),all([
-            Var(ST).lt(Int(6)),eq(RELEASED,0),eq(FAULT,0),eq(CONFIG,1),eq(EFFECTS,1),
-        ]),&updates);
+        act(
+            &mut m,
+            &format!("ObserveClockPanicRevoke{fault}"),
+            all([
+                Var(ST).lt(Int(6)),
+                eq(RELEASED, 0),
+                eq(FAULT, 0),
+                eq(CONFIG, 1),
+                eq(EFFECTS, 1),
+            ]),
+            &updates,
+        );
     }
-    act(&mut m,"NativeEffectThenReportedError",all([
-        eq(ST,2),eq(DEBT,0),eq(OWED,0),eq(FAULT,0),eq(CONSUMED,1),eq(GRANTS,0),eq(APP_USED,0),
-    ]),&[(ST,Int(7)),(FAULT,Int(4)),(COVER,Int(0)),(TRUST,Int(0)),
-        (CONSUMED,Int(if control==16 {0} else {1}))]);
-    let overrun = eq(SPAN,1).and(native_ok.clone().negate())
-        .or(eq(SPAN,2).and(eq(CASE,7))).or(eq(SPAN,3).and(eq(CASE,6)));
+    act(
+        &mut m,
+        "NativeEffectThenReportedError",
+        all([
+            eq(ST, 2),
+            eq(DEBT, 0),
+            eq(OWED, 0),
+            eq(FAULT, 0),
+            eq(CONSUMED, 1),
+            eq(GRANTS, 0),
+            eq(APP_USED, 0),
+        ]),
+        &[
+            (ST, Int(7)),
+            (FAULT, Int(4)),
+            (COVER, Int(0)),
+            (TRUST, Int(0)),
+            (CONSUMED, Int(if control == 16 { 0 } else { 1 })),
+        ],
+    );
+    let overrun = eq(SPAN, 1)
+        .and(native_ok.clone().negate())
+        .or(eq(SPAN, 2).and(eq(CASE, 7)))
+        .or(eq(SPAN, 3).and(eq(CASE, 6)));
     settle.push(m.actions.len());
-    act(&mut m,"RefuseMeasuredOverrunWithoutCertifyingOutput",all([
-        overrun,eq(CHARGED,0),eq(FAULT,0),eq(RELEASED,0),
-    ]),&[(ST,Int(7)),(FAULT,Int(5)),(COVER,Int(0)),(TRUST,Int(0))]);
+    act(
+        &mut m,
+        "RefuseMeasuredOverrunWithoutCertifyingOutput",
+        all([overrun, eq(CHARGED, 0), eq(FAULT, 0), eq(RELEASED, 0)]),
+        &[
+            (ST, Int(7)),
+            (FAULT, Int(5)),
+            (COVER, Int(0)),
+            (TRUST, Int(0)),
+        ],
+    );
     for cost in 1..=2 {
-        act(&mut m,&format!("ChargeKnownRejectedSpan{cost}"),all([
-            eq(ST,7),eq(FAULT,5),eq(KNOWN,1),eq(CHARGED,0),eq(OWED,cost),quiet.clone(),
-        ]),&[(DEBT,Int(cost)),(CHARGED,Int(1)),(OWNER,Int(2)),
-            (COVER,Int(0)),(CONTROLLER,Int(1)),(DESCENDANT,Int(1))]);
+        act(
+            &mut m,
+            &format!("ChargeKnownRejectedSpan{cost}"),
+            all([
+                eq(ST, 7),
+                eq(FAULT, 5),
+                eq(KNOWN, 1),
+                eq(CHARGED, 0),
+                eq(OWED, cost),
+                quiet.clone(),
+            ]),
+            &[
+                (DEBT, Int(cost)),
+                (CHARGED, Int(1)),
+                (OWNER, Int(2)),
+                (COVER, Int(0)),
+                (CONTROLLER, Int(1)),
+                (DESCENDANT, Int(1)),
+            ],
+        );
     }
     settle.push(m.actions.len());
-    act(&mut m,"DeadlineRetainsOwnedQuarantine",all([
-        eq(DEADLINE,1),Var(ST).lt(Int(5)),eq(RELEASED,0),
-    ]),&[(ST,Int(7)),(COVER,Int(0)),(TRUST,Int(0))]);
+    act(
+        &mut m,
+        "DeadlineRetainsOwnedQuarantine",
+        all([eq(DEADLINE, 1), Var(ST).lt(Int(5)), eq(RELEASED, 0)]),
+        &[(ST, Int(7)), (COVER, Int(0)), (TRUST, Int(0))],
+    );
     // Invalidate/restart preserve the original effect and the old pinned owner.
     // A3 repeats the label A, never its incarnation or original authority.
-    act(&mut m,"InvalidateWithoutReleasingOldOwner",all([
-        eq(INVALID,0),Var(INC).lt(Int(2)),eq(RELEASED,0),eq(CONFIG,1),
-        eq(FAULT,0).or(all([eq(FAULT,3),eq(ST,7),eq(INC,1),eq(KNOWN,1)])),
-    ]),&[(INVALID,Int(1)),(ST,Int(7)),(FAULT,Int(3)),(COVER,Int(0)),(TRUST,Int(0))]);
-    act(&mut m,"RestartA1B2A3",all([eq(INVALID,1),Var(INC).lt(Int(2))]),&[(INC,Var(INC).plus(Int(1))),(INVALID,Int(0))]);
-    act(&mut m,"RefuseOldIncarnationReply",all([exact.clone().negate(),eq(ST,7)]),&[(REFUSED,Int(1))]);
-    if control==4 {
-        act(&mut m,"ReplayOldAReplyIntoA3",all([
-            eq(ST,7),eq(INC,2),eq(CAP,0),eq(MEMBERS,0).negate(),eq(STOP,1),
-            eq(NATIVE,1),eq(DEBT,0),eq(OWED,0),
-        ]),&[(ST,Int(2)),(FAULT,Int(0)),(COVER,Int(1)),(OWNER,Int(2))]);
+    act(
+        &mut m,
+        "InvalidateWithoutReleasingOldOwner",
+        all([
+            eq(INVALID, 0),
+            Var(INC).lt(Int(2)),
+            eq(RELEASED, 0),
+            eq(CONFIG, 1),
+            eq(FAULT, 0).or(all([eq(FAULT, 3), eq(ST, 7), eq(INC, 1), eq(KNOWN, 1)])),
+        ]),
+        &[
+            (INVALID, Int(1)),
+            (ST, Int(7)),
+            (FAULT, Int(3)),
+            (COVER, Int(0)),
+            (TRUST, Int(0)),
+        ],
+    );
+    act(
+        &mut m,
+        "RestartA1B2A3",
+        all([eq(INVALID, 1), Var(INC).lt(Int(2))]),
+        &[(INC, Var(INC).plus(Int(1))), (INVALID, Int(0))],
+    );
+    act(
+        &mut m,
+        "RefuseOldIncarnationReply",
+        all([exact.clone().negate(), eq(ST, 7)]),
+        &[(REFUSED, Int(1))],
+    );
+    if control == 4 {
+        act(
+            &mut m,
+            "ReplayOldAReplyIntoA3",
+            all([
+                eq(ST, 7),
+                eq(INC, 2),
+                eq(CAP, 0),
+                eq(MEMBERS, 0).negate(),
+                eq(STOP, 1),
+                eq(NATIVE, 1),
+                eq(DEBT, 0),
+                eq(OWED, 0),
+            ]),
+            &[
+                (ST, Int(2)),
+                (FAULT, Int(0)),
+                (COVER, Int(1)),
+                (OWNER, Int(2)),
+            ],
+        );
     }
     settle.push(m.actions.len());
-    act(&mut m,"RetireControllerBeforePinnedLeaderFinalSignal",all([
-        eq(ST,1).or(eq(ST,2)).or(eq(ST,4)).or(eq(ST,7)),eq(RETIRED,0),
-    ]),&[(ST,Int(5)),(RETIRED,Int(1))]);
+    act(
+        &mut m,
+        "RetireControllerBeforePinnedLeaderFinalSignal",
+        all([
+            eq(ST, 1).or(eq(ST, 2)).or(eq(ST, 4)).or(eq(ST, 7)),
+            eq(RETIRED, 0),
+        ]),
+        &[(ST, Int(5)), (RETIRED, Int(1))],
+    );
     // OS completion is observed, not a fairness assumption. A never-returning
     // observation has an explicit owned quarantine disposition below.
-    act(&mut m,"ObserveActualAllMemberReapReady",all([eq(ST,5),eq(RETIRED,1),eq(READY,0)]),&[(READY,Int(1))]);
+    act(
+        &mut m,
+        "ObserveActualAllMemberReapReady",
+        all([eq(ST, 5), eq(RETIRED, 1), eq(READY, 0)]),
+        &[(READY, Int(1))],
+    );
     settle.push(m.actions.len());
-    act(&mut m,"ActuallyReapAllMembersAfterControllerRetirement",all([
-        eq(ST,5),eq(RETIRED,1),eq(READY,1),
-    ]),&[(ST,Int(6)),(MEMBERS,Int(0)),(REAPED,Int(1)),(STOP,Int(1)),(OWNER,Int(2))]);
+    act(
+        &mut m,
+        "ActuallyReapAllMembersAfterControllerRetirement",
+        all([eq(ST, 5), eq(RETIRED, 1), eq(READY, 1)]),
+        &[
+            (ST, Int(6)),
+            (MEMBERS, Int(0)),
+            (REAPED, Int(1)),
+            (STOP, Int(1)),
+            (OWNER, Int(2)),
+        ],
+    );
     settle.push(m.actions.len());
-    act(&mut m,"UnavailableSettlementKeepsOwnedQuarantine",all([
-        eq(ST,5),eq(READY,0),eq(DEADLINE,1),
-    ]),&[(ST,Int(7)),(COVER,Int(0)),(TRUST,Int(0))]);
-    act(&mut m,"RetryOnlyUnconsumedOriginalEffect",all([
-        eq(ST,6),eq(FAULT,4),eq(CONSUMED,0),eq(DEBT,0),eq(OWED,0),eq(RELEASED,0),
-    ]),&[(ST,Int(0)),(FAULT,Int(0)),(RETIRED,Int(0)),(REAPED,Int(0)),
-        (READY,Int(0)),(NATIVE,Int(0)),(COVER,Int(0)),(SPAN,Int(0)),(LABEL,Int(0))]);
-    act(&mut m,"CoverageReceiptUnavailable",all([eq(ST,6),eq(COVER,1),eq(RELEASED,0)]),&[(COVER,Int(0)),(TRUST,Int(0))]);
-    let fully_reaped = all([eq(ST,6),eq(MEMBERS,0),eq(RETIRED,1),eq(REAPED,1)]);
-    act(&mut m,"TrustOnlyCoveredSettledOriginalOutput",all([
-        if control==18 {Bool(true)} else {fully_reaped.clone()},
-        if control==17 {Bool(true)} else {eq(COVER,1)},
-        if control==2 {Bool(true)} else {eq(EXTRA,0)},
-        eq(NATIVE,1),eq(KNOWN,1),eq(FAULT,0),eq(DEBT,0),eq(OWED,0),eq(OWNER,2),
-        eq(OUTPUT,1),eq(FG,0),eq(DEADLINE,0),admitted.clone(),eq(CONSUMED,1),eq(TRUST,0),
-    ]),&[(TRUST,Int(1))]);
+    act(
+        &mut m,
+        "UnavailableSettlementKeepsOwnedQuarantine",
+        all([eq(ST, 5), eq(READY, 0), eq(DEADLINE, 1)]),
+        &[(ST, Int(7)), (COVER, Int(0)), (TRUST, Int(0))],
+    );
+    act(
+        &mut m,
+        "RetryOnlyUnconsumedOriginalEffect",
+        all([
+            eq(ST, 6),
+            eq(FAULT, 4),
+            eq(CONSUMED, 0),
+            eq(DEBT, 0),
+            eq(OWED, 0),
+            eq(RELEASED, 0),
+        ]),
+        &[
+            (ST, Int(0)),
+            (FAULT, Int(0)),
+            (RETIRED, Int(0)),
+            (REAPED, Int(0)),
+            (READY, Int(0)),
+            (NATIVE, Int(0)),
+            (COVER, Int(0)),
+            (SPAN, Int(0)),
+            (LABEL, Int(0)),
+        ],
+    );
+    act(
+        &mut m,
+        "CoverageReceiptUnavailable",
+        all([eq(ST, 6), eq(COVER, 1), eq(RELEASED, 0)]),
+        &[(COVER, Int(0)), (TRUST, Int(0))],
+    );
+    let fully_reaped = all([eq(ST, 6), eq(MEMBERS, 0), eq(RETIRED, 1), eq(REAPED, 1)]);
+    act(
+        &mut m,
+        "TrustOnlyCoveredSettledOriginalOutput",
+        all([
+            if control == 18 {
+                Bool(true)
+            } else {
+                fully_reaped.clone()
+            },
+            if control == 17 {
+                Bool(true)
+            } else {
+                eq(COVER, 1)
+            },
+            if control == 2 {
+                Bool(true)
+            } else {
+                eq(EXTRA, 0)
+            },
+            eq(NATIVE, 1),
+            eq(KNOWN, 1),
+            eq(FAULT, 0),
+            eq(DEBT, 0),
+            eq(OWED, 0),
+            eq(OWNER, 2),
+            eq(OUTPUT, 1),
+            eq(FG, 0),
+            eq(DEADLINE, 0),
+            admitted.clone(),
+            eq(CONSUMED, 1),
+            eq(TRUST, 0),
+        ]),
+        &[(TRUST, Int(1))],
+    );
     settle.push(m.actions.len());
-    act(&mut m,"ReleaseOnlyActuallySettledKnownOwnership",all([
-        fully_reaped.clone(),eq(KNOWN,1),eq(DEBT,0),eq(OWED,0),eq(OWNER,2),eq(RELEASED,0),
-    ]),&[(RELEASED,Int(1))]);
-    for (mode,fault) in [(19,1),(20,2),(21,3)] {
-        if control==mode {
-            act(&mut m,&format!("BrokenReleaseOnFault{fault}"),all([
-                eq(ST,7),eq(FAULT,fault),eq(RELEASED,0),
-            ]),&[(RELEASED,Int(1)),(OWNER,Int(2))]);
+    act(
+        &mut m,
+        "ReleaseOnlyActuallySettledKnownOwnership",
+        all([
+            fully_reaped.clone(),
+            eq(KNOWN, 1),
+            eq(DEBT, 0),
+            eq(OWED, 0),
+            eq(OWNER, 2),
+            eq(RELEASED, 0),
+        ]),
+        &[(RELEASED, Int(1))],
+    );
+    for (mode, fault) in [(19, 1), (20, 2), (21, 3)] {
+        if control == mode {
+            act(
+                &mut m,
+                &format!("BrokenReleaseOnFault{fault}"),
+                all([eq(ST, 7), eq(FAULT, fault), eq(RELEASED, 0)]),
+                &[(RELEASED, Int(1)), (OWNER, Int(2))],
+            );
         }
     }
-    safe(&mut m,"NativeEffectRequiresReservedAttempt",eq(EFFECTS,0).or(eq(RESERVED,1)));
-    safe(&mut m,"NativeEffectRequiresExactExecutableCapability",eq(EFFECTS,0).or(eq(CASE,1).negate()));
-    safe(&mut m,"NoUserCodeBeforeInitialSuspension",eq(EFFECTS,0).or(eq(CASE,2).negate()));
-    safe(&mut m,"AttachedWorkKeepsExactIncarnation",all([eq(ST,1).negate(),eq(ST,2).negate(),eq(ST,3).negate(),eq(ST,4).negate()]).or(exact.clone()));
-    safe(&mut m,"StoppedStateRequiresAllMemberConfirmation",eq(ST,4).negate().or(eq(STOP,1)));
-    safe(&mut m,"MainProofCannotOverlapRunnableGroup",eq(MEMBERS,0).or(eq(STOP,1)).or(eq(OWNER,0).negate()));
-    safe(&mut m,"DebtCoversWholeObservedUnrestedSpan",eq(CHARGED,0).or(Var(DEBT).lt(Var(OWED)).negate()));
-    safe(&mut m,"HelperChargeIncludesDescendantsAndController",eq(CHARGED,0).or(eq(SPAN,2).negate()).or(all([
-        eq(CONTROLLER,1),Var(SPAN_MEMBERS).lt(Int(2)).or(eq(DESCENDANT,1)),
-    ])));
-    safe(&mut m,"OrdinaryApplicationCannotUseNativeLabel",eq(LABEL,2).negate().or(eq(SPAN,1)));
-    safe(&mut m,"CertifiedNativeCreationMeetsCpuWallInclusiveBounds",eq(NATIVE,0).or(native_ok));
-    safe(&mut m,"CoveredRunnableChargeMeetsWholeGroupWindow",eq(SPAN,2).negate().or(eq(CHARGED,0)).or(eq(COVER,0)).or(eq(CASE,7).negate()));
-    safe(&mut m,"OriginalNativeEffectNeverReplayed",Var(EFFECTS).lt(Int(2)));
-    safe(&mut m,"TrustedOutputHasCompleteCoverage",eq(TRUST,0).or(eq(COVER,1)));
-    safe(&mut m,"TrustedOutputHasActualReapAndRetirement",eq(TRUST,0).or(fully_reaped.clone()));
-    safe(&mut m,"TrustedOutputHasOnlyAdmittedMembers",eq(TRUST,0).or(eq(EXTRA,0)));
-    safe(&mut m,"TrustedOutputKeepsOriginalIncarnation",eq(TRUST,0).or(exact));
-    safe(&mut m,"FaultCannotReleaseUnsettledOwnership",eq(RELEASED,0).or(all([
-        fully_reaped,eq(MEMBERS,0),eq(DEBT,0),eq(OWED,0),eq(KNOWN,1),
-    ])));
-    progress(&mut m,"ControlHasOwnedSettlementOrQuarantineDisposition",eq(DEADLINE,1),
-        Var(ST).lt(Int(5)).negate(),settle);
+    safe(
+        &mut m,
+        "NativeEffectRequiresReservedAttempt",
+        eq(EFFECTS, 0).or(eq(RESERVED, 1)),
+    );
+    safe(
+        &mut m,
+        "NativeEffectRequiresExactExecutableCapability",
+        eq(EFFECTS, 0).or(eq(CASE, 1).negate()),
+    );
+    safe(
+        &mut m,
+        "NoUserCodeBeforeInitialSuspension",
+        eq(EFFECTS, 0).or(eq(CASE, 2).negate()),
+    );
+    safe(
+        &mut m,
+        "AttachedWorkKeepsExactIncarnation",
+        all([
+            eq(ST, 1).negate(),
+            eq(ST, 2).negate(),
+            eq(ST, 3).negate(),
+            eq(ST, 4).negate(),
+        ])
+        .or(exact.clone()),
+    );
+    safe(
+        &mut m,
+        "StoppedStateRequiresAllMemberConfirmation",
+        eq(ST, 4).negate().or(eq(STOP, 1)),
+    );
+    safe(
+        &mut m,
+        "MainProofCannotOverlapRunnableGroup",
+        eq(MEMBERS, 0).or(eq(STOP, 1)).or(eq(OWNER, 0).negate()),
+    );
+    safe(
+        &mut m,
+        "DebtCoversWholeObservedUnrestedSpan",
+        eq(CHARGED, 0).or(Var(DEBT).lt(Var(OWED)).negate()),
+    );
+    safe(
+        &mut m,
+        "HelperChargeIncludesDescendantsAndController",
+        eq(CHARGED, 0).or(eq(SPAN, 2).negate()).or(all([
+            eq(CONTROLLER, 1),
+            Var(SPAN_MEMBERS).lt(Int(2)).or(eq(DESCENDANT, 1)),
+        ])),
+    );
+    safe(
+        &mut m,
+        "OrdinaryApplicationCannotUseNativeLabel",
+        eq(LABEL, 2).negate().or(eq(SPAN, 1)),
+    );
+    safe(
+        &mut m,
+        "CertifiedNativeCreationMeetsCpuWallInclusiveBounds",
+        eq(NATIVE, 0).or(native_ok),
+    );
+    safe(
+        &mut m,
+        "CoveredRunnableChargeMeetsWholeGroupWindow",
+        eq(SPAN, 2)
+            .negate()
+            .or(eq(CHARGED, 0))
+            .or(eq(COVER, 0))
+            .or(eq(CASE, 7).negate()),
+    );
+    safe(
+        &mut m,
+        "OriginalNativeEffectNeverReplayed",
+        Var(EFFECTS).lt(Int(2)),
+    );
+    safe(
+        &mut m,
+        "TrustedOutputHasCompleteCoverage",
+        eq(TRUST, 0).or(eq(COVER, 1)),
+    );
+    safe(
+        &mut m,
+        "TrustedOutputHasActualReapAndRetirement",
+        eq(TRUST, 0).or(fully_reaped.clone()),
+    );
+    safe(
+        &mut m,
+        "TrustedOutputHasOnlyAdmittedMembers",
+        eq(TRUST, 0).or(eq(EXTRA, 0)),
+    );
+    safe(
+        &mut m,
+        "TrustedOutputKeepsOriginalIncarnation",
+        eq(TRUST, 0).or(exact),
+    );
+    safe(
+        &mut m,
+        "FaultCannotReleaseUnsettledOwnership",
+        eq(RELEASED, 0).or(all([
+            fully_reaped,
+            eq(MEMBERS, 0),
+            eq(DEBT, 0),
+            eq(OWED, 0),
+            eq(KNOWN, 1),
+        ])),
+    );
+    progress(
+        &mut m,
+        "ControlHasOwnedSettlementOrQuarantineDisposition",
+        eq(DEADLINE, 1),
+        Var(ST).lt(Int(5)).negate(),
+        settle,
+    );
     if control != 0 {
         // A control fixture asserts at its first invalid boundary. Model that
         // observer explicitly instead of exploring unrelated execution after a
@@ -778,11 +1423,15 @@ pub fn helper(control: u8) -> Model {
         for action in &mut m.actions {
             action.guard = action.guard.clone().and(valid_prefix.clone());
         }
-        act(&mut m,"ControlObserverStopsAtFailedBoundary",valid_prefix.negate(),&[]);
+        act(
+            &mut m,
+            "ControlObserverStopsAtFailedBoundary",
+            valid_prefix.negate(),
+            &[],
+        );
     }
     m
 }
-
 
 /// One logical descendant can exec from the admitted Git fork image into GPG
 /// within an already charged group quantum. Darwin changes its audit task
@@ -1185,6 +1834,9 @@ pub fn member_window(control: u8) -> Model {
         "Aba",
         "OverLimit",
         "LateKernelReplay",
+        "FailedAdmissionSample",
+        "InitialCreation",
+        "InitialDebt",
     ];
     let name = format!("DreamReadMemberWindow{}", suffix[control as usize]);
     const PH: usize = 0;
@@ -1239,6 +1891,8 @@ pub fn member_window(control: u8) -> Model {
     const GRANTS: usize = 49;
     const SUPPORT: usize = 50;
     const QUAR: usize = 51;
+    const CREATION: usize = 52;
+    const OBSERVE: usize = 53;
     let mut m = base(
         &name,
         control != 0,
@@ -1295,10 +1949,12 @@ pub fn member_window(control: u8) -> Model {
             ("lateCpuObserved", 1, 0),
             ("postClosureCorroborationDone", 1, 0),
             ("lateObservationReconciled", 1, 0),
-            ("cumulativeDebtMs", 27, 0),
+            ("cumulativeGrantAndPostDebtMs", 27, 0),
             ("grantCount", 2, 0),
             ("provisionedWholeCommandSupport", 1, 1),
             ("ownedUnavailableQuarantine", 1, 0),
+            ("canonicalCreationOwnershipSettled", 1, 0),
+            ("ordinaryAdmissionNoneValidFailedUnsettledUnpaid", 4, 0),
         ],
     );
     let exact = Var(INC).eq(Var(CAP));
@@ -1359,6 +2015,78 @@ pub fn member_window(control: u8) -> Model {
         eq(PH, 2),
         &[(PH, Int(3))],
     );
+    // The separate Helper graph supplies native charge/rest/reconciliation.
+    // This boundary imports its successful ownership handoff; it does not
+    // infer settlement from suspended birth or from an idle controller tick.
+    act(
+        &mut m,
+        "ConfirmCanonicalCreationOwnershipAndBothDebtsSettled",
+        all([
+            eq(PH, 3),
+            eq(CREATION, 0),
+            eq(OBSERVE, 0),
+            eq(DEBT, 0),
+            eq(OWED, 0),
+            available.clone(),
+        ]),
+        &[(CREATION, Int(1))],
+    );
+    act(
+        &mut m,
+        "ObserveOrdinaryControllerTailBeforeInitialCorroboration",
+        all([
+            eq(PH, 3),
+            eq(CREATION, 1),
+            eq(OBSERVE, 0),
+            eq(DEBT, 0),
+            eq(OWED, 0),
+            available.clone(),
+        ]),
+        &[(DEBT, Int(9)), (OWED, Int(9))],
+    );
+    for settled in 0..=1 {
+        for paid in 0..=1 {
+            act(
+                &mut m,
+                &format!("InitialCorroborationCreationSettled{settled}DebtsPaid{paid}"),
+                all([
+                    eq(PH, 3),
+                    eq(OBSERVE, 0),
+                    eq(CREATION, settled),
+                    available.clone(),
+                    if settled == 1 || control == 26 {
+                        Bool(true)
+                    } else {
+                        Bool(false)
+                    },
+                    if paid == 1 {
+                        all([eq(DEBT, 0), eq(OWED, 0)])
+                    } else {
+                        all([eq(DEBT, 9), eq(OWED, 9)])
+                    },
+                    if paid == 1 || control == 27 {
+                        Bool(true)
+                    } else {
+                        Bool(false)
+                    },
+                ]),
+                &[
+                    (
+                        OBSERVE,
+                        Int(if settled == 0 {
+                            3
+                        } else if paid == 0 {
+                            4
+                        } else {
+                            1
+                        }),
+                    ),
+                    (DEBT, Var(DEBT).plus(Int(9))),
+                    (OWED, Var(OWED).plus(Int(9))),
+                ],
+            );
+        }
+    }
     let open = [
         (PH, Int(4)),
         (CLOCK, Int(1)),
@@ -1381,9 +2109,44 @@ pub fn member_window(control: u8) -> Model {
     act(
         &mut m,
         "CheckedT0OpensEveryReservedSlotBeforeCont",
-        all([eq(PH, 3), available.clone(), eq(DEBT, 0)]),
+        all([
+            eq(PH, 3),
+            available.clone(),
+            eq(DEBT, 0),
+            eq(OWED, 0),
+            eq(CREATION, 1),
+            eq(OBSERVE, 1),
+        ]),
         &first,
     );
+    for failed in 0..=1 {
+        // An admission event abstracts entering ordinary expensive validation,
+        // not an external OS transition or mandatory retirement token custody.
+        act(
+            &mut m,
+            &format!("OrdinaryExpensiveObservationAdmissionFailed{failed}"),
+            all([
+                eq(EFFECT, 1),
+                eq(OWN, 1),
+                eq(RETIRED, 0),
+                eq(CREATION, 1),
+                eq(OBSERVE, 1),
+                eq(DEBT, 0),
+                eq(OWED, 0),
+                if failed == 0 {
+                    eq(FAULT, 0)
+                } else {
+                    eq(FAULT, 0).negate()
+                },
+                if failed == 0 || control == 25 {
+                    Bool(true)
+                } else {
+                    Bool(false)
+                },
+            ]),
+            &[(OBSERVE, Int(if failed == 0 { 1 } else { 2 }))],
+        );
+    }
     act(
         &mut m,
         "OpenUnknownImplicitSlotWithoutInventingBirthTime",
@@ -1408,6 +2171,9 @@ pub fn member_window(control: u8) -> Model {
         all([eq(PH, 4), eq(CUR, 2), eq(TOKEN, 1)]),
         &[(TOKEN, Int(2))],
     );
+    // The preceding identity capture can also retain a late real effect for
+    // cleanup after refusal. It grants no ordinary admission, ACK, seal or
+    // coverage; external fork/exec likewise remains possible until real stop.
     act(
         &mut m,
         "StopRequestAloneClosesNoWindow",
@@ -1978,6 +2744,21 @@ pub fn member_window(control: u8) -> Model {
     );
     safe(
         &mut m,
+        "StickyFailedAdmissionForbidsOrdinaryExpensiveObservation",
+        eq(OBSERVE, 2).negate(),
+    );
+    safe(
+        &mut m,
+        "InitialCorroborationRequiresSettledCreationOwnership",
+        eq(OBSERVE, 3).negate(),
+    );
+    safe(
+        &mut m,
+        "InitialCorroborationRequiresBothPriorDebtsPaid",
+        eq(OBSERVE, 4).negate(),
+    );
+    safe(
+        &mut m,
         "BothPossibleWindowsOpenAtOriginalCheckedT0",
         eq(GRANTS, 0).or(all([eq(START0, 1), eq(START1, 1)])),
     );
@@ -2103,6 +2884,11 @@ pub fn member_window(control: u8) -> Model {
 /// adversarial graph permits unaccounted work after its explicit withdrawal.
 /// Assumption-drop controls deliberately forge the approval/premise relation,
 /// retain identical censuses, and must reach actual unaccounted-work trust.
+/// Decision65875 adds disjoint normal-unavailable/private-conditional modes.
+/// The private projection follows one representative original helper ticket;
+/// complete sequential command execution remains a concrete process witness.
+/// Private measurement never sets runtime approval, lesson trust or a lifetime
+/// theorem, even with exact test-host integrity and bound review assumptions.
 pub fn qualification(control: u8) -> Model {
     let suffix = [
         "",
@@ -2124,6 +2910,29 @@ pub fn qualification(control: u8) -> Model {
         "ApprovalAsProof",
         "MissingReceipt",
         "EarlyTrust",
+        "PrivateIntegrity",
+        "PrivateSevenSources",
+        "PrivateIdentity",
+        "PrivatePins",
+        "PrivateTestPremise",
+        "PrivateDuplicate",
+        "PrivateRestart",
+        "PrivateRuntimeApproval",
+        "PrivateLifetime",
+        "PrivateToRuntime",
+        "PrivateNormalBirth",
+        "PrivateSelfReference",
+        "PrivateSettlement",
+        "PrivateDebt",
+        "PrivateAba",
+        "InnerCoverage",
+        "InnerStale",
+        "InnerArch",
+        "InnerBudget",
+        "InnerCandidate",
+        "InnerProjection",
+        "InnerSyntax",
+        "InnerRevalidation",
     ];
     let name = format!("DreamReadQualification{}", suffix[control as usize]);
     let mut m = base(
@@ -2168,6 +2977,41 @@ pub fn qualification(control: u8) -> Model {
             ("existingFullPublicationProof", 1, 0),
             ("receiptPresent", 1, 0),
             ("ordinaryCost", 3, 0),
+            ("modeRuntimePremiseNormalProbePrivateProbe", 2, 0),
+            ("privatePretestCase", 9, 0),
+            ("hostExpectedInputIntegrity", 1, 0),
+            ("exactSevenAuthenticatedSourcePins", 1, 0),
+            (
+                "allActualRootArtifactBuildConfigClosureOsProbePinsMatch",
+                1,
+                0,
+            ),
+            ("boundSourceReviewTestPremise", 1, 0),
+            ("pretestOnlyNoOwnOrFutureResultHash", 1, 0),
+            ("currentRunNonce", 1, 0),
+            ("capturedOriginalRunNonce", 1, 0),
+            ("originalPrivateOperationClaimed", 1, 0),
+            ("privateResultRuntimeApproved", 1, 0),
+            ("privateResultWholeLifetimeTheorem", 1, 0),
+            (
+                "privateOutcomeNoneCompletedExpectedRejectRefusedQuarantined",
+                4,
+                0,
+            ),
+            ("representativePrivateOriginalEffectDispatches", 2, 0),
+            ("privateObservedProofNotReachedValidInvalid", 2, 0),
+            ("privateUnpaidOrdinaryAdmission", 1, 0),
+            ("innerNoneReservedParsedCoveredBoundRejected", 5, 0),
+            ("selectedCandidate", 1, 0),
+            ("parsedCandidate", 1, 0),
+            ("parsedInnerEpochA1B2A3", 2, 0),
+            ("innerReviewAndClosureCoverage", 1, 0),
+            ("innerArchCanonicalRawAliasUnsupported", 2, 0),
+            ("innerProjectionAndCurrentnessMatch", 1, 0),
+            ("logicalMetadataUnknownReservedOver128KiB", 2, 0),
+            ("innerCanonicalTypedShape", 1, 0),
+            ("immutableInnerProfile", 6, 0),
+            ("innerPostSettlementRevalidated", 1, 0),
         ],
     );
     const PH: usize = 0;
@@ -2204,6 +3048,33 @@ pub fn qualification(control: u8) -> Model {
     const PROOF: usize = 31;
     const PRESENT: usize = 32;
     const COST: usize = 33;
+    const MODE: usize = 34;
+    const INPUT: usize = 35;
+    const HASH: usize = 36;
+    const SEVEN: usize = 37;
+    const PINS: usize = 38;
+    const REVIEW: usize = 39;
+    const PRETEST: usize = 40;
+    const NONCE: usize = 41;
+    const BOUND_NONCE: usize = 42;
+    const CLAIM: usize = 43;
+    const APPROVED: usize = 44;
+    const THEOREM: usize = 45;
+    const OUTCOME: usize = 46;
+    const EFFECTS: usize = 47;
+    const PRIVATE_PROOF: usize = 48;
+    const UNPAID_ADMISSION: usize = 49;
+    const INNER: usize = 50;
+    const CANDIDATE: usize = 51;
+    const PARSED_CANDIDATE: usize = 52;
+    const INNER_EPOCH: usize = 53;
+    const INNER_COVERAGE: usize = 54;
+    const ARCH: usize = 55;
+    const INNER_CURRENT: usize = 56;
+    const METADATA: usize = 57;
+    const SYNTAX: usize = 58;
+    const INNER_CASE: usize = 59;
+    const REVALIDATED: usize = 60;
     let epoch = Var(INC).eq(Var(QINC));
     let principal = Var(RP).eq(Var(QP));
     let complete = all([
@@ -2588,6 +3459,804 @@ pub fn qualification(control: u8) -> Model {
         eq(RETIRED, 1).or(eq(REAP, 1)),
         vec![retire, unavailable, rest],
     );
+    // Preserve65654's hypothetical approved runtime world separately from
+    // the normal unavailable probe and the65875 private conditional test. No
+    // private input/result can take a transition in the runtime authority graph.
+    for action in &mut m.actions {
+        action.guard = action.guard.clone().and(eq(MODE, 0));
+    }
+    for invariant in &mut m.invariants {
+        invariant.condition = eq(MODE, 0).negate().or(invariant.condition.clone());
+    }
+    for response in &mut m.responses {
+        response.request = eq(MODE, 0).and(response.request.clone());
+    }
+    act(
+        &mut m,
+        "ChooseNormalUnavailableProbe",
+        all([eq(MODE, 0), eq(PH, 0), eq(PREP, 0)]),
+        &[(MODE, Int(1)), (PREP, Int(1)), (PH, Int(1))],
+    );
+    act(
+        &mut m,
+        "NormalProbeRefusesWithoutBirthOrRuntimeApproval",
+        all([eq(MODE, 1), eq(OUTCOME, 0)]),
+        &[(REFUSED, Int(1)), (OUTCOME, Int(3))],
+    );
+    if control == 29 {
+        act(
+            &mut m,
+            "BrokenNormalProbeFeatureAssertionsCreateNativeEffect",
+            all([eq(MODE, 1), eq(EFFECT, 0)]),
+            &[(EFFECT, Int(1)), (EFFECTS, Int(1)), (OWN, Int(1))],
+        );
+    }
+    let original = all([
+        Var(RP).eq(Var(QP)),
+        Var(NONCE).eq(Var(BOUND_NONCE)),
+        Var(INC).eq(Var(QINC)),
+    ]);
+    let outer_current = all([
+        eq(HASH, 1),
+        eq(SEVEN, 1),
+        eq(PINS, 1),
+        eq(REVIEW, 1),
+        eq(PRETEST, 1),
+        eq(REVOKED, 0),
+        original.clone(),
+    ]);
+    let admitted_outer = all([
+        if control == 19 {
+            Bool(true)
+        } else {
+            eq(HASH, 1)
+        },
+        if control == 20 {
+            Bool(true)
+        } else {
+            eq(SEVEN, 1)
+        },
+        if control == 22 {
+            Bool(true)
+        } else {
+            eq(PINS, 1)
+        },
+        if control == 23 {
+            Bool(true)
+        } else {
+            eq(REVIEW, 1)
+        },
+        if control == 30 {
+            Bool(true)
+        } else {
+            eq(PRETEST, 1)
+        },
+        eq(REVOKED, 0),
+        Var(RP).eq(Var(QP)),
+        if control == 21 {
+            Bool(true)
+        } else {
+            Var(NONCE).eq(Var(BOUND_NONCE))
+        },
+        if control == 33 {
+            Var(INC).eq(Var(QINC)).or(all([eq(INC, 2), eq(QINC, 0)]))
+        } else {
+            Var(INC).eq(Var(QINC))
+        },
+    ]);
+    let same_inner = all([
+        Var(CANDIDATE).eq(Var(PARSED_CANDIDATE)),
+        Var(INC).eq(Var(INNER_EPOCH)),
+    ]);
+    let inner_complete = all([
+        eq(INNER, 4),
+        eq(INNER_COVERAGE, 1),
+        eq(ARCH, 0),
+        eq(INNER_CURRENT, 1),
+        eq(METADATA, 1),
+        eq(SYNTAX, 1),
+        same_inner.clone(),
+    ]);
+    let current = outer_current.clone().and(inner_complete.clone());
+    let admitted_private = admitted_outer.clone().and(inner_complete.clone());
+    for input in 0..=9 {
+        act(
+            &mut m,
+            &format!("PreparePrivateImmutablePretestTuple{input}"),
+            all([eq(MODE, 0), eq(PH, 0), eq(PREP, 0)]),
+            &[
+                (MODE, Int(2)),
+                (PH, Int(1)),
+                (PREP, Int(1)),
+                (INPUT, Int(input)),
+                (QP, Var(RP)),
+                (HASH, Int(i64::from(input != 2))),
+                (SEVEN, Int(i64::from(input != 3))),
+                (PINS, Int(i64::from(!matches!(input, 5 | 8 | 9)))),
+                (REVIEW, Int(i64::from(input != 6))),
+                (PRETEST, Int(i64::from(input != 7))),
+                (NONCE, Int(i64::from(input == 4))),
+                (BOUND_NONCE, Int(0)),
+                (QINC, Var(INC)),
+                // This is a bound test premise, not Root-approved finite lifetime
+                // authority. Matching test hashes never sets BASIS or APPROVED.
+                (BASIS, Int(0)),
+                (PREMISE, Int(0)),
+                (FEATURES, Int(1)),
+            ],
+        );
+    }
+    // ICD98a3023e: one shared basis, six identical pins, five independently
+    // hashed projections. Profile facts abstract typed/custody/hash checks;
+    // review coverage is distinct from source reachability judgement.
+    for candidate in 0..=1 {
+        for profile in 0..=6 {
+            act(
+                &mut m,
+                &format!("ReservePrivateInnerCandidate{candidate}Profile{profile}"),
+                all([
+                    eq(MODE, 2),
+                    eq(PH, 1),
+                    eq(INNER, 0),
+                    eq(REFUSED, 0),
+                    admitted_outer.clone(),
+                ]),
+                &[
+                    (INNER, Int(1)),
+                    (CANDIDATE, Int(candidate)),
+                    (PARSED_CANDIDATE, Int(candidate)),
+                    (INNER_EPOCH, Var(INC)),
+                    (INNER_CASE, Int(profile)),
+                    (SYNTAX, Int(i64::from(profile != 1))),
+                    (
+                        ARCH,
+                        Int(if profile == 3 {
+                            1
+                        } else if profile == 4 {
+                            2
+                        } else {
+                            0
+                        }),
+                    ),
+                    (INNER_CURRENT, Int(i64::from(profile != 5))),
+                    (METADATA, Int(if profile == 6 { 2 } else { 1 })),
+                ],
+            );
+        }
+    }
+    act(
+        &mut m,
+        "ParseReservedCanonicalTypedInnerBasisExactlyOnce",
+        all([
+            eq(MODE, 2),
+            eq(INNER, 1),
+            eq(REFUSED, 0),
+            if control == 40 {
+                Bool(true)
+            } else {
+                eq(SYNTAX, 1)
+            },
+            if control == 37 {
+                Bool(true)
+            } else {
+                eq(METADATA, 1)
+            },
+        ]),
+        &[(INNER, Int(2))],
+    );
+    act(
+        &mut m,
+        "CheckEightFindingSevenSourceSixteenCommandFivePhaseClosureCoverage",
+        all([
+            eq(MODE, 2),
+            eq(INNER, 2),
+            eq(SYNTAX, 1),
+            eq(INNER_CASE, 2).negate(),
+            eq(REFUSED, 0),
+        ]),
+        &[(INNER_COVERAGE, Int(1)), (INNER, Int(3))],
+    );
+    act(
+        &mut m,
+        "BindExactCoveredCanonicalCurrentInnerTupleBeforeClaim",
+        all([
+            eq(MODE, 2),
+            eq(REFUSED, 0),
+            if control == 34 {
+                eq(INNER, 2).or(eq(INNER, 3))
+            } else {
+                eq(INNER, 3)
+            },
+            if control == 34 {
+                Bool(true)
+            } else {
+                eq(INNER_COVERAGE, 1)
+            },
+            if control == 36 {
+                Bool(true)
+            } else {
+                eq(ARCH, 0)
+            },
+            if control == 39 {
+                Bool(true)
+            } else {
+                eq(INNER_CURRENT, 1)
+            },
+            if control == 35 {
+                Bool(true)
+            } else {
+                same_inner.clone()
+            },
+            eq(METADATA, 1),
+            eq(SYNTAX, 1),
+        ]),
+        &[(INNER, Int(4)), (REVALIDATED, Int(0))],
+    );
+    for epoch in 0..2 {
+        act(
+            &mut m,
+            &format!("ChangeInnerEpochBetweenParseAndBindFrom{epoch}"),
+            all([
+                eq(MODE, 2),
+                eq(CLAIM, 0),
+                eq(INNER, 2).or(eq(INNER, 3)),
+                eq(INC, epoch),
+                eq(REFUSED, 0),
+            ]),
+            &[(INC, Int(epoch + 1))],
+        );
+    }
+    act(
+        &mut m,
+        "ChangeSelectedCandidateInvalidatesBoundTupleBeforeClaim",
+        all([
+            eq(MODE, 2),
+            eq(CLAIM, 0),
+            eq(INNER, 4),
+            eq(CANDIDATE, 0),
+            eq(REFUSED, 0),
+        ]),
+        &[
+            (CANDIDATE, Int(1)),
+            (INNER, Int(5)),
+            (INNER_CURRENT, Int(0)),
+            (REVALIDATED, Int(0)),
+            (REFUSED, Int(1)),
+        ],
+    );
+    if control == 38 {
+        act(
+            &mut m,
+            "BrokenCandidateSwitchKeepsOtherCandidatesInnerBinding",
+            all([
+                eq(MODE, 2),
+                eq(CLAIM, 0),
+                eq(INNER, 4),
+                eq(CANDIDATE, 0),
+                eq(REFUSED, 0),
+            ]),
+            &[(CANDIDATE, Int(1))],
+        );
+    }
+    let inner_reject = m.actions.len();
+    let incompatible = eq(SYNTAX, 0)
+        .or(eq(METADATA, 1).negate())
+        .or(eq(ARCH, 0).negate())
+        .or(eq(INNER_CURRENT, 0))
+        .or(eq(INNER_CASE, 2))
+        .or(same_inner.clone().negate());
+    act(
+        &mut m,
+        "RejectIncompleteOrStaleInnerWithoutNativeBirthOrSilentRebind",
+        all([
+            eq(MODE, 2),
+            eq(CLAIM, 0),
+            eq(INNER, 0).negate(),
+            eq(REFUSED, 0),
+            incompatible.clone(),
+        ]),
+        &[
+            (INNER, Int(5)),
+            (REFUSED, Int(1)),
+            (OUTCOME, Int(3)),
+            (REVALIDATED, Int(0)),
+        ],
+    );
+    act(
+        &mut m,
+        "ClaimOriginalPrivateRunNonceInputAndIncarnationBeforeBirth",
+        all([
+            eq(MODE, 2),
+            eq(PH, 1),
+            eq(CLAIM, 0),
+            eq(REFUSED, 0),
+            admitted_private.clone(),
+        ]),
+        &[
+            (PH, Int(2)),
+            (CLAIM, Int(1)),
+            (ATT, Int(2)),
+            (SLOTS, Int(2)),
+        ],
+    );
+    for valid in 0..=1 {
+        act(
+            &mut m,
+            &format!("CreatePrivateStoppedOriginalWithActualBindingValid{valid}"),
+            all([
+                eq(MODE, 2),
+                eq(PH, 2),
+                eq(CLAIM, 1),
+                eq(EFFECTS, 0),
+                eq(REFUSED, 0),
+                eq(ATT, 2),
+                admitted_private.clone(),
+                if valid == 1 {
+                    current.clone()
+                } else {
+                    current.clone().negate()
+                },
+            ]),
+            &[
+                (PH, Int(3)),
+                (EFFECT, Int(1)),
+                (EFFECTS, Int(1)),
+                (OWN, Int(1)),
+                (BIRTH, Int(valid)),
+                (DEBT, Int(9)),
+                (COST, Int(1)),
+            ],
+        );
+    }
+    act(
+        &mut m,
+        "DuplicateExactOriginalPrivateOperationRetainsEffectAndDebt",
+        all([eq(MODE, 2), eq(CLAIM, 1), current.clone()]),
+        &[],
+    );
+    if control == 24 {
+        act(
+            &mut m,
+            "BrokenDuplicatePrivateOperationCreatesSecondOriginalEffect",
+            all([
+                eq(MODE, 2),
+                eq(CLAIM, 1),
+                eq(EFFECTS, 1),
+                eq(OWN, 1),
+                current.clone(),
+            ]),
+            &[(EFFECTS, Int(2))],
+        );
+    }
+    act(
+        &mut m,
+        "PrivateForkExecUsesExistingCanonicalPaidTwoSlotGrant",
+        all([
+            eq(MODE, 2),
+            eq(PH, 3),
+            eq(EFFECTS, 1),
+            eq(OWN, 1),
+            eq(DEBT, 0),
+            eq(REFUSED, 0),
+            current.clone(),
+        ]),
+        &[(PH, Int(4)), (WINDOW, Int(1))],
+    );
+    act(
+        &mut m,
+        "ObserveActualPrivateCohortClosureAndInclusiveCharge",
+        all([eq(MODE, 2), eq(PH, 4), eq(REFUSED, 0), current.clone()]),
+        &[
+            (PH, Int(5)),
+            (ROSTER, Int(1)),
+            (COVER, Int(1)),
+            (DEBT, Int(9)),
+        ],
+    );
+    act(
+        &mut m,
+        "PrivateUnknownCoverageRetainsOriginalWindowsAndRejects",
+        all([eq(MODE, 2), eq(PH, 4), eq(REFUSED, 0)]),
+        &[
+            (PH, Int(5)),
+            (COVER, Int(0)),
+            (REFUSED, Int(1)),
+            (DEBT, Int(9)),
+        ],
+    );
+    let private_rest = m.actions.len();
+    for debt in 1..=27 {
+        act(
+            &mut m,
+            &format!("PrivatePayFreshObservedDebtAfterWork{debt}"),
+            all([eq(MODE, 2), eq(DEBT, debt), eq(PH, 4).negate()]),
+            &[(DEBT, Int(debt - 1))],
+        );
+    }
+    for proof in 1..=2 {
+        act(
+            &mut m,
+            &format!("ObserveRealPrivatePublicProofOutcome{proof}"),
+            all([
+                eq(MODE, 2),
+                eq(PH, 5),
+                eq(PRIVATE_PROOF, 0),
+                eq(COVER, 1),
+                eq(DEBT, 0),
+                eq(REFUSED, 0),
+                current.clone(),
+                if proof == 1 {
+                    eq(INPUT, 0)
+                } else {
+                    eq(INPUT, 1)
+                },
+            ]),
+            &[(PRIVATE_PROOF, Int(proof)), (DEBT, Int(9))],
+        );
+    }
+    // The same original retained effect survives invalidation, foreign nonce,
+    // restart and A-B-A. No source mutation mints a replacement or erases debt.
+    act(
+        &mut m,
+        "InvalidateChangedOrSameVersionPrivateArtifactPins",
+        all([eq(MODE, 2), eq(CLAIM, 1), eq(OUTCOME, 0), eq(PINS, 1)]),
+        &[
+            (PINS, Int(0)),
+            (REFUSED, Int(1)),
+            (COVER, Int(0)),
+            (INNER, Int(5)),
+            (INNER_CURRENT, Int(0)),
+            (REVALIDATED, Int(0)),
+        ],
+    );
+    act(
+        &mut m,
+        "ForeignPrivateNonceCannotClaimExistingEffect",
+        all([eq(MODE, 2), eq(CLAIM, 1), eq(OUTCOME, 0), eq(NONCE, 0)]),
+        &[
+            (NONCE, Int(1)),
+            (REFUSED, Int(1)),
+            (COVER, Int(0)),
+            (INNER, Int(5)),
+            (INNER_CURRENT, Int(0)),
+            (REVALIDATED, Int(0)),
+        ],
+    );
+    for epoch in 0..2 {
+        act(
+            &mut m,
+            &format!("RestartPrivateOriginalIncarnation{epoch}"),
+            all([eq(MODE, 2), eq(CLAIM, 1), eq(OUTCOME, 0), eq(INC, epoch)]),
+            &[
+                (INC, Int(epoch + 1)),
+                (REFUSED, Int(1)),
+                (COVER, Int(0)),
+                (INNER, Int(5)),
+                (INNER_CURRENT, Int(0)),
+                (REVALIDATED, Int(0)),
+            ],
+        );
+    }
+    if control == 25 {
+        act(
+            &mut m,
+            "BrokenPrivateRestartDropsOwnedUnreapedOriginal",
+            all([
+                eq(MODE, 2),
+                eq(EFFECTS, 1),
+                eq(OWN, 1),
+                eq(REAP, 0),
+                eq(REFUSED, 1),
+            ]),
+            &[(OWN, Int(0)), (DEBT, Int(0))],
+        );
+    }
+    if control == 33 {
+        act(
+            &mut m,
+            "BrokenPrivateA3ReusesOriginalA1InputClaim",
+            all([
+                eq(MODE, 2),
+                eq(PH, 2),
+                eq(CLAIM, 1),
+                eq(INC, 2),
+                eq(QINC, 0),
+                eq(EFFECTS, 0),
+            ]),
+            &[
+                (REFUSED, Int(0)),
+                (PINS, Int(1)),
+                (INNER, Int(4)),
+                (INNER_EPOCH, Var(INC)),
+                (INNER_CURRENT, Int(1)),
+            ],
+        );
+    }
+    let private_retire = m.actions.len();
+    act(
+        &mut m,
+        "RetirePrivateControllerWithOriginalCustodyBeforeRealReap",
+        all([eq(MODE, 2), eq(EFFECTS, 1), eq(OWN, 1), eq(RETIRED, 0)]),
+        &[(RETIRED, Int(1)), (PH, Int(6))],
+    );
+    act(
+        &mut m,
+        "ObserveActualPrivateOriginalGroupExit",
+        all([eq(MODE, 2), eq(RETIRED, 1), eq(EXIT, 0), eq(OWN, 1)]),
+        &[(EXIT, Int(1))],
+    );
+    act(
+        &mut m,
+        "ActuallyReapPrivateOriginalAndRetiredMembers",
+        all([
+            eq(MODE, 2),
+            eq(RETIRED, 1),
+            eq(EXIT, 1),
+            eq(REAP, 0),
+            eq(OWN, 1),
+        ]),
+        &[(REAP, Int(1))],
+    );
+    act(
+        &mut m,
+        "ReleasePrivateOriginalOnlyAfterActualReapAndPaidDebt",
+        all([
+            eq(MODE, 2),
+            eq(RETIRED, 1),
+            eq(REAP, 1),
+            eq(OWN, 1),
+            eq(DEBT, 0),
+        ]),
+        &[(OWN, Int(0)), (PH, Int(7))],
+    );
+    let settled = all([
+        eq(RETIRED, 1),
+        eq(EXIT, 1),
+        eq(REAP, 1),
+        eq(OWN, 0),
+        eq(DEBT, 0),
+    ]);
+    act(
+        &mut m,
+        "RevalidateExactBoundInnerAfterActualPrivateSettlement",
+        all([
+            eq(MODE, 2),
+            eq(PH, 7),
+            eq(REFUSED, 0),
+            settled.clone(),
+            current.clone(),
+        ]),
+        &[(REVALIDATED, Int(1))],
+    );
+    for outcome in 1..=2 {
+        act(
+            &mut m,
+            &format!("PublishConditionalPrivateMeasuredOutcome{outcome}NeverRuntimeApproval"),
+            all([
+                eq(MODE, 2),
+                eq(OUTCOME, 0),
+                eq(COVER, 1),
+                eq(ROSTER, 1),
+                eq(PRIVATE_PROOF, outcome),
+                eq(REFUSED, 0),
+                current.clone(),
+                if control == 31 || control == 41 {
+                    Bool(true)
+                } else {
+                    eq(REVALIDATED, 1)
+                },
+                if control == 31 {
+                    Bool(true)
+                } else {
+                    settled.clone()
+                },
+            ]),
+            &[(OUTCOME, Int(outcome))],
+        );
+    }
+    act(
+        &mut m,
+        "RejectInvalidPrivatePretestBeforeAnyNativeBirth",
+        all([
+            eq(MODE, 2),
+            eq(EFFECTS, 0),
+            eq(OUTCOME, 0),
+            outer_current.clone().negate(),
+        ]),
+        &[(REFUSED, Int(1)), (OUTCOME, Int(3))],
+    );
+    let private_quarantine = m.actions.len();
+    act(
+        &mut m,
+        "RetainOwnedPrivateUnavailableQuarantine",
+        all([eq(MODE, 2), eq(REFUSED, 1), eq(OWN, 1), eq(OUTCOME, 0)]),
+        &[(OUTCOME, Int(4))],
+    );
+    act(
+        &mut m,
+        "SettledPrivateFailureStillCannotBecomeAvailable",
+        all([eq(MODE, 2), eq(REFUSED, 1), eq(OWN, 0), eq(OUTCOME, 0)]),
+        &[(OUTCOME, Int(3))],
+    );
+    act(
+        &mut m,
+        "RuntimeConsumptionRefusesPrivateResultKindWithoutBirth",
+        all([eq(MODE, 2), eq(OUTCOME, 1).or(eq(OUTCOME, 2))]),
+        &[],
+    );
+    if control == 26 {
+        act(
+            &mut m,
+            "BrokenPrivateMeasurementMintsRuntimeApproval",
+            all([eq(MODE, 2), eq(OUTCOME, 1)]),
+            &[(APPROVED, Int(1))],
+        );
+    }
+    if control == 27 {
+        act(
+            &mut m,
+            "BrokenPrivateCensusBecomesWholeLifetimeTheorem",
+            all([eq(MODE, 2), eq(COVER, 1)]),
+            &[(THEOREM, Int(1))],
+        );
+    }
+    if control == 28 {
+        act(
+            &mut m,
+            "BrokenRuntimeAcceptsPrivateConditionalResultAsLesson",
+            all([eq(MODE, 2), eq(OUTCOME, 1)]),
+            &[(TRUST, Int(1))],
+        );
+    }
+    if control == 32 {
+        act(
+            &mut m,
+            "BrokenPrivateMainOrContUsesUnpaidEarlierDebt",
+            all([eq(MODE, 2), eq(PH, 5), eq(DEBT, 0).negate()]),
+            &[(UNPAID_ADMISSION, Int(1))],
+        );
+    }
+    safe(
+        &mut m,
+        "NormalProbeRemainsUnavailableBeforeNativeBirth",
+        eq(MODE, 1).negate().or(eq(EFFECT, 0)),
+    );
+    safe(
+        &mut m,
+        "PrivateNativeBirthRequiresExactCurrentBoundPretest",
+        eq(MODE, 2).negate().or(eq(EFFECTS, 0)).or(eq(BIRTH, 1)),
+    );
+    safe(
+        &mut m,
+        "PrivateOriginalOperationNeverCreatesDuplicateEffect",
+        eq(MODE, 2).negate().or(Var(EFFECTS).lt(Int(2))),
+    );
+    safe(
+        &mut m,
+        "PrivateOriginalEffectKeepsConsumedReservations",
+        eq(MODE, 2)
+            .negate()
+            .or(eq(EFFECTS, 0))
+            .or(all([eq(ATT, 2), eq(SLOTS, 2)])),
+    );
+    safe(
+        &mut m,
+        "PrivateOriginalEffectKeepsCustodyThroughRestart",
+        eq(MODE, 2)
+            .negate()
+            .or(eq(EFFECTS, 0))
+            .or(eq(OWN, 1))
+            .or(settled.clone()),
+    );
+    safe(
+        &mut m,
+        "PrivateConditionalResultNeverGrantsRuntimeAuthority",
+        eq(MODE, 2)
+            .negate()
+            .or(all([eq(APPROVED, 0), eq(TRUST, 0), eq(BASIS, 0)])),
+    );
+    safe(
+        &mut m,
+        "PrivateObservationNeverProvesWholeCommandLifetime",
+        eq(MODE, 2).negate().or(eq(THEOREM, 0)),
+    );
+    safe(
+        &mut m,
+        "PrivateSuccessfulOutcomeRequiresActualPaidProofSettlement",
+        eq(MODE, 2)
+            .negate()
+            .or(eq(OUTCOME, 1).or(eq(OUTCOME, 2)).negate())
+            .or(all([
+                settled,
+                eq(COVER, 1),
+                eq(ROSTER, 1),
+                current,
+                eq(REFUSED, 0),
+                eq(OUTCOME, 1)
+                    .and(eq(PRIVATE_PROOF, 1))
+                    .or(eq(OUTCOME, 2).and(eq(PRIVATE_PROOF, 2))),
+            ])),
+    );
+    safe(
+        &mut m,
+        "PrivateOrdinaryOrContinueAdmissionNeverOverlapsUnpaidDebt",
+        eq(MODE, 2).negate().or(eq(UNPAID_ADMISSION, 0)),
+    );
+    safe(
+        &mut m,
+        "BoundPrivateInnerRequiresCompleteReviewAndClosureCoverage",
+        eq(MODE, 2)
+            .negate()
+            .or(eq(INNER, 4).negate())
+            .or(eq(INNER_COVERAGE, 1)),
+    );
+    safe(
+        &mut m,
+        "BoundPrivateInnerKeepsParsedCandidateAndExactEpoch",
+        eq(MODE, 2)
+            .negate()
+            .or(eq(INNER, 4).negate())
+            .or(same_inner),
+    );
+    safe(
+        &mut m,
+        "BoundPrivateInnerUsesCanonicalAarch64Identity",
+        eq(MODE, 2)
+            .negate()
+            .or(eq(INNER, 4).negate())
+            .or(eq(ARCH, 0)),
+    );
+    safe(
+        &mut m,
+        "ParsedPrivateInnerHasReservedCombined128KiBMetadata",
+        eq(MODE, 2)
+            .negate()
+            .or(eq(INNER, 2).or(eq(INNER, 3)).or(eq(INNER, 4)).negate())
+            .or(eq(METADATA, 1)),
+    );
+    safe(
+        &mut m,
+        "BoundPrivateInnerHasExactProjectionPinsAndCurrentness",
+        eq(MODE, 2)
+            .negate()
+            .or(eq(INNER, 4).negate())
+            .or(eq(INNER_CURRENT, 1)),
+    );
+    safe(
+        &mut m,
+        "ParsedPrivateInnerRequiresCanonicalTypedShape",
+        eq(MODE, 2)
+            .negate()
+            .or(eq(INNER, 2).or(eq(INNER, 3)).or(eq(INNER, 4)).negate())
+            .or(eq(SYNTAX, 1)),
+    );
+    safe(
+        &mut m,
+        "PrivateSuccessfulOutcomeHasPostSettlementInnerCurrentnessFence",
+        eq(MODE, 2)
+            .negate()
+            .or(eq(OUTCOME, 1).or(eq(OUTCOME, 2)).negate())
+            .or(eq(REVALIDATED, 1)),
+    );
+    progress(
+        &mut m,
+        "KnownIncompleteParsedInnerEventuallyRejects",
+        all([
+            eq(MODE, 2),
+            eq(CLAIM, 0),
+            eq(INNER, 2).or(eq(INNER, 3)),
+            incompatible,
+        ]),
+        eq(REFUSED, 1),
+        vec![inner_reject],
+    );
+    progress(
+        &mut m,
+        "PrivateFailedOwnedEffectHasRetirementOrQuarantineDisposition",
+        all([eq(MODE, 2), eq(REFUSED, 1), eq(OWN, 1)]),
+        eq(RETIRED, 1).or(eq(OUTCOME, 4)),
+        vec![private_retire, private_quarantine, private_rest],
+    );
     if control >= 2 {
         let valid = all(m.invariants.iter().map(|i| i.condition.clone()));
         for action in &mut m.actions {
@@ -2636,6 +4305,98 @@ mod tests {
                 .any(|s| s[3] == 2 && s[4] == 0 && s[26] == 1),
             "A1 approval remains stale at A3"
         );
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[34] == 1 && s[46] == 3 && s[47] == 0),
+            "normal probe remains unavailable with no native birth"
+        );
+        assert!(
+            good.states.iter().any(|s| s[34] == 2
+                && s[46] == 1
+                && s[48] == 1
+                && s[23] == 1
+                && s[16] == 0),
+            "conditional private positive has real valid proof and actual original reap"
+        );
+        assert!(
+            good.states.iter().any(|s| s[34] == 2
+                && s[46] == 2
+                && s[48] == 2
+                && s[23] == 1
+                && s[16] == 0),
+            "real corrupt proof is an expected private rejection, never a valid proof"
+        );
+        assert!(
+            good.states
+                .iter()
+                .all(|s| s[34] != 2 || (s[44] == 0 && s[45] == 0 && s[25] == 0 && s[5] == 0)),
+            "every private outcome remains unapproved, conditional and untrusted"
+        );
+        for case in 2..=9 {
+            assert!(
+                good.states
+                    .iter()
+                    .any(|s| s[34] == 2 && s[35] == case && s[46] == 3 && s[47] == 0),
+                "invalid private tuple {case} explicitly refuses before birth"
+            );
+            assert!(
+                good.states
+                    .iter()
+                    .all(|s| s[34] != 2 || s[35] != case || s[47] == 0),
+                "invalid private tuple {case} cannot create a helper"
+            );
+        }
+        assert!(
+            good.states.iter().any(|s| s[34] == 2
+                && s[3] == 2
+                && s[4] == 0
+                && s[47] == 1
+                && s[16] == 1
+                && s[20] == 9),
+            "private A3 retains original A1 effect, owner and unpaid debt"
+        );
+        for candidate in 0..=1 {
+            assert!(
+                good.states.iter().any(|s| s[34] == 2
+                    && s[51] == candidate
+                    && s[50] == 4
+                    && s[46] == 1
+                    && s[60] == 1),
+                "candidate {candidate} reaches conditional completion only with bound/revalidated inner tuple"
+            );
+        }
+        for profile in 1..=6 {
+            assert!(
+                good.states
+                    .iter()
+                    .any(|s| s[34] == 2 && s[59] == profile && s[46] == 3 && s[47] == 0),
+                "inner profile {profile} explicitly refuses before any native birth"
+            );
+            assert!(
+                good.states
+                    .iter()
+                    .all(|s| s[34] != 2 || s[59] != profile || s[47] == 0),
+                "bad inner profile {profile} never dispatches a helper"
+            );
+        }
+        assert!(
+            good.states.iter().any(|s| s[34] == 2
+                && s[3] == 2
+                && s[53] == 0
+                && s[50] == 5
+                && s[47] == 0),
+            "A1 parsed inner cannot silently bind at A3"
+        );
+        assert!(
+            good.states.iter().any(|s| s[34] == 2
+                && s[50] == 5
+                && s[47] == 1
+                && s[16] == 1
+                && s[20] == 9
+                && s[60] == 0),
+            "post-bind change retains original owned effect/debt and withdraws currentness"
+        );
         let adversarial = qualification(1).check(100_000).unwrap();
         println!(
             "HarnessDreamReadQualificationAdversarial: {} states",
@@ -2676,6 +4437,41 @@ mod tests {
             (16, "QualificationCannotMintIndependentPublicationProof"),
             (17, "NativeBirthNeedsCompleteCurrentPreparedQualification"),
             (18, "TrustRequiresActualSettlementAndPaidDebt"),
+            (19, "PrivateNativeBirthRequiresExactCurrentBoundPretest"),
+            (20, "PrivateNativeBirthRequiresExactCurrentBoundPretest"),
+            (21, "PrivateNativeBirthRequiresExactCurrentBoundPretest"),
+            (22, "PrivateNativeBirthRequiresExactCurrentBoundPretest"),
+            (23, "PrivateNativeBirthRequiresExactCurrentBoundPretest"),
+            (24, "PrivateOriginalOperationNeverCreatesDuplicateEffect"),
+            (25, "PrivateOriginalEffectKeepsCustodyThroughRestart"),
+            (26, "PrivateConditionalResultNeverGrantsRuntimeAuthority"),
+            (27, "PrivateObservationNeverProvesWholeCommandLifetime"),
+            (28, "PrivateConditionalResultNeverGrantsRuntimeAuthority"),
+            (29, "NormalProbeRemainsUnavailableBeforeNativeBirth"),
+            (30, "PrivateNativeBirthRequiresExactCurrentBoundPretest"),
+            (
+                31,
+                "PrivateSuccessfulOutcomeRequiresActualPaidProofSettlement",
+            ),
+            (
+                32,
+                "PrivateOrdinaryOrContinueAdmissionNeverOverlapsUnpaidDebt",
+            ),
+            (33, "PrivateNativeBirthRequiresExactCurrentBoundPretest"),
+            (
+                34,
+                "BoundPrivateInnerRequiresCompleteReviewAndClosureCoverage",
+            ),
+            (35, "BoundPrivateInnerKeepsParsedCandidateAndExactEpoch"),
+            (36, "BoundPrivateInnerUsesCanonicalAarch64Identity"),
+            (37, "ParsedPrivateInnerHasReservedCombined128KiBMetadata"),
+            (38, "BoundPrivateInnerKeepsParsedCandidateAndExactEpoch"),
+            (39, "BoundPrivateInnerHasExactProjectionPinsAndCurrentness"),
+            (40, "ParsedPrivateInnerRequiresCanonicalTypedShape"),
+            (
+                41,
+                "PrivateSuccessfulOutcomeHasPostSettlementInnerCurrentnessFence",
+            ),
         ];
         for (control, invariant) in expected {
             let model = qualification(control);
@@ -2703,6 +4499,17 @@ mod tests {
                     "control {control} reaches hidden-work trust with an unchanged observed census"
                 );
             }
+            if control == 22 {
+                for case in [5, 8, 9] {
+                    assert!(
+                        result
+                            .states
+                            .iter()
+                            .any(|s| s[34] == 2 && s[35] == case && s[47] == 1 && s[30] == 0),
+                        "omitted current-pin guard exposes substituted/same-version artifact, wrong-root and stale-probe class {case}"
+                    );
+                }
+            }
         }
     }
 
@@ -2711,6 +4518,44 @@ mod tests {
         let good = member_window(0).check(100_000).unwrap();
         println!("HarnessDreamReadMemberWindow: {} states", good.states.len());
         assert!(good.violations.is_empty(), "{:?}", good.violations);
+        assert!(
+            good.states.iter().any(|s| s[0] == 3
+                && s[52] == 1
+                && s[53] == 0
+                && s[27] == 9
+                && s[28] == 9),
+            "settled creation can still have fresh controller debt before initial corroboration"
+        );
+        assert!(
+            good.states.iter().any(|s| s[0] == 3
+                && s[52] == 1
+                && s[53] == 1
+                && s[27] == 9
+                && s[49] == 0),
+            "initial admitted corroboration creates its own fresh debt before any CONT"
+        );
+        assert!(
+            good.states
+                .iter()
+                .all(|s| s[49] == 0 || (s[52] == 1 && s[53] == 1)),
+            "all grants follow settled creation and admitted initial corroboration"
+        );
+        assert!(
+            good.states.iter().any(|s| s[0] == 4
+                && s[37] != 0
+                && s[10] == 1
+                && s[11] == 1
+                && s[41] == 1),
+            "failed admission preserves both open original windows and owned effect"
+        );
+        assert!(
+            good.states.iter().any(|s| s[0] == 4
+                && s[37] != 0
+                && s[16] == 2
+                && s[17] == 2
+                && s[26] == 0),
+            "late physical exec/token cleanup remains possible after failure without coverage"
+        );
         assert!(
             good.states.iter().all(|s| s[1] != 9 || s[4] == 0),
             "unsupported whole-command basis never creates a native effect"
@@ -2803,6 +4648,12 @@ mod tests {
             (22, "CoverageKeepsOriginalEpochAndCompleteRoster"),
             (23, "KnownOverOneMsQuantumCannotCertify"),
             (24, "LateKernelAttributionIsExplainedAndChargedOnce"),
+            (
+                25,
+                "StickyFailedAdmissionForbidsOrdinaryExpensiveObservation",
+            ),
+            (26, "InitialCorroborationRequiresSettledCreationOwnership"),
+            (27, "InitialCorroborationRequiresBothPriorDebtsPaid"),
         ] {
             let model = member_window(mode);
             let checked = model
@@ -2823,9 +4674,11 @@ mod tests {
         println!("HarnessDreamReadHelperExec: {} states", good.states.len());
         assert!(good.violations.is_empty(), "{:?}", good.violations);
         assert!(
-            good.states
-                .iter()
-                .any(|s| s[0] == 2 && s[1] == 2 && s[2] == 1 && s[6] == 1 && s[21] == 1),
+            good.states.iter().any(|s| s[0] == 2
+                && s[1] == 2
+                && s[2] == 1
+                && s[6] == 1
+                && s[21] == 1),
             "new GPG task may execute within the already admitted clone quantum"
         );
         assert!(good.states.iter().any(|s| s[11] == 1 && s[9] == 1));
@@ -2857,13 +4710,42 @@ mod tests {
         let good = helper(0).check(100_000).unwrap();
         println!("HarnessDreamReadHelper: {} states", good.states.len());
         assert!(good.violations.is_empty(), "{:?}", good.violations);
-        assert!(good.states.iter().any(|s| s[13]==1), "covered actually reaped output is reachable");
-        assert!(good.states.iter().any(|s| s[0]==7 && s[26]==0 && s[5]>0), "unknown work retains real helper ownership");
-        assert!(good.states.iter().any(|s| s[3]==2 && s[5]==1 && s[15]==1), "unused signature creation credit stays consumed");
-        assert!(good.states.iter().any(|s| s[1]==2 && s[2]==0 && s[38]==1 && s[14]==1), "old A1 effect survives and refuses A3 replay");
-        assert!(good.states.iter().any(|s| s[8]==2 && s[9]==2 && s[32]==2 && s[30]==1 && s[31]==1), "two-member whole charge is reachable");
+        assert!(
+            good.states.iter().any(|s| s[13] == 1),
+            "covered actually reaped output is reachable"
+        );
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[0] == 7 && s[26] == 0 && s[5] > 0),
+            "unknown work retains real helper ownership"
+        );
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[3] == 2 && s[5] == 1 && s[15] == 1),
+            "unused signature creation credit stays consumed"
+        );
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[1] == 2 && s[2] == 0 && s[38] == 1 && s[14] == 1),
+            "old A1 effect survives and refuses A3 replay"
+        );
+        assert!(
+            good.states.iter().any(|s| s[8] == 2
+                && s[9] == 2
+                && s[32] == 2
+                && s[30] == 1
+                && s[31] == 1),
+            "two-member whole charge is reachable"
+        );
         for fault in 1..=3 {
-            assert!(good.states.iter().any(|s| s[25]==fault && s[15]==1 && s[26]==0 && s[5]>0));
+            assert!(
+                good.states
+                    .iter()
+                    .any(|s| s[25] == fault && s[15] == 1 && s[26] == 0 && s[5] > 0)
+            );
         }
         let expected = [
             "NativeEffectRequiresReservedAttempt",
@@ -2889,12 +4771,24 @@ mod tests {
             "FaultCannotReleaseUnsettledOwnership",
         ];
         for (index, invariant) in expected.into_iter().enumerate() {
-            let model = helper((index+1) as u8);
-            let checked = model.check(100_000).unwrap_or_else(|e| panic!("{}: {e}",model.name));
-            println!("{}: {} states",model.name,checked.states.len());
-            assert!(checked.violations.iter().any(|v| v.property==invariant), "{} must causally violate {invariant}", model.name);
-            if index>=18 {
-                assert!(checked.states.iter().any(|s| s[15]==1 && s[26]==1 && s[20]==0 && s[5]>0), "fault control must release an actual unreaped helper");
+            let model = helper((index + 1) as u8);
+            let checked = model
+                .check(100_000)
+                .unwrap_or_else(|e| panic!("{}: {e}", model.name));
+            println!("{}: {} states", model.name, checked.states.len());
+            assert!(
+                checked.violations.iter().any(|v| v.property == invariant),
+                "{} must causally violate {invariant}",
+                model.name
+            );
+            if index >= 18 {
+                assert!(
+                    checked
+                        .states
+                        .iter()
+                        .any(|s| s[15] == 1 && s[26] == 1 && s[20] == 0 && s[5] > 0),
+                    "fault control must release an actual unreaped helper"
+                );
             }
         }
     }

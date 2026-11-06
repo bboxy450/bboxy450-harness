@@ -1384,6 +1384,10 @@ struct Runner {
     receiver: mpsc::Receiver<Vec<u8>>,
     reader: Option<thread::JoinHandle<()>>,
     stderr: PathBuf,
+    stderr_pipe: Option<std::process::ChildStderr>,
+    stderr_bytes: Vec<u8>,
+    reaped: bool,
+    reap_usage: Option<libc::rusage>,
     lease: Option<File>,
     authority: PrivateAuthority,
     job_deadline: Instant,
@@ -1397,6 +1401,8 @@ type Stamp = (u64, u64, u64, i64, i64, i64, i64);
 fn stamp(path: &Path) -> Stamp {
     let m = std::fs::symlink_metadata(path).unwrap();
     assert!(m.is_file() && !m.file_type().is_symlink());
+    assert_eq!(m.uid(), unsafe { libc::geteuid() });
+    assert_eq!(m.nlink(), 1, "private artifact custody requires one link");
     (
         m.dev(),
         m.ino(),
@@ -1483,7 +1489,31 @@ fn approved_runner() -> &'static ApprovedRunner {
         );
         let receipts = std::fs::read_to_string(folder.join("hashes.txt")).unwrap();
         assert!(receipts.len() <= 16 * 1024);
+        let declared_worker_hash = receipts
+            .lines()
+            .find_map(|line| {
+                let mut parts = line.split_whitespace();
+                let hash = parts.next()?;
+                let name = parts.next()?;
+                (!name.starts_with("src/")
+                    && !name.starts_with("tests/")
+                    && !matches!(name, "Makefile" | "Cargo.toml" | "Cargo.lock"))
+                .then_some(hash)
+            })
+            .unwrap();
+        assert!(
+            declared_worker_hash.len() == 64
+                && declared_worker_hash.bytes().all(|b| b.is_ascii_hexdigit())
+        );
+        let frozen_source_id = std::fs::read_to_string(folder.join("source-snapshot.txt")).unwrap();
+        assert!(frozen_source_id.len() == 65 && frozen_source_id.ends_with('\n'));
+        let frozen_source_id = frozen_source_id.trim_end();
+        assert!(frozen_source_id.bytes().all(|b| b.is_ascii_hexdigit()));
+        let frozen_sources = folder.join(format!("source-{frozen_source_id}"));
+        let frozen_metadata = std::fs::symlink_metadata(&frozen_sources).unwrap();
+        assert!(frozen_metadata.is_dir() && !frozen_metadata.file_type().is_symlink());
         let allowed = [
+            "Makefile",
             "src/main.rs",
             "src/frontends/headless.rs",
             "src/dream/mod.rs",
@@ -1502,12 +1532,16 @@ fn approved_runner() -> &'static ApprovedRunner {
             "src/dream/seal.rs",
             "tests/fixtures/dream-bootstrap/vectors.json",
             "tests/fixtures/dream-read/proof-helper-probe.c",
+            "tests/fixtures/dream-read/io-helper.c",
+            "tests/fixtures/dream-read/root_fixture.rs",
+            "tests/dream_read.rs",
             "Cargo.toml",
             "Cargo.lock",
         ];
         let mut seen = std::collections::BTreeSet::new();
         let mut guards = Vec::new();
         let mut worker_hash = None;
+        let mut source_rows = Vec::new();
         for line in receipts.lines() {
             let mut parts = line.split_whitespace();
             let expected = parts.next().unwrap();
@@ -1519,7 +1553,12 @@ fn approved_runner() -> &'static ApprovedRunner {
             );
             assert!(seen.insert(name.to_owned()), "duplicate artifact receipt");
             let target = if allowed.contains(&name) {
-                Path::new(env!("CARGO_MANIFEST_DIR")).join(name)
+                source_rows.extend_from_slice(line.as_bytes());
+                source_rows.push(b'\n');
+                // Immutable copies were hashed before/after the ordinary build.
+                // A later source edit cannot silently repin this exact artifact
+                // or force unrelated private component work to stop executing.
+                frozen_sources.join(name)
             } else {
                 let candidate = PathBuf::from(name);
                 let candidate = if candidate.is_absolute() {
@@ -1537,6 +1576,13 @@ fn approved_runner() -> &'static ApprovedRunner {
             let before = stamp(&target);
             let actual = bounded_parent_hash(&target);
             assert_eq!(actual.0, expected, "preapproved bytes changed: {name}");
+            if name == "tests/dream_read.rs" {
+                assert_eq!(
+                    actual,
+                    w::hash(include_bytes!("dream_read.rs")),
+                    "parent test source binding"
+                );
+            }
             assert_eq!(stamp(&target), before);
             if target == path {
                 assert!(worker_hash.replace(actual).is_none());
@@ -1546,11 +1592,18 @@ fn approved_runner() -> &'static ApprovedRunner {
         for name in allowed {
             assert!(seen.contains(name), "missing source receipt: {name}");
         }
+        assert_eq!(
+            w::hash(&source_rows).0,
+            frozen_source_id,
+            "closed source snapshot digest"
+        );
+        assert_eq!(worker_hash.as_ref().unwrap().0, declared_worker_hash);
         for name in [
             "bootstrap-support.txt",
             "source-commit.txt",
             "compiler.txt",
             "hashes.txt",
+            "source-snapshot.txt",
         ] {
             let p = folder.join(name);
             guards.push((p.clone(), stamp(&p)));
@@ -1622,8 +1675,8 @@ impl Runner {
             .checked_add(30_000_000_000)
             .unwrap();
         let stderr = job.path.join("worker.stderr");
-        let err = File::create(&stderr).unwrap();
-        std::fs::set_permissions(&stderr, std::fs::Permissions::from_mode(0o600)).unwrap();
+        private_file(&stderr, b"");
+        let stderr_bytes = Vec::with_capacity(64 * 1024);
         let expected_schema = w::schema_hash();
         let (read, write) = bootstrap_pipe();
         let fd = read.as_raw_fd();
@@ -1684,7 +1737,7 @@ impl Runner {
             .env(boot::ENV, environment)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(err);
+            .stderr(Stdio::piped());
         if let Some(provision) = &job.provision {
             command
                 .env("BBOXY_DREAM_HELPER_PROVISION", &provision.receipt)
@@ -1715,6 +1768,10 @@ impl Runner {
             receiver,
             reader: None,
             stderr,
+            stderr_pipe: None,
+            stderr_bytes,
+            reaped: false,
+            reap_usage: None,
             lease: Some(write),
             authority,
             job_deadline,
@@ -1725,6 +1782,14 @@ impl Runner {
             launch_path,
         };
         drop(read);
+        this.stderr_pipe = this.child.stderr.take();
+        let stderr_fd = this.stderr_pipe.as_ref().unwrap().as_raw_fd();
+        let stderr_flags = unsafe { libc::fcntl(stderr_fd, libc::F_GETFL) };
+        assert!(stderr_flags >= 0);
+        assert_eq!(
+            unsafe { libc::fcntl(stderr_fd, libc::F_SETFL, stderr_flags | libc::O_NONBLOCK) },
+            0
+        );
         let readiness_ns = spawn_return
             .unwrap()
             .checked_add(boot::WINDOW_NS)
@@ -1787,6 +1852,7 @@ impl Runner {
         assert!(parent_cpu().checked_sub(grant_at).unwrap() <= 1_000_000);
         let hello_at = parent_cpu();
         let hello = this.read_hello(readiness_ns);
+        this.drain_stderr();
         assert_eq!(hello.protocol, w::Protocol::V1);
         assert_eq!(hello.algorithm, w::Algorithm::ReadPrepare);
         assert_eq!(hello.schema_sha256, expected_schema);
@@ -1797,7 +1863,7 @@ impl Runner {
             "paid Hello exceeded original readiness"
         );
         assert!(
-            std::fs::read_to_string(&this.stderr)
+            std::str::from_utf8(&this.stderr_bytes)
                 .unwrap()
                 .contains("dream-bootstrap state=paid_hello profile=dream-bootstrap/1")
         );
@@ -1823,28 +1889,74 @@ impl Runner {
         let reader_wall = reader_wall.elapsed();
         this.reader = Some(reader);
         let reader_cpu = parent_cpu().checked_sub(reader_at).unwrap();
-        assert!(reader_cpu <= 2_000_000 && reader_wall <= Duration::from_millis(25));
+        // This fixture IO owner is ordinary parent work. It has no compute-
+        // owner/native exception and stays inside the existing parent budget.
+        assert!(reader_cpu <= 1_000_000 && reader_wall <= Duration::from_millis(25));
         parent_rest(reader_cpu, Instant::now());
         this
     }
     fn wait_marker(&mut self, readiness_ns: u64) -> String {
         loop {
+            self.drain_stderr();
             assert!(
                 boot::monotonic_ns().unwrap() < readiness_ns,
-                "original readiness expired before wait marker"
+                "original readiness expired before wait marker; stderr={}",
+                String::from_utf8_lossy(&self.stderr_bytes)
             );
-            let mut file = File::open(&self.stderr).unwrap();
-            let mut bytes = [0u8; 256];
-            let n = file.read(&mut bytes).unwrap();
-            if let Some(end) = bytes[..n].iter().position(|b| *b == b'\n') {
-                return std::str::from_utf8(&bytes[..=end]).unwrap().to_owned();
+            if let Some(end) = self.stderr_bytes.iter().position(|b| *b == b'\n') {
+                assert!(end < 256);
+                return std::str::from_utf8(&self.stderr_bytes[..=end])
+                    .unwrap()
+                    .to_owned();
             }
+            let status = self.child.try_wait().unwrap();
             assert!(
-                self.child.try_wait().unwrap().is_none(),
-                "child refused before wait marker"
+                status.is_none(),
+                "child refused before wait marker; status={status:?} stderr={}",
+                String::from_utf8_lossy(&self.stderr_bytes)
             );
             thread::sleep(Duration::from_millis(1));
         }
+    }
+    fn drain_stderr(&mut self) -> bool {
+        let Some(pipe) = self.stderr_pipe.as_mut() else {
+            return true;
+        };
+        let mut chunk = [0u8; 4096];
+        match pipe.read(&mut chunk) {
+            Ok(0) => {
+                self.stderr_pipe.take();
+                true
+            }
+            Ok(n) => {
+                assert!(
+                    self.stderr_bytes.len() + n <= 64 * 1024,
+                    "bounded private diagnostics"
+                );
+                self.stderr_bytes.extend_from_slice(&chunk[..n]);
+                false
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                ) =>
+            {
+                false
+            }
+            Err(error) => panic!("private diagnostic pipe: {error}"),
+        }
+    }
+    fn save_stderr(&self) {
+        std::fs::write(&self.stderr, &self.stderr_bytes).unwrap();
+    }
+    fn finish_stderr(&mut self) {
+        let until = Instant::now() + Duration::from_secs(2);
+        while !self.drain_stderr() {
+            assert!(Instant::now() < until, "diagnostic EOF after actual reap");
+            thread::sleep(Duration::from_millis(1));
+        }
+        self.save_stderr();
     }
     fn read_hello(&mut self, readiness_ns: u64) -> w::Hello {
         let fd = self.child.stdout.as_ref().unwrap().as_raw_fd();
@@ -1865,10 +1977,20 @@ impl Runner {
                 events: libc::POLLIN,
                 revents: 0,
             };
-            assert!(
-                unsafe { libc::poll(&mut ready, 1, remaining.div_ceil(1_000_000) as i32) } > 0,
-                "Hello readiness exceeded"
-            );
+            let polled = unsafe { libc::poll(&mut ready, 1, remaining.div_ceil(1_000_000) as i32) };
+            let rawerrno = if polled < 0 {
+                std::io::Error::last_os_error().raw_os_error()
+            } else {
+                None
+            };
+            if polled <= 0 {
+                self.drain_stderr();
+                let status = self.child.try_wait().unwrap();
+                panic!(
+                    "Hello readiness exceeded: poll={polled} errno={rawerrno:?} status={status:?} original_remaining_ns={remaining} stderr={}",
+                    String::from_utf8_lossy(&self.stderr_bytes)
+                );
+            }
             let n = unsafe {
                 libc::read(
                     fd,
@@ -1935,12 +2057,21 @@ impl Runner {
         }
     }
     fn next(&mut self, timeout: Duration) -> w::WorkerOut {
-        let line = self.receiver.recv_timeout(timeout).unwrap_or_else(|e| {
-            panic!(
-                "worker frame {e}; stderr: {}",
-                std::fs::read_to_string(&self.stderr).unwrap()
-            )
-        });
+        let until = Instant::now() + timeout;
+        let line = loop {
+            self.drain_stderr();
+            match self.receiver.recv_timeout(Duration::from_millis(1)) {
+                Ok(line) => break line,
+                Err(mpsc::RecvTimeoutError::Timeout) if Instant::now() < until => {}
+                Err(error) => {
+                    self.save_stderr();
+                    panic!(
+                        "worker frame {error}; stderr: {}",
+                        String::from_utf8_lossy(&self.stderr_bytes)
+                    );
+                }
+            }
+        };
         w::decode(&line).unwrap()
     }
     fn finish(mut self, job: &Job) -> (w::Done, i32, String) {
@@ -1965,8 +2096,10 @@ impl Runner {
         let code = self.wait_exit();
         self.input.take();
         self.reader.take().unwrap().join().unwrap();
+        self.finish_stderr();
         assert!(self.receiver.try_recv().is_err(), "frame after Done");
         let stderr = std::fs::read_to_string(&self.stderr).unwrap();
+        self.verify_post_reap_usage(&stderr);
         (done, code, stderr)
     }
     fn finish_probe_refusal(mut self) -> String {
@@ -1984,11 +2117,13 @@ impl Runner {
             }
         }
         self.reader.take().unwrap().join().unwrap();
+        self.finish_stderr();
         assert!(
             self.receiver.try_recv().is_err(),
             "probe produced a post-Hello protocol frame"
         );
         let metrics = std::fs::read_to_string(&self.stderr).unwrap();
+        self.verify_post_reap_usage(&metrics);
         assert!(metrics.len() <= 16 * 1024);
         assert!(metrics.contains("dream-bootstrap state=paid_hello profile=dream-bootstrap/1"));
         assert!(
@@ -2015,8 +2150,31 @@ impl Runner {
     fn wait_exit(&mut self) -> i32 {
         let until = Instant::now() + Duration::from_secs(4);
         loop {
-            if let Some(status) = self.child.try_wait().unwrap() {
-                return status.code().unwrap_or(-1);
+            let mut status = 0;
+            let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+            let pid = unsafe {
+                libc::wait4(
+                    self.child.id() as i32,
+                    &mut status,
+                    libc::WNOHANG,
+                    usage.as_mut_ptr(),
+                )
+            };
+            if pid > 0 {
+                assert_eq!(pid as u32, self.child.id());
+                self.reaped = true;
+                self.reap_usage = Some(unsafe { usage.assume_init() });
+                return if libc::WIFEXITED(status) {
+                    libc::WEXITSTATUS(status)
+                } else {
+                    -1
+                };
+            }
+            if pid < 0 {
+                assert_eq!(
+                    std::io::Error::last_os_error().raw_os_error(),
+                    Some(libc::EINTR)
+                );
             }
             assert!(
                 Instant::now() < until,
@@ -2024,6 +2182,36 @@ impl Runner {
             );
             thread::sleep(Duration::from_millis(5));
         }
+    }
+    fn verify_post_reap_usage(&self, metrics: &str) {
+        let usage = self
+            .reap_usage
+            .as_ref()
+            .expect("actual wait4 usage required");
+        let ns = |t: libc::timeval| {
+            assert!((0..1_000_000).contains(&t.tv_usec));
+            u64::try_from(t.tv_sec)
+                .unwrap()
+                .checked_mul(1_000_000_000)
+                .unwrap()
+                .checked_add(u64::try_from(t.tv_usec).unwrap() * 1000)
+                .unwrap()
+        };
+        let user = ns(usage.ru_utime);
+        let system = ns(usage.ru_stime);
+        let post_upper = user.checked_add(system).unwrap().checked_add(1998).unwrap();
+        let captured_process = metric(metrics, "process_user_cpu_ns")
+            .checked_add(metric(metrics, "process_system_cpu_ns"))
+            .unwrap();
+        assert!(
+            captured_process <= post_upper,
+            "terminal cutoff exceeds actual post-reap usage"
+        );
+        eprintln!(
+            "read-private-parent post_reap_pid={} user_cpu_ns={user} system_cpu_ns={system} rss_high_water_bytes={} coverage=worker_and_possible_waited_helpers cpu_totals_overlap=true",
+            self.child.id(),
+            usage.ru_maxrss
+        );
     }
 }
 impl Drop for Runner {
@@ -2034,7 +2222,9 @@ impl Drop for Runner {
         // Unblock the bounded reader lane before waiting for cooperative EOF.
         let (_sender, empty) = mpsc::channel();
         drop(std::mem::replace(&mut self.receiver, empty));
-        settle_runner(&mut self.child);
+        if !self.reaped {
+            settle_runner(&mut self.child);
+        }
         if let Some(reader) = self.reader.take() {
             let until = Instant::now() + Duration::from_secs(2);
             while !reader.is_finished() && Instant::now() < until {
@@ -2728,7 +2918,7 @@ fn read_bootstrap_held_birth_has_zero_admission_then_paid_hello_start_and_actual
         assert!(held.child.try_wait().unwrap().is_none());
         assert!(held.lease.is_some());
         assert!(exact_children(held.child.id() as i32).is_empty());
-        let marker = std::fs::read_to_string(&held.stderr).unwrap();
+        let marker = std::str::from_utf8(&held.stderr_bytes).unwrap();
         assert_eq!(
             marker.trim(),
             "dream-bootstrap state=waiting profile=dream-bootstrap/1 argv_admissions=0 channel_admissions=0 owner_admissions=0"

@@ -930,7 +930,7 @@ impl HelperSummary {
         );
         let m = &self.totals;
         eprintln!(
-            "dream-read helper_lifetime profile=read-helper-native/1 settled={} grants={} charge_ns={} max_charge_ns={} debt_ns={} controller_cpu_ns={} pipe_cpu_ns={} observed_direct_cpu_ns={} observed_descendant_cpu_ns={} rolled_descendant_cpu_ns={} reaped_rollup_cpu_ns={} initial_kernel_cpu_ns={} descendants={} verified_descendants={} coverage_known={} first_failure_line={}",
+            "dream-read helper_lifetime profile=read-helper-native/1 settled={} grants={} charge_ns={} max_charge_ns={} debt_ns={} controller_cpu_ns={} pipe_cpu_ns={} observed_direct_cpu_ns={} observed_descendant_cpu_ns={} rolled_descendant_cpu_ns={} reaped_rollup_cpu_ns={} initial_kernel_cpu_ns={} descendants={} verified_descendants={} coverage_known={} first_failure_line={} first_failure_sample_stage={}",
             self.settled,
             m.grants,
             m.charged_ns,
@@ -946,7 +946,8 @@ impl HelperSummary {
             m.descendants,
             m.verified_descendants,
             m.coverage_known,
-            m.first_failure_line
+            m.first_failure_line,
+            m.first_failure_sample_stage
         );
         eprintln!(
             "dream-read helper_memory profile=read-helper-native/1 simultaneous_group_rss_peak_bytes={} sum_separate_rss_peak_bytes={} reaped_rss_high_water_bytes={} mixed_main_heap_plus_group_rss_peak_bytes={} group_rss_limit_bytes={} mixed_limit_bytes={} native_heap_coverage=sampled_rss_not_allocator",
@@ -972,36 +973,44 @@ impl HelperSummary {
             m.late_kernel_cpu_ns,
             m.late_kernel_observations
         );
-        let r = m.worst_grant;
-        eprintln!(
-            "dream-read helper_window_receipt profile=read-helper-native/1 decision=65489 selection=worst_q sequence={} pid={} pgid={} birth={} reserved={} t0_ns={} end0_ns={} end1_ns={} close_ns={} member0_pid={} member1_pid={} member0_birth={} member1_birth={} member0_start={} member1_start={} member0_version={} member1_version={} controller_baseline_ns={} controller_end_ns={} pipe_baseline_ns={} pipe_end_ns={} w_ns={} a_ns={} c_ns={} q_ns={} closed={}",
-            r.sequence,
-            r.pid,
-            r.pgid,
-            r.birth,
-            r.reserved,
-            r.t0_ns,
-            r.end_ns[0],
-            r.end_ns[1],
-            r.close_ns,
-            r.member_pid[0],
-            r.member_pid[1],
-            r.member_birth[0],
-            r.member_birth[1],
-            r.member_start[0],
-            r.member_start[1],
-            r.member_version[0],
-            r.member_version[1],
-            r.controller_baseline_ns,
-            r.controller_end_ns,
-            r.pipe_baseline_ns,
-            r.pipe_end_ns,
-            r.w_ns,
-            r.a_ns,
-            r.c_ns,
-            r.q_ns,
-            r.closed
-        );
+        for (selection, r) in [
+            ("worst_q", m.worst_grant),
+            ("first_failed_pending_lower_bound", m.first_failed_pending),
+        ] {
+            if selection != "worst_q" && r.sequence == 0 {
+                continue;
+            }
+            eprintln!(
+                "dream-read helper_window_receipt profile=read-helper-native/1 decision=65489 selection={} sequence={} pid={} pgid={} birth={} reserved={} t0_ns={} end0_ns={} end1_ns={} close_ns={} member0_pid={} member1_pid={} member0_birth={} member1_birth={} member0_start={} member1_start={} member0_version={} member1_version={} controller_baseline_ns={} controller_end_ns={} pipe_baseline_ns={} pipe_end_ns={} w_ns={} a_ns={} c_ns={} q_ns={} closed={}",
+                selection,
+                r.sequence,
+                r.pid,
+                r.pgid,
+                r.birth,
+                r.reserved,
+                r.t0_ns,
+                r.end_ns[0],
+                r.end_ns[1],
+                r.close_ns,
+                r.member_pid[0],
+                r.member_pid[1],
+                r.member_birth[0],
+                r.member_birth[1],
+                r.member_start[0],
+                r.member_start[1],
+                r.member_version[0],
+                r.member_version[1],
+                r.controller_baseline_ns,
+                r.controller_end_ns,
+                r.pipe_baseline_ns,
+                r.pipe_end_ns,
+                r.w_ns,
+                r.a_ns,
+                r.c_ns,
+                r.q_ns,
+                r.closed
+            );
+        }
         let (sequence, pid, pgid, birth) = self.reap_ticket.map_or((0, 0, 0, 0), |t| {
             (t.sequence, t.pid, t.pgid, t.start_identity)
         });
@@ -1395,7 +1404,17 @@ impl super::resolve::ProofPace for ProofClock {
             .as_mut()
             .filter(|h| h.identity.ticket() == ticket)
             .ok_or(super::entry::Invalid("helper retirement custody changed"))?;
-        let _ = h.account_pipe(&control, prefix, prefix_wall);
+        // An already stopped failed owner needs no further proof admission.
+        // Keep its adjacent scalar prefix and exact retirement effects inside
+        // ONE ordinary unit, rather than inventing an empty paced work unit
+        // between them. Running/open-window and pending-IO paths stay split.
+        let merged_retirement = !had_pipe
+            && !orphan
+            && h.closure_observed()
+            && (control.error().is_some() || self.failure.borrow().is_some());
+        if !merged_retirement {
+            let _ = h.account_pipe(&control, prefix, prefix_wall);
+        }
         drop(helper);
         if had_pipe || orphan {
             let _ = self
@@ -1403,11 +1422,16 @@ impl super::resolve::ProofPace for ProofClock {
                 .borrow_mut()
                 .read_charge(pending, pending, pending_wall, 1_000_000);
         }
-        let prefix_recorded =
+        let prefix_recorded = if merged_retirement {
+            Ok(())
+        } else {
             self.budget
                 .borrow_mut()
-                .read_charge(prefix, prefix, prefix_wall, 1_000_000);
-        control.read_pay();
+                .read_charge(prefix, prefix, prefix_wall, 1_000_000)
+        };
+        if !merged_retirement {
+            control.read_pay();
+        }
         // On a valid path finish closure/corroboration and pay every additive
         // debt. A failed path retains open windows until actual reap/quarantine.
         if orphan {
@@ -1431,15 +1455,21 @@ impl super::resolve::ProofPace for ProofClock {
             }
             std::thread::sleep(Duration::from_millis(1));
         }
-        let signal_at = cpu_ns();
-        let signal_wall = Instant::now();
+        let signal_at = if merged_retirement { at } else { cpu_ns() };
+        let signal_wall = if merged_retirement {
+            wall_at
+        } else {
+            Instant::now()
+        };
         let mut helper = control.helper.lock().unwrap_or_else(|p| p.into_inner());
         let h = helper
             .as_mut()
             .filter(|h| h.identity.ticket() == ticket)
             .ok_or(super::entry::Invalid("helper retirement custody changed"))?;
-        h.begin_pipe()
-            .map_err(|_| super::entry::Invalid("retirement signal scope already open"))?;
+        if !merged_retirement {
+            h.begin_pipe()
+                .map_err(|_| super::entry::Invalid("retirement signal scope already open"))?;
+        }
         h.retiring = true; // serialized handoff BEFORE final signals or any reap
         let effects = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| h.retire_members()));
         if !matches!(effects, Ok(Ok(()))) {
@@ -1467,7 +1497,7 @@ impl super::resolve::ProofPace for ProofClock {
             summary.retirement_pending_cpu = summary.retirement_pending_cpu.saturating_add(pending);
             summary.retirement_cpu = summary
                 .retirement_cpu
-                .saturating_add(prefix)
+                .saturating_add(if merged_retirement { 0 } else { prefix })
                 .saturating_add(signal_cpu);
             summary.retirement_max_cpu = summary.retirement_max_cpu.max(prefix).max(signal_cpu);
             summary.retirement_inclusive_max_cpu = summary
@@ -1524,6 +1554,15 @@ impl super::resolve::ProofPace for ProofClock {
                 .compare_exchange(0, 4, Ordering::AcqRel, Ordering::Acquire);
         }
         loop {
+            if helper
+                .as_ref()
+                .is_some_and(|h| h.retirement_settlement_observed())
+            {
+                // helper_usage already observed exact physical exit after
+                // actual leader wait4/group disappearance. Keep that monotonic
+                // fact and its paid debt; do not create another observation.
+                break;
+            }
             // Unknown physical exit retains this original owner/slot. Status
             // and cancellation remain on the independent control owner; no
             // further work, output certification or PID-based signal occurs.
@@ -1570,6 +1609,11 @@ impl super::resolve::ProofPace for ProofClock {
             }
         }
         let mut summary = self.helper_summary.borrow_mut();
+        summary.cost_known &= h.metrics.clock_failures == 0
+            && h.metrics.charged_ns != u64::MAX
+            && h.metrics.controller_cpu_ns != u64::MAX
+            && h.metrics.pipe_cpu_ns != u64::MAX
+            && h.metrics.unexplained_cpu_ns != u64::MAX;
         summary.settled += 1;
         summary.reap_ticket = Some(ticket);
         let m = &mut summary.totals;
@@ -1590,6 +1634,9 @@ impl super::resolve::ProofPace for ProofClock {
             .saturating_add(h.metrics.unexplained_cpu_ns);
         if h.metrics.worst_grant.q_ns > m.worst_grant.q_ns {
             m.worst_grant = h.metrics.worst_grant;
+        }
+        if m.first_failed_pending.sequence == 0 {
+            m.first_failed_pending = h.metrics.first_failed_pending;
         }
         m.window_ns = m.window_ns.saturating_add(h.metrics.window_ns);
         m.active_cpu_ns = m.active_cpu_ns.saturating_add(h.metrics.active_cpu_ns);
@@ -1638,6 +1685,7 @@ impl super::resolve::ProofPace for ProofClock {
             .saturating_add(h.metrics.initial_kernel_cpu_ns);
         if m.first_failure_line == 0 {
             m.first_failure_line = h.metrics.first_failure_line;
+            m.first_failure_sample_stage = h.metrics.first_failure_sample_stage;
         }
         m.coverage_known &= h.metrics.coverage_known;
         self.helper_clock = None;
@@ -3238,6 +3286,34 @@ mod helper_tests {
             clock.before().is_err(),
             "refusal cannot certify new proof work"
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn cancelled_stopped_owner_retires_in_one_adjacent_paid_unit_before_real_reap() {
+        let (mut clock, summary, control) = owner();
+        let (mut child, pid) = retirement_child(&control);
+        let ticket = retirement_ticket(&control);
+        control.cancel.store(1, Ordering::Release);
+        assert!(clock.helper_retire(ticket).is_err());
+        let returned = Instant::now();
+        {
+            let summary = summary.borrow();
+            assert_eq!(summary.retirement_count, 1);
+            assert_eq!(summary.retirement_pending_cpu, 0);
+            assert_eq!(summary.retirement_unknown, 0);
+            assert!(summary.retirement_cpu > 0 && summary.retirement_cpu <= 1_000_000);
+            assert_eq!(summary.retirement_cpu, summary.retirement_max_cpu);
+            assert!(returned >= summary.retirement_last_end.unwrap() + Duration::from_millis(9));
+            assert_eq!(summary.settled, 0, "signal delivery cannot certify reap");
+        }
+        assert_private_child_unreaped(&child, pid);
+        reap_private_child(&mut child, pid);
+        clock.helper_detach(ticket).unwrap();
+        assert_eq!(summary.borrow().settled, 1);
+        assert!(control.helper.lock().unwrap().is_none());
+        assert_eq!(*clock.failure.borrow(), Some(c::Code::Cancelled));
+        assert_eq!(control.cancel.load(Ordering::Acquire), 1);
     }
 
     #[cfg(target_os = "macos")]

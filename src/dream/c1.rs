@@ -413,6 +413,22 @@ impl DreamOwner {
 }
 
 /// Strict executable-only dispatch before the shared Tokio runtime exists.
+fn read_early_refusal(purpose: bootstrap::Purpose, reason: &[u8]) -> i32 {
+    if purpose == bootstrap::Purpose::ReadPrepare {
+        // Fixed source-free failure evidence, without allocating argv, locks,
+        // a formatter, or a replacement owner after the failed gate.
+        let mut line = [0u8; 80];
+        let prefix = b"dream-read early_refusal=";
+        line[..prefix.len()].copy_from_slice(prefix);
+        if reason.len() < line.len() - prefix.len() {
+            line[prefix.len()..prefix.len() + reason.len()].copy_from_slice(reason);
+            let end = prefix.len() + reason.len();
+            line[end] = b'\n';
+            let _actual_write = unsafe { libc::write(2, line.as_ptr().cast(), end + 1) };
+        }
+    }
+    2
+}
 /// Darwin exposes borrowed argv/env pointers, so recognition allocates no argv Vec.
 #[inline(never)]
 pub fn early_worker_entry() -> Option<i32> {
@@ -453,18 +469,24 @@ pub fn early_worker_entry() -> Option<i32> {
         use std::os::unix::ffi::OsStringExt;
         let prelude_at = match prelude_sample {
             Ok(n) => n,
-            Err(_) => return Some(1),
+            Err(_) => {
+                read_early_refusal(purpose, b"clock");
+                return Some(1);
+            }
         };
         let entry_ns = match entry_sample {
             Ok(n) => n,
-            Err(_) => return Some(1),
+            Err(_) => {
+                read_early_refusal(purpose, b"clock");
+                return Some(1);
+            }
         };
         if argc != 5 || arg(3, 9).ok() != Some(b"--job-dir".as_slice()) {
-            return Some(2);
+            return Some(read_early_refusal(purpose, b"arguments"));
         }
         let raw = match arg(4, 4096) {
             Ok(raw) if raw.first() == Some(&b'/') => raw,
-            _ => return Some(2),
+            _ => return Some(read_early_refusal(purpose, b"path")),
         };
         let basename = raw.rsplit(|c| *c == b'/').next().unwrap();
         let t = match unsafe { bootstrap::environment(bootstrap::ENV.as_bytes()) }
@@ -473,12 +495,23 @@ pub fn early_worker_entry() -> Option<i32> {
             .and_then(|b| bootstrap::token(b).ok())
         {
             Some(t) => t,
-            None => return Some(2),
+            None => return Some(read_early_refusal(purpose, b"token")),
         };
         let mut gate =
             match unsafe { bootstrap::Gate::wait(t, purpose, basename, entry_ns, prelude_at) } {
                 Ok(gate) => gate,
-                Err(_) => return Some(2),
+                Err(error) => {
+                    let reason = match error {
+                        bootstrap::Error::Format => b"format".as_slice(),
+                        bootstrap::Error::Identity => b"identity".as_slice(),
+                        bootstrap::Error::Clock => b"clock".as_slice(),
+                        bootstrap::Error::Expired => b"expired".as_slice(),
+                        bootstrap::Error::Pipe => b"pipe".as_slice(),
+                        bootstrap::Error::Revoked => b"revoked".as_slice(),
+                        bootstrap::Error::Limit => b"limit".as_slice(),
+                    };
+                    return Some(read_early_refusal(purpose, reason));
+                }
             };
         if gate.admit(0).is_err() {
             return Some(2);
@@ -696,6 +729,9 @@ pub(crate) struct HelperGroup {
     pub(crate) changed: Instant,
     pub(crate) ready: bool,
     creation_settled: bool,
+    admission_failed: bool,
+    #[cfg(test)]
+    admission_samples: u64,
     pub(crate) initial_stop_pending: bool,
     pub(crate) confirmed_stopped: bool,
     pub(crate) identity: super::resolve::HelperIdentity,
@@ -968,8 +1004,11 @@ pub(crate) struct HelperMetrics {
     pub(crate) verified_descendants: u64,
     pub(crate) initial_kernel_cpu_ns: u64,
     pub(crate) first_failure_line: u32,
+    pub(crate) first_failure_sample_stage: u8,
+    sample_stage: u8,
     pub(crate) coverage_known: bool,
     pub(crate) worst_grant: HelperGrantReceipt,
+    pub(crate) first_failed_pending: HelperGrantReceipt,
     pub(crate) window_ns: u64,
     pub(crate) active_cpu_ns: u64,
     pub(crate) active_control_ns: u64,
@@ -995,6 +1034,114 @@ pub(crate) struct HelperMetrics {
     pub(crate) reap_timebase_denom: u32,
 }
 impl HelperGroup {
+    fn charge_helper_debt(&mut self, control: &Control, cost: u64) {
+        // Preserve unknown raw cost as MAX, but use the canonical finite
+        // mandatory-settlement debt. MAX nanoseconds is not a known duration.
+        let debt = control.helper_extend_debt(cost);
+        self.metrics.debt_ns = self.metrics.debt_ns.saturating_add(debt);
+        if cost == u64::MAX || cost.checked_mul(9).is_none() {
+            self.metrics.clock_failures = self.metrics.clock_failures.saturating_add(1);
+            self.metrics.coverage_known = false;
+        }
+        if debt != 0 {
+            let base = self.debt_until.max(Instant::now());
+            self.debt_until = base
+                .checked_add(Duration::from_nanos(debt))
+                .unwrap_or_else(|| {
+                    control
+                        .accounting
+                        .clock_failed
+                        .store(true, Ordering::Release);
+                    self.metrics.clock_failures = self.metrics.clock_failures.saturating_add(1);
+                    self.metrics.coverage_known = false;
+                    base // Preserve every previously known outstanding deadline.
+                });
+        }
+    }
+    pub(crate) fn needs_active_poll(&self) -> bool {
+        self.running && !self.retiring && !self.admission_failed
+    }
+    fn request_group_stop(&self) -> Result<(), ()> {
+        let result = unsafe { libc::kill(-self.pgid, libc::SIGSTOP) };
+        // Capture the actual result before observing any completion. ESRCH is
+        // a permissible delivery race only when our still-unreaped leader has
+        // a positive WNOWAIT exit. It never closes a slot or proves a roster;
+        // the normal exact exit/usage/continuity path still has to do that.
+        let rawerrno = if result == 0 {
+            0
+        } else {
+            std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
+        };
+        if result == 0
+            || (rawerrno == libc::ESRCH && super::resolve::helper_exited(self.pgid) == Ok(true))
+        {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+    #[cfg(target_os = "macos")]
+    fn stop_observation_due(&self) -> bool {
+        // This cheap hint never acknowledges a slot, closes a roster, changes
+        // coverage, or admits CONT. Avoid repeating the full proof while a
+        // positively owned member is still completing the kernel STOP tail.
+        // Unexpected/unknown identities go to the full custody-preserving
+        // validator immediately. All hint CPU and elapsed time remain in Q.
+        for member in self.members.iter().filter(|member| member.pid > 0) {
+            if member.pid == self.pgid && super::resolve::helper_exited(member.pid) == Ok(true) {
+                continue;
+            }
+            let mut info = std::mem::MaybeUninit::<libc::proc_taskallinfo>::uninit();
+            let size = std::mem::size_of::<libc::proc_taskallinfo>() as i32;
+            if unsafe {
+                libc::proc_pidinfo(
+                    member.pid,
+                    libc::PROC_PIDTASKALLINFO,
+                    0,
+                    info.as_mut_ptr().cast(),
+                    size,
+                )
+            } != size
+            {
+                return true;
+            }
+            let info = unsafe { info.assume_init() };
+            let birth = info
+                .pbsd
+                .pbi_start_tvsec
+                .checked_mul(1_000_000)
+                .and_then(|value| value.checked_add(info.pbsd.pbi_start_tvusec));
+            if birth != Some(member.birth)
+                || info.pbsd.pbi_pgid != self.pgid as u32
+                || info.ptinfo.pti_threadnum != 1
+            {
+                return true;
+            }
+            if info.pbsd.pbi_status != 4 || info.ptinfo.pti_numrunning != 0 {
+                return false;
+            }
+        }
+        true
+    }
+    #[cfg(not(target_os = "macos"))]
+    fn stop_observation_due(&self) -> bool {
+        true
+    }
+    #[cfg(test)]
+    pub(crate) fn fixture_descendant_identity(&self) -> Option<(i32, u64, u64, u32)> {
+        let member = self.members[1];
+        (member.image_phase == HelperImagePhase::Descendant
+            && member.pid > 0
+            && member.birth > 0
+            && member.start_abstime > 0
+            && member.audit_version > 0)
+            .then_some((
+                member.pid,
+                member.birth,
+                member.start_abstime,
+                member.audit_version,
+            ))
+    }
     pub(crate) fn settle_creation(&mut self, control: &Control) -> Result<(), ()> {
         if self.creation_settled
             || self.ready
@@ -1050,6 +1197,12 @@ impl HelperGroup {
     }
     pub(crate) fn closure_observed(&self) -> bool {
         !self.running && self.confirmed_stopped && (!self.grant.opened || self.grant.closed)
+    }
+    pub(crate) fn retirement_settlement_observed(&self) -> bool {
+        // This is set only after positive current-incarnation exit checks in
+        // usage reconciliation or quarantine. Exited tasks cannot resume;
+        // unlike a stopped seal, this fact needs no duplicate sampling unit.
+        self.retiring && self.accounting_settled
     }
     pub(crate) fn begin_pipe(&mut self) -> Result<(), ()> {
         if self.pipe_open {
@@ -1109,8 +1262,9 @@ impl HelperGroup {
             self.metrics.post_units = self.metrics.post_units.saturating_add(1);
             self.metrics.post_cpu_ns = self.metrics.post_cpu_ns.saturating_add(cpu_ns);
             self.metrics.post_max_cpu_ns = self.metrics.post_max_cpu_ns.max(cpu_ns);
-            self.corroboration_pending = true;
-            self.corroboration_revision = self.corroboration_revision.checked_add(1).ok_or(())?;
+            // Pipe-only work does not invalidate an established stopped seal.
+            // Its actual ordinary CPU/debt is paid by the read owner;
+            // initial/after-grant/late-CPU corroboration remains mandatory.
         }
         self.pipe_active = false;
         if cpu_ns > UNIT_NS {
@@ -1285,10 +1439,47 @@ impl HelperGroup {
             .actual_cpu()?
             .checked_sub(self.grant.actual_baseline)
             .ok_or(())?;
-        window
+        let charge = window
             .max(actual)
             .checked_add(self.grant_control_cpu()?)
-            .ok_or(())
+            .ok_or(())?;
+        if charge > UNIT_NS && self.metrics.first_failed_pending.sequence == 0 {
+            let mut receipt = HelperGrantReceipt {
+                sequence: self.identity.sequence,
+                pid: self.identity.pid,
+                pgid: self.pgid,
+                birth: self.identity.start_identity,
+                reserved: self.grant.reserved,
+                t0_ns: self.grant.t0_ns,
+                close_ns: self.grant.close_ns.unwrap_or(now),
+                w_ns: window,
+                a_ns: actual,
+                c_ns: self.grant_control_cpu()?,
+                q_ns: charge,
+                closed: self.grant.closed,
+                controller_baseline_ns: self.grant.controller_baseline,
+                controller_end_ns: self.metrics.controller_cpu_ns,
+                pipe_baseline_ns: self.grant.pipe_baseline,
+                pipe_end_ns: self.metrics.pipe_cpu_ns,
+                ..HelperGrantReceipt::default()
+            };
+            for index in 0..usize::from(self.grant.reserved) {
+                let slot = self.grant.slots[index];
+                receipt.end_ns[index] = if self.grant.closed && slot.through_closure {
+                    self.grant.close_ns.ok_or(())?
+                } else if slot.through_closure {
+                    now
+                } else {
+                    slot.ack_ns.unwrap_or(now)
+                };
+                receipt.member_pid[index] = slot.pid;
+                receipt.member_birth[index] = slot.birth;
+                receipt.member_start[index] = slot.start;
+                receipt.member_version[index] = slot.version;
+            }
+            self.metrics.first_failed_pending = receipt;
+        }
+        Ok(charge)
     }
     fn grant_control_cpu(&self) -> Result<u64, ()> {
         if self.metrics.controller_cpu_ns == u64::MAX || self.metrics.pipe_cpu_ns == u64::MAX {
@@ -1420,7 +1611,7 @@ impl HelperGroup {
             self.post_late_known = false;
         }
         self.post_proof_pending = false;
-        self.commit_stopped_unit(control);
+        self.commit_stopped_unit(control, Some(cpu_ns));
         self.control_verdict(control)
     }
     fn control_verdict(&self, control: &Control) -> Result<(), ()> {
@@ -1431,7 +1622,7 @@ impl HelperGroup {
         }
     }
     #[cfg(target_os = "macos")]
-    fn corroborate_stopped(&mut self) -> Result<(), ()> {
+    fn corroborate_stopped(&mut self, control: &Control) -> Result<(), ()> {
         if !self.confirmed_stopped || self.pending_closure() || self.pipe_open {
             return Err(());
         }
@@ -1450,6 +1641,18 @@ impl HelperGroup {
         if self.pending_closure() || self.actual_user_ticks()? != user {
             return Err(());
         }
+        // This allocator/RSS metadata does not establish the stopped roster.
+        // Observe and charge it in this existing post-closure ordinary unit,
+        // before further grants; retain the conservative group peak as a bound.
+        let mixed = heaps()
+            .0
+            .checked_add(self.metrics.group_rss_peak)
+            .ok_or(())?;
+        self.metrics.mixed_heap_rss_peak = self.metrics.mixed_heap_rss_peak.max(mixed);
+        if mixed > HEAP_MAX {
+            self.reject(control, 4);
+            return Err(());
+        }
         let actual = self.actual_cpu()?;
         self.post_late_cpu = actual.checked_sub(self.accounted_helper_cpu).ok_or(())?;
         self.accounted_helper_cpu = actual;
@@ -1457,7 +1660,12 @@ impl HelperGroup {
     }
     #[cfg(target_os = "macos")]
     fn recheck_stopped_roster(&mut self) -> Result<(), ()> {
-        let result = self.recheck_stopped_roster_inner();
+        self.recheck_stopped_roster_expected(None)
+            .and_then(|same| if same { Ok(()) } else { Err(()) })
+    }
+    #[cfg(target_os = "macos")]
+    fn recheck_stopped_roster_expected(&mut self, expected: Option<&[i32]>) -> Result<bool, ()> {
+        let result = self.recheck_stopped_roster_inner(expected);
         if result.is_err() {
             for index in 0..usize::from(self.identity.expected_members) {
                 self.invalidate_slot(index);
@@ -1466,7 +1674,7 @@ impl HelperGroup {
         result
     }
     #[cfg(target_os = "macos")]
-    fn recheck_stopped_roster_inner(&mut self) -> Result<(), ()> {
+    fn recheck_stopped_roster_inner(&mut self, expected: Option<&[i32]>) -> Result<bool, ()> {
         let mut pids = [0i32; 3];
         let count = unsafe {
             libc::proc_listpgrppids(
@@ -1475,10 +1683,33 @@ impl HelperGroup {
                 std::mem::size_of_val(&pids) as i32,
             )
         };
-        if count <= 0 || count as usize > usize::from(self.identity.expected_members) {
+        if count == 0 {
+            return self.sample_exited_roster();
+        }
+        if count < 0 || count as usize > pids.len() {
             return Err(());
         }
         let count = count as usize;
+        if count > usize::from(self.identity.expected_members) {
+            self.capture_members()?;
+            return Err(());
+        }
+        if let Some(expected) = expected
+            && (count != expected.len() || pids[..count].iter().any(|pid| !expected.contains(pid)))
+        {
+            // This is the final post-continuity census. Retain and stop newly
+            // discovered recipients before deciding that this grant is pending.
+            self.capture_members()?;
+            for member in self.retired_members.iter().filter(|member| {
+                member.pid > 0 && member.current && !expected.contains(&member.pid)
+            }) {
+                if matches!(helper_token_signal(&member.token,libc::SIGSTOP),Err(code) if code!=libc::ESRCH)
+                {
+                    return Err(());
+                }
+            }
+            return Ok(false);
+        }
         if pids[..count]
             .iter()
             .any(|pid| !self.members.iter().any(|member| member.pid == *pid))
@@ -1524,10 +1755,10 @@ impl HelperGroup {
                 return Err(());
             }
         }
-        Ok(())
+        Ok(true)
     }
     #[cfg(not(target_os = "macos"))]
-    fn corroborate_stopped(&mut self) -> Result<(), ()> {
+    fn corroborate_stopped(&mut self, _: &Control) -> Result<(), ()> {
         Err(())
     }
     #[cfg(not(target_os = "macos"))]
@@ -1540,7 +1771,7 @@ impl HelperGroup {
     ) -> Result<(), ()> {
         Err(())
     }
-    fn commit_stopped_unit(&mut self, control: &Control) {
+    fn commit_stopped_unit(&mut self, control: &Control, charged_cpu: Option<u64>) {
         let cost = self.post_cpu.saturating_add(self.post_late_cpu);
         self.metrics.post_units = self.metrics.post_units.saturating_add(1);
         self.metrics.post_cpu_ns = self.metrics.post_cpu_ns.saturating_add(self.post_cpu);
@@ -1560,15 +1791,18 @@ impl HelperGroup {
                 .unexplained_cpu_ns
                 .saturating_add(self.post_late_cpu);
         }
-        let debt_cost = cost.max(UNIT_NS);
-        let debt = debt_cost.saturating_mul(9);
-        self.metrics.debt_ns = self.metrics.debt_ns.saturating_add(debt);
-        control.helper_extend_debt(debt_cost);
-        self.debt_until = self
-            .debt_until
-            .max(Instant::now())
-            .checked_add(Duration::from_nanos(debt))
-            .unwrap_or(control.deadline);
+        // A proof-owned usage observation has already recorded its actual C
+        // through read_charge. Charge the inclusive C+L floor once, extending
+        // only its uncovered delta; controller-owned new units have no prior C.
+        let debt_cost = match charged_cpu {
+            Some(cpu) if cost != u64::MAX && cpu != u64::MAX => cost
+                .max(UNIT_NS)
+                .checked_sub(cpu.max(UNIT_NS))
+                .unwrap_or(u64::MAX),
+            Some(_) => u64::MAX,
+            None => cost.max(UNIT_NS),
+        };
+        self.charge_helper_debt(control, debt_cost);
         self.post_commit_pending = false;
         self.corroboration_pending =
             !self.retiring && self.corroboration_revision != self.observed_post_revision;
@@ -1770,6 +2004,21 @@ impl HelperGroup {
             .ok_or(())?;
         let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
         if unsafe { libc::proc_pid_rusage(pid, 1, usage.as_mut_ptr().cast()) } != 0 {
+            let known = self.members[index];
+            if std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+                && known.exit_abstime != 0
+                && helper_token_exited(&known.audit_token) == Ok(true)
+                && self.retired_members.iter().any(|member| {
+                    member.current
+                        && member.pid == known.pid
+                        && member.birth == known.birth
+                        && member.token.value[7] == known.audit_version
+                })
+            {
+                // A previously captured exact exit/start record survives its
+                // parent's actual reap; absence alone never supplies this proof.
+                return Ok(());
+            }
             return Err(());
         }
         let usage = unsafe { usage.assume_init() };
@@ -1826,6 +2075,9 @@ impl HelperGroup {
             changed: now,
             ready: false,
             creation_settled: false,
+            admission_failed: false,
+            #[cfg(test)]
+            admission_samples: 0,
             initial_stop_pending: false,
             confirmed_stopped: false,
             identity,
@@ -2061,7 +2313,7 @@ impl HelperGroup {
                 // therefore keeps original custody, even after its parent reaped.
                 let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
                 let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
-                if unsafe {
+                let observed = unsafe {
                     libc::proc_pidinfo(
                         member.pid,
                         libc::PROC_PIDTBSDINFO,
@@ -2069,16 +2321,29 @@ impl HelperGroup {
                         info.as_mut_ptr().cast(),
                         size,
                     )
-                } == size
-                {
+                };
+                let same_birth_zombie = if observed == size {
                     let info = unsafe { info.assume_init() };
                     let birth = info
                         .pbi_start_tvsec
                         .checked_mul(1_000_000)
                         .and_then(|n| n.checked_add(info.pbi_start_tvusec));
-                    return birth.is_some_and(|birth| birth != member.birth);
-                }
-                if std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
+                    let Some(birth) = birth else {
+                        return false;
+                    };
+                    if birth != member.birth {
+                        return true;
+                    }
+                    if info.pbi_status != libc::SZOMB {
+                        return false;
+                    }
+                    true
+                } else {
+                    false
+                };
+                if !same_birth_zombie
+                    && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+                {
                     return false;
                 }
                 let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
@@ -2092,7 +2357,8 @@ impl HelperGroup {
                             && usage.ri_proc_exit_abstime != 0
                     });
                 }
-                std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+                !same_birth_zombie
+                    && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
             })
     }
     #[cfg(not(target_os = "macos"))]
@@ -2103,9 +2369,19 @@ impl HelperGroup {
     fn reject(&mut self, control: &Control, code: u8) {
         if self.metrics.first_failure_line == 0 {
             self.metrics.first_failure_line = std::panic::Location::caller().line();
+            self.metrics.first_failure_sample_stage = self.metrics.sample_stage;
         }
         self.ready = false;
+        self.admission_failed = true;
         self.metrics.coverage_known &= code != 5;
+        if self.running && !self.stop_requested && !self.retiring {
+            // The original unreaped leader still pins this recorded group.
+            // Revoke it once, without treating signal delivery as a stop ACK.
+            self.stop_requested = true;
+            if unsafe { libc::kill(-self.pgid, libc::SIGSTOP) } != 0 {
+                self.metrics.coverage_known = false;
+            }
+        }
         // Never replace an already observed cancellation/protocol outcome.
         let _ = control
             .cancel
@@ -2209,14 +2485,7 @@ impl HelperGroup {
         } else {
             additional
         };
-        let debt = debt_cost.saturating_mul(9);
-        self.metrics.debt_ns = self.metrics.debt_ns.saturating_add(debt);
-        control.helper_extend_debt(debt_cost);
-        self.debt_until = self
-            .debt_until
-            .max(Instant::now())
-            .checked_add(Duration::from_nanos(debt))
-            .unwrap_or(control.deadline);
+        self.charge_helper_debt(control, debt_cost);
         self.running = false;
         self.grant_commit_pending = false;
         self.stop_requested = false;
@@ -2235,11 +2504,31 @@ impl HelperGroup {
         }
     }
     #[cfg(target_os = "macos")]
-    pub(crate) fn sample(&mut self, control: &Control) -> Result<bool, ()> {
-        use std::os::unix::ffi::OsStrExt;
-        self.confirmed_stopped = false;
-        self.capture_members()?;
-        self.initial_stop_pending = false;
+    fn sample_exited_roster(&mut self) -> Result<bool, ()> {
+        if super::resolve::helper_exited(self.pgid) != Ok(true) {
+            return Err(());
+        }
+        for index in 0..usize::from(self.identity.expected_members) {
+            let member = self.members[index];
+            if member.pid <= 0
+                || member.start_abstime == 0
+                || member.audit_version == 0
+                || (index == 0
+                    && (member.pid != self.pgid || member.birth != self.identity.start_identity))
+            {
+                return Err(()); // The possible unknown second slot stays open.
+            }
+            self.exited_member_usage(member.pid)?;
+            if self.members[index].exit_abstime == 0
+                || helper_token_exited(&member.audit_token) != Ok(true)
+            {
+                return Err(());
+            }
+            self.members[index].image_phase = HelperImagePhase::Exited;
+        }
+        if !self.retired_members_exited() || super::resolve::helper_exited(self.pgid) != Ok(true) {
+            return Err(());
+        }
         let mut pids = [0i32; 3];
         let count = unsafe {
             libc::proc_listpgrppids(
@@ -2248,7 +2537,72 @@ impl HelperGroup {
                 std::mem::size_of_val(&pids) as i32,
             )
         };
-        if count <= 0 || count as usize > pids.len() {
+        if count < 0 || count as usize > pids.len() {
+            return Err(());
+        }
+        if pids[..count as usize].iter().any(|pid| {
+            !self
+                .members
+                .iter()
+                .any(|member| member.pid == *pid && member.exit_abstime != 0)
+        }) {
+            self.capture_members()?;
+            return Err(());
+        }
+        if !self.closed_usage_covered() {
+            self.metrics.coverage_known = false;
+            return Err(());
+        }
+        for index in 0..usize::from(self.identity.expected_members) {
+            self.acknowledge_slot(index)?;
+        }
+        self.close_roster()?;
+        self.confirmed_stopped = true;
+        Ok(true)
+    }
+    fn closed_usage_covered(&self) -> bool {
+        (self.metrics.rolled_descendant_cpu_ns <= self.members[1].cpu
+            || (self.members[1].exit_abstime != 0
+                && self.rolled_user_ticks == self.members[1].user_ticks
+                && self.rolled_system_ticks >= self.members[1].system_ticks))
+            && (self.identity.expected_members != 1
+                || (self.rolled_user_ticks == 0 && self.rolled_system_ticks == 0))
+    }
+    #[cfg(target_os = "macos")]
+    pub(crate) fn sample(&mut self, control: &Control) -> Result<bool, ()> {
+        #[cfg(test)]
+        {
+            self.admission_samples += 1;
+        }
+        self.metrics.sample_stage = 1;
+        let result = self.sample_inner(control);
+        if result.is_ok() {
+            self.metrics.sample_stage = 0;
+        }
+        result
+    }
+    #[cfg(target_os = "macos")]
+    fn sample_inner(&mut self, control: &Control) -> Result<bool, ()> {
+        use std::os::unix::ffi::OsStrExt;
+        self.confirmed_stopped = false;
+        self.capture_members()?;
+        self.initial_stop_pending = false;
+        self.metrics.sample_stage = 2;
+        let mut pids = [0i32; 3];
+        let count = unsafe {
+            libc::proc_listpgrppids(
+                self.pgid,
+                pids.as_mut_ptr().cast(),
+                std::mem::size_of_val(&pids) as i32,
+            )
+        };
+        if count == 0 {
+            // Some Darwin census paths omit an unreaped zombie. A retained
+            // WNOWAIT leader plus exact positive exit records can close it;
+            // an empty census itself never does, especially for an unknown slot.
+            return self.sample_exited_roster();
+        }
+        if count < 0 || count as usize > pids.len() {
             return Err(());
         }
         let count = count as usize;
@@ -2259,6 +2613,7 @@ impl HelperGroup {
         let mut fresh_exec_ack = false;
         let mut rss_sum = 0u64;
         for &pid in &pids[..count] {
+            self.metrics.sample_stage = 3;
             if pid <= 0 {
                 return Err(());
             }
@@ -2278,6 +2633,7 @@ impl HelperGroup {
             // One kernel snapshot supplies both identity/status and task-thread
             // quiescence. Preserve every predicate while avoiding a second
             // per-member BSD/task round trip in the same bounded sample.
+            self.metrics.sample_stage = 4;
             let mut raw = std::mem::MaybeUninit::<libc::proc_taskallinfo>::uninit();
             let size = std::mem::size_of::<libc::proc_taskallinfo>();
             if unsafe {
@@ -2311,6 +2667,7 @@ impl HelperGroup {
                 return Err(());
             }
             let raw = unsafe { raw.assume_init() };
+            self.metrics.sample_stage = 5;
             let info = raw.pbsd;
             let task = raw.ptinfo;
             let birth = info
@@ -2350,6 +2707,7 @@ impl HelperGroup {
             let mut audit_token = prior.audit_token;
             let mut audit_version = prior.audit_version;
             let mut exec_stop_version = prior.exec_stop_version;
+            self.metrics.sample_stage = 6;
             if info.pbi_status != 5 || prior.pid == 0 {
                 let mut incarnation = if prior.audit_version != 0 {
                     RetiredMember {
@@ -2497,6 +2855,7 @@ impl HelperGroup {
             } else {
                 image_phase = HelperImagePhase::Exited;
             }
+            self.metrics.sample_stage = 7;
             let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
             if unsafe { libc::proc_pid_rusage(pid, 1, usage.as_mut_ptr().cast()) } != 0 {
                 return Err(());
@@ -2595,55 +2954,19 @@ impl HelperGroup {
         if !pids[..count].contains(&self.pgid) {
             return Err(());
         }
+        self.metrics.sample_stage = 8;
         self.metrics.group_rss_peak = self.metrics.group_rss_peak.max(rss_sum);
         let separate = self.members[0]
             .rss_peak
             .checked_add(self.members[1].rss_peak)
             .ok_or(())?;
         self.metrics.separate_rss_sum = self.metrics.separate_rss_sum.max(separate);
-        let mixed = heaps().0.checked_add(rss_sum).ok_or(())?;
-        self.metrics.mixed_heap_rss_peak = self.metrics.mixed_heap_rss_peak.max(mixed);
-        if rss_sum > storage::HELPERS || mixed > HEAP_MAX {
+        if rss_sum > storage::HELPERS {
             self.reject(control, 4);
             return Err(());
         }
         if all_stopped {
-            // The first census precedes stop confirmation. Close membership
-            // AFTER quiescence so a child born during signal delivery cannot
-            // hide behind a retained stopped seal.
-            let mut final_pids = [0i32; 3];
-            let n = unsafe {
-                libc::proc_listpgrppids(
-                    self.pgid,
-                    final_pids.as_mut_ptr().cast(),
-                    std::mem::size_of_val(&final_pids) as i32,
-                )
-            };
-            if n < 0 || n as usize > final_pids.len() {
-                return Err(());
-            }
-            let n = n as usize;
-            let same = n == count
-                && final_pids[..n]
-                    .iter()
-                    .all(|pid| pids[..count].contains(pid));
-            if !same {
-                self.capture_members()?; // capture every newly observed effect before verdict
-                if n > self.identity.expected_members as usize {
-                    return Err(());
-                }
-                for member in self
-                    .retired_members
-                    .iter()
-                    .filter(|m| m.pid > 0 && m.current && !pids[..count].contains(&m.pid))
-                {
-                    if matches!(helper_token_signal(&member.token,libc::SIGSTOP),Err(code) if code!=libc::ESRCH)
-                    {
-                        return Err(());
-                    }
-                }
-                return Ok(false);
-            }
+            self.metrics.sample_stage = 9;
             // Tentative endpoints become usable only after this SAME grant
             // re-establishes current-task stop/exit continuity and a final
             // complete roster. Every call here remains active controller CPU.
@@ -2652,22 +2975,18 @@ impl HelperGroup {
                     return Ok(false);
                 }
             }
-            if self.metrics.rolled_descendant_cpu_ns > self.members[1].cpu {
-                let explained_exit = self.members[1].exit_abstime != 0
-                    && self.rolled_user_ticks == self.members[1].user_ticks
-                    && self.rolled_system_ticks >= self.members[1].system_ticks;
-                if !explained_exit {
-                    self.metrics.coverage_known = false;
-                    return Err(());
-                }
-            }
-            if self.identity.expected_members == 1
-                && (self.rolled_user_ticks != 0 || self.rolled_system_ticks != 0)
-            {
+            if !self.closed_usage_covered() {
                 self.metrics.coverage_known = false;
                 return Err(());
             }
-            self.recheck_stopped_roster()?;
+            // One final census after continuity replaces the redundant earlier
+            // group-only query. It still checks the original roster plus every
+            // parent/child edge and captures any new effect before judgment.
+            self.metrics.sample_stage = 10;
+            if !self.recheck_stopped_roster_expected(Some(&pids[..count]))? {
+                return Ok(false);
+            }
+            self.metrics.sample_stage = 11;
             self.close_roster()?;
             self.confirmed_stopped = true;
         }
@@ -2682,7 +3001,10 @@ impl Control {
     /// The helper cohort's conservative debt joins the canonical ledger. Its
     /// measured owner/pipe CPU is already recorded by read_charge and control
     /// ticks, so extending this debt must not add that CPU a second time.
-    fn helper_extend_debt(&self, cost: u64) {
+    fn helper_extend_debt(&self, cost: u64) -> u64 {
+        if cost == 0 {
+            return 0;
+        }
         let debt = if cost == u64::MAX {
             self.accounting.clock_failed.store(true, Ordering::Release);
             9 * SPAN_NS
@@ -2709,6 +3031,7 @@ impl Control {
                 .store(true, Ordering::Release);
         }
         self.accounting.debt_total.fetch_add(debt, Ordering::AcqRel);
+        debt
     }
     pub(crate) fn helper_controller_marker(&self) -> Option<(u16, u64)> {
         self.helper
@@ -2742,7 +3065,7 @@ impl Control {
             h.finish_grant(self, 0);
         }
         if h.post_commit_pending && !h.pending_closure() && !h.post_proof_pending {
-            h.commit_stopped_unit(self);
+            h.commit_stopped_unit(self, None);
         }
     }
     pub(crate) fn helper_tick(&self) {
@@ -2760,12 +3083,16 @@ impl Control {
         let foreground = self.foreground.load(Ordering::Acquire);
         let debts_paid = Instant::now() >= h.debt_until
             && self.accounting.now() >= self.accounting.rest_until.load(Ordering::Acquire);
-        if h.grant_commit_pending {
+        if h.admission_failed {
+            // Preserve possible execution/open windows through real retirement
+            // and reap. Failed admission is not permission to repeat expensive
+            // proof under this mutex or to invent a physically stopped seal.
+        } else if h.grant_commit_pending {
             // Physically stopped; the final owner-CPU handoff is still open.
         } else if h.running {
             match super::resolve::helper_exited(h.pgid) {
                 Ok(true) => {
-                    if !h.stop_requested && unsafe { libc::kill(-h.pgid, libc::SIGSTOP) } != 0 {
+                    if !h.stop_requested && h.request_group_stop().is_err() {
                         h.reject(self, 5);
                     }
                     h.stop_requested = true;
@@ -2777,26 +3104,29 @@ impl Control {
                 && (!h.ready
                     || foreground
                     || self.error().is_some()
+                    // Leave room for actual stop/identity/roster closure and
+                    // its full controller charge under the unchanged1ms Q.
                     || h.changed.elapsed()
                         >= Duration::from_micros(if h.identity.expected_members == 2 {
-                            50
+                            25
                         } else {
                             100
                         }))
             {
-                if unsafe { libc::kill(-h.pgid, libc::SIGSTOP) } != 0 {
+                if h.request_group_stop().is_err() {
                     h.reject(self, 5);
                 }
                 h.stop_requested = true;
             }
-            if h.stop_requested {
+            if h.stop_requested && !h.admission_failed && h.stop_observation_due() {
                 match h.sample(self) {
                     Ok(true) => {
                         h.running = false;
                         h.grant_commit_pending = true;
                     }
                     Ok(false) => {}
-                    Err(()) => h.reject(self, 5),
+                    Err(()) if !h.admission_failed => h.reject(self, 5),
+                    Err(()) => {}
                 }
             }
         } else if h.creation_settled
@@ -2805,10 +3135,12 @@ impl Control {
             && !h.pipe_open
             && debts_paid
         {
-            if h.corroborate_stopped().is_err() {
+            if h.corroborate_stopped(self).is_err() {
                 h.corroboration_pending = false;
                 h.confirmed_stopped = false;
-                h.reject(self, 5);
+                if !h.admission_failed {
+                    h.reject(self, 5);
+                }
             }
         } else if h.ready
             && !h.pending_closure()
@@ -2832,7 +3164,7 @@ impl Control {
         }
         let cpu = self.observe_interval(cpu_start, cpu_ns());
         let _ = h.account_controller(self, cpu);
-        if h.pending_closure() {
+        if !h.admission_failed && h.pending_closure() {
             match h.pending_charge_lower_bound() {
                 Ok(cost) if cost > UNIT_NS => h.reject(self, 4),
                 Ok(_) => {}
@@ -4923,9 +5255,7 @@ pub(crate) fn run<J: Job>(
                 control.helper.lock().map_or((true, false), |helper| {
                     (
                         helper.is_some(),
-                        helper
-                            .as_ref()
-                            .is_some_and(|helper| helper.running && !helper.retiring),
+                        helper.as_ref().is_some_and(HelperGroup::needs_active_poll),
                     )
                 })
             })
@@ -6017,6 +6347,373 @@ mod control_storage {
             OUT_FRAME + std::mem::size_of::<usize>()
         );
         assert!(33 * std::mem::size_of::<Frame>() + w::MAX_FRAME < 2 * 1024 * 1024);
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod helper_admission_tests {
+    use super::*;
+
+    fn accounting_group() -> HelperGroup {
+        // No effect is created by these arithmetic controls. Keeping running
+        // false ensures their refusal cannot signal a numeric fixture identity.
+        HelperGroup::attached(super::super::resolve::HelperIdentity {
+            sequence: 1,
+            pid: 0,
+            pgid: 0,
+            start_identity: 0,
+            expected_members: 1,
+            image: PathBuf::from("/private/accounting-fixture"),
+            descendant_image: None,
+        })
+    }
+
+    #[test]
+    fn zero_additional_helper_cost_preserves_paid_and_outstanding_debt_exactly() {
+        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+        control.helper_extend_debt(1_000_000);
+        let until = control.accounting.rest_until.load(Ordering::Acquire);
+        let charged = control.accounting.debt_total.load(Ordering::Acquire);
+        control.helper_extend_debt(0);
+        assert_eq!(control.accounting.rest_until.load(Ordering::Acquire), until);
+        assert_eq!(
+            control.accounting.debt_total.load(Ordering::Acquire),
+            charged
+        );
+        control.read_pay();
+        let until = control.accounting.rest_until.load(Ordering::Acquire);
+        control.helper_extend_debt(0);
+        assert_eq!(control.accounting.rest_until.load(Ordering::Acquire), until);
+        assert_eq!(
+            control.accounting.debt_total.load(Ordering::Acquire),
+            charged
+        );
+    }
+
+    #[test]
+    fn unknown_helper_cost_retains_raw_failure_and_known_debt_with_finite_settlement() {
+        for grant in [false, true] {
+            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+            control.helper_extend_debt(UNIT_NS);
+            let mut helper = accounting_group();
+            let known = Instant::now() + Duration::from_millis(17);
+            helper.debt_until = known;
+            if grant {
+                helper.grant.opened = true;
+                helper.grant.reserved = 1;
+                helper.grant.t0_ns = bootstrap::monotonic_ns().unwrap();
+                helper.metrics.controller_cpu_ns = u64::MAX;
+                helper.finish_grant(&control, 0);
+                assert_eq!(helper.metrics.max_charge_ns, u64::MAX);
+                assert_eq!(helper.metrics.worst_grant.q_ns, u64::MAX);
+            } else {
+                helper.post_commit_pending = true;
+                helper.post_cpu = u64::MAX;
+                helper.commit_stopped_unit(&control, None);
+                assert_eq!(helper.metrics.post_max_cpu_ns, u64::MAX);
+                assert_eq!(helper.metrics.post_cpu_ns, u64::MAX);
+            }
+            let fallback = 9 * SPAN_NS;
+            assert_eq!(helper.metrics.debt_ns, fallback);
+            assert_eq!(
+                control.accounting.debt_total.load(Ordering::Acquire),
+                9 * UNIT_NS + fallback
+            );
+            assert!(helper.debt_until >= known + Duration::from_nanos(fallback));
+            assert!(helper.debt_until < Instant::now() + Duration::from_secs(1));
+            assert!(helper.admission_failed && !helper.ready && !helper.metrics.coverage_known);
+            assert!(control.accounting.clock_failed.load(Ordering::Acquire));
+            assert_eq!(control.error(), Some(w::Code::ResourceLimit));
+            control.read_pay();
+        }
+    }
+
+    #[test]
+    fn usage_c_and_l_share_one_fresh_floor_without_hiding_inclusive_overrun() {
+        for (cpu, late) in [(100_000, 200_000), (600_000, 600_000), (1_200_000, 600_000)] {
+            let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
+            let mut budget = Budget::new_read(
+                control.clone(),
+                Arc::new(crossbeam_queue::ArrayQueue::new(1)),
+            );
+            let mut helper = accounting_group();
+            helper.post_proof_pending = true;
+            helper.post_commit_pending = true;
+            helper.post_late_known = true;
+            helper.post_late_cpu = late;
+            let recorded = budget.read_charge(cpu, cpu, 1, UNIT_NS);
+            assert_eq!(recorded.is_ok(), cpu <= UNIT_NS);
+            let combined = cpu + late;
+            let committed = helper.commit_post_observation(&control, cpu, 1);
+            assert_eq!(committed.is_ok(), combined <= UNIT_NS);
+            let expected = combined.max(UNIT_NS) * 9;
+            assert_eq!(
+                control.accounting.debt_total.load(Ordering::Acquire),
+                expected
+            );
+            assert_eq!(helper.metrics.debt_ns, expected - cpu.max(UNIT_NS) * 9);
+            assert_eq!(helper.metrics.post_cpu_ns, cpu);
+            assert_eq!(helper.metrics.post_max_cpu_ns, combined);
+            assert_eq!(helper.metrics.late_kernel_cpu_ns, late);
+            assert_eq!(budget.counters.cpu, cpu, "actual owner C is recorded once");
+            if combined > UNIT_NS {
+                assert_eq!(control.error(), Some(w::Code::ResourceLimit));
+                assert!(helper.admission_failed && !helper.ready);
+            }
+            control.read_pay();
+        }
+    }
+
+    struct OwnedChild {
+        pid: i32,
+        control: Arc<Control>,
+        reaped: bool,
+    }
+    impl OwnedChild {
+        fn reap(&mut self) {
+            if self.reaped {
+                return;
+            }
+            // The retained direct child pins this exact group until final kill.
+            if let Some(helper) = self
+                .control
+                .helper
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .as_mut()
+            {
+                helper.retiring = true;
+            }
+            unsafe { libc::kill(-self.pid, libc::SIGKILL) };
+            let mut status = 0;
+            loop {
+                let result = unsafe { libc::waitpid(self.pid, &mut status, 0) };
+                if result == self.pid {
+                    self.reaped = true;
+                    break;
+                }
+                assert_eq!(
+                    std::io::Error::last_os_error().raw_os_error(),
+                    Some(libc::EINTR)
+                );
+            }
+        }
+    }
+    impl Drop for OwnedChild {
+        fn drop(&mut self) {
+            self.reap();
+        }
+    }
+
+    #[test]
+    fn failed_admission_stops_repeated_sampling_and_retains_real_open_custody() {
+        let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
+        let mut proof = crate::dream::read::helper_fixture_clock(control.clone());
+        let mut attr = std::mem::MaybeUninit::<libc::posix_spawnattr_t>::uninit();
+        assert_eq!(unsafe { libc::posix_spawnattr_init(attr.as_mut_ptr()) }, 0);
+        let mut attr = unsafe { attr.assume_init() };
+        assert_eq!(unsafe { libc::posix_spawnattr_setpgroup(&mut attr, 0) }, 0);
+        assert_eq!(
+            unsafe {
+                libc::posix_spawnattr_setflags(
+                    &mut attr,
+                    (libc::POSIX_SPAWN_START_SUSPENDED | libc::POSIX_SPAWN_SETPGROUP) as i16,
+                )
+            },
+            0
+        );
+        let argv = [
+            c"sleep".as_ptr().cast_mut(),
+            c"30".as_ptr().cast_mut(),
+            std::ptr::null_mut(),
+        ];
+        let env = [c"LANG=C".as_ptr().cast_mut(), std::ptr::null_mut()];
+        let mut pid = 0;
+        let result = unsafe {
+            libc::posix_spawn(
+                &mut pid,
+                c"/bin/sleep".as_ptr(),
+                std::ptr::null(),
+                &attr,
+                argv.as_ptr(),
+                env.as_ptr(),
+            )
+        };
+        assert!(pid > 0, "private process must retain its positive effect");
+        let mut child = OwnedChild {
+            pid,
+            control: control.clone(),
+            reaped: false,
+        };
+        assert_eq!(unsafe { libc::posix_spawnattr_destroy(&mut attr) }, 0);
+        assert_eq!(result, 0);
+        let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
+        let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+        assert_eq!(
+            unsafe {
+                libc::proc_pidinfo(
+                    pid,
+                    libc::PROC_PIDTBSDINFO,
+                    0,
+                    info.as_mut_ptr().cast(),
+                    size,
+                )
+            },
+            size
+        );
+        let info = unsafe { info.assume_init() };
+        let identity = super::super::resolve::HelperIdentity {
+            sequence: 1,
+            pid,
+            pgid: pid,
+            start_identity: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec,
+            expected_members: 1,
+            image: std::fs::canonicalize("/bin/sleep").unwrap(),
+            descendant_image: None,
+        };
+        let ticket = identity.ticket();
+        *control.helper.lock().unwrap() = Some(HelperGroup::attached(identity));
+        let observing = Instant::now();
+        loop {
+            let mut owner = control.helper.lock().unwrap();
+            let helper = owner.as_mut().unwrap();
+            match helper.sample(&control) {
+                Ok(true) => {
+                    helper.settle_creation(&control).unwrap();
+                    break;
+                }
+                Ok(false)
+                    if helper.initial_stop_pending
+                        && observing.elapsed() < Duration::from_millis(25) => {}
+                result => panic!("actual suspended birth: {result:?}"),
+            }
+            drop(owner);
+            thread::sleep(Duration::from_micros(100));
+        }
+        let marker = control.helper_controller_marker();
+        let at = cpu_ns();
+        control.helper_tick();
+        control.helper_account_controller(marker, control.observe_interval(at, cpu_ns()));
+        control.read_pay();
+        loop {
+            let owner = control.helper.lock().unwrap();
+            let helper = owner.as_ref().unwrap();
+            assert!(!helper.pending_corroboration() && helper.confirmed_stopped);
+            if Instant::now() >= helper.debt_until {
+                break;
+            }
+            drop(owner);
+            thread::sleep(Duration::from_millis(1));
+        }
+        assert!(control.error().is_none());
+        assert!(
+            !control
+                .helper
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .retired_members_exited(),
+            "a retained live incarnation is not an exit acknowledgement"
+        );
+        let (t0, samples) = {
+            let mut owner = control.helper.lock().unwrap();
+            let helper = owner.as_mut().unwrap();
+            helper.open_grant().unwrap();
+            helper.ready = true;
+            helper.changed = Instant::now();
+            assert_eq!(unsafe { libc::kill(-pid, libc::SIGCONT) }, 0);
+            helper.running = true;
+            helper.confirmed_stopped = false;
+            // Causal negative: the real process cannot match this exact image.
+            helper.identity.image = PathBuf::from("/private/unavailable-helper-image");
+            (helper.grant.t0_ns, helper.admission_samples)
+        };
+        // Drive a real stopped kernel endpoint before the intended image
+        // fault. The admission hint itself must not install any stop seal.
+        assert_eq!(unsafe { libc::kill(-pid, libc::SIGSTOP) }, 0);
+        let until = Instant::now() + Duration::from_secs(1);
+        loop {
+            let owner = control.helper.lock().unwrap();
+            let helper = owner.as_ref().unwrap();
+            assert_eq!(helper.grant.t0_ns, t0);
+            assert!(!helper.confirmed_stopped && !helper.grant.closed);
+            if helper.stop_observation_due() {
+                break;
+            }
+            assert!(Instant::now() < until, "owned STOP tail must settle");
+            drop(owner);
+            thread::sleep(Duration::from_micros(100));
+        }
+        control.foreground.store(true, Ordering::Release);
+        control.helper_tick();
+        let rejected_samples = {
+            let owner = control.helper.lock().unwrap();
+            let helper = owner.as_ref().unwrap();
+            assert!(helper.admission_failed && !helper.ready && !helper.needs_active_poll());
+            assert!(helper.stop_requested && !helper.confirmed_stopped);
+            assert!(helper.running && helper.pending_closure() && !helper.grant.closed);
+            assert_eq!(helper.grant.t0_ns, t0);
+            assert_eq!(helper.admission_samples, samples + 1);
+            helper.admission_samples
+        };
+        for _ in 0..8 {
+            let marker = control.helper_controller_marker();
+            let at = cpu_ns();
+            control.helper_tick();
+            control.helper_account_controller(marker, control.observe_interval(at, cpu_ns()));
+        }
+        {
+            let owner = control.helper.lock().unwrap();
+            let helper = owner.as_ref().unwrap();
+            assert_eq!(helper.admission_samples, rejected_samples);
+            assert_eq!(helper.identity.ticket(), ticket);
+            assert_eq!(helper.grant.t0_ns, t0);
+            assert!(helper.running && helper.pending_closure() && !helper.grant.closed);
+            assert!(helper.stop_requested && !helper.confirmed_stopped);
+            assert!(helper.metrics.controller_cpu_ns > 0);
+        }
+        assert!(proof.helper_retire(ticket).is_err());
+        let exiting = Instant::now();
+        while super::super::resolve::helper_exited(pid) != Ok(true) {
+            assert!(
+                exiting.elapsed() < Duration::from_secs(1),
+                "private original leader must actually exit"
+            );
+            thread::sleep(Duration::from_micros(100));
+        }
+        {
+            let mut owner = control.helper.lock().unwrap();
+            let helper = owner.as_mut().unwrap();
+            assert!(
+                helper.retired_members_exited(),
+                "exact unreaped exit has positive start/RI/token proof"
+            );
+            let start = helper.members[0].start_abstime;
+            helper.members[0].start_abstime = start.checked_add(1).unwrap();
+            assert!(
+                !helper.retired_members_exited(),
+                "same numeric PID without exact retained start does not close custody"
+            );
+            helper.members[0].start_abstime = start;
+            helper.identity.expected_members = 2;
+            assert!(
+                helper.sample_exited_roster().is_err(),
+                "an unobserved possible descendant stays unproven"
+            );
+            assert!(!helper.grant.closed);
+            helper.identity.expected_members = 1;
+            assert_eq!(helper.sample_exited_roster(), Ok(true));
+            assert!(helper.grant.closed && helper.members[0].exit_abstime != 0);
+        }
+        child.reap();
+        assert_eq!(unsafe { libc::kill(-pid, 0) }, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH)
+        );
+        proof.helper_detach(ticket).unwrap();
+        assert!(control.helper.lock().unwrap().is_none());
     }
 }
 

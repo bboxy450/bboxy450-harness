@@ -1104,36 +1104,8 @@ fn admitted_request(
     input: Option<&[u8]>,
 ) -> Result<ToolRequest, Invalid> {
     #[cfg(test)]
-    if program == "/bin/sh" {
-        let descendant = if args.iter().any(|s| s.contains("/bin/cat")) {
-            Some("/bin/cat")
-        } else if args.iter().any(|s| s.contains("/bin/sleep")) {
-            Some("/bin/sleep")
-        } else {
-            None
-        };
-        return Ok(ToolRequest {
-            image: std::fs::canonicalize(program)
-                .map_err(|_| Invalid("private fixture image unavailable"))?,
-            args: args.to_vec(),
-            expected_members: if descendant.is_some() { 2 } else { 1 },
-            descendant: descendant
-                .map(|path| {
-                    std::fs::canonicalize(path)
-                        .map_err(|_| Invalid("private fixture image unavailable"))
-                })
-                .transpose()?,
-        });
-    }
-    #[cfg(test)]
-    if program == "gpg" {
-        return Ok(ToolRequest {
-            image: std::fs::canonicalize("/opt/homebrew/bin/gpg")
-                .map_err(|_| Invalid("private fixture image unavailable"))?,
-            args: args.to_vec(),
-            expected_members: 1,
-            descendant: None,
-        });
+    if let Some(request) = selected_helper_process_tests::fixture_request(program, args, input) {
+        return request;
     }
     let tools = prepared_tools()?;
     if args.len() > 63
@@ -3522,6 +3494,7 @@ mod prepared_qualification_tests {
             "mismatched-os",
             "mismatched-image",
             "missing-feature",
+            "private-candidate-result",
         ] {
             let mut claimed = tools.clone();
             match case {
@@ -3535,7 +3508,21 @@ mod prepared_qualification_tests {
                 _ => {}
             }
             let path = home.path().join(format!("{case}.json"));
-            let raw = serde_json::to_vec(&claimed).unwrap();
+            let raw = if case == "private-candidate-result" {
+                // Even a successful private component is measurement evidence,
+                // never the strict runtime proof-tools/1 admission record.
+                serde_json::to_vec(&serde_json::json!({
+                    "profile":"read-helper-native/1",
+                    "kind":"private_candidate_result",
+                    "runtime_approved":false,
+                    "availability":"not_applicable_private_test",
+                    "outcome":"completed",
+                    "observed_proof":"valid"
+                }))
+                .unwrap()
+            } else {
+                serde_json::to_vec(&claimed).unwrap()
+            };
             if case != "absent" {
                 std::fs::write(&path, &raw).unwrap();
                 std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
@@ -3562,6 +3549,7 @@ mod prepared_qualification_tests {
                     "helper capability proof unavailable"
                 }
                 "mismatched-image" => "helper image proof unavailable",
+                "private-candidate-result" => "helper provision schema unavailable",
                 _ => "helper lifetime qualification unavailable",
             };
             assert_eq!(error.0, expected_error, "{case}");
@@ -3617,6 +3605,157 @@ mod selected_helper_process_tests {
         mpsc,
     };
     use std::time::{Duration, Instant};
+
+    // The image is compiled and pinned before Run creates its deadline/control.
+    // Only this private cfg(test) image can bypass production tool admission.
+    struct IoImage {
+        _home: tempfile::TempDir,
+        path: PathBuf,
+        sha256: String,
+        metadata: std::fs::Metadata,
+    }
+    static IO_IMAGE: std::sync::OnceLock<IoImage> = std::sync::OnceLock::new();
+    thread_local! {
+        static KEY_STDIN_TRANSPORT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    fn io_image() -> &'static IoImage {
+        IO_IMAGE.get_or_init(|| {
+            use std::os::unix::fs::{MetadataExt, PermissionsExt};
+            let home = tempfile::Builder::new().prefix("dream-io-fixture-").tempdir().unwrap();
+            std::fs::set_permissions(home.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+            let source = home.path().join("io-helper.c");
+            let bytes = include_bytes!("../../tests/fixtures/dream-read/io-helper.c");
+            std::fs::write(&source, bytes).unwrap();
+            let image = home.path().join("io-helper");
+            let compile = std::process::Command::new("/usr/bin/clang")
+                .args(["-O2", "-std=c11", "-Wall", "-Wextra", "-Werror"])
+                .arg(&source).arg("-o").arg(&image)
+                .env_clear().env("PATH", "/usr/bin:/bin").env("LC_ALL", "C")
+                .output().unwrap();
+            assert!(compile.stdout.len()+compile.stderr.len() <= 16*1024);
+            assert!(compile.status.success(), "private data fixture compile: {}", String::from_utf8_lossy(&compile.stderr));
+            std::fs::set_permissions(&image, std::fs::Permissions::from_mode(0o500)).unwrap();
+            let path=std::fs::canonicalize(image).unwrap();
+            let metadata=std::fs::symlink_metadata(&path).unwrap();
+            assert!(metadata.is_file()&&!metadata.file_type().is_symlink()&&metadata.nlink()==1&&metadata.uid()==unsafe {libc::geteuid()});
+            let sha256=super::super::fingerprint::digest(std::fs::read(&path).unwrap());
+            eprintln!("dream-read private_io_fixture source_sha256={} image_sha256={} compile_exit=0 managed_read=false tool_qualification=unproven",super::super::fingerprint::digest(bytes),sha256);
+            IoImage {_home:home,path,sha256,metadata}
+        })
+    }
+    pub(super) fn fixture_request(
+        program: &str,
+        args: &[String],
+        input: Option<&[u8]>,
+    ) -> Option<Result<ToolRequest, Invalid>> {
+        let image = IO_IMAGE.get()?;
+        let key_transport = program == "gpg" && KEY_STDIN_TRANSPORT.with(|active| active.get());
+        if Path::new(program) != image.path && !key_transport {
+            return None;
+        }
+        Some((|| {
+            use std::os::unix::fs::MetadataExt;
+            let current = std::fs::symlink_metadata(&image.path)
+                .map_err(|_| Invalid("private fixture image unavailable"))?;
+            if !same_tool(&image.metadata, &current)
+                || current.nlink() != 1
+                || current.uid() != unsafe { libc::geteuid() }
+                || hash_prepared_image(&image.path)? != image.sha256
+            {
+                return Err(Invalid("source_changed: private fixture image"));
+            }
+            let args = if key_transport {
+                if input.is_none() {
+                    return Err(Invalid("private key stdin transport unavailable"));
+                }
+                vec!["echo".to_owned()]
+            } else {
+                let valid = matches!(args,[mode] if matches!(mode.as_str(),"echo"|"stall"|"ticks"|"pair"))
+                    || matches!(args,[mode,value] if mode=="emit"&&value.len()<=32);
+                if !valid {
+                    return Err(Invalid("private fixture argument unavailable"));
+                }
+                args.to_vec()
+            };
+            let pair = args[0] == "pair";
+            Ok(ToolRequest {
+                image: image.path.clone(),
+                args,
+                expected_members: if pair { 2 } else { 1 },
+                descendant: pair.then(|| image.path.clone()),
+            })
+        })())
+    }
+    fn command(cwd: &Path, mode: &str, input: Option<&[u8]>) -> Result<(i32, Vec<u8>), Invalid> {
+        let args = if let Some(value) = mode.strip_prefix("emit:") {
+            vec!["emit".to_owned(), value.to_owned()]
+        } else {
+            vec![mode.to_owned()]
+        };
+        selected_command_input(cwd, io_image().path.to_str().unwrap(), &args, None, input)
+    }
+    #[cfg(target_os = "macos")]
+    fn descendant_matches_report(state: &State) -> bool {
+        let raw = match std::fs::read(state.marker.with_file_name("descendant")) {
+            Ok(raw) if raw.len() <= 32 => raw,
+            _ => return false,
+        };
+        let pid = match std::str::from_utf8(&raw)
+            .ok()
+            .and_then(|text| text.trim().parse::<i32>().ok())
+        {
+            Some(pid) if pid > 0 => pid,
+            _ => return false,
+        };
+        let identity = state
+            .control
+            .helper
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|group| group.fixture_descendant_identity());
+        let Some((retained, birth, start, version)) = identity else {
+            return false;
+        };
+        if retained != pid || version == 0 {
+            return false;
+        }
+        let mut task = std::mem::MaybeUninit::<libc::proc_taskallinfo>::uninit();
+        let size = std::mem::size_of::<libc::proc_taskallinfo>() as i32;
+        if unsafe {
+            libc::proc_pidinfo(
+                pid,
+                libc::PROC_PIDTASKALLINFO,
+                0,
+                task.as_mut_ptr().cast(),
+                size,
+            )
+        } != size
+        {
+            return false;
+        }
+        let task = unsafe { task.assume_init() };
+        let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
+        if unsafe { libc::proc_pid_rusage(pid, 1, usage.as_mut_ptr().cast()) } != 0 {
+            return false;
+        }
+        let usage = unsafe { usage.assume_init() };
+        task.pbsd.pbi_pid == pid as u32
+            && task.pbsd.pbi_ppid == task.pbsd.pbi_pgid
+            && task
+                .pbsd
+                .pbi_start_tvsec
+                .checked_mul(1_000_000)
+                .and_then(|v| v.checked_add(task.pbsd.pbi_start_tvusec))
+                == Some(birth)
+            && usage.ri_proc_start_abstime == start
+            && task.ptinfo.pti_threadnum == 1
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn descendant_matches_report(_state: &State) -> bool {
+        false
+    }
 
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum PanicAt {
@@ -3744,7 +3883,16 @@ mod selected_helper_process_tests {
         }
         fn helper_poll(&mut self, ticket: HelperTicket) -> Result<(), Invalid> {
             let result = self.inner.helper_poll(ticket);
-            if result.is_ok() && self.state.marker.exists() && self.take_panic(PanicAt::Before) {
+            if result.is_ok()
+                && *self
+                    .state
+                    .panic_at
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    == PanicAt::Before
+                && descendant_matches_report(&self.state)
+                && self.take_panic(PanicAt::Before)
+            {
                 panic!("private helper IO checkpoint panic");
             }
             result
@@ -3788,12 +3936,12 @@ mod selected_helper_process_tests {
     impl Run {
         fn start(
             cwd: &Path,
-            scripts: Vec<&str>,
+            modes: Vec<&str>,
             pause: bool,
             panic_at: PanicAt,
             deadline: Duration,
         ) -> Self {
-            let scripts = scripts.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            let modes = modes.into_iter().map(str::to_owned).collect::<Vec<_>>();
             Self::start_with(
                 cwd,
                 SelectedBindings::default(),
@@ -3801,18 +3949,16 @@ mod selected_helper_process_tests {
                 panic_at,
                 deadline,
                 move |cwd| {
-                    scripts
+                    modes
                         .into_iter()
-                        .map(|script| {
-                            selected_command(cwd, "/bin/sh", &["-c".into(), script], None).and_then(
-                                |(code, bytes)| {
-                                    if code == 0 {
-                                        Ok(bytes)
-                                    } else {
-                                        Err(Invalid("private helper nonzero exit"))
-                                    }
-                                },
-                            )
+                        .map(|mode| {
+                            command(cwd, &mode, None).and_then(|(code, bytes)| {
+                                if code == 0 {
+                                    Ok(bytes)
+                                } else {
+                                    Err(Invalid("private helper nonzero exit"))
+                                }
+                            })
                         })
                         .collect()
                 },
@@ -3826,6 +3972,7 @@ mod selected_helper_process_tests {
             deadline: Duration,
             job: impl FnOnce(&Path) -> Result<Vec<Vec<u8>>, Invalid> + Send + 'static,
         ) -> Self {
+            let _prepared_image = io_image(); // Compilation/hash pinning precedes the job clock.
             let scratch = cwd.join("proof-scratch");
             std::fs::create_dir(&scratch).unwrap();
             use std::os::unix::fs::PermissionsExt;
@@ -3861,7 +4008,7 @@ mod selected_helper_process_tests {
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
                         .as_ref()
-                        .is_some_and(|group| group.running && !group.retiring);
+                        .is_some_and(|group| group.needs_active_poll());
                     // Match the real control owner: active helper quantum is
                     // polled directly; timer sleeps occur only while stopped.
                     let paused = tick_state.control.foreground.load(Ordering::Acquire)
@@ -3874,9 +4021,10 @@ mod selected_helper_process_tests {
                     if paused {
                         tick_state.paused.store(true, Ordering::Release);
                     }
-                    tick_state
-                        .control
-                        .helper_account_controller(marker, c1::cpu_ns().saturating_sub(at));
+                    tick_state.control.helper_account_controller(
+                        marker,
+                        tick_state.control.observe_interval(at, c1::cpu_ns()),
+                    );
                     if !runnable {
                         std::thread::sleep(Duration::from_millis(1));
                     }
@@ -3992,7 +4140,7 @@ mod selected_helper_process_tests {
         let home = tempfile::tempdir().unwrap();
         let run = Run::start(
             home.path(),
-            vec!["printf ready > ready; while :; do printf x >> ticks; done"],
+            vec!["ticks"],
             true,
             PanicAt::None,
             Duration::from_secs(5),
@@ -4019,9 +4167,10 @@ mod selected_helper_process_tests {
         let at = Instant::now();
         run.state.control.cancel.store(1, Ordering::Release);
         assert!(run.finish().is_err());
+        let settled_after = at.elapsed();
         assert!(
-            at.elapsed() < Duration::from_millis(60),
-            "shared cancel settlement bound"
+            settled_after < Duration::from_millis(60),
+            "shared cancel settlement bound: {settled_after:?}"
         );
     }
     #[test]
@@ -4029,7 +4178,7 @@ mod selected_helper_process_tests {
         let home = tempfile::tempdir().unwrap();
         let run = Run::start(
             home.path(),
-            vec!["printf unexpected > ready; /bin/sleep 30; exit 0"],
+            vec!["stall"],
             true,
             PanicAt::None,
             Duration::from_millis(150),
@@ -4043,7 +4192,7 @@ mod selected_helper_process_tests {
         let home = tempfile::tempdir().unwrap();
         let run = Run::start(
             home.path(),
-            vec!["printf first", "printf second"],
+            vec!["emit:first", "emit:second"],
             false,
             PanicAt::None,
             Duration::from_secs(5),
@@ -4061,7 +4210,7 @@ mod selected_helper_process_tests {
             let home = tempfile::tempdir().unwrap();
             let run = Run::start(
                 home.path(),
-                vec!["/bin/sleep 30 & printf '%s' $! > descendant; printf ready > ready; wait"],
+                vec!["pair"],
                 false,
                 point,
                 Duration::from_secs(5),
@@ -4073,7 +4222,7 @@ mod selected_helper_process_tests {
                     .filter(|pid| *pid > 0)
             };
             if point == PanicAt::Cleanup {
-                run.wait(|| descendant_pid().is_some());
+                run.wait(|| descendant_matches_report(&run.state));
                 run.state.control.cancel.store(1, Ordering::Release);
             }
             let state = run.state.clone();
@@ -4093,7 +4242,7 @@ mod selected_helper_process_tests {
                     "descendant witness must actually launch"
                 );
             }
-            // Attach panic may precede the script's PID publication; the exact
+            // Attach panic may precede the C fixture's PID publication; the exact
             // owned group ESRCH assertion in finish remains mandatory in all arms.
             if let Some(pid) = descendant_pid() {
                 assert_eq!(
@@ -4126,7 +4275,7 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
 -----END PGP PUBLIC KEY BLOCK-----
 "#
         .to_vec();
-        let fingerprint = "1B12349E1269B36F564DA44813D4A35C1CB21997";
+        let expected = packet.clone();
         let physical = home.path().join("deleted-public-key.bin");
         std::fs::write(&physical, b"this pathname must never be reopened").unwrap();
         std::fs::remove_file(&physical).unwrap();
@@ -4157,19 +4306,24 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
                 .map(str::to_owned)
                 .to_vec();
                 args.push(physical.to_string_lossy().into_owned());
+                // This witnesses exact admitted-byte transport, not GPG parsing
+                // or unavailable real-tool lifetime qualification.
+                KEY_STDIN_TRANSPORT.with(|active| active.set(true));
                 let (code, output) =
                     crate::dream::trust::selected_key_command(cwd, &args, Some(&gpg_home))?;
                 if code != 0 {
-                    return Err(Invalid("private public key inspection failed"));
+                    return Err(Invalid("private public key byte transport failed"));
                 }
-                let text = std::str::from_utf8(&output).unwrap();
-                assert!(text.lines().any(|line| line.starts_with("pub:")));
-                assert!(text.contains(&fingerprint));
+                assert_eq!(
+                    output, expected,
+                    "exact admitted public packet crossed stdin"
+                );
                 assert!(!physical.exists());
                 args.last_mut().unwrap().push_str(".unlisted");
                 assert!(
                     crate::dream::trust::selected_key_command(cwd, &args, Some(&gpg_home)).is_err()
                 );
+                KEY_STDIN_TRANSPORT.with(|active| active.set(false));
                 Ok(vec![output])
             },
         );
@@ -4187,13 +4341,7 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
             PanicAt::None,
             Duration::from_secs(5),
             move |cwd| {
-                let (code, output) = selected_command_input(
-                    cwd,
-                    "/bin/sh",
-                    &["-c".into(), "/bin/cat; exit 0".into()],
-                    None,
-                    Some(&input),
-                )?;
+                let (code, output) = command(cwd, "echo", Some(&input))?;
                 if code != 0 {
                     return Err(Invalid("private stdin child failed"));
                 }
@@ -4213,19 +4361,7 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
             false,
             PanicAt::None,
             Duration::from_secs(5),
-            move |cwd| {
-                selected_command_input(
-                    cwd,
-                    "/bin/sh",
-                    &[
-                        "-c".into(),
-                        "printf ready > ready; /bin/sleep 30; exit 0".into(),
-                    ],
-                    None,
-                    Some(&input),
-                )
-                .map(|(_, bytes)| vec![bytes])
-            },
+            move |cwd| command(cwd, "stall", Some(&input)).map(|(_, bytes)| vec![bytes]),
         );
         run.wait(|| home.path().join("ready").exists());
         std::thread::sleep(Duration::from_millis(20));
@@ -4239,9 +4375,10 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
         let at = Instant::now();
         run.state.control.cancel.store(1, Ordering::Release);
         assert!(run.finish().is_err());
+        let settled_after = at.elapsed();
         assert!(
-            at.elapsed() < Duration::from_millis(60),
-            "backpressured stdin must retain cancel settlement bound"
+            settled_after < Duration::from_millis(60),
+            "backpressured stdin must retain cancel settlement bound: {settled_after:?}"
         );
     }
     #[test]
@@ -4294,12 +4431,7 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
                 Duration::from_secs(5),
                 move |cwd| {
                     FAIL_HELPER_BEGIN_CLOCK.with(|failure| failure.set(Some(phase)));
-                    let result = selected_command(
-                        cwd,
-                        "/bin/sh",
-                        &["-c".into(), "printf unexpected > ready".into()],
-                        None,
-                    );
+                    let result = command(cwd, "stall", None);
                     assert_eq!(
                         NATIVE_HELPER_CALLS.with(|calls| calls.get()),
                         0,
@@ -4344,8 +4476,7 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
             Duration::from_secs(5),
             move |cwd| {
                 FAIL_HELPER_CLOCK.with(|failure| failure.set(Some(HelperPhase::Spawn)));
-                selected_command(cwd, "/bin/sh", &["-c".into(), "/bin/sleep 30".into()], None)
-                    .map(|(_, bytes)| vec![bytes])
+                command(cwd, "stall", None).map(|(_, bytes)| vec![bytes])
             },
         );
         let state = run.state.clone();
@@ -4369,13 +4500,7 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
             Duration::from_secs(5),
             move |cwd| {
                 FAIL_HELPER_ERRNO.with(|failure| failure.set(Some(libc::EIO)));
-                selected_command(
-                    cwd,
-                    "/bin/sh",
-                    &["-c".into(), "printf untrusted > ready".into()],
-                    None,
-                )
-                .map(|(_, bytes)| vec![bytes])
+                command(cwd, "stall", None).map(|(_, bytes)| vec![bytes])
             },
         );
         let state = run.state.clone();
