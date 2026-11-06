@@ -354,8 +354,10 @@ def main():
                     "input_sha256": input_hashes(ROOT, records, contract_records),
                     "models": [{"name": n, "expected": e, "states": int(c)} for n,e,c,w in rows],
                     "reference_parity": "not checked by native target", "complete_tlc_replacement": False}
-        (ROOT / ".bboxy/runs").mkdir(parents=True, exist_ok=True)
-        (ROOT / ".bboxy/runs/formal-native.json").write_text(json.dumps(evidence, indent=2) + "\n")
+        # Generated native evidence belongs to the selected private build target;
+        # a formal gate must not rewrite historically tracked source records.
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "native-evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
         print(f"formal: native {len(rows)} models; {len(records)} crates inventoried")
         return
     java, jar, pins = tools(target)

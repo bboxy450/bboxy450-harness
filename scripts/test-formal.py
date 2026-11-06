@@ -27,7 +27,7 @@ class Gate(unittest.TestCase):
             witness.parent.mkdir(parents=True);witness.write_text('private witness')
             path='../bboxy450-term/crates/bboxy450-term/src/rich_pane.rs'
             resolved=formal.implementation_reference(child,path)
-            self.assertEqual((child/resolved).resolve(),witness)
+            self.assertEqual((child/resolved).resolve(),witness.resolve())
             missing=path.replace('rich_pane.rs','missing.rs')
             self.assertEqual(formal.implementation_reference(child,missing),missing)
     def test_extra_controls_are_explicit_executed_negative_verdicts(self):
