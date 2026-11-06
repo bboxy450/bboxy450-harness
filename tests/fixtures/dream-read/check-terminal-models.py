@@ -40,6 +40,14 @@ QUARANTINE_PROPERTIES = {
     suffix: "OwnedQuarantineKeepsLiveControllerAndFdsUntilActualSettlement"
     for suffix in QUARANTINE_SUFFIXES[1:]
 }
+INITIAL_SUFFIXES = ("", "AcceptPending", "RuntimePending", "SkipFresh")
+INITIAL_NAMES = [("Broken" if index else "") + "HarnessDreamReadInitialQuiescence" + suffix
+                 for index, suffix in enumerate(INITIAL_SUFFIXES)]
+INITIAL_PROPERTIES = {
+    "AcceptPending": "InitialAckRequiresFreshFullQuiescence",
+    "RuntimePending": "KernelTailPendingRequiresInitialZeroUserOwner",
+    "SkipFresh": "InitialAckRequiresFreshFullQuiescence",
+}
 
 
 def digest(path):
@@ -48,7 +56,7 @@ def digest(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--family", choices=("terminal", "quarantine"), default="terminal")
+    parser.add_argument("--family", choices=("terminal", "quarantine", "initial"), default="terminal")
     parser.add_argument("--target", type=Path, required=True,
                         help="Focused export directory containing models/manifest.tsv")
     parser.add_argument("--tools-target", type=Path, default=ROOT / "target/formal")
@@ -58,6 +66,9 @@ def main():
     names, suffixes, expected_properties, decision = (
         (QUARANTINE_NAMES, QUARANTINE_SUFFIXES, QUARANTINE_PROPERTIES, "decision66074")
         if args.family == "quarantine" else (NAMES, SUFFIXES, EXPECTED_PROPERTIES, "decision66050"))
+    if args.family == "initial":
+        names, suffixes, expected_properties, decision = (
+            INITIAL_NAMES, INITIAL_SUFFIXES, INITIAL_PROPERTIES, "initial-creation-continuity")
     target = args.target.resolve()
     models = target / "models"
     spec = importlib.util.spec_from_file_location("canonical_formal", ROOT / "scripts/formal.py")

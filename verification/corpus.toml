@@ -2180,3 +2180,23 @@ frontend = "project"
 name = "BrokenHarnessDreamReadQuarantineOwnerExit"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamReadInitialQuiescence"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadInitialQuiescenceAcceptPending"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadInitialQuiescenceRuntimePending"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadInitialQuiescenceSkipFresh"
+expected = "safety"
+frontend = "project"

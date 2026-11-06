@@ -749,6 +749,8 @@ pub(crate) struct HelperGroup {
     pub(crate) debt_until: Instant,
     pub(crate) lane_cpu: u64,
     members: [HelperMember; 2],
+    task_observations: [HelperTaskObservation; 2],
+    usage_observations: [HelperUsageObservation; 2],
     retired_members: [RetiredMember; 8],
     stopped_roster: [i32; 8],
     grant: HelperGrantLedger,
@@ -876,6 +878,12 @@ struct HelperObservationFailure {
     kind: HelperObservationKind,
     guard: u8,
     native_code: i32,
+}
+#[cfg(all(test, target_os = "macos"))]
+thread_local! {
+    // One explicit second-snapshot fault; the real query/identity path still
+    // runs and the actual original child remains kernel-suspended and owned.
+    static INITIAL_CONTINUITY_RUNNING_FAULT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 #[cfg(target_os = "macos")]
 impl HelperObservationFailure {
@@ -1039,6 +1047,9 @@ struct HelperGrantLedger {
     reserved: u8,
     slots: [HelperSlotWindow; 2],
     actual_baseline: u64,
+    baseline_usage: [HelperUsageObservation; 2],
+    ack_usage: [HelperUsageObservation; 2],
+    ack_task: [HelperTaskObservation; 2],
     rolled_baseline: u64,
     charged: u64,
     charged_once: bool,
@@ -1073,6 +1084,45 @@ pub(crate) struct HelperGrantReceipt {
     pub(crate) controller_end_ns: u64,
     pub(crate) pipe_baseline_ns: u64,
     pub(crate) pipe_end_ns: u64,
+    pub(crate) baseline_usage: [HelperUsageObservation; 2],
+    pub(crate) ack_usage: [HelperUsageObservation; 2],
+    pub(crate) closure_usage: [HelperUsageObservation; 2],
+    pub(crate) ack_task: [HelperTaskObservation; 2],
+}
+/// Fixed-size raw diagnostics only. TASKALLINFO and RI are separate native
+/// observations; their post-call clocks never mint an admission or endpoint.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct HelperTaskObservation {
+    pub(crate) pid: i32,
+    pub(crate) status: u32,
+    pub(crate) threads: i32,
+    pub(crate) running: i32,
+    pub(crate) observed_ns: u64,
+}
+impl HelperTaskObservation {
+    fn stopped(self) -> bool {
+        self.status == 4 && self.threads == 1 && self.running == 0
+    }
+}
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct HelperUsageObservation {
+    pub(crate) pid: i32,
+    pub(crate) user_ticks: u64,
+    pub(crate) system_ticks: u64,
+    pub(crate) child_user_ticks: u64,
+    pub(crate) child_system_ticks: u64,
+    pub(crate) observed_ns: u64,
+}
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct HelperQuiescenceFailure {
+    pub(crate) sequence: u16,
+    pub(crate) member: usize,
+    pub(crate) pgid: i32,
+    pub(crate) birth: u64,
+    pub(crate) start_abstime: u64,
+    pub(crate) audit_version: u32,
+    pub(crate) first: HelperTaskObservation,
+    pub(crate) current: HelperTaskObservation,
 }
 #[derive(Clone, Copy, Default)]
 struct HelperMember {
@@ -1166,6 +1216,8 @@ pub(crate) struct HelperMetrics {
     pub(crate) continuity_pending_observations: u64,
     pub(crate) last_continuity_guard: u8,
     pub(crate) last_continuity_native_code: i32,
+    pub(crate) first_quiescence_failure: HelperQuiescenceFailure,
+    pub(crate) initial_continuity_pending_observations: u64,
     sample_stage: u8,
     pub(crate) coverage_known: bool,
     pub(crate) worst_grant: HelperGrantReceipt,
@@ -1541,6 +1593,65 @@ impl HelperGroup {
             )
             .ok_or(())
     }
+    #[cfg(target_os = "macos")]
+    fn observe_usage(&mut self, index: usize, pid: i32, usage: &libc::rusage_info_v1) {
+        self.usage_observations[index] = HelperUsageObservation {
+            pid,
+            user_ticks: usage.ri_user_time,
+            system_ticks: usage.ri_system_time,
+            child_user_ticks: usage.ri_child_user_time,
+            child_system_ticks: usage.ri_child_system_time,
+            observed_ns: bootstrap::monotonic_ns().unwrap_or(u64::MAX),
+        };
+    }
+    fn record_quiescence_failure(&mut self, index: usize, current: HelperTaskObservation) {
+        if self.metrics.first_quiescence_failure.current.pid == 0 {
+            let member = self.members[index];
+            self.metrics.first_quiescence_failure = HelperQuiescenceFailure {
+                sequence: self.identity.sequence,
+                member: index,
+                pgid: self.pgid,
+                birth: member.birth,
+                start_abstime: member.start_abstime,
+                audit_version: member.audit_version,
+                first: self.task_observations[index],
+                current,
+            };
+        }
+    }
+    #[cfg(target_os = "macos")]
+    fn check_member_quiescence(
+        &mut self,
+        index: usize,
+        current: HelperTaskObservation,
+    ) -> Result<(), HelperObservationFailure> {
+        if current.stopped() {
+            return Ok(());
+        }
+        self.record_quiescence_failure(index, current);
+        Err(HelperObservationFailure::mismatch(92))
+    }
+    fn initial_kernel_tail_pending(&self, index: usize, current: HelperTaskObservation) -> bool {
+        // This is ONLY the same START_SUSPENDED creation tail already handled
+        // by the first sample. It is not a stopped acknowledgement. Runtime
+        // grants, repeated STOPs, other thread/status shapes and user work do
+        // not inherit creation's bounded pending-observation authority.
+        index == 0
+            && !self.creation_settled
+            && !self.ready
+            && !self.running
+            && !self.retiring
+            && !self.admission_failed
+            && !self.grant.opened
+            && self.metrics.grants == 0
+            && self.metrics.stop_attempts == 0
+            && !self.stop_requested
+            && self.members[0].user_ticks == 0
+            && current.pid == self.identity.pid
+            && current.status == 4
+            && current.threads == 1
+            && current.running == 1
+    }
     pub(crate) fn pending_closure(&self) -> bool {
         !self.accounting_settled
             && (self.running
@@ -1706,6 +1817,7 @@ impl HelperGroup {
             opened: true,
             reserved: self.identity.expected_members,
             actual_baseline: baseline,
+            baseline_usage: self.usage_observations,
             rolled_baseline: rolled,
             controller_baseline: self.metrics.controller_cpu_ns,
             pipe_baseline: self.metrics.pipe_cpu_ns,
@@ -1793,6 +1905,8 @@ impl HelperGroup {
             return Err(());
         }
         self.grant.slots[index].ack_ns.get_or_insert(end);
+        self.grant.ack_usage[index] = self.usage_observations[index];
+        self.grant.ack_task[index] = self.task_observations[index];
         Ok(())
     }
     fn close_roster(&mut self) -> Result<(), ()> {
@@ -1868,6 +1982,10 @@ impl HelperGroup {
                 controller_end_ns: self.metrics.controller_cpu_ns,
                 pipe_baseline_ns: self.grant.pipe_baseline,
                 pipe_end_ns: self.metrics.pipe_cpu_ns,
+                baseline_usage: self.grant.baseline_usage,
+                ack_usage: self.grant.ack_usage,
+                closure_usage: self.usage_observations,
+                ack_task: self.grant.ack_task,
                 ..HelperGrantReceipt::default()
             };
             for index in 0..usize::from(self.grant.reserved) {
@@ -2386,8 +2504,25 @@ impl HelperGroup {
             return Err(HelperObservationFailure::exited(129));
         }
         self.metrics.sample_stage = 92;
-        if task.pti_threadnum != 1 || task.pti_numrunning != 0 || info.pbi_status != 4 {
-            return Err(HelperObservationFailure::mismatch(0));
+        let current = HelperTaskObservation {
+            pid: info.pbi_pid as i32,
+            status: info.pbi_status,
+            threads: task.pti_threadnum,
+            running: task.pti_numrunning,
+            observed_ns: bootstrap::monotonic_ns().unwrap_or(u64::MAX),
+        };
+        #[cfg(test)]
+        let current = if INITIAL_CONTINUITY_RUNNING_FAULT.with(|fault| fault.replace(false)) {
+            HelperTaskObservation {
+                running: 1,
+                ..current
+            }
+        } else {
+            current
+        };
+        let initial_pending = self.initial_kernel_tail_pending(index, current);
+        if !initial_pending {
+            self.check_member_quiescence(index, current)?;
         }
         self.metrics.sample_stage = 93;
         let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
@@ -2399,6 +2534,7 @@ impl HelperGroup {
         }
         self.metrics.sample_stage = 94;
         let usage = unsafe { usage.assume_init() };
+        self.observe_usage(index, prior.pid, &usage);
         if usage.ri_proc_start_abstime != prior.start_abstime
             || usage.ri_system_time < prior.system_ticks
         {
@@ -2444,6 +2580,18 @@ impl HelperGroup {
         if user_changed {
             self.invalidate_slot(index);
             return Err(HelperObservationFailure::mismatch(0));
+        }
+        if initial_pending {
+            // Identity/path and the fresh same-start RI record above still
+            // require unchanged ZERO user CPU. Preserve custody and the same
+            // deadline/cost span; the parent must take a fresh full sample.
+            self.initial_stop_pending = true;
+            self.confirmed_stopped = false;
+            self.metrics.initial_continuity_pending_observations = self
+                .metrics
+                .initial_continuity_pending_observations
+                .saturating_add(1);
+            return Ok(false);
         }
         if prior.image_phase == HelperImagePhase::Descendant {
             self.members[index].final_image_version = prior.audit_version;
@@ -2705,6 +2853,7 @@ impl HelperGroup {
             }
             self.metrics.sample_stage = 58;
             let usage = unsafe { usage.assume_init() };
+            self.observe_usage(index, prior.pid, &usage);
             if usage.ri_proc_start_abstime != prior.start_abstime
                 || usage.ri_user_time < prior.user_ticks
                 || usage.ri_system_time < prior.system_ticks
@@ -2851,6 +3000,7 @@ impl HelperGroup {
             return Err(());
         }
         let usage = unsafe { usage.assume_init() };
+        self.observe_usage(index, pid, &usage);
         let invalid_user_after_ack = self.grant.opened
             && self.grant.slots[index].ack_ns.is_some()
             && usage.ri_user_time != self.members[index].user_ticks;
@@ -2929,6 +3079,8 @@ impl HelperGroup {
             debt_until: now,
             lane_cpu: 0,
             members: [HelperMember::default(); 2],
+            task_observations: [HelperTaskObservation::default(); 2],
+            usage_observations: [HelperUsageObservation::default(); 2],
             retired_members: [RetiredMember::default(); 8],
             stopped_roster: [0; 8],
             grant: HelperGrantLedger::default(),
@@ -3271,6 +3423,10 @@ impl HelperGroup {
             controller_end_ns: self.metrics.controller_cpu_ns,
             pipe_baseline_ns: self.grant.pipe_baseline,
             pipe_end_ns: self.metrics.pipe_cpu_ns,
+            baseline_usage: self.grant.baseline_usage,
+            ack_usage: self.grant.ack_usage,
+            closure_usage: self.usage_observations,
+            ack_task: self.grant.ack_task,
             ..HelperGrantReceipt::default()
         };
         let mut window = Some(0u64);
@@ -3720,6 +3876,16 @@ impl HelperGroup {
                 1
             };
             let prior = self.members[index];
+            self.task_observations[index] = HelperTaskObservation {
+                pid,
+                status: info.pbi_status,
+                threads: task.pti_threadnum,
+                running: task.pti_numrunning,
+                observed_ns: hinted.map_or_else(
+                    || bootstrap::monotonic_ns().unwrap_or(u64::MAX),
+                    |snapshot| snapshot.observed_ns,
+                ),
+            };
             if prior.pid != 0 && (prior.pid != pid || prior.birth != birth) {
                 return Err(());
             }
@@ -3894,6 +4060,7 @@ impl HelperGroup {
                 return Err(());
             }
             let usage = unsafe { usage.assume_init() };
+            self.observe_usage(index, pid, &usage);
             if usage.ri_proc_start_abstime == 0
                 || (prior.start_abstime != 0 && usage.ri_proc_start_abstime != prior.start_abstime)
             {
@@ -8366,6 +8533,7 @@ mod helper_admission_tests {
         // original real effect through actual settlement, never resets a fault.
         for fault in [
             "valid",
+            "initial_second_pending",
             "sequence",
             "grant",
             "attempt",
@@ -8376,6 +8544,9 @@ mod helper_admission_tests {
             "unknown_clock",
             "reversed_clock",
             "future_clock",
+            "guard92_threads",
+            "guard92_running",
+            "guard92_status",
         ] {
             let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
             let mut proof = crate::dream::read::helper_fixture_clock(control.clone());
@@ -8442,7 +8613,38 @@ mod helper_admission_tests {
                 descendant_image: None,
             };
             let ticket = identity.ticket();
+            if fault == "initial_second_pending" {
+                INITIAL_CONTINUITY_RUNNING_FAULT.with(|injected| injected.set(true));
+            }
             proof.helper_attach(identity).unwrap();
+            if fault == "initial_second_pending" {
+                assert!(!INITIAL_CONTINUITY_RUNNING_FAULT.with(|injected| injected.get()));
+                let owner = control.helper.lock().unwrap();
+                let helper = owner.as_ref().unwrap();
+                assert!(helper.metrics.initial_continuity_pending_observations >= 1);
+                assert!(
+                    helper.admission_samples >= 2,
+                    "pending requires a fresh full sample"
+                );
+                assert!(helper.confirmed_stopped && helper.task_observations[0].stopped());
+                assert!(!helper.creation_settled && !helper.ready && !helper.running);
+                assert!(!helper.grant.opened && !helper.initial_stop_pending);
+                assert_eq!(
+                    helper.metrics.stop_attempts, 0,
+                    "no STOP substitute or CONT grant"
+                );
+                assert_eq!(helper.members[0].user_ticks, 0);
+                assert!(helper.metrics.coverage_known);
+                assert_eq!(helper.metrics.first_quiescence_failure.current.pid, 0);
+                eprintln!(
+                    "initial_continuity_pending source_known_injected_second_snapshot=true pid={pid} status=4 threads=1 injected_running=1 pending_observations={} full_samples={} final_status={} final_threads={} final_running={} user_ticks=0 creation_settled=false ready=false running=false grant_opened=false stop_attempts=0 original_still_owned=true full_command_qualification=false",
+                    helper.metrics.initial_continuity_pending_observations,
+                    helper.admission_samples,
+                    helper.task_observations[0].status,
+                    helper.task_observations[0].threads,
+                    helper.task_observations[0].running,
+                );
+            }
             let active_at = cpu_ns();
             {
                 let mut owner = control.helper.lock().unwrap();
@@ -8472,7 +8674,7 @@ mod helper_admission_tests {
             };
             let observed = hint.snapshots[0].unwrap().observed_ns;
             match fault {
-                "valid" => {}
+                "valid" | "initial_second_pending" => {}
                 "sequence" => hint.ticket.sequence += 1,
                 "grant" => hint.grant_t0_ns += 1,
                 "attempt" => hint.stop_attempt += 1,
@@ -8491,13 +8693,58 @@ mod helper_admission_tests {
                     hint.snapshots[0].as_mut().unwrap().observed_ns = hint.grant_t0_ns - 1
                 }
                 "future_clock" => hint.snapshots[0].as_mut().unwrap().observed_ns = u64::MAX - 1,
+                "guard92_threads" | "guard92_running" | "guard92_status" => {}
                 _ => unreachable!(),
             }
             {
                 let mut owner = control.helper.lock().unwrap();
                 let helper = owner.as_mut().unwrap();
-                let result = helper.sample_with_hint(&control, Some(hint));
-                if fault == "valid" {
+                let result = if fault.starts_with("guard92_") {
+                    // Explicitly injected raw-field negatives through the SAME
+                    // production predicate. The original native snapshot/child
+                    // is real and stays owned until the actual reap below;
+                    // these cases do not assert a historical kernel cause.
+                    let snapshot = hint.snapshots[0].unwrap();
+                    let mut current = HelperTaskObservation {
+                        pid: snapshot.raw.pbsd.pbi_pid as i32,
+                        status: snapshot.raw.pbsd.pbi_status,
+                        threads: snapshot.raw.ptinfo.pti_threadnum,
+                        running: snapshot.raw.ptinfo.pti_numrunning,
+                        observed_ns: snapshot.observed_ns,
+                    };
+                    assert!(current.stopped());
+                    match fault {
+                        "guard92_threads" => current.threads = 2,
+                        "guard92_running" => current.running = 1,
+                        "guard92_status" => current.status = 3,
+                        _ => unreachable!(),
+                    }
+                    assert!(
+                        !helper.initial_kernel_tail_pending(0, current),
+                        "runtime/open-grant observations cannot inherit creation pending authority"
+                    );
+                    let failure = helper.check_member_quiescence(0, current).unwrap_err();
+                    assert_eq!(failure.guard, 92);
+                    let retained = helper.metrics.first_quiescence_failure;
+                    assert_eq!(retained.current.threads, current.threads);
+                    assert_eq!(retained.current.running, current.running);
+                    assert_eq!(retained.current.status, current.status);
+                    assert_eq!(retained.current.pid, pid);
+                    assert!(retained.first.stopped());
+                    eprintln!(
+                        "quiescence_guard source_known_injected_raw=true predicate={fault} pid={pid} first_status={} first_threads={} first_running={} continuity_status={} continuity_threads={} continuity_running={} original_still_owned=true full_command_qualification=false",
+                        retained.first.status,
+                        retained.first.threads,
+                        retained.first.running,
+                        current.status,
+                        current.threads,
+                        current.running,
+                    );
+                    helper.continuity_failure(failure)
+                } else {
+                    helper.sample_with_hint(&control, Some(hint))
+                };
+                if matches!(fault, "valid" | "initial_second_pending") {
                     assert_eq!(result, Ok(true));
                     assert!(helper.grant.closed && helper.confirmed_stopped);
                     assert_eq!(

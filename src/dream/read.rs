@@ -952,13 +952,36 @@ impl HelperSummary {
         let last_stop = m.last_stop;
         let first_stop = m.first_failed_stop;
         eprintln!(
-            "dream-read helper_continuity profile=read-helper-native/1 query_fallbacks={} terminal_observations={} pending_observations={} last_guard={} last_native_code={}",
+            "dream-read helper_continuity profile=read-helper-native/1 query_fallbacks={} terminal_observations={} pending_observations={} initial_continuity_pending={} last_guard={} last_native_code={}",
             m.continuity_query_fallbacks,
             m.continuity_terminal_observations,
             m.continuity_pending_observations,
+            m.initial_continuity_pending_observations,
             m.last_continuity_guard,
             m.last_continuity_native_code
         );
+        let q = m.first_quiescence_failure;
+        if q.current.pid != 0 {
+            eprintln!(
+                "dream-read helper_quiescence_failure profile=read-helper-native/1 guard=92 diagnostic_only=true sequence={} member={} pgid={} birth={} start_abstime={} audit_version={} first_pid={} first_status={} first_threads={} first_running={} first_observed_ns={} continuity_pid={} continuity_status={} continuity_threads={} continuity_running={} continuity_observed_ns={}",
+                q.sequence,
+                q.member,
+                q.pgid,
+                q.birth,
+                q.start_abstime,
+                q.audit_version,
+                q.first.pid,
+                q.first.status,
+                q.first.threads,
+                q.first.running,
+                q.first.observed_ns,
+                q.current.pid,
+                q.current.status,
+                q.current.threads,
+                q.current.running,
+                q.current.observed_ns,
+            );
+        }
         for (kind, receipt) in [("last", last_stop), ("first_failed", first_stop)] {
             if receipt.attempt != 0 {
                 eprintln!(
@@ -1054,6 +1077,30 @@ impl HelperSummary {
                 r.q_ns,
                 r.closed
             );
+            // These existing native samples are diagnostic pairs, not an
+            // atomic stop/CPU snapshot or authority to subtract late CPU.
+            for index in 0..usize::from(r.reserved).min(2) {
+                let task = r.ack_task[index];
+                eprintln!(
+                    "dream-read helper_ack_task selection={selection} member={index} diagnostic_only=true pid={} status={} threads={} running={} observed_ns={}",
+                    task.pid, task.status, task.threads, task.running, task.observed_ns,
+                );
+                for (role, u) in [
+                    ("baseline", r.baseline_usage[index]),
+                    ("first_ack", r.ack_usage[index]),
+                    ("closure", r.closure_usage[index]),
+                ] {
+                    eprintln!(
+                        "dream-read helper_usage_pair selection={selection} member={index} role={role} diagnostic_only=true units=mach_absolute_ticks pid={} user_ticks={} system_ticks={} child_user_ticks={} child_system_ticks={} observed_ns={}",
+                        u.pid,
+                        u.user_ticks,
+                        u.system_ticks,
+                        u.child_user_ticks,
+                        u.child_system_ticks,
+                        u.observed_ns,
+                    );
+                }
+            }
         }
         let (sequence, pid, pgid, birth) = self.reap_ticket.map_or((0, 0, 0, 0), |t| {
             (t.sequence, t.pid, t.pgid, t.start_identity)
@@ -1738,9 +1785,15 @@ impl super::resolve::ProofPace for ProofClock {
         m.continuity_pending_observations = m
             .continuity_pending_observations
             .saturating_add(h.metrics.continuity_pending_observations);
+        m.initial_continuity_pending_observations = m
+            .initial_continuity_pending_observations
+            .saturating_add(h.metrics.initial_continuity_pending_observations);
         if h.metrics.last_continuity_guard != 0 {
             m.last_continuity_guard = h.metrics.last_continuity_guard;
             m.last_continuity_native_code = h.metrics.last_continuity_native_code;
+        }
+        if m.first_quiescence_failure.current.pid == 0 {
+            m.first_quiescence_failure = h.metrics.first_quiescence_failure;
         }
         if h.metrics.last_stop.attempt != 0 {
             m.last_stop = h.metrics.last_stop;

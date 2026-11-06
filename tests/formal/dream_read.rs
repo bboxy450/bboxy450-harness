@@ -522,6 +522,372 @@ mod quarantine_owner_tests {
     }
 }
 
+/// Initial creation admission only: three raw TASK states (quiescent, exact
+/// SSTOP/one-thread/one-running kernel tail, invalid), two independent queries
+/// and at most one fresh full-query generation. The eight lifecycle profiles
+/// are initial, settled, ready, running, grant-open, user-growth, expired and
+/// unknown final native cost. Runtime STOP sampling is modeled separately by
+/// MemberWindow; these profiles test misuse of INITIAL pending authority.
+/// OS success/deadline/clock observations are not fair. A pending second query
+/// must return to a fresh first query, retaining this original effect and cost.
+pub fn initial_quiescence(control: u8) -> Model {
+    let suffix = ["", "AcceptPending", "RuntimePending", "SkipFresh"][control as usize];
+    let mut m = base(
+        &format!("DreamReadInitialQuiescence{suffix}"),
+        control != 0,
+        &[
+            ("phase", 5, 0),
+            ("lifecycleProfile", 7, 0),
+            ("profileCaptured", 1, 0),
+            ("firstRaw", 3, 0),
+            ("secondRaw", 3, 0),
+            ("firstGeneration", 1, 0),
+            ("secondGeneration", 1, 0),
+            ("queryGeneration", 1, 0),
+            ("pendingSeen", 1, 0),
+            ("originalOwner", 1, 1),
+            ("userGrowthBeforeAdmission", 1, 0),
+            ("originalDeadlineExpired", 1, 0),
+            ("acknowledged", 1, 0),
+            ("continued", 1, 0),
+            ("fullCreationDebt", 1, 1),
+            ("nativeCostKnownWithin", 1, 1),
+            ("originalUnreapedPin", 1, 1),
+        ],
+    );
+    const P: usize = 0;
+    const CTX: usize = 1;
+    const SELECTED: usize = 2;
+    const FIRST: usize = 3;
+    const SECOND: usize = 4;
+    const FG: usize = 5;
+    const SG: usize = 6;
+    const GEN: usize = 7;
+    const PENDING: usize = 8;
+    const OWNER: usize = 9;
+    const USER: usize = 10;
+    const DEADLINE: usize = 11;
+    const ACK: usize = 12;
+    const CONT: usize = 13;
+    const DEBT: usize = 14;
+    const KNOWN: usize = 15;
+    const PIN: usize = 16;
+    let initial = eq(CTX, 0).or(eq(CTX, 7));
+    let eligible = all([
+        initial.clone(),
+        eq(USER, 0),
+        eq(DEADLINE, 0),
+        eq(OWNER, 1),
+        eq(PIN, 1),
+    ]);
+    for profile in 0..=7 {
+        act(
+            &mut m,
+            &format!("CaptureOriginalCreationContext{profile}"),
+            all([eq(P, 0), eq(SELECTED, 0)]),
+            &[
+                (CTX, Int(profile)),
+                (SELECTED, Int(1)),
+                (USER, Int(i64::from(profile == 5))),
+                (DEADLINE, Int(i64::from(profile == 6))),
+                (KNOWN, Int(i64::from(profile != 7))),
+            ],
+        );
+    }
+    let first = all([eq(P, 0), eq(SELECTED, 1), eq(DEADLINE, 0)]);
+    act(
+        &mut m,
+        "ObserveFirstRawQuiescent",
+        first.clone(),
+        &[(P, Int(1)), (FIRST, Int(1)), (FG, Var(GEN))],
+    );
+    act(
+        &mut m,
+        "ObserveFirstExactKernelTailAsPending",
+        all([first.clone(), eligible.clone()]),
+        &[
+            (P, Int(2)),
+            (FIRST, Int(2)),
+            (FG, Var(GEN)),
+            (PENDING, Int(1)),
+        ],
+    );
+    act(
+        &mut m,
+        "RefuseFirstKernelTailWithoutInitialAuthority",
+        all([first.clone(), eligible.clone().negate()]),
+        &[(P, Int(5)), (FIRST, Int(2)), (FG, Var(GEN))],
+    );
+    act(
+        &mut m,
+        "RefuseInvalidFirstRawTuple",
+        first.clone(),
+        &[(P, Int(5)), (FIRST, Int(3)), (FG, Var(GEN))],
+    );
+    let second = all([eq(P, 1), eq(DEADLINE, 0)]);
+    act(
+        &mut m,
+        "ObserveIndependentSecondQuiescentAndAcknowledge",
+        all([second.clone(), eligible.clone()]),
+        &[(P, Int(3)), (SECOND, Int(1)), (SG, Var(GEN)), (ACK, Int(1))],
+    );
+    act(
+        &mut m,
+        "RefuseSecondQuiescenceWithoutCreationAuthority",
+        all([second.clone(), eligible.clone().negate()]),
+        &[(P, Int(5)), (SECOND, Int(1)), (SG, Var(GEN))],
+    );
+    act(
+        &mut m,
+        "ObserveSecondExactKernelTailWithoutAck",
+        all([second.clone(), eligible.clone()]),
+        &[
+            (P, Int(2)),
+            (SECOND, Int(2)),
+            (SG, Var(GEN)),
+            (PENDING, Int(1)),
+        ],
+    );
+    act(
+        &mut m,
+        "RefuseRuntimeOrUserGrowthSecondKernelTail",
+        all([second.clone(), eligible.clone().negate()]),
+        &[(P, Int(5)), (SECOND, Int(2)), (SG, Var(GEN))],
+    );
+    act(
+        &mut m,
+        "RefuseInvalidSecondRawTuple",
+        second.clone(),
+        &[(P, Int(5)), (SECOND, Int(3)), (SG, Var(GEN))],
+    );
+    act(
+        &mut m,
+        "PendingRequiresFreshFullFirstAndSecondQueries",
+        all([eq(P, 2), eq(GEN, 0), eligible.clone()]),
+        &[
+            (P, Int(0)),
+            (GEN, Int(1)),
+            (FIRST, Int(0)),
+            (SECOND, Int(0)),
+        ],
+    );
+    act(
+        &mut m,
+        "OriginalDeadlineRefusesWithoutExtensionOrReplacement",
+        all([eq(SELECTED, 1), Var(P).lt(Int(4))]),
+        &[(P, Int(5)), (DEADLINE, Int(1))],
+    );
+    act(
+        &mut m,
+        "ExpiredContextKeepsOriginalOwnedRefusal",
+        all([eq(P, 0), eq(SELECTED, 1), eq(DEADLINE, 1)]),
+        &[(P, Int(5))],
+    );
+    act(
+        &mut m,
+        "UnknownNativeCreationCostCannotGrantExecution",
+        all([eq(P, 3), eq(KNOWN, 0)]),
+        &[(P, Int(5))],
+    );
+    let pay = m.actions.len();
+    act(
+        &mut m,
+        "PayFullFreshCreationDebtAfterObservedValidPair",
+        all([eq(P, 3), eq(KNOWN, 1), eq(DEBT, 1), eq(DEADLINE, 0)]),
+        &[(DEBT, Int(0))],
+    );
+    let cont = m.actions.len();
+    act(
+        &mut m,
+        "ContinueOnlyAfterFullAdmissionAndPaidKnownCost",
+        all([
+            eq(P, 3),
+            eq(ACK, 1),
+            eq(KNOWN, 1),
+            eq(DEBT, 0),
+            eligible.clone(),
+        ]),
+        &[(P, Int(4)), (CONT, Int(1))],
+    );
+    if control == 1 {
+        act(
+            &mut m,
+            "BrokenFirstKernelTailIsAcknowledged",
+            all([first, eligible.clone()]),
+            &[(P, Int(3)), (FIRST, Int(2)), (FG, Var(GEN)), (ACK, Int(1))],
+        );
+        act(
+            &mut m,
+            "BrokenSecondKernelTailIsAcknowledged",
+            all([second.clone(), eligible.clone()]),
+            &[(P, Int(3)), (SECOND, Int(2)), (SG, Var(GEN)), (ACK, Int(1))],
+        );
+    }
+    if control == 2 {
+        act(
+            &mut m,
+            "BrokenRuntimeKernelTailBorrowsInitialPendingAuthority",
+            all([second, initial.clone().negate(), eq(USER, 0)]),
+            &[
+                (P, Int(2)),
+                (SECOND, Int(2)),
+                (SG, Var(GEN)),
+                (PENDING, Int(1)),
+            ],
+        );
+    }
+    if control == 3 {
+        act(
+            &mut m,
+            "BrokenOnlyFreshSecondQueryReusesCachedFirst",
+            all([eq(P, 2), eq(FIRST, 1), eq(GEN, 0), eligible.clone()]),
+            &[
+                (P, Int(3)),
+                (GEN, Int(1)),
+                (SECOND, Int(1)),
+                (SG, Int(1)),
+                (ACK, Int(1)),
+            ],
+        );
+    }
+    safe(
+        &mut m,
+        "InitialAckRequiresFreshFullQuiescence",
+        eq(ACK, 0).or(all([
+            eq(FIRST, 1),
+            eq(SECOND, 1),
+            Var(FG).eq(Var(GEN)),
+            Var(SG).eq(Var(GEN)),
+            eq(PENDING, 0).or(eq(GEN, 1)),
+            initial.clone(),
+            eq(USER, 0),
+        ])),
+    );
+    safe(
+        &mut m,
+        "KernelTailPendingRequiresInitialZeroUserOwner",
+        eq(P, 2).negate().or(eligible),
+    );
+    safe(
+        &mut m,
+        "ExecutionRequiresKnownPaidAdmission",
+        eq(CONT, 0).or(all([
+            eq(ACK, 1),
+            eq(DEBT, 0),
+            eq(KNOWN, 1),
+            eq(DEADLINE, 0),
+        ])),
+    );
+    safe(
+        &mut m,
+        "OriginalEffectAndUnreapedPinNeverReleasedByPendingOrRefusal",
+        all([eq(OWNER, 1), eq(PIN, 1)]),
+    );
+    m.weak_fair.push(vec![pay]);
+    m.weak_fair.push(vec![cont]);
+    m
+}
+
+#[cfg(test)]
+mod initial_quiescence_tests {
+    use super::*;
+    #[test]
+    fn pending_creation_requires_fresh_full_quiescence_and_retains_original_owner() {
+        let output =
+            std::env::var_os("DREAM_INITIAL_QUIESCENCE_FORMAL_OUT").map(std::path::PathBuf::from);
+        if let Some(root) = &output {
+            std::fs::create_dir_all(root).unwrap();
+        }
+        let mut manifest = String::new();
+        for control in 0..=3 {
+            let model = initial_quiescence(control);
+            let graph = model.check(100_000).unwrap();
+            assert!(graph.violations.iter().all(|v| v.property != "TypeOK"));
+            if control == 0 {
+                assert!(graph.violations.is_empty());
+                assert!(
+                    graph
+                        .states
+                        .iter()
+                        .any(|s| s[0] == 2 && s[3] == 2 && s[12] == 0)
+                );
+                assert!(
+                    graph
+                        .states
+                        .iter()
+                        .any(|s| s[0] == 2 && s[3] == 1 && s[4] == 2 && s[12] == 0)
+                );
+                assert!(graph.states.iter().any(|s| s[0] == 3
+                    && s[8] == 1
+                    && s[7] == 1
+                    && s[5] == 1
+                    && s[6] == 1));
+                assert!(
+                    graph
+                        .states
+                        .iter()
+                        .any(|s| s[0] == 5 && s[1] == 1 && s[4] == 2 && s[12] == 0)
+                );
+                assert!(
+                    graph
+                        .states
+                        .iter()
+                        .any(|s| s[0] == 5 && s[11] == 1 && s[9] == 1 && s[16] == 1)
+                );
+                assert!(
+                    graph
+                        .states
+                        .iter()
+                        .any(|s| s[0] == 5 && s[1] == 7 && s[13] == 0)
+                );
+                assert!(
+                    graph
+                        .states
+                        .iter()
+                        .any(|s| s[0] == 4 && s[14] == 0 && s[15] == 1)
+                );
+            } else {
+                let property = if control == 2 {
+                    "KernelTailPendingRequiresInitialZeroUserOwner"
+                } else {
+                    "InitialAckRequiresFreshFullQuiescence"
+                };
+                assert_eq!(
+                    graph
+                        .violations
+                        .iter()
+                        .map(|v| v.property.as_str())
+                        .collect::<Vec<_>>(),
+                    vec![property]
+                );
+            }
+            println!(
+                "initial_quiescence control={control} model={} states={} labelled_edges={} named_verdicts={:?}",
+                model.name,
+                graph.states.len(),
+                graph.edges.iter().map(Vec::len).sum::<usize>(),
+                graph
+                    .violations
+                    .iter()
+                    .map(|v| &v.property)
+                    .collect::<Vec<_>>()
+            );
+            if let Some(root) = &output {
+                super::helper_observer_lowering_export::export(
+                    model,
+                    if control == 0 { "pass" } else { "safety" },
+                    root,
+                    &mut manifest,
+                )
+                .unwrap();
+            }
+        }
+        if let Some(root) = output {
+            std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
+        }
+    }
+}
+
 /// Shared-codec/currentness projection, not a native lifetime theorem. Owner is
 /// the existing private controller; two platform values and three incarnations
 /// expose observed A-B-A. The nine profiles abstract independently checked
