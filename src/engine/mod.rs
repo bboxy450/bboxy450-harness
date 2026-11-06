@@ -460,6 +460,11 @@ impl SessionActor {
         };
         if matches!(e.event, Event::SessionClosed) {
             self.gateway.hub.publish(e.clone());
+            #[cfg(feature = "test-fixtures")]
+            eprintln!(
+                "session_close stage=durable_published session={} seq={:?}",
+                e.session, e.seq
+            );
             // A confined trial may not start unobserved post-close Git/cache or
             // advice jobs outside its pinned roots. Ordinary closes keep both.
             if !self.tools.is_trial() {

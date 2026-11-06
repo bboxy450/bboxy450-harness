@@ -1013,3 +1013,27 @@ assumptions = "One existing controller owns parse and finite classification. Nin
 property = "Component classification cannot bypass canonical bindings, before-birth or after-settlement Platform6, sticky observed change/incarnation, or paid debt. No runtime provenance payload reads and no private runtime approval. Normal Git remains unavailable."
 checks = ["make test-formal", "make test"]
 additional_checks = ["make test-dream-read-closure-codec", "make test-formal-parity"]
+
+[[contract]]
+name = "HarnessDreamReadCloseReceive"
+title = "Durable close publication, subscriber drainage and server retirement"
+models = ["HarnessDreamReadCloseReceive", "BrokenHarnessDreamReadCloseReceiveLateClosedRead"]
+controls = [{name="BrokenHarnessDreamReadCloseReceiveLateClosedRead",expected="safety"}]
+sources = ["src/gateway/mod.rs", "src/gateway/unix.rs", "src/engine/mod.rs", "src/frontends/headless.rs", "tests/formal/dream_read.rs", "tests/formal/models.rs"]
+implementation_tests = ["src/gateway/mod.rs", "src/gateway/unix.rs", "tests/seat_process.rs"]
+assumptions = "One producer owns durable publication followed by enqueue and closed release. One reader captures closure before its empty pop; another poll may interleave with publication. Queue0-1 and delivered0-1 are finite. The separate retirement projection has published/sealed/faulted/lifecycleEOF/faceObserved/writerHeld/written/requested/cancelled/deadline/retired finite flags. Publication, face observation, writer dequeue and actual terminal write are separate actions. Only local read/drain bookkeeping is weakly fair, never external OS scheduling/writer release. Explicit deadline expiry/fault transitions permit cancellation without fabricating delivery. Actual5s client and1s server budgets, one durable A close/one nonfork B/same Host/PID/input and all bytes remain implementation witnesses. Controls read closure too late, eagerly cancel after local observation, or treat sealed admission plus observer EOF as durable terminal authority. Historical failure EOF alone never proves durable publication was missing."
+property = "EOF never hides a queued durable terminal and delivery occurs at most once. Published close preserves an existing writer until write, actual fault or the unchanged explicit drain deadline. Lifecycle EOF retirement requires actual publication or fault, not admission sealing."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-dream-c1", "make test-formal-parity"]
+
+[[contract]]
+name = "HarnessDreamReadCloseRetirement"
+title = "Durable close publication, subscriber drainage and server retirement"
+models = ["HarnessDreamReadCloseRetirement", "BrokenHarnessDreamReadCloseRetirementEagerCancel", "BrokenHarnessDreamReadCloseRetirementSealedEof"]
+controls = [{name="BrokenHarnessDreamReadCloseRetirementEagerCancel",expected="safety"}, {name="BrokenHarnessDreamReadCloseRetirementSealedEof",expected="safety"}]
+sources = ["src/gateway/mod.rs", "src/gateway/unix.rs", "src/engine/mod.rs", "src/frontends/headless.rs", "tests/formal/dream_read.rs", "tests/formal/models.rs"]
+implementation_tests = ["src/gateway/mod.rs", "src/gateway/unix.rs", "tests/seat_process.rs"]
+assumptions = "One producer owns durable publication followed by enqueue and closed release. One reader captures closure before its empty pop; another poll may interleave with publication. Queue0-1 and delivered0-1 are finite. The separate retirement projection has published/sealed/faulted/lifecycleEOF/faceObserved/writerHeld/written/requested/cancelled/deadline/retired finite flags. Publication, face observation, writer dequeue and actual terminal write are separate actions. Only local read/drain bookkeeping is weakly fair, never external OS scheduling/writer release. Explicit deadline expiry/fault transitions permit cancellation without fabricating delivery. Actual5s client and1s server budgets, one durable A close/one nonfork B/same Host/PID/input and all bytes remain implementation witnesses. Controls read closure too late, eagerly cancel after local observation, or treat sealed admission plus observer EOF as durable terminal authority. Historical failure EOF alone never proves durable publication was missing."
+property = "EOF never hides a queued durable terminal and delivery occurs at most once. Published close preserves an existing writer until write, actual fault or the unchanged explicit drain deadline. Lifecycle EOF retirement requires actual publication or fault, not admission sealing."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-dream-c1", "make test-formal-parity"]

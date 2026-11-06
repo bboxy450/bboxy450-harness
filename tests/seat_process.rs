@@ -973,23 +973,26 @@ for line in sys.stdin:
             panic!("private retained-Host turn failed in {phase}: {reason}");
         }
     }
-    async fn close(client: &UnixClient, sub: &mut Subscription) {
+    async fn close(client: &UnixClient, sub: &mut Subscription) -> Result<(), &'static str> {
         client
             .send(op(sub.hello().meta.session, Op::Close))
             .await
-            .unwrap();
+            .map_err(|_| "close_admission_failed")?;
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                let e = sub.recv().await.expect("missing durable SessionClosed");
+                let e = sub.recv().await.ok_or("durable_close_subscription_ended")?;
                 if matches!(e.event, Event::SessionClosed) {
-                    assert!(e.seq.is_some());
-                    break;
+                    if e.seq.is_none() {
+                        return Err("close_not_durable");
+                    }
+                    return Ok(());
                 }
             }
         })
         .await
-        .unwrap();
+        .map_err(|_| "durable_close_timeout")??;
         client.close();
+        Ok(())
     }
     async fn stdout_until(
         receive: &mut tokio::sync::mpsc::Receiver<Envelope>,
@@ -1090,7 +1093,16 @@ for line in sys.stdin:
         let b_op = OpId("00000000000000000000000107".parse().unwrap());
         let result = turn(&client_a, &mut sub_a, "A before closure", a_op).await;
         require_turn(result, "A", a, &mut paths, &mut child, &stderr_ring).await;
-        close(&client_a, &mut sub_a).await;
+        let result = close(&client_a, &mut sub_a).await;
+        require_turn(
+            result,
+            "A durable close",
+            a,
+            &mut paths,
+            &mut child,
+            &stderr_ring,
+        )
+        .await;
         stdout_until(&mut receive, &mut events, |e| {
             e.session == a && matches!(e.event, Event::SessionClosed)
         })
@@ -1138,7 +1150,16 @@ for line in sys.stdin:
             &stderr_ring,
         )
         .await;
-        close(&client_b, &mut sub_b).await;
+        let result = close(&client_b, &mut sub_b).await;
+        require_turn(
+            result,
+            "B durable close",
+            b,
+            &mut paths,
+            &mut child,
+            &stderr_ring,
+        )
+        .await;
         stdout_until(&mut receive, &mut events, |e| {
             e.session == b && matches!(e.event, Event::SessionClosed)
         })

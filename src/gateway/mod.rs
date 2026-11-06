@@ -127,6 +127,9 @@ impl Subscription {
         self.sub.drops.load(Ordering::Relaxed)
     }
     pub fn try_recv(&mut self) -> TryRecv {
+        self.try_recv_after_empty(|| {})
+    }
+    fn try_recv_after_empty(&mut self, after_empty: impl FnOnce()) -> TryRecv {
         let replay = self
             .replay
             .pop_front()
@@ -144,6 +147,10 @@ impl Subscription {
             }
             return TryRecv::Envelope(e);
         }
+        // A close release follows the publisher's final queue/terminal writes.
+        // Observe it BEFORE draining: a close racing an empty pop must cause
+        // another receive, never hide the terminal envelope just enqueued.
+        let closed = self.sub.closed.load(Ordering::Acquire);
         while let Some(e) = self.sub.queue.pop() {
             if let Some(s) = e.seq {
                 if s <= self.cutoff {
@@ -155,6 +162,7 @@ impl Subscription {
             }
             return TryRecv::Envelope(e);
         }
+        after_empty();
         if let Some(e) = self.sub.terminal.swap(None) {
             let mut e = (*e).clone();
             if let Event::Lagged { resume_after } = &mut e.event {
@@ -162,7 +170,7 @@ impl Subscription {
             }
             return TryRecv::Envelope(e);
         }
-        if self.sub.closed.load(Ordering::Acquire) {
+        if closed {
             TryRecv::Closed
         } else {
             TryRecv::Empty
@@ -693,6 +701,69 @@ impl Gateway for InProc {
             sub,
             hub: Arc::downgrade(&self.hub),
         })
+    }
+}
+
+#[cfg(test)]
+fn close_fixture() -> (InProc, Envelope) {
+    let started: Envelope = serde_json::from_str(
+        include_str!("../../tests/fixtures/protocol/all-items.jsonl")
+            .lines()
+            .next()
+            .unwrap(),
+    )
+    .unwrap();
+    let Event::SessionStarted { meta } = &started.event else {
+        panic!("fixture session start");
+    };
+    let hub = Arc::new(Hub::new(
+        meta.clone(),
+        started.epoch,
+        std::slice::from_ref(&started),
+        Set::default(),
+    ));
+    let (work, _) = mpsc::channel(1);
+    let (control, _) = mpsc::channel(1);
+    let gateway = InProc::new(hub, work, control, OpId::new());
+    let mut closed = started;
+    closed.raw = None;
+    closed.seq = Some(Seq(2));
+    closed.at = Seq(2);
+    closed.event = Event::SessionClosed;
+    (gateway, closed)
+}
+
+#[cfg(test)]
+mod close_tests {
+    use super::*;
+
+    #[test]
+    fn close_after_empty_observation_delivers_queued_terminal_before_eof() {
+        let (gateway, closed) = close_fixture();
+        let hello = gateway.hello();
+        let mut sub = gateway
+            .subscribe(Subscribe {
+                session: gateway.session(),
+                after: Some((hello.epoch, hello.head)),
+                ephemeral: false,
+            })
+            .unwrap();
+        // Force the precise held order: empty pop, durable publication, close
+        // release, then the receive's closure decision. No timing retry.
+        assert!(matches!(
+            sub.try_recv_after_empty(|| {
+                gateway.hub.publish(closed.clone());
+                gateway.mark_closed();
+            }),
+            TryRecv::Empty
+        ));
+        let TryRecv::Envelope(event) = sub.try_recv() else {
+            panic!("queued durable close must precede EOF");
+        };
+        assert_eq!(event.session, closed.session);
+        assert_eq!(event.seq, closed.seq);
+        assert!(matches!(event.event, Event::SessionClosed));
+        assert!(matches!(sub.try_recv(), TryRecv::Closed));
     }
 }
 

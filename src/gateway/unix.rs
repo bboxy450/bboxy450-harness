@@ -69,11 +69,37 @@ async fn write(
 }
 pub struct UnixServer {
     pub path: PathBuf,
+    gateway: InProc,
     cancel: CancellationToken,
     task: Option<JoinHandle<io::Result<()>>>,
 }
+#[cfg(test)]
+#[derive(Default)]
+struct TerminalWriteHold {
+    reached: Notify,
+    release: Notify,
+}
+fn lifecycle_terminal(gateway: &InProc) -> bool {
+    // An overflowed lifecycle observer may end while admission is sealed but
+    // the actor is still joining services. Only publication or an actual actor
+    // fault retires that address; sealing alone must resubscribe at the head.
+    gateway.hub.state.load().closed || gateway.faulted.load(Ordering::Acquire)
+}
 impl UnixServer {
     pub async fn bind(path: PathBuf, gateway: InProc) -> io::Result<Self> {
+        Self::bind_inner(
+            path,
+            gateway,
+            #[cfg(test)]
+            None,
+        )
+        .await
+    }
+    async fn bind_inner(
+        path: PathBuf,
+        gateway: InProc,
+        #[cfg(test)] terminal_hold: Option<Arc<TerminalWriteHold>>,
+    ) -> io::Result<Self> {
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
@@ -82,6 +108,7 @@ impl UnixServer {
         let cancel = CancellationToken::new();
         let stop = cancel.clone();
         let own = path.clone();
+        let retained_gateway = gateway.clone();
         let hello = gateway.hello();
         let mut lifecycle = gateway
             .subscribe(Subscribe {
@@ -99,7 +126,7 @@ impl UnixServer {
                     biased;
                     _ = stop.cancelled() => break Ok(()),
                     event = lifecycle.recv(), if !unlinked => {
-                        if event.as_ref().is_some_and(|e| matches!(e.event, Event::SessionClosed)) || event.is_none() && gateway.is_closed() {
+                        if event.as_ref().is_some_and(|e| matches!(e.event, Event::SessionClosed)) || event.is_none() && lifecycle_terminal(&gateway) {
                             let _ = tokio::fs::remove_file(&own).await;
                             unlinked = true;
                             break Ok(());
@@ -118,7 +145,9 @@ impl UnixServer {
                         if socket.peer_cred().map_or(true, |cred| cred.uid() != unsafe { libc::geteuid() }) { continue; }
                         let g = gateway.clone();
                         let c = stop.child_token();
-                        tasks.spawn_on(async move { let _ = connection(socket, g, c).await; }, bbt_rt::handle());
+                        #[cfg(test)]
+                        let held = terminal_hold.clone();
+                        tasks.spawn_on(async move { let _ = connection(socket, g, c, #[cfg(test)] held).await; }, bbt_rt::handle());
                     }
                     _ = tasks.join_next(), if !tasks.is_empty() => {}
                 }
@@ -126,9 +155,11 @@ impl UnixServer {
             // Let SessionClosed reach existing subscribers before retiring the
             // address. A stalled reader has a finite one-second drain budget.
             if unlinked {
-                let _ = tokio::time::timeout(Duration::from_secs(1), async {
+                let _drained = tokio::time::timeout(Duration::from_secs(1), async {
                     while tasks.join_next().await.is_some() {}
                 }).await;
+                #[cfg(feature = "test-fixtures")]
+                eprintln!("session_close stage=server_drain session={} completed={}", gateway.session(), _drained.is_ok());
             }
             stop.cancel();
             while tasks.join_next().await.is_some() {}
@@ -137,6 +168,7 @@ impl UnixServer {
         });
         Ok(Self {
             path,
+            gateway: retained_gateway,
             cancel,
             task: Some(task),
         })
@@ -145,7 +177,18 @@ impl UnixServer {
         self.task.take().unwrap().await.map_err(io::Error::other)?
     }
     pub async fn close(mut self) -> io::Result<()> {
-        self.cancel.cancel();
+        // A face may observe the durable close before a Unix writer does.
+        // Preserve the existing one-second terminal drain in that order too;
+        // admission sealing alone is not evidence of terminal publication.
+        let published = self.gateway.hub.state.load().closed;
+        #[cfg(feature = "test-fixtures")]
+        eprintln!(
+            "session_close stage=server_shutdown session={} published={published}",
+            self.gateway.session()
+        );
+        if !published {
+            self.cancel.cancel();
+        }
         self.task.take().unwrap().await.map_err(io::Error::other)?
     }
 }
@@ -158,6 +201,7 @@ async fn connection(
     socket: UnixStream,
     gateway: InProc,
     cancel: CancellationToken,
+    #[cfg(test)] terminal_hold: Option<Arc<TerminalWriteHold>>,
 ) -> io::Result<()> {
     let (read, mut writer) = socket.into_split();
     let mut reader = BufReader::new(read);
@@ -199,9 +243,110 @@ async fn connection(
                 tokio::select!{_=cancel.cancelled()=>return Ok(()),r=write(&mut writer,&response)=>r?}break;
               },
               e=subscription.recv()=>{let Some(e)=e else{return Ok(());};let done=matches!(e.event,Event::Lagged{..}|Event::Reset{..}|Event::SessionClosed);
-                let bytes=e.wire_bytes()?;tokio::select!{_=cancel.cancelled()=>return Ok(()),r=writer.write_all(&bytes)=>r?};if done{return Ok(());}
+                #[cfg(feature = "test-fixtures")]
+                if matches!(e.event,Event::SessionClosed) {eprintln!("session_close stage=terminal_dequeued session={} seq={:?}",e.session,e.seq);}
+                #[cfg(test)]
+                if matches!(e.event,Event::SessionClosed) && let Some(held)=&terminal_hold {
+                    held.reached.notify_one();
+                    tokio::select!{_=cancel.cancelled()=>return Ok(()),_=held.release.notified()=>{}}
+                }
+                let bytes=e.wire_bytes()?;tokio::select!{_=cancel.cancelled()=>return Ok(()),r=writer.write_all(&bytes)=>r?};
+                #[cfg(feature = "test-fixtures")]
+                if matches!(e.event,Event::SessionClosed) {eprintln!("session_close stage=terminal_written session={} seq={:?}",e.session,e.seq);}
+                if done{return Ok(());}
               },
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod close_tests {
+    use super::*;
+
+    #[test]
+    fn ended_lifecycle_requires_terminal_publication_or_actor_fault_not_admission_seal() {
+        let (gateway, closed) = super::super::close_fixture();
+        gateway.seal();
+        assert!(!lifecycle_terminal(&gateway));
+        gateway.hub.publish(closed);
+        assert!(lifecycle_terminal(&gateway));
+        let (faulted, _) = super::super::close_fixture();
+        assert!(!lifecycle_terminal(&faulted));
+        faulted.mark_faulted();
+        assert!(lifecycle_terminal(&faulted));
+    }
+
+    #[tokio::test]
+    async fn published_close_drains_held_terminal_write_before_server_cancellation() {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join("held.sock");
+        let (gateway, closed) = super::super::close_fixture();
+        let hello = gateway.hello();
+        let request = Subscribe {
+            session: gateway.session(),
+            after: Some((hello.epoch, hello.head)),
+            ephemeral: false,
+        };
+        let mut face = gateway.subscribe(request.clone()).unwrap();
+        let held = Arc::new(TerminalWriteHold::default());
+        let server = UnixServer::bind_inner(path.clone(), gateway.clone(), Some(held.clone()))
+            .await
+            .unwrap();
+        let (client, mut remote) = UnixClient::connect(&path, request).await.unwrap();
+        gateway.hub.publish(closed.clone());
+        gateway.mark_closed();
+        let observed = face.recv().await.unwrap();
+        assert!(matches!(observed.event, Event::SessionClosed));
+        assert_eq!(observed.seq, closed.seq);
+        tokio::time::timeout(Duration::from_secs(5), held.reached.notified())
+            .await
+            .unwrap();
+        // The face has observed the durable close while this actual Unix
+        // writer is held before its terminal write. Poll close once in that
+        // exact order; it must preserve the server's existing1s drain.
+        let cancel = server.cancel.clone();
+        let mut closing = Box::pin(server.close());
+        assert!(futures_util::poll!(closing.as_mut()).is_pending());
+        assert!(
+            !cancel.is_cancelled(),
+            "published close was eagerly cancelled"
+        );
+        held.release.notify_one();
+        let delivered = tokio::time::timeout(Duration::from_secs(5), remote.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(delivered.session, closed.session);
+        assert_eq!(delivered.seq, closed.seq);
+        assert!(matches!(delivered.event, Event::SessionClosed));
+        assert!(
+            tokio::time::timeout(Duration::from_secs(5), remote.recv())
+                .await
+                .unwrap()
+                .is_none(),
+            "terminal close must occur exactly once"
+        );
+        closing.await.unwrap();
+        assert!(!path.exists());
+        client.close();
+    }
+
+    #[tokio::test]
+    async fn admission_seal_without_published_close_keeps_immediate_server_cancellation() {
+        let home = tempfile::tempdir().unwrap();
+        let (gateway, _) = super::super::close_fixture();
+        let server = UnixServer::bind(home.path().join("sealed.sock"), gateway.clone())
+            .await
+            .unwrap();
+        gateway.seal();
+        let cancel = server.cancel.clone();
+        let mut closing = Box::pin(server.close());
+        let first = futures_util::poll!(closing.as_mut());
+        assert!(cancel.is_cancelled(), "sealing is not durable publication");
+        match first {
+            std::task::Poll::Ready(result) => result.unwrap(),
+            std::task::Poll::Pending => closing.await.unwrap(),
         }
     }
 }

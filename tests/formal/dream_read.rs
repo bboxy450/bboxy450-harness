@@ -5976,3 +5976,431 @@ mod tests {
     }
 }
 
+// Origin: https://github.com/bboxy450/bboxy450-harness
+// Retain accurate reuse credit: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+/// One terminal envelope, one producer and one subscriber. Publication, queue
+/// observation and the close release are separate atomic actions. Reader-only
+/// weak fairness proves drainage; OS scheduling and byte/clock bounds are API
+/// witnesses, not consequences of this finite model.
+pub fn close_receive(control: u8) -> Model {
+    let mut m = base(
+        if control == 1 {
+            "DreamReadCloseReceiveLateClosedRead"
+        } else {
+            "DreamReadCloseReceive"
+        },
+        control != 0,
+        &[
+            ("readerIdleCapturedEmptyEof", 3, 0),
+            ("queuedTerminal", 1, 0),
+            ("terminalPublished", 1, 0),
+            ("producerClosedRelease", 1, 0),
+            ("capturedClosedBeforeDrain", 1, 0),
+            ("terminalDelivered", 1, 0),
+            ("returnedEof", 1, 0),
+            ("transportFault", 1, 0),
+            ("explicitDeadline", 1, 0),
+        ],
+    );
+    const PH: usize = 0;
+    const Q: usize = 1;
+    const PUB: usize = 2;
+    const CLOSED: usize = 3;
+    const SNAP: usize = 4;
+    const GOT: usize = 5;
+    const EOF: usize = 6;
+    act(
+        &mut m,
+        "PublishOneTerminalBeforeProducerClose",
+        all([eq(PUB, 0), eq(CLOSED, 0)]),
+        &[(PUB, Int(1)), (Q, Int(1))],
+    );
+    act(
+        &mut m,
+        "ReleaseClosedAfterTerminalEnqueue",
+        all([eq(PUB, 1), eq(CLOSED, 0)]),
+        &[(CLOSED, Int(1))],
+    );
+    for (flag, name) in [(7, "ObserveTransportFault"), (8, "ObserveExplicitDeadline")] {
+        act(
+            &mut m,
+            name,
+            eq(CLOSED, 0),
+            &[(flag, Int(1)), (CLOSED, Int(1))],
+        );
+    }
+    let capture = m.actions.len();
+    act(
+        &mut m,
+        "CaptureClosedBeforeAnyQueueObservation",
+        all([eq(PH, 0), eq(EOF, 0)]),
+        &[(SNAP, Var(CLOSED)), (PH, Int(1))],
+    );
+    let dequeue = m.actions.len();
+    act(
+        &mut m,
+        "DequeueTerminalBeforeConsideringEof",
+        all([eq(PH, 1), eq(Q, 1)]),
+        &[(Q, Int(0)), (GOT, Int(1)), (PH, Int(0))],
+    );
+    let empty = m.actions.len();
+    act(
+        &mut m,
+        "ObserveEmptyQueue",
+        all([eq(PH, 1), eq(Q, 0)]),
+        &[(PH, Int(2))],
+    );
+    let selected = if control == 1 { CLOSED } else { SNAP };
+    let eof = m.actions.len();
+    act(
+        &mut m,
+        "DecideEofFromObservedClose",
+        all([eq(PH, 2), eq(selected, 1)]),
+        &[(PH, Int(3)), (EOF, Int(1))],
+    );
+    let again = m.actions.len();
+    act(
+        &mut m,
+        "ReturnEmptyAndObserveAgainAfterNotification",
+        all([eq(PH, 2), eq(selected, 0)]),
+        &[(PH, Int(0))],
+    );
+    safe(
+        &mut m,
+        "EofNeverHidesQueuedDurableTerminal",
+        eq(EOF, 0).or(all([eq(Q, 0), Var(GOT).eq(Var(PUB))])),
+    );
+    safe(
+        &mut m,
+        "TerminalDeliveryRequiresItsSinglePublication",
+        eq(GOT, 0).or(all([eq(PUB, 1), eq(Q, 0)])),
+    );
+    progress(
+        &mut m,
+        "ClosedSubscriberEventuallyDrainsAndReturnsEof",
+        eq(CLOSED, 1),
+        eq(EOF, 1),
+        vec![capture, dequeue, empty, eof, again],
+    );
+    m
+}
+
+// Origin: https://github.com/bboxy450/bboxy450-harness
+// Retain accurate reuse credit: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+/// One fixed session and one existing Unix writer. The local face can observe
+/// the published close while the remote write is held. Admission sealing is
+/// separate from publication/fault. The existing drain deadline is an explicit
+/// action, not a numeric OS-time theorem; external writer release is not fair.
+pub fn close_retirement(control: u8) -> Model {
+    let name = match control {
+        1 => "DreamReadCloseRetirementEagerCancel",
+        2 => "DreamReadCloseRetirementSealedEof",
+        _ => "DreamReadCloseRetirement",
+    };
+    let mut m = base(
+        name,
+        control != 0,
+        &[
+            ("terminalPublished", 1, 0),
+            ("admissionSealed", 1, 0),
+            ("actorFaulted", 1, 0),
+            ("lifecycleObserverEof", 1, 0),
+            ("localFaceObservedTerminal", 1, 0),
+            ("terminalQueuedForUnixWriter", 1, 0),
+            ("unixTerminalWriteHeld", 1, 0),
+            ("externalWriterReleased", 1, 0),
+            ("terminalWritten", 1, 0),
+            ("remoteObservedTerminal", 1, 0),
+            ("callerRequestedClose", 1, 0),
+            ("serverDraining", 1, 0),
+            ("connectionCancelled", 1, 0),
+            ("explicitDrainDeadlineExpired", 1, 0),
+            ("serverRetired", 1, 0),
+            ("lifecycleStartedRetirement", 1, 0),
+        ],
+    );
+    const PUB: usize = 0;
+    const SEAL: usize = 1;
+    const FAULT: usize = 2;
+    const LIFE: usize = 3;
+    const LOCAL: usize = 4;
+    const Q: usize = 5;
+    const HELD: usize = 6;
+    const RELEASE: usize = 7;
+    const WRITTEN: usize = 8;
+    const REMOTE: usize = 9;
+    const CALL: usize = 10;
+    const DRAIN: usize = 11;
+    const CANCEL: usize = 12;
+    const EXPIRED: usize = 13;
+    const RETIRED: usize = 14;
+    const LIFE_RETIRE: usize = 15;
+    act(
+        &mut m,
+        "SealAdmissionBeforeJoiningServices",
+        eq(SEAL, 0),
+        &[(SEAL, Int(1))],
+    );
+    act(
+        &mut m,
+        "PublishTerminalExactlyOnceAfterServiceJoin",
+        all([
+            eq(SEAL, 1),
+            eq(PUB, 0),
+            eq(FAULT, 0),
+            eq(CANCEL, 0),
+            eq(RETIRED, 0),
+        ]),
+        &[(PUB, Int(1)), (Q, Int(1))],
+    );
+    act(
+        &mut m,
+        "ObserveActorFaultWithoutInventingPublication",
+        all([eq(PUB, 0), eq(FAULT, 0), eq(RETIRED, 0)]),
+        &[(FAULT, Int(1))],
+    );
+    act(
+        &mut m,
+        "LifecycleObserverEndsOrLags",
+        all([eq(LIFE, 0), eq(RETIRED, 0)]),
+        &[(LIFE, Int(1))],
+    );
+    let resubscribe = m.actions.len();
+    act(
+        &mut m,
+        "ResubscribeEndedObserverAtCurrentHeadWhileStillLive",
+        all([eq(LIFE, 1), eq(PUB, 0), eq(FAULT, 0), eq(RETIRED, 0)]),
+        &[(LIFE, Int(0))],
+    );
+    act(
+        &mut m,
+        "LifecycleRetirementRequiresPublicationOrActualFault",
+        all([
+            eq(LIFE, 1),
+            eq(LIFE_RETIRE, 0),
+            eq(RETIRED, 0),
+            eq(PUB, 1).or(eq(FAULT, 1)).or(if control == 2 {
+                eq(SEAL, 1)
+            } else {
+                Bool(false)
+            }),
+        ]),
+        &[(LIFE_RETIRE, Int(1)), (DRAIN, Int(1)), (LIFE, Int(0))],
+    );
+    let face = m.actions.len();
+    act(
+        &mut m,
+        "LocalFaceObservesPublishedTerminal",
+        all([eq(PUB, 1), eq(LOCAL, 0)]),
+        &[(LOCAL, Int(1))],
+    );
+    act(
+        &mut m,
+        "UnixDequeuesTerminalButWriteRemainsHeld",
+        all([eq(Q, 1), eq(CANCEL, 0)]),
+        &[(Q, Int(0)), (HELD, Int(1))],
+    );
+    act(
+        &mut m,
+        "ExternalWriterReleaseHasNoFairnessAssumption",
+        all([eq(HELD, 1), eq(RELEASE, 0), eq(CANCEL, 0)]),
+        &[(RELEASE, Int(1))],
+    );
+    let write = m.actions.len();
+    act(
+        &mut m,
+        "WriteWholeTerminalFrameBeforeConnectionEnd",
+        all([eq(HELD, 1), eq(RELEASE, 1), eq(CANCEL, 0), eq(WRITTEN, 0)]),
+        &[(WRITTEN, Int(1)), (HELD, Int(0))],
+    );
+    let remote = m.actions.len();
+    act(
+        &mut m,
+        "RemoteObservesAlreadyWrittenTerminal",
+        all([eq(WRITTEN, 1), eq(REMOTE, 0)]),
+        &[(REMOTE, Int(1))],
+    );
+    act(
+        &mut m,
+        "CallerClosesStillUnpublishedServerImmediately",
+        all([eq(CALL, 0), eq(PUB, 0), eq(RETIRED, 0)]),
+        &[(CALL, Int(1)), (CANCEL, Int(1))],
+    );
+    act(
+        &mut m,
+        "CallerCloseAfterActualLocalTerminalObservation",
+        all([eq(CALL, 0), eq(LOCAL, 1), eq(RETIRED, 0)]),
+        &[
+            (CALL, Int(1)),
+            (DRAIN, Int(1)),
+            (CANCEL, Int(i64::from(control == 1))),
+        ],
+    );
+    let complete = m.actions.len();
+    act(
+        &mut m,
+        "CompleteDrainAfterWrittenTerminalOrUnpublishedActorFault",
+        all([
+            eq(DRAIN, 1),
+            eq(RETIRED, 0),
+            eq(WRITTEN, 1).or(all([eq(PUB, 0), eq(FAULT, 1)])),
+        ]),
+        &[(DRAIN, Int(0)), (CANCEL, Int(1)), (RETIRED, Int(1))],
+    );
+    let expire = m.actions.len();
+    act(
+        &mut m,
+        "ExistingDrainDeadlineExpiresWhileWriterMayRemainHeld",
+        all([eq(DRAIN, 1), eq(RETIRED, 0)]),
+        &[
+            (EXPIRED, Int(1)),
+            (DRAIN, Int(0)),
+            (CANCEL, Int(1)),
+            (RETIRED, Int(1)),
+        ],
+    );
+    let immediate = m.actions.len();
+    act(
+        &mut m,
+        "RetireExplicitlyCancelledUnpublishedServer",
+        all([eq(CALL, 1), eq(PUB, 0), eq(CANCEL, 1), eq(RETIRED, 0)]),
+        &[(DRAIN, Int(0)), (RETIRED, Int(1))],
+    );
+    safe(
+        &mut m,
+        "PublishedClosePreservesWriterUntilWriteFaultOrDrainDeadline",
+        eq(PUB, 0)
+            .or(eq(CANCEL, 0))
+            .or(eq(WRITTEN, 1))
+            .or(eq(FAULT, 1))
+            .or(eq(EXPIRED, 1)),
+    );
+    safe(
+        &mut m,
+        "LifecycleEofNeedsPublicationOrActualActorFault",
+        eq(LIFE_RETIRE, 0).or(eq(PUB, 1)).or(eq(FAULT, 1)),
+    );
+    safe(
+        &mut m,
+        "WireObservationRequiresCompletedTerminalWrite",
+        eq(REMOTE, 0).or(eq(WRITTEN, 1)),
+    );
+    safe(
+        &mut m,
+        "RetiredServerHasRevokedConnectionGrants",
+        eq(RETIRED, 0).or(eq(CANCEL, 1)),
+    );
+    progress(
+        &mut m,
+        "StartedDrainEventuallyRetires",
+        eq(DRAIN, 1),
+        eq(RETIRED, 1),
+        vec![complete, expire],
+    );
+    progress(
+        &mut m,
+        "WrittenTerminalEventuallyReachesRemoteObserver",
+        eq(WRITTEN, 1),
+        eq(REMOTE, 1),
+        vec![remote],
+    );
+    // Fairness covers only local observation/drain. It neither releases an
+    // externally held writer nor requires the actor/environment to publish.
+    m.weak_fair.push(vec![resubscribe]);
+    m.weak_fair.push(vec![face]);
+    m.weak_fair.push(vec![write]);
+    m.weak_fair.push(vec![immediate]);
+    m
+}
+
+#[cfg(test)]
+mod close_delivery_boundary_tests {
+    use super::*;
+
+    fn checked(model: Model) -> bbt_tlc::Report {
+        model.check(100_000).unwrap()
+    }
+
+    #[test]
+    fn close_receive_preserves_the_held_empty_publish_close_order() {
+        let good = checked(close_receive(0));
+        println!(
+            "HarnessDreamReadCloseReceive: {} states, {} labelled edges",
+            good.states.len(),
+            good.edges.iter().map(Vec::len).sum::<usize>()
+        );
+        assert!(good.violations.is_empty(), "{:?}", good.violations);
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[0] == 2 && s[1] == 1 && s[3] == 1 && s[4] == 0)
+        );
+        assert!(good.states.iter().any(|s| s[5] == 1 && s[6] == 1));
+        assert!(good.states.iter().any(|s| s[7] == 1 && s[6] == 1));
+        assert!(good.states.iter().any(|s| s[8] == 1 && s[6] == 1));
+        let bad = checked(close_receive(1));
+        println!(
+            "BrokenHarnessDreamReadCloseReceiveLateClosedRead: {} states, {} labelled edges",
+            bad.states.len(),
+            bad.edges.iter().map(Vec::len).sum::<usize>()
+        );
+        assert!(
+            bad.violations
+                .iter()
+                .any(|v| v.property == "EofNeverHidesQueuedDurableTerminal" && v.cycle.is_empty())
+        );
+        assert!(
+            bad.states
+                .iter()
+                .any(|s| s[1] == 1 && s[4] == 0 && s[6] == 1)
+        );
+    }
+
+    #[test]
+    fn close_retirement_preserves_held_writer_and_distinguishes_admission_seal() {
+        let good = checked(close_retirement(0));
+        println!(
+            "HarnessDreamReadCloseRetirement: {} states, {} labelled edges",
+            good.states.len(),
+            good.edges.iter().map(Vec::len).sum::<usize>()
+        );
+        assert!(good.violations.is_empty(), "{:?}", good.violations);
+        assert!(good.states.iter().any(|s| s[4] == 1
+            && s[6] == 1
+            && s[10] == 1
+            && s[11] == 1
+            && s[12] == 0));
+        assert!(good.states.iter().any(|s| s[9] == 1 && s[14] == 1));
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[6] == 1 && s[13] == 1 && s[14] == 1)
+        );
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[0] == 0 && s[2] == 1 && s[14] == 1)
+        );
+        for (control, invariant) in [
+            (
+                1,
+                "PublishedClosePreservesWriterUntilWriteFaultOrDrainDeadline",
+            ),
+            (2, "LifecycleEofNeedsPublicationOrActualActorFault"),
+        ] {
+            let model = close_retirement(control);
+            let name = model.name.clone();
+            let bad = checked(model);
+            println!(
+                "{name}: {} states, {} labelled edges",
+                bad.states.len(),
+                bad.edges.iter().map(Vec::len).sum::<usize>()
+            );
+            assert!(
+                bad.violations
+                    .iter()
+                    .any(|v| v.property == invariant && v.cycle.is_empty())
+            );
+        }
+    }
+}

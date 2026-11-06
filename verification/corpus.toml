@@ -2050,3 +2050,28 @@ frontend = "project"
 name = "BrokenHarnessDreamReadClosureCodecDebt"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamReadCloseReceive"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadCloseReceiveLateClosedRead"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamReadCloseRetirement"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadCloseRetirementEagerCancel"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadCloseRetirementSealedEof"
+expected = "safety"
+frontend = "project"
