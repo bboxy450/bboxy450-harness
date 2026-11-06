@@ -1644,6 +1644,7 @@ fn approved_runner() -> &'static ApprovedRunner {
             "tests/fixtures/dream-bootstrap/vectors.json",
             "tests/fixtures/dream-read/proof-helper-probe.c",
             "tests/fixtures/dream-read/signature-boundary-controls.c",
+            "tests/fixtures/dream-read/private-input-controls.c",
             "tests/fixtures/dream-read/io-helper.c",
             "tests/fixtures/dream-read/root_fixture.rs",
             "tests/dream_read.rs",
@@ -2849,6 +2850,173 @@ async fn prepared_tool_capability_probe_has_stopped_start_and_actual_git_gpg_rol
         git["sampled_gpg_cpu_ns"],
         git["rolled_gpg_cpu_ns"],
         git["git_wait4_cpu_ns"]
+    );
+}
+
+#[test]
+fn private_candidate_outer_codec_refuses_noncanonical_and_overflow_before_birth() {
+    // Synthetic syntax vectors carry no source/build/OS premise or approval.
+    // The wrapper invokes only the canonical outer decoder, never pretest or
+    // the helper engine; the builder's pending C closure codec is independent.
+    let home = tempfile::Builder::new()
+        .prefix("dream-read-private-outer-codec-")
+        .tempdir_in("/private/tmp")
+        .unwrap();
+    let source = Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/dream-read/private-input-controls.c"
+    ));
+    let probe = home.path().join("controls");
+    provision_command(
+        Path::new("/usr/bin/clang"),
+        &[
+            "-O2",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            source.to_str().unwrap(),
+            "-o",
+            probe.to_str().unwrap(),
+        ],
+        home.path(),
+        None,
+    );
+    let file = serde_json::json!({"dev":1,"ino":2,"len":3,"mtime_nsec":999999999,
+        "mtime_sec":i64::MIN,"path":"provenance/pretest-basis.json","root":"candidate","sha256":"a".repeat(64)});
+    let dir = serde_json::json!({"dev":1,"ino":2,"path":"/private/fixture","uid":u32::MAX});
+    let mut key = file.clone();
+    key["root"] = "fixture".into();
+    let input = serde_json::json!({"arch":"aarch64","build":file,"case":"positive",
+        "closure":file,"commands":file,"config":file,"deadline_ns":u64::MAX,
+        "fixture":{"corrupt_commit":"b".repeat(40),"manifest":file,"public_keys":key,"repo":dir,"valid_commit":"a".repeat(40)},
+        "git":file,"gpg":file,"incarnation":u64::MAX,"kind":"private_candidate_test",
+        "nonce":"01M6RNNVQX1JAY0X2TX1GFEGE4","os_build":"25A123","output":dir,"prefix":dir,
+        "probe_exe_sha256":"a".repeat(64),"probe_source_sha256":"b".repeat(64),
+        "run_id":"01M6RNNVQX1JAY0X2TX1GFEGE4","source_lock":file,"source_review":file});
+    let base = String::from_utf8(w::canonical(&input).unwrap()).unwrap();
+    let mut cases = vec![("full-width", base.as_bytes().to_vec(), true)];
+    for (name, from, to) in [
+        (
+            "u64-overflow",
+            "\"deadline_ns\":18446744073709551615",
+            "\"deadline_ns\":18446744073709551616",
+        ),
+        ("u32-overflow", "\"uid\":4294967295", "\"uid\":4294967296"),
+        (
+            "i64-underflow",
+            "\"mtime_sec\":-9223372036854775808",
+            "\"mtime_sec\":-9223372036854775809",
+        ),
+        (
+            "i64-positive-overflow",
+            "\"mtime_sec\":-9223372036854775808",
+            "\"mtime_sec\":9223372036854775808",
+        ),
+        (
+            "negative-zero",
+            "\"mtime_sec\":-9223372036854775808",
+            "\"mtime_sec\":-0",
+        ),
+        ("leading-zero", "\"dev\":1", "\"dev\":01"),
+        ("exponent", "\"dev\":1", "\"dev\":1e0"),
+        ("fraction", "\"dev\":1", "\"dev\":1.0"),
+        (
+            "zero-incarnation",
+            "\"incarnation\":18446744073709551615",
+            "\"incarnation\":0",
+        ),
+        (
+            "nanosecond-overflow",
+            "\"mtime_nsec\":999999999",
+            "\"mtime_nsec\":1000000000",
+        ),
+        (
+            "unknown-case",
+            "\"case\":\"positive\"",
+            "\"case\":\"approved\"",
+        ),
+        ("null-union", "\"arch\":\"aarch64\"", "\"arch\":null"),
+        (
+            "duplicate-key",
+            "\"arch\":\"aarch64\"",
+            "\"arch\":\"aarch64\",\"arch\":\"aarch64\"",
+        ),
+        (
+            "unknown-key",
+            "\"arch\":\"aarch64\"",
+            "\"approved\":true,\"arch\":\"aarch64\"",
+        ),
+        ("missing-key", "\"arch\":\"aarch64\",", ""),
+        (
+            "noncanonical-space",
+            "\"arch\":\"aarch64\"",
+            "\"arch\": \"aarch64\"",
+        ),
+        (
+            "escaped-printable",
+            "\"arch\":\"aarch64\"",
+            "\"arch\":\"\\u0061arch64\"",
+        ),
+        (
+            "escaped-nul",
+            "\"arch\":\"aarch64\"",
+            "\"arch\":\"\\u0000\"",
+        ),
+        ("surrogate", "\"arch\":\"aarch64\"", "\"arch\":\"\\ud800\""),
+        (
+            "escaped-short-control",
+            "\"arch\":\"aarch64\"",
+            "\"arch\":\"\\u000a\"",
+        ),
+        (
+            "unknown-root",
+            "\"root\":\"candidate\"",
+            "\"root\":\"ambient\"",
+        ),
+    ] {
+        assert!(base.contains(from), "{name}");
+        cases.push((name, base.replacen(from, to, 1).into_bytes(), false));
+    }
+    for (name, bytes) in [
+        (
+            "leading-bom",
+            [b"\xef\xbb\xbf".as_slice(), base.as_bytes()].concat(),
+        ),
+        ("trailing-lf", [base.as_bytes(), b"\n"].concat()),
+        ("truncated", base.as_bytes()[..base.len() - 1].to_vec()),
+        ("oversize", vec![b' '; 16 * 1024 + 1]),
+        (
+            "invalid-utf8",
+            base.replacen("aarch64", "\u{80}", 1)
+                .into_bytes()
+                .into_iter()
+                .map(|b| if b == 0xc2 { 0xc0 } else { b })
+                .collect(),
+        ),
+    ] {
+        cases.push((name, bytes, false));
+    }
+    for (name, bytes, accepted) in &cases {
+        let path = home.path().join(format!("{name}.json"));
+        private_file(&path, bytes);
+        let output = capability_command(
+            &probe,
+            &[
+                if *accepted { "accept" } else { "reject" },
+                path.to_str().unwrap(),
+            ],
+            home.path(),
+            name,
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout)
+                .contains("helper_created=0 runtime_approved=false")
+        );
+    }
+    eprintln!(
+        "private_outer_codec cases={} parser_only=true helper_created=0 runtime_approved=false",
+        cases.len()
     );
 }
 

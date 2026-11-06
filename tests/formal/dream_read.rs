@@ -1889,6 +1889,10 @@ pub fn helper_exec(control: u8) -> Model {
 /// charges owe9ms; the1.5ms overrun profile conservatively retains18ms. Three
 /// accepted observed charges fit additive debt0..27ms. No OS timing is proved.
 pub fn member_window(control: u8) -> Model {
+    member_window_observer(control, false)
+}
+
+fn member_window_observer(control: u8, full_observer: bool) -> Model {
     let suffix = [
         "",
         "UnequalStop",
@@ -1918,6 +1922,7 @@ pub fn member_window(control: u8) -> Model {
         "FailedAdmissionSample",
         "InitialCreation",
         "InitialDebt",
+        "AccountingTailDebt",
     ];
     let name = format!("DreamReadMemberWindow{}", suffix[control as usize]);
     const PH: usize = 0;
@@ -2584,7 +2589,7 @@ pub fn member_window(control: u8) -> Model {
     );
     act(
         &mut m,
-        "GenuinelyPostSealCorroborationIsSeparateOrdinaryUnit",
+        "GenuinelyPostSealCorroborationAndFinalizationAreSeparateOrdinaryUnit",
         all([
             eq(PH, 7),
             eq(POSTDONE, 0),
@@ -2598,7 +2603,7 @@ pub fn member_window(control: u8) -> Model {
         &[
             (POST, Int(1)),
             (POSTDONE, Int(1)),
-            (DEBT, Int(9)),
+            (DEBT, Int(if control == 28 { 0 } else { 9 })),
             (OWED, Int(9)),
             (TOTAL, Var(TOTAL).plus(Int(9))),
         ],
@@ -2944,16 +2949,122 @@ pub fn member_window(control: u8) -> Model {
         vec![retire, quarantine, rest],
     );
     if control != 0 {
-        // As with the existing helper controls, stop at the first causal failed
-        // assertion. No post-invalid-record arithmetic is certified.
-        let valid = all(m.invariants.iter().map(|i| i.condition.clone()));
+        // TLC otherwise expands the state-only ORs as alternative next-state
+        // branches, producing duplicate states/edges for every true disjunct.
+        // Select every potentially failed boundary and force one Boolean value.
+        // Every invariant and reachable state/labelled edge remains unchanged;
+        // the test compares this with the original branching observer exactly.
+        let relevant: &[&str] = match control {
+            1 => &[
+                "QuantumIsMaxWindowOrActivePlusControllerCase0",
+                "QuantumIsMaxWindowOrActivePlusControllerCase2",
+                "QuantumIsMaxWindowOrActivePlusControllerCase3",
+                "WindowUnionRetainsEveryReservedIntervalCase0",
+                "WindowUnionRetainsEveryReservedIntervalCase2",
+                "WindowUnionRetainsEveryReservedIntervalCase3",
+            ],
+            2 => &["BothPossibleWindowsOpenAtOriginalCheckedT0"],
+            3 => &["TentativeEndpointsNeedPositiveCurrentTaskAcknowledgement"],
+            4 => &["UsableSealFollowsEveryRequiredClosedRosterPredicate"],
+            5 => &["TentativeEndpointsNeedPositiveCurrentTaskAcknowledgement"],
+            6 => &["UsableSealFollowsEveryRequiredClosedRosterPredicate"],
+            7 => &["UnexplainedActiveCpuOverWindowCannotCertify"],
+            8 => &[
+                "DebtNeverDropsObservedOutstandingWork",
+                "LateKernelAttributionIsExplainedAndChargedOnce",
+            ],
+            9 => &[
+                "AllActiveControllerAndPipeCpuCountExactlyOnceCase1",
+                "AllActiveControllerAndPipeCpuCountExactlyOnceCase6",
+                "AllActiveControllerAndPipeCpuCountExactlyOnceCase7",
+                "AllActiveControllerAndPipeCpuCountExactlyOnceCase8",
+                "QuantumIsMaxWindowOrActivePlusControllerCase1",
+                "QuantumIsMaxWindowOrActivePlusControllerCase6",
+                "QuantumIsMaxWindowOrActivePlusControllerCase7",
+                "QuantumIsMaxWindowOrActivePlusControllerCase8",
+            ],
+            10 => &[
+                "AllActiveControllerAndPipeCpuCountExactlyOnceCase1",
+                "AllActiveControllerAndPipeCpuCountExactlyOnceCase6",
+                "AllActiveControllerAndPipeCpuCountExactlyOnceCase7",
+                "AllActiveControllerAndPipeCpuCountExactlyOnceCase8",
+            ],
+            11 => &[
+                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase0",
+                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase1",
+                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase10",
+                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase2",
+                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase3",
+                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase5",
+                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase6",
+                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase7",
+                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase8",
+                "QuantumIsMaxWindowOrActivePlusControllerCase5",
+            ],
+            12 => &[
+                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase1",
+                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase10",
+                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase6",
+                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase7",
+                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase8",
+            ],
+            13 => &[
+                "CoverageKeepsOriginalEpochAndCompleteRoster",
+                "KnownOverOneMsQuantumCannotCertify",
+                "UnknownCostNeverCertifiesFiniteAccounting",
+                "UsableSealFollowsEveryRequiredClosedRosterPredicate",
+            ],
+            14 => &["DebtNeverDropsObservedOutstandingWork"],
+            15 => &["NoNewContinuationWhileClosedDebtIsPending"],
+            16 => &["MainProofNeverOverlapsOriginalLiveHelper"],
+            17 => &["FailureCannotReleaseUnreapedOriginalEffect"],
+            18 => &["FailureCannotReleaseUnreapedOriginalEffect"],
+            19 => &["FailureCannotReleaseUnreapedOriginalEffect"],
+            20 => &["FailureCannotReleaseUnreapedOriginalEffect"],
+            21 => &["FailureCannotReleaseUnreapedOriginalEffect"],
+            22 => &[
+                "CoverageKeepsOriginalEpochAndCompleteRoster",
+                "KnownOverOneMsQuantumCannotCertify",
+                "LateKernelAttributionIsExplainedAndChargedOnce",
+                "UnexplainedActiveCpuOverWindowCannotCertify",
+                "UnknownCostNeverCertifiesFiniteAccounting",
+                "UsableSealFollowsEveryRequiredClosedRosterPredicate",
+            ],
+            23 => &["KnownOverOneMsQuantumCannotCertify"],
+            24 => &["LateKernelAttributionIsExplainedAndChargedOnce"],
+            25 => &["StickyFailedAdmissionForbidsOrdinaryExpensiveObservation"],
+            26 => &["InitialCorroborationRequiresSettledCreationOwnership"],
+            27 => &["InitialCorroborationRequiresBothPriorDebtsPaid"],
+            28 => &["DebtNeverDropsObservedOutstandingWork"],
+            _ => unreachable!(),
+        };
+        assert!(
+            relevant
+                .iter()
+                .all(|name| m.invariants.iter().any(|i| i.name == *name))
+        );
+        let valid = all(m
+            .invariants
+            .iter()
+            .filter(|i| full_observer || relevant.contains(&i.name.as_str()))
+            .map(|i| i.condition.clone()));
         for action in &mut m.actions {
-            action.guard = action.guard.clone().and(valid.clone());
+            let guard = action.guard.clone().and(valid.clone());
+            action.guard = if full_observer {
+                guard
+            } else {
+                guard.eq(Bool(true))
+            };
         }
+        let failed = valid.negate();
         act(
             &mut m,
             "ControlObserverStopsAtFailedBoundary",
-            valid.negate(),
+            if full_observer {
+                failed
+            } else {
+                failed.eq(Bool(true))
+            },
             &[],
         );
     }
@@ -5206,6 +5317,41 @@ mod tests {
     }
 
     #[test]
+    fn member_window_observer_guard_keeps_every_original_state_edge_and_named_verdict() {
+        for control in 1..=28 {
+            let original = member_window_observer(control, true)
+                .check(100_000)
+                .unwrap();
+            let reduced = member_window(control).check(100_000).unwrap();
+            // The checker uses deterministic BFS and unchanged action order.
+            // Equality of every state and every labelled adjacency entry is
+            // stronger than matching counts or aggregate digests.
+            assert_eq!(original.states, reduced.states, "control{control} states");
+            assert_eq!(original.edges.len(), reduced.edges.len());
+            for (a, b) in original.edges.iter().zip(&reduced.edges) {
+                assert_eq!(
+                    a.iter().map(|e| (e.action, e.to)).collect::<Vec<_>>(),
+                    b.iter().map(|e| (e.action, e.to)).collect::<Vec<_>>(),
+                    "control{control} labelled edges"
+                );
+            }
+            assert_eq!(
+                original
+                    .violations
+                    .iter()
+                    .map(|v| (&v.property, &v.prefix, &v.cycle))
+                    .collect::<Vec<_>>(),
+                reduced
+                    .violations
+                    .iter()
+                    .map(|v| (&v.property, &v.prefix, &v.cycle))
+                    .collect::<Vec<_>>(),
+                "control{control} named verdicts"
+            );
+        }
+    }
+
+    #[test]
     fn dream_read_member_windows_preserve_required_closure_and_additive_debt() {
         let good = member_window(0).check(100_000).unwrap();
         println!("HarnessDreamReadMemberWindow: {} states", good.states.len());
@@ -5346,6 +5492,7 @@ mod tests {
             ),
             (26, "InitialCorroborationRequiresSettledCreationOwnership"),
             (27, "InitialCorroborationRequiresBothPriorDebtsPaid"),
+            (28, "DebtNeverDropsObservedOutstandingWork"),
         ] {
             let model = member_window(mode);
             let checked = model

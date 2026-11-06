@@ -96,6 +96,11 @@ def gate(base):
             # not a valid test environment; keep the existing canonical gate.
             run(["make", "test-dream-c1-integration", f"TARGET_DIR={TARGET}"], env=env)
             integrations.remove("dream_c1")
+        if "dream_read" in integrations:
+            # Q2 requires the canonical source-bound release worker/profile and
+            # its real proof/resource gates, prepared by this existing target.
+            run(["make", "test-dream-mcp", f"TARGET_DIR={TARGET}"], env=env)
+            integrations.remove("dream_read")
         if any(p.startswith(("src/mcp", "src/python_execute", "src/backend/acp_agent", "src/engine")) for p in changed):
             integrations.update(["mcp_client", "acp_launch_context"])
         if integrations:

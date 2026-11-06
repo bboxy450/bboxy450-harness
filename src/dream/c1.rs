@@ -1342,6 +1342,30 @@ impl HelperGroup {
         }
         Ok(())
     }
+    /// The work closing a grant/observation follows its receipt's first CPU
+    /// cutoff. Keep that measured work as a separate stopped unit without
+    /// consuming a pending proof observation or requesting corroboration again.
+    fn account_finalization_tail(&mut self, control: &Control, cpu: u64) {
+        if self.pending_closure() {
+            let _ = self.account_controller(control, cpu);
+            return;
+        }
+        self.metrics.controller_cpu_ns = self.metrics.controller_cpu_ns.saturating_add(cpu);
+        if !self.closure_observed() && !self.retirement_settlement_observed() {
+            self.charge_helper_debt(control, cpu.max(UNIT_NS));
+            self.reject(control, 5);
+            return;
+        }
+        self.metrics.post_units = self.metrics.post_units.saturating_add(1);
+        self.metrics.post_cpu_ns = self.metrics.post_cpu_ns.saturating_add(cpu);
+        self.metrics.post_max_cpu_ns = self.metrics.post_max_cpu_ns.max(cpu);
+        self.charge_helper_debt(control, cpu.max(UNIT_NS));
+        if cpu == u64::MAX {
+            self.reject(control, 5);
+        } else if cpu > UNIT_NS {
+            self.reject(control, 4);
+        }
+    }
     fn open_grant(&mut self) -> Result<(), ()> {
         let baseline = self.actual_cpu()?;
         let rolled = self
@@ -3091,7 +3115,15 @@ impl Control {
             .map(|h| (h.identity.sequence, h.metrics.controller_cpu_ns))
     }
     pub(crate) fn helper_account_controller(&self, before: Option<(u16, u64)>, inclusive_cpu: u64) {
-        let at = cpu_ns();
+        self.helper_account_controller_clock(before, inclusive_cpu, cpu_ns);
+    }
+    fn helper_account_controller_clock(
+        &self,
+        before: Option<(u16, u64)>,
+        inclusive_cpu: u64,
+        mut clock: impl FnMut() -> u64,
+    ) {
+        let at = clock();
         let mut owner = self.helper.lock().unwrap_or_else(|p| p.into_inner());
         let Some(h) = owner.as_mut() else {
             return;
@@ -3100,7 +3132,7 @@ impl Control {
             .filter(|(sequence, _)| *sequence == h.identity.sequence)
             .and_then(|(_, cpu)| h.metrics.controller_cpu_ns.checked_sub(cpu))
             .unwrap_or(0);
-        let end = cpu_ns();
+        let end = clock();
         let tail = self.observe_interval(at, end);
         let extra = inclusive_cpu
             .checked_sub(already)
@@ -3111,11 +3143,22 @@ impl Control {
         // The complete final control tick, including input/output and required
         // clock checks, joins C before charging this grant. An admitted IO span
         // cannot disappear merely because its owner has not reported it yet.
-        if h.grant_commit_pending && !(h.pipe_open && h.pipe_active) {
-            h.finish_grant(self, 0);
-        }
-        if h.post_commit_pending && !h.pending_closure() && !h.post_proof_pending {
-            h.commit_stopped_unit(self, None);
+        let finish_grant = h.grant_commit_pending && !(h.pipe_open && h.pipe_active);
+        let finish_post = h.post_commit_pending && !h.pending_closure() && !h.post_proof_pending;
+        if finish_grant || finish_post {
+            let begin = clock();
+            if finish_grant {
+                h.finish_grant(self, 0);
+            }
+            if h.post_commit_pending && !h.pending_closure() && !h.post_proof_pending {
+                h.commit_stopped_unit(self, None);
+            }
+            let cost = self.observe_interval(begin, clock());
+            h.account_finalization_tail(self, cost);
+            // This cutoff includes substantive finalization. The subsequent
+            // scalar receipt/debt writes remain inside the enclosing measured
+            // control tick. They do not recursively create work or debt. Idle
+            // control bookkeeping must never manufacture a stopped work unit.
         }
     }
     pub(crate) fn helper_tick(&self) {
@@ -6422,6 +6465,97 @@ mod helper_admission_tests {
             image: PathBuf::from("/private/accounting-fixture"),
             descendant_image: None,
         })
+    }
+
+    #[test]
+    fn controller_finalization_tail_charges_once_without_idle_debt_or_lost_observation() {
+        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+        let mut helper = accounting_group();
+        helper.confirmed_stopped = true;
+        helper.post_commit_pending = true;
+        helper.post_late_known = true;
+        helper.corroboration_revision = 1;
+        *control.helper.lock().unwrap() = Some(helper);
+        let mut clocks = [100, 200, 300, 700].into_iter();
+        control.helper_account_controller_clock(Some((1, 0)), 1_000, || clocks.next().unwrap());
+        assert!(clocks.next().is_none());
+        let charged = control.accounting.debt_total.load(Ordering::Acquire);
+        assert_eq!(charged, 18 * UNIT_NS);
+        {
+            let owner = control.helper.lock().unwrap();
+            let helper = owner.as_ref().unwrap();
+            assert_eq!(helper.metrics.post_units, 2);
+            assert_eq!(helper.metrics.post_cpu_ns, 1_500);
+            assert_eq!(helper.metrics.controller_cpu_ns, 1_500);
+            assert!(helper.corroboration_pending);
+            assert!(!helper.post_commit_pending && !helper.post_proof_pending);
+        }
+        for _ in 0..4 {
+            let marker = control.helper_controller_marker();
+            let mut clocks = [800, 900].into_iter();
+            control.helper_account_controller_clock(marker, 100, || clocks.next().unwrap());
+            assert!(
+                clocks.next().is_none(),
+                "idle ticks have no work-finalization clock"
+            );
+        }
+        assert_eq!(
+            control.accounting.debt_total.load(Ordering::Acquire),
+            charged
+        );
+        {
+            let mut owner = control.helper.lock().unwrap();
+            let helper = owner.as_mut().unwrap();
+            assert_eq!(helper.metrics.post_units, 2);
+            helper.post_commit_pending = true;
+            helper.post_proof_pending = true;
+            helper.post_cpu = 77;
+            helper.post_late_cpu = 88;
+            helper.observed_post_revision = 0;
+            helper.account_finalization_tail(&control, 200);
+            assert!(helper.post_commit_pending && helper.post_proof_pending);
+            assert_eq!((helper.post_cpu, helper.post_late_cpu), (77, 88));
+            assert_eq!(
+                (helper.corroboration_revision, helper.observed_post_revision),
+                (1, 0)
+            );
+            assert!(helper.corroboration_pending);
+            assert_eq!(helper.metrics.post_units, 3);
+        }
+        assert_eq!(
+            control.accounting.debt_total.load(Ordering::Acquire),
+            charged + 9 * UNIT_NS
+        );
+        control.read_pay();
+    }
+
+    #[test]
+    fn finalization_tail_clock_or_limit_failure_preserves_identity_and_finite_debt() {
+        for ending in [UNIT_NS + 301, 299, u64::MAX] {
+            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+            let mut helper = accounting_group();
+            let identity = helper.identity.ticket();
+            helper.confirmed_stopped = true;
+            helper.post_commit_pending = true;
+            helper.post_late_known = true;
+            *control.helper.lock().unwrap() = Some(helper);
+            let mut clocks = [100, 200, 300, ending].into_iter();
+            control.helper_account_controller_clock(Some((1, 0)), 0, || clocks.next().unwrap());
+            let owner = control.helper.lock().unwrap();
+            let helper = owner.as_ref().unwrap();
+            assert_eq!(helper.identity.ticket(), identity);
+            assert!(helper.admission_failed && !helper.ready);
+            assert!(control.error().is_some());
+            assert!(helper.metrics.post_max_cpu_ns > UNIT_NS);
+            assert!(helper.metrics.debt_ns >= 18 * UNIT_NS);
+            assert!(helper.metrics.debt_ns <= 36 * UNIT_NS);
+            if ending < 300 || ending == u64::MAX {
+                assert_eq!(helper.metrics.post_max_cpu_ns, u64::MAX);
+                assert!(!helper.metrics.coverage_known);
+            }
+            drop(owner);
+            control.read_pay();
+        }
     }
 
     #[test]

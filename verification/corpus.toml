@@ -2000,3 +2000,8 @@ frontend = "project"
 name = "BrokenHarnessDreamReadGitSigTempScratchReplacement"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowAccountingTailDebt"
+expected = "safety"
+frontend = "project"

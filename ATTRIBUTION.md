@@ -207,6 +207,7 @@ and the exact shared checker copies. These checks do not replace upstream terms.
   project-owned. Retain this origin and the absolute policy URL with extracts:
   https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
 
-- Signature temporary scratch settlement, private C API controls and their paired
-  source/model mutants are project-owned. Keep this policy with extracts:
+- Signature temporary scratch settlement, strict private input controls, paced
+  source hashing, helper tail accounting and their source/model mutants are
+  project-owned. Keep this policy with extracts:
   https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.

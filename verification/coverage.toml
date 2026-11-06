@@ -93,6 +93,7 @@ models = [
     "BrokenHarnessDreamReadMemberWindowFailedAdmissionSample",
     "BrokenHarnessDreamReadMemberWindowInitialCreation",
     "BrokenHarnessDreamReadMemberWindowInitialDebt",
+    "BrokenHarnessDreamReadMemberWindowAccountingTailDebt",
     "HarnessDreamReadHelperExec",
     "BrokenHarnessDreamReadHelperExecStaleStop",
     "BrokenHarnessDreamReadHelperExecStaleSignal",

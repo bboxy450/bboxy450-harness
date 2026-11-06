@@ -138,6 +138,16 @@ fn valid_hex(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
+fn prepared_source_digest(bytes: &[u8]) -> Result<String, Invalid> {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    for chunk in bytes.chunks(16 * 1024) {
+        checkpoint()?;
+        hash.update(chunk);
+    }
+    checkpoint()?;
+    Ok(format!("{:x}", hash.finalize()))
+}
 fn tool_features(actual: &[String], required: &[&str]) -> bool {
     actual.len() <= 32
         && actual
@@ -310,9 +320,9 @@ fn load_prepared_tools_at(path: &Path, expected: &str) -> Result<PreparedTools, 
         || tools.os.release != current_release()?
         || tools.os.arch != std::env::consts::ARCH
         || tools.capability.probe_source_sha256
-            != super::fingerprint::digest(include_bytes!(
+            != prepared_source_digest(include_bytes!(
                 "../../tests/fixtures/dream-read/proof-helper-probe.c"
-            ))
+            ))?
         || ![
             &tools.capability.probe_exe_sha256,
             &tools.capability.evidence_sha256,
