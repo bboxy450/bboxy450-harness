@@ -329,6 +329,13 @@ fn unfence(out: &str) -> String {
         out.to_owned()
     }
 }
+/// `(server, tool)` of an MCP call in either harness spelling.
+fn mcp_tool(name: &str) -> Option<(&str, &str)> {
+    name.strip_prefix("mcp__")
+        .and_then(|r| r.split_once("__"))
+        .or_else(|| name.strip_prefix("mcp.").and_then(|r| r.split_once('.')))
+        .filter(|(s, t)| !s.is_empty() && !t.is_empty())
+}
 /// "ls -la": a command line, not a phrase ("List files")
 fn command_line(name: &str) -> bool {
     let word = |w: &str, first: bool| {
@@ -402,15 +409,21 @@ pub fn describe<'a>(
         "edit" | "apply_patch" => ("Edit".into(), short(s("path")), false, "edit"),
         "write" => ("Write".into(), short(s("path")), false, "edit"),
         "Terminal" => ("Run".into(), s("command"), true, "execute"),
-        n if n.starts_with("mcp__") => {
-            let mut p = n.splitn(3, "__").skip(1);
-            let server = p.next().unwrap_or("").to_owned();
-            (
-                p.next().unwrap_or(n).replace('_', " "),
-                server,
-                false,
-                "other",
-            )
+        // Claude's tool loader: name what it loaded, not the transport query
+        "ToolSearch" => (
+            "Load tools".into(),
+            s("query")
+                .trim_start_matches("select:")
+                .split(',')
+                .map(|t| mcp_tool(t.trim()).map_or(t.trim(), |(_, tool)| tool))
+                .collect::<Vec<_>>()
+                .join(", "),
+            false,
+            "other",
+        ),
+        // one heading for every harness: Claude `mcp__s__t`, Codex `mcp.s.t`
+        n if let Some((server, tool)) = mcp_tool(n) => {
+            (tool.replace('_', " "), server.to_owned(), false, "other")
         }
         n if kind == "execute" && s("command").is_empty() && command_line(n) => {
             ("Run".into(), n.to_owned(), true, kind)
@@ -532,6 +545,27 @@ pub fn raw_tool_output(value: &serde_json::Value) -> String {
 #[cfg(test)]
 mod gui_polish_output_tests {
     use super::*;
+    #[test]
+    fn mcp_headings_match_across_harnesses() {
+        for name in ["mcp__bboxy__message_ack", "mcp.bboxy.message_ack"] {
+            let t = describe(name, ToolKind::Other, "{}", &[], "/");
+            assert_eq!(
+                (t.verb.as_str(), t.target.as_str()),
+                ("message ack", "bboxy")
+            );
+        }
+        let t = describe(
+            "ToolSearch",
+            ToolKind::Other,
+            r#"{"query":"select:mcp__bboxy__orient,Read"}"#,
+            &[],
+            "/",
+        );
+        assert_eq!(
+            (t.verb.as_str(), t.target.as_str()),
+            ("Load tools", "orient, Read")
+        );
+    }
     #[test]
     fn gui_polish_result_formatter_keeps_structured_data_and_resource_links() {
         let result = raw_tool_output(&serde_json::json!({"content": [

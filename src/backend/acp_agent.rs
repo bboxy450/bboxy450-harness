@@ -2094,6 +2094,21 @@ impl AcpAgentActor {
             .to_owned();
         // Usage is a session gauge and can arrive after the prompt response.
         if kind == "usage_update" {
+            // A costed usage closes the agent's query segment. Claude ACP drops the
+            // completion of a call in flight when steering lands, so a call still
+            // open here never reports: settle it instead of spinning forever.
+            if u.get("cost").is_some()
+                && let Some(r) = self.running.as_mut()
+            {
+                for (_, t) in std::mem::take(&mut r.tools) {
+                    self.complete(
+                        t.item,
+                        ItemStatus::Interrupted,
+                        tool_body(t, "(the agent did not report a result)"),
+                    )
+                    .await?;
+                }
+            }
             if let Some(agent) = &self.agent
                 && let Some(usage) = session_usage(&u, agent.backend.clone(), agent.model.clone())
             {

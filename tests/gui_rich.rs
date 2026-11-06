@@ -2255,7 +2255,10 @@ async fn quiet_code_large_mcp_expansion_raster_preserves_unicode_first_and_last_
             let frame = view.render(&state, [width, 900.]).unwrap();
             let layout = frame.layout.as_ref().unwrap();
             let head = find(layout, &format!("toolhead/{id}")).unwrap();
-            assert!(layout_text(head).contains("mcp.bboxy.knowledge_fetch"));
+            assert!(
+                layout_text(head).contains("knowledge fetch")
+                    && layout_text(head).contains("bboxy")
+            );
             let key = format!("mdout/{id}");
             let panel = find(layout, &key).unwrap();
             assert!(panel.rect.h <= 400.1 && layout_text(panel).contains("MCP-FIRST"));

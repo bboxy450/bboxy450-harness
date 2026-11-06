@@ -948,8 +948,6 @@ impl Preparer {
             .into();
             d.target =
                 f::compact_heading(python.as_ref().map_or(command.as_str(), |p| p.source), 80);
-        } else if name.starts_with("mcp.") || name.starts_with("mcp__") {
-            d.verb = f::compact_heading(name, 64);
         }
         let exit = term.as_ref().and_then(|t| match &t.body {
             Item::Terminal { exit, .. } => *exit,
