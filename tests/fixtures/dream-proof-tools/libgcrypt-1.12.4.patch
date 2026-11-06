@@ -24,7 +24,9 @@
 +#endif
 --- a/src/hwfeatures.c
 +++ b/src/hwfeatures.c
-@@ -50,0 +51,16 @@
+@@ -23,0 +24 @@
++#include <errno.h>
+@@ -50,0 +52,16 @@
 +
 +/* bboxy450-harness public-only finite profile. Adapted from Libgcrypt
 + * 1.12.4, original LGPL-2.1-or-later terms/notices retained.
@@ -41,7 +43,7 @@
 +#ifdef HAVE_SYSLOG
 +# define syslog(...) dream_refuse_service ()
 +#endif
-@@ -234,0 +251,5 @@
+@@ -234,0 +252,5 @@
 +  /* Unbound host configuration is Unsupported, including access errors. */
 +  if (!access (fname, F_OK) || errno != ENOENT)
 +    dream_refuse_service ();
