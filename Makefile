@@ -293,7 +293,7 @@ prepare-dream-c1-worker:
 	python3 -I -c 'import hashlib,pathlib,shutil,sys; p=pathlib.Path(sys.argv[1]); h=hashlib.sha256(p.read_bytes()).hexdigest(); d=p.with_name("worker-"+h); shutil.copy2(p,d); print("approved bootstrap artifact",d,h)' '$(TARGET_DIR)/dream-c1-native-profile/worker'
 
 test-dream-c1-integration: prepare-dream-c1-worker
-	DREAM_C1_RUNNER='$(abspath $(TARGET_DIR))/dream-c1-native-profile/worker' cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features test-fixtures --test dream_c1 -- --test-threads=1 --nocapture
+	DREAM_C1_RUNNER='$(abspath $(TARGET_DIR))/dream-c1-native-profile/worker' cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features test-fixtures --test dream_c1 $(DREAM_C1_TEST_FILTER) -- --test-threads=1 --nocapture
 
 test-dream-c1: prepare-dream-c1-worker
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::bootstrap:: -- --test-threads=1
