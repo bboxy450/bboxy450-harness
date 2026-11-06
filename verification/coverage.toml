@@ -59,6 +59,16 @@ models = [
     "BrokenHarnessDreamC1WorkerEarlyDone",
     "BrokenHarnessDreamC1WorkerCancelledPublish",
 
+
+    "HarnessPythonControlCapacity",
+    "BrokenHarnessPythonControlCapacity",
+    "HarnessPythonExecution",
+    "BrokenHarnessPythonExecutionReplay",
+    "BrokenHarnessPythonExecutionStale",
+    "BrokenHarnessPythonExecutionCustody",
+    "BrokenHarnessPythonExecutionCancel",
+    "BrokenHarnessPythonExecutionAdmission",
+    "BrokenHarnessPythonExecutionRetarget",
     "HarnessDraftHandoff",
     "BrokenHarnessDraftHandoff",
     "HarnessUnrestrictedStartup",
@@ -147,6 +157,12 @@ sources = [
     "src/dream/bootstrap.rs",
     "src/dream/c1_wire.rs", "src/dream/c1.rs", "src/dream/inspect.rs",
 
+
+    "src/python_execute/mod.rs",
+    "src/python_execute/process.rs",
+    "src/python_execute/server.rs",
+    "src/python_execute/tests.rs",
+    "src/mcp/python_broker.rs",
     "src/frontends/gui/input.rs",
     "src/frontends/gui/attachments.rs",
     "src/store/intake.rs",

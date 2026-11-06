@@ -23,6 +23,8 @@ help:
 	  'make check-license-packages     Check actual Cargo package contents without compiling' \
 	  'make test-formal                Native Yarn/formal checks and broken controls' \
 	  'make test-formal-parity         Native/Java TLC graph and verdict parity' \
+	  'make land                       Signed rebase, focused gates, source-bound evidence and main push' \
+	  'make test-python-execute         Real CPython, commands, current-context MCP and durable recovery' \
 	  'make verify-gui-polish          Focused MCP output, prompt projection, loader and changed model checks' \
 	  'make verify-quiet-code-cards    Focused Python/title/MCP geometry, native raster and embedded lint checks' \
 	  'make check-embedded-lints       Strict embedded harness library lint compilation only' \
@@ -298,3 +300,15 @@ test-dream-c1:
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features test-fixtures --lib frontends::headless::dream_c1_fixture_environment_tests:: -- --test-threads=1
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib mcp::source_tests:: -- --test-threads=1
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features test-fixtures --test mcp_client -- --test-threads=1 --nocapture
+
+.PHONY: test-python-execute test-python-execute-boundaries check-python-execute
+check-python-execute:
+	@set -eu; if [ -f ../../scripts/cache-env.sh ]; then . ../../scripts/cache-env.sh; fi; cargo check --offline --locked --jobs 2 -p bboxy450-harness --features acp-agent --lib --target-dir '$(TARGET_DIR)'
+test-python-execute:
+	@set -eu; if [ -f ../../scripts/cache-env.sh ]; then . ../../scripts/cache-env.sh; fi; cargo nextest run --offline --locked --jobs 2 -p bboxy450-harness --features acp-agent --lib --target-dir '$(TARGET_DIR)' -E 'test(python_execute::tests)'
+test-python-execute-boundaries: test-python-execute
+	@set -eu; if [ -f ../../scripts/cache-env.sh ]; then . ../../scripts/cache-env.sh; fi; cargo nextest run --offline --locked --jobs 2 -p bboxy450-harness --features acp-agent,test-fixtures --test mcp_client --test acp_launch_context --target-dir '$(TARGET_DIR)'
+
+.PHONY: land
+land:
+	@set -eu; if [ -f ../../scripts/cache-env.sh ]; then . ../../scripts/cache-env.sh; fi; TARGET_DIR='$(abspath $(TARGET_DIR))' nice -n 10 python3 -I scripts/land.py

@@ -99,6 +99,19 @@ def coverage(root, models):
     return records
 
 
+def implementation_reference(root, path):
+    """Keep an actual term witness valid in sibling and embedded checkouts."""
+    prefix = "../bboxy450-term/"
+    enclosing = root.parent.parent
+    if (not (root / path).is_file() and path.startswith(prefix)
+            and root == enclosing / "crates/bboxy450-harness"
+            and (enclosing / ".gitmodules").is_file()):
+        actual = enclosing / path[len(prefix):]
+        if actual.is_file():
+            return os.path.relpath(actual, root)
+    return path
+
+
 def contracts(root, models):
     """Require paired, bounded project contracts with concrete source/test mappings."""
     path = root / "verification/contracts.toml"
@@ -108,6 +121,8 @@ def contracts(root, models):
     expected = {m["name"]: m["expected"] for m in tomllib.loads((root / "verification/corpus.toml").read_text())["model"]}
     seen = set()
     for row in rows:
+        row["implementation_tests"] = [implementation_reference(root, p)
+                                       for p in row.get("implementation_tests", [])]
         name = row["name"]
         controls = row.get("controls", [{"name": "Broken" + name, "expected": expected.get("Broken" + name)}])
         control_names = [c["name"] for c in controls]

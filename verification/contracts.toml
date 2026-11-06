@@ -832,3 +832,28 @@ assumptions = "One process birth and one fixed permit attempt, absent/owned/unkn
 property = "No controlled argv/channel/Builder before a known-cost current permit and paid parent debt; no overlapping parent/child expensive spans; one grant and one child attempt, with no unresolved-effect retry; post-end debt survives cancellation/restart; Hello and Start each follow their predecessor owner's paid debt; all lease revocations forbid later bootstrap admission; stale A1 pipe/nonce cannot authorize A3; absent effect or actual exit precedes custody release, while unknown birth retains its slot and controls remain independent. Probe Hello/EOF/actual-exit settlement requires no actor proof and permanently forbids Start/source; real work cannot fall back from null context. Final parent admission is known <=1ms inclusive control, never payload/native work, with only permit and Start attempts."
 checks = ["make test-formal", "make test"]
 additional_checks = ["make test-dream-c1"]
+
+
+[[contract]]
+name = "HarnessPythonExecution"
+title = "Owned CPython, durable nested effect identity and current-context publication"
+models = ["HarnessPythonExecution", "BrokenHarnessPythonExecutionReplay", "BrokenHarnessPythonExecutionStale", "BrokenHarnessPythonExecutionCustody", "BrokenHarnessPythonExecutionCancel", "BrokenHarnessPythonExecutionAdmission", "BrokenHarnessPythonExecutionRetarget"]
+controls = [{name="BrokenHarnessPythonExecutionReplay", expected="safety"}, {name="BrokenHarnessPythonExecutionStale", expected="safety"}, {name="BrokenHarnessPythonExecutionCustody", expected="safety"}, {name="BrokenHarnessPythonExecutionCancel", expected="safety"}, {name="BrokenHarnessPythonExecutionAdmission", expected="safety"}, {name="BrokenHarnessPythonExecutionRetarget", expected="safety"}]
+sources = ["src/python_execute/mod.rs", "src/python_execute/process.rs", "src/python_execute/server.rs", "src/mcp/python_broker.rs", "src/mcp/relay.rs", "tests/formal/python_execution.rs"]
+implementation_tests = ["src/python_execute/tests.rs", "src/python_execute/fixture.py", "tests/acp_launch_context.rs"]
+assumptions = "One execution and nested effect, a complete-admission publication, three monotonic authority epochs including A-B-A, one cancellation and one retained child identity before PID reuse. Atomic steps abstract file fsync/hard-link/rename and current admission. Weak fairness of completion/deadline settlement; external systems can remain unavailable. Source bytes, Python/OS safety, arbitrary filesystem/network/subprocess side effects, actual process-group signaling, memory and pipe behavior are implementation-only. External MCP effects are not exactly-once and an unknown effect is never automatically replayed."
+property = "Complete admission precedes execution; duplicates and interrupted replies cannot redispatch the recorded effect; stale epoch results are not current; cancellation admits no new effect; an old process receipt cannot kill a reused identity. Recorded external outcomes survive outer output loss."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-python-execute"]
+
+[[contract]]
+name = "HarnessPythonControlCapacity"
+title = "Stalled nested MCP batches cannot consume control or another execution's host-work quota"
+models = ["HarnessPythonControlCapacity", "BrokenHarnessPythonControlCapacity"]
+controls = [{name="BrokenHarnessPythonControlCapacity",expected="liveness"}]
+sources = ["src/python_execute/mod.rs", "src/python_execute/server.rs", "src/mcp.rs", "src/mcp/python_broker.rs", "tests/formal/python_execution.rs"]
+implementation_tests = ["src/python_execute/tests.rs", "src/python_execute/fixture.py"]
+assumptions = "Two executions, two shared work slots, one slot per execution and separate control admission abstract four live executions, 32 callback work slots, eight per execution and 256 connection slots. A positively identified native launcher bridge gets one session-owned read lane per primary generation using its same descriptor, credentials and exact process custody; external singleton servers are not duplicated. External MCP can stay stalled indefinitely. Weak fairness of enabled independent work and control handling is assumed; OS and Tokio scheduling, arbitrary Python thread counts, over-cap connection refusal and actual pipe/process cleanup remain implementation witnesses. The real-MCP batch test stalls 32 callbacks and completes another execution before fresh-proxy cancel. The enclosing term PythonNativeContext fixture holds an actual serial Bridge::run acknowledgement after native knowledge_write, then checks direct-runtime get, an independent execution and cancel before releasing it."
+property = "IndependentRunRemainsResponsive; ControlRemainsResponsive. The old shared-connection-budget control must fail liveness when one execution fills it with stalled MCP work. No exactly-once or external rollback guarantee is implied."
+checks = ["make test-formal", "make test"]
+additional_checks = ["make test-python-execute"]

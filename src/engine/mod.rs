@@ -369,15 +369,37 @@ impl SessionActor {
             .as_ref()
             .map(|p| p.mcp_servers.clone())
             .unwrap_or_default();
-        let (servers, collisions) =
+        let (mut servers, collisions) =
             crate::mcp::select_sources(servers, overrides, launch.mcp_servers);
         let mut services = task_group::TaskGroup::new(CancellationToken::new());
-        let mcp = crate::mcp::Manager::start(
+        let python_endpoint = if launch.trial.is_none() {
+            let endpoint = crate::python_execute::Endpoint::new().await?;
+            crate::mcp::Manager::with_python(&mut servers, &endpoint.socket());
+            Some(endpoint)
+        } else {
+            None
+        };
+        let mcp = crate::mcp::Manager::start_in(
             servers,
             config.redactor.clone(),
             output.clone(),
             &mut services,
+            Some(config.meta.cwd.clone()),
         );
+        if let Some(endpoint) = python_endpoint {
+            crate::python_execute::Service::start(
+                endpoint,
+                config
+                    .sessions
+                    .join(config.meta.session.to_string())
+                    .join("python"),
+                config.meta.cwd.clone(),
+                mcp.clone(),
+                config.redactor.clone(),
+                &mut services,
+            )
+            .await?;
+        }
         for text in collisions {
             let tx = output.clone();
             let cancel = services.cancel.clone();

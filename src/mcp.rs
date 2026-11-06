@@ -62,11 +62,14 @@ impl std::fmt::Debug for ServerConfig {
 pub(crate) mod relay;
 
 pub type Servers = BTreeMap<String, ServerConfig>;
+mod python_broker;
+pub(crate) use python_broker::Capture;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Origin {
     Profile,
     Acp,
     Launcher,
+    Runtime,
 }
 impl Origin {
     fn label(self) -> &'static str {
@@ -74,6 +77,7 @@ impl Origin {
             Self::Profile => "profile",
             Self::Acp => "ACP",
             Self::Launcher => "launcher",
+            Self::Runtime => "runtime",
         }
     }
 }
@@ -172,6 +176,32 @@ mod source_tests {
         assert_eq!(literal.scrub("value7"), "value<redacted>");
     }
     #[test]
+    fn runtime_alias_preserves_colliding_configured_servers() {
+        let server = ServerConfig {
+            command: "original".into(),
+            args: vec![],
+            env: BTreeMap::new(),
+            timeout_s: 1,
+            trust_hints: false,
+        };
+        let (mut selected, _) = select_sources(
+            [
+                ("bboxy_python".into(), server.clone()),
+                ("bboxy_python_2".into(), server),
+            ]
+            .into(),
+            BTreeMap::new(),
+            BTreeMap::new(),
+        );
+        Manager::with_python(
+            &mut selected,
+            std::path::Path::new("/tmp/private-runtime-fixture"),
+        );
+        assert_eq!(selected["bboxy_python"].config.command, "original");
+        assert_eq!(selected["bboxy_python_2"].config.command, "original");
+        assert!(selected["bboxy_python_3"].origin == Origin::Runtime);
+    }
+    #[test]
     fn reserved_reference_is_a_typed_config_error_before_resolution() {
         for source in ["$BBOXY_SOCK", "${BBOXY_SEAT_ID}", "!echo ${BBOXY_ROLE}"] {
             let env = [("alias".into(), source.into())].into();
@@ -213,14 +243,40 @@ struct Ready {
     generation: u64,
     peer: Peer<RoleClient>,
     tools: Vec<Tool>,
+    schema_digest: String,
 }
 struct Slot {
     name: String,
     config: ServerConfig,
     origin: Origin,
+    cwd: Option<std::path::PathBuf>,
     ready: ArcSwap<Option<Ready>>,
     generation: std::sync::atomic::AtomicU64,
     state: std::sync::atomic::AtomicU8,
+    initialized: Notify,
+    /// Only a positively identified native bridge gets a second read lane.
+    /// External/singleton MCP servers are never blindly duplicated.
+    context: Option<Arc<Slot>>,
+}
+impl Slot {
+    fn new(
+        name: String,
+        config: ServerConfig,
+        origin: Origin,
+        cwd: Option<std::path::PathBuf>,
+    ) -> Self {
+        Self {
+            name,
+            config,
+            origin,
+            cwd,
+            ready: ArcSwap::from_pointee(None),
+            generation: 0.into(),
+            state: 0.into(),
+            initialized: Notify::new(),
+            context: None,
+        }
+    }
 }
 #[derive(Clone)]
 pub struct Binding {
@@ -235,39 +291,65 @@ pub struct Manager {
     slots: Arc<Vec<Arc<Slot>>>,
     notices: mpsc::Sender<Internal>,
     root: CancellationToken,
+    redactor: Set,
 }
 impl Manager {
-    pub(crate) fn start(
+    /// Session-private runtime server; keep it on the same real MCP client path.
+    pub(crate) fn with_python(config: &mut SpawnServers, socket: &std::path::Path) {
+        // A profile or an enclosing ACP session may already use this address.
+        // Its configured client stays intact; origin marks our own runtime.
+        let name = (1u64..)
+            .map(|n| {
+                if n == 1 {
+                    "bboxy_python".into()
+                } else {
+                    format!("bboxy_python_{n}")
+                }
+            })
+            .find(|name| !config.contains_key(name))
+            .expect("finite configured server map");
+        for selected in config.values_mut() {
+            if selected.origin == Origin::Launcher {
+                selected.config.env.insert(
+                    "BBOXY_PYTHON_SOCKET".into(),
+                    socket.to_string_lossy().into_owned(),
+                );
+            }
+        }
+        config.insert(
+            name,
+            SpawnConfig {
+                origin: Origin::Runtime,
+                config: ServerConfig {
+                    command: "/usr/bin/nc".into(),
+                    args: vec!["-U".into(), socket.to_string_lossy().into_owned()],
+                    env: BTreeMap::new(),
+                    timeout_s: 60,
+                    trust_hints: true, // Host-owned definitions; external servers keep their configured policy.
+                },
+            },
+        );
+    }
+    pub(crate) fn start_in(
         config: SpawnServers,
         redactor: Set,
         output: mpsc::Sender<Internal>,
         services: &mut TaskGroup,
+        cwd: Option<std::path::PathBuf>,
     ) -> Self {
         let root = services.cancel.clone();
         let mut slots = vec![];
-        for (i, (name, selected)) in config.into_iter().enumerate() {
-            if i >= 16 {
-                let tx = output.clone();
-                let cancel = root.clone();
-                services.spawn(async move {
-                    notice(
-                        &tx,
-                        &cancel,
-                        Level::Warn,
-                        format!("mcp {name}: server limit 16"),
-                    )
-                    .await;
-                });
-                continue;
+        for (name, selected) in config {
+            let mut slot = Slot::new(name, selected.config, selected.origin, cwd.clone());
+            if slot.origin == Origin::Launcher {
+                slot.context = Some(Arc::new(Slot::new(
+                    slot.name.clone(),
+                    slot.config.clone(),
+                    slot.origin,
+                    cwd.clone(),
+                )));
             }
-            let slot = Arc::new(Slot {
-                name,
-                config: selected.config,
-                origin: selected.origin,
-                ready: ArcSwap::from_pointee(None),
-                generation: 0.into(),
-                state: 0.into(),
-            });
+            let slot = Arc::new(slot);
             let s = slot.clone();
             let tx = output.clone();
             let r = redactor.clone();
@@ -275,12 +357,22 @@ impl Manager {
             services.spawn(async move {
                 supervise(s, r, tx, cancel).await;
             });
+            if let Some(control) = slot.context.clone() {
+                let s = slot.clone();
+                let r = redactor.clone();
+                let tx = output.clone();
+                let cancel = root.child_token();
+                services.spawn(async move {
+                    python_broker::supervise_context(s, control, r, tx, cancel).await;
+                });
+            }
             slots.push(slot);
         }
         Self {
             slots: Arc::new(slots),
             notices: output,
             root,
+            redactor,
         }
     }
     /// No await: the tool definitions and generation bindings are fixed at TurnStarted.
@@ -288,7 +380,9 @@ impl Manager {
         let mut defs = vec![];
         let mut bindings = BTreeMap::new();
         let mut warnings = vec![];
-        for slot in self.slots.iter() {
+        let mut slots = self.slots.iter().collect::<Vec<_>>();
+        slots.sort_by_key(|slot| slot.origin != Origin::Runtime);
+        for slot in slots {
             let view = slot.ready.load();
             let Some(ready) = view.as_ref() else {
                 continue;
@@ -605,6 +699,7 @@ async fn supervise(
     // failure. Validate all values before running even the first resolver.
     if let Err(error) = validate_environment(slot.origin, &slot.config.env) {
         slot.state.store(3, Ordering::Release);
+        slot.initialized.notify_waiters();
         notice(
             &output,
             &cancel,
@@ -634,6 +729,7 @@ async fn supervise(
         let stderr = Arc::new(Mutex::new(Vec::<u8>::new()));
         let result=async {
             let mut command = server_command(&slot.config, slot.origin, &redactor, &cancel).await?;
+            if let Some(cwd)=&slot.cwd { command.current_dir(cwd); }
             command.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
             let mut child=crate::process::OwnedChild::spawn(command).map_err(|_|"spawn failed")?;
             let err=child.stderr();
@@ -648,7 +744,8 @@ async fn supervise(
                 let service=tokio::select! {biased;_=cancel.cancelled()=>return Err("cancelled"),r=handshake=>r.map_err(|_|"initialize timed out")?.map_err(|_|"initialize failed")?};
                 let first=tokio::select! {biased;_=cancel.cancelled()=>{let _=service.cancel().await;return Err("cancelled");},r=tokio::time::timeout_at(deadline,service.peer().list_all_tools())=>r};
                 let tools=match first {Ok(Ok(tools))=>tools,_=>{let _=service.cancel().await;return Err("tools/list failed");}};
-                slot.ready.store(Arc::new(Some(Ready {generation,peer:service.peer().clone(),tools})));slot.state.store(1,Ordering::Release);
+                let schema_digest=python_broker::schema_id(&tools);
+                slot.ready.store(Arc::new(Some(Ready {generation,peer:service.peer().clone(),tools,schema_digest})));slot.state.store(1,Ordering::Release);slot.initialized.notify_waiters();
                 notice(&output,&cancel,Level::Info,format!("mcp {}: ready",slot.name)).await;
                 let peer=service.peer().clone();let stop_service=service.cancellation_token();
                 let mut completion=Box::pin(service.waiting());let mut finished=false;
@@ -657,16 +754,17 @@ async fn supervise(
                         tokio::select!{biased;_=cancel.cancelled()=>break,_=&mut completion=>{finished=true;break;},_=tokio::time::sleep(Duration::from_secs(1))=>{}}
                         while changed.notified().now_or_never().is_some() {}
                         let listed=tokio::select!{biased;_=cancel.cancelled()=>break,_=&mut completion=>{finished=true;break;},r=tokio::time::timeout(Duration::from_secs(10),peer.list_all_tools())=>r};
-                        if let Ok(Ok(tools))=listed {slot.ready.store(Arc::new(Some(Ready {generation,peer:peer.clone(),tools})));}
+                        if let Ok(Ok(tools))=listed {let schema_digest=python_broker::schema_id(&tools);slot.ready.store(Arc::new(Some(Ready {generation,peer:peer.clone(),tools,schema_digest})));slot.initialized.notify_waiters();}
                     }}
                 }
-                slot.ready.store(Arc::new(None));slot.state.store(2,Ordering::Release);
+                slot.ready.store(Arc::new(None));slot.state.store(2,Ordering::Release);slot.initialized.notify_waiters();
                 stop_service.cancel();if !finished {let _=completion.await;}Err("server exited")
             };
             let outcome:Result<(),&str>=run.await;
             slot.ready.store(Arc::new(None));let _=finish_child(rx,child).await;let _=pipes.cancel_and_join().await;outcome
         }.await;
         slot.ready.store(Arc::new(None));
+        slot.initialized.notify_waiters();
         if cancel.is_cancelled() {
             return;
         }
@@ -686,6 +784,7 @@ async fn supervise(
         .await;
         if attempt == 4 {
             slot.state.store(3, Ordering::Release);
+            slot.initialized.notify_waiters();
             notice(
                 &output,
                 &cancel,

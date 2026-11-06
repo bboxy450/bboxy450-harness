@@ -282,6 +282,11 @@ async fn downstream_context_and_callable_mcp() {
             result["tools"]["seat"]["custody"], true,
             "lost private file capability custody"
         );
+        assert_eq!(
+            result["tools"]["bboxy_python"]["status"], "completed",
+            "{result}"
+        );
+        assert_eq!(result["tools"]["bboxy_python"]["emitted"][0]["answer"], 42);
         let j = f.journal(name);
         assert_context(&j, CONTEXT, 1);
         assert_eq!(
@@ -303,7 +308,7 @@ async fn downstream_context_and_callable_mcp() {
         let new = j.iter().find(|r| r["method"] == "session/new").unwrap();
         assert_eq!(
             new["params"]["mcpServers"].as_array().unwrap().len(),
-            1,
+            2,
             "empty downstream mcpServers"
         );
         assert!(new.to_string().contains("/usr/bin/nc"));
@@ -442,9 +447,17 @@ async fn reopen_switch_and_generation_context() {
     let reopened = next.open(session).await.unwrap();
     let result = reply(&turn(&reopened, "fourth").await);
     assert_eq!(
-        result["tools"],
-        json!({}),
+        result["tools"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect::<Vec<_>>(),
+        vec!["bboxy_python"],
         "old grants crossed launch generation"
+    );
+    assert!(
+        result["tools"]["bboxy_python"].is_null(),
+        "real bboxy admission must fail closed without the new backend guard"
     );
     let j = f.journal("A");
     let last = j

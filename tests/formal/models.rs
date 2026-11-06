@@ -9,6 +9,8 @@
 // https://github.com/bboxy450/bboxy450-term/blob/main/crates/bboxy450-term/tests/formal_contracts/models.rs
 use Expr::{Bool, Int, Var};
 use bbt_tlc::{Action, Expr, Invariant, Model, Response, Variable};
+#[path = "python_execution.rs"]
+mod python_execution;
 fn eq(v: usize, n: i64) -> Expr {
     Var(v).eq(Int(n))
 }
@@ -6932,6 +6934,16 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (dream_c1::worker(1), "safety"),
         (dream_c1::worker(2), "safety"),
         (dream_c1::worker(3), "safety"),
+
+        (python_execution::model(0), "pass"),
+        (python_execution::model(1), "safety"),
+        (python_execution::model(2), "safety"),
+        (python_execution::model(3), "safety"),
+        (python_execution::model(4), "safety"),
+        (python_execution::model(5), "safety"),
+        (python_execution::model(6), "safety"),
+        (python_execution::capacity(false), "pass"),
+        (python_execution::capacity(true), "liveness"),
         (unrestricted_startup(false), "pass"),
         (unrestricted_startup(true), "safety"),
         (draft_handoff(false), "pass"),

@@ -30,10 +30,20 @@ def server():
             if os.environ.get('PARITY_SLOW'):
                 import time
                 time.sleep(60)
-            result = {'protocolVersion':'2025-11-25','capabilities':{'tools':{}},'serverInfo':{'name':'private-parity','version':'1'}}
+            result = {'protocolVersion':'2025-11-25','capabilities':{'tools':{}},'serverInfo':{'name':'bboxy450' if custody else 'private-parity','version':'1'}}
         elif method == 'tools/list':
-            result = {'tools':[{'name':'identity','inputSchema':{'type':'object'}}]}
+            names = ['identity', 'python_execution_context'] if custody else ['identity']
+            result = {'tools':[{'name':name,'inputSchema':{'type':'object'}} for name in names]}
         elif method == 'tools/call':
+            if request['params']['name'] == 'python_execution_context':
+                context = {'guard_version':1, 'seat_id':os.environ.get('BBOXY_SEAT_ID'),
+                           'process_generation':1, 'grant_epoch':1, 'provider_revision':1,
+                           'knowledge_binding':{'root_id':'private-fixture','revision':1},
+                           'workspace':None,'cwd':None,'target':{'kind':'local'}}
+                emit({'jsonrpc':'2.0','id':request['id'],'result':{
+                    'content':[{'type':'text','text':json.dumps({'context':context})}],
+                    'structuredContent':{'context':context},'_meta':{'bboxy450/guard_transport_version':1}}})
+                continue
             if os.environ.get('PARITY_SLOW_CALL'):
                 import time
                 time.sleep(60)
@@ -58,6 +68,22 @@ def call_server(config):
         if rpc(1, 'initialize', {'protocolVersion':'2025-11-25','capabilities':{},'clientInfo':{'name':'private','version':'1'}}) is None:
             return None
         rpc(2, 'tools/list', {})
+        if config['name'] == 'bboxy_python':
+            import time
+            orient = rpc(3, 'tools/call', {'name':'python_execute_orient','arguments':{}})
+            if not orient or orient.get('isError'):
+                return None
+            assert orient['structuredContent']['ready']
+            started = rpc(4, 'tools/call', {'name':'python_execute','arguments':{
+                'source':"import pathlib\nemit({'answer':6*7,'cwd':str(pathlib.Path.cwd())})"}})
+            execution = started['structuredContent']['execution_id']
+            for i in range(500):
+                current = rpc(5+i, 'tools/call', {'name':'python_execution_get','arguments':{'execution_id':execution}})
+                current = current['structuredContent']
+                if current.get('status') not in ('starting','running','cancelling'):
+                    return current
+                time.sleep(0.01)
+            raise RuntimeError('private Python execution did not settle')
         result = rpc(3, 'tools/call', {'name':'identity','arguments':{}})
         return json.loads(result['content'][0]['text']) if result else None
     except (BrokenPipeError, ValueError, KeyError):

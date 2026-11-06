@@ -329,18 +329,32 @@ impl AcpAgentActor {
         gateway.set_unattended(config.policy.on_unattended);
         // a reopened or forked session restarts its agent: hand it the conversation so far
         let handoff = handoff(&store.events);
-        let (servers, collisions) =
+        let (mut servers, collisions) =
             crate::mcp::select_sources(profile.mcp_servers, overrides, launch.mcp_servers);
         let (output, internal) = mpsc::channel(256);
         let mut services = TaskGroup::new(tokio_util::sync::CancellationToken::new());
-        let relay = crate::mcp::relay::Relay::start(
+        let endpoint = crate::python_execute::Endpoint::new().await?;
+        crate::mcp::Manager::with_python(&mut servers, &endpoint.socket());
+        let manager = crate::mcp::Manager::start_in(
             servers,
-            &config.meta.cwd,
             config.redactor.clone(),
             output,
             &mut services,
+            Some(config.meta.cwd.clone()),
+        );
+        crate::python_execute::Service::start(
+            endpoint,
+            config
+                .sessions
+                .join(config.meta.session.to_string())
+                .join("python"),
+            config.meta.cwd.clone(),
+            manager.clone(),
+            config.redactor.clone(),
+            &mut services,
         )
         .await?;
+        let relay = crate::mcp::relay::Relay::shared(manager, &mut services).await?;
         let mcp_servers = relay.servers.clone();
         let mut actor = Self {
             launch_context: config.redactor.scrub(&launch.append_system_prompt),

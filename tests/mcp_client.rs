@@ -263,7 +263,7 @@ async fn normalized_names_keep_the_first_collision_and_cap_at_64() {
         requests[0]
             .tools
             .iter()
-            .filter(|t| t.name.starts_with("mcp__"))
+            .filter(|t| t.name.starts_with("mcp__fixture__"))
             .map(|t| t.name.clone())
             .collect::<Vec<_>>()
     };

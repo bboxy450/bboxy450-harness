@@ -1281,3 +1281,48 @@ frontend = "project"
 name = "BrokenHarnessDreamC1BootstrapHandoffAdmissionRetry"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessPythonExecution"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessPythonExecutionReplay"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessPythonExecutionStale"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessPythonExecutionCustody"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessPythonExecutionCancel"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessPythonExecutionAdmission"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessPythonExecutionRetarget"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessPythonControlCapacity"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessPythonControlCapacity"
+expected = "liveness"
+frontend = "project"

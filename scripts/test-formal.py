@@ -19,6 +19,17 @@ spec=importlib.util.spec_from_file_location('formal',Path(__file__).with_name('f
 formal=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(formal)
 class Gate(unittest.TestCase):
+    def test_embedded_term_witness_keeps_actual_source_validation(self):
+        with tempfile.TemporaryDirectory() as own:
+            root=Path(own);child=root/'crates/bboxy450-harness';child.mkdir(parents=True)
+            (root/'.gitmodules').write_text('')
+            witness=root/'crates/bboxy450-term/src/rich_pane.rs'
+            witness.parent.mkdir(parents=True);witness.write_text('private witness')
+            path='../bboxy450-term/crates/bboxy450-term/src/rich_pane.rs'
+            resolved=formal.implementation_reference(child,path)
+            self.assertEqual((child/resolved).resolve(),witness)
+            missing=path.replace('rich_pane.rs','missing.rs')
+            self.assertEqual(formal.implementation_reference(child,missing),missing)
     def test_extra_controls_are_explicit_executed_negative_verdicts(self):
         with tempfile.TemporaryDirectory() as t:
             root=Path(t);(root/'verification').mkdir();(root/'witness.rs').write_text('')
