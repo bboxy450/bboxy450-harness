@@ -734,10 +734,13 @@ pub(crate) struct HelperGroup {
     admission_samples: u64,
     #[cfg(test)]
     fail_stop_verdict: bool,
+    #[cfg(test)]
+    injected_stop_errno: Option<i32>,
     pub(crate) initial_stop_pending: bool,
     pub(crate) confirmed_stopped: bool,
     pub(crate) identity: super::resolve::HelperIdentity,
     stop_requested: bool,
+    stop_outcome: HelperStopOutcome,
     pub(crate) debt_until: Instant,
     pub(crate) lane_cpu: u64,
     members: [HelperMember; 2],
@@ -763,6 +766,16 @@ pub(crate) struct HelperGroup {
     accounting_settled: bool,
     last_clock_ns: Option<u64>,
     pub(crate) metrics: HelperMetrics,
+}
+/// Delivery and terminal observation are different effects. A consumed failed
+/// STOP is sticky through original-effect settlement and never grants CONT.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum HelperStopOutcome {
+    #[default]
+    None,
+    Delivered,
+    PendingTerminal,
+    TerminalProven,
 }
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -991,10 +1004,16 @@ struct HelperMember {
 #[derive(Clone, Copy, Default)]
 pub(crate) struct HelperStopReceipt {
     pub(crate) sequence: u16,
+    pub(crate) pid: i32,
     pub(crate) pgid: i32,
+    pub(crate) birth: u64,
+    pub(crate) start_abstime: u64,
+    pub(crate) audit_version: u32,
     pub(crate) attempt: u64,
     pub(crate) result: i32,
     pub(crate) rawerrno: i32,
+    pub(crate) observed_ns: u64,
+    pub(crate) injected: bool,
 }
 #[derive(Clone, Copy, Default)]
 pub(crate) struct HelperMetrics {
@@ -1076,21 +1095,35 @@ impl HelperGroup {
         self.running && !self.retiring && !self.admission_failed
     }
     fn signal_group_stop(&mut self) -> HelperStopReceipt {
-        let result = unsafe { libc::kill(-self.pgid, libc::SIGSTOP) };
+        #[cfg(test)]
+        let injected = self.injected_stop_errno.take();
+        #[cfg(not(test))]
+        let injected: Option<i32> = None;
+        let result = if injected.is_some() {
+            -1 // Source-known control only: no kernel call was performed.
+        } else {
+            unsafe { libc::kill(-self.pgid, libc::SIGSTOP) }
+        };
         // Retain the exact native outcome before any completion observation or
         // verdict. Bounded scalar receipts also survive later retirement.
         let rawerrno = if result == 0 {
             0
         } else {
-            std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
+            injected.unwrap_or_else(|| std::io::Error::last_os_error().raw_os_error().unwrap_or(0))
         };
         self.metrics.stop_attempts = self.metrics.stop_attempts.saturating_add(1);
         let receipt = HelperStopReceipt {
             sequence: self.identity.sequence,
+            pid: self.identity.pid,
             pgid: self.pgid,
+            birth: self.identity.start_identity,
+            start_abstime: self.members[0].start_abstime,
+            audit_version: self.members[0].audit_version,
             attempt: self.metrics.stop_attempts,
             result,
             rawerrno,
+            observed_ns: self.ledger_clock().unwrap_or(u64::MAX),
+            injected: injected.is_some(),
         };
         self.metrics.last_stop = receipt;
         if result != 0 {
@@ -1101,7 +1134,7 @@ impl HelperGroup {
         }
         receipt
     }
-    fn request_group_stop(&mut self) -> Result<(), ()> {
+    fn request_group_stop(&mut self) -> Result<HelperStopOutcome, ()> {
         if self.stop_requested {
             return Err(()); // A consumed operation is never silently repeated.
         }
@@ -1113,18 +1146,43 @@ impl HelperGroup {
             // kernel result/errno. This cannot manufacture a failed signal.
             return Err(());
         }
-        // Capture the actual result before observing any completion. ESRCH is
-        // a permissible delivery race only when our still-unreaped leader has
-        // a positive WNOWAIT exit. It never closes a slot or proves a roster;
-        // the normal exact exit/usage/continuity path still has to do that.
-        if receipt.result == 0
-            || (receipt.rawerrno == libc::ESRCH
-                && super::resolve::helper_exited(self.pgid) == Ok(true))
+        self.classify_consumed_stop(receipt)
+    }
+    fn classify_consumed_stop(
+        &mut self,
+        receipt: HelperStopReceipt,
+    ) -> Result<HelperStopOutcome, ()> {
+        if !self.stop_requested
+            || receipt.sequence != self.identity.sequence
+            || receipt.pid != self.identity.pid
+            || receipt.pgid != self.pgid
+            || receipt.birth != self.identity.start_identity
+            || receipt.start_abstime != self.members[0].start_abstime
+            || receipt.audit_version != self.members[0].audit_version
+            || receipt.observed_ns == u64::MAX
+            || (self.grant.opened && receipt.observed_ns < self.grant.t0_ns)
         {
-            Ok(())
-        } else {
-            Err(())
+            return Err(());
         }
+        self.stop_outcome = if receipt.result == 0 {
+            HelperStopOutcome::Delivered
+        } else if receipt.result == -1 && matches!(receipt.rawerrno, libc::EPERM | libc::ESRCH) {
+            // No observation occurs in this classifier. In particular errno
+            // supplies neither an ACK nor an endpoint. Every affected slot
+            // remains open through its own independently proved terminal time.
+            self.confirmed_stopped = false;
+            if self.grant.opened {
+                self.grant.closed = false;
+                self.grant.close_ns = None;
+                for slot in &mut self.grant.slots[..usize::from(self.grant.reserved)] {
+                    slot.ack_ns = None;
+                }
+            }
+            HelperStopOutcome::PendingTerminal
+        } else {
+            return Err(());
+        };
+        Ok(self.stop_outcome)
     }
     #[cfg(target_os = "macos")]
     fn stop_observation_due(&self) -> bool {
@@ -1368,6 +1426,12 @@ impl HelperGroup {
         }
     }
     fn open_grant(&mut self) -> Result<(), ()> {
+        if matches!(
+            self.stop_outcome,
+            HelperStopOutcome::PendingTerminal | HelperStopOutcome::TerminalProven
+        ) {
+            return Err(());
+        }
         let baseline = self.actual_cpu()?;
         let rolled = self
             .rolled_user_ticks
@@ -2154,10 +2218,13 @@ impl HelperGroup {
             admission_samples: 0,
             #[cfg(test)]
             fail_stop_verdict: false,
+            #[cfg(test)]
+            injected_stop_errno: None,
             initial_stop_pending: false,
             confirmed_stopped: false,
             identity,
             stop_requested: false,
+            stop_outcome: HelperStopOutcome::None,
             debt_until: now,
             lane_cpu: 0,
             members: [HelperMember::default(); 2],
@@ -2279,7 +2346,15 @@ impl HelperGroup {
                     // This newly discovered recipient is a distinct roster
                     // effect. Consume its roster entry/STOP state first; keep
                     // its existing strict success-only signal policy.
-                    if self.signal_group_stop().result != 0 {
+                    if matches!(
+                        self.stop_outcome,
+                        HelperStopOutcome::PendingTerminal | HelperStopOutcome::TerminalProven
+                    ) {
+                        // A failed consumed STOP cannot be repeated, even by
+                        // roster discovery. Retain the recipient below for
+                        // identity-safe cancellation and refuse this coverage.
+                        valid = false;
+                    } else if self.signal_group_stop().result != 0 {
                         return Err(());
                     }
                 }
@@ -2363,7 +2438,10 @@ impl HelperGroup {
             .iter()
             .filter(|m| m.pid > 0 && m.current)
         {
-            if matches!(helper_token_signal(&member.token,libc::SIGSTOP),Err(code) if code!=libc::ESRCH)
+            if !matches!(
+                self.stop_outcome,
+                HelperStopOutcome::PendingTerminal | HelperStopOutcome::TerminalProven
+            ) && matches!(helper_token_signal(&member.token,libc::SIGSTOP),Err(code) if code!=libc::ESRCH)
             {
                 valid = false;
             }
@@ -2566,7 +2644,13 @@ impl HelperGroup {
         self.charge_helper_debt(control, debt_cost);
         self.running = false;
         self.grant_commit_pending = false;
-        self.stop_requested = false;
+        if !matches!(
+            self.stop_outcome,
+            HelperStopOutcome::PendingTerminal | HelperStopOutcome::TerminalProven
+        ) {
+            self.stop_requested = false;
+            self.stop_outcome = HelperStopOutcome::None;
+        }
         self.lane_cpu = 0;
         self.corroboration_pending = self.grant.closed;
         if self.grant.closed {
@@ -2583,6 +2667,18 @@ impl HelperGroup {
     }
     #[cfg(target_os = "macos")]
     fn sample_exited_roster(&mut self) -> Result<bool, ()> {
+        if self.stop_outcome == HelperStopOutcome::PendingTerminal
+            && (!self.metrics.coverage_known
+                || self.metrics.clock_failures != 0
+                || self.metrics.last_stop.sequence != self.identity.sequence
+                || self.metrics.last_stop.pid != self.identity.pid
+                || self.metrics.last_stop.pgid != self.pgid
+                || self.metrics.last_stop.birth != self.identity.start_identity
+                || self.metrics.last_stop.start_abstime != self.members[0].start_abstime
+                || self.metrics.last_stop.audit_version != self.members[0].audit_version)
+        {
+            return Err(());
+        }
         if super::resolve::helper_exited(self.pgid) != Ok(true) {
             return Err(());
         }
@@ -2591,6 +2687,14 @@ impl HelperGroup {
             if member.pid <= 0
                 || member.start_abstime == 0
                 || member.audit_version == 0
+                || member.audit_token.value[5] != member.pid as u32
+                || member.audit_token.value[7] != member.audit_version
+                || !self.retired_members.iter().any(|retained| {
+                    retained.current
+                        && retained.pid == member.pid
+                        && retained.birth == member.birth
+                        && retained.token.value == member.audit_token.value
+                })
                 || (index == 0
                     && (member.pid != self.pgid || member.birth != self.identity.start_identity))
             {
@@ -2624,7 +2728,9 @@ impl HelperGroup {
                 .iter()
                 .any(|member| member.pid == *pid && member.exit_abstime != 0)
         }) {
-            self.capture_members()?;
+            if self.stop_outcome != HelperStopOutcome::PendingTerminal {
+                self.capture_members()?;
+            }
             return Err(());
         }
         if !self.closed_usage_covered() {
@@ -2636,6 +2742,9 @@ impl HelperGroup {
         }
         self.close_roster()?;
         self.confirmed_stopped = true;
+        if self.stop_outcome == HelperStopOutcome::PendingTerminal {
+            self.stop_outcome = HelperStopOutcome::TerminalProven;
+        }
         Ok(true)
     }
     fn closed_usage_covered(&self) -> bool {
@@ -2663,6 +2772,16 @@ impl HelperGroup {
     fn sample_inner(&mut self, control: &Control) -> Result<bool, ()> {
         use std::os::unix::ffi::OsStrExt;
         self.confirmed_stopped = false;
+        if self.stop_outcome == HelperStopOutcome::PendingTerminal {
+            // Only independent original WNOWAIT and retained exit/RI/audit
+            // continuity may advance a failed STOP. No capture/second signal,
+            // stopped endpoint, exec transition or new work is admitted here.
+            return match super::resolve::helper_exited(self.pgid) {
+                Ok(false) => Ok(false),
+                Ok(true) => self.sample_exited_roster(),
+                Err(_) => Err(()),
+            };
+        }
         self.capture_members()?;
         self.initial_stop_pending = false;
         self.metrics.sample_stage = 2;
@@ -6681,6 +6800,76 @@ mod helper_admission_tests {
         }
     }
 
+    #[test]
+    fn failed_stop_terminal_accounting_keeps_control_pipe_clock_debt_and_refusal() {
+        // Finite arithmetic controls only. No numeric fixture identity is ever
+        // signalled; the owned witness below supplies physical observation.
+        for outcome in [HelperStopOutcome::None, HelperStopOutcome::Delivered] {
+            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+            let mut helper = accounting_group();
+            helper.stop_requested = true;
+            helper.stop_outcome = outcome;
+            helper.grant.opened = true;
+            helper.grant.reserved = 1;
+            helper.grant.t0_ns = 1;
+            helper.grant.closed = true;
+            helper.grant.close_ns = Some(2);
+            helper.grant.slots[0].ack_ns = Some(2);
+            helper.finish_grant(&control, 0);
+            assert!(
+                !helper.stop_requested,
+                "successful discovery/STOP grants reset once"
+            );
+        }
+        for (window, actual, controller, pipe, valid) in [
+            (100_000, 90_000, 80_000, 70_000, true),
+            (900_000, 90_000, 80_000, 70_000, false),
+            (90_000, 900_000, 80_000, 70_000, false),
+        ] {
+            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+            let mut helper = accounting_group();
+            helper.stop_requested = true;
+            helper.stop_outcome = HelperStopOutcome::TerminalProven;
+            helper.grant.opened = true;
+            helper.grant.reserved = 1;
+            helper.grant.t0_ns = 1;
+            helper.grant.closed = true;
+            helper.grant.close_ns = Some(window + 1);
+            helper.grant.slots[0].ack_ns = Some(window + 1);
+            helper.members[0].cpu = actual;
+            helper.account_controller(&control, controller).unwrap();
+            helper.begin_pipe().unwrap();
+            helper.account_pipe(&control, pipe, pipe).unwrap();
+            helper.finish_grant(&control, 0);
+            let q = window.max(actual) + controller + pipe;
+            assert_eq!(helper.metrics.worst_grant.q_ns, q);
+            assert_eq!(helper.metrics.worst_grant.c_ns, controller + pipe);
+            assert_eq!(helper.metrics.debt_ns, 9 * q.max(UNIT_NS));
+            assert_eq!(helper.admission_failed, !valid);
+            assert!(helper.stop_requested && helper.open_grant().is_err());
+            if !valid {
+                assert_eq!(control.error(), Some(w::Code::ResourceLimit));
+            }
+        }
+        for unknown in [false, true] {
+            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+            let mut helper = accounting_group();
+            helper.stop_requested = true;
+            helper.stop_outcome = HelperStopOutcome::PendingTerminal;
+            helper.grant.opened = true;
+            helper.grant.reserved = 1;
+            helper.grant.t0_ns = 100;
+            helper.grant.closed = true;
+            helper.grant.close_ns = Some(50);
+            helper.grant.slots[0].ack_ns = Some(if unknown { u64::MAX } else { 50 });
+            helper.finish_grant(&control, 0);
+            assert_eq!(helper.metrics.worst_grant.q_ns, u64::MAX);
+            assert!(helper.admission_failed && !helper.metrics.coverage_known);
+            assert!(helper.stop_requested && helper.open_grant().is_err());
+            assert_eq!(control.error(), Some(w::Code::ResourceLimit));
+        }
+    }
+
     struct OwnedChild {
         pid: i32,
         control: Arc<Control>,
@@ -6719,6 +6908,285 @@ mod helper_admission_tests {
     impl Drop for OwnedChild {
         fn drop(&mut self) {
             self.reap();
+        }
+    }
+
+    #[test]
+    fn failed_stop_pending_terminal_uses_independent_original_exit_and_actual_reap() {
+        // These errno values are injected source-known controls. No failed
+        // kernel STOP is claimed, and no cause is assigned to historic errno.
+        for injected_errno in [libc::EPERM, libc::ESRCH] {
+            let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
+            let mut proof = crate::dream::read::helper_fixture_clock(control.clone());
+            let mut attr = std::mem::MaybeUninit::<libc::posix_spawnattr_t>::uninit();
+            assert_eq!(unsafe { libc::posix_spawnattr_init(attr.as_mut_ptr()) }, 0);
+            let mut attr = unsafe { attr.assume_init() };
+            assert_eq!(unsafe { libc::posix_spawnattr_setpgroup(&mut attr, 0) }, 0);
+            assert_eq!(
+                unsafe {
+                    libc::posix_spawnattr_setflags(
+                        &mut attr,
+                        (libc::POSIX_SPAWN_START_SUSPENDED | libc::POSIX_SPAWN_SETPGROUP) as i16,
+                    )
+                },
+                0
+            );
+            let argv = [
+                c"sleep".as_ptr().cast_mut(),
+                c"30".as_ptr().cast_mut(),
+                std::ptr::null_mut(),
+            ];
+            let env = [c"LANG=C".as_ptr().cast_mut(), std::ptr::null_mut()];
+            let mut pid = 0;
+            let spawned = unsafe {
+                libc::posix_spawn(
+                    &mut pid,
+                    c"/bin/sleep".as_ptr(),
+                    std::ptr::null(),
+                    &attr,
+                    argv.as_ptr(),
+                    env.as_ptr(),
+                )
+            };
+            assert!(pid > 0);
+            let mut child = OwnedChild {
+                pid,
+                control: control.clone(),
+                reaped: false,
+            };
+            assert_eq!(unsafe { libc::posix_spawnattr_destroy(&mut attr) }, 0);
+            assert_eq!(spawned, 0);
+            let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
+            let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+            assert_eq!(
+                unsafe {
+                    libc::proc_pidinfo(
+                        pid,
+                        libc::PROC_PIDTBSDINFO,
+                        0,
+                        info.as_mut_ptr().cast(),
+                        size,
+                    )
+                },
+                size
+            );
+            let info = unsafe { info.assume_init() };
+            let identity = super::super::resolve::HelperIdentity {
+                sequence: 1,
+                pid,
+                pgid: pid,
+                start_identity: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec,
+                expected_members: 1,
+                image: std::fs::canonicalize("/bin/sleep").unwrap(),
+                descendant_image: None,
+            };
+            let ticket = identity.ticket();
+            proof.helper_attach(identity).unwrap();
+            let (failed, active_control_at) = {
+                let mut owner = control.helper.lock().unwrap();
+                let helper = owner.as_mut().unwrap();
+                helper.open_grant().unwrap();
+                let active_control_at = cpu_ns();
+                assert_eq!(unsafe { libc::kill(-pid, libc::SIGCONT) }, 0);
+                helper.running = true;
+                helper.confirmed_stopped = false;
+                helper.injected_stop_errno = Some(injected_errno);
+                assert_eq!(
+                    helper.request_group_stop(),
+                    Ok(HelperStopOutcome::PendingTerminal)
+                );
+                let failed = helper.metrics.first_failed_stop;
+                assert!(
+                    failed.injected && failed.result == -1 && failed.rawerrno == injected_errno
+                );
+                assert_eq!(
+                    (failed.pid, failed.pgid, failed.birth),
+                    (pid, pid, ticket.start_identity)
+                );
+                assert!(failed.start_abstime > 0 && failed.audit_version > 0);
+                assert_eq!(super::super::resolve::helper_exited(pid), Ok(false));
+                assert_eq!(
+                    helper.sample(&control),
+                    Ok(false),
+                    "live original cannot satisfy terminal proof"
+                );
+                assert!(!helper.confirmed_stopped && !helper.grant.closed);
+                assert_eq!(helper.grant.slots[0].ack_ns, None);
+                assert!(
+                    helper.open_grant().is_err(),
+                    "no replacement grant while pending"
+                );
+                assert!(
+                    helper.request_group_stop().is_err(),
+                    "consumed STOP cannot repeat"
+                );
+                assert_eq!(helper.metrics.stop_attempts, 1);
+                // Owned cancellation uses the retained audit token, not an
+                // unbound numeric PGID, and never installs a STOP endpoint.
+                assert_eq!(
+                    helper_token_signal(&helper.members[0].audit_token, libc::SIGKILL),
+                    Ok(())
+                );
+                (failed, active_control_at)
+            };
+            let until = Instant::now() + Duration::from_secs(1);
+            while super::super::resolve::helper_exited(pid) != Ok(true) {
+                assert!(
+                    Instant::now() < until,
+                    "original child cancellation must terminate"
+                );
+                thread::sleep(Duration::from_micros(100));
+            }
+            {
+                let mut owner = control.helper.lock().unwrap();
+                let helper = owner.as_mut().unwrap();
+                // Original WNOWAIT alone is insufficient. Exercise exact
+                // retained-incarnation and possible-descendant failures before
+                // allowing the same real endpoint to close the original grant.
+                helper.identity.expected_members = 2;
+                assert!(
+                    helper.sample(&control).is_err(),
+                    "unknown second slot stays open"
+                );
+                helper.identity.expected_members = 1;
+                let member = helper.members[0];
+                helper.members[0].birth += 1;
+                assert!(
+                    helper.sample(&control).is_err(),
+                    "replacement birth refuses"
+                );
+                helper.members[0] = member;
+                helper.members[0].audit_version += 1;
+                assert!(
+                    helper.sample(&control).is_err(),
+                    "replacement exec version refuses"
+                );
+                helper.members[0] = member;
+                helper.members[0].audit_token.value[7] += 1;
+                assert!(
+                    helper.sample(&control).is_err(),
+                    "replacement audit token refuses"
+                );
+                helper.members[0] = member;
+                helper.members[0].start_abstime += 1;
+                assert!(
+                    helper.sample(&control).is_err(),
+                    "replacement RI start refuses"
+                );
+                helper.members[0] = member;
+                assert_eq!(helper.sample(&control), Ok(true));
+                let active_control = control.observe_interval(active_control_at, cpu_ns());
+                let _ = helper.account_controller(&control, active_control);
+                assert_eq!(helper.stop_outcome, HelperStopOutcome::TerminalProven);
+                assert!(helper.grant.closed && helper.members[0].exit_abstime > 0);
+                assert!(helper.grant.slots[0].ack_ns.unwrap() >= failed.observed_ns);
+                assert_eq!(helper.metrics.stop_attempts, 1);
+                assert!(helper.request_group_stop().is_err());
+                assert!(
+                    helper.open_grant().is_err(),
+                    "terminal observation never authorizes CONT"
+                );
+                // Charge the entire original interval, including this control
+                // witness. Any real resource overrun remains a refusal.
+                let finalize_at = cpu_ns();
+                helper.finish_grant(&control, 0);
+                helper.account_finalization_tail(
+                    &control,
+                    control.observe_interval(finalize_at, cpu_ns()),
+                );
+                assert!(helper.metrics.worst_grant.end_ns[0] >= failed.observed_ns);
+                assert!(helper.metrics.debt_ns >= 9 * UNIT_NS);
+                assert!(helper.stop_requested);
+            }
+            let reap_control_at = cpu_ns();
+            let reap_wall_at = Instant::now();
+            let mut status = 0;
+            let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+            let actual_reap = loop {
+                let reaped = unsafe { libc::wait4(pid, &mut status, 0, usage.as_mut_ptr()) };
+                if reaped == pid {
+                    break reaped;
+                }
+                assert_eq!(
+                    std::io::Error::last_os_error().raw_os_error(),
+                    Some(libc::EINTR)
+                );
+            };
+            child.reaped = true;
+            let usage = unsafe { usage.assume_init() };
+            assert!(libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGKILL);
+            assert_eq!(unsafe { libc::kill(-pid, 0) }, -1);
+            assert_eq!(
+                std::io::Error::last_os_error().raw_os_error(),
+                Some(libc::ESRCH)
+            );
+            {
+                let mut owner = control.helper.lock().unwrap();
+                let helper = owner.as_mut().unwrap();
+                helper.retiring = true;
+                let user = (usage.ru_utime.tv_sec as u64 * 1_000_000
+                    + usage.ru_utime.tv_usec as u64)
+                    * 1000;
+                let system = (usage.ru_stime.tv_sec as u64 * 1_000_000
+                    + usage.ru_stime.tv_usec as u64)
+                    * 1000;
+                let reconciled =
+                    helper.reconcile_usage(&control, user, system, usage.ru_maxrss as u64);
+                // Match helper_usage's owner observation: actual wait4 and
+                // reconciliation CPU joins newly observed late kernel CPU
+                // before detach pays the resulting fresh ordinary debt.
+                let used = control.observe_interval(reap_control_at, cpu_ns());
+                let wall = u64::try_from(reap_wall_at.elapsed().as_nanos()).unwrap_or(u64::MAX);
+                let mut observed = Budget::new_read(
+                    control.clone(),
+                    Arc::new(crossbeam_queue::ArrayQueue::new(1)),
+                );
+                let recorded = observed.read_charge(used, used, wall, UNIT_NS);
+                let committed = helper.commit_post_observation(&control, used, wall);
+                let receipt = helper.metrics.worst_grant;
+                eprintln!(
+                    "failed_stop_terminal source_known_injected=true kernel_stop_call_performed=false injected_errno={} sequence={} pid={} pgid={} birth={} start_abstime={} audit_version={} failed_observed_ns={} terminal_end_ns={} roster_close_ns={} stop_attempts={} w_ns={} a_ns={} c_ns={} q_ns={} debt_ns={} wait4_pid={} wait4_user_ns={} wait4_system_ns={} reconciliation_ok={} reap_control_cpu_ns={} post_observation_ok={} late_kernel_cpu_ns={} resource_verdict={:?}",
+                    failed.rawerrno,
+                    failed.sequence,
+                    failed.pid,
+                    failed.pgid,
+                    failed.birth,
+                    failed.start_abstime,
+                    failed.audit_version,
+                    failed.observed_ns,
+                    receipt.end_ns[0],
+                    receipt.close_ns,
+                    helper.metrics.stop_attempts,
+                    receipt.w_ns,
+                    receipt.a_ns,
+                    receipt.c_ns,
+                    receipt.q_ns,
+                    helper.metrics.debt_ns,
+                    actual_reap,
+                    user,
+                    system,
+                    reconciled.is_ok(),
+                    used,
+                    recorded.is_ok() && committed.is_ok(),
+                    helper.metrics.late_kernel_cpu_ns,
+                    control.error()
+                );
+                assert_eq!(helper.metrics.stop_attempts, 1);
+                assert!(helper.accounting_settled && helper.retired_members_exited());
+                assert!(!helper.post_proof_pending && !helper.post_commit_pending);
+                if receipt.q_ns > UNIT_NS {
+                    assert_eq!(control.error(), Some(w::Code::ResourceLimit));
+                }
+            }
+            // This is source-known observation/settlement evidence, never a
+            // qualifying command or a native failed-STOP cause assertion.
+            control.read_pay(); // helper_usage's original owner pays before detach.
+            proof.helper_detach(ticket).unwrap();
+            assert!(control.helper.lock().unwrap().is_none());
+            assert!(
+                control.accounting.now() >= control.accounting.rest_until.load(Ordering::Acquire),
+                "no proof resumes with unpaid observation debt"
+            );
         }
     }
 

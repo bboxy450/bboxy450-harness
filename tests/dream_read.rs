@@ -1653,6 +1653,7 @@ fn approved_runner() -> &'static ApprovedRunner {
             "tests/fixtures/dream-read/proof-helper-probe.c",
             "tests/fixtures/dream-read/signature-boundary-controls.c",
             "tests/fixtures/dream-read/private-input-controls.c",
+            "tests/fixtures/dream-read/private-engine-controls.c",
             "tests/fixtures/dream-read/io-helper.c",
             "tests/fixtures/dream-read/root_fixture.rs",
             "tests/dream_read.rs",

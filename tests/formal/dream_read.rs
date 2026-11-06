@@ -8,6 +8,172 @@
 //! bytes, signatures, bounded process IO and allocator behavior remain witnesses.
 use super::*;
 
+/// Decision66050 refines one already-consumed STOP in the existing controller.
+/// The immutable profile selects independent observations, never an errno cause.
+/// Owner: original unreaped leader/group. Bounds: one grant, at most two members,
+/// exact/replaced token classes, failed-call endpoint1 and positive endpoint2. Q classes
+/// 1/2 mean within/over the unchanged1ms bound; debt1 means the full fresh9x rest.
+/// Native observations are not fair. Only enabled local classification/payment
+/// is weakly fair; explicit deadline preserves ownership in quarantine.
+pub fn failed_stop_terminal(control: u8) -> Model {
+    let suffix = ["", "ErrnoAck", "RetryStop", "Resume", "LeaderOnly", "Roster",
+        "Identity", "FailedEndpoint", "Controller", "Pipe", "Late", "Quantum",
+        "Clock", "Debt", "Reap", "UnknownExit", "WorkWhilePending"][control as usize];
+    let mut m = base(&format!("DreamReadFailedStop{suffix}"), control != 0, &[
+        ("phase", 6, 0), ("profile", 13, 0), ("rawErrnoEpermEsrch", 2, 0),
+        ("consumedStopAttempts", 2, 0), ("leaderWnowaitOriginal", 1, 0),
+        ("everyMemberPositiveExit", 1, 0), ("causallyClosedRoster", 1, 0),
+        ("exactRetainedIncarnation", 1, 0), ("windowEndFailedOrPositive", 2, 0),
+        ("controllerIncluded", 1, 0), ("pipeIncluded", 1, 0),
+        ("lateAndRetiredIncluded", 1, 0), ("qWithinOrOver1ms", 2, 0),
+        ("clockKnownOrdered", 1, 0), ("freshRestDebt", 1, 0),
+        ("actualExactWait4AndGroupSettlement", 1, 0),
+        ("stoppedAck", 1, 0), ("continueCount", 1, 0), ("proofWork", 1, 0),
+        ("terminalClassified", 1, 0), ("ownershipReleased", 1, 0),
+    ]);
+    const P: usize = 0; const CASE: usize = 1; const ERR: usize = 2;
+    const ATT: usize = 3; const LEAD: usize = 4; const MEMBERS: usize = 5;
+    const ROSTER: usize = 6; const ID: usize = 7; const END: usize = 8;
+    const CTL: usize = 9; const PIPE: usize = 10; const LATE: usize = 11;
+    const Q: usize = 12; const CLOCK: usize = 13; const DEBT: usize = 14;
+    const REAP: usize = 15; const ACK: usize = 16; const CONT: usize = 17;
+    const WORK: usize = 18; const TERMINAL: usize = 19; const RELEASE: usize = 20;
+    for profile in 0..=13 {
+        for errno in 1..=2 {
+            act(&mut m, &format!("ConsumeOriginalStopProfile{profile}Errno{errno}"), eq(P, 0), &[
+                (P, Int(1)), (CASE, Int(profile)), (ERR, Int(errno)),
+                (ATT, Int(1)), (DEBT, Int(1)),
+                (ACK, Int(i64::from(control == 1))),
+            ]);
+        }
+    }
+    // A failed signal alone changes none of the independent physical facts.
+    // Profiles cover runnable leader, live descendant, unknown slot, replaced
+    // token/exec, failed endpoint, omissions, overrun, clock and unavailable reap.
+    for profile in 0..=13 {
+        act(&mut m, &format!("ObserveIndependentOriginalTerminalFacts{profile}"),
+            all([eq(P, 1), eq(CASE, profile)]), &[
+                (P, Int(2)),
+                (LEAD, Int(i64::from(profile != 1 && profile != 13))),
+                (MEMBERS, Int(i64::from(profile != 2))),
+                (ROSTER, Int(i64::from(profile != 3))),
+                (ID, Int(i64::from(profile != 4))),
+                (END, Int(if profile == 5 { 1 } else { 2 })),
+                (CTL, Int(i64::from(profile != 6))),
+                (PIPE, Int(i64::from(profile != 7))),
+                (LATE, Int(i64::from(profile != 8))),
+                (Q, Int(if profile == 9 { 2 } else { 1 })),
+                (CLOCK, Int(i64::from(profile != 10))),
+            ]);
+    }
+    let predicates = [(LEAD, 1, 15), (MEMBERS, 1, 4), (ROSTER, 1, 5),
+        (ID, 1, 6), (END, 2, 7), (CTL, 1, 8), (PIPE, 1, 9), (LATE, 1, 10),
+        (Q, 1, 11), (CLOCK, 1, 12)];
+    let exact = all(predicates.iter().map(|&(v, val, _)| eq(v, val)));
+    let admitted = all(predicates.iter().map(|&(v, val, mutant)|
+        if control == mutant { Bool(true) } else { eq(v, val) }));
+    let classify = m.actions.len();
+    act(&mut m, "ClassifyIndependentTerminalWithoutSignalAck",
+        all([eq(P, 2), admitted]), &[(P, Int(3)), (TERMINAL, Int(1))]);
+    let pay = m.actions.len();
+    act(&mut m, "PayFullFreshDebtAfterPositiveEndpoint",
+        all([eq(P, 3), eq(DEBT, 1), eq(CASE, 11).negate()]), &[(DEBT, Int(0))]);
+    for actual in 0..=1 {
+        act(&mut m, &format!("ObserveActualOriginalWait4AndGroupSettlement{actual}"),
+            all([eq(P, 3), if actual == 1 { eq(CASE, 12).negate() }
+                else { eq(CASE, 12) }]), &[(P, Int(4)), (REAP, Int(actual))]);
+    }
+    act(&mut m, "CompleteOnlyAfterActualSettlementAndPaidDebt", all([
+        eq(P, 4), if control == 13 { Bool(true) } else { eq(DEBT, 0) },
+        if control == 14 { Bool(true) } else { eq(REAP, 1) },
+    ]), &[(P, Int(5)), (RELEASE, Int(1))]);
+    act(&mut m, "PayRemainingOriginalDebtAfterReap", all([
+        eq(P, 4), eq(DEBT, 1), eq(CASE, 11).negate(),
+    ]), &[(DEBT, Int(0))]);
+    for (mutant, name, slot) in [(2, "BrokenRepeatConsumedStop", ATT),
+        (3, "BrokenContinueWhileTerminalPending", CONT),
+        (16, "BrokenProofWorkWhileTerminalPending", WORK)] {
+        if control == mutant {
+            act(&mut m, name, eq(P, 1), &[(slot, Int(if slot == ATT { 2 } else { 1 }))]);
+        }
+    }
+    act(&mut m, "DeadlineRetainsOriginalOwnedQuarantine",
+        all([Int(0).lt(Var(P)), Var(P).lt(Int(5))]), &[(P, Int(6))]);
+    safe(&mut m, "ConsumedFailureNeverBecomesStopAck", eq(ACK, 0));
+    safe(&mut m, "PendingTerminalNeverRepeatsStopOrContinuesOrWorks",
+        all([eq(ATT, 2).negate(), eq(CONT, 0), eq(WORK, 0)]));
+    safe(&mut m, "TerminalNeedsEveryIndependentOriginalFact",
+        eq(TERMINAL, 0).or(exact.clone()));
+    safe(&mut m, "ReleaseRequiresActualSettlementAndFullPaidDebt",
+        eq(RELEASE, 0).or(all([eq(TERMINAL, 1), eq(REAP, 1), eq(DEBT, 0)])));
+    safe(&mut m, "QuarantineKeepsOriginalEffectAndRawSignalReceipt",
+        eq(P, 0).or(all([eq(ATT, 0).negate(), eq(ERR, 0).negate(),
+            eq(P, 6).negate().or(eq(RELEASE, 0))])));
+    progress(&mut m, "KnownTerminalCanBeClassifiedWithoutAnotherSignal",
+        all([eq(P, 2), exact]), eq(TERMINAL, 1).or(eq(P, 6)), vec![classify]);
+    // No fairness of successful rest clock, WNOWAIT, RI/audit, wait4 or kernel.
+    m.weak_fair.push(vec![pay]);
+    m
+}
+
+#[cfg(test)]
+mod failed_stop_terminal_tests {
+    use super::*;
+
+    #[test]
+    fn independent_terminal_facts_and_all_broken_controls_export_complete_graphs() {
+        let output = std::env::var_os("DREAM_FAILED_STOP_FORMAL_OUT")
+            .map(std::path::PathBuf::from);
+        if let Some(root) = &output {
+            std::fs::create_dir_all(root).unwrap();
+        }
+        let mut manifest = String::new();
+        for control in 0..=16 {
+            let model = failed_stop_terminal(control);
+            let checked = model.check(100_000).unwrap();
+            assert!(checked.violations.iter().all(|v| v.property != "TypeOK"));
+            if control == 0 {
+                assert!(checked.violations.is_empty());
+                assert!(checked.states.iter().any(|s| {
+                    s[0] == 1 && s[2] == 1 && s[3] == 1 && s[4] == 0
+                        && s[16] == 0 && s[17] == 0 && s[18] == 0 && s[20] == 0
+                }), "consumed EPERM is pending without physical terminal facts");
+                assert!(checked.states.iter().any(|s| {
+                    s[0] == 1 && s[2] == 2 && s[3] == 1 && s[4] == 0
+                        && s[16] == 0 && s[17] == 0 && s[18] == 0 && s[20] == 0
+                }), "consumed ESRCH is pending without physical terminal facts");
+                assert!(checked.states.iter().any(|s| {
+                    s[0] == 5 && s[2] != 0 && s[3] == 1 && s[14] == 0
+                        && s[15] == 1 && s[19] == 1 && s[20] == 1
+                }), "positive independent proof can pay and actually settle without another signal");
+                assert!(checked.states.iter().any(|s| {
+                    s[0] == 6 && s[2] != 0 && s[3] == 1 && s[20] == 0
+                }), "deadline retains raw failure and original owned quarantine");
+            } else {
+                assert!(!checked.violations.is_empty(), "control {control} must fail causally");
+            }
+            println!(
+                "failed_stop_terminal control={control} model={} states={} labelled_edges={} named_verdicts={:?}",
+                model.name,
+                checked.states.len(),
+                checked.edges.iter().map(Vec::len).sum::<usize>(),
+                checked.violations.iter().map(|v| &v.property).collect::<Vec<_>>()
+            );
+            if let Some(root) = &output {
+                super::helper_observer_lowering_export::export(
+                    model,
+                    if control == 0 { "pass" } else { "safety" },
+                    root,
+                    &mut manifest,
+                ).unwrap();
+            }
+        }
+        if let Some(root) = output {
+            std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
+        }
+    }
+}
+
 /// Shared-codec/currentness projection, not a native lifetime theorem. Owner is
 /// the existing private controller; two platform values and three incarnations
 /// expose observed A-B-A. The nine profiles abstract independently checked
@@ -668,6 +834,10 @@ pub fn snapshot(control: u8) -> Model {
 /// Debt is a normalized positive rest obligation, never elapsed wall time. Real
 /// 250us/1ms, native 2ms/25ms/raw3ms and 9*max(1ms,C) witnesses remain concrete.
 pub fn helper(control: u8) -> Model {
+    helper_observer(control, false)
+}
+
+fn helper_observer(control: u8, full_observer: bool) -> Model {
     let name = match control {
         1 => "DreamReadHelperAttempt",
         2 => "DreamReadHelperMember",
@@ -1691,19 +1861,61 @@ pub fn helper(control: u8) -> Model {
         settle,
     );
     if control != 0 {
-        // A control fixture asserts at its first invalid boundary. Model that
-        // observer explicitly instead of exploring unrelated execution after a
-        // proved violation. This changes no good-model transition or bound and
-        // retains every valid prefix plus the causal failing transition. Native
-        // and reference TLC still compare the complete declared control graph.
-        let valid_prefix = all(m.invariants.iter().map(|i| i.condition.clone()));
+        // Keep the original full observer for exact finite equivalence. Each
+        // control can violate only these safety boundaries; all invariants are
+        // still declared and checked. Boolean value guards prevent TLC from
+        // multiplying next-state branches for state-only disjunctions.
+        let relevant: &[&str] = match control {
+            1 => &["NativeEffectRequiresReservedAttempt"],
+            2 => &["TrustedOutputHasOnlyAdmittedMembers"],
+            3 => &["NativeEffectRequiresExactExecutableCapability"],
+            4 => &["AttachedWorkKeepsExactIncarnation"],
+            5 => &[
+                "NoUserCodeBeforeInitialSuspension",
+                "MainProofCannotOverlapRunnableGroup",
+            ],
+            6 => &["StoppedStateRequiresAllMemberConfirmation"],
+            7 | 8 => &[
+                "DebtCoversWholeObservedUnrestedSpan",
+                "HelperChargeIncludesDescendantsAndController",
+            ],
+            9 => &["MainProofCannotOverlapRunnableGroup"],
+            10 => &["DebtCoversWholeObservedUnrestedSpan"],
+            11 => &["OrdinaryApplicationCannotUseNativeLabel"],
+            12..=14 => &["CertifiedNativeCreationMeetsCpuWallInclusiveBounds"],
+            15 => &["CoveredRunnableChargeMeetsWholeGroupWindow"],
+            16 => &["OriginalNativeEffectNeverReplayed"],
+            17 => &["TrustedOutputHasCompleteCoverage"],
+            18 => &["TrustedOutputHasActualReapAndRetirement"],
+            19..=21 => &["FaultCannotReleaseUnsettledOwnership"],
+            22 => &["StopAttemptIsNotRetriedAfterAnyNativeOutcome"],
+            _ => unreachable!(),
+        };
+        assert!(relevant
+            .iter()
+            .all(|name| m.invariants.iter().any(|i| i.name == *name)));
+        let valid_prefix = all(m
+            .invariants
+            .iter()
+            .filter(|i| full_observer || relevant.contains(&i.name.as_str()))
+            .map(|i| i.condition.clone()));
         for action in &mut m.actions {
-            action.guard = action.guard.clone().and(valid_prefix.clone());
+            let guard = action.guard.clone().and(valid_prefix.clone());
+            action.guard = if full_observer {
+                guard
+            } else {
+                guard.eq(Bool(true))
+            };
         }
+        let failed = valid_prefix.negate();
         act(
             &mut m,
             "ControlObserverStopsAtFailedBoundary",
-            valid_prefix.negate(),
+            if full_observer {
+                failed
+            } else {
+                failed.eq(Bool(true))
+            },
             &[],
         );
     }
@@ -3278,6 +3490,10 @@ fn member_window_observer(control: u8, full_observer: bool) -> Model {
 /// Private measurement never sets runtime approval, lesson trust or a lifetime
 /// theorem, even with exact test-host integrity and bound review assumptions.
 pub fn qualification(control: u8) -> Model {
+    qualification_observer(control, false)
+}
+
+fn qualification_observer(control: u8, full_observer: bool) -> Model {
     let suffix = [
         "",
         "Adversarial",
@@ -4646,14 +4862,65 @@ pub fn qualification(control: u8) -> Model {
         vec![private_retire, private_quarantine, private_rest],
     );
     if control >= 2 {
-        let valid = all(m.invariants.iter().map(|i| i.condition.clone()));
+        // These are every safety predicate violated in the original control's
+        // complete reachable graph. Keep every declared safety/liveness clause;
+        // the equivalence test also retains every original labelled transition
+        // and named violation with its complete prefix/cycle trace.
+        let relevant: &[&str] = match control {
+            2..=9 | 14 | 17 => &["NativeBirthNeedsCompleteCurrentPreparedQualification"],
+            10..=13 => &["TrustedOutputHasNoUnaccountedProgramWork"],
+            15 => &["QualificationFailureNeverReleasesUnreapedOriginalEffect"],
+            16 => &["QualificationCannotMintIndependentPublicationProof"],
+            18 => &["TrustRequiresActualSettlementAndPaidDebt"],
+            19..=23 | 30 | 33 => &["PrivateNativeBirthRequiresExactCurrentBoundPretest"],
+            24 => &["PrivateOriginalOperationNeverCreatesDuplicateEffect"],
+            25 => &["PrivateOriginalEffectKeepsCustodyThroughRestart"],
+            26 | 28 => &["PrivateConditionalResultNeverGrantsRuntimeAuthority"],
+            27 => &["PrivateObservationNeverProvesWholeCommandLifetime"],
+            29 => &["NormalProbeRemainsUnavailableBeforeNativeBirth"],
+            31 => &[
+                "PrivateSuccessfulOutcomeRequiresActualPaidProofSettlement",
+                "PrivateSuccessfulOutcomeHasPostSettlementInnerCurrentnessFence",
+            ],
+            32 => &["PrivateOrdinaryOrContinueAdmissionNeverOverlapsUnpaidDebt"],
+            34 => &["BoundPrivateInnerRequiresCompleteReviewAndClosureCoverage"],
+            35 | 38 => &["BoundPrivateInnerKeepsParsedCandidateAndExactEpoch"],
+            36 => &["BoundPrivateInnerUsesCanonicalAarch64Identity"],
+            37 => &["ParsedPrivateInnerHasReservedCombined128KiBMetadata"],
+            39 => &["BoundPrivateInnerHasExactProjectionPinsAndCurrentness"],
+            40 => &["ParsedPrivateInnerRequiresCanonicalTypedShape"],
+            41 => &["PrivateSuccessfulOutcomeHasPostSettlementInnerCurrentnessFence"],
+            _ => unreachable!(),
+        };
+        assert!(
+            relevant
+                .iter()
+                .all(|name| m.invariants.iter().any(|i| i.name == *name))
+        );
+        let valid = all(m
+            .invariants
+            .iter()
+            .filter(|i| full_observer || relevant.contains(&i.name.as_str()))
+            .map(|i| i.condition.clone()));
         for action in &mut m.actions {
-            action.guard = action.guard.clone().and(valid.clone());
+            let guard = action.guard.clone().and(valid.clone());
+            // Evaluate the selected state-only predicates as one Boolean value
+            // instead of expanding their ORs as duplicate Next alternatives.
+            action.guard = if full_observer {
+                guard
+            } else {
+                guard.eq(Bool(true))
+            };
         }
+        let failed = valid.negate();
         act(
             &mut m,
             "ControlObserverStopsAtFailedBoundary",
-            valid.negate(),
+            if full_observer {
+                failed
+            } else {
+                failed.eq(Bool(true))
+            },
             &[],
         );
     }
@@ -5178,6 +5445,89 @@ pub fn git_sig_temp(control: u8) -> Model {
         );
     }
     m
+}
+
+#[cfg(test)]
+#[path = "export.rs"]
+mod helper_observer_lowering_export;
+
+#[cfg(test)]
+mod helper_observer_lowering_equivalence {
+    use super::*;
+
+    #[test]
+    fn original_and_lowered_keep_all_states_labelled_edges_named_verdicts_and_traces() {
+        let output = std::env::var_os("DREAM_HELPER_OBSERVER_OUT").map(std::path::PathBuf::from);
+        let mut full_manifest = String::new();
+        let mut lowered_manifest = String::new();
+        if let Some(root) = &output {
+            for variant in ["original", "lowered"] {
+                std::fs::create_dir_all(root.join(variant)).unwrap();
+            }
+        }
+        for control in 0..=22 {
+            let full_model = helper_observer(control, true);
+            let lowered_model = helper(control);
+            assert_eq!(full_model.name, lowered_model.name);
+            assert_eq!(format!("{:?}", full_model.variables), format!("{:?}", lowered_model.variables));
+            assert_eq!(format!("{:?}", full_model.invariants), format!("{:?}", lowered_model.invariants));
+            assert_eq!(format!("{:?}", full_model.responses), format!("{:?}", lowered_model.responses));
+            assert_eq!(full_model.weak_fair, lowered_model.weak_fair);
+            assert_eq!(full_model.check_deadlock, lowered_model.check_deadlock);
+            assert_eq!(full_model.actions.len(), lowered_model.actions.len());
+            for (full, lowered) in full_model.actions.iter().zip(&lowered_model.actions) {
+                assert_eq!(full.name, lowered.name);
+                assert_eq!(format!("{:?}", full.updates), format!("{:?}", lowered.updates));
+            }
+            let full = full_model.check(100_000).unwrap();
+            let lowered = lowered_model.check(100_000).unwrap();
+            assert_eq!(full.states, lowered.states, "control{control} complete states");
+            assert_eq!(full.edges.len(), lowered.edges.len());
+            for (full, lowered) in full.edges.iter().zip(&lowered.edges) {
+                assert_eq!(
+                    full.iter().map(|edge| (edge.action, edge.to)).collect::<Vec<_>>(),
+                    lowered.iter().map(|edge| (edge.action, edge.to)).collect::<Vec<_>>(),
+                    "control{control} complete labelled edges"
+                );
+            }
+            assert_eq!(
+                full.violations.iter().map(|v| (&v.property, &v.prefix, &v.cycle)).collect::<Vec<_>>(),
+                lowered.violations.iter().map(|v| (&v.property, &v.prefix, &v.cycle)).collect::<Vec<_>>(),
+                "control{control} named verdicts and complete prefix/cycle traces"
+            );
+            println!(
+                "helper_observer_equivalence control={control} model={} states={} edges={} named_verdicts={:?}",
+                full_model.name,
+                full.states.len(),
+                full.edges.iter().map(Vec::len).sum::<usize>(),
+                full.violations.iter().map(|v| &v.property).collect::<Vec<_>>()
+            );
+            drop(full);
+            drop(lowered);
+            if let Some(root) = &output {
+                // Use the canonical exporter unchanged. Its complete native
+                // graphs preserve the original observer as independent evidence;
+                // the lowered directory is the narrow pinned-TLC input.
+                let expected = if control == 0 { "pass" } else { "safety" };
+                helper_observer_lowering_export::export(
+                    full_model,
+                    expected,
+                    &root.join("original"),
+                    &mut full_manifest,
+                ).unwrap();
+                helper_observer_lowering_export::export(
+                    lowered_model,
+                    expected,
+                    &root.join("lowered"),
+                    &mut lowered_manifest,
+                ).unwrap();
+            }
+        }
+        if let Some(root) = output {
+            std::fs::write(root.join("original/manifest.tsv"), full_manifest).unwrap();
+            std::fs::write(root.join("lowered/manifest.tsv"), lowered_manifest).unwrap();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -6400,6 +6750,72 @@ mod close_delivery_boundary_tests {
                 bad.violations
                     .iter()
                     .any(|v| v.property == invariant && v.cycle.is_empty())
+            );
+        }
+    }
+}
+
+
+#[cfg(test)]
+mod qualification_observer_value_equivalence {
+    use super::*;
+
+    #[test]
+    fn original_and_selected_value_guard_keep_all_42_graphs_named_verdicts_and_complete_traces() {
+        for control in 0..=41 {
+            let original_model = qualification_observer(control, true);
+            let value_model = qualification(control);
+            assert_eq!(original_model.name, value_model.name);
+            assert_eq!(
+                format!("{:?}", original_model.variables),
+                format!("{:?}", value_model.variables),
+                "control{control} variables and bounds"
+            );
+            assert_eq!(
+                format!("{:?}", original_model.invariants),
+                format!("{:?}", value_model.invariants),
+                "control{control} every safety clause"
+            );
+            assert_eq!(
+                format!("{:?}", original_model.responses),
+                format!("{:?}", value_model.responses),
+                "control{control} every liveness clause"
+            );
+            assert_eq!(original_model.weak_fair, value_model.weak_fair);
+            assert_eq!(original_model.check_deadlock, value_model.check_deadlock);
+            assert_eq!(original_model.actions.len(), value_model.actions.len());
+            for (original, value) in original_model.actions.iter().zip(&value_model.actions) {
+                assert_eq!(original.name, value.name);
+                assert_eq!(format!("{:?}", original.updates), format!("{:?}", value.updates));
+            }
+            let original = original_model.check(100_000).unwrap();
+            let value = value_model.check(100_000).unwrap();
+            assert_eq!(original.states, value.states, "control{control} complete states");
+            assert_eq!(original.edges.len(), value.edges.len());
+            for (a, b) in original.edges.iter().zip(&value.edges) {
+                assert_eq!(
+                    a.iter().map(|e| (e.action, e.to)).collect::<Vec<_>>(),
+                    b.iter().map(|e| (e.action, e.to)).collect::<Vec<_>>(),
+                    "control{control} complete labelled edges"
+                );
+            }
+            assert_eq!(
+                original.violations.iter()
+                    .map(|v| (&v.property, &v.prefix, &v.cycle)).collect::<Vec<_>>(),
+                value.violations.iter()
+                    .map(|v| (&v.property, &v.prefix, &v.cycle)).collect::<Vec<_>>(),
+                "control{control} named safety/liveness verdicts and complete prefix/cycle traces"
+            );
+            assert!(
+                original.violations.iter().all(|v| v.property != "TypeOK"),
+                "control{control} TypeOK is never a qualifying negative"
+            );
+            println!(
+                "qualification_observer_equivalence control={control} model={} states={} labelled_edges={} named_verdicts={:?}",
+                original_model.name,
+                original.states.len(),
+                original.edges.iter().map(Vec::len).sum::<usize>(),
+                original.violations.iter().map(|v| &v.property).collect::<Vec<_>>()
             );
         }
     }

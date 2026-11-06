@@ -49,7 +49,7 @@ check-embedded-build:
 	cargo check --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --features acp,standalone --lib --bin bboxy450-harness
 
 test-formal-native:
-	FORMAL_OUT='$(abspath $(TARGET_DIR))/formal/models' cargo test --offline --locked --test formal_models --test formal_nonvacuity --test reactor_projection
+	FORMAL_OUT='$(abspath $(TARGET_DIR))/formal/models' cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test formal_models --test formal_nonvacuity --test reactor_projection
 	python3 -I scripts/formal.py --native --target '$(abspath $(TARGET_DIR))/formal'
 
 test-formal: test-formal-native
@@ -324,9 +324,18 @@ test-dream-read-closure-codec:
 	mkdir -p '$(TARGET_DIR)/dream-read-closure-codec'
 	/usr/bin/clang -O2 -std=c11 -Wall -Wextra -Werror tests/fixtures/dream-read/closure-codec-controls.c -o '$(TARGET_DIR)/dream-read-closure-codec/controls'
 	python3 -I tests/fixtures/dream-read/check-closure-vectors.py --binary '$(abspath $(TARGET_DIR))/dream-read-closure-codec/controls'
+.PHONY: test-dream-read-private-controls test-dream-read-failed-stop-formal
+test-dream-read-private-controls:
+	mkdir -p '$(TARGET_DIR)/dream-read-private-controls'
+	/usr/bin/clang -O2 -std=c11 -Wall -Wextra -Werror tests/fixtures/dream-read/private-engine-controls.c -o '$(TARGET_DIR)/dream-read-private-controls/controls'
+	'$(TARGET_DIR)/dream-read-private-controls/controls'
+	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test dream_read private_candidate_outer_codec_refuses_noncanonical_and_overflow_before_birth -- --exact --test-threads=1 --nocapture
+test-dream-read-failed-stop-formal:
+	DREAM_FAILED_STOP_FORMAL_OUT='$(abspath $(TARGET_DIR))/dream-read-failed-stop-formal/models' cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test formal_models failed_stop_terminal_tests -- --test-threads=1 --nocapture
+	python3 -I tests/fixtures/dream-read/check-terminal-models.py --target '$(abspath $(TARGET_DIR))/dream-read-failed-stop-formal'
 .PHONY: test-dream-mcp
-DREAM_READ_SOURCES := Makefile src/gateway/mod.rs src/gateway/unix.rs src/engine/mod.rs tests/fixtures/dream-read/closure-codec-controls.c tests/fixtures/dream-read/check-closure-vectors.py tests/fixtures/dream-read/prepare-c-probe.py tests/fixtures/dream-proof-tools/closure-boundary.schema.json tests/fixtures/dream-proof-tools/closure-boundary-vectors.json src/main.rs src/frontends/headless.rs src/dream/mod.rs src/dream/read.rs src/dream/read_wire.rs src/dream/c1_wire.rs src/dream/fingerprint.rs src/dream/entry.rs src/dream/worker.rs src/dream/c1.rs src/dream/bootstrap.rs src/dream/resolve.rs src/dream/trust.rs src/dream/audit.rs src/dream/graph.rs src/dream/recall.rs src/dream/receipt.rs src/dream/projection.rs src/dream/seal.rs tests/fixtures/dream-bootstrap/vectors.json tests/fixtures/dream-read/proof-helper-probe.c tests/fixtures/dream-read/signature-boundary-controls.c tests/fixtures/dream-read/private-input-controls.c tests/fixtures/dream-read/io-helper.c tests/fixtures/dream-read/root_fixture.rs tests/dream_read.rs Cargo.toml Cargo.lock
-test-dream-mcp: test-dream-read-closure-codec
+DREAM_READ_SOURCES := Makefile src/gateway/mod.rs src/gateway/unix.rs src/engine/mod.rs tests/fixtures/dream-read/closure-codec-controls.c tests/fixtures/dream-read/check-closure-vectors.py tests/fixtures/dream-read/prepare-c-probe.py tests/fixtures/dream-proof-tools/closure-boundary.schema.json tests/fixtures/dream-proof-tools/closure-boundary-vectors.json src/main.rs src/frontends/headless.rs src/dream/mod.rs src/dream/read.rs src/dream/read_wire.rs src/dream/c1_wire.rs src/dream/fingerprint.rs src/dream/entry.rs src/dream/worker.rs src/dream/c1.rs src/dream/bootstrap.rs src/dream/resolve.rs src/dream/trust.rs src/dream/audit.rs src/dream/graph.rs src/dream/recall.rs src/dream/receipt.rs src/dream/projection.rs src/dream/seal.rs tests/fixtures/dream-bootstrap/vectors.json tests/fixtures/dream-read/proof-helper-probe.c tests/fixtures/dream-read/signature-boundary-controls.c tests/fixtures/dream-read/private-input-controls.c tests/fixtures/dream-read/private-engine-controls.c tests/fixtures/dream-read/io-helper.c tests/fixtures/dream-read/root_fixture.rs tests/dream_read.rs Cargo.toml Cargo.lock
+test-dream-mcp: test-dream-read-closure-codec test-dream-read-private-controls
 	python3 -I tests/fixtures/dream-bootstrap/check.py
 	mkdir -p '$(TARGET_DIR)/dream-read-native-profile'
 	python3 -I -c 'import hashlib,json,pathlib,sys; stamp=lambda p:(lambda s:[s.st_dev,s.st_ino,s.st_size,s.st_mtime_ns,s.st_ctime_ns])(p.stat()); pathlib.Path(sys.argv[1]).write_text(json.dumps({n:{"sha256":hashlib.sha256(pathlib.Path(n).read_bytes()).hexdigest(),"stamp":stamp(pathlib.Path(n))} for n in sys.argv[2:]},sort_keys=True))' '$(TARGET_DIR)/dream-read-native-profile/source-input.json' $(DREAM_READ_SOURCES)

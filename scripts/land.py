@@ -114,7 +114,7 @@ def gate(base):
         if embedded:
             env["BBOXY_TOOLKIT_ROOT"] = str(enclosing)
         # Do not depend on unlanded app/workspace changes, or overwrite their
-        # aggregate evidence. Cargo still uses the one shared warm target.
+        # aggregate evidence. Cargo uses the selected private target for formal artifacts.
         formal_target=TARGET/"harness-landing"
         if run(["make", "check-formal-evidence", f"TARGET_DIR={formal_target}"], env=env, required=False):
             run(["make", "test-formal-parity", "FORMAL_REUSE=1", f"TARGET_DIR={formal_target}"], env=env)

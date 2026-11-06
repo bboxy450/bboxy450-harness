@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright 2026 Boxy (bboxy450) and contributors.
 # SPDX-License-Identifier: LicenseRef-Respectful-Slop-1.0-Draft
-# bboxy450-harness: https://github.com/bboxy450/bboxy450-harness
+# Project: bboxy450-harness — https://github.com/bboxy450/bboxy450-harness
 # License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 # Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md

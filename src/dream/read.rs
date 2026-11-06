@@ -951,6 +951,16 @@ impl HelperSummary {
         );
         let last_stop = m.last_stop;
         let first_stop = m.first_failed_stop;
+        for (kind, receipt) in [("last", last_stop), ("first_failed", first_stop)] {
+            if receipt.attempt != 0 {
+                eprintln!(
+                    "dream-read helper_stop_identity kind={} sequence={} pid={} pgid={} birth={} start_abstime={} audit_version={} attempt={} result={} errno={} observed_ns={} injected={}",
+                    kind, receipt.sequence, receipt.pid, receipt.pgid, receipt.birth,
+                    receipt.start_abstime, receipt.audit_version, receipt.attempt,
+                    receipt.result, receipt.rawerrno, receipt.observed_ns, receipt.injected
+                );
+            }
+        }
         eprintln!(
             "dream-read helper_stop profile=read-helper-native/1 attempts={} failures={} last_sequence={} last_pgid={} last_attempt={} last_result={} last_errno={} first_failure_sequence={} first_failure_pgid={} first_failure_attempt={} first_failure_result={} first_failure_errno={}",
             m.stop_attempts,

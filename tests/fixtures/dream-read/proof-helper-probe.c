@@ -1602,6 +1602,7 @@ struct private_engine_result {
     uint16_t attempts,created,reaped;
     uint8_t members_max;
     unsigned group_gone,retired_coverage;
+    unsigned engine_entered,semantic_forms,commands_completed;
 };
 // Implemented by the surrounding bound-Basis owner. Engine calls these only
 // before birth or during an established stopped/no-grant ordinary lane.
@@ -2206,6 +2207,7 @@ enum engine_image_phase {ENGINE_UNSEEN,ENGINE_CLONE,ENGINE_EXPECTED,ENGINE_EXITE
 struct engine_member {
     struct image state;audit_token_t token;unsigned token_known,phase,stop_version;
     uint64_t user,system,child_user,child_system,exit_abstime; // Actual RI Mach units.
+    uint32_t exit_status;unsigned exit_status_known;
 };
 struct engine_prepared {
     char bytes[ENGINE_ARGS_MAX],*argv[65],*env[12];size_t used;
@@ -2221,7 +2223,9 @@ struct engine_owner {
     struct window_ledger grant;uint64_t accounted_cpu,accounted_user,accounted_system,grant_cpu_before;
     uint64_t accounted_ticks,grant_tick_before;
     unsigned running,stop_requested,retiring,failed,closed,foreground,direct_reaped,direct_custody,coverage_lost;
-    unsigned command,grants,case_fired,record_count;uint64_t hold_until,pipe_cpu;
+    unsigned command,grants,case_fired,record_count,child_created,child_settled;uint64_t hold_until,pipe_cpu;
+    unsigned stop_pending,stop_terminal,stop_attempts;int stop_result,stop_errno;
+    uint64_t stop_call_ns,stop_terminal_ns;
     uint64_t wait_user,wait_system,wait_rss;unsigned wait_observed;
     char image[4097],descendant[4097];
     int input,output,errors,ledger;size_t sent,out_len,err_len,ledger_bytes;
@@ -2350,13 +2354,23 @@ static int engine_actual_delta(struct engine_owner *owner,uint64_t baseline,uint
     }
     return 1;
 }
+// Decision66050: a consumed failed STOP keeps the original grant open. The
+// errno supplies no ACK or endpoint; only independent original terminal and
+// complete member/RI/roster observations can close it. No second signal follows.
+static int engine_stop_result(struct engine_owner *owner,int result,int error,uint64_t at) {
+    owner->stop_result=result;owner->stop_errno=error;owner->stop_call_ns=at;
+    owner->stop_attempts++;
+    if(result==0)return 1;
+    if(error==EPERM||error==ESRCH){owner->stop_pending=1;return 1;}
+    return engine_failure(owner,"coverage_unknown","original group STOP effect unresolved");
+}
 static int engine_stop_group(struct engine_owner *owner) {
     if(owner->stop_requested)return 1;
     int done;if(!known_exited(owner->ticket.pid,&done))return engine_failure(owner,"settlement_unknown","original unreaped group custody unavailable");
     owner->stop_requested=1;
-    if(kill(-owner->ticket.pgid,SIGSTOP)==0)return 1;
-    if(errno==ESRCH&&engine_direct_exited(owner,&done)&&done)return 1;
-    return engine_failure(owner,"coverage_unknown","original group STOP effect unresolved");
+    uint64_t at=engine_now(owner,CLOCK_MONOTONIC);errno=0;
+    int result=kill(-owner->ticket.pgid,SIGSTOP),error=result?errno:0;
+    return engine_stop_result(owner,result,error,at);
 }
 static int engine_member_exit(struct engine_owner *owner,unsigned index) {
     struct engine_member *member=&owner->members[index];struct rusage_info_v1 usage;
@@ -2364,10 +2378,30 @@ static int engine_member_exit(struct engine_owner *owner,unsigned index) {
     if(proc_pid_rusage(member->state.pid,RUSAGE_INFO_V1,(rusage_info_t *)&usage)!=0)
         return errno==ESRCH&&member->phase==ENGINE_EXITED&&member->exit_abstime!=0;
     if(usage.ri_proc_exit_abstime==0||!engine_usage(owner,index,&usage))return 0;
+    // Q2 is not the verifier's parent. Retain its actual BSD wait status while
+    // the original zombie is still observable; no status is invented from RI,
+    // Git's generic exit code or a later empty census. Optional status
+    // corroboration is separate from the exact Git cryptographic status path.
+    struct proc_bsdinfo b;errno=0;
+    int got=proc_pidinfo(member->state.pid,PROC_PIDTBSDINFO,0,&b,sizeof(b));
+    if(got==(int)sizeof(b)) {
+        uint64_t birth=(uint64_t)b.pbi_start_tvsec*1000000+b.pbi_start_tvusec;
+        if(b.pbi_pid!=(uint32_t)member->state.pid||birth!=member->state.birth||b.pbi_status!=SZOMB)
+            return engine_failure(owner,"coverage_unknown","terminal BSD status belongs to a foreign or live incarnation");
+        if(member->exit_status_known&&member->exit_status!=b.pbi_xstatus)
+            return engine_failure(owner,"coverage_unknown","retained original terminal status changed");
+        member->exit_status=b.pbi_xstatus;member->exit_status_known=1;
+    }
     member->phase=ENGINE_EXITED;return 1;
 }
 static int engine_sample_member(struct engine_owner *owner,unsigned index,pid_t pid,int *ack) {
     *ack=0;struct engine_member *member=&owner->members[index];struct image current;
+    // Terminal proof precedes live-thread/image predicates: a zombie may have
+    // zero threads and no pathname. The old token + RI exit/start continuity,
+    // plus WNOWAIT for the original direct leader, are independent evidence.
+    int original_done=0;
+    if(member->token_known&&(index|| (engine_direct_exited(owner,&original_done)&&original_done))
+        &&engine_member_exit(owner,index)){*ack=1;return 1;}
     if(!control_observe(pid,&current)) {
         int done=0;
         if(index==0&&engine_direct_exited(owner,&done)&&done&&engine_member_exit(owner,index)){*ack=1;return 1;}
@@ -2378,6 +2412,9 @@ static int engine_sample_member(struct engine_owner *owner,unsigned index,pid_t 
         ||(member->state.birth&&current.birth!=member->state.birth)||current.uid!=geteuid()||current.nice<10||current.threads!=1||current.runnable>1)
         return engine_failure(owner,"coverage_unknown","member lineage birth group or one-thread predicate differs");
     if(member->phase==ENGINE_EXITED)return engine_failure(owner,"coverage_unknown","retired logical member revived");
+    if(owner->stop_pending&&current.status!=SZOMB) {
+        *ack=0;return 1; // original t0 remains open; no STOP/CONT or image grant.
+    }
     if(index==0&&current.birth!=owner->ticket.birth)return engine_failure(owner,"coverage_unknown","leader birth differs");
     unsigned previous=member->token_known?member->token.val[7]:0;int fresh=0;
     audit_token_t token=member->token;
@@ -2441,8 +2478,10 @@ static int engine_roster(struct engine_owner *owner,int final,int *closed) {
     if(child>0&&!owner->members[1].state.pid) {
         // Capture the real logical effect before expensive token/image checks.
         owner->members[1].state.pid=child;
-        owner->stop_requested=1;
-        if(kill(-owner->ticket.pgid,SIGSTOP)!=0)return engine_failure(owner,"coverage_unknown","new child roster STOP unresolved");
+        if(!owner->child_created){owner->child_created=1;owner->result->created++;owner->result->members_max=2;}
+        if(owner->stop_pending)return engine_failure(owner,"coverage_unknown","new child cannot close a pending terminal unknown slot");
+        owner->stop_requested=0;
+        if(!engine_stop_group(owner))return 0;
         if(owner->grant.t0)owner->grant.unknown_mask|=2u;
     }
     if(child>0&&owner->members[1].state.pid!=child)
@@ -2499,8 +2538,10 @@ static int engine_roster(struct engine_owner *owner,int final,int *closed) {
     if(g<0||g>2||c<0||c>1)return engine_failure(owner,"coverage_unknown","final stopped roster is incomplete");
     if(c&&!owner->members[1].state.pid) {
         owner->members[1].state.pid=final_children[0];owner->grant.unknown_mask|=2u;
-        owner->stop_requested=1;
-        if(kill(-owner->ticket.pgid,SIGSTOP)!=0)return engine_failure(owner,"coverage_unknown","late newborn roster STOP unresolved");
+        if(!owner->child_created){owner->child_created=1;owner->result->created++;owner->result->members_max=2;}
+        if(owner->stop_pending)return engine_failure(owner,"coverage_unknown","late unknown child cannot close pending terminal proof");
+        owner->stop_requested=0;
+        if(!engine_stop_group(owner))return 0;
         return 1; // Every possible interval remains open from the original t0.
     }
     for(int i=0;i<g;i++)if(final_group[i]!=owner->ticket.pid&&final_group[i]!=owner->members[1].state.pid)
@@ -2511,7 +2552,18 @@ static int engine_roster(struct engine_owner *owner,int final,int *closed) {
             return engine_failure(owner,"coverage_unknown","unobserved retired child cannot acquire a minted endpoint");
         owner->grant.unknown_mask|=2u;owner->grant.ack_mask|=2;owner->grant.identity_mask|=2;
     }
+    if(owner->stop_pending) {
+        int done=0;
+        if(!engine_direct_exited(owner,&done)||!done)return 1;
+        if(owner->slots==2&&!owner->members[1].state.pid)
+            return engine_failure(owner,"coverage_unknown","pending terminal proof retains an unknown possible child");
+        for(unsigned i=0;i<owner->slots;i++)if(owner->members[i].phase!=ENGINE_EXITED
+            ||!owner->members[i].exit_abstime||!owner->members[i].token_known)
+            return engine_failure(owner,"coverage_unknown","pending STOP lacks every original member terminal continuity");
+        owner->stop_terminal=1;
+    }
     owner->grant.t_close=engine_now(owner,CLOCK_MONOTONIC);
+    if(owner->stop_pending)owner->stop_terminal_ns=owner->grant.t_close;
     for(unsigned i=0;i<owner->slots;i++)if(owner->grant.unknown_mask&(1u<<i))owner->grant.end[i]=owner->grant.t_close;
     owner->grant.roster_closed=1;owner->closed=1;*closed=1;return 1;
 }
@@ -2560,7 +2612,10 @@ static int engine_record(struct engine_owner *owner,const char *phase) {
         "\"W\":%llu,\"A\":%llu,\"C\":%llu,\"Q\":%llu,\"pipe_cpu_subset\":%llu,\"ack_mask\":%u,\"unknown_mask\":%u,"
         "\"closed\":%u,\"failed\":%u,\"direct_reaped\":%u,\"native_attempted\":%d,\"native_errno\":%d,"
         "\"native_cpu\":%llu,\"native_wall\":%llu,\"ri_cpu_ticks\":[%llu,%llu,%llu],\"timebase\":[%u,%u],"
-        "\"wait4_observed\":%u,\"wait4_user_ns\":%llu,\"wait4_system_ns\":%llu,\"wait4_rss\":%llu,\"conditional_source_only\":true}\n",
+        "\"wait4_observed\":%u,\"wait4_user_ns\":%llu,\"wait4_system_ns\":%llu,\"wait4_rss\":%llu,"
+        "\"stop_attempts\":%u,\"stop_result\":%d,\"stop_errno\":%d,\"stop_call_ns\":%llu,"
+        "\"stop_pending\":%u,\"stop_terminal\":%u,\"stop_terminal_ns\":%llu,"
+        "\"child_status_known\":%u,\"child_status_raw\":%u,\"conditional_source_only\":true}\n",
         phase,owner->ticket.sequence,owner->command,owner->grants,owner->ticket.pid,owner->members[1].state.pid,
         (unsigned long long)owner->members[0].state.birth,(unsigned long long)owner->members[1].state.birth,
         owner->members[0].token.val[7],owner->members[1].token.val[7],(unsigned long long)g->t0,
@@ -2571,7 +2626,10 @@ static int engine_record(struct engine_owner *owner,const char *phase) {
         (unsigned long long)owner->native.cpu,(unsigned long long)owner->native.wall,
         (unsigned long long)owner->members[0].state.raw_rusage_cpu,(unsigned long long)owner->members[1].state.raw_rusage_cpu,
         (unsigned long long)owner->members[0].state.raw_waited,scale.numer,scale.denom,owner->wait_observed,
-        (unsigned long long)owner->wait_user,(unsigned long long)owner->wait_system,(unsigned long long)owner->wait_rss);
+        (unsigned long long)owner->wait_user,(unsigned long long)owner->wait_system,(unsigned long long)owner->wait_rss,
+        owner->stop_attempts,owner->stop_result,owner->stop_errno,(unsigned long long)owner->stop_call_ns,
+        owner->stop_pending,owner->stop_terminal,(unsigned long long)owner->stop_terminal_ns,
+        owner->members[1].exit_status_known,owner->members[1].exit_status);
     if(n<=0||(size_t)n>=sizeof(bytes)||owner->record_count>=ENGINE_RECORD_MAX
         ||(size_t)n>ENGINE_CAPTURE_MAX-owner->ledger_bytes)
         return engine_failure(owner,"resource_limit","fixed raw ledger record or two-MiB file bound exhausted");
@@ -2634,13 +2692,14 @@ static int engine_window_cost(struct engine_owner *owner,uint64_t end,int closed
 static int engine_admit_grant(struct engine_owner *owner) {
     uint64_t now=engine_now(owner,CLOCK_MONOTONIC);
     if(now==UINT64_MAX||owner->failed)return 0;
+    if(owner->stop_pending)return engine_failure(owner,"coverage_unknown","no CONT or next work while consumed STOP awaits terminal settlement");
     if(now<private_cost.rest_until)return engine_failure(owner,"coverage_unknown","CONT refused while additive debt remains");
     if(engine_cancel_signal||owner->foreground||now>=owner->context->outer->deadline)
         return engine_failure(owner,now>=owner->context->outer->deadline?"deadline":"cancelled","CONT revoked before the original effect");
     return 1;
 }
 static int engine_grant(struct engine_owner *owner) {
-    if(owner->failed||owner->retiring||!owner->closed||private_failed||engine_cancel_signal)
+    if(owner->failed||owner->retiring||!owner->closed||owner->stop_pending||private_failed||engine_cancel_signal)
         return engine_failure(owner,"cancelled","grant refused after revocation or unfinished closure");
     if(!strcmp(owner->context->outer->case_name,"debt_overlap")&&!owner->case_fired) {
         owner->case_fired=1;
@@ -2664,7 +2723,8 @@ static int engine_grant(struct engine_owner *owner) {
     int done;if(!known_exited(owner->ticket.pid,&done)||done)return engine_failure(owner,"settlement_unknown","CONT lacks original live unreaped leader");
     owner->grant.t0=engine_now(owner,CLOCK_MONOTONIC);
     if(kill(-owner->ticket.pgid,SIGCONT)!=0)return engine_failure(owner,"coverage_unknown","original CONT effect unresolved");
-    owner->running=1;owner->stop_requested=0;owner->grants++;
+    owner->running=1;owner->stop_requested=0;owner->stop_attempts=0;owner->stop_result=owner->stop_errno=0;
+    owner->stop_call_ns=owner->stop_terminal_ns=0;owner->stop_terminal=0;owner->grants++;
     const char *test=owner->context->outer->case_name;
     for(;;) {
         uint64_t now;if(!engine_clock(owner,CLOCK_MONOTONIC,&now))break;int stop=0;
@@ -2906,21 +2966,32 @@ static int engine_original_group_gone(struct engine_owner *owner) {
 }
 static int engine_retire(struct engine_owner *owner,int *exit_code) {
     owner->result->phase="settling";owner->retiring=1;uint64_t at=private_cost.open_cpu;
-    // Exact retained descendants first; the unreaped leader pins the final
-    // numeric group signal. No signal is issued after the direct wait4.
-    for(unsigned pass=0;pass<2;pass++)for(unsigned i=0;i<owner->retired_count;i++) {
-        struct engine_incarnation *member=&owner->retired[i];
-        if(!member->current||((member->pid==owner->ticket.pid)!=(pass==1)))continue;
-        int stop=engine_token_signal(&member->token,SIGSTOP),kill_result=engine_token_signal(&member->token,SIGKILL);
-        if((stop&&stop!=ESRCH)||(kill_result&&kill_result!=ESRCH))engine_failure(owner,"settlement_unknown","retained incarnation retirement unresolved");
-    }
+    // Observe the original unreaped handle before settlement. A naturally
+    // finished command is reaped without signalling its retired incarnation.
+    // Failed STOP remains pending until the independent terminal conjunction;
+    // cancellation may only kill retained identities, never issue another STOP.
     if(owner->ticket.pid<=0)return 1;
     int done=0;
     if(!known_exited(owner->ticket.pid,&done)) {
         owner->direct_custody=0;retained_group=0;
-        return engine_failure(owner,"settlement_unknown","final numeric group signal lacks original unreaped handle");
+        return engine_failure(owner,"settlement_unknown","settlement lacks original unreaped handle");
     }
-    if(kill(-owner->ticket.pgid,SIGKILL)!=0&&errno!=ESRCH)engine_failure(owner,"settlement_unknown","final unreaped group kill unresolved");
+    if(done&&!owner->failed) {
+        int closed=0;
+        if(!engine_roster(owner,1,&closed)||!closed)
+            engine_failure(owner,"coverage_unknown","normal completion lacks original terminal roster closure");
+    }
+    if(!done||owner->failed) {
+        for(unsigned pass=0;pass<2;pass++)for(unsigned i=0;i<owner->retired_count;i++) {
+            struct engine_incarnation *member=&owner->retired[i];
+            if(!member->current||((member->pid==owner->ticket.pid)!=(pass==1))
+                ||(member->pid==owner->ticket.pid&&done)||engine_physical_exit(member))continue;
+            int result=engine_token_signal(&member->token,SIGKILL);
+            if(result&&result!=ESRCH)engine_failure(owner,"settlement_unknown","retained incarnation kill unresolved");
+        }
+        if(!done&&kill(-owner->ticket.pgid,SIGKILL)!=0&&errno!=ESRCH)
+            engine_failure(owner,"settlement_unknown","final unreaped group kill unresolved");
+    }
     struct rusage usage;int status=0;pid_t joined=0;
     for(;;) {
         if(!engine_direct_exited(owner,&done)) {
@@ -2967,12 +3038,28 @@ static int engine_retire(struct engine_owner *owner,int *exit_code) {
         usleep(1000); // Retain the owner; never invent settlement or send a reused group signal.
     }
     owner->result->group_gone=1;
-    owner->result->retired_coverage=!(owner->git_signature&&owner->git_signature->quarantined);
+    // The implicit verifier is physically reaped by Git, not by a second Q2
+    // wait4. Count it only after its retained original exit/RI/token endpoint,
+    // reconciled leader rollup and actual leader wait4/group settlement.
+    if(owner->child_created&&!owner->child_settled) {
+        if(owner->members[1].phase==ENGINE_EXITED&&owner->members[1].exit_abstime
+            &&owner->members[1].token_known&&engine_member_exit(owner,1)) {
+            owner->child_settled=1;owner->result->reaped++;
+        } else engine_failure(owner,"coverage_unknown","implicit verifier lacks retained positive terminal settlement");
+    }
+    owner->result->retired_coverage=!(owner->git_signature&&owner->git_signature->quarantined)
+        &&(!owner->child_created||owner->child_settled);
     uint64_t used=engine_interval(at,engine_now(owner,CLOCK_THREAD_CPUTIME_ID)),cost;
     if(owner->grant.t0&&!owner->grant.roster_closed) {
         owner->grant.cpu_close=engine_now(owner,CLOCK_THREAD_CPUTIME_ID);
         uint64_t tick_end;
         if(!engine_actual_delta(owner,owner->grant_tick_before,&owner->grant.actual_cpu,&tick_end))owner->grant.actual_cpu=UINT64_MAX;
+        // An unfinished original grant includes teardown/late kernel work.
+        // The final wait4 reconciliation cannot disappear merely because the
+        // signal/window closure failed. Unknown stays unknown and refuses.
+        if(late==UINT64_MAX||owner->grant.actual_cpu==UINT64_MAX
+            ||!engine_safe_sum(owner->grant.actual_cpu,late,&owner->grant.actual_cpu))owner->grant.actual_cpu=UINT64_MAX;
+        engine_sum(&owner->result->late_kernel_ns,late);
         engine_window_cost(owner,engine_now(owner,CLOCK_MONOTONIC),0);owner->running=0;
         engine_charge(owner,owner->grant.controller,owner->grant.charge,1);
     } else {
@@ -2981,6 +3068,7 @@ static int engine_retire(struct engine_owner *owner,int *exit_code) {
         engine_charge(owner,used,cost,1);
     }
     if(usage.ru_maxrss<0||(uint64_t)usage.ru_maxrss>16u*1024u*1024u)engine_failure(owner,"resource_limit","actual wait4 RSS exceeds existing helper limit");
+    engine_max(&owner->result->cleanup_max_ns,used);
     uint64_t logged=private_cost.open_cpu;
     (void)engine_record(owner,"reaped");
     uint64_t log_used=engine_interval(logged,engine_now(owner,CLOCK_THREAD_CPUTIME_ID));
@@ -2992,7 +3080,8 @@ static void engine_emergency_dispose(void) {
     if(!owner||owner->direct_reaped)return;
     owner->retiring=1;
     for(unsigned i=0;i<owner->retired_count;i++)if(owner->retired[i].current) {
-        engine_token_signal(&owner->retired[i].token,SIGSTOP);
+        // Cancellation escalates only the retained original identity. In
+        // particular a consumed pending STOP is never issued a second time.
         engine_token_signal(&owner->retired[i].token,SIGKILL);
     }
     // Only a positive nonreaping ownership observation preserves permission
@@ -3089,13 +3178,85 @@ static int engine_blob_pin(struct engine_owner *owner,const char *expected) {
     return !strcmp(hex,expected);
 }
 #pragma clang diagnostic pop
+// Fixed public Git t7510 corpus adopted by the signed builder fixture. The
+// SHA-1 commit relation (including its separate gpgsig-sha256 header) is the
+// explicit source/corpus-equivalence premise. Actual object/type/tree/blob,
+// ancestry, last-touch and Git cryptographic statuses are still checked below.
+// Adapted from Git public presigned objects:
+// https://github.com/git/git/blob/v2.54.0/t/t7510-signed-commit.sh
+// Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+static const char *engine_selected_commit(const struct private_engine_context *context) {
+    return !strcmp(context->outer->case_name,"corrupt_proof")?context->basis->fixture.corrupt:context->basis->fixture.valid;
+}
+static int engine_corpus_binding(const struct private_engine_context *context,char tree[41]) {
+    const struct private_fixture *f=&context->basis->fixture;
+    if(strcmp(f->ancestor,"2ac709c836778e8203ecc9232daa5153a166cc0f")
+        ||strcmp(f->valid,"cbceced299d68bdfce3b95f182698f280f1da743")
+        ||strcmp(f->corrupt,"0cf6ea6f9b0da82362299e1ccad64e4a5d028de3")
+        ||strcmp(f->blob,"d00491fd7e5bb6fa28c517a0bb32b8b506539d4d")
+        ||strcmp(f->signer,"73D758744BE721698EC54E8713B6F51ECDDE430D")
+        ||f->payload.len!=218||strcmp(f->payload.sha,"58c4ecb71bef6681cc31d9513ac85bbbd130d4d15438e5c57802a983f6091fb3")
+        ||f->valid_signature.len!=228||strcmp(f->valid_signature.sha,"d716c2d0807ca1339c774486d55d31768fa9f953df90872f2ceef4cb4568c792")
+        ||f->corrupt_signature.len!=228||strcmp(f->corrupt_signature.sha,"cd9777c930d18c7b5b3603ad58a6f63bd64fca702d87bc4e518fca5c1cf0a17b"))
+        return private_fail("review_unbound","selected fixture differs from the bound presigned corpus relation");
+    unsigned char payload[4096];size_t length=0;
+    if(!private_read_bound_ref(context,&f->payload,1,payload,sizeof(payload),&length))return 0;
+    uint64_t at=private_cost.open_cpu;
+    // Parse the canonical bounded unsigned commit header instead of accepting
+    // a caller-provided expected tree. The pinned payload hash binds every
+    // remaining header/message byte; the known corpus has this single parent.
+    int valid=length==f->payload.len&&length>=95&&!memcmp(payload,"tree ",5)&&payload[45]=='\n'
+        &&!memcmp(payload+46,"parent ",7)&&payload[93]=='\n'&&!memcmp(payload+53,f->ancestor,40);
+    if(valid){memcpy(tree,payload+5,40);tree[40]=0;valid=hex_value(tree,40);}
+    if(!private_end_unit(at))return 0;
+    return valid?1:private_fail("review_unbound","unsigned corpus payload tree or parent binding differs");
+}
+static int engine_signature_semantic(struct engine_owner *owner,int status) {
+    const struct private_fixture *fixture=&owner->context->basis->fixture;
+    if(status!=0||owner->verified_descendants!=1||!owner->child_created||!owner->child_settled
+        ||!owner->git_signature||!owner->git_signature->bound||!owner->git_signature->settled
+        ||owner->git_signature->quarantined||owner->git_signature->selected!=private_sig_selected(owner->context))
+        return engine_failure(owner,"signature_unexpected","signature requires actual verifier, status and GS1/GS2 settlement");
+    int corrupt=!strcmp(owner->context->outer->case_name,"corrupt_proof");
+    // The actual Git status below is the reviewed source path's cryptographic
+    // result, conditional on exact Git/GPG source/corpus binding. BSD child
+    // status is corroboration when retained; Git may already have reaped it.
+    // Absence is recorded, never converted to an invented zero/one or a new
+    // mandatory racy snapshot. A retained contradictory status still refuses.
+    int child_status=(int)owner->members[1].exit_status;
+    if(owner->members[1].exit_status_known&&(!WIFEXITED(child_status)||WEXITSTATUS(child_status)!=(corrupt?1:0)))
+        return engine_failure(owner,"signature_unexpected","observed verifier exit contradicts the selected cryptographic outcome");
+    size_t n=owner->out_len;if(n&&owner->capture[n-1]=='\n')n--;
+    if(n<3||owner->capture[1]!=0||memchr(owner->capture,'\n',n))
+        return engine_failure(owner,"signature_unexpected","Git cryptographic status framing differs");
+    const unsigned char *third=memchr(owner->capture+2,0,n-2);
+    if(!third||memchr(third+1,0,n-(size_t)(third+1-owner->capture)))
+        return engine_failure(owner,"signature_unexpected","Git cryptographic status fields differ");
+    size_t first_len=(size_t)(third-owner->capture)-2,primary_len=n-(size_t)(third+1-owner->capture);
+    int fingerprint=first_len==40&&!memcmp(owner->capture+2,fixture->signer,40);
+    int primary=primary_len==40&&!memcmp(third+1,fixture->signer,40);
+    if(corrupt) {
+        // B is Git's actual bad-cryptographic-signature status. E/N, a missing
+        // verifier, parse/resource/custody errors or generic nonzero are refused.
+        // BADSIG need not expose the VALIDSIG-only fingerprint/primary fields.
+        if(owner->capture[0]!='B'||(first_len&&!fingerprint)||(primary_len&&!primary))
+            return engine_failure(owner,"signature_unexpected","corrupt fixture did not produce actual bad-signature status");
+        owner->result->observed_proof="invalid";
+    } else {
+        if((owner->capture[0]!='G'&&owner->capture[0]!='U')||(!fingerprint&&!primary))
+            return engine_failure(owner,"signature_unexpected","valid fixture lacks G/U and pinned signer or primary");
+        owner->result->observed_proof="valid";
+    }
+    return 1;
+}
 static int engine_semantic(struct engine_owner *owner,unsigned form,int status) {
     const struct private_fixture *fixture=&owner->context->basis->fixture;char text[4097],sha[41];
     if(status!=0)return engine_failure(owner,"signature_unexpected","fixed public-only command returned unexpected status");
     switch(form) {
         case 0:return engine_output_text(owner,"false");
         case 1:return engine_output_text(owner,owner->context->outer->repo.path);
-        case 2:case 3:return engine_failure(owner,"review_unbound","policy and origin exact-head relation is not baselined");
+        // Both fixed refs name the valid commit, including the corrupt case.
+        case 2:case 3:return engine_output_sha40(owner,sha)&&!strcmp(sha,fixture->valid);
         case 4:return engine_output_text(owner,"commit");
         case 5:return owner->out_len==0;
         case 6: {
@@ -3104,11 +3265,13 @@ static int engine_semantic(struct engine_owner *owner,unsigned form,int status) 
             return n>0&&(size_t)n<sizeof(expected)&&owner->out_len==(size_t)n+1&&!memcmp(owner->capture,expected,(size_t)n)&&owner->capture[n]==0;
         }
         case 7:return engine_blob_pin(owner,fixture->blob);
-        case 8:return engine_failure(owner,"review_unbound","fixture last-touch relationship is not baselined");
+        case 8:return engine_output_sha40(owner,sha)&&!strcmp(sha,engine_selected_commit(owner->context));
         case 9:return engine_output_sha40(owner,sha)&&!strcmp(sha,fixture->blob);
-        case 10:return engine_failure(owner,"review_unbound","signed-payload tree derivation awaits the fixed temporary-signature contract");
+        case 10: {
+            char tree[41];return engine_corpus_binding(owner->context,tree)&&engine_output_sha40(owner,sha)&&!strcmp(sha,tree);
+        }
         case 11:return private_token_text(fixture->origin,text,sizeof(text))&&engine_output_text(owner,text);
-        case 12:return engine_failure(owner,"review_unbound","actual implicit verifier signature and payload binding is not yet baselined");
+        case 12:return engine_signature_semantic(owner,status);
         case 13: {
             char fingerprint[46];int n=snprintf(fingerprint,sizeof(fingerprint),":%s:",fixture->signer);
             if(n<=0||(size_t)n>=sizeof(fingerprint))return 0;
@@ -3162,10 +3325,10 @@ static int engine_signature_boundary_available(const struct private_engine_conte
         return private_fail("review_unbound","selected B bytes plus EOF observation exceed the existing input buffer");
     if(engine_signature_storage.initialized)
         return private_fail("review_unbound","the original B custody state cannot be rebound");
-    // Deliberately unavailable, not a descriptor flag or generic true bypass.
-    // B's inode/argv checkpoints do not fill the independent fixture semantics,
-    // source/lifetime/closure or settlement-counter obligations.
-    return private_fail("review_unbound","exact-head/tree/last-touch relations, settlement counter grain and approved lifetime/closure remain unavailable");
+    char tree[41];
+    // This is the admitted private conditional source/corpus boundary, never
+    // a product approved-lifetime literal or a final qualification receipt.
+    return engine_corpus_binding(context,tree);
 }
 static int engine_signature_prepare_record(const struct private_engine_context *context,
     const struct private_git_sig_temp *signature,int ledger,size_t *bytes,unsigned *records) {
@@ -3200,8 +3363,32 @@ static int engine_signature_umask_allowed(void) {
     mode_t mask=umask(0);umask(mask);
     return (mask&0600)?private_fail("review_unbound","controller umask strips required Git signature permissions"):1;
 }
+static int engine_metric_bound(const struct private_engine_metric *m,uint64_t bound) {
+    return m->observed&&m->known&&m->value<=bound;
+}
+static int engine_complete_result(const struct private_engine_context *context,struct private_engine_result *result) {
+    int corrupt=!strcmp(context->outer->case_name,"corrupt_proof");
+    if(private_failed||!result->engine_entered||result->semantic_forms!=32767u||result->commands_completed!=15
+        ||result->attempts!=16||result->created!=16||result->reaped!=16||result->members_max!=2
+        ||!result->group_gone||!result->retired_coverage||engine_current
+        ||strcmp(result->observed_proof,corrupt?"invalid":"valid"))
+        return private_fail("coverage_unknown","complete fixed case lacks actual semantic, verifier or physical settlement coverage");
+    if(!engine_metric_bound(&result->ordinary_max_ns,1000000)||!engine_metric_bound(&result->controller_max_ns,1000000)
+        ||!engine_metric_bound(&result->cleanup_max_ns,1000000)||!engine_metric_bound(&result->native_cpu_max_ns,2000000)
+        ||!engine_metric_bound(&result->native_wall_max_ns,25000000)||!engine_metric_bound(&result->inclusive_max_ns,3000000)
+        ||!engine_metric_bound(&result->Q_max_ns,1000000)||!engine_metric_bound(&result->W_ns,UINT64_MAX-1)
+        ||!engine_metric_bound(&result->A_ns,UINT64_MAX-1)||!engine_metric_bound(&result->C_ns,UINT64_MAX-1)
+        ||!engine_metric_bound(&result->post_cpu_ns,UINT64_MAX-1)||!engine_metric_bound(&result->late_kernel_ns,UINT64_MAX-1)
+        ||!engine_metric_bound(&result->helper_group_rss_peak_bytes,16u*1024u*1024u)
+        ||!engine_metric_bound(&result->probe_rss_peak_bytes,96u*1024u*1024u)
+        ||private_cost.debt!=private_cost.debt_paid||private_cost.ordinary_max>1000000)
+        return private_fail("resource_limit","fixed case resource, clock or paid-debt conjunction is incomplete");
+    result->phase="settled";result->outcome=corrupt?"expected_rejection":"completed";
+    result->error_code=result->error_detail=NULL;return 1;
+}
 int private_command_engine(const struct private_engine_context *context,struct private_engine_result *result) {
     memset(result,0,sizeof(*result));result->phase="validate";result->outcome="refused";result->observed_proof="not_reached";
+    result->engine_entered=1;
     result->group_gone=result->retired_coverage=1;
     if(!context||!context->outer||!context->basis||!context->input_sha256||!hex_value(context->input_sha256,64)
         ||context->basis->source_coverage!=127||context->basis->command_coverage!=65535||private_failed) {
@@ -3217,7 +3404,7 @@ int private_command_engine(const struct private_engine_context *context,struct p
     }
     unsigned char *capture=malloc(ENGINE_CAPTURE_MAX),*input=malloc(ENGINE_INPUT_MAX);
     if(!capture||!input){free(capture);free(input);private_fail("resource_limit","existing work-credit capture/input allocation failed");goto refused;}
-    engine_max(&result->metadata_bytes,private_cost.metadata+sizeof(engine_storage)+sizeof(struct engine_prepared)+sizeof(engine_signature_storage));
+    engine_max(&result->metadata_bytes,private_cost.metadata+declared);
     if(!private_git_sig_prepare(context,&engine_signature_storage,scratch)||!private_end_unit(private_cost.open_cpu)) {
         (void)private_git_sig_release(&engine_signature_storage);
         free(input);free(capture);(void)private_end_unit(private_cost.open_cpu);goto refused;
@@ -3247,7 +3434,7 @@ int private_command_engine(const struct private_engine_context *context,struct p
         struct engine_prepared prepared;int status=-1;
         if(!engine_command(owner,&prepared,form,home,scratch,input,length,&status)||!engine_semantic(owner,form,status)) {
             if(!private_failed)engine_failure(owner,"signature_unexpected","fixed fixture semantic relationship differs");all=0;
-        }
+        } else {result->semantic_forms|=1u<<form;result->commands_completed++;}
         ledger_bytes=owner->ledger_bytes;record_count=owner->record_count;
     }
     // Restoration and releases happen only after physical settlement. An
@@ -3263,10 +3450,9 @@ int private_command_engine(const struct private_engine_context *context,struct p
     }
     free(input);free(capture);if(!private_end_unit(private_cost.open_cpu))all=0;
     if(!all||!private_revalidate_context(context))goto refused;
-    // No semantic success can be inferred from transport or preparation. The
-    // remaining signature semantics and counter contract must replace this guard,
-    // together with the prebirth guard, under a separately reviewed patch.
-    private_fail("review_unbound","actual signature/proof and count relation has no baselined success predicate");
+    engine_max(&result->ordinary_max_ns,private_cost.ordinary_max);
+    engine_max(&result->debt_charged_ns,private_cost.debt);engine_max(&result->debt_paid_ns,private_cost.debt_paid);
+    if(engine_complete_result(context,result))return 1;
 refused:
     result->error_code=private_error;result->error_detail=private_detail;return 0;
 }
@@ -3346,11 +3532,17 @@ static int private_prepare_inner(struct private_input *outer,const char *input_h
     }
     for(unsigned i=0;i<private_prepared.basis.node_count;i++) {
         const struct private_node *node=&private_prepared.basis.nodes[i];
-        if(node->kind<2&&!private_actual_macho(&private_prepared.context,node))return 0;
+        if(node->kind<2) {if(!private_actual_macho(&private_prepared.context,node))return 0;}
+        else if(!private_guard_ref(&private_prepared.context,&node->file,0)
+            ||!private_guard_ref(&private_prepared.context,&node->member_index,0))return 0;
     }
-    // The conditional offline source-review binding is still unqualified.
-    // Codec/candidate checks alone never authorize a helper or live lesson.
-    return private_fail("coverage_unknown","actual pretest reference closure and platform corroboration are not established");
+    for(unsigned i=0;i<private_prepared.basis.link_count;i++)
+        if(!private_guard_ref(&private_prepared.context,&private_prepared.basis.links[i].file,0))return 0;
+    // All live selected input/tool/image/platform predicates above were checked.
+    // Offline source/build reachability remains the explicitly bound conditional
+    // private-test premise, separate from product runtime qualification.
+    private_guards.stage=2;
+    return private_revalidate_context(&private_prepared.context);
 }
 
 static int private_same_pin(const struct private_file *a,const struct private_file *b) {
@@ -3411,16 +3603,54 @@ static int private_pretest(struct private_input *v,const char *self) {
     // after closing its original input-path fence; this is never a source premise.
     return 1;
 }
-static int private_format(const struct private_input *v,const char *input_hash,char *bytes,size_t capacity) {
-    char probe_rss[32];
-    if(private_cost.rss_known)snprintf(probe_rss,sizeof(probe_rss),"%llu",(unsigned long long)private_cost.rss_peak);
-    else memcpy(probe_rss,"null",5);
-    // Exact canonical field order. Unobserved native/window metrics stay null;
-    // zero attempts/reaps state actual known absence of a helper effect.
-    return snprintf(bytes,capacity,"{\"availability\":\"not_applicable_private_test\",\"basis\":{\"kind\":\"conditional_on_bound_source_review\",\"review_sha256\":\"%s\",\"whole_command_lifetime_proof\":false},\"binding\":{\"build\":\"%s\",\"closure\":\"%s\",\"commands\":\"%s\",\"config\":\"%s\",\"git\":\"%s\",\"gpg\":\"%s\",\"source_lock\":\"%s\",\"source_review\":\"%s\"},\"case\":\"%s\",\"error\":{\"code\":\"%s\",\"detail\":\"%s\"},\"incarnation\":%llu,\"input_sha256\":\"%s\",\"kind\":\"private_candidate_result\",\"metrics\":{\"A_ns\":null,\"C_ns\":null,\"Q_max_ns\":null,\"W_ns\":null,\"attempts\":0,\"cleanup_max_ns\":null,\"controller_max_ns\":null,\"debt_charged_ns\":%llu,\"debt_paid_ns\":%llu,\"helper_group_rss_peak_bytes\":null,\"inclusive_max_ns\":null,\"late_kernel_ns\":null,\"members_max\":0,\"metadata_bytes\":%llu,\"native_cpu_max_ns\":null,\"native_wall_max_ns\":null,\"ordinary_max_ns\":%llu,\"post_cpu_ns\":null,\"probe_rss_peak_bytes\":%s},\"nonce\":\"%s\",\"observed_proof\":\"not_reached\",\"outcome\":\"refused\",\"phase\":\"validate\",\"probe\":{\"exe_sha256\":\"%s\",\"source_sha256\":\"%s\"},\"profile\":\"read-helper-native/1\",\"run_id\":\"%s\",\"runtime_approved\":false,\"settlement\":{\"created\":0,\"group_gone\":true,\"reaped\":0,\"retired_coverage\":true}}\n",
+static const char *private_metric_text(const struct private_engine_metric *metric,char bytes[32]) {
+    if(!metric->observed||!metric->known)return "null";
+    snprintf(bytes,32,"%llu",(unsigned long long)metric->value);return bytes;
+}
+static int private_json_quoted(const char *text,char *bytes,size_t capacity) {
+    size_t used=0;if(capacity<3)return 0;bytes[used++]='"';
+    for(const unsigned char *p=(const unsigned char *)text;*p;p++) {
+        unsigned c=*p;if(c=='"'||c=='\\'){if(capacity-used<3)return 0;bytes[used++]='\\';bytes[used++]=(char)c;}
+        else if(c<32){
+            const char *escape=c==8?"\\b":c==9?"\\t":c==10?"\\n":c==12?"\\f":c==13?"\\r":NULL;
+            if(escape){if(capacity-used<3)return 0;bytes[used++]=escape[0];bytes[used++]=escape[1];}
+            else {if(capacity-used<7)return 0;int n=snprintf(bytes+used,capacity-used,"\\u%04x",c);if(n!=6)return 0;used+=6;}
+        }
+        else {if(capacity-used<2)return 0;bytes[used++]=(char)c;}
+    }
+    if(capacity-used<2)return 0;bytes[used++]='"';bytes[used]=0;return 1;
+}
+static void private_result_cost(struct private_engine_result *result) {
+    engine_max(&result->ordinary_max_ns,private_cost.ordinary_max);
+    engine_max(&result->cleanup_max_ns,private_cost.close_max);
+    engine_max(&result->debt_charged_ns,private_cost.debt);engine_max(&result->debt_paid_ns,private_cost.debt_paid);
+    engine_max(&result->metadata_bytes,private_cost.metadata);
+    if(private_cost.rss_known)engine_max(&result->probe_rss_peak_bytes,private_cost.rss_peak);
+    if(private_failed) {
+        result->error_code=private_error;result->error_detail=private_detail;
+        if(strcmp(result->outcome,"quarantined"))result->outcome=result->created?"failed":"refused";
+    }
+}
+static int private_format(const struct private_input *v,const char *input_hash,const struct private_engine_result *result,char *bytes,size_t capacity) {
+    const struct private_engine_metric *metrics[]={&result->A_ns,&result->C_ns,&result->Q_max_ns,&result->W_ns,
+        &result->cleanup_max_ns,&result->controller_max_ns,&result->debt_charged_ns,&result->debt_paid_ns,
+        &result->helper_group_rss_peak_bytes,&result->inclusive_max_ns,&result->late_kernel_ns,
+        &result->native_cpu_max_ns,&result->native_wall_max_ns,&result->ordinary_max_ns,&result->post_cpu_ns,&result->probe_rss_peak_bytes};
+    char numbers[16][32];const char *m[16];for(unsigned i=0;i<16;i++)m[i]=private_metric_text(metrics[i],numbers[i]);
+    char error[4096]="null";
+    if(result->error_code) {
+        char code[256],detail[3075];
+        if(!private_json_quoted(result->error_code,code,sizeof(code))||!private_json_quoted(result->error_detail?result->error_detail:"",detail,sizeof(detail)))return -1;
+        int n=snprintf(error,sizeof(error),"{\"code\":%s,\"detail\":%s}",code,detail);if(n<0||(size_t)n>=sizeof(error))return -1;
+    }
+    uint64_t metadata=result->metadata_bytes.observed&&result->metadata_bytes.known?result->metadata_bytes.value:private_cost.metadata;
+    // Exact canonical field order. All values come from this invocation's
+    // retained result; unknown/unobserved observations stay null, never zero.
+    return snprintf(bytes,capacity,"{\"availability\":\"not_applicable_private_test\",\"basis\":{\"kind\":\"conditional_on_bound_source_review\",\"review_sha256\":\"%s\",\"whole_command_lifetime_proof\":false},\"binding\":{\"build\":\"%s\",\"closure\":\"%s\",\"commands\":\"%s\",\"config\":\"%s\",\"git\":\"%s\",\"gpg\":\"%s\",\"source_lock\":\"%s\",\"source_review\":\"%s\"},\"case\":\"%s\",\"error\":%s,\"incarnation\":%llu,\"input_sha256\":\"%s\",\"kind\":\"private_candidate_result\",\"metrics\":{\"A_ns\":%s,\"C_ns\":%s,\"Q_max_ns\":%s,\"W_ns\":%s,\"attempts\":%u,\"cleanup_max_ns\":%s,\"controller_max_ns\":%s,\"debt_charged_ns\":%s,\"debt_paid_ns\":%s,\"helper_group_rss_peak_bytes\":%s,\"inclusive_max_ns\":%s,\"late_kernel_ns\":%s,\"members_max\":%u,\"metadata_bytes\":%llu,\"native_cpu_max_ns\":%s,\"native_wall_max_ns\":%s,\"ordinary_max_ns\":%s,\"post_cpu_ns\":%s,\"probe_rss_peak_bytes\":%s},\"nonce\":\"%s\",\"observed_proof\":\"%s\",\"outcome\":\"%s\",\"phase\":\"%s\",\"probe\":{\"exe_sha256\":\"%s\",\"source_sha256\":\"%s\"},\"profile\":\"read-helper-native/1\",\"run_id\":\"%s\",\"runtime_approved\":false,\"settlement\":{\"created\":%u,\"group_gone\":%s,\"reaped\":%u,\"retired_coverage\":%s}}\n",
         v->review.sha,v->build.sha,v->closure.sha,v->commands.sha,v->config.sha,v->git.sha,v->gpg.sha,v->source_lock.sha,v->review.sha,v->case_name,
-        private_error,private_detail,(unsigned long long)v->incarnation,input_hash,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,
-        (unsigned long long)private_cost.metadata,(unsigned long long)private_cost.ordinary_max,probe_rss,v->nonce,v->exe,v->source,v->run);
+        error,(unsigned long long)v->incarnation,input_hash,m[0],m[1],m[2],m[3],(unsigned)result->attempts,m[4],m[5],m[6],m[7],m[8],m[9],m[10],
+        (unsigned)result->members_max,(unsigned long long)metadata,m[11],m[12],m[13],m[14],m[15],v->nonce,result->observed_proof,result->outcome,result->phase,
+        v->exe,v->source,v->run,(unsigned)result->created,result->group_gone?"true":"false",(unsigned)result->reaped,result->retired_coverage?"true":"false");
 }
 static int private_sample_rss(void) {
     uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);struct proc_taskinfo info;
@@ -3430,16 +3660,27 @@ static int private_sample_rss(void) {
     if(got!=(int)sizeof(info))return private_fail("coverage_unknown","probe resident-memory observation unavailable");
     if(info.pti_resident_size>96*1024*1024)return private_fail("resource_limit","probe resident-memory ceiling exceeded");return 1;
 }
-static void private_emit(const struct private_input *v,const char *input_hash) {
-    (void)private_sample_rss();
+static int private_emit(const struct private_input *v,const char *input_hash,struct private_engine_result *result) {
+    (void)private_sample_rss();private_result_cost(result);
     // The fixed JSON is a PRE-RESULT cutoff, like the shared worker snapshot.
     // Formatter/write/close/paid-exit-tail spans are separate raw observations;
     // the private parent must still actually reap and retain wait4/RSS evidence.
     uint64_t format_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);
-    char bytes[8192];int len=private_format(v,input_hash,bytes,sizeof(bytes));
+    char bytes[8192];int len=private_format(v,input_hash,result,bytes,sizeof(bytes));
     uint64_t format_end=clock_ns(CLOCK_THREAD_CPUTIME_ID);
     int format_paid=private_end_unit(format_start);uint64_t format_inclusive=private_cost.last_unit;
-    int complete=0;uint64_t write_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    int complete=0,persisted=0;uint64_t write_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    if(format_paid&&len>0&&(size_t)len<sizeof(bytes)&&v->output.fd>=0&&!engine_current) {
+        int fd=openat(v->output.fd,"result.json",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+        if(fd>=0) {
+            persisted=write(fd,bytes,(size_t)len)==len;
+            if(fsync(fd)!=0)persisted=0;
+            if(!private_close(fd))persisted=0;
+            if(fsync(v->output.fd)!=0)persisted=0;
+        }
+    }
+    if(!private_end_unit(write_start))persisted=0;
+    write_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);
     int flags=fcntl(STDOUT_FILENO,F_GETFL);
     if(format_paid&&len>0&&(size_t)len<sizeof(bytes)&&flags>=0&&fcntl(STDOUT_FILENO,F_SETFL,flags|O_NONBLOCK)==0) {
         ssize_t n=write(STDOUT_FILENO,bytes,(size_t)len);complete=n==len;
@@ -3447,14 +3688,22 @@ static void private_emit(const struct private_input *v,const char *input_hash) {
     }
     uint64_t write_end=clock_ns(CLOCK_THREAD_CPUTIME_ID);
     int write_paid=private_end_unit(write_start);uint64_t write_inclusive=private_cost.last_unit;
+    if(!complete||!format_paid||!write_paid||(!persisted&&v->output.fd>=0&&!engine_current))
+        private_fail("settlement_unknown","private result emission or exclusive publication is incomplete; no retry");
     uint64_t terminal_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);
-    fprintf(stderr,"private_candidate_terminal profile=read-helper-native/1 stage=static_unbound metrics_cutoff=pre_result_emission metadata_kind=declared_peak_capacity terminal_cutoff=pre_terminal_receipt runtime_approved=false helper_created=0 result_complete=%s formatter_cpu_start_ns=%llu formatter_cpu_end_ns=%llu formatter_inclusive_ns=%llu write_cpu_start_ns=%llu write_cpu_end_ns=%llu write_inclusive_ns=%llu close_max_cpu_ns=%llu probe_rss_peak_bytes=%llu rss_known=%s ordinary_max_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu format_paid=%s write_paid=%s parent_actual_reap_required=true\n",
-        complete?"true":"false",(unsigned long long)format_start,(unsigned long long)format_end,(unsigned long long)format_inclusive,
+    fprintf(stderr,"private_candidate_terminal profile=read-helper-native/1 stage=%s metrics_cutoff=pre_result_emission metadata_kind=declared_peak_capacity terminal_cutoff=pre_terminal_receipt runtime_approved=false helper_created=%u helper_reaped=%u result_complete=%s formatter_cpu_start_ns=%llu formatter_cpu_end_ns=%llu formatter_inclusive_ns=%llu write_cpu_start_ns=%llu write_cpu_end_ns=%llu write_inclusive_ns=%llu close_max_cpu_ns=%llu probe_rss_peak_bytes=%llu rss_known=%s ordinary_max_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu format_paid=%s write_paid=%s parent_actual_reap_required=true\n",
+        result->phase,(unsigned)result->created,(unsigned)result->reaped,complete?"true":"false",(unsigned long long)format_start,(unsigned long long)format_end,(unsigned long long)format_inclusive,
         (unsigned long long)write_start,(unsigned long long)write_end,(unsigned long long)write_inclusive,(unsigned long long)private_cost.close_max,
         (unsigned long long)private_cost.rss_peak,private_cost.rss_known?"true":"false",(unsigned long long)private_cost.ordinary_max,
         (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,format_paid?"true":"false",write_paid?"true":"false");
     fflush(stderr);
     if(!private_end_unit(terminal_start))fprintf(stderr,"private_candidate_terminal_gate=failed code=%s actual_exit=81\n",private_error);
+    return complete&&persisted&&format_paid&&write_paid&&!private_failed;
+}
+static int private_dispatch(int outer_ready,int inner_ready,int original_ready,
+    const struct private_engine_context *context,struct private_engine_result *result) {
+    if(!outer_ready||!inner_ready||!original_ready)return 0;
+    return private_command_engine(context,result);
 }
 static int private_candidate(const char *self,const char *path,const char *expected) {
     memset(&private_cost,0,sizeof(private_cost));private_failed=0;private_error="input_invalid";private_detail="strict private input decoding failed";private_cost.entry=clock_ns(CLOCK_MONOTONIC);private_cost.open_cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID);
@@ -3473,20 +3722,36 @@ static int private_candidate(const char *self,const char *path,const char *expec
     at=clock_ns(CLOCK_THREAD_CPUTIME_ID);valid=fstat(fd,&after)==0&&before.st_dev==after.st_dev&&before.st_ino==after.st_ino&&before.st_size==after.st_size
         &&before.st_mtimespec.tv_sec==after.st_mtimespec.tv_sec&&before.st_mtimespec.tv_nsec==after.st_mtimespec.tv_nsec
         &&before.st_ctimespec.tv_sec==after.st_ctimespec.tv_sec&&before.st_ctimespec.tv_nsec==after.st_ctimespec.tv_nsec;
-    char hash[65];private_hash(bytes,count,hash);struct private_input input;
+    static char hash[65];private_hash(bytes,count,hash);static struct private_input input;
     valid=valid&&!strcmp(hash,expected)&&private_decode(bytes,count,&input);
     // Working-copy capacity is distinct from the logical128KiB evidence sum.
     // All concrete guard/typed capacities stay inside the existing78MiB work.
     private_cost.metadata=PRIVATE_INNER_WORKING_CAPACITY;
     if(!private_end_unit(at)||!valid){private_close(fd);fprintf(stderr,"private candidate refused: input_invalid changed hash or noncanonical schema\n");return 81;}
+    static struct private_engine_result result;
+    memset(&result,0,sizeof(result));result.phase="validate";result.outcome="refused";result.observed_proof="not_reached";
+    result.group_gone=result.retired_coverage=1;
     int outer=private_pretest(&input,self);
     int inner=outer?private_prepare_inner(&input,hash,count):0;
     int original=private_named_current(fd,-1,path,1,&before);
-    int input_closed=private_close(fd);
-    for(unsigned i=0;i<3;i++){struct private_dir *d=i==0?&input.prefix:i==1?&input.repo:&input.output;if(d->fd>=0){private_close(d->fd);d->fd=-1;}}
-    private_guards_dispose();
-    if(outer&&inner&&original&&input_closed)private_fail("coverage_unknown","private engine admission is not established");
-    private_emit(&input,hash);return 81;
+    int completed=private_dispatch(outer,inner,original,&private_prepared.context,&result);
+    // Borrowed guards and the original outer roots outlive their engine use.
+    // Unresolved ownership retains them for the exact atexit disposal owner.
+    if(!engine_current&&!engine_signature_storage.quarantined) {
+        private_guards_dispose();
+        for(unsigned i=0;i<2;i++){struct private_dir *d=i==0?&input.prefix:&input.repo;if(d->fd>=0){private_close(d->fd);d->fd=-1;}}
+        (void)private_close(fd);
+    } else {result.phase="quarantined";result.outcome="quarantined";result.group_gone=result.retired_coverage=0;}
+    int emitted=private_emit(&input,hash,&result);
+    if(!engine_current&&!engine_signature_storage.quarantined&&input.output.fd>=0) {
+        (void)private_close(input.output.fd);input.output.fd=-1;
+        uint64_t at=private_cost.open_cpu;
+        fprintf(stderr,"private_candidate_exit_tail output_closed=true close_max_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu ordinary_max_ns=%llu\n",
+            (unsigned long long)private_cost.close_max,(unsigned long long)private_cost.debt,
+            (unsigned long long)private_cost.debt_paid,(unsigned long long)private_cost.ordinary_max);
+        (void)private_end_unit(at);
+    }
+    return completed&&emitted&&!private_failed&&(!strcmp(input.case_name,"positive")||!strcmp(input.case_name,"corrupt_proof"))?0:81;
 }
 
 static int git_capability(char **argv) {
