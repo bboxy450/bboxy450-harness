@@ -608,9 +608,19 @@ pub fn describe<'a>(
             true,
             "execute",
         ),
-        // one heading for every harness: Claude `mcp__s__t`, Codex `mcp.s.t`
+        // one heading for every harness: Claude `mcp__s__t`, Codex `mcp.s.t` both read
+        // `s.t`, then the call's first short string argument (a path, id or query)
         n if let Some((server, tool)) = mcp_tool(n) => {
-            (tool.replace('_', " "), server.to_owned(), false, "other")
+            let hint = args
+                .as_object()
+                .and_then(|o| {
+                    o.iter()
+                        .filter(|(k, _)| k.as_str() != "op_id")
+                        .find_map(|(_, v)| v.as_str().filter(|v| !v.trim().is_empty()))
+                })
+                .unwrap_or_default()
+                .to_owned();
+            (format!("{server}.{tool}"), short(hint), true, "other")
         }
         n if kind == "execute" && s("command").is_empty() && command_line(n) => {
             ("Run".into(), n.to_owned(), true, kind)
@@ -816,9 +826,20 @@ mod gui_polish_output_tests {
             let t = describe(name, ToolKind::Other, "{}", &[], "/");
             assert_eq!(
                 (t.verb.as_str(), t.target.as_str()),
-                ("message ack", "bboxy")
+                ("bboxy.message_ack", "")
             );
         }
+        let t = describe(
+            "mcp__bboxy__knowledge_fetch",
+            ToolKind::Other,
+            r#"{"op_id":"01M6","locator":"tasks/sdk.md"}"#,
+            &[],
+            "/",
+        );
+        assert_eq!(
+            (t.verb.as_str(), t.target.as_str()),
+            ("bboxy.knowledge_fetch", "tasks/sdk.md")
+        );
         let t = describe(
             "ToolSearch",
             ToolKind::Other,
