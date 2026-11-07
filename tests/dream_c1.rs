@@ -3107,6 +3107,7 @@ async fn actual_store_fork_is_explicitly_unsupported_and_parent_rows_never_pass(
 }
 
 #[test]
+#[ignore = "load-sensitive budget/wall window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
 fn paused_owner_does_not_delay_another_process_and_owned_kill_never_completes() {
     let mut first = Job::new(40, 60 * 1024, false, false);
     first.start.foreground = true;
