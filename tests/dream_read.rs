@@ -1855,15 +1855,20 @@ fn approved_runner() -> &'static ApprovedRunner {
             guards,
         }
     });
-    let at = parent_cpu();
     for (path, expected) in &approved.guards {
-        assert_eq!(
-            &stamp(path),
-            expected,
-            "approved build changed before birth"
-        );
+        let at = parent_cpu();
+        let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            assert_eq!(
+                &stamp(path),
+                expected,
+                "approved build changed before birth"
+            );
+        }));
+        parent_paid(at);
+        if let Err(error) = checked {
+            std::panic::resume_unwind(error);
+        }
     }
-    parent_paid(at);
     approved
 }
 struct PrivateAuthority {
@@ -1971,6 +1976,8 @@ impl Runner {
     fn launch(job: &Job, probe: bool, held: impl FnOnce(&mut Self, u64)) -> Self {
         let approved = approved_runner();
         let job_deadline = Instant::now() + Duration::from_secs(30);
+        // Fixed pre-birth units: files/buffers, lease/IDs, binding, custody/
+        // channel, then command. No CPU sample spans a previously paid unit.
         let prepare_at = parent_cpu();
         let job_deadline_ns = boot::monotonic_ns()
             .unwrap()
@@ -1981,6 +1988,8 @@ impl Runner {
         let stderr_bytes = Vec::with_capacity(64 * 1024);
         let reader_stop = Arc::new(AtomicBool::new(false));
         let expected_schema = w::schema_hash();
+        parent_paid(prepare_at);
+        let prepare_at = parent_cpu();
         let (read, write) = bootstrap_pipe();
         let fd = read.as_raw_fd();
         let birth = ulid::Ulid::new();
@@ -2002,6 +2011,8 @@ impl Runner {
         };
         static INCARNATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let incarnation = INCARNATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        parent_paid(prepare_at);
+        let prepare_at = parent_cpu();
         let binding = boot::Binding::new(
             boot::Purpose::ReadPrepare,
             probe,
@@ -2017,6 +2028,8 @@ impl Runner {
         let binding_hash = w::hash(&binding_json);
         let environment = format!("1:{fd}:{birth}:{}", binding_hash.0);
         let token = boot::token(environment.as_bytes()).unwrap();
+        parent_paid(prepare_at);
+        let prepare_at = parent_cpu();
         let authority = PrivateAuthority {
             manifest: (!probe).then(|| {
                 let path = job.path.join("input/manifest.json");
@@ -2028,6 +2041,8 @@ impl Runner {
             context: (!probe).then(|| job.captured_context.clone()),
         };
         let (sender, receiver) = mpsc::sync_channel(64);
+        parent_paid(prepare_at);
+        let prepare_at = parent_cpu();
         let mut command = Command::new(&approved.path);
         command
             .args(["dream", "prepare-read", "--job-dir"])
@@ -2120,29 +2135,43 @@ impl Runner {
                 .unwrap_or(3_000_000),
             Instant::now(),
         );
-        let marker_at = parent_cpu();
-        let (native_cpu, app_cpu, inclusive_cpu) =
-            birth_cost.expect("known nonreversed birth clocks");
-        assert!(
-            native_cpu <= 2_000_000
-                && app_cpu <= 1_000_000
-                && inclusive_cpu <= 3_000_000
-                && wall <= Duration::from_millis(25),
-            "private parent birth native_cpu={native_cpu} app_cpu={app_cpu} inclusive_cpu={inclusive_cpu} native_wall={wall:?}"
-        );
-        assert!(stderr_flags >= 0 && nonblocking == 0);
-        let readiness_ns = spawn_return
-            .unwrap()
-            .checked_add(boot::WINDOW_NS)
-            .unwrap()
-            .min(job_deadline_ns);
+        let marker_setup_at = parent_cpu();
+        let marker_setup = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let (native_cpu, app_cpu, inclusive_cpu) =
+                birth_cost.expect("known nonreversed birth clocks");
+            assert!(
+                native_cpu <= 2_000_000
+                    && app_cpu <= 1_000_000
+                    && inclusive_cpu <= 3_000_000
+                    && wall <= Duration::from_millis(25),
+                "private parent birth native_cpu={native_cpu} app_cpu={app_cpu} inclusive_cpu={inclusive_cpu} native_wall={wall:?}"
+            );
+            assert!(stderr_flags >= 0 && nonblocking == 0);
+            spawn_return
+                .unwrap()
+                .checked_add(boot::WINDOW_NS)
+                .unwrap()
+                .min(job_deadline_ns)
+        }));
+        parent_paid(marker_setup_at);
+        let readiness_ns = match marker_setup {
+            Ok(deadline) => deadline,
+            Err(error) => std::panic::resume_unwind(error),
+        };
         let marker = this.wait_marker(readiness_ns);
-        assert_eq!(
-            marker.trim(),
-            "dream-bootstrap state=waiting profile=dream-bootstrap/1 argv_admissions=0 channel_admissions=0 owner_admissions=0"
-        );
-        held(&mut this, readiness_ns);
-        parent_paid(marker_at);
+        let held_at = parent_cpu();
+        let held_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            assert_eq!(
+                marker.trim(),
+                "dream-bootstrap state=waiting profile=dream-bootstrap/1 argv_admissions=0 channel_admissions=0 owner_admissions=0"
+            );
+            held(&mut this, readiness_ns);
+            drop(marker);
+        }));
+        parent_paid(held_at);
+        if let Err(error) = held_result {
+            std::panic::resume_unwind(error);
+        }
         let setup_at = parent_cpu();
         drop(command);
         this.input = this.child.stdin.take();
@@ -2231,27 +2260,41 @@ impl Runner {
     }
     fn wait_marker(&mut self, readiness_ns: u64) -> String {
         loop {
-            self.drain_stderr();
-            let observed_ns = boot::monotonic_ns().unwrap();
-            assert!(
-                observed_ns < readiness_ns,
-                "original readiness expired before wait marker; stderr={}",
-                String::from_utf8_lossy(&self.stderr_bytes)
-            );
-            match bootstrap_waiting_marker(&self.stderr_bytes, observed_ns) {
-                Ok(Some(marker)) => return marker.to_owned(),
-                Ok(None) => {}
-                Err(error) => panic!(
-                    "bootstrap entry/waiting refused {error}; stderr={}",
+            let at = parent_cpu();
+            let observation = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.drain_stderr();
+                let observed_ns = boot::monotonic_ns().unwrap();
+                assert!(
+                    observed_ns < readiness_ns,
+                    "original readiness expired before wait marker; stderr={}",
                     String::from_utf8_lossy(&self.stderr_bytes)
-                ),
+                );
+                let marker = match bootstrap_waiting_marker(&self.stderr_bytes, observed_ns) {
+                    Ok(marker) => marker.map(str::to_owned),
+                    Err(error) => panic!(
+                        "bootstrap entry/waiting refused {error}; stderr={}",
+                        String::from_utf8_lossy(&self.stderr_bytes)
+                    ),
+                };
+                if marker.is_none() {
+                    let status = self.child.try_wait().unwrap();
+                    assert!(
+                        status.is_none(),
+                        "child refused before wait marker; status={status:?} stderr={}",
+                        String::from_utf8_lossy(&self.stderr_bytes)
+                    );
+                }
+                marker
+            }));
+            // Pay exactly this bounded observation, including a refusal, before
+            // another read/parse or returning the marker. The original absolute
+            // readiness deadline is never renewed by a payment or observation.
+            parent_paid(at);
+            match observation {
+                Ok(Some(marker)) => return marker,
+                Ok(None) => {}
+                Err(error) => std::panic::resume_unwind(error),
             }
-            let status = self.child.try_wait().unwrap();
-            assert!(
-                status.is_none(),
-                "child refused before wait marker; status={status:?} stderr={}",
-                String::from_utf8_lossy(&self.stderr_bytes)
-            );
             thread::sleep(Duration::from_millis(1));
         }
     }
