@@ -14,6 +14,7 @@
 """Negative controls for false-green formal verification infrastructure."""
 import importlib.util
 import contextlib
+import copy
 from concurrent.futures import ThreadPoolExecutor
 import io
 import json
@@ -112,6 +113,9 @@ print("Model checking completed. No error has been found.")
             (root / "verification").mkdir()
             (root / "source.rs").touch()
             (root / "witness.rs").touch()
+            (root / "verification/corpus.toml").write_text(
+                '[[model]]\nname="Boundary"\nexpected="pass"\nfrontend="project"\n'
+                '[[model]]\nname="BrokenBoundary"\nexpected="safety"\nfrontend="project"\n')
             path = root / "verification/contracts.toml"
             record = ('[[contract]]\nname="Boundary"\ntitle="Boundary"\n'
                       'models=["Boundary","BrokenBoundary"]\nsources=["source.rs"]\n'
@@ -243,10 +247,13 @@ print("Model checking completed. No error has been found.")
             (own / "bin").mkdir()
             (own / "scripts").mkdir()
             (own / "scripts/cache-env.sh").write_text(":\n")
+            (own / "scripts/qos.sh").write_bytes((root / "scripts/qos.sh").read_bytes())
             fixtures = {
                 "gh": 'printf "%s\\n" "$FIXTURE_ACTOR"',
                 "git": 'case "$1" in status) printf "%s" "$FIXTURE_DIRTY";; rev-parse) echo fixture-head;; esac',
-                "python3": 'echo invoked > "$FIXTURE_CALLED"',
+                # The Make shell's native QoS bootstrap uses real Python;
+                # only the publication command remains the original sentinel.
+                "python3": 'if [ "$1" = -I ] && [ "$2" = -c ]; then exec "$FIXTURE_PYTHON" "$@"; fi; echo invoked > "$FIXTURE_CALLED"',
             }
             for name, body in fixtures.items():
                 path = own / "bin" / name
@@ -254,7 +261,7 @@ print("Model checking completed. No error has been found.")
                 path.chmod(0o700)
             called, log = own / "called", own / "ci.log"
             env = {k: v for k, v in publisher.os.environ.items() if k not in {"MAKEFLAGS", "MFLAGS", "MAKELEVEL"}}
-            env.update(PATH=str(own / "bin") + ":" + env["PATH"], FIXTURE_CALLED=str(called))
+            env.update(PATH=str(own / "bin") + ":" + env["PATH"], FIXTURE_CALLED=str(called), FIXTURE_PYTHON=sys.executable)
             for actor, dirty, receipt, accepted in [
                 ("bboxy450", "", "fixture-head normal 0", True),
                 ("other", "", "fixture-head normal 0", False),
@@ -305,6 +312,176 @@ print("Model checking completed. No error has been found.")
             with self.assertRaisesRegex(ValueError, "did not emit"):
                 formal.dot_graph(dot, 1)
 
+
+
+class ContractFamilyTests(unittest.TestCase):
+    """Actual mapping mutations must refuse; these are infrastructure fixtures."""
+    def setUp(self):
+        own = tempfile.TemporaryDirectory()
+        self.addCleanup(own.cleanup)
+        self.root = Path(own.name)
+        (self.root / "verification").mkdir()
+        for name in ("source.rs", "witness.rs"):
+            (self.root / name).touch()
+        self.names = ["Boundary", "BrokenBoundary", "BrokenTermBoundaryLate", "BrokenC1BoundaryDeadlock"]
+        self.controls = [{"name": name, "expected": expected} for name, expected in
+                         zip(self.names[1:], ("safety", "liveness", "deadlock"))]
+        self.record = {"name": "Boundary", "title": "Bounded completion", "models": self.names,
+                       "controls": self.controls, "sources": ["source.rs"],
+                       "implementation_tests": ["witness.rs"], "assumptions": "one retained owner",
+                       "property": "current completion after actual exit",
+                       "checks": ["make test-formal", "make test"]}
+        self.rows = [{"name": name, "expected": expected, "frontend": "project"}
+                     for name, expected in zip(self.names, ("pass", "safety", "liveness", "deadlock"))]
+
+    def write(self, *, record=None, rows=None, records=None):
+        def literal(value):
+            if isinstance(value, dict):
+                return "{" + ",".join(key + "=" + literal(item) for key, item in value.items()) + "}"
+            if isinstance(value, list):
+                return "[" + ",".join(literal(item) for item in value) + "]"
+            return json.dumps(value)
+
+        records = records if records is not None else [self.record if record is None else record]
+        (self.root / "verification/contracts.toml").write_text("\n".join(
+            "[[contract]]\n" + "\n".join(key + "=" + literal(value) for key, value in row.items())
+            for row in records))
+        (self.root / "verification/corpus.toml").write_text("\n".join(
+            "[[model]]\n" + "\n".join(key + "=" + literal(value) for key, value in row.items())
+            for row in (self.rows if rows is None else rows)))
+
+    def check(self, executed=None):
+        return formal.contracts(self.root, set(self.names) if executed is None else executed)
+
+    def test_legacy_default_pair_stays_valid_without_rewriting_its_mapping(self):
+        record = copy.deepcopy(self.record)
+        del record["controls"]
+        record["models"] = self.names[:2]
+        self.write(record=record, rows=self.rows[:2])
+        self.assertEqual(self.check(set(self.names[:2])), [record])
+
+    def test_explicit_family_accepts_local_safety_liveness_and_deadlock_controls(self):
+        self.write()
+        self.assertEqual(self.check(), [self.record])
+
+    def test_absent_controls_keeps_strict_legacy_pair_instead_of_absorbing_extra_models(self):
+        record = copy.deepcopy(self.record)
+        del record["controls"]
+        self.write(record=record)
+        with self.assertRaises(ValueError):
+            self.check()
+
+    def test_malformed_or_empty_explicit_controls_never_fall_back_to_legacy_pair(self):
+        for controls in ([], {}, "", "BrokenBoundary", False, 0, ["BrokenBoundary"],
+                         [{}], [{"name": "BrokenBoundary"}], [{"expected": "safety"}],
+                         [{"name": False, "expected": "safety"}],
+                         [{"name": "BrokenBoundary", "expected": False}],
+                         [{"name": "BrokenBoundary", "expected": "safety", "ignored": True}]):
+            with self.subTest(controls=controls):
+                record = {**self.record, "models": self.names[:2], "controls": controls}
+                self.write(record=record, rows=self.rows[:2])
+                with self.assertRaises(ValueError):
+                    self.check(set(self.names[:2]))
+
+    def test_missing_duplicate_omitted_and_extra_family_members_are_refused(self):
+        changes = [
+            {"models": self.names[1:]},
+            {"models": self.names[:-1]},
+            {"models": self.names + [self.names[1]]},
+            {"models": self.names + ["BrokenExtra"]},
+            {"controls": self.controls[:-1]},
+            {"controls": self.controls + [self.controls[0]]},
+        ]
+        for change in changes:
+            with self.subTest(change=change):
+                self.write(record={**self.record, **change}, rows=self.rows + [
+                    {"name": "BrokenExtra", "expected": "safety", "frontend": "project"}])
+                with self.assertRaises(ValueError):
+                    self.check(set(self.names) | {"BrokenExtra"})
+        self.write()
+        with self.assertRaises(ValueError):
+            self.check(set(self.names) - {self.names[2]})
+        self.write(rows=self.rows[:-1])
+        with self.assertRaises(ValueError):
+            self.check()
+
+    def test_base_pass_and_declared_negative_verdicts_match_the_actual_local_corpus(self):
+        for index, expected in ((0, "safety"), (1, "liveness")):
+            with self.subTest(index=index, corpus_expected=expected):
+                rows = copy.deepcopy(self.rows)
+                rows[index]["expected"] = expected
+                self.write(rows=rows)
+                with self.assertRaises(ValueError):
+                    self.check()
+        for expected in ("pass", "unknown", "tool-error", "Safety", "deadlock"):
+            with self.subTest(declared_expected=expected):
+                record = copy.deepcopy(self.record)
+                record["controls"][0]["expected"] = expected
+                self.write(record=record)
+                with self.assertRaises(ValueError):
+                    self.check()
+        record, rows = copy.deepcopy(self.record), copy.deepcopy(self.rows)
+        record["controls"][0]["expected"] = rows[1]["expected"] = "pass"
+        self.write(record=record, rows=rows)
+        with self.assertRaises(ValueError):
+            self.check()
+
+    def test_checker_yarn_unowned_and_imported_harness_models_cannot_supply_project_controls(self):
+        for frontend in ("checker", "yarn", "harness", None):
+            with self.subTest(frontend=frontend):
+                rows = copy.deepcopy(self.rows)
+                if frontend is None:
+                    del rows[1]["frontend"]
+                else:
+                    rows[1]["frontend"] = frontend
+                self.write(rows=rows)
+                with self.assertRaises(ValueError):
+                    self.check()
+        record = copy.deepcopy(self.record)
+        record["models"][1] = record["controls"][0]["name"] = "BrokenHarnessImported"
+        self.write(record=record)
+        # A model in the merged/executed set still lacks LOCAL project ownership.
+        with self.assertRaises(ValueError):
+            self.check(set(record["models"]))
+
+    def test_duplicate_corpus_or_contract_records_do_not_hide_a_weakened_mapping(self):
+        self.write(rows=self.rows + [self.rows[1]])
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            self.check()
+        self.write(records=[self.record, self.record])
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            self.check()
+
+    def test_explicit_families_keep_all_evidence_and_mandatory_checks_required(self):
+        for field in ("title", "assumptions", "property", "sources", "implementation_tests", "checks"):
+            with self.subTest(missing=field):
+                record = copy.deepcopy(self.record)
+                del record[field]
+                self.write(record=record)
+                with self.assertRaises(ValueError):
+                    self.check()
+        for checks in ([], ["make test-formal"], ["make test"], ["make test-formal", "make test", "extra"]):
+            self.write(record={**self.record, "checks": checks})
+            with self.assertRaises(ValueError):
+                self.check()
+        self.write()
+        (self.root / "source.rs").unlink()
+        with self.assertRaises(ValueError):
+            self.check()
+
+    def test_current_c1_families_retain_every_declared_executed_control(self):
+        root = Path(__file__).resolve().parents[1]
+        if not (root / "crates/bboxy450-term").exists():
+            return  # Independently exported checker intentionally excludes project contracts.
+        rows = formal.corpus(root)
+        actual = {row["name"]: row for row in formal.contracts(root, {row["name"] for row in rows})}
+        for name, count in {"C1QuantumDebt": 8, "C1BootstrapAdmission": 12,
+                            "C1BootstrapProbeContext": 4, "C1FinalPublicAdmission": 7}.items():
+            with self.subTest(family=name):
+                family = actual[name]
+                self.assertEqual(len(family["models"]), count)
+                self.assertEqual(len(family["controls"]), count - 1)
+                self.assertEqual(set(family["models"]), {name, *(c["name"] for c in family["controls"])})
 
 
 class ModelReuseTests(unittest.TestCase):
@@ -362,6 +539,27 @@ class ModelReuseTests(unittest.TestCase):
             rows=self.check(True)
         self.assertEqual(run.call_count,0,"identical models were rechecked")
         self.assertTrue(all(row["reused_from"]==digest for row in rows))
+
+    def test_compressed_graphs_reuse_decoded_hashes_and_reject_corruption(self):
+        digest = self.warm()
+        models = self.store / digest / "models"
+        for path in list(models.iterdir()):
+            if path.suffix in formal.GRAPH_SUFFIXES:
+                formal.store_graph(path, path, self.store)
+                path.unlink()
+        with mock.patch.object(formal, "tlc", side_effect=self.reference) as run, \
+                contextlib.redirect_stdout(io.StringIO()):
+            rows = self.check(True)
+        self.assertEqual(run.call_count, 0)
+        self.assertTrue(all(row["reused_from"] == digest for row in rows))
+        (models / "One.states.zst").unlink()
+        (models / "One.states.zst").write_bytes(b"corrupt")
+        with mock.patch.object(formal, "tlc", side_effect=self.reference) as run, \
+                contextlib.redirect_stdout(io.StringIO()):
+            rows = self.check(True)
+        self.assertEqual(run.call_count, 2)
+        self.assertNotIn("reused_from", rows[0])
+        self.assertEqual(rows[1]["reused_from"], digest)
 
     def test_changed_tla_rechecks_only_the_changed_model(self):
         digest=self.warm()

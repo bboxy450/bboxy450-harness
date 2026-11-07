@@ -5,12 +5,12 @@
     {
       "source": "scripts/formal.py",
       "snapshot": "verification/upstream/scripts-formal.py",
-      "sha256": "09ca7496419d59f0a41245cff8297b7fdb79dba2a9b81abf5df9e4a6597aa937"
+      "sha256": "5097490db6569929a1e0a10061fb86a88c06a16170fb6534c134c9fcfbf0c27a"
     },
     {
       "source": "scripts/test-formal.py",
       "snapshot": "verification/upstream/scripts-test-formal.py",
-      "sha256": "7627077e427cecf992e00bba1c0ed55f13843f897502f54545cd2e5dd9a4aa85"
+      "sha256": "11c3d433fab19fd3f27565ed85c98cb84b9294756447d2113a1886f6acf677c4"
     },
     {
       "source": "crates/bboxy450-tlc/examples/verify.rs",
