@@ -8938,6 +8938,58 @@ mod helper_admission_tests {
     }
 
     #[test]
+    fn measured_conservation_known_covered_numeric_input_is_positive_without_qualification() {
+        // A separate, explicitly synthetic API positive. These disjoint known
+        // credits total2.2ms; one microsecond-form terminal input of2.201ms is
+        // covered by the exact2,125ns allowance (one wait4, three125/3 ticks).
+        // No actual wait4 or installed-tool qualification is claimed here.
+        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+        let mut helper = accounting_group();
+        helper.timebase = HelperTimebase {
+            numer: 125,
+            denom: 3,
+        };
+        helper.metrics.startup_cpu_ns = 100_000;
+        helper.metrics.charged_helper_cpu_ns = 2_000_000;
+        helper.metrics.late_kernel_cpu_ns = 80_000;
+        helper.metrics.post_helper_cpu_ns = 20_000;
+        helper.metrics.wait4_reads = 1;
+        helper.metrics.counter_reads = 3;
+        helper.post_proof_pending = true;
+        helper.post_commit_pending = true;
+        let at = cpu_ns();
+        let wall = Instant::now();
+        let verdict = helper.check_conservation(&control, 2_201_000);
+        let cpu = control.observe_interval(at, cpu_ns());
+        let wall = u64::try_from(wall.elapsed().as_nanos()).unwrap();
+        control.accounting.charge(cpu, cpu);
+        let commit = helper.commit_post_observation(&control, cpu, wall);
+        control.read_pay();
+        eprintln!(
+            "measured_conservation_known_covered synthetic_numeric_api=true actual_wait4=false full_command_qualification=false terminal_ns=2201000 expected_credit_ns=2200000 expected_allowance_ns=2125 budget_ns={} allowance_ns={} excess_ns={} pass={} verdict_ok={} commit_ok={} observer_cpu_ns={cpu} debt_ns={} rest_total_ns={}",
+            helper.metrics.conservation_budget_ns,
+            helper.metrics.conservation_allowance_ns,
+            helper.metrics.conservation_excess_ns,
+            helper.metrics.conservation_pass,
+            verdict.is_ok(),
+            commit.is_ok(),
+            control.accounting.debt_total.load(Ordering::Acquire),
+            control.accounting.rest_total.load(Ordering::Acquire),
+        );
+        assert_eq!(verdict, Ok(()));
+        assert_eq!(commit, Ok(()));
+        assert_eq!(helper.metrics.conservation_budget_ns, 2_200_000);
+        assert_eq!(helper.metrics.conservation_allowance_ns, 2_125);
+        assert_eq!(helper.metrics.conservation_excess_ns, 0);
+        assert!(helper.metrics.conservation_pass);
+        assert_eq!(control.error(), None);
+        assert_eq!(
+            control.accounting.debt_total.load(Ordering::Acquire),
+            9 * cpu.max(UNIT_NS)
+        );
+    }
+
+    #[test]
     fn measured_child_rollup_is_one_logical_counter_not_a_second_live_child_charge() {
         let control = Control::fixture(Instant::now() + Duration::from_secs(2));
         let mut helper = measured_accounting_group(2);
@@ -9658,33 +9710,94 @@ mod helper_admission_tests {
             .unwrap();
         child.control.read_pay();
         let independent_late = observed.metrics.late_kernel_cpu_ns;
-        assert!(
-            independent_late < measured,
-            "already-observed burn cannot be relabeled as terminal L"
-        );
         let mut status = 0;
         let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
         let deadline = Instant::now() + Duration::from_secs(1);
-        loop {
+        let wait4_pid = loop {
             let got = unsafe { libc::wait4(pid, &mut status, libc::WNOHANG, usage.as_mut_ptr()) };
             if got == pid {
-                break;
+                break got;
             }
             assert!(
                 got == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR)
             );
             assert!(Instant::now() < deadline);
             thread::sleep(Duration::from_micros(100));
-        }
+        };
         child.reaped = true;
+        let wait4_observed_ns = bootstrap::monotonic_ns().unwrap_or(u64::MAX);
         let usage = unsafe { usage.assume_init() };
-        assert!(libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGKILL);
         let raw_wait4 =
             |value: libc::timeval| (value.tv_sec as u64 * 1_000_000 + value.tv_usec as u64) * 1000;
-        let user = raw_wait4(usage.ru_utime);
-        let system = raw_wait4(usage.ru_stime);
+        // This typed record is constructed only after the actual retained
+        // wait4 returned this original PID. Preserve raw timeval fields below;
+        // neither this record nor its residual can supply independent L.
+        let reap = crate::dream::resolve::HelperReapUsage {
+            pid: wait4_pid,
+            user_ns: raw_wait4(usage.ru_utime),
+            system_ns: raw_wait4(usage.ru_stime),
+            rss_bytes: usage.ru_maxrss as u64,
+            observed_ns: wait4_observed_ns,
+            readings: 1,
+        };
+        let user = reap.user_ns;
+        let system = reap.system_ns;
         let whole = user.checked_add(system).unwrap();
+        let group_result = unsafe { libc::kill(-pid, 0) };
+        let group_errno = (group_result != 0)
+            .then(|| std::io::Error::last_os_error().raw_os_error())
+            .flatten();
+        let group_empty = group_result == -1 && group_errno == Some(libc::ESRCH);
+        eprintln!(
+            "measured_cpu_terminal source_known=true full_command_qualification=false pid={pid} birth={} start_abstime={} audit_version={} original_reaped={} wait4_pid={} wait4_status={status} wait4_observed_ns={} wait4_readings={} wait4_user_sec={} wait4_user_usec={} wait4_system_sec={} wait4_system_usec={} wait4_user_ns={user} wait4_system_ns={system} wait4_rss_bytes={} group_result={group_result} group_errno={group_errno:?} group_empty={group_empty} independent_post_exit_known={} independent_post_exit_reads={} independent_post_exit_controller_cpu_ns={post_cpu} independent_post_exit_wall_ns={post_wall}",
+            identity.birth,
+            raw.ri_proc_start_abstime,
+            identity.token.value[7],
+            child.reaped,
+            reap.pid,
+            reap.observed_ns,
+            reap.readings,
+            usage.ru_utime.tv_sec,
+            usage.ru_utime.tv_usec,
+            usage.ru_stime.tv_sec,
+            usage.ru_stime.tv_usec,
+            reap.rss_bytes,
+            observed.metrics.post_exit_observation_known,
+            observed.metrics.post_exit_observations,
+        );
+        assert!(libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGKILL);
+        assert!(
+            group_empty,
+            "actual owned group settlement must be observed"
+        );
+        assert_ne!(reap.observed_ns, u64::MAX);
+        assert!(
+            independent_late < measured,
+            "already-observed burn cannot be relabeled as terminal L"
+        );
         assert!(whole >= 2_000_000);
+        // Independently reconstruct the admissible credit from the retained
+        // raw RI samples. The actual later wait4 is solely the LHS: stopped RI
+        // plus independent L need not cover an unobserved final kernel cutoff.
+        // That is a valid strict ResourceLimit refusal, not a failing theorem
+        // about this physical fixture. No residual is added to credit or L.
+        let raw_to_ns = |ticks: u64| {
+            u64::try_from(
+                (u128::from(ticks) * u128::from(timebase.numer))
+                    .div_ceil(u128::from(timebase.denom)),
+            )
+            .unwrap()
+        };
+        let oracle_observed_credit =
+            raw_to_ns(raw.ri_user_time.checked_add(raw.ri_system_time).unwrap());
+        let oracle_late = raw_to_ns(
+            observed
+                .metrics
+                .post_exit_system_after_ticks
+                .checked_sub(observed.metrics.post_exit_system_before_ticks)
+                .unwrap(),
+        );
+        let oracle_allowance = 2000 + raw_to_ns(observed.metrics.counter_reads);
         for mutation in [
             "complete",
             "pre_ack_omitted",
@@ -9709,6 +9822,16 @@ mod helper_admission_tests {
                 }
                 _ => unreachable!(),
             };
+            let oracle_credit = match mutation {
+                "complete" => oracle_observed_credit,
+                "pre_ack_omitted" | "controller_post_only" => 0,
+                "timebase_omitted" => raw.ri_user_time + raw.ri_system_time,
+                _ => unreachable!(),
+            }
+            .checked_add(oracle_late)
+            .unwrap();
+            let oracle_excess = whole.saturating_sub(oracle_credit + oracle_allowance);
+            let oracle_pass = oracle_excess == 0;
             if mutation == "controller_post_only" {
                 let mut budget = Budget::new_read(
                     control.clone(),
@@ -9738,36 +9861,69 @@ mod helper_admission_tests {
             let observation_at = cpu_ns();
             let observation_wall = Instant::now();
             let verdict = helper.check_conservation(&control, whole);
-            assert_eq!(verdict.is_ok(), mutation == "complete");
             let excess = helper.metrics.conservation_excess_ns;
             let before = control.accounting.debt_total.load(Ordering::Acquire);
             let cpu = control.observe_interval(observation_at, cpu_ns());
             let wall = u64::try_from(observation_wall.elapsed().as_nanos()).unwrap();
             control.accounting.charge(cpu, cpu);
-            let _ = helper.commit_post_observation(&control, cpu, wall);
-            assert_eq!(
-                control.accounting.debt_total.load(Ordering::Acquire) - before,
-                9 * cpu.saturating_add(excess).max(UNIT_NS)
-            );
+            let commit = helper.commit_post_observation(&control, cpu, wall);
+            let debt = control.accounting.debt_total.load(Ordering::Acquire);
+            control.read_pay();
             eprintln!(
-                "measured_cpu_conservation source_known=true conservation_only=true full_command_qualification=false mutation={mutation} pid={pid} birth={} audit_version={} ack_ns={ack_ns} counter_read_ns={read_ns} ri_user_ticks={} ri_system_ticks={} timebase_numer={} timebase_denom={} measured_ns={measured} wait4_pid={pid} wait4_signal=9 independent_late_ns={independent_late} actual_window_ns={} post_exit_user_before_ticks={} post_exit_system_before_ticks={} post_exit_user_after_ticks={} post_exit_system_after_ticks={} wait4_user_ns={user} wait4_system_ns={system} budget_ns={} allowance_ns={} excess_ns={excess} pass={} paid_controller_post_cpu_ns={paid_controller_post} observer_cpu_ns={cpu} observer_wall_ns={wall} debt_ns={}",
+                "measured_cpu_conservation source_known=true conservation_only=true full_command_qualification=false mutation={mutation} pid={pid} birth={} audit_version={} ack_ns={ack_ns} counter_read_ns={read_ns} ri_user_ticks={} ri_system_ticks={} timebase_numer={} timebase_denom={} measured_ns={measured} wait4_pid={} wait4_signal=9 independent_late_ns={independent_late} actual_window_ns={} post_exit_user_before_ticks={} post_exit_system_before_ticks={} post_exit_user_after_ticks={} post_exit_system_after_ticks={} wait4_user_ns={user} wait4_system_ns={system} wait4_reads={} counter_reads={} startup_cpu_ns={} charged_helper_cpu_ns={} post_helper_cpu_ns={} conservation_late_ns={} startup_late_excluded_ns={} budget_ns={} allowance_ns={} excess_ns={excess} pass={} oracle_credit_ns={oracle_credit} oracle_allowance_ns={oracle_allowance} oracle_excess_ns={oracle_excess} oracle_pass={oracle_pass} verdict_ok={} commit_ok={} paid_controller_post_cpu_ns={paid_controller_post} observer_cpu_ns={cpu} observer_wall_ns={wall} debt_before_ns={before} debt_ns={debt} rest_total_ns={} resource_failed={} original_reaped={} group_empty={group_empty}",
                 identity.birth,
                 identity.token.value[7],
                 raw.ri_user_time,
                 raw.ri_system_time,
                 timebase.numer,
                 timebase.denom,
+                reap.pid,
                 ack_ns - child_begin_ns,
                 observed.metrics.post_exit_user_before_ticks,
                 observed.metrics.post_exit_system_before_ticks,
                 observed.metrics.post_exit_user_after_ticks,
                 observed.metrics.post_exit_system_after_ticks,
+                helper.metrics.wait4_reads,
+                helper.metrics.counter_reads,
+                helper.metrics.startup_cpu_ns,
+                helper.metrics.charged_helper_cpu_ns,
+                helper.metrics.post_helper_cpu_ns,
+                helper.metrics.conservation_late_ns,
+                helper.metrics.startup_late_excluded_ns,
                 helper.metrics.conservation_budget_ns,
                 helper.metrics.conservation_allowance_ns,
                 helper.metrics.conservation_pass,
-                control.accounting.debt_total.load(Ordering::Acquire),
+                verdict.is_ok(),
+                commit.is_ok(),
+                control.accounting.rest_total.load(Ordering::Acquire),
+                control.accounting.resource_failed.load(Ordering::Acquire),
+                child.reaped,
             );
-            control.read_pay();
+            // The original effect is already reaped, the group observation is
+            // retained, and all known reconciliation debt is paid before any
+            // expectation can panic. Every omission must still refuse; the
+            // unmutated physical input must match its independent raw oracle,
+            // including a possible measured terminal shortfall/refusal.
+            assert_eq!(helper.metrics.conservation_budget_ns, oracle_credit);
+            assert_eq!(helper.metrics.conservation_allowance_ns, oracle_allowance);
+            assert_eq!(helper.metrics.conservation_excess_ns, oracle_excess);
+            assert_eq!(helper.metrics.conservation_late_ns, oracle_late);
+            assert_eq!(verdict.is_ok(), oracle_pass);
+            assert_eq!(helper.metrics.conservation_pass, oracle_pass);
+            if mutation != "complete" {
+                assert!(
+                    oracle_excess > 0,
+                    "omission control must expose raw shortfall"
+                );
+                assert!(verdict.is_err());
+            }
+            if !oracle_pass {
+                assert!(commit.is_err());
+                assert_eq!(control.error(), Some(w::Code::ResourceLimit));
+                assert!(control.accounting.resource_failed.load(Ordering::Acquire));
+                assert_eq!(helper.metrics.unexplained_cpu_ns, oracle_excess);
+            }
+            assert_eq!(debt - before, 9 * cpu.saturating_add(excess).max(UNIT_NS));
         }
     }
 
