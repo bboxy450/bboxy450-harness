@@ -46,66 +46,66 @@ VERIFIER_SHA = "21cb9adcad96b7be404014ff6e9fb837160a2135455c217dec9efe196cf0661a
 # Only an explicit live Root amendment can select a FUNCTIONAL immutable input.
 # The old5493 and a386 preflight checkpoints remain historical, not fallbacks.
 # This is an offline ingestion premise, never a runtime approval flag or API.
-# Selected by the task ORACLE FREEZE 66236 on 2026-11-07: measured CPU
-# under proven closure, separate wall ceiling and terminal conservation.
+# Selected by the task ORACLE FREEZE fixed-T on 2026-11-07: decision 66236
+# with the fixed per-reaped-process teardown ceiling and paid residual.
 # Custody and preparation cross-bindings still pass before any private launch.
-ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/measured-66236-signed-preparation/dream-read-c-preparation/compile-rcznyik8',
+ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/fixed-T-66236-signed-preparation/dream-read-c-preparation/compile-vxqar2c6',
           'dev': 16777234,
-          'ino': 183819243,
+          'ino': 184388641,
           'uid': 501},
- 'source': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/measured-66236-signed-preparation/dream-read-c-preparation/compile-rcznyik8/source-39580f0ab216c1bb9a74e7bbb42477b8dd60d993/tests/fixtures/dream-read/proof-helper-probe.c',
-            'sha256': '9b8fdd06d9940c52ed6fd9c164d620106ecfb8b70b1d9fae4a787cba40ad406a',
-            'ctime_ns': 1794044902733749223,
-            'dev': 16777234,
-            'ino': 183819257,
-            'len': 378117,
-            'mode': 33024,
-            'mtime_ns': 1794044902733599556,
-            'nlink': 1,
-            'size': 378117,
-            'uid': 501},
- 'executable': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/measured-66236-signed-preparation/dream-read-c-preparation/compile-rcznyik8/probe',
-                'sha256': 'b57e79505b2da931fa877aa20954a5c129854cee7f272bc5bd1c5e5f4f947c61',
-                'ctime_ns': 1794044902733115096,
+ 'source': {'ctime_ns': 1794056009785319327,
+             'dev': 16777234,
+             'ino': 184388642,
+             'len': 408276,
+             'mode': 33024,
+             'mtime_ns': 1794056009785143451,
+             'nlink': 1,
+             'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/fixed-T-66236-signed-preparation/dream-read-c-preparation/compile-vxqar2c6/proof-helper-probe.c',
+             'sha256': '29d55d64120d6ce498316577af5c4c4650dae521d9a66dfb6e50284f6b342646',
+             'size': 408276,
+             'uid': 501},
+ 'executable': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/fixed-T-66236-signed-preparation/dream-read-c-preparation/compile-vxqar2c6/probe',
+                'sha256': 'd2deef94ba6f28236d5c2ef7ade4e757bbe5e615917b81f929f23632a5329ba3',
+                'ctime_ns': 1794056011114007643,
                 'dev': 16777234,
-                'ino': 183819249,
-                'len': 286728,
+                'ino': 184388682,
+                'len': 287016,
                 'mode': 33088,
-                'mtime_ns': 1794044902705355345,
+                'mtime_ns': 1794056011085263901,
                 'nlink': 1,
-                'size': 286728,
+                'size': 287016,
                 'uid': 501},
- 'preparation': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/measured-66236-signed-preparation/dream-read-c-preparation/compile-rcznyik8/preparation-53cdeac02bc1d74868d57feafb642975bbae1b3fb2b6313f02e32e9e5472d0fc.json',
-                 'sha256': '53cdeac02bc1d74868d57feafb642975bbae1b3fb2b6313f02e32e9e5472d0fc',
-                 'ctime_ns': 1794044902933930631,
+ 'preparation': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/fixed-T-66236-signed-preparation/dream-read-c-preparation/compile-vxqar2c6/preparation-d3d3cdd123adeb98179c3d9ce76297bef5297aa6a8a0d0618f3f0bd39828b022.json',
+                 'sha256': 'd3d3cdd123adeb98179c3d9ce76297bef5297aa6a8a0d0618f3f0bd39828b022',
+                 'ctime_ns': 1794056011303871129,
                  'dev': 16777234,
-                 'ino': 183819599,
-                 'len': 514982,
+                 'ino': 184389040,
+                 'len': 514287,
                  'mode': 33024,
-                 'mtime_ns': 1794044902933632129,
+                 'mtime_ns': 1794056011303412211,
                  'nlink': 1,
-                 'size': 514982,
+                 'size': 514287,
                  'uid': 501},
- 'source_commit': '39580f0ab216c1bb9a74e7bbb42477b8dd60d993',
+ 'source_commit': 'bec674fba7a823c36802d1ff3e4380a2ae3e25cb',
  'signer_fingerprint': '9B07E849480C68328CA20684844ECC0587DE7AB0',
- 'preparation_commit': '39580f0ab216c1bb9a74e7bbb42477b8dd60d993',
+ 'preparation_commit': 'bec674fba7a823c36802d1ff3e4380a2ae3e25cb',
  'preparation_signer_fingerprint': '9B07E849480C68328CA20684844ECC0587DE7AB0',
- 'bindings': {'build': '1a9e1a3b7e94065caa8a940565df78f038921510329e7ee8854bc1cf089b4eb8',
+ 'bindings': {'build': '2f2626172000b7c496611745e3298627fa7c0deb2036b97262d316a91acc709f',
               'compiler': 'a3d577375b2a73419600eee3110f6bb210bbec0c10d5abd48022c9809ff23838',
-              'dependency_discovery': '567a55aa803584a2193aa42d0792f0f54a9cd259a9862b5ae444f68b0d3da1e1',
-              'executable': '566962008fbeeb4964b361f5f3a49c950df06f909b621291760e4f0490348837',
-              'header_inputs': '78ff4297f86ecef82fc7a3fffc5314f0e2831bae043e73160166c28904435379',
-              'inputs': 'fda479991e3993255fccb8aeceba371f838242208b08db6a4771cd4ca4c8e24c',
+              'dependency_discovery': '23ad955e179ec493a3faf6ee1c34df2bd8e00ff2cb0c1610e5ee3d735ab18c8a',
+              'executable': '7b10f95441d51c29c0b522773a6cbc6eda1eb69b6beeddec1142e6cbd48e2b74',
+              'header_inputs': '5582474166f81bb68e6d49f027e53105cddb8cc2a59d41bfb955e9af3ee51372',
+              'inputs': 'e83efc0fbc852b545ce673d17436ab4850172a54a646c25a6689ea998e417696',
               'linker': '7cea27482a67bfa92b546ec35ad5ba71bcedd3910bd3b12df9e618fbcfbdf01c',
               'platform': '994c24fbd511ae90c273cfcd5c5f3e78b99b70a35692800dcb48d289bdaab6e3',
-              'provisioning_source': 'efefdc7e460b28969888d79b0a8951aa2028e8c65b012cf23d41dafb728d7f14',
+              'provisioning_source': 'a1348e82c1eb4a114146af65301ba9e19ac7d829bc3f899ca231511c089594de',
               'sdk': '18544f8f94b14d8ac2da05b462679964250d8885f603422c994201d5e4e483ff',
-              'input_commits': 'e3106a8e79ad8a86c4a0d08573abe9a241b2a776cdb564e76c57905209b6d5b6',
-              'preparation_commit': 'a6ae7ab17009d2b8e9a5452e5e387b08ee709ba872507a36e2fcda1c788fc26e',
+              'input_commits': '9bee7b641f45f31137cad7a3ed182e5269f3bd29acceac2082b52766950e8790',
+              'preparation_commit': '2771856faf072a52ee24c95dd8dd19e2992891fc66a2b54aaac81d0d982d09e1',
               'preparation_signer_fingerprint': '4e588b4e7396747b3b7b317d37a22c5981401da546e6eadebc4008472c4367e9',
-              'preparation_snapshot': '00ec3e730e29bd970b2f07c1f60fe79c5fbee359489ace5c925746458bbdbf32',
-              'retained_outputs': 'b4bfd5cdd0c541985103120a2f5246d32af4744a1fe9700c445555025a4afa7b',
-              'retained_root': '49ae5c24c1f670fc1f9420200299552e46e027280cee8ea2850783ab7da68acd',
+              'preparation_snapshot': '39f538b0b95d353ff8a5913d7daf279704796702f90b9f872befd64c101fed65',
+              'retained_outputs': '2730c229188d5f0df2aeaa9507b31578a7ace64d2feba85153cbb07698b7e751',
+              'retained_root': '6f43f8ad51ad6848d12ea68e3c4589284a69cb83c55343b4cbf3d6dc48db8574',
               'retained_directory_mode': '4962ec3a0b2818a90f5ef116da5f517a840b1071e51fba8ee2bef6af2f531067'},
  'build_closure': [{'path': '/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.osx.a',
                     'sha256': '5f20304aa257ed57bcba9f64287497d0be09b8cc7a5a91479b6a274294a22dfe',
@@ -131,7 +131,7 @@ ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-rea
                     'uid': 0}],
  'macho': {'cpu_type': 16777228,
            'cpu_subtype': 0,
-           'uuid': '7280f1c11f293def8aa7894defd6bf69',
+           'uuid': '909db143325e38d6a4f37d4fce7a1ae3',
            'fat': False,
            'rpaths': [],
            'loads': [{'mode': 'load', 'name': '/usr/lib/libSystem.B.dylib'}]}}
@@ -2393,7 +2393,13 @@ def _ingest_q2_input(selection, *, current_platform=None):
     bounded_string(receipt["preparation_snapshot"], 4096)
     snapshot = Path(receipt["source_snapshot"])
     preparation_snapshot = Path(receipt["preparation_snapshot"])
-    require(snapshot.is_relative_to(Path(root["path"])) and source["path"] == str(snapshot / Q2_C_SOURCE), "Q2 source snapshot path binding")
+    require(snapshot.is_relative_to(Path(root["path"])), "Q2 source snapshot root binding")
+    # Root may freeze the original compiler input instead of its signed-source
+    # snapshot copy. Both retained files must still match the signed bytes;
+    # only the exact root-level compiler input identity is an alternative.
+    require(source["path"] == str(snapshot / Q2_C_SOURCE)
+            or (source["path"] == str(Path(root["path"]) / "proof-helper-probe.c")
+                and source == receipt["build"]["input"]), "Q2 source snapshot/compiler input binding")
     require(preparation_snapshot.is_relative_to(Path(root["path"])) and preparation_snapshot != snapshot,
             "Q2 distinct preparation snapshot path binding")
     fields(receipt["inputs"], " ".join(Q2_INPUT_NAMES))
@@ -3323,7 +3329,7 @@ def synthetic_q2_input(root):
     source_path = snapshot / Q2_C_SOURCE
     source = _synthetic_q2_pin(root_pin, source_path)
     source_bytes = source_path.read_bytes()
-    compiled_source = root / "build" / "inert-probe.c"
+    compiled_source = root / "proof-helper-probe.c"
     _synthetic_q2_write(root, compiled_source, source_bytes, 0o400)
 
     compiler_path = root / "toolchain" / "usr" / "bin" / "clang"
@@ -3522,6 +3528,33 @@ class Q2InputAdapterIngestionTests(unittest.TestCase):
         self.assertEqual(result["scope"], "offline input ingestion only; no launch or runtime grant")
         self.assertEqual(before, {str(path.relative_to(root)) for path in root.rglob("*")})
         self.assertFalse(any(path.name in ("pretest-basis.json", "qualification.json", "receipt.candidate.json") for path in root.rglob("*")))
+
+    def test_q2_input_exact_root_compiler_source_preserves_snapshot_binding(self):
+        selection = self.fixture("compiler-source")
+        receipt = json.loads(Path(selection["preparation"]["path"]).read_bytes())
+        selection["source"] = dict(receipt["build"]["input"])
+        with self.offline_only():
+            result = self.ingest(selection)
+        self.assertEqual(result["source"], receipt["build"]["input"])
+        self.assertEqual(result["source_bytes"], (Path(receipt["source_snapshot"]) / Q2_C_SOURCE).read_bytes())
+        # A byte-identical sibling is not the explicitly selected compiler input.
+        foreign = Path(selection["root"]["path"]) / "unselected-source.c"
+        _synthetic_q2_write(Path(selection["root"]["path"]), foreign, result["source_bytes"], 0o400)
+        selection["source"] = _synthetic_q2_pin(selection["root"], foreign)
+        with self.offline_only(), self.assertRaisesRegex(Refused, "snapshot/compiler input binding"):
+            self.ingest(selection)
+
+    def test_q2_input_root_source_must_match_complete_compiler_identity(self):
+        selection = self.fixture("compiler-identity")
+        receipt = json.loads(Path(selection["preparation"]["path"]).read_bytes())
+        selection["source"] = dict(receipt["build"]["input"])
+        original = Path(selection["source"]["path"])
+        data = original.read_bytes()
+        original.rename(original.with_suffix(".retained-original"))
+        _synthetic_q2_write(Path(selection["root"]["path"]), original, data, 0o400)
+        selection["source"] = _synthetic_q2_pin(selection["root"], original)
+        with self.offline_only(), self.assertRaisesRegex(Refused, "snapshot/compiler input binding"):
+            self.ingest(selection)
 
     def test_q2_input_missing_selection_refuses_before_any_private_read(self):
         api = ingest_q2_input.__globals__
