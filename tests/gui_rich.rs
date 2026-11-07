@@ -2256,8 +2256,7 @@ async fn quiet_code_large_mcp_expansion_raster_preserves_unicode_first_and_last_
             let layout = frame.layout.as_ref().unwrap();
             let head = find(layout, &format!("toolhead/{id}")).unwrap();
             assert!(
-                layout_text(head).contains("knowledge fetch")
-                    && layout_text(head).contains("bboxy")
+                layout_text(head).contains("bboxy.knowledge_fetch")
             );
             let key = format!("mdout/{id}");
             let panel = find(layout, &key).unwrap();

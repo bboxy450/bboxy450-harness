@@ -611,15 +611,16 @@ pub fn describe<'a>(
         // one heading for every harness: Claude `mcp__s__t`, Codex `mcp.s.t` both read
         // `s.t`, then the call's first short string argument (a path, id or query)
         n if let Some((server, tool)) = mcp_tool(n) => {
-            let hint = args
-                .as_object()
-                .and_then(|o| {
-                    o.iter()
-                        .filter(|(k, _)| k.as_str() != "op_id")
-                        .find_map(|(_, v)| v.as_str().filter(|v| !v.trim().is_empty()))
-                })
-                .unwrap_or_default()
-                .to_owned();
+            // Only identifying arguments, never arbitrary payload values.
+            let hint = [
+                "path", "locator", "query", "task", "seat_id", "message_id", "swarm_id", "id",
+                "name", "url",
+            ]
+            .iter()
+            .find_map(|k| args.get(*k).and_then(serde_json::Value::as_str))
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or_default()
+            .to_owned();
             (format!("{server}.{tool}"), short(hint), true, "other")
         }
         n if kind == "execute" && s("command").is_empty() && command_line(n) => {

@@ -977,8 +977,8 @@ async fn terminal_body_has_no_command_or_exit_line_and_keeps_its_padding() {
             lines.last().expect("output lines").rect,
         );
         assert!(
-            (first.y - out.rect.y - 7.).abs() < 0.5,
-            "7 px above the first line: {} under {}",
+            (first.y - out.rect.y - 6.).abs() < 0.5,
+            "6 px above the first line: {} under {}",
             first.y,
             out.rect.y
         );
@@ -1478,11 +1478,11 @@ async fn tight_tool_heads_fold_rule_and_feed_gap() {
         text(&format!("toolhead/{slow}")).contains("2.5s"),
         "the duration shows from 1s"
     );
-    // head padding 6: the kind tile sits 6 px under the head's top edge
+    // head padding 4: the 20 px kind tile sits 4 px under the head's top edge
     let head = find(layout, &format!("toolhead/{short}")).unwrap();
     let tile = head.children[0].children[0].rect;
     assert!(
-        (tile.y - head.rect.y - 6.).abs() < 0.01,
+        (tile.y - head.rect.y - 4.).abs() < 0.01,
         "head top padding: {}",
         tile.y - head.rect.y
     );
