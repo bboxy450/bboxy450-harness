@@ -4799,9 +4799,96 @@ fn no_candidates_protocol_pause_cancel_and_descriptor_custody_are_separate() {
     );
 }
 
+fn cold_ungranted_probe_eof_control() {
+    struct ExpectedColdProbeRevocation;
+    let mut job = Job::empty();
+    let pid = std::cell::Cell::new(0u32);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        Runner::launch(&job, true, |held, original_readiness| {
+            assert!(held.probe && held.lease.is_some() && held.input.is_none());
+            assert_ne!(held.run_id, job.start.run_id);
+            assert_ne!(held.nonce, job.start.nonce);
+            assert!(held.child.try_wait().unwrap().is_none());
+            assert!(!held.launch_path.exists());
+            assert!(exact_children(held.child.id() as i32).is_empty());
+            let marker =
+                bootstrap_waiting_marker(&held.stderr_bytes, boot::monotonic_ns().unwrap())
+                    .unwrap()
+                    .unwrap();
+            assert_eq!(
+                marker.trim(),
+                "dream-bootstrap state=waiting profile=dream-bootstrap/1 argv_admissions=0 channel_admissions=0 owner_admissions=0"
+            );
+            let mut stdout = libc::pollfd {
+                fd: held.child.stdout.as_ref().unwrap().as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            assert_eq!(
+                unsafe { libc::poll(&mut stdout, 1, 0) },
+                0,
+                "ungranted cold probe emitted Hello"
+            );
+            assert!(boot::monotonic_ns().unwrap() < original_readiness);
+            pid.set(held.child.id());
+            drop(held.lease.take());
+            std::panic::panic_any(ExpectedColdProbeRevocation);
+        })
+    }));
+    match result {
+        Err(error) if error.is::<ExpectedColdProbeRevocation>() => {}
+        Err(error) => std::panic::resume_unwind(error),
+        Ok(_granted) => panic!("cold negative control unexpectedly returned a granted worker"),
+    }
+    // Keep the actual original EOF/reap receipt even though the deliberately
+    // raised control panic was caught. No other bootstrap failure is accepted.
+    job.home.0.disable_cleanup(true);
+    let pid = pid.get();
+    assert_ne!(pid, 0);
+    let receipt_path = job.path.join(format!("worker-failure-{pid}.json"));
+    let receipt_text = bounded_parent_text(&receipt_path, 8192);
+    let at = parent_cpu();
+    let receipt: serde_json::Value = serde_json::from_str(&receipt_text).unwrap();
+    assert_eq!(receipt["pid"], pid);
+    assert!(receipt["hello"].is_null());
+    let settlement = &receipt["settlement"];
+    assert_eq!(settlement["pid"], pid);
+    assert_eq!(settlement["phase"], "eof");
+    assert_eq!(settlement["actual_status_raw"], 2 << 8);
+    assert_eq!(settlement["actual_exit_code"], 2);
+    assert!(settlement["actual_signal"].is_null());
+    assert!(settlement["term"].is_null() && settlement["kill"].is_null());
+    assert_eq!(settlement["observation_errors"], 0);
+    assert_eq!(receipt["stderr_persisted"], true);
+    assert_eq!(receipt["stderr_eof"], true);
+    assert_eq!(receipt["stderr_discarded_bytes"], 0);
+    let run = receipt["run"].as_str().unwrap();
+    assert_ne!(run, job.start.run_id.0);
+    assert!(!job.home.path().join(run).exists());
+    assert!(!job.path.join("output/result.json").exists());
+    parent_paid(at);
+    let stderr = bounded_parent_text(&job.path.join("worker.stderr"), 64 * 1024);
+    let at = parent_cpu();
+    assert!(stderr.contains("dream-read early_refusal=revoked"));
+    assert!(
+        !stderr.contains("state=paid_hello")
+            && !stderr.contains("owner_admissions=1")
+            && !stderr.contains("compute_owner_create")
+            && !stderr.contains("dream-read metrics")
+    );
+    parent_paid(at);
+    eprintln!(
+        "four-jobs cold_negative_birth_pid={pid} run={run} permit_writes=0 hello=false start_writes=0 source_admission=false owner_admission=false actual_reap_exit=2 phase=eof term_attempted=false kill_attempted=false resource_jobs=0 receipt={} cold_positive_readiness_certified=false",
+        receipt_path.display()
+    );
+}
+
 #[test]
 fn selected_multi_mib_four_jobs_keep_control_and_measured_storage_limits() {
     let baseline = parent_live_heap();
+    // The four real resource jobs run after one separately settled, ungranted
+    // cold EOF control. Cold-positive timing remains separately deferred.
+    cold_ungranted_probe_eof_control();
     let jobs = (0..4)
         .map(|index| {
             let mut job = Job::large(48, 64 * 1024);
