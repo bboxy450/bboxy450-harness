@@ -110,6 +110,9 @@ impl super::c1::disposal::Drain for PreparedTools {
 pub fn provision_source_sha256() -> String {
     provision_source_hash(false).expect("unpaced source hashing is infallible")
 }
+// Smaller deterministic updates leave room for measured batch closure; the
+// existing400us target,1ms verdict and full debt remain authoritative.
+const PREPARED_HASH_CHUNK: usize = 1024;
 fn provision_source_hash(paced: bool) -> Result<String, Invalid> {
     use sha2::{Digest, Sha256};
     let mut hash = Sha256::new();
@@ -123,7 +126,7 @@ fn provision_source_hash(paced: bool) -> Result<String, Invalid> {
         hash.update(name.as_bytes());
         hash.update([0]);
         hash.update((bytes.len() as u64).to_le_bytes());
-        for chunk in bytes.chunks(16 * 1024) {
+        for chunk in bytes.chunks(PREPARED_HASH_CHUNK) {
             if paced {
                 checkpoint()?;
             }
@@ -141,7 +144,7 @@ fn valid_hex(value: &str) -> bool {
 fn prepared_source_digest(bytes: &[u8]) -> Result<String, Invalid> {
     use sha2::{Digest, Sha256};
     let mut hash = Sha256::new();
-    for chunk in bytes.chunks(16 * 1024) {
+    for chunk in bytes.chunks(PREPARED_HASH_CHUNK) {
         checkpoint()?;
         hash.update(chunk);
     }
@@ -204,7 +207,7 @@ fn hash_prepared_image(path: &Path) -> Result<String, Invalid> {
         return Err(Invalid("helper image custody unavailable"));
     }
     let mut hash = Sha256::new();
-    let mut chunk = [0; 16 * 1024];
+    let mut chunk = [0; PREPARED_HASH_CHUNK];
     loop {
         checkpoint()?;
         let n = file
@@ -295,11 +298,15 @@ fn load_prepared_tools_at(path: &Path, expected: &str) -> Result<PreparedTools, 
         .take(32 * 1024 + 1)
         .read_to_end(&mut raw)
         .map_err(|_| Invalid("helper provision unavailable"))?;
-    if super::fingerprint::digest(&raw) != expected {
+    checkpoint()?;
+    if prepared_source_digest(&raw)? != expected {
         return Err(Invalid("source_changed: helper provision"));
     }
+    checkpoint()?;
     let shape = super::c1::storage::preflight(&raw, super::c1::storage::WORK)
-        .map_err(|_| Invalid("resource_limit: helper provision bound"))?;
+        .map_err(|_| Invalid("resource_limit: helper provision bound"));
+    checkpoint()?;
+    let shape = shape?;
     let _ = shape; // typed strict32KiB DTO is covered by the precharged metadata arena
     SELECTED.with(|slot| {
         slot.borrow_mut()
@@ -313,8 +320,11 @@ fn load_prepared_tools_at(path: &Path, expected: &str) -> Result<PreparedTools, 
                 expected: expected.to_owned(),
             })
     });
-    let tools: PreparedTools =
-        serde_json::from_slice(&raw).map_err(|_| Invalid("helper provision schema unavailable"))?;
+    checkpoint()?;
+    let tools = serde_json::from_slice::<PreparedTools>(&raw)
+        .map_err(|_| Invalid("helper provision schema unavailable"));
+    checkpoint()?;
+    let tools = tools?;
     if tools.schema != "bboxy.dream.proof-tools/1"
         || tools.source_sha256 != provision_source_hash(true)?
         || tools.os.release != current_release()?
@@ -482,7 +492,7 @@ pub(crate) fn revalidate_prepared_tools() -> Result<(), Invalid> {
             use std::os::unix::fs::FileExt;
             let mut hash = Sha256::new();
             let mut offset = 0u64;
-            let mut chunk = [0; 16 * 1024];
+            let mut chunk = [0; PREPARED_HASH_CHUNK];
             while offset < length {
                 checkpoint()?;
                 let amount = ((length - offset) as usize).min(chunk.len());
