@@ -1090,7 +1090,6 @@ pub fn disclosure(open: bool, ink: &Ink) -> c::Element {
     frame(
         Frame {
             row: true,
-            padding: [3., 0., 3., 0.],
             ..Default::default()
         },
         vec![
@@ -1174,9 +1173,9 @@ pub fn head(h: Head, ink: &Ink) -> c::Element {
     let kc = kind_color(h.tool_kind);
     let mut kids = vec![
         fixed(tile(
-            icon(h.tool_kind, kc, 14., 1.5),
-            24.,
-            7.,
+            icon(h.tool_kind, kc, 13., 1.5),
+            20.,
+            6.,
             alpha(kc, 0.16),
         )),
         c::Item {
@@ -1255,23 +1254,19 @@ pub fn head(h: Head, ink: &Ink) -> c::Element {
         kids.push(fixed(b));
     }
     // .hx-dur: a 32 px right-aligned slot, filled only from 1s (the callers pass none
-    // below that; harness-spec.md "Tight transcript")
-    kids.push(
-        c::Item::from(hstack(
-            vec![
-                spacer(),
-                fixed(line(
-                    compact_heading(&h.dur.unwrap_or_default(), 12),
-                    11.,
-                    400,
-                    ink.dim,
-                    false,
-                )),
-            ],
-            0.,
-        ))
-        .with_width(32.),
-    );
+    // below that; harness-spec.md "Tight transcript"). No duration, no empty slot.
+    if let Some(dur) = &h.dur {
+        kids.push(
+            c::Item::from(hstack(
+                vec![
+                    spacer(),
+                    fixed(line(compact_heading(dur, 12), 11., 400, ink.dim, false)),
+                ],
+                0.,
+            ))
+            .with_width(32.),
+        );
+    }
     let status_key = h.key.replacen("toolhead/", "tool/", 1) + "/status";
     kids.push(fixed(named(status_key, status_disc(&h.status, ink))));
     named(
@@ -1279,7 +1274,7 @@ pub fn head(h: Head, ink: &Ink) -> c::Element {
         frame(
             Frame {
                 // Compact tool header; status changes keep the same height.
-                padding: [5., 10., 5., 10.],
+                padding: [4., 10., 4., 10.],
                 gap: 8.,
                 row: true,
                 ..Default::default()

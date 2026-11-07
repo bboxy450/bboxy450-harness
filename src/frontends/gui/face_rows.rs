@@ -1584,14 +1584,14 @@ fn code_panel(
                 vec![
                     f::fixed(named(
                         format!("codeleft/{key}"),
-                        f::line("←", 12., 500, ink.dim, false),
+                        f::line("←", 10., 500, ink.dim, false),
                     )),
                     f::fixed(named(
                         format!("coderight/{key}"),
-                        f::line("→", 12., 500, ink.dim, false),
+                        f::line("→", 10., 500, ink.dim, false),
                     )),
                 ],
-                12.,
+                10.,
             )
             .into(),
         );
@@ -1600,7 +1600,7 @@ fn code_panel(
         f::Frame {
             fill: f::alpha(ink.bg, 0.55),
             radius: [8.; 4],
-            padding: [7., 10., 10., 10.],
+            padding: [6., 10., 6., 10.],
             ..Default::default()
         },
         children,
