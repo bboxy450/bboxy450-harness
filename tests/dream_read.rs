@@ -2254,8 +2254,9 @@ impl Runner {
         let reader_cpu = parent_cpu().checked_sub(reader_at).unwrap();
         // This fixture IO owner is ordinary parent work. It has no compute-
         // owner/native exception and stays inside the existing parent budget.
+        // Pay the complete owned setup before either CPU or wall can refuse it.
+        parent_paid(reader_at);
         assert!(reader_cpu <= 1_000_000 && reader_wall <= Duration::from_millis(25));
-        parent_rest(reader_cpu, Instant::now());
         this
     }
     fn wait_marker(&mut self, readiness_ns: u64) -> String {

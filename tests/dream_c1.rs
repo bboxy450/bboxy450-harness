@@ -2823,9 +2823,149 @@ fn real_worker_reuses_failure_retry_and_denial_fingerprints() {
     eprintln!("real-fingerprints {metrics}");
 }
 
+fn cold_ungranted_c1_eof_control() {
+    use std::os::unix::process::ExitStatusExt;
+    let mut job = Job::new(0, 0, false, false);
+    let pay = |at| {
+        let used = parent_interval(at, parent_cpu());
+        parent_rest(used, Instant::now());
+        assert!(
+            used <= 1_000_000,
+            "cold EOF control unit exceeds1ms: {used}"
+        );
+    };
+    let at = parent_cpu();
+    std::fs::set_permissions(job._home.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    job._home.disable_cleanup(true);
+    let probe_path = job._home.path().join(ulid::Ulid::new().to_string());
+    let nonce = w::Ulid(ulid::Ulid::new().to_string());
+    pay(at);
+    let mut held = HeldWorker::spawn(&probe_path, &nonce, None, true);
+    held.pay_birth_debt();
+    let at = parent_cpu();
+    let waiting = held.waiting_verdict();
+    let birth = held.launch_verdict();
+    let child = held.child.as_mut().unwrap();
+    let pid = child.id();
+    let alive = child.try_wait();
+    let mut poll = libc::pollfd {
+        fd: child.stdout.as_ref().unwrap().as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    let polled = unsafe { libc::poll(&mut poll, 1, 0) };
+    let poll_errno = (polled < 0)
+        .then(|| std::io::Error::last_os_error().raw_os_error())
+        .flatten();
+    let source_absent = !probe_path.exists();
+    let permit_attempted = held.birth_diagnostic.as_ref().unwrap().permit_attempted;
+    pay(at);
+    waiting.expect("cold negative requires canonical zero-admission waiting");
+    if let Err(reason) = birth {
+        held.birth_refusal(reason);
+        panic!("cold negative birth refused: {reason}");
+    }
+    assert!(alive.unwrap().is_none());
+    assert!(held.permit.probe && source_absent && !permit_attempted);
+    assert_eq!(
+        polled, 0,
+        "ungranted cold Hello: events={} errno={poll_errno:?}",
+        poll.revents
+    );
+
+    let at = parent_cpu();
+    let revoke_ns = boot::monotonic_ns();
+    let eof_deadline = Instant::now() + Duration::from_secs(2);
+    drop(held.lease.take());
+    drop(held.child.as_mut().unwrap().stdin.take());
+    pay(at);
+    assert!(revoke_ns.unwrap() < held.readiness_ns);
+    let status = loop {
+        let at = parent_cpu();
+        let observed = held.child.as_mut().unwrap().try_wait();
+        let observed_at = Instant::now();
+        pay(at);
+        assert!(
+            observed_at <= eof_deadline,
+            "original cold Child exceeded EOF2s"
+        );
+        if let Some(status) = observed.unwrap() {
+            break status;
+        }
+    };
+    assert_eq!(status.code(), Some(2));
+    assert!(status.signal().is_none());
+    assert_eq!(held.child.as_ref().unwrap().id(), pid);
+
+    // Read only a fixed byte from each nonblocking pipe after actual reap.
+    // Zero means actual EOF; data, an unknown read or a retained writer refuses.
+    let at = parent_cpu();
+    let child = held.child.as_ref().unwrap();
+    let streams = [
+        child.stdout.as_ref().unwrap().as_raw_fd(),
+        child.stderr.as_ref().unwrap().as_raw_fd(),
+    ];
+    let observations = streams.map(|fd| {
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        let set = if flags >= 0 {
+            unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) }
+        } else {
+            -1
+        };
+        let mut byte = [0u8; 1];
+        let count = if set == 0 {
+            unsafe { libc::read(fd, byte.as_mut_ptr().cast(), byte.len()) }
+        } else {
+            -1
+        };
+        let errno = (count < 0)
+            .then(|| std::io::Error::last_os_error().raw_os_error())
+            .flatten();
+        (flags, set, count, errno)
+    });
+    let entry = std::mem::take(&mut held.entry_trace);
+    let native_cpu = held.native_cpu;
+    let inclusive_cpu = held.inclusive_cpu;
+    let birth_debt_paid = held.birth_debt_paid;
+    pay(at);
+    assert!(
+        observations
+            .iter()
+            .all(|&(flags, set, count, _)| flags >= 0 && set == 0 && count == 0),
+        "cold original pipe EOF not proven: {observations:?}"
+    );
+    assert!(birth_debt_paid);
+    // Cached actual status makes canonical HeldDrop settlement signal-free;
+    // its existing diagnostic emitter retains and pays the original birth.
+    drop(held);
+    let at = parent_cpu();
+    let receipt = job.path.join("cold-ungranted-eof.json");
+    private_file(&job.path.join("cold-ungranted.stderr"), entry.as_bytes());
+    pay(at);
+    let at = parent_cpu();
+    private_file(&receipt, &w::canonical(&serde_json::json!({
+        "kind":"source_known_cold_ungranted_eof", "pid":pid,
+        "run":probe_path.file_name().unwrap().to_str().unwrap(), "nonce":nonce.0,
+        "actual_status_raw":status.into_raw(), "exit_code":status.code(), "exit_signal":status.signal(),
+        "phase":"eof", "term_attempted":false, "kill_attempted":false,
+        "permit_attempted":false, "start_writes":0, "source_admission":false, "owner_admission":false,
+        "stdout_eof":true, "stderr_eof":true, "native_cpu_ns":native_cpu, "inclusive_cpu_ns":inclusive_cpu,
+        "birth_debt_paid":birth_debt_paid, "canonical_held_drop_returned":true,
+        "cold_positive_readiness_certified":false, "fork_semantic_cases":0
+    })).unwrap());
+    pay(at);
+    eprintln!(
+        "StoreFork cold_negative_birth_pid={pid} actual_exit=2 phase=eof permit_writes=0 Start_writes=0 owner_admissions=0 source_admissions=0 term_attempted=false kill_attempted=false fork_semantic_cases=0 receipt={} cold_positive_readiness_certified=false",
+        receipt.display()
+    );
+}
+
 #[tokio::test]
 async fn actual_store_fork_is_explicitly_unsupported_and_parent_rows_never_pass() {
     use bboxy450_harness::store::{Store, log_path};
+    // The original fork cases run after one separately settled, ungranted cold
+    // EOF control. This initialization precondition certifies no cold positive.
+    cold_ungranted_c1_eof_control();
     let mut job = Job::new(0, 0, false, false);
     let first = Envelope::from_line(
         std::str::from_utf8(job.bytes.split_inclusive(|b| *b == b'\n').next().unwrap()).unwrap(),
