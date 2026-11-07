@@ -2777,7 +2777,7 @@ mod helper_tests {
             .epoch
             .expect("tiny initial API observation remains open");
         let stale = clock.accounted;
-        let at = cpu_ns();
+        let at = original;
         while control.observe_interval(at, cpu_ns()) < 450_000 {
             std::hint::black_box(17u64.wrapping_mul(31));
         }
