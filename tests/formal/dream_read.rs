@@ -3694,9 +3694,7 @@ fn member_window_observer(control: u8, full_observer: bool) -> Model {
                 (Q, Int(actual_q)),
                 (
                     PIPE,
-                    Int(if c == 0 {
-                        0
-                    } else if control == 9 {
+                    Int(if c == 0 || control == 9 {
                         0
                     } else if control == 10 {
                         2
@@ -6319,8 +6317,10 @@ pub fn git_sig_temp(control: u8) -> Model {
 }
 
 #[cfg(test)]
-#[path = "export.rs"]
-mod helper_observer_lowering_export;
+mod helper_observer_lowering_export {
+    // Both standalone formal test crates reuse this one canonical exporter.
+    include!("export.rs");
+}
 
 #[cfg(test)]
 mod helper_observer_lowering_equivalence {

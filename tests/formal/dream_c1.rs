@@ -867,8 +867,10 @@ fn quantum_debt_outcomes_and_controls_are_causally_reachable() {
 }
 
 #[cfg(test)]
-#[path = "export.rs"]
-mod quantum_aba_export;
+mod quantum_aba_export {
+    // Both standalone formal test crates reuse this one canonical exporter.
+    include!("export.rs");
+}
 
 #[test]
 fn quantum_debt_aba_mutates_only_actual_aba_and_preserves_cancel_progress() {

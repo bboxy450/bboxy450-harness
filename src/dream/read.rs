@@ -2775,6 +2775,87 @@ fn file_stamp(m: &std::fs::Metadata) -> (u64, u64, u64, i64, i64, i64, i64) {
         m.ctime_nsec(),
     )
 }
+fn validate_git_config(
+    dir: &Dir,
+    m: &w::Input,
+    root: &w::RootBinding,
+    b: &mut Budget,
+) -> Result<(), c::Code> {
+    let config = format!("{}/.git/config", root.dir.0);
+    let slot = m
+        .evidence
+        .files
+        .iter()
+        .find(|f| f.path.0 == config)
+        .ok_or(c::Code::SourceUnavailable)?
+        .slot;
+    let raw = slot_bytes(dir, m, slot, b, 16 * 1024)?;
+    let text = std::str::from_utf8(&raw).map_err(|_| c::Code::BadRequest)?;
+    let mut section = "";
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+            continue;
+        }
+        if line.starts_with('[') {
+            if !matches!(line, "[core]" | "[remote \"origin\"]") {
+                return Err(c::Code::BadRequest);
+            }
+            section = line;
+            continue;
+        }
+        let (key, value) = line.split_once('=').ok_or(c::Code::BadRequest)?;
+        let (key, value) = (key.trim(), value.trim());
+        let valid = match section {
+            "[core]" => matches!(
+                (key, value),
+                ("repositoryformatversion", "0")
+                    | ("filemode", "true")
+                    | ("filemode", "false")
+                    | ("bare", "false")
+                    | ("logallrefupdates", "true")
+                    | ("ignorecase", "true")
+                    | ("precomposeunicode", "true")
+            ),
+            "[remote \"origin\"]" => {
+                key == "url"
+                    && crate::vcs::normalize_repo_key(value).as_deref()
+                        == Some(root.repo.0.as_str())
+            }
+            _ => false,
+        };
+        if !valid {
+            return Err(c::Code::BadRequest);
+        }
+    }
+    Ok(())
+}
+fn publish_page(
+    output: &Dir,
+    page: &w::Page,
+    refs: &mut Vec<w::PageRef>,
+    total: &mut usize,
+    b: &mut Budget,
+) -> Result<(), c::Code> {
+    let bytes = b.unit(|| w::canonical_limited(page, w::MAX_PAGE).map_err(internal))?;
+    if *total + bytes.len() > w::MAX_SNAPSHOT {
+        return Err(c::Code::ResourceLimit);
+    }
+    let hash = b.unit(|| Ok(w::hash(&bytes)))?;
+    output.publish(
+        &format!("page-{:06}.json", page.index),
+        &bytes,
+        &page.nonce,
+        b,
+    )?;
+    refs.push(w::PageRef {
+        index: page.index,
+        len: w::Number(bytes.len() as u64),
+        sha256: hash,
+    });
+    *total += bytes.len();
+    Ok(())
+}
 
 #[cfg(test)]
 mod helper_tests {
@@ -3577,85 +3658,4 @@ mod helper_tests {
         drop(work);
         assert_eq!(control.memory.snapshot().0, 0);
     }
-}
-fn validate_git_config(
-    dir: &Dir,
-    m: &w::Input,
-    root: &w::RootBinding,
-    b: &mut Budget,
-) -> Result<(), c::Code> {
-    let config = format!("{}/.git/config", root.dir.0);
-    let slot = m
-        .evidence
-        .files
-        .iter()
-        .find(|f| f.path.0 == config)
-        .ok_or(c::Code::SourceUnavailable)?
-        .slot;
-    let raw = slot_bytes(dir, m, slot, b, 16 * 1024)?;
-    let text = std::str::from_utf8(&raw).map_err(|_| c::Code::BadRequest)?;
-    let mut section = "";
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
-            continue;
-        }
-        if line.starts_with('[') {
-            if !matches!(line, "[core]" | "[remote \"origin\"]") {
-                return Err(c::Code::BadRequest);
-            }
-            section = line;
-            continue;
-        }
-        let (key, value) = line.split_once('=').ok_or(c::Code::BadRequest)?;
-        let (key, value) = (key.trim(), value.trim());
-        let valid = match section {
-            "[core]" => matches!(
-                (key, value),
-                ("repositoryformatversion", "0")
-                    | ("filemode", "true")
-                    | ("filemode", "false")
-                    | ("bare", "false")
-                    | ("logallrefupdates", "true")
-                    | ("ignorecase", "true")
-                    | ("precomposeunicode", "true")
-            ),
-            "[remote \"origin\"]" => {
-                key == "url"
-                    && crate::vcs::normalize_repo_key(value).as_deref()
-                        == Some(root.repo.0.as_str())
-            }
-            _ => false,
-        };
-        if !valid {
-            return Err(c::Code::BadRequest);
-        }
-    }
-    Ok(())
-}
-fn publish_page(
-    output: &Dir,
-    page: &w::Page,
-    refs: &mut Vec<w::PageRef>,
-    total: &mut usize,
-    b: &mut Budget,
-) -> Result<(), c::Code> {
-    let bytes = b.unit(|| w::canonical_limited(page, w::MAX_PAGE).map_err(internal))?;
-    if *total + bytes.len() > w::MAX_SNAPSHOT {
-        return Err(c::Code::ResourceLimit);
-    }
-    let hash = b.unit(|| Ok(w::hash(&bytes)))?;
-    output.publish(
-        &format!("page-{:06}.json", page.index),
-        &bytes,
-        &page.nonce,
-        b,
-    )?;
-    refs.push(w::PageRef {
-        index: page.index,
-        len: w::Number(bytes.len() as u64),
-        sha256: hash,
-    });
-    *total += bytes.len();
-    Ok(())
 }

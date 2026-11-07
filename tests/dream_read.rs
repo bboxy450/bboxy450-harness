@@ -2437,19 +2437,18 @@ impl Runner {
         let at = parent_cpu();
         let mut value = serde_json::to_value(msg).unwrap();
         let start = value["type"] == "start";
-        if start {
-            if let Some(timeout) = value["timeout_ms"]
+        if start
+            && let Some(timeout) = value["timeout_ms"]
                 .as_u64()
                 .filter(|v| (1..=30000).contains(v))
-            {
-                let remaining = self
-                    .job_deadline
-                    .checked_duration_since(Instant::now())
-                    .expect("original job deadline expired before Start")
-                    .as_millis();
-                assert!(remaining > 0);
-                value["timeout_ms"] = serde_json::json!(timeout.min(remaining as u64));
-            }
+        {
+            let remaining = self
+                .job_deadline
+                .checked_duration_since(Instant::now())
+                .expect("original job deadline expired before Start")
+                .as_millis();
+            assert!(remaining > 0);
+            value["timeout_ms"] = serde_json::json!(timeout.min(remaining as u64));
         }
         let mut bytes = w::canonical(&value).unwrap();
         bytes.push(b'\n');
@@ -4433,7 +4432,8 @@ async fn helper_provision_capability_and_executable_guards_refuse_without_path_f
     assert_eq!(exit, 0, "{done:?} {metrics}");
     assert_qualified_snapshot(&positive, &done, &template.entry);
     assert_proof_helper_gates(&metrics);
-    let variants: [(&str, Box<dyn Fn(&mut serde_json::Value)>, bool); 13] = [
+    type ProvisionMutation = Box<dyn Fn(&mut serde_json::Value)>;
+    let variants: [(&str, ProvisionMutation, bool); 13] = [
         (
             "receipt-bytes",
             Box::new(|v| v["git"]["build"] = "changed bytes".into()),
