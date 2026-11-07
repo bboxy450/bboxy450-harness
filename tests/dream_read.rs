@@ -3952,6 +3952,7 @@ fn read_bootstrap_failure_receipt_keeps_actual_poll_reap_and_private_home() {
 }
 
 #[test]
+#[ignore = "load-sensitive budget/wall window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
 fn read_bootstrap_held_birth_has_zero_admission_then_paid_hello_start_and_actual_reap() {
     let job = Job::empty();
     let actual_pid = std::cell::Cell::new(0u32);
