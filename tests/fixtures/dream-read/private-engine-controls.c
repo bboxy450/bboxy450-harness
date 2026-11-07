@@ -761,7 +761,10 @@ static void total_control(const char *self,const char *root,int dir,unsigned mod
     if(mode==9||mode==10) {
         owner.foreground=1;require(engine_pause(&owner)&&owner.paused&&owner.pause_baseline_known,"below-cap external-CONT fixture obtains immutable positive ACK before stimulus");
         char start[4097],done[4097],release[4097];snprintf(start,sizeof(start),"%s/pause-%u-start",root,mode);snprintf(done,sizeof(done),"%s/pause-%u-done",root,mode);snprintf(release,sizeof(release),"%s/pause-%u-release",root,mode);
-        fixture_touch(start);require(engine_checkpoint(&owner),"external pause fixture stimulus preparation is paid");
+        fixture_touch(start);
+        require(engine_sample_member(&owner,0,owner.ticket.pid)&&owner.members[0].state.status==SSTOP&&owner.members[0].state.runnable==0,
+            "fresh actual stopped RI before external pause stimulus preserves immutable ACK");
+        require(engine_checkpoint(&owner),"external pause fixture stimulus preparation is paid");
         require(kill(-owner.ticket.pgid,SIGCONT)==0,"fixture external CONT deliberately bypasses product resume");
         require(!owner.pause_resume_admitted&&!owner.pause_resume_attempted,"external CONT never fabricates admitted product resume");
         while(access(done,F_OK)!=0){require(clock_ns(CLOCK_MONOTONIC)<outer.deadline,"original external-pause fixture deadline");require(engine_checkpoint(&owner),"bounded external-pause burn observation paid");usleep(1000);}
@@ -773,8 +776,19 @@ static void total_control(const char *self,const char *root,int dir,unsigned mod
             for(;;){struct image state;require(control_observe(owner.ticket.pid,&state)&&state.birth==owner.ticket.birth,"original external reSTOP identity");if(state.status==SSTOP&&state.runnable==0)break;require(clock_ns(CLOCK_MONOTONIC)<until,"external reSTOP finite ACK");require(engine_checkpoint(&owner),"external reSTOP observation paid");usleep(1000);}
             paused_read_return=engine_sample_member(&owner,0,owner.ticket.pid);
         }
-        fixture_touch(release);
-        if(mode==10)require(kill(-owner.ticket.pgid,SIGCONT)==0,"fixture resumes only original externally reSTOPped helper for its exit");require(engine_checkpoint(&owner),"external-pause fixture release observation paid");await_original(&owner);
+        fixture_touch(release);int fixture_cont_ok=1;
+        if(mode==10) {
+            int terminal=0;require(known_exited(owner.ticket.pid,&terminal),"external-pause release retains original own-WNOWAIT observation");
+            unsigned product_kill=owner.group_kill_attempted;int product_errno=owner.group_kill_result;
+            int attempted=0,cont_result=-2,cont_errno=0;
+            // A valid product refusal may already have consumed final kill.
+            // No fixture CONT follows that kill or a positive original exit.
+            if(!terminal&&!product_kill){attempted=1;errno=0;cont_result=kill(-owner.ticket.pgid,SIGCONT);cont_errno=cont_result?errno:0;fixture_cont_ok=cont_result==0;}
+            fprintf(stderr,"private_pause_fixture_cont_source_known original_pid=%d terminal_WNOWAIT=%d product_kill_attempted=%u product_kill_errno=%d max_RI_gap_ns=%llu paused_read_return=%d live_user_checked=%u ACK_user_raw=%llu observed_user_raw=%llu sticky_user_violation=%u CONT_attempted=%d CONT_return=%d CONT_errno=%d runtime_approved=false\n",owner.ticket.pid,terminal,product_kill,product_errno,(unsigned long long)owner.max_sample_gap_ns,paused_read_return,owner.pause_live_checked,(unsigned long long)owner.pause_user[0],(unsigned long long)owner.pause_observed_user[0],owner.pause_user_violation,attempted,cont_result,cont_errno);
+        }
+        int release_paid=engine_checkpoint(&owner);
+        if(mode==10)require(fixture_cont_ok,"fixture resumes only original externally reSTOPped helper for its exit");
+        require(release_paid,"external-pause fixture release observation paid");await_original(&owner);
     } else if(mode==2) {
         char report[4097];snprintf(report,sizeof(report),"%s/rollup-2",root);
         for(;;) {
