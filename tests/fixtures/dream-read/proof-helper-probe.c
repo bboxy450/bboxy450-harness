@@ -2419,6 +2419,21 @@ struct engine_initial_physical_observation {
     uint32_t pid,ppid,pgid,status,uid;uint64_t birth;
 };
 #define ENGINE_EXIT_TEARDOWN_CEILING_NS 150000ULL
+// Shared Q2 grant-sizing policy. These are predictive scheduling bounds, never
+// substitutes for the unchanged measured/window Q, wall and full-cost gates.
+#define ENGINE_RUN_MIN_NS 25000ULL
+#define ENGINE_RUN_CAP_NS 450000ULL
+#define ENGINE_RUN_INITIAL_NS 350000ULL
+#define ENGINE_RUN_GROW_NS 10000ULL
+#define ENGINE_CONTROLLER_RESERVE_NS 250000ULL
+#define ENGINE_STOP_RESERVE_NS 100000ULL
+#define ENGINE_RUN_MARGIN_NS 200000ULL
+struct engine_scheduler {
+    uint64_t controller_reserve,latency_reserve,next_run,used_run,used_cap,used_target;
+    uint64_t used_controller_reserve,used_latency_reserve,last_actual,last_controller,last_latency,last_check;
+    uint64_t decreases,grows,observations,checks,skipped_stages;
+    unsigned ready,last_measured,last_latency_known;
+};
 struct engine_child_reap_proof {
     pid_t pid;uint32_t version;unsigned valid;
     uint64_t birth,start,exit_ns,zero_ns,ack_ns,read_ns,rollup_ticks;
@@ -2427,6 +2442,7 @@ struct engine_owner {
     const struct private_engine_context *context;struct private_engine_result *result;
     struct engine_ticket ticket;struct engine_member members[2];
     struct engine_stage_observation closure_stage[ENGINE_STAGE_COUNT];unsigned closure_limit_failed;
+    struct engine_scheduler scheduler;
     struct prepared_spawn_outcome native;
     struct engine_incarnation retired[8];unsigned retired_count,slots,verified_descendants;
     struct window_ledger grant;uint64_t accounted_cpu,accounted_user,accounted_system,grant_cpu_before;
@@ -2562,6 +2578,85 @@ static int engine_owned_token(struct engine_owner *owner,pid_t pid,uint64_t birt
     member->pid=pid;member->birth=birth;member->start=start;member->token=*token;member->current=1;return 1;
 }
 static int engine_safe_sum(uint64_t a,uint64_t b,uint64_t *sum) {if(UINT64_MAX-a<b)return 0;*sum=a+b;return 1;}
+static uint64_t engine_scheduler_target(const struct engine_scheduler *p) {
+    uint64_t target=p->controller_reserve>=1000000-ENGINE_RUN_MARGIN_NS?0:1000000-ENGINE_RUN_MARGIN_NS-p->controller_reserve;
+    if(target<50000)target=50000;if(target>550000)target=550000;return target;
+}
+static uint64_t engine_scheduler_cap(const struct engine_scheduler *p,unsigned slots) {
+    uint64_t cap=engine_scheduler_target(p)/slots;
+    if(cap>ENGINE_RUN_CAP_NS)cap=ENGINE_RUN_CAP_NS;
+    cap=cap>p->latency_reserve?cap-p->latency_reserve:0;
+    if(cap<ENGINE_RUN_MIN_NS)cap=ENGINE_RUN_MIN_NS;
+    return cap;
+}
+static int engine_scheduler_prepare(struct engine_owner *owner) {
+    if(owner->slots<1||owner->slots>2)return engine_failure(owner,"coverage_unknown","scheduler requires the original reserved member count");
+    struct engine_scheduler *p=&owner->scheduler;
+    if(!p->ready) {
+        p->controller_reserve=ENGINE_CONTROLLER_RESERVE_NS;p->latency_reserve=ENGINE_STOP_RESERVE_NS;
+        p->next_run=ENGINE_RUN_INITIAL_NS/owner->slots;p->ready=1;
+    }
+    p->used_target=engine_scheduler_target(p);p->used_cap=engine_scheduler_cap(p,owner->slots);
+    if(p->next_run>p->used_cap)p->next_run=p->used_cap;
+    if(p->next_run<ENGINE_RUN_MIN_NS)p->next_run=ENGINE_RUN_MIN_NS;
+    p->used_run=p->next_run;p->used_controller_reserve=p->controller_reserve;p->used_latency_reserve=p->latency_reserve;
+    return 1;
+}
+static uint64_t engine_scheduler_window(const struct engine_owner *owner) {
+    return owner->scheduler.used_run;
+}
+static int engine_scheduler_due(struct engine_owner *owner,uint64_t now) {
+    struct engine_scheduler *p=&owner->scheduler;
+    if(p->checks==UINT64_MAX||now==UINT64_MAX||!owner->grant.t0||now<owner->grant.t0) {
+        (void)engine_failure(owner,"clock_unknown","scheduler current original elapsed clock unknown");return 1;
+    }
+    p->checks++;p->last_check=now;
+    return now-owner->grant.t0>=engine_scheduler_window(owner);
+}
+static void engine_scheduler_update(struct engine_owner *owner,uint64_t controller) {
+    struct engine_scheduler *p=&owner->scheduler;struct window_ledger *g=&owner->grant;
+    if(!p->ready||!g->roster_closed)return;
+    p->last_actual=g->actual_cpu;p->last_controller=controller;p->last_measured=g->measured;p->last_latency_known=0;p->last_latency=UINT64_MAX;
+    if(controller!=UINT64_MAX&&controller>p->controller_reserve)p->controller_reserve=controller;
+    uint64_t latency=0;unsigned all=(1u<<owner->slots)-1u;
+    if(owner->stop_attempts==1&&owner->stop_result==0&&owner->stop_call_ns&&owner->stop_call_ns!=UINT64_MAX
+        &&(g->ack_mask&all)==all&&(g->identity_mask&all)==all&&!g->unknown_mask) {
+        int known=1;unsigned stopped_receipts=0;
+        for(unsigned i=0;i<owner->slots;i++) {
+            if(!g->end[i]||g->end[i]==UINT64_MAX){known=0;break;}
+            // An absent/clone/exited slot supplies no live final-image STOP
+            // receipt, even if a separate terminal/absence proof closed it.
+            if(owner->members[i].phase!=ENGINE_EXPECTED)continue;
+            if(g->end[i]<owner->stop_call_ns){known=0;break;}
+            uint64_t delay=g->end[i]-owner->stop_call_ns;stopped_receipts++;
+            if(delay>latency)latency=delay;
+        }
+        if(known&&stopped_receipts) {
+            p->last_latency=latency;p->last_latency_known=1;
+            if(latency>p->latency_reserve)p->latency_reserve=latency;
+        }
+    }
+    // Feedback compares the measured burn with the NEW target after the
+    // observed controller reserve is incorporated. The original allocation's
+    // used_target remains immutable raw history, never a retroactive rebate.
+    uint64_t next=p->used_run,target=engine_scheduler_target(p);
+    if(g->actual_cpu!=UINT64_MAX&&g->actual_cpu>target) {
+        // A finite observed burn can safely make the next proposal smaller
+        // without certifying complete measured-basis or controller coverage.
+        next/=2;if(next<ENGINE_RUN_MIN_NS)next=ENGINE_RUN_MIN_NS;
+        if(p->decreases==UINT64_MAX){(void)engine_failure(owner,"clock_unknown","scheduler decrease count overflow");return;}p->decreases++;
+    } else if(g->measured&&g->actual_cpu!=UINT64_MAX&&controller!=UINT64_MAX
+        &&p->last_latency_known&&g->actual_cpu<=target*3/4) {
+        if(!engine_safe_sum(next,ENGINE_RUN_GROW_NS,&next)||p->grows==UINT64_MAX) {
+            (void)engine_failure(owner,"clock_unknown","scheduler growth overflow");return;
+        }
+        p->grows++;
+    }
+    uint64_t cap=engine_scheduler_cap(p,owner->slots);p->next_run=next>cap?cap:next;
+    if(p->next_run<ENGINE_RUN_MIN_NS)p->next_run=ENGINE_RUN_MIN_NS;
+    if(p->observations==UINT64_MAX)(void)engine_failure(owner,"clock_unknown","scheduler observation count overflow");
+    else p->observations++;
+}
 static int engine_scaled_ticks(uint64_t raw,uint32_t numer,uint32_t denom,int upper,uint64_t *ns) {
     if(!numer||!denom)return 0;
     __uint128_t scaled=(__uint128_t)raw*numer;
@@ -3019,6 +3114,23 @@ static uint64_t engine_unit_tail(const struct engine_unit_observation *unit) {
     if(unit->actual==UINT64_MAX||unit->supplied_actual==UINT64_MAX||unit->actual<unit->supplied_actual)return UINT64_MAX;
     return unit->actual-unit->supplied_actual;
 }
+static int engine_scheduler_record(struct engine_owner *owner) {
+    const struct engine_scheduler *p=&owner->scheduler;if(!p->ready)return 1;char bytes[2048];
+    int n=snprintf(bytes,sizeof(bytes),
+        "{\"kind\":\"grant_scheduler\",\"sequence\":%u,\"form\":%u,\"grant\":%u,\"reserved_slots\":%u,"
+        "\"run_used_ns\":%llu,\"run_cap_ns\":%llu,\"aggregate_A_target_ns\":%llu,\"controller_reserve_used_ns\":%llu,\"STOP_latency_reserve_used_ns\":%llu,"
+        "\"next_run_ns\":%llu,\"next_cap_ns\":%llu,\"controller_reserve_ns\":%llu,\"STOP_latency_reserve_ns\":%llu,"
+        "\"observed_A_ns\":%llu,\"observed_controller_ns\":%llu,\"observed_STOP_to_ACK_ns\":%llu,\"latency_known\":%u,\"measured\":%u,"
+        "\"decreases\":%llu,\"grows\":%llu,\"observations\":%llu,\"fresh_checks\":%llu,\"last_fresh_clock_ns\":%llu,\"optional_stages_skipped\":%llu,"
+        "\"run_min_ns\":25000,\"absolute_run_cap_ns\":450000,\"margin_ns\":200000,\"prediction_only\":true,\"actual_Q_and_endpoints_unchanged\":true,\"runtime_approved\":false}\n",
+        owner->ticket.sequence,owner->command,owner->grants,owner->slots,(unsigned long long)p->used_run,(unsigned long long)p->used_cap,
+        (unsigned long long)p->used_target,(unsigned long long)p->used_controller_reserve,(unsigned long long)p->used_latency_reserve,
+        (unsigned long long)p->next_run,(unsigned long long)engine_scheduler_cap(p,owner->slots),(unsigned long long)p->controller_reserve,
+        (unsigned long long)p->latency_reserve,(unsigned long long)p->last_actual,(unsigned long long)p->last_controller,
+        (unsigned long long)p->last_latency,p->last_latency_known,p->last_measured,(unsigned long long)p->decreases,(unsigned long long)p->grows,
+        (unsigned long long)p->observations,(unsigned long long)p->checks,(unsigned long long)p->last_check,(unsigned long long)p->skipped_stages);
+    return engine_write_record(owner,bytes,n);
+}
 static int engine_teardown_records(struct engine_owner *owner) {
     if(!owner->conservation_checked||owner->teardown_process_records_written)return 1;
     // Attempt once: an unresolved write remains a refusal, never a reason to
@@ -3178,7 +3290,7 @@ static int engine_record(struct engine_owner *owner,const char *phase) {
         (unsigned long long)private_cost.retained_cost_ns,(unsigned long long)private_cost.retained_raw_ns,
         (unsigned long long)private_cost.retained_unknown_units,private_cost.retained_overflow,
         (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,owner->owner_lost,stages,owner->closure_limit_failed);
-    return engine_write_record(owner,bytes,n)&&engine_accounting_record(owner);
+    return engine_write_record(owner,bytes,n)&&engine_accounting_record(owner)&&engine_scheduler_record(owner);
 }
 static void engine_failed_unit(struct engine_owner *owner,const struct engine_unit_observation *observation) {
     if(owner->failed_units==UINT64_MAX){(void)engine_failure(owner,"clock_unknown","failed-unit diagnostic count overflow");return;}
@@ -3492,6 +3604,7 @@ static int engine_finish_grant(struct engine_owner *owner) {
     uint64_t actual=g->controller>=prepaid?g->controller-prepaid:UINT64_MAX;
     uint64_t cost=g->charge>=prepaid?g->charge-prepaid:UINT64_MAX;
     uint64_t booked=private_cost.closed_units;int paid=engine_charge(owner,actual,cost,1);
+    engine_scheduler_update(owner,private_cost.last_unit);
     if(private_cost.closed_units!=booked+1||cost==UINT64_MAX)owner->conservation_known=0;
     else (void)engine_credit_member(owner,g->actual_cpu,0);
     engine_observed_counters(owner);
@@ -3532,7 +3645,9 @@ static int engine_grant(struct engine_owner *owner) {
         if(engine_admit_grant(owner))return engine_failure(owner,"coverage_unknown","debt-overlap control lost its pending-debt premise");
         return 0; // A rejected proposal never issues CONT.
     }
-    if(!private_pay_pending()||!engine_admit_grant(owner)||!engine_grant_baseline(owner)||!engine_admit_grant(owner))return 0;
+    if(!private_pay_pending()||!engine_admit_grant(owner)||!engine_grant_baseline(owner)||!engine_admit_grant(owner)
+        ||!engine_scheduler_prepare(owner))return 0;
+    owner->scheduler.used_run=engine_scheduler_window(owner);
     uint64_t cpu_before,user_before,system_before;if(!engine_actual(owner,&cpu_before,&user_before,&system_before))return 0;
     owner->grant_cpu_before=cpu_before;
     uint64_t tick_u,tick_s;
@@ -3564,26 +3679,45 @@ static int engine_grant(struct engine_owner *owner) {
     owner->stop_call_ns=owner->stop_terminal_ns=0;owner->stop_terminal=owner->stop_terminal_candidate=0;owner->grants++;
     const char *test=owner->context->outer->case_name;
     for(;;) {
-        uint64_t now;if(!engine_clock(owner,CLOCK_MONOTONIC,&now))break;int stop=0;
-        if(!engine_stage_begin(owner,ENGINE_STAGE_PIPE))break;
-        int pipe_ok=engine_pipe_io(owner);if(!engine_stage_end(owner,ENGINE_STAGE_PIPE)||!pipe_ok)break;
+        uint64_t now;if(!engine_clock(owner,CLOCK_MONOTONIC,&now))break;
         if(!strcmp(test,"cancel")&&!owner->case_fired){owner->case_fired=1;engine_cancel_signal=1;}
         if(!strcmp(test,"pause_resume")&&!owner->case_fired){owner->case_fired=1;owner->foreground=1;owner->hold_until=now+20000000;}
-        int done=0;if(!engine_stage_begin(owner,ENGINE_STAGE_DIRECT))break;
-        int direct_ok=engine_direct_exited(owner,&done);if(!engine_stage_end(owner,ENGINE_STAGE_DIRECT)||!direct_ok)break;
-        if(engine_cancel_signal||owner->foreground||now>=owner->context->outer->deadline||done)stop=1;
-        uint64_t target=owner->slots==2?25000:100000;
-        if(!strcmp(test,"late_stop")&&!owner->case_fired&&!engine_cancel_signal&&!owner->foreground) {
-            // A controlled negative keeps the original interval open; the
-            // same hard Q gate must reject the actual delayed STOP. It does
-            // not receive a larger quantum or an invented earlier endpoint.
-            if(now-owner->grant.t0<1200000)continue;
-            owner->case_fired=1;
+        int deliberate_late=!strcmp(test,"late_stop")&&!owner->case_fired&&!engine_cancel_signal&&!owner->foreground;
+        int stop=owner->stop_requested||engine_cancel_signal||owner->foreground||now>=owner->context->outer->deadline;
+        if(!stop&&!deliberate_late&&engine_scheduler_due(owner,now)) {
+            stop=1;if(!engine_safe_sum(owner->scheduler.skipped_stages,2,&owner->scheduler.skipped_stages)) {
+                (void)engine_failure(owner,"clock_unknown","scheduler skipped-stage count overflow");break;
+            }
         }
-        if(now-owner->grant.t0>=target)stop=1;
+        if(!stop) {
+            if(!engine_stage_begin(owner,ENGINE_STAGE_PIPE))break;
+            int pipe_ok=engine_pipe_io(owner);if(!engine_stage_end(owner,ENGINE_STAGE_PIPE)||!pipe_ok)break;
+            // A pre-stage timestamp cannot authorize another optional native
+            // query after this stage or a preemption consumed the run budget.
+            if(!engine_clock(owner,CLOCK_MONOTONIC,&now))break;
+            if(engine_cancel_signal||owner->foreground||now>=owner->context->outer->deadline||(!deliberate_late&&engine_scheduler_due(owner,now))) {
+                stop=1;if(!engine_safe_sum(owner->scheduler.skipped_stages,1,&owner->scheduler.skipped_stages)) {
+                    (void)engine_failure(owner,"clock_unknown","scheduler skipped-stage count overflow");break;
+                }
+            }
+        }
+        if(!stop) {
+            int done=0;if(!engine_stage_begin(owner,ENGINE_STAGE_DIRECT))break;
+            int direct_ok=engine_direct_exited(owner,&done);if(!engine_stage_end(owner,ENGINE_STAGE_DIRECT)||!direct_ok)break;
+            if(!engine_clock(owner,CLOCK_MONOTONIC,&now))break;
+            if(done||engine_cancel_signal||owner->foreground||now>=owner->context->outer->deadline||(!deliberate_late&&engine_scheduler_due(owner,now)))stop=1;
+        }
+        if(deliberate_late&&!engine_cancel_signal&&!owner->foreground&&now<owner->context->outer->deadline) {
+            // Existing deliberate negative preserves its WHOLE original
+            // interval; it receives neither a backdated STOP nor a Q waiver.
+            if(now-owner->grant.t0<1200000)continue;
+            owner->case_fired=1;stop=1;
+        }
         if(stop) {
-            if(!engine_stage_begin(owner,ENGINE_STAGE_STOP))break;
-            int stopped=engine_stop_group(owner);if(!engine_stage_end(owner,ENGINE_STAGE_STOP)||!stopped)break;
+            if(!owner->stop_requested) {
+                if(!engine_stage_begin(owner,ENGINE_STAGE_STOP))break;
+                int stopped=engine_stop_group(owner);if(!engine_stage_end(owner,ENGINE_STAGE_STOP)||!stopped)break;
+            }
             if(!engine_stage_begin(owner,ENGINE_STAGE_ROSTER))break;
             int closed=0,roster_ok=engine_roster(owner,1,&closed);
 #ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS

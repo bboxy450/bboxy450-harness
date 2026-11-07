@@ -63,11 +63,28 @@ ASSERTIONS = {
     'teardown-wait4-derived': (b'fixed exit teardown ceiling rejects actual CPU burned after the last sample',),
     'teardown-unproven-child': (b'unproven child cannot mint exit-teardown process credit',),
     'teardown-quarantine-source-loss': (b'accounting quarantine revokes rebates without erasing independent child reap proof',),
+    'scheduler-fixed-oversize': (b'process-free allocator must satisfy its bound and independent Q/debt assertions',),
+}
+PHYSICAL_SCHEDULER_DEFERRAL = {
+    'status': 'deferred_unproven',
+    'authority': 'Dream Read Q2 Oracle ruling2026-11-07~14:50',
+    'task_etag': '9fc0d072334ccbba2331d9f66ca17acb868b540f150f01d45c0e61ebdd77faeb',
+    'follow_up': 'tasks/2026-11-06-qos-builds-never-starve-mcp',
+    'reason': 'physical negative stopped before causal assertion by98.854ms native creation wall; no physical oversize CPU witness',
+    'retained_red': {'path': 'target/private-engine-controls-3f49ux4c/run.json',
+                     'sha256': 'c50b949228b989307d236c482988272e3def1d31c52cade508bd0cb1a396759c',
+                     'original_pid': 25234, 'actual_own_wait4': True, 'group_gone': True,
+                     'native_cpu_ns': 337083, 'native_wall_ns': 98854000, 'debt_paid_ns': 36000000},
+    'separately_callable': 'scheduler-fixed-oversize/program scheduler-control (same retained/newly compiled1.2ms source variant)',
+    'physical_assertions_and_caps_unchanged': True,
+    'physical_positive': 'required in canonical current baseline',
+    'API_is_physical_CPU_proof': False,
+    'landing_prerequisite': False,
 }
 LEDGERS = ('terminal-ledger.ndjson', 'live-ledger.ndjson', 'exec-ledger.ndjson',
            'unknown-ledger.ndjson', 'deadline-ledger.ndjson', 'failed-receipt-ledger.ndjson', 'hold-ledger.ndjson', 'result.json', 'claim.json', 'closure-late-stop.ndjson', 'closure-over-cpu.ndjson',
            *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')),
-           *(f'quantum-{i}.ndjson' for i in range(9)), 'charge-diagnostic.ndjson', 'stopped-stages.ndjson', 'startup-post-exit.ndjson', 'startup-unavailable.ndjson', 'startup-unpaid.ndjson', 'exit-teardown.ndjson')
+           *(f'quantum-{i}.ndjson' for i in range(9)), 'charge-diagnostic.ndjson', 'stopped-stages.ndjson', 'startup-post-exit.ndjson', 'startup-unavailable.ndjson', 'startup-unpaid.ndjson', 'exit-teardown.ndjson', 'adaptive-scheduler.ndjson')
 
 
 def sha(data):
@@ -218,11 +235,11 @@ def compile_source(directory, filename, report):
 
 
 def retain_ledgers(stdout, directory, report):
-    matches = re.findall(rb'private_engine_controls=pass cases=71 synthetic_source_known=true '
+    matches = re.findall(rb'private_engine_controls=pass cases=72 synthetic_source_known=true '
                          rb'real_candidate_created=0 runtime_approved=false retained='
                          rb'(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n', stdout)
     if len(matches) != 1:
-        raise ValueError('current fixture did not report the exact 71 source-known controls')
+        raise ValueError('current fixture did not report the exact 72 source-known controls')
     source_dir = Path(os.fsdecode(matches[0]))
     if str(source_dir) != report['commands'][-1]['fixture_capture']['source_dir']:
         raise ValueError('completed fixture root differs from its original command binding')
@@ -321,6 +338,7 @@ def verify(directory, inputs, report):
         'residual_paid': b'owner->residual_cost_paid=(unsigned)paid;return paid;',
         'teardown_count': b'return *direct+*child;',
         'quarantine_provisional': b'if(owner->provisional_count&&!owner->provisional_finalized)(void)engine_revoke_provisional(owner);',
+        'scheduler_window': b'return owner->scheduler.used_run;',
     }
     if any(source.count(anchor) != 1 for anchor in quantum_anchors.values()):
         raise ValueError('66236 causal mutation anchor differs; no guessed mutation')
@@ -350,6 +368,7 @@ def verify(directory, inputs, report):
         'teardown-unproven-child': source.replace(quantum_anchors['teardown_count'], b'return *direct+(owner->slots==2);', 1),
         'teardown-quarantine-source-loss': source.replace(quantum_anchors['quarantine_provisional'],
             b'owner->rollup_source_failed=1;' + quantum_anchors['quarantine_provisional'], 1),
+        'scheduler-fixed-oversize': source.replace(quantum_anchors['scheduler_window'], b'(void)owner;return 1200000ULL;', 1),
     })
     quantum_modes = {'quantum-open-slot': 0, 'quantum-pre-ack': 1, 'quantum-omit-rollup': 2,
                      'quantum-raw-ticks': 3, 'quantum-no-wall': 4, 'quantum-slot-over-wall': 5,
@@ -383,13 +402,26 @@ def verify(directory, inputs, report):
             arguments.extend(['initial-stopped-control', mode])
         elif name in ('teardown-unbounded', 'teardown-uncharged-residual', 'teardown-wait4-derived'):
             arguments.extend(['exit-teardown-control', '1' if name == 'teardown-uncharged-residual' else '0'])
-        code, stdout, stderr = run(arguments, own, 'controls', report, fixture=True)
+        elif name == 'scheduler-fixed-oversize':
+            arguments.append('scheduler-api-control')
+        code, stdout, stderr = run(arguments, own, 'controls', report, fixture=name != 'scheduler-fixed-oversize')
         expect(code, 0 if name == 'current' else 81, name + ' controls')
         if name == 'current':
             retain_ledgers(stdout, own, report)
             verify_setup_budget(program, own, report)
         elif not any(assertion in stderr for assertion in ASSERTIONS[name]):
             raise ValueError(name + ': exit81 lacks the required causal assertion')
+        if name == 'scheduler-fixed-oversize':
+            prefix = (b'private_scheduler_allocator_api slots=1 run_ns=1200000 cap_ns=350000 '
+                      b'expected_initial_ns=350000 aggregate_target_ns=550000 supplied_A_ns=350000 '
+                      b'supplied_C_ns=250000 supplied_W_ns=1400000 computed_Q_ns=600000 '
+                      b'ledger_verdict=0 projected_debt_ns=9000000')
+            if (prefix not in stderr or stdout or b'fixture_native_birth' in stderr
+                    or b'actual_helper_quantum_witness=false' not in stderr
+                    or b'CPU_from_run_or_wall=false native_births=0 helper_CPU_observed=false' not in stderr):
+                raise ValueError('canonical allocator API mutant lacks its separately labelled process-free causal receipt')
+            report['commands'][-1]['causal_scope'] = 'real_c_allocator_API_bound_with_independent_supplied_Q_debt_inputs'
+            report['physical_scheduler_negative'] = PHYSICAL_SCHEDULER_DEFERRAL
         if name in ('quarantine-exit', 'quarantine-fd-release'):
             verify_lifetime_mutant_cleanup(stderr, report['commands'][-1])
     anchor = b'int ok=private_end_unit(step->start);'
@@ -430,21 +462,92 @@ def verify(directory, inputs, report):
     malformed.chmod(0o400)
 
 
+def verify_scheduler_api(directory, inputs, report):
+    """Supplemental API receipt, distinct from the deferred physical negative."""
+    source = inputs[str(SOURCE)]
+    controls = inputs[str(CONTROLS)]
+    anchor = b'return owner->scheduler.used_run;'
+    feedback_anchor = b'uint64_t next=p->used_run,target=engine_scheduler_target(p);'
+    shrink_anchor = b'if(g->actual_cpu!=UINT64_MAX&&g->actual_cpu>target) {'
+    assertion = b'process-free allocator must satisfy its bound and independent Q/debt assertions'
+    feedback_assertion = b'process-free feedback compares CPU with newly reduced target while preserving original allocation'
+    shrink_assertion = b'process-free finite observed CPU shrinks window basis without earning proof or unknown-controller growth'
+    if source.count(anchor) != 1 or source.count(feedback_anchor) != 1 or source.count(shrink_anchor) != 1 or controls.count(b'static void scheduler_api_control(void) {') != 1:
+        raise ValueError('supplemental scheduler API anchors changed')
+    variants = {'api-current': source,
+                'api-fixed-oversize': source.replace(anchor, b'(void)owner;return 1200000ULL;', 1),
+                'api-old-target-feedback': source.replace(feedback_anchor, b'uint64_t next=p->used_run,target=p->used_target;', 1),
+                'api-skip-window-shrink': source.replace(shrink_anchor, b'if(g->measured&&controller!=UINT64_MAX&&g->actual_cpu!=UINT64_MAX&&g->actual_cpu>target) {', 1)}
+    for name, wire in variants.items():
+        own = directory / name
+        own.mkdir(mode=0o700)
+        report['snapshots'].append(retain(own / SOURCE.name, wire))
+        report['snapshots'].append(retain(own / CONTROLS.name, controls))
+        program = compile_source(own, CONTROLS.name, report)
+        code, stdout, stderr = run([str(program), 'scheduler-api-control'], own, 'scheduler-api', report)
+        expect(code, 0 if name == 'api-current' else 81, name + ' supplemental allocator API')
+        if stdout or b'private_engine_fixture_source_known' in stderr or b'fixture_native_birth' in stderr:
+            raise ValueError('process-free API emitted a physical fixture/birth receipt')
+        rows = re.findall(rb'^private_scheduler_allocator_api (.+)$', stderr, re.MULTILINE)
+        fields = [dict(re.findall(rb'([A-Za-z_][A-Za-z_0-9]*)=([^ ]+)', row)) for row in rows]
+        if not fields or any(f.get(b'native_births') != b'0'
+                             or f.get(b'helper_CPU_observed') != b'false'
+                             or f.get(b'actual_helper_quantum_witness') != b'false'
+                             or f.get(b'CPU_from_run_or_wall') != b'false' for f in fields):
+            raise ValueError('API evidence lacks its explicit finite-counter/no-helper boundary')
+        if name == 'api-current':
+            if (len(fields) != 2 or [f.get(b'slots') for f in fields] != [b'1', b'2']
+                    or [f.get(b'run_ns') for f in fields] != [b'350000', b'175000']
+                    or any(f.get(b'computed_Q_ns') != b'600000' or f.get(b'projected_debt_ns') != b'9000000' for f in fields)
+                    or b'private_scheduler_api_complete typed_slot_cases=2 ' not in stderr
+                    or b'private_scheduler_api_crossing old_target_ns=550000 measured_A_ns=500000 observed_C_ns=350000 new_target_ns=450000 previous_run_ns=350000 next_run_ns=175000 decrease_count=1 old_allocation_unchanged=true' not in stderr
+                    or b'private_scheduler_api_window_shrink measured_basis=false observed_A_ns=600000 observed_C_ns=250000 controller_known=true next_target_ns=550000 previous_run_ns=350000 next_run_ns=175000 decrease_count=1 growth_count=0' not in stderr
+                    or b'private_scheduler_api_window_shrink measured_basis=false observed_A_ns=600000 observed_C_ns=18446744073709551615 controller_known=false next_target_ns=550000 previous_run_ns=350000 next_run_ns=175000 decrease_count=1 growth_count=0' not in stderr
+                    or b'private_scheduler_api_max_latency live_ACK_delays_ns=100000,300000 selected_latency_ns=300000 reserved_slots=2 next_run_ns=25000' not in stderr
+                    or b'supplied_over_CPU_ns=1200000 computed_over_Q_ns=1450000 projected_over_debt_ns=13050000' not in stderr
+                    or b'physical_fixed_oversize_witness=deferred_unproven canonical_suite_receipt=false' not in stderr):
+                raise ValueError('current API lacks complete reserved-slot/feedback/Q/debt checks')
+        elif name == 'api-fixed-oversize':
+            failures = re.findall(rb'^probe refused: (.+?) errno=-?[0-9]+$', stderr, re.MULTILINE)
+            if assertion not in failures or len(fields) != 1 or fields[0].get(b'run_ns') != b'1200000':
+                raise ValueError('API oversize mutation lacks its exact allocator-bound causal failure')
+            report['api_mutant_failed_axis'] = 'allocator bound; supplied independent CPU Q/debt inputs stay unchanged'
+        elif name == 'api-old-target-feedback':
+            failures = re.findall(rb'^probe refused: (.+?) errno=-?[0-9]+$', stderr, re.MULTILINE)
+            crossing = b'private_scheduler_api_crossing old_target_ns=550000 measured_A_ns=500000 observed_C_ns=350000 new_target_ns=450000 previous_run_ns=350000 next_run_ns=350000 decrease_count=0 old_allocation_unchanged=true'
+            if feedback_assertion not in failures or len(fields) != 2 or crossing not in stderr:
+                raise ValueError('old-target API mutation lacks its exact known-reserve crossing failure')
+            report['api_feedback_mutant_failed_axis'] = 'old target fails to halve actual previous run after new controller reserve'
+        else:
+            failures = re.findall(rb'^probe refused: (.+?) errno=-?[0-9]+$', stderr, re.MULTILINE)
+            shrink = b'private_scheduler_api_window_shrink measured_basis=false observed_A_ns=600000 observed_C_ns=250000 controller_known=true next_target_ns=550000 previous_run_ns=350000 next_run_ns=350000 decrease_count=0 growth_count=0'
+            if shrink_assertion not in failures or len(fields) != 2 or shrink not in stderr:
+                raise ValueError('unmeasured-basis API mutation lacks its exact finite-burn decrease failure')
+            report['api_window_mutant_failed_axis'] = 'finite observed burn must shrink even without measured-basis certification'
+        report['commands'][-1]['process_free_allocator_api'] = True
+    report['canonical_suite_receipt'] = False
+    report['physical_fixed_oversize_witness'] = 'deferred_unproven under Oracle14:50 ruling; no API claim of physical CPU'
+    report['physical_scheduler_negative'] = PHYSICAL_SCHEDULER_DEFERRAL
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--target-dir', required=True)
+    parser.add_argument('--scheduler-api-only', action='store_true',
+                        help='supplemental process-free allocator API checks; not a canonical physical-suite receipt')
     args = parser.parse_args()
     target = Path(args.target_dir)
     if not target.is_absolute():
         parser.error('--target-dir must be absolute')
     target.mkdir(parents=True, exist_ok=True)
-    directory = Path(tempfile.mkdtemp(prefix='private-engine-controls-', dir=target)).resolve()
-    report = {'format': 'bboxy.dream.private-engine-source-controls/1',
+    directory = Path(tempfile.mkdtemp(prefix='private-engine-scheduler-api-' if args.scheduler_api_only else 'private-engine-controls-', dir=target)).resolve()
+    report = {'format': 'bboxy.dream.private-engine-scheduler-api-controls/1' if args.scheduler_api_only else 'bboxy.dream.private-engine-source-controls/1',
               'synthetic_source_known': True, 'real_candidate_created': 0,
               'runtime_approved': False, 'whole_command_lifetime_proof': False,
               'live_kernel_custody_after_probe_exit_proved': False,
               'recovery_handoff_proved': False, 'same_controller_quarantine_hold_witness_required': True, 'commands': [], 'inputs': {},
-              'snapshots': [], 'executables': [], 'process_ledgers': []}
+              'snapshots': [], 'executables': [], 'process_ledgers': [],
+              'physical_scheduler_negative': PHYSICAL_SCHEDULER_DEFERRAL}
     status = 1
     try:
         inputs = {str(path): read_stable(ROOT / path, 1024 * 1024)
@@ -453,7 +556,10 @@ def main():
         archive.mkdir(mode=0o700)
         for name, data in inputs.items():
             report['inputs'][name] = retain(archive / Path(name).name, data)
-        verify(directory, inputs, report)
+        if args.scheduler_api_only:
+            verify_scheduler_api(directory, inputs, report)
+        else:
+            verify(directory, inputs, report)
         if any(read_stable(ROOT / name, 1024 * 1024) != data for name, data in inputs.items()):
             raise ValueError('canonical source/control/driver changed during verification')
         report['current_sources_unchanged'] = True
@@ -463,9 +569,11 @@ def main():
         report['status'] = 'failed'
         report['error'] = str(error)
     retain(directory / 'run.json', canonical(report))
-    print(json.dumps({'status': report['status'], 'evidence': str(directory / 'run.json'),
-                      'synthetic_source_known': True, 'real_candidate_created': 0,
-                      'runtime_approved': False}, sort_keys=True))
+    summary = {'status': report['status'], 'evidence': str(directory / 'run.json'),
+               'synthetic_source_known': True, 'real_candidate_created': 0, 'runtime_approved': False}
+    if args.scheduler_api_only:
+        summary['scope'] = 'supplemental_process_free_scheduler_api'
+    print(json.dumps(summary, sort_keys=True))
     return status
 
 

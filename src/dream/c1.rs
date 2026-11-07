@@ -681,6 +681,9 @@ impl Control {
     pub(crate) fn read_pay(&self) {
         self.accounting.pay();
     }
+    pub(crate) fn helper_debt_marker(&self) -> u64 {
+        self.accounting.debt_total.load(Ordering::Acquire)
+    }
     pub(crate) fn observe_interval(&self, start: u64, end: u64) -> u64 {
         observed_interval(&self.accounting, start, end)
     }
@@ -764,6 +767,7 @@ pub(crate) struct HelperGroup {
     retired_members: [RetiredMember; 8],
     stopped_roster: [i32; 8],
     grant: HelperGrantLedger,
+    adaptive_grant: HelperAdaptiveGrant,
     corroboration_pending: bool,
     post_commit_pending: bool,
     post_cpu: u64,
@@ -772,6 +776,7 @@ pub(crate) struct HelperGroup {
     post_startup_cpu: u64,
     startup_accounted: bool,
     initial_startup: Option<HelperInitialStartup>,
+    born_stopped_original: Option<HelperBornStopped>,
     retired_child_reap: Option<HelperChildRollupProof>,
     terminal_reap: HelperTerminalReap,
     reap_cost_before: u64,
@@ -1083,11 +1088,106 @@ struct HelperSlotWindow {
     ack_ns: Option<u64>,
     through_closure: bool,
 }
+// Allocation only: these bounds never certify a quantum or alter its actual
+// pre-CONT/positive-ACK endpoints, full cost, fresh debt or hard refusal gates.
+const HELPER_RUN_MIN_NS: u64 = 25_000;
+const HELPER_RUN_MAX_NS: u64 = 450_000;
+const HELPER_A_TARGET_MAX_NS: u64 = 550_000;
+const HELPER_A_TARGET_MIN_NS: u64 = 50_000;
+const HELPER_C_INITIAL_NS: u64 = 250_000;
+const HELPER_LATENCY_INITIAL_NS: u64 = 100_000;
+const HELPER_ALLOCATION_MARGIN_NS: u64 = 200_000;
+const HELPER_RUN_INITIAL_NS: u64 = 350_000;
+const HELPER_RUN_GROW_NS: u64 = 10_000;
+#[derive(Clone, Copy, Debug, Default)]
+struct HelperAllocation {
+    run_ns: u64,
+    target_a_ns: u64,
+    controller_reserve_ns: u64,
+    stop_latency_reserve_ns: u64,
+}
+#[derive(Clone, Copy)]
+struct HelperAdaptiveGrant {
+    run_ns: u64,
+    controller_reserve_ns: u64,
+    stop_latency_reserve_ns: u64,
+}
+impl HelperAdaptiveGrant {
+    fn new(reserved: u8) -> Self {
+        let mut policy = Self {
+            run_ns: HELPER_RUN_INITIAL_NS / u64::from(reserved.clamp(1, 2)),
+            controller_reserve_ns: HELPER_C_INITIAL_NS,
+            stop_latency_reserve_ns: HELPER_LATENCY_INITIAL_NS,
+        };
+        policy.run_ns = policy.run_ns.min(policy.cap(reserved));
+        policy
+    }
+    fn target_a(&self) -> u64 {
+        UNIT_NS
+            .saturating_sub(self.controller_reserve_ns)
+            .saturating_sub(HELPER_ALLOCATION_MARGIN_NS)
+            .clamp(HELPER_A_TARGET_MIN_NS, HELPER_A_TARGET_MAX_NS)
+    }
+    fn cap(&self, reserved: u8) -> u64 {
+        // Reserve both possible runnable members even before a qualified
+        // implicit child appears. A census never shrinks this allocation.
+        let per_slot = self.target_a() / u64::from(reserved.clamp(1, 2));
+        HELPER_RUN_MAX_NS
+            .min(per_slot)
+            .saturating_sub(self.stop_latency_reserve_ns)
+            .clamp(HELPER_RUN_MIN_NS, HELPER_RUN_MAX_NS)
+    }
+    fn allocation(&self, reserved: u8) -> HelperAllocation {
+        HelperAllocation {
+            run_ns: self.run_ns.min(self.cap(reserved)),
+            target_a_ns: self.target_a(),
+            controller_reserve_ns: self.controller_reserve_ns,
+            stop_latency_reserve_ns: self.stop_latency_reserve_ns,
+        }
+    }
+    fn observe(
+        &mut self,
+        reserved: u8,
+        cpu: u64,
+        actual_a: u64,
+        latency: Option<u64>,
+        measured: bool,
+    ) {
+        let previous_run = self.run_ns;
+        if cpu != u64::MAX {
+            self.controller_reserve_ns = self.controller_reserve_ns.max(cpu);
+        }
+        if let Some(latency) = latency.filter(|v| *v != u64::MAX) {
+            self.stop_latency_reserve_ns = self.stop_latency_reserve_ns.max(latency);
+        }
+        let target = self.target_a();
+        let next = if actual_a != u64::MAX && actual_a > target {
+            previous_run / 2
+        } else if measured
+            && cpu != u64::MAX
+            && actual_a != u64::MAX
+            && latency.is_some_and(|v| v != u64::MAX)
+            && actual_a <= target * 3 / 4
+        {
+            previous_run.saturating_add(HELPER_RUN_GROW_NS)
+        } else {
+            previous_run
+        };
+        self.run_ns = next.clamp(HELPER_RUN_MIN_NS, self.cap(reserved));
+    }
+    fn due(allocation: HelperAllocation, t0: u64, now: u64) -> Result<bool, ()> {
+        if t0 == 0 || now == u64::MAX || allocation.run_ns == 0 {
+            return Err(());
+        }
+        Ok(now.checked_sub(t0).ok_or(())? >= allocation.run_ns)
+    }
+}
 #[derive(Clone, Copy, Default)]
 struct HelperGrantLedger {
     opened: bool,
     index: u64,
     t0_ns: u64,
+    allocation: HelperAllocation,
     close_ns: Option<u64>,
     reserved: u8,
     slots: [HelperSlotWindow; 2],
@@ -1173,6 +1273,12 @@ pub(crate) struct HelperGrantReceipt {
     pub(crate) birth: u64,
     pub(crate) reserved: u8,
     pub(crate) t0_ns: u64,
+    pub(crate) run_budget_ns: u64,
+    pub(crate) target_a_ns: u64,
+    pub(crate) controller_reserve_ns: u64,
+    pub(crate) stop_latency_reserve_ns: u64,
+    pub(crate) observed_stop_latency_ns: u64,
+    pub(crate) stop_latency_known: bool,
     pub(crate) end_ns: [u64; 2],
     pub(crate) close_ns: u64,
     pub(crate) member_pid: [i32; 2],
@@ -1277,12 +1383,25 @@ struct HelperInitialStartup {
     charged: bool,
     rest_until_ns: u64,
 }
+/// Successful initial attachment precedes the fallible native-cost callback.
+/// Retain that source/identity cut separately from a later paid startup/L cut:
+/// an unactivated reserved child cannot run before the original first CONT.
+#[derive(Clone, Copy)]
+struct HelperBornStopped {
+    ticket: super::resolve::HelperTicket,
+    expected_members: u8,
+    baseline: HelperInitialStartup,
+    birth_cost_retained: bool,
+    birth_receipt_clocks_known: bool,
+    birth_rest_until_ns: u64,
+}
 /// Accounting success never constructs this physical settlement permission.
 /// No paths/allocations, receiver, controller or custody transfer live here.
 #[derive(Clone, Copy, Default)]
 struct HelperTerminalReap {
     ticket: Option<super::resolve::HelperTicket>,
     initial_source_valid: bool,
+    initial_accounting_unknown: bool,
     physical_valid: bool,
     identity_lost: bool,
     ri_attempted: bool,
@@ -1443,6 +1562,7 @@ pub(crate) struct HelperMetrics {
     pub(crate) post_exit_observations: u64,
     pub(crate) post_exit_observation_known: bool,
     pub(crate) initial_post_exit_observation: bool,
+    pub(crate) initial_physical_only: bool,
     pub(crate) initial_startup_baseline_ns: u64,
     pub(crate) initial_startup_rest_until_ns: u64,
     pub(crate) terminal_physical_valid: bool,
@@ -1768,6 +1888,22 @@ impl HelperGroup {
         true
     }
     #[cfg(test)]
+    pub(crate) fn fixture_early_original_settled(&self) -> bool {
+        self.terminal_reap.initial_accounting_unknown
+            && self.terminal_reap.own_wait4
+            && self.terminal_reap.physical_valid
+            && !self.terminal_reap.identity_lost
+            && self.terminal_reap.ri_attempted
+            && self.terminal_reap.retained
+            && self.metrics.terminal_residual_cost_paid
+            && self.accounting_settled
+            && !self.grant.opened
+            && self.metrics.grants == 0
+            && self.members[1].pid == 0
+            && self.terminal_reap.counter_unknown
+            && !self.metrics.conservation_pass
+    }
+    #[cfg(test)]
     pub(crate) fn fixture_descendant_identity(&self) -> Option<(i32, u64, u64, u32)> {
         let member = self.members[1];
         (member.image_phase == HelperImagePhase::Descendant
@@ -2060,6 +2196,9 @@ impl HelperGroup {
             opened: true,
             index: self.metrics.grants.checked_add(1).ok_or(())?,
             reserved: self.identity.expected_members,
+            allocation: self
+                .adaptive_grant
+                .allocation(self.identity.expected_members),
             actual_baseline: baseline,
             baseline_usage: self.usage_observations,
             rolled_baseline: rolled,
@@ -2752,6 +2891,11 @@ impl HelperGroup {
                 birth: self.identity.start_identity,
                 reserved: self.grant.reserved,
                 t0_ns: self.grant.t0_ns,
+                run_budget_ns: self.grant.allocation.run_ns,
+                target_a_ns: self.grant.allocation.target_a_ns,
+                controller_reserve_ns: self.grant.allocation.controller_reserve_ns,
+                stop_latency_reserve_ns: self.grant.allocation.stop_latency_reserve_ns,
+                observed_stop_latency_ns: u64::MAX,
                 close_ns: self.grant.close_ns.unwrap_or(now),
                 w_ns: window,
                 a_ns: actual,
@@ -2818,25 +2962,20 @@ impl HelperGroup {
             .checked_add(self.members[1].system_ticks.max(self.rolled_system_ticks))
             .ok_or(())
     }
-    fn initial_startup_source_matches(&self, baseline: HelperInitialStartup) -> bool {
+    fn ungranted_original_source_matches(&self, baseline: HelperInitialStartup) -> bool {
         let member = self.members[0];
-        let retained_terminal_source = self.terminal_reap.initial_source_valid
-            && !self.terminal_reap.identity_lost
-            && self.terminal_reap.ticket == Some(self.identity.ticket());
-        self.identity.expected_members == 1
+        (1..=2).contains(&self.identity.expected_members)
             && self.identity.pid > 0
             && self.identity.pid == self.pgid
             && self.identity.pgid == self.pgid
-            && self.creation_settled
-            && self.startup_accounted
             && !self.grant.opened
             && self.metrics.grants == 0
             && !self.running
             && !self.terminal_accounting_pending
-            && self.confirmed_stopped
-            && ((self.metrics.coverage_known && self.metrics.clock_failures == 0)
-                || retained_terminal_source)
             && self.members[1].pid == 0
+            && self.metrics.descendants == 0
+            && self.metrics.verified_descendants == 0
+            && !self.terminal_reap.identity_lost
             && self.rolled_user_ticks == 0
             && self.rolled_system_ticks == 0
             && self.metrics.rolled_descendant_cpu_ns == 0
@@ -2881,7 +3020,92 @@ impl HelperGroup {
             && self
                 .retired_members
                 .iter()
-                .all(|retained| !retained.current || retained.pid == baseline.member.pid)
+                .all(|retained| retained.pid == 0 || retained.pid == baseline.member.pid)
+    }
+    fn initial_startup_source_matches(&self, baseline: HelperInitialStartup) -> bool {
+        let retained = self.terminal_reap.initial_source_valid
+            && !self.terminal_reap.identity_lost
+            && self.terminal_reap.ticket == Some(self.identity.ticket());
+        self.identity.expected_members == 1
+            && self.creation_settled
+            && self.startup_accounted
+            && self.confirmed_stopped
+            && ((self.metrics.coverage_known && self.metrics.clock_failures == 0) || retained)
+            && self.ungranted_original_source_matches(baseline)
+    }
+    pub(crate) fn retain_born_stopped_original(&mut self) {
+        if self.born_stopped_original.is_some()
+            || !self.confirmed_stopped
+            || !self.metrics.coverage_known
+            || self.metrics.clock_failures != 0
+        {
+            return;
+        }
+        let baseline = HelperInitialStartup {
+            member: self.members[0],
+            usage: self.usage_observations[0],
+            timebase: self.timebase,
+            charged: false,
+            rest_until_ns: 0,
+        };
+        if self.ungranted_original_source_matches(baseline) {
+            self.born_stopped_original = Some(HelperBornStopped {
+                ticket: self.identity.ticket(),
+                expected_members: self.identity.expected_members,
+                baseline,
+                birth_cost_retained: false,
+                birth_receipt_clocks_known: false,
+                birth_rest_until_ns: u64::MAX,
+            });
+        }
+    }
+    pub(crate) fn retain_born_stopped_cost(
+        &mut self,
+        control: &Control,
+        receipt_clocks_known: bool,
+        inclusive_cpu: u64,
+        debt_before: u64,
+    ) {
+        let Some(mut original) = self.born_stopped_original else {
+            return;
+        };
+        let funded = control
+            .accounting
+            .debt_total
+            .load(Ordering::Acquire)
+            .checked_sub(debt_before);
+        // Original native clocks may be UNKNOWN and must stay failed. The
+        // canonical3ms/27ms retained debt still owns that effect; a later real
+        // receipt clock is physical custody evidence, not admission repair.
+        let normalized = if inclusive_cpu == u64::MAX {
+            SPAN_NS
+        } else {
+            inclusive_cpu.max(UNIT_NS)
+        };
+        original.birth_cost_retained = self.ungranted_original_source_matches(original.baseline)
+            && normalized
+                .checked_mul(9)
+                .is_some_and(|required| funded.is_some_and(|debt| debt >= required));
+        original.birth_receipt_clocks_known = receipt_clocks_known;
+        original.birth_rest_until_ns = control.accounting.rest_until.load(Ordering::Acquire);
+        self.born_stopped_original = Some(original);
+    }
+    fn paid_born_stopped_original(&self, control: &Control) -> Result<HelperInitialStartup, ()> {
+        let original = self.born_stopped_original.ok_or(())?;
+        if original.ticket != self.identity.ticket()
+            || original.expected_members != self.identity.expected_members
+            || !original.birth_cost_retained
+            || !original.birth_receipt_clocks_known
+            || !self.ungranted_original_source_matches(original.baseline)
+            || self.pipe_open
+            || self.usage_reconciled
+            || control.accounting.now() < original.birth_rest_until_ns
+            || control.accounting.now() < control.accounting.rest_until.load(Ordering::Acquire)
+            || Instant::now() < self.debt_until
+        {
+            return Err(());
+        }
+        Ok(original.baseline)
     }
     #[cfg(all(test, target_os = "macos"))]
     fn paid_initial_startup(&self, control: &Control) -> Result<HelperInitialStartup, ()> {
@@ -2957,7 +3181,19 @@ impl HelperGroup {
         &mut self,
         baseline: HelperInitialStartup,
     ) -> Result<(), HelperObservationFailure> {
-        if !self.initial_startup_source_matches(baseline) {
+        let born_matches = self.born_stopped_original.is_some_and(|original| {
+            original.ticket == self.identity.ticket()
+                && original.expected_members == self.identity.expected_members
+                && original.birth_cost_retained
+                && original.birth_receipt_clocks_known
+                && original.baseline.member.pid == baseline.member.pid
+                && original.baseline.member.birth == baseline.member.birth
+                && original.baseline.member.start_abstime == baseline.member.start_abstime
+                && original.baseline.member.audit_token.value == baseline.member.audit_token.value
+                && original.baseline.usage.observed_ns == baseline.usage.observed_ns
+                && self.ungranted_original_source_matches(baseline)
+        });
+        if !self.initial_startup_source_matches(baseline) && !born_matches {
             return Err(HelperObservationFailure::mismatch(150));
         }
         if super::resolve::helper_exited(self.identity.pid) != Ok(true) {
@@ -3407,6 +3643,14 @@ impl HelperGroup {
         {
             self.terminal_reap.initial_source_valid = true;
         }
+        if initial
+            && !self.terminal_reap.initial_source_valid
+            && self.paid_born_stopped_original(control).is_ok()
+        {
+            self.terminal_reap.initial_source_valid = true;
+            self.terminal_reap.initial_accounting_unknown = true;
+            self.metrics.initial_physical_only = true;
+        }
         self.metrics.post_exit_observations = self.metrics.post_exit_observations.saturating_add(1);
         self.post_proof_pending = true;
         self.post_commit_pending = true;
@@ -3418,15 +3662,24 @@ impl HelperGroup {
             if initial {
                 // Missing/unpaid prerequisites hold the same owner; they are
                 // not an observed PID/token mismatch or terminal evidence.
-                let baseline = self
-                    .paid_initial_startup_for_attempt(control)
-                    .map_err(|()| HelperObservationFailure::native(149, 0))?;
+                let baseline = if self.terminal_reap.initial_accounting_unknown {
+                    self.paid_born_stopped_original(control)
+                } else {
+                    self.paid_initial_startup_for_attempt(control)
+                }
+                .map_err(|()| HelperObservationFailure::native(149, 0))?;
                 self.metrics.post_exit_user_before_ticks = baseline.usage.user_ticks;
                 self.metrics.post_exit_system_before_ticks = baseline.usage.system_ticks;
                 self.initial_terminal_physical(baseline)?;
                 self.terminal_reap.physical_valid = true;
                 self.metrics.terminal_physical_valid = true;
                 self.initial_terminal_ri(baseline)?;
+                if self.terminal_reap.initial_accounting_unknown {
+                    // Physical identity survives failed pregrant admission, but
+                    // no paid startup/L baseline exists. Even an available RI
+                    // supplies no accounting credit: retain UNKNOWN3ms/27ms.
+                    return Err(HelperObservationFailure::native(170, 0));
+                }
                 self.metrics.post_exit_user_after_ticks = self.members[0].user_ticks;
                 self.metrics.post_exit_system_after_ticks = self.members[0].system_ticks;
                 self.post_late_cpu =
@@ -3574,7 +3827,7 @@ impl HelperGroup {
         self.post_proof_pending = true;
         self.post_commit_pending = true;
         self.post_cpu = 0;
-        if !self.startup_accounted {
+        if !self.startup_accounted && !self.terminal_reap.initial_accounting_unknown {
             self.post_startup_cpu = if self.grant.opened {
                 self.grant.actual_baseline
             } else {
@@ -4820,6 +5073,7 @@ impl HelperGroup {
     }
     pub(crate) fn attached(identity: super::resolve::HelperIdentity) -> Self {
         let now = Instant::now();
+        let reserved = identity.expected_members;
         Self {
             pgid: identity.pgid,
             running: false,
@@ -4851,7 +5105,11 @@ impl HelperGroup {
             usage_observations: [HelperUsageObservation::default(); 2],
             retired_members: [RetiredMember::default(); 8],
             stopped_roster: [0; 8],
-            grant: HelperGrantLedger::default(),
+            grant: HelperGrantLedger {
+                allocation: HelperAdaptiveGrant::new(reserved).allocation(reserved),
+                ..HelperGrantLedger::default()
+            },
+            adaptive_grant: HelperAdaptiveGrant::new(reserved),
             corroboration_pending: true,
             post_commit_pending: false,
             post_cpu: 0,
@@ -4860,6 +5118,7 @@ impl HelperGroup {
             post_startup_cpu: 0,
             startup_accounted: false,
             initial_startup: None,
+            born_stopped_original: None,
             retired_child_reap: None,
             terminal_reap: HelperTerminalReap::default(),
             reap_cost_before: 0,
@@ -5105,8 +5364,12 @@ impl HelperGroup {
             && self.terminal_reap.initial_source_valid
             && self.terminal_reap.physical_valid
             && !self.terminal_reap.identity_lost
-            && self.identity.expected_members == 1
+            && (1..=2).contains(&self.identity.expected_members)
+            && !self.grant.opened
+            && self.metrics.grants == 0
             && self.members[1].pid == 0
+            && self.metrics.descendants == 0
+            && self.metrics.verified_descendants == 0
         {
             // Actual own wait4 settled the already-validated single original
             // child. Do not demand a second unavailable RI after that reap.
@@ -5204,6 +5467,52 @@ impl HelperGroup {
         let _ = control
             .cancel
             .compare_exchange(0, code, Ordering::AcqRel, Ordering::Acquire);
+    }
+    fn live_stop_feedback_latency(&self) -> Option<u64> {
+        let stop = self.metrics.last_stop;
+        if !self.grant.closed
+            || stop.result != 0
+            || stop.attempt == 0
+            || stop.sequence != self.identity.sequence
+            || stop.pid != self.identity.pid
+            || stop.birth != self.identity.start_identity
+            || stop.audit_version != self.grant.slots[0].version
+            || stop.observed_ns == u64::MAX
+            || stop.observed_ns < self.grant.t0_ns
+        {
+            return None;
+        }
+        self.grant.slots[..usize::from(self.grant.reserved)]
+            .iter()
+            .enumerate()
+            .filter_map(|(index, slot)| {
+                let member = self.members[index];
+                let task = self.task_observations[index];
+                let ack = slot.ack_ns?;
+                // Exited/rollup/through-closure endpoints are not STOP latency
+                // samples. They cannot contribute a fictitious zero or permit
+                // growth. Reserve the MAX delay of every actual live STOP ACK.
+                if slot.pid <= 0
+                    || slot.through_closure
+                    || ack == u64::MAX
+                    || member.image_phase != HelperImagePhase::Descendant
+                    || member.exit_abstime != 0
+                    || member.rollup_exit_observed_ns != 0
+                    || member.pid != slot.pid
+                    || member.birth != slot.birth
+                    || member.start_abstime != slot.start
+                    || member.audit_version != slot.version
+                    || member.final_image_version != slot.version
+                    || task.pid != slot.pid
+                    || !task.stopped()
+                    || task.observed_ns == u64::MAX
+                    || task.observed_ns < ack
+                {
+                    return None;
+                }
+                ack.checked_sub(stop.observed_ns)
+            })
+            .max()
     }
     /// Charge only endpoints belonging to this grant's completed causal roster.
     /// Failed closure retains every uncertainty interval through settlement.
@@ -5323,7 +5632,25 @@ impl HelperGroup {
             HelperChargeBasis::Window => receipt.w_ns.max(receipt.a_ns),
         }
         .saturating_add(receipt.c_ns);
+        receipt.run_budget_ns = self.grant.allocation.run_ns;
+        receipt.target_a_ns = self.grant.allocation.target_a_ns;
+        receipt.controller_reserve_ns = self.grant.allocation.controller_reserve_ns;
+        receipt.stop_latency_reserve_ns = self.grant.allocation.stop_latency_reserve_ns;
+        let stop_latency = self.live_stop_feedback_latency();
+        receipt.observed_stop_latency_ns = stop_latency.unwrap_or(u64::MAX);
+        receipt.stop_latency_known = stop_latency.is_some();
         let first = !self.grant.charged_once;
+        if first && receipt.closed {
+            self.adaptive_grant.observe(
+                receipt.reserved,
+                receipt.c_ns,
+                receipt.a_ns,
+                stop_latency,
+                receipt.basis == HelperChargeBasis::Measured
+                    && self.metrics.coverage_known
+                    && self.metrics.clock_failures == 0,
+            );
+        }
         if first && receipt.basis == HelperChargeBasis::Measured && receipt.rollup_provisional {
             let fallback = receipt.w_ns.max(receipt.a_ns).saturating_add(receipt.c_ns);
             self.grant.rollup_registered = true;
@@ -6335,6 +6662,19 @@ impl Control {
                 Ok(None) => {}
                 Err(_) => h.reject(self, 5),
             }
+            let allocation_due = if h.running && !h.admission_failed && !h.stop_requested {
+                match h.ledger_clock().and_then(|now| {
+                    HelperAdaptiveGrant::due(h.grant.allocation, h.grant.t0_ns, now)
+                }) {
+                    Ok(due) => due,
+                    Err(()) => {
+                        h.reject(self, 5);
+                        false
+                    }
+                }
+            } else {
+                false
+            };
             if h.running
                 && !h.admission_failed
                 && !h.stop_requested
@@ -6343,7 +6683,7 @@ impl Control {
                     || self.error().is_some()
                     // Leave room for actual stop/identity/roster closure and
                     // its full controller charge under the unchanged1ms Q.
-                    || h.changed.elapsed() >= Duration::from_micros(100))
+                    || allocation_due)
                 && h.request_group_stop().is_err()
             {
                 h.reject(self, 5);
@@ -9712,6 +10052,199 @@ mod helper_admission_tests {
     }
 
     #[test]
+    fn adaptive_grant_allocation_reserves_both_slots_latency_and_full_controller_cost() {
+        for slots in [1, 2] {
+            let mut policy = HelperAdaptiveGrant::new(slots);
+            let first = policy.allocation(slots);
+            assert_eq!(first.target_a_ns, 550_000);
+            assert_eq!(first.run_ns, if slots == 1 { 350_000 } else { 175_000 });
+            assert_eq!(
+                HelperAdaptiveGrant::due(first, 100, 100 + first.run_ns - 1),
+                Ok(false)
+            );
+            // The freshly sampled clock after bounded work, not an old tick
+            // timestamp, triggers the very same native STOP decision.
+            assert_eq!(
+                HelperAdaptiveGrant::due(first, 100, 100 + first.run_ns),
+                Ok(true)
+            );
+            assert!(HelperAdaptiveGrant::due(first, 100, 99).is_err());
+            assert!(HelperAdaptiveGrant::due(first, 100, u64::MAX).is_err());
+            policy.observe(slots, 250_000, 600_000, Some(100_000), true);
+            let halved = policy.allocation(slots);
+            assert_eq!(halved.run_ns, first.run_ns / 2);
+            policy.observe(slots, 100_000, 100_000, Some(10_000), true);
+            let grown = policy.allocation(slots);
+            assert_eq!(
+                grown.run_ns,
+                (halved.run_ns + 10_000).min(policy.cap(slots))
+            );
+            assert_eq!(grown.controller_reserve_ns, 250_000);
+            assert_eq!(grown.stop_latency_reserve_ns, 100_000);
+            for _ in 0..100 {
+                policy.observe(slots, 250_000, 100_000, Some(100_000), true);
+            }
+            assert_eq!(policy.allocation(slots).run_ns, policy.cap(slots));
+            let before_unknown = policy.run_ns;
+            policy.observe(slots, u64::MAX, u64::MAX, None, false);
+            assert_eq!(
+                policy.run_ns, before_unknown,
+                "unknown proof cannot grow a grant"
+            );
+            policy.observe(slots, 700_000, 100_000, Some(200_000), true);
+            let high_cost = policy.allocation(slots);
+            assert_eq!(high_cost.target_a_ns, 100_000);
+            assert_eq!(high_cost.run_ns, 25_000);
+            eprintln!(
+                "adaptive_allocation synthetic_api=true native_qualification=false slots={slots} initial_run_ns={} initial_target_a_ns={} halved_run_ns={} grown_run_ns={} high_C_run_ns={} high_C_target_a_ns={} controller_reserve_ns={} stop_latency_reserve_ns={} unchanged_Q_limit_ns={UNIT_NS}",
+                first.run_ns,
+                first.target_a_ns,
+                halved.run_ns,
+                grown.run_ns,
+                high_cost.run_ns,
+                high_cost.target_a_ns,
+                high_cost.controller_reserve_ns,
+                high_cost.stop_latency_reserve_ns
+            );
+        }
+    }
+    #[test]
+    fn adaptive_grant_stop_latency_uses_max_live_ack_and_excludes_exit() {
+        for fault in [
+            "two_live",
+            "exited_child",
+            "exited_only",
+            "failed_signal",
+            "wrong_grant",
+            "wrong_identity",
+            "wrong_member",
+            "unobserved_ack",
+            "no_live_stop",
+            "reversed_ack",
+        ] {
+            let mut helper = measured_accounting_group(2);
+            helper.identity.pid = helper.members[0].pid;
+            helper.identity.pgid = helper.identity.pid;
+            helper.identity.start_identity = helper.members[0].birth;
+            let sent = helper.grant.t0_ns + 1_000_000;
+            helper.metrics.last_stop = HelperStopReceipt {
+                sequence: helper.identity.sequence,
+                pid: helper.identity.pid,
+                birth: helper.identity.start_identity,
+                audit_version: helper.members[0].audit_version,
+                observed_ns: sent,
+                attempt: 1,
+                result: 0,
+                ..HelperStopReceipt::default()
+            };
+            for index in 0..2 {
+                let ack = sent + if index == 0 { 100_000 } else { 300_000 };
+                helper.grant.slots[index].ack_ns = Some(ack);
+                helper.task_observations[index].observed_ns = ack;
+            }
+            match fault {
+                "exited_child" => helper.members[1].image_phase = HelperImagePhase::Exited,
+                "exited_only" => {
+                    helper.members[0].image_phase = HelperImagePhase::Exited;
+                    helper.members[1].image_phase = HelperImagePhase::Exited;
+                }
+                "failed_signal" => helper.metrics.last_stop.result = -1,
+                "wrong_grant" => helper.metrics.last_stop.observed_ns = helper.grant.t0_ns - 1,
+                "wrong_identity" => helper.metrics.last_stop.birth += 1,
+                "wrong_member" => helper.members[1].audit_version += 1,
+                "unobserved_ack" => helper.task_observations[1].observed_ns = sent,
+                "no_live_stop" => {
+                    helper.task_observations[0].status = 3;
+                    helper.task_observations[1].status = 3;
+                }
+                "reversed_ack" => helper.grant.slots[1].ack_ns = Some(sent - 1),
+                _ => {}
+            }
+            let latency = helper.live_stop_feedback_latency();
+            let expected = match fault {
+                "two_live" => Some(300_000),
+                "exited_child" | "wrong_member" | "unobserved_ack" | "reversed_ack" => {
+                    Some(100_000)
+                }
+                _ => None,
+            };
+            assert_eq!(latency, expected);
+            let mut policy = HelperAdaptiveGrant::new(2);
+            policy.observe(2, 250_000, 100_000, latency, true);
+            if latency.is_none() {
+                assert_eq!(
+                    policy.run_ns, 175_000,
+                    "exited/unknown/non-success cannot earn growth"
+                );
+            }
+            if fault == "two_live" {
+                assert_eq!(policy.stop_latency_reserve_ns, 300_000);
+                assert_eq!(policy.run_ns, 25_000);
+            }
+            eprintln!(
+                "adaptive_live_latency synthetic_api=true fault={fault} leader_ack_delay_ns=100000 child_ack_delay_ns=300000 observed_max_ns={latency:?} reserve_ns={} run_ns={} qualification=false",
+                policy.stop_latency_reserve_ns, policy.run_ns
+            );
+        }
+    }
+    #[test]
+    fn adaptive_grant_window_basis_finite_overshoot_shrinks_without_growth() {
+        let mut policy = HelperAdaptiveGrant::new(1);
+        assert_eq!(policy.run_ns, 350_000);
+        // A525us exceeds the NEW500us target after actual C grows250->300us,
+        // although it did not exceed the old550us target. Window basis blocks
+        // growth, never conservative shrink from a finite actual CPU sample.
+        policy.observe(1, 300_000, 525_000, Some(100_000), false);
+        assert_eq!(policy.target_a(), 500_000);
+        assert_eq!(policy.run_ns, 175_000);
+        policy.observe(1, 250_000, 100_000, Some(100_000), false);
+        assert_eq!(policy.run_ns, 175_000, "window basis cannot earn growth");
+        policy.observe(1, 250_000, 100_000, None, true);
+        assert_eq!(
+            policy.run_ns, 175_000,
+            "exited-only/no live STOP latency cannot earn growth"
+        );
+        eprintln!(
+            "adaptive_window_feedback synthetic_api=true C_reserve_ns={} new_target_A_ns={} observed_A_ns=525000 halved_run_ns={} measured_basis=false Q_limit_ns={UNIT_NS} qualification=false",
+            policy.controller_reserve_ns,
+            policy.target_a(),
+            policy.run_ns
+        );
+    }
+
+    #[test]
+    fn adaptive_grant_fixed_oversize_cannot_hide_actual_quantum_or_fresh_debt() {
+        // Deliberately broken allocation, synthetic raw counter API inputs.
+        // Actual endpoints/A/C and the existing resource/debt gates stay intact;
+        // the C source-known process control separately burns real helper CPU.
+        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+        let mut helper = measured_accounting_group(1);
+        helper.grant.allocation.run_ns = UNIT_NS;
+        helper.usage_observations[0].user_ticks += 24_000;
+        helper.members[0].user_ticks += 24_000;
+        helper.members[0].cpu += UNIT_NS;
+        helper.finish_grant(&control, 250_000);
+        let r = helper.metrics.worst_grant;
+        eprintln!(
+            "adaptive_fixed_oversize synthetic_api=true actual_process=false run_ns={} A_ns={} C_ns={} W_ns={} Q_ns={} debt_ns={} resource_refused={}",
+            r.run_budget_ns,
+            r.a_ns,
+            r.c_ns,
+            r.w_ns,
+            r.q_ns,
+            control.helper_debt_marker(),
+            control.error() == Some(w::Code::ResourceLimit)
+        );
+        assert_eq!(r.run_budget_ns, UNIT_NS);
+        assert!(r.a_ns >= UNIT_NS && r.q_ns > UNIT_NS);
+        assert_eq!(r.q_ns, r.a_ns + r.c_ns);
+        assert_eq!(control.error(), Some(w::Code::ResourceLimit));
+        assert_eq!(control.helper_debt_marker(), 9 * r.q_ns);
+        control.read_pay();
+        assert!(control.accounting.now() >= control.accounting.rest_until.load(Ordering::Acquire));
+    }
+
+    #[test]
     fn measured_quantum_requires_all_closure_predicates_and_keeps_wall_hard() {
         for fault in [
             "valid",
@@ -9980,6 +10513,146 @@ mod helper_admission_tests {
             control.accounting.debt_total.load(Ordering::Acquire),
             9 * cpu.max(UNIT_NS)
         );
+    }
+
+    #[test]
+    fn initial_attach_original_requires_exact_stop_paid_birth_and_no_activation() {
+        // Synthetic API inputs only. The real Attach-panic process test below
+        // resolve's existing owner path checks the actual native/RI/wait4 cut.
+        for fault in [
+            "single",
+            "reserved_child",
+            "not_stopped",
+            "unfunded",
+            "unpaid",
+            "birth_clock",
+            "unknown_birth",
+            "unknown_unfunded",
+            "ticket",
+            "reservation",
+            "child",
+            "foreign",
+            "version",
+            "CONT",
+            "user",
+        ] {
+            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+            let mut helper = accounting_group();
+            helper.identity.pid = 101;
+            helper.identity.pgid = 101;
+            helper.identity.start_identity = 1;
+            helper.pgid = 101;
+            helper.identity.expected_members = if fault == "single" { 1 } else { 2 };
+            helper.confirmed_stopped = fault != "not_stopped";
+            helper.timebase = HelperTimebase {
+                numer: 125,
+                denom: 3,
+            };
+            let mut token = HelperAuditToken::default();
+            token.value[5] = 101;
+            token.value[7] = 3;
+            helper.members[0] = HelperMember {
+                pid: 101,
+                birth: 1,
+                start_abstime: 2,
+                audit_version: 3,
+                final_image_version: 3,
+                audit_token: token,
+                image_phase: HelperImagePhase::Descendant,
+                system_ticks: 2400,
+                cpu: 100_000,
+                ..HelperMember::default()
+            };
+            helper.usage_observations[0] = HelperUsageObservation {
+                pid: 101,
+                system_ticks: 2400,
+                observed_ns: 10,
+                ..HelperUsageObservation::default()
+            };
+            helper.retired_members[0] = RetiredMember {
+                pid: 101,
+                birth: 1,
+                token,
+                current: true,
+            };
+            helper.retain_born_stopped_original();
+            assert!(
+                !helper.creation_settled
+                    && !helper.startup_accounted
+                    && helper.initial_startup.is_none()
+            );
+            assert!(helper.paid_born_stopped_original(&control).is_err());
+            let before = control.helper_debt_marker();
+            let raw = if matches!(fault, "unknown_birth" | "unknown_unfunded") {
+                u64::MAX
+            } else {
+                20_000
+            };
+            control.accounting.charge(
+                if fault == "unknown_unfunded" {
+                    20_000
+                } else {
+                    raw
+                },
+                raw,
+            );
+            let marker = if fault == "unfunded" {
+                control.helper_debt_marker()
+            } else {
+                before
+            };
+            let receipt_known = fault != "birth_clock";
+            helper.retain_born_stopped_cost(&control, receipt_known, raw, marker);
+            match fault {
+                "ticket" => helper.identity.sequence += 1,
+                "reservation" => helper.identity.expected_members = 1,
+                "child" => helper.members[1].pid = 202,
+                "foreign" => {
+                    helper.retired_members[1] = RetiredMember {
+                        pid: 202,
+                        birth: 2,
+                        current: false,
+                        ..RetiredMember::default()
+                    }
+                }
+                "version" => helper.members[0].audit_version += 1,
+                "CONT" => helper.grant.opened = true,
+                "user" => helper.members[0].user_ticks = 1,
+                _ => {}
+            }
+            if fault != "unpaid" {
+                control.read_pay();
+            }
+            let eligible = helper.paid_born_stopped_original(&control).is_ok();
+            eprintln!(
+                "initial_attach_api synthetic=true actual_wait4=false fault={fault} expected_members={} creation_settled={} startup_accounted={} grant_open={} child_pid={} retained_original={} eligible={eligible} independent_startup_credit_ns={} debt_ns={} rest_ns={} qualification=false",
+                helper.identity.expected_members,
+                helper.creation_settled,
+                helper.startup_accounted,
+                helper.grant.opened,
+                helper.members[1].pid,
+                helper.born_stopped_original.is_some(),
+                helper.metrics.startup_cpu_ns,
+                control.accounting.debt_total.load(Ordering::Acquire),
+                control.accounting.rest_total.load(Ordering::Acquire)
+            );
+            assert_eq!(
+                eligible,
+                matches!(fault, "single" | "reserved_child" | "unknown_birth")
+            );
+            if fault == "unknown_birth" {
+                assert_eq!(control.helper_debt_marker() - before, 9 * SPAN_NS);
+                assert!(
+                    control.accounting.clock_failed.load(Ordering::Acquire),
+                    "UNKNOWN birth is never repaired into admission"
+                );
+            }
+            assert_eq!(
+                helper.metrics.startup_cpu_ns, 0,
+                "physical latch never supplies accounting credit"
+            );
+            control.read_pay();
+        }
     }
 
     #[test]
@@ -11049,9 +11722,29 @@ mod helper_admission_tests {
         let heap = heaps().1;
         let wait_cpu = control.observe_interval(wait_at, cpu_ns());
         let wait_wall = u64::try_from(wait_wall.elapsed().as_nanos()).unwrap();
+        let wait_heap = heap;
+        let wait_prior_error = control.error();
+        let wait_debt_before = control.helper_debt_marker();
+        let wait_rest_before = control.accounting.rest_total.load(Ordering::Acquire);
         let wait_paid =
             budget.read_charge_observed_heap(wait_cpu, wait_cpu, wait_wall, UNIT_NS, heap);
+        let wait_added_debt = control.helper_debt_marker() - wait_debt_before;
         control.read_pay();
+        let wait_observed_rest =
+            control.accounting.rest_total.load(Ordering::Acquire) - wait_rest_before;
+        // A measured physical observation may itself overrun/refuse. This
+        // component requires the exact unchanged Budget verdict and full fresh
+        // payment, not an unconditional observer-positivity theorem.
+        let wait_raw = if wait_cpu == u64::MAX || wait_wall == u64::MAX {
+            u64::MAX
+        } else {
+            wait_cpu
+        };
+        let wait_expected_error = if wait_raw > UNIT_NS || wait_heap > HEAP_MAX {
+            Some(w::Code::ResourceLimit)
+        } else {
+            wait_prior_error
+        };
         helper.terminal_ri_unavailable = unavailable_ri;
         let ticket = helper.identity.ticket();
         *control.helper.lock().unwrap() = Some(helper);
@@ -11062,6 +11755,7 @@ mod helper_admission_tests {
                 "source-known fixture premise refused",
             ))
         };
+        let post_callback_error = control.error();
         let ready_callback = proof.helper_reap_ready(ticket);
         let mut helper = control.helper.lock().unwrap().take().unwrap();
         let post_cpu = helper.metrics.terminal_attempt_cpu_ns;
@@ -11218,7 +11912,27 @@ mod helper_admission_tests {
             terminal_at <= terminal_deadline,
             "late terminal observation cannot satisfy the original one-second window"
         );
-        assert!(wait_paid.is_ok());
+        eprintln!(
+            "initial_startup_wait_budget pid={pid} cpu_ns={wait_cpu} wall_ns={wait_wall} heap_bytes={wait_heap} prior_error={wait_prior_error:?} expected_error={wait_expected_error:?} actual_error={:?} added_debt_ns={wait_added_debt} observed_fresh_rest_ns={wait_observed_rest} post_callback_error={post_callback_error:?} physical_component_only=true",
+            wait_paid.as_ref().err()
+        );
+        assert_eq!(wait_paid.as_ref().err().copied(), wait_expected_error);
+        let expected_wait_debt = 9 * if wait_raw == u64::MAX {
+            SPAN_NS
+        } else {
+            wait_raw.max(UNIT_NS)
+        };
+        assert_eq!(wait_added_debt, expected_wait_debt);
+        assert!(
+            control.accounting.now() >= control.accounting.rest_until.load(Ordering::Acquire),
+            "the unchanged fresh debt deadline must be fully paid before this verdict"
+        );
+        if wait_expected_error.is_some() {
+            assert!(
+                control.error().is_some(),
+                "physical settlement cannot erase an observer refusal"
+            );
+        }
         assert_eq!(
             after_payment,
             super::super::resolve::HelperReapReadiness::Ready
@@ -11247,7 +11961,15 @@ mod helper_admission_tests {
             );
             assert_eq!(control.error(), Some(w::Code::ResourceLimit));
         } else {
-            assert!(post_callback.is_ok() && post_retained);
+            assert!(post_retained && helper.metrics.post_exit_observation_known);
+            assert_eq!(post_callback.is_ok(), post_callback_error.is_none());
+            if post_callback.is_err() {
+                assert_eq!(
+                    post_callback_error,
+                    Some(w::Code::ResourceLimit),
+                    "known physical/counter proof does not waive any prior or current cost refusal"
+                );
+            }
         }
         assert!(helper.metrics.initial_post_exit_observation);
         assert_eq!(helper.metrics.grants, 0);
@@ -11277,6 +11999,14 @@ mod helper_admission_tests {
             2000 + helper_convert_ticks(helper.metrics.counter_reads, baseline.timebase).unwrap();
         let excess =
             (reap.user_ns + reap.system_ns).saturating_sub(credit + allowance + HELPER_TEARDOWN_NS);
+        eprintln!(
+            "initial_startup_conservation_oracle pid={pid} raw_wait4_ns={} independent_credit_ns={credit} explicit_rounding_ns={allowance} fixed_T_ns={HELPER_TEARDOWN_NS} oracle_remaining_excess_ns={excess} observed_remaining_excess_ns={} numeric_covered={} observer_wait_refused={} actual_reaped={} group_empty={group_empty}",
+            reap.user_ns + reap.system_ns,
+            helper.metrics.conservation_excess_ns,
+            excess == 0,
+            wait_paid.is_err(),
+            child.reaped
+        );
         assert_eq!(helper.metrics.conservation_budget_ns, credit);
         assert_eq!(helper.metrics.conservation_excess_ns, excess);
         assert_eq!(helper.metrics.conservation_pass, excess == 0);
@@ -12387,9 +13117,11 @@ mod helper_admission_tests {
                 let mut owner = control.helper.lock().unwrap();
                 let helper = owner.as_mut().unwrap();
                 helper.open_grant().unwrap();
-                if fault == "wall_30ms" {
-                    assert_eq!(unsafe { libc::kill(-pid, libc::SIGCONT) }, 0);
-                }
+                // Every arm observes the same already START_SUSPENDED original.
+                // This component has not paid/admitted native creation and must
+                // not CONT it. The wall-only arm delays its first positive STOP
+                // observation; it does not need application CPU to prove the
+                // independent hard wall guard.
                 helper.running = true;
                 helper.confirmed_stopped = false;
                 assert_eq!(
@@ -12489,7 +13221,40 @@ mod helper_admission_tests {
                 } else {
                     helper.sample_with_hint(&control, Some(hint))
                 };
+                let member = helper.members[0];
+                let task = helper.task_observations[0];
+                let raw_usage = helper.usage_observations[0];
+                eprintln!(
+                    "typed_stop_hint_sample source_known=true fault={fault} pid={pid} grant_t0_ns={} hint_observed_ns={observed} sample_ok={} sample_stage={} first_failure_line={} first_failure_stage={} creation_settled={} ready={} running={} grants={} user_ticks={} system_ticks={} raw_ri_user_ticks={} raw_ri_system_ticks={} raw_ri_read_ns={} image_phase={} final_version={} audit_version={} task_status={} task_threads={} task_running={} stopped={} closed={} stop_attempts={} actual_CONT=false qualification=false",
+                    helper.grant.t0_ns,
+                    result.is_ok(),
+                    helper.metrics.sample_stage,
+                    helper.metrics.first_failure_line,
+                    helper.metrics.first_failure_sample_stage,
+                    helper.creation_settled,
+                    helper.ready,
+                    helper.running,
+                    helper.metrics.grants,
+                    member.user_ticks,
+                    member.system_ticks,
+                    raw_usage.user_ticks,
+                    raw_usage.system_ticks,
+                    raw_usage.observed_ns,
+                    member.image_phase as u8,
+                    member.final_image_version,
+                    member.audit_version,
+                    task.status,
+                    task.threads,
+                    task.running,
+                    helper.confirmed_stopped,
+                    helper.grant.closed,
+                    helper.metrics.stop_attempts
+                );
                 if matches!(fault, "valid" | "wall_30ms" | "initial_second_pending") {
+                    assert_eq!(
+                        member.user_ticks, 0,
+                        "this unadmitted stopped control never runs user code"
+                    );
                     assert_eq!(result, Ok(true));
                     assert!(helper.grant.closed && helper.confirmed_stopped);
                     assert_eq!(

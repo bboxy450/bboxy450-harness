@@ -3975,6 +3975,7 @@ mod selected_helper_process_tests {
         pre_effect_credits: AtomicU64,
         pre_effect_unknown: AtomicBool,
         failed_positive_effect: AtomicBool,
+        early_original_settled: AtomicBool,
         preparation_live_before_grant: AtomicU64,
         preparation_drops_before_grant: AtomicU64,
         panic_at: Mutex<PanicAt>,
@@ -4117,6 +4118,18 @@ mod selected_helper_process_tests {
             self.inner.helper_payload_write(ticket, write)
         }
         fn helper_detach(&mut self, ticket: HelperTicket) -> Result<(), Invalid> {
+            let early = self
+                .state
+                .control
+                .helper
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .filter(|h| h.identity.ticket() == ticket)
+                .is_some_and(|h| h.fixture_early_original_settled());
+            self.state
+                .early_original_settled
+                .fetch_or(early, Ordering::AcqRel);
             self.inner.helper_detach(ticket)
         }
         fn helper_post_exit(&mut self, ticket: HelperTicket) -> Result<(), Invalid> {
@@ -4213,6 +4226,7 @@ mod selected_helper_process_tests {
                 pre_effect_credits: AtomicU64::new(0),
                 pre_effect_unknown: AtomicBool::new(false),
                 failed_positive_effect: AtomicBool::new(false),
+                early_original_settled: AtomicBool::new(false),
                 preparation_live_before_grant: AtomicU64::new(u64::MAX),
                 preparation_drops_before_grant: AtomicU64::new(0),
                 panic_at: Mutex::new(panic_at),
@@ -4563,6 +4577,16 @@ mod selected_helper_process_tests {
                 *state.panic_at.lock().unwrap_or_else(|e| e.into_inner()) == PanicAt::None,
                 "panic witness must execute its injected fault"
             );
+            if point == PanicAt::Attach {
+                assert!(
+                    state.early_original_settled.load(Ordering::Acquire),
+                    "attach panic must retain/pay UNKNOWN accounting and actually reap its ungranted original"
+                );
+                assert!(
+                    descendant_pid().is_none(),
+                    "unactivated child reservation cannot execute before CONT"
+                );
+            }
             if point != PanicAt::Attach {
                 assert!(
                     descendant_pid().is_some(),
@@ -4919,6 +4943,10 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
             "failed clock retains and registers the real spawned effect for cleanup"
         );
         assert_eq!(state.native_calls.load(Ordering::Acquire), 1);
+        assert!(
+            state.early_original_settled.load(Ordering::Acquire),
+            "UNKNOWN native clock must remain refused after paid physical original own-reap"
+        );
     }
 
     #[test]

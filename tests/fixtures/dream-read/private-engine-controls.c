@@ -1593,6 +1593,178 @@ static void charge_diagnostic_control(int dir) {
     require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"charge diagnostic stdout formatting and actual flush are paid before reset");
     controls++;reset();
 }
+static void scheduler_control(const char *self,int dir) {
+    reset();outer.deadline=private_cost.deadline;basis.source_coverage=127;basis.command_coverage=65535;strcpy(outer.case_name,"positive");
+    require(engine_owner_priority()&&private_end_unit(private_cost.open_cpu),"scheduler fixture bounded paid preparation");
+    pid_t pid=fixture_fork("adaptive_scheduler");
+    if(pid==0) {
+        if(setpgid(0,0)!=0||raise(SIGSTOP)!=0)_exit(79);
+        volatile unsigned work=1;for(;;)work=work*33+7;
+    }
+    require(pid>0,"scheduler actual original source-known child");
+    struct image first=fixture_stopped(pid);struct private_engine_result result;struct engine_owner owner;
+    memset(&result,0,sizeof(result));memset(&owner,0,sizeof(owner));owner.context=&context;owner.result=&result;
+    owner.input=owner.output=owner.errors=-1;owner.slots=1;owner.closed=owner.direct_custody=owner.source_admitted=1;result.created=1;
+    owner.ticket=(struct engine_ticket){pid,pid,first.birth,0,1};owner.members[0].state.pid=pid;owner.members[0].state.birth=first.birth;
+    fixture_unit_owner=&owner;strcpy(owner.image,self);
+    owner.ledger=openat(dir,"adaptive-scheduler.ndjson",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+    int ack=0;require(owner.ledger>=0&&engine_sample_member(&owner,0,pid,&ack)&&ack,"scheduler original stopped current identity");
+    owner.ticket.start=owner.members[0].state.start_absolute;
+    require(private_end_unit(private_cost.open_cpu),"scheduler stopped identity and ledger setup separately paid");
+    int granted=engine_grant(&owner);
+    uint64_t run=owner.scheduler.used_run,cap=owner.scheduler.used_cap,A=owner.grant.actual_cpu,C=owner.grant.controller,Q=owner.grant.charge,W=owner.grant.windows;
+    if(!owner.failed)(void)engine_failure(&owner,"cancelled","source-known scheduler fixture cleanup after its original grant");
+    int status=-1;(void)engine_retire(&owner,&status);
+    if(owner.settlement_quarantined)engine_quarantine_hold(&owner);
+    require(owner.direct_reaped&&owner.wait_observed&&result.reaped==1&&result.group_gone&&result.retired_coverage,
+        "scheduler original own actual reap and group proof precede causal assertions");
+    require(fsync(owner.ledger)==0&&close(owner.ledger)==0,"scheduler owned raw policy and interval evidence persisted");owner.ledger=-1;
+    require(private_end_unit(private_cost.open_cpu),"scheduler original raw evidence and descriptor disposal paid");
+    fprintf(stderr,"private_adaptive_scheduler_source_known pid=%d actual_own_wait4=true group_gone=true granted=%d run_used_ns=%llu run_cap_ns=%llu aggregate_A_target_ns=%llu controller_reserve_ns=%llu STOP_latency_reserve_ns=%llu W_ns=%llu A_ns=%llu C_ns=%llu Q_ns=%llu next_run_ns=%llu fresh_checks=%llu skipped_optional_stages=%llu debt_charged_ns=%llu debt_paid_ns=%llu fixture_fork_only=true qualifying_tool_pair=false runtime_approved=false\n",
+        pid,granted,(unsigned long long)run,(unsigned long long)cap,(unsigned long long)owner.scheduler.used_target,
+        (unsigned long long)owner.scheduler.used_controller_reserve,(unsigned long long)owner.scheduler.used_latency_reserve,
+        (unsigned long long)W,(unsigned long long)A,(unsigned long long)C,(unsigned long long)Q,(unsigned long long)owner.scheduler.next_run,
+        (unsigned long long)owner.scheduler.checks,(unsigned long long)owner.scheduler.skipped_stages,
+        (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+    require(fflush(stderr)==0&&private_end_unit(private_cost.open_cpu),"scheduler final raw diagnostics charged and paid");
+    require(granted&&run<=cap&&run<1000000&&Q<=1000000,
+        "fixed oversize run window cannot pass adaptive scheduling and the unchanged quantum");
+    // Bounded numeric API projection of NEXT-grant feedback. No projected
+    // value is an actual kernel measurement or a second grant/CONT receipt.
+    struct engine_owner projected=owner;memset(&projected.scheduler,0,sizeof(projected.scheduler));projected.failed=0;
+    require(engine_scheduler_prepare(&projected)&&projected.scheduler.used_run==350000&&projected.scheduler.used_target==550000,
+        "scheduler initial single-slot allocation keeps explicit controller and STOP headroom");
+    projected.grant.roster_closed=projected.grant.measured=1;projected.grant.unknown_mask=0;projected.grant.ack_mask=1;
+    projected.members[0].phase=ENGINE_EXPECTED;
+    projected.grant.actual_cpu=600000;projected.stop_attempts=1;projected.stop_result=0;projected.stop_call_ns=1000000;
+    projected.grant.end[0]=1100000;engine_scheduler_update(&projected,250000);
+    require(projected.scheduler.next_run==175000&&projected.scheduler.decreases==1,
+        "known aggregate CPU above target halves the actual previous run before cap clamping");
+    require(engine_scheduler_prepare(&projected),"scheduler next feedback projection remains bounded");
+    projected.grant.actual_cpu=200000;engine_scheduler_update(&projected,250000);
+    require(projected.scheduler.next_run==185000&&projected.scheduler.grows==1,"scheduler grows by only ten microseconds under a known low target");
+    require(engine_scheduler_prepare(&projected),"scheduler high controller projection allocation");
+    projected.grant.actual_cpu=600000;engine_scheduler_update(&projected,600000);
+    require(projected.scheduler.next_run==92500&&projected.scheduler.controller_reserve==600000,
+        "scheduler decreases actual run once rather than halving the newly tightened controller cap");
+    memset(&projected.scheduler,0,sizeof(projected.scheduler));projected.slots=2;
+    require(engine_scheduler_prepare(&projected)&&projected.scheduler.used_run==175000&&projected.scheduler.used_cap==175000,
+        "scheduler divides aggregate helper target by original reserved slots including absent unknown child");
+    projected.grant.measured=0;projected.grant.unknown_mask=2;projected.grant.actual_cpu=0;projected.grant.ack_mask=1;
+    engine_scheduler_update(&projected,250000);
+    require(projected.scheduler.next_run==175000&&!projected.scheduler.grows,"unknown slot cannot earn adaptive growth");
+    projected.grant.t0=1000000;
+    require(engine_scheduler_due(&projected,projected.grant.t0+projected.scheduler.used_run+1),
+        "fresh expired elapsed window forbids another optional ordinary stage");
+    require(private_end_unit(private_cost.open_cpu),"finite scheduler feedback projections are paid ordinary work");
+    controls++;reset();
+}
+static struct window_ledger scheduler_api_window(unsigned slots,uint64_t supplied_cpu_per_slot) {
+    unsigned all=(1u<<slots)-1u;
+    struct window_ledger g={.operation=1,.sequence=1,.t0=1000000,.t_close=2401000,.cpu_start=1,.cpu_close=250001,
+        .slots=slots,.ack_mask=all,.identity_mask=all,.roster_closed=1,.source_complete=1,
+        .baseline_mask=all,.counter_mask=all,.post_ack_mask=all,.counter_identity_mask=all,.conversion_mask=all,
+        .timebase_numer=1,.timebase_denom=1};
+    for(unsigned i=0;i<slots;i++) {
+        g.end[i]=2400000;g.baseline_read[i]=999000;g.counter_read[i]=2400001;
+        g.baseline_ticks[i]=10;g.endpoint_ticks[i]=10+supplied_cpu_per_slot;g.slot_cpu[i]=supplied_cpu_per_slot;
+        g.baseline_version[i]=g.counter_version[i]=i+1;g.counter_kind[i]=COUNTER_SOURCE_POST_ACK_RI;
+        require(engine_safe_sum(g.actual_cpu,supplied_cpu_per_slot,&g.actual_cpu),"finite scheduler API supplied-counter checked sum");
+    }
+    return g;
+}
+static void scheduler_api_control(void) {
+    reset();outer.deadline=private_cost.deadline;
+    struct private_engine_result result;struct engine_owner owner;memset(&result,0,sizeof(result));memset(&owner,0,sizeof(owner));
+    owner.context=&context;owner.result=&result;fixture_unit_owner=&owner;
+    // REAL C API calls, with explicitly SUPPLIED finite proof/counter inputs.
+    // No fork/spawn, native admission, RI query, helper work or CONT occurs.
+    // CPU counters are independent test inputs, NEVER inferred from run/W.
+    for(unsigned slots=1;slots<=2;slots++) {
+        memset(&owner.scheduler,0,sizeof(owner.scheduler));owner.slots=slots;
+        require(engine_scheduler_prepare(&owner),"process-free typed reserved-slot allocator API");
+        uint64_t run=engine_scheduler_window(&owner),expected=350000/slots;
+        struct window_ledger g=scheduler_api_window(slots,350000/slots);enum ledger_result verdict=window_charge(&g);
+        uint64_t until=0;int debt_known=additive_debt(0,100,g.charge,&until);
+        fprintf(stderr,"private_scheduler_allocator_api slots=%u run_ns=%llu cap_ns=%llu expected_initial_ns=%llu aggregate_target_ns=%llu supplied_A_ns=%llu supplied_C_ns=%llu supplied_W_ns=%llu computed_Q_ns=%llu ledger_verdict=%u projected_debt_ns=%llu proof_inputs=finite_supplied counter_inputs=finite_supplied CPU_from_run_or_wall=false native_births=0 helper_CPU_observed=false actual_helper_quantum_witness=false runtime_approved=false\n",
+            slots,(unsigned long long)run,(unsigned long long)owner.scheduler.used_cap,(unsigned long long)expected,
+            (unsigned long long)owner.scheduler.used_target,(unsigned long long)g.actual_cpu,(unsigned long long)g.controller,
+            (unsigned long long)g.windows,(unsigned long long)g.charge,(unsigned)verdict,(unsigned long long)(debt_known?until-100:UINT64_MAX));
+        require(fflush(stderr)==0&&private_end_unit(private_cost.open_cpu),"process-free allocator API actual controller cost and fresh rest");
+        require(run==expected&&run<=owner.scheduler.used_cap&&run<1000000&&verdict==LEDGER_OK&&g.measured
+            &&g.charge==600000&&debt_known&&until==9000100,
+            "process-free allocator must satisfy its bound and independent Q/debt assertions");
+    }
+    memset(&owner.scheduler,0,sizeof(owner.scheduler));owner.slots=1;
+    require(engine_scheduler_prepare(&owner)&&owner.scheduler.used_target==550000,
+        "process-free crossing case retains original target before controller observation");
+    owner.grant=scheduler_api_window(1,500000);owner.grant.measured=1;
+    owner.members[0].phase=ENGINE_EXPECTED;owner.stop_attempts=1;owner.stop_result=0;owner.stop_call_ns=2300000;
+    engine_scheduler_update(&owner,350000);
+    fprintf(stderr,"private_scheduler_api_crossing old_target_ns=%llu measured_A_ns=%llu observed_C_ns=%llu new_target_ns=%llu previous_run_ns=%llu next_run_ns=%llu decrease_count=%llu old_allocation_unchanged=%s counter_inputs=finite_supplied native_births=0 helper_CPU_observed=false runtime_approved=false\n",
+        (unsigned long long)owner.scheduler.used_target,(unsigned long long)owner.grant.actual_cpu,
+        (unsigned long long)owner.scheduler.last_controller,(unsigned long long)engine_scheduler_target(&owner.scheduler),
+        (unsigned long long)owner.scheduler.used_run,(unsigned long long)owner.scheduler.next_run,
+        (unsigned long long)owner.scheduler.decreases,owner.scheduler.used_target==550000?"true":"false");
+    require(fflush(stderr)==0&&private_end_unit(private_cost.open_cpu),"process-free crossing feedback and raw diagnostics are charged");
+    require(owner.scheduler.used_target==550000&&engine_scheduler_target(&owner.scheduler)==450000
+        &&owner.scheduler.controller_reserve==350000&&owner.scheduler.next_run==175000&&owner.scheduler.decreases==1,
+        "process-free feedback compares CPU with newly reduced target while preserving original allocation");
+    for(unsigned unknown_controller=0;unknown_controller<2;unknown_controller++) {
+        memset(&owner.scheduler,0,sizeof(owner.scheduler));
+        require(engine_scheduler_prepare(&owner),"process-free window-basis feedback allocation");
+        owner.grant=scheduler_api_window(1,600000);owner.grant.measured=0;owner.grant.force_window=1;
+        uint64_t supplied_controller=unknown_controller?UINT64_MAX:250000;
+        engine_scheduler_update(&owner,supplied_controller);
+        fprintf(stderr,"private_scheduler_api_window_shrink measured_basis=false observed_A_ns=600000 observed_C_ns=%llu controller_known=%s next_target_ns=%llu previous_run_ns=350000 next_run_ns=%llu decrease_count=%llu growth_count=%llu counter_inputs=finite_supplied native_births=0 helper_CPU_observed=false runtime_approved=false\n",
+            (unsigned long long)supplied_controller,unknown_controller?"false":"true",
+            (unsigned long long)engine_scheduler_target(&owner.scheduler),(unsigned long long)owner.scheduler.next_run,
+            (unsigned long long)owner.scheduler.decreases,(unsigned long long)owner.scheduler.grows);
+        require(fflush(stderr)==0&&private_end_unit(private_cost.open_cpu),"process-free window-basis shrink and diagnostic cost paid");
+        require(owner.scheduler.next_run==175000&&owner.scheduler.decreases==1&&!owner.scheduler.grows,
+            "process-free finite observed CPU shrinks window basis without earning proof or unknown-controller growth");
+    }
+    memset(&owner.scheduler,0,sizeof(owner.scheduler));owner.slots=2;
+    require(engine_scheduler_prepare(&owner),"process-free live two-member latency allocation");
+    owner.grant=scheduler_api_window(2,50000);owner.grant.measured=1;
+    owner.grant.end[1]=2600000;owner.grant.counter_read[1]=2600001;owner.grant.t_close=2601000;
+    owner.members[0].phase=owner.members[1].phase=ENGINE_EXPECTED;
+    engine_scheduler_update(&owner,250000);
+    require(owner.scheduler.last_latency_known&&owner.scheduler.last_latency==300000&&owner.scheduler.latency_reserve==300000
+        &&owner.scheduler.next_run==25000,"process-free live STOP latency uses maximum across reserved members");
+    fprintf(stderr,"private_scheduler_api_max_latency live_ACK_delays_ns=100000,300000 selected_latency_ns=%llu reserved_slots=2 next_run_ns=%llu counter_inputs=finite_supplied native_births=0 helper_CPU_observed=false runtime_approved=false\n",
+        (unsigned long long)owner.scheduler.last_latency,(unsigned long long)owner.scheduler.next_run);
+    memset(&owner.scheduler,0,sizeof(owner.scheduler));owner.slots=1;
+    require(engine_scheduler_prepare(&owner),"process-free feedback initial allocation");
+    owner.grant=scheduler_api_window(1,600000);owner.grant.measured=1;
+    owner.members[0].phase=ENGINE_EXPECTED;owner.stop_attempts=1;owner.stop_result=0;owner.stop_call_ns=2300000;
+    engine_scheduler_update(&owner,250000);
+    require(owner.scheduler.next_run==175000&&owner.scheduler.decreases==1,"process-free measured feedback halves actual prior run");
+    require(engine_scheduler_prepare(&owner),"process-free low feedback next allocation");
+    owner.grant.actual_cpu=200000;engine_scheduler_update(&owner,250000);
+    require(owner.scheduler.next_run==185000&&owner.scheduler.grows==1,"process-free low feedback grows only ten microseconds");
+    require(engine_scheduler_prepare(&owner),"process-free high controller feedback allocation");
+    owner.grant.actual_cpu=600000;engine_scheduler_update(&owner,600000);
+    require(owner.scheduler.next_run==92500&&owner.scheduler.controller_reserve==600000,
+        "process-free feedback halves actual run before newly tightened cap");
+    memset(&owner.scheduler,0,sizeof(owner.scheduler));owner.slots=2;
+    require(engine_scheduler_prepare(&owner),"process-free reserved absent-child allocation");
+    owner.grant=scheduler_api_window(2,0);owner.grant.measured=0;owner.grant.unknown_mask=2;
+    engine_scheduler_update(&owner,250000);
+    require(owner.scheduler.next_run==175000&&!owner.scheduler.grows,"process-free unknown reserved child earns no growth");
+    owner.grant.t0=1000000;
+    require(engine_scheduler_due(&owner,1175001),"process-free fresh expired clock requires STOP before optional work");
+    // Independent raw CPU counterexample: a supplied1.2ms CPU delta is NOT a
+    // conclusion about the allocator's wall window or any real process.
+    struct window_ledger over=scheduler_api_window(1,1200000);enum ledger_result limit=window_charge(&over);
+    uint64_t full_debt=0;int full_known=additive_debt(0,100,over.charge,&full_debt);
+    require(limit==LEDGER_LIMIT&&over.measured&&over.actual_cpu==1200000&&over.charge==1450000
+        &&full_known&&full_debt==13050100,"process-free supplied oversized CPU retains exact refusal and full ninefold debt");
+    fprintf(stderr,"private_scheduler_api_complete typed_slot_cases=2 decrease=true slow_growth=true high_controller_cap=true unknown_no_growth=true stale_elapsed_stops=true supplied_over_CPU_ns=1200000 computed_over_Q_ns=%llu projected_over_debt_ns=%llu actual_controller_CPU_only=true native_births=0 helper_CPU_observed=false physical_fixed_oversize_witness=deferred_unproven canonical_suite_receipt=false runtime_approved=false\n",
+        (unsigned long long)over.charge,(unsigned long long)(full_debt-100));
+    require(fflush(stderr)==0&&private_end_unit(private_cost.open_cpu),"process-free feedback and diagnostic actual CPU paid");
+    reset();
+}
 static void initial_stopped_controls(const char *self,int dir,unsigned selected) {
     for(unsigned mode=0;mode<4;mode++) {
         if(selected<4&&selected!=mode)continue;
@@ -1742,6 +1914,7 @@ int main(int argc,char **argv) {
         volatile unsigned work=1;for(;;)work=work*33+7;
     }
     if(argc==2&&!strcmp(argv[1],"busy-child")){volatile uint64_t work=1;for(;;)work=work*33+7;}
+    if(argc==2&&!strcmp(argv[1],"scheduler-api-control")){scheduler_api_control();return 0;}
     // Deliberate mutants run their existing causal witness directly, so an
     // unrelated process readiness gate cannot substitute for that assertion.
     unsigned payment_only=argc==2&&!strcmp(argv[1],"hold-payment-control");
@@ -1753,9 +1926,10 @@ int main(int argc,char **argv) {
     unsigned charge_only=argc==2&&!strcmp(argv[1],"charge-diagnostic-control");
     unsigned initial_only=argc==3&&!strcmp(argv[1],"initial-stopped-control");
     unsigned teardown_only=argc==3&&!strcmp(argv[1],"exit-teardown-control");
+    unsigned scheduler_only=argc==2&&!strcmp(argv[1],"scheduler-control");
     if(argc==2&&!strcmp(argv[1],"hold-scheduling-control")){payment_only=1;hold_scheduling_only=1;}
     if(argc==2&&!strcmp(argv[1],"hold-final-scheduling-control")){payment_only=1;hold_scheduling_only=2;}
-    require(argc==1||payment_only||lifetime_only||diagnostics_only||closure_only||setup_budget_only||quantum_only||charge_only||initial_only||teardown_only,"private source-known controls argc");require(atexit(dispose_owned)==0,"owned cleanup registration");
+    require(argc==1||payment_only||lifetime_only||diagnostics_only||closure_only||setup_budget_only||quantum_only||charge_only||initial_only||teardown_only||scheduler_only,"private source-known controls argc");require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
     fprintf(stderr,"private_engine_fixture_source_known pid=%d retained=%s real_candidate_created=0 runtime_approved=false\n",getpid(),root);
@@ -1782,6 +1956,7 @@ int main(int argc,char **argv) {
     if(charge_only){charge_diagnostic_control(dir);require(close(dir)==0,"owned charge-only root close");return 0;}
     if(initial_only){unsigned mode=(unsigned)strtoul(argv[2],NULL,10);require(mode<4,"exact four initial stopped source controls");initial_stopped_controls(self,dir,mode);require(close(dir)==0,"owned initial-only root close");return 0;}
     if(teardown_only){unsigned mode=(unsigned)strtoul(argv[2],NULL,10);require(mode<2,"exact two exit-teardown causal assertions");exit_teardown_control(self,dir,mode);require(close(dir)==0,"owned exit-teardown root close");return 0;}
+    if(scheduler_only){scheduler_control(self,dir);require(close(dir)==0,"owned scheduler root close");return 0;}
     if(payment_only||lifetime_only) {
         require(engine_owner_priority(),"source-known narrow controller priority");
         basis.source_coverage=127;basis.command_coverage=65535;
@@ -1796,6 +1971,7 @@ int main(int argc,char **argv) {
     charge_diagnostic_control(dir);
     initial_stopped_controls(self,dir,4);
     exit_teardown_control(self,dir,2);
+    scheduler_control(self,dir);
     process_control(self,0);process_control(self,1);
     closure_stage_controls(self,dir);pending_exec_control(self,dir);settlement_control(self,dir,0);settlement_control(self,dir,1);settlement_control(self,dir,2);
     quarantine_hold_process_control(self,root,dir);

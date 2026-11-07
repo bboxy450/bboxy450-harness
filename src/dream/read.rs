@@ -1073,6 +1073,18 @@ impl HelperSummary {
                 continue;
             }
             eprintln!(
+                "dream-read helper_allocation decision=66236 selection={selection} sequence={} grant_index={} reserved_slots={} run_budget_ns={} target_aggregate_A_ns={} controller_reserve_ns={} stop_latency_reserve_ns={} observed_stop_latency_known={} observed_stop_latency_ns={} advisory_only=true actual_Q_limit_ns=1000000 hard_W_limit_ns=25000000",
+                r.sequence,
+                r.grant_index,
+                r.reserved,
+                r.run_budget_ns,
+                r.target_a_ns,
+                r.controller_reserve_ns,
+                r.stop_latency_reserve_ns,
+                r.stop_latency_known,
+                r.observed_stop_latency_ns,
+            );
+            eprintln!(
                 "dream-read helper_charge_basis decision=66236 selection={selection} sequence={} grant_index={} basis={} effective_basis={} unknown_mask={} post_ack_mask={} monotonic_mask={} slot0_a_ns={} slot1_a_ns={} timebase_numer={} timebase_denom={} counters_read={} member0_counter_source={} member1_counter_source={} live_child_cpu_ns={} rollup_child_cpu_ns={} rollup_provisional={} rollup_reconciled={} rollup_revoked={} rollup_exit_observed_ns={} rollup_read_ns={} measured_grants={} window_grants={}",
                 r.sequence,
                 r.grant_index,
@@ -1227,8 +1239,9 @@ impl HelperSummary {
             m.initial_startup_rest_until_ns,
         );
         eprintln!(
-            "dream-read helper_reap_permission decision=66236 sequence={sequence} pid={pid} physical_valid={} actual_ri_attempts={} counter_unknown={} raw_l_ns={} attempt_retained={} attempt_clock_known={} attempt_cpu_ns={} attempt_wall_ns={} bsd_result={} bsd_errno={:?} ri_result={:?} ri_errno={:?} ri_unavailable_injected={} last_guard={} native_code={} accounting_success_is_permission=false",
+            "dream-read helper_reap_permission decision=66236 sequence={sequence} pid={pid} physical_valid={} initial_physical_only={} actual_ri_attempts={} counter_unknown={} raw_l_ns={} attempt_retained={} attempt_clock_known={} attempt_cpu_ns={} attempt_wall_ns={} bsd_result={} bsd_errno={:?} ri_result={:?} ri_errno={:?} ri_unavailable_injected={} last_guard={} native_code={} accounting_success_is_permission=false",
             m.terminal_physical_valid,
+            m.initial_physical_only,
             m.terminal_ri_attempts,
             m.terminal_attempt_unknown,
             m.terminal_l_raw_ns,
@@ -1355,7 +1368,18 @@ impl super::resolve::ProofPace for ProofClock {
         ]
         .into_iter()
         .all(|v| v != u64::MAX);
-        let debt = span.inclusive_cpu_ns.max(1_000_000).checked_mul(9);
+        // Any missing native/application clock retains the canonical UNKNOWN
+        // inclusive cost, even if another raw component happened to be finite.
+        let accounted_birth_cpu = if known {
+            span.inclusive_cpu_ns
+        } else {
+            u64::MAX
+        };
+        let debt = if accounted_birth_cpu == u64::MAX {
+            Some(27_000_000)
+        } else {
+            accounted_birth_cpu.max(1_000_000).checked_mul(9)
+        };
         {
             let mut summary = self.helper_summary.borrow_mut();
             summary.cost_known &= known;
@@ -1372,15 +1396,16 @@ impl super::resolve::ProofPace for ProofClock {
                 .creation_debt
                 .saturating_add(debt.unwrap_or(u64::MAX));
         }
-        let (control, charged) = {
+        let (control, charged, birth_debt_before) = {
             let mut b = self.budget.borrow_mut();
+            let birth_debt_before = b.control.helper_debt_marker();
             let charged = b.read_charge(
-                span.inclusive_cpu_ns,
+                accounted_birth_cpu,
                 span.app_cpu_ns,
                 span.inclusive_wall_ns,
                 3_000_000,
             );
-            (b.control.clone(), charged)
+            (b.control.clone(), charged, birth_debt_before)
         };
         let code = if !known || debt.is_none() {
             Some(c::Code::SourceUnavailable)
@@ -1410,6 +1435,37 @@ impl super::resolve::ProofPace for ProofClock {
                 .compare_exchange(0, 4, Ordering::AcqRel, Ordering::Acquire);
         }
         control.read_pay();
+        if let Some(identity) = span.identity.as_ref() {
+            let bookkeeping_cpu = super::c1::cleanup_unit_observed(&control, || {
+                let mut helper = control.helper.lock().unwrap_or_else(|p| p.into_inner());
+                if let Some(h) = helper
+                    .as_mut()
+                    .filter(|h| h.identity.ticket() == identity.ticket())
+                {
+                    h.retain_born_stopped_cost(
+                        &control,
+                        true,
+                        accounted_birth_cpu,
+                        birth_debt_before,
+                    );
+                }
+            });
+            if bookkeeping_cpu == u64::MAX {
+                let mut helper = control.helper.lock().unwrap_or_else(|p| p.into_inner());
+                if let Some(h) = helper
+                    .as_mut()
+                    .filter(|h| h.identity.ticket() == identity.ticket())
+                {
+                    h.retain_born_stopped_cost(
+                        &control,
+                        false,
+                        accounted_birth_cpu,
+                        birth_debt_before,
+                    );
+                }
+            }
+            control.read_pay();
+        }
         if let Some(code) = code
             .or_else(|| *self.failure.borrow())
             .or_else(|| charged.err())
@@ -1676,7 +1732,10 @@ impl super::resolve::ProofPace for ProofClock {
         loop {
             let h = helper.as_mut().unwrap();
             match h.sample(&b.control) {
-                Ok(true) => break,
+                Ok(true) => {
+                    h.retain_born_stopped_original();
+                    break;
+                }
                 Ok(false)
                     if h.initial_stop_pending
                         && waiting.elapsed() < Duration::from_millis(25)
@@ -2033,6 +2092,7 @@ impl super::resolve::ProofPace for ProofClock {
         m.post_exit_observations = h.metrics.post_exit_observations;
         m.post_exit_observation_known = h.metrics.post_exit_observation_known;
         m.initial_post_exit_observation = h.metrics.initial_post_exit_observation;
+        m.initial_physical_only = h.metrics.initial_physical_only;
         m.initial_startup_baseline_ns = h.metrics.initial_startup_baseline_ns;
         m.initial_startup_rest_until_ns = h.metrics.initial_startup_rest_until_ns;
         m.terminal_physical_valid = h.metrics.terminal_physical_valid;
