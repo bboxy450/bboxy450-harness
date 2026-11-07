@@ -1021,6 +1021,11 @@ impl Preparer {
             .into();
             d.target =
                 f::compact_heading(python.as_ref().map_or(command.as_str(), |p| p.source), 80);
+            // `cd DIR && python3 …` reads as Run Python in DIR (its last component).
+            if let Some(cwd) = python.as_ref().and_then(|p| p.cwd) {
+                let leaf = cwd.trim_end_matches('/').rsplit('/').next().unwrap_or(cwd);
+                d.place = Some(if leaf.is_empty() { cwd } else { leaf }.to_owned());
+            }
         }
         let exit = term.as_ref().and_then(|t| match &t.body {
             Item::Terminal { exit, .. } => *exit,

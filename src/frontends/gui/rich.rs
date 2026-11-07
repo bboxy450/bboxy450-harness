@@ -25,8 +25,44 @@ use std::{collections::HashMap, ops::Range, sync::Arc};
 pub struct PythonSnippet<'a> {
     pub source: &'a str,
     pub original: &'a str,
+    /// A literal `cd DIR &&` (or `;`) before the interpreter: where it runs.
+    pub cwd: Option<&'a str>,
+}
+/// Agents often run Python from a directory: `cd DIR && python3 - <<'PY'`. Only a
+/// plain or single-quoted path is admitted; any expansion stays a shell command.
+fn cd_prefix(command: &str) -> Option<(&str, &str)> {
+    let rest = command.trim_start().strip_prefix("cd ")?.trim_start();
+    let (dir, after) = if let Some(quoted) = rest.strip_prefix('\'') {
+        let end = quoted.find('\'')?;
+        (&quoted[..end], &quoted[end + 1..])
+    } else {
+        let end = rest.find(|c: char| c.is_whitespace() || c == ';' || c == '&')?;
+        let dir = &rest[..end];
+        if !dir
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_./-~@+".contains(c))
+        {
+            return None;
+        }
+        (dir, &rest[end..])
+    };
+    if dir.is_empty() || dir.contains('\n') {
+        return None;
+    }
+    let after = after.trim_start();
+    let after = after.strip_prefix("&&").or_else(|| after.strip_prefix(';'))?;
+    Some((dir, after.trim_start()))
 }
 pub fn python_snippet(command: &str) -> Option<PythonSnippet<'_>> {
+    if let Some((dir, rest)) = cd_prefix(command) {
+        let mut snippet = interpreter_snippet(rest)?;
+        snippet.original = command;
+        snippet.cwd = Some(dir);
+        return Some(snippet);
+    }
+    interpreter_snippet(command)
+}
+fn interpreter_snippet(command: &str) -> Option<PythonSnippet<'_>> {
     fn executable(word: &str) -> bool {
         if !word
             .chars()
@@ -78,6 +114,7 @@ pub fn python_snippet(command: &str) -> Option<PythonSnippet<'_>> {
                 return Some(PythonSnippet {
                     source,
                     original: command,
+                    cwd: None,
                 });
             }
             offset += line.len();
@@ -113,6 +150,7 @@ pub fn python_snippet(command: &str) -> Option<PythonSnippet<'_>> {
     Some(PythonSnippet {
         source,
         original: command,
+        cwd: None,
     })
 }
 
@@ -1011,6 +1049,8 @@ mod quiet_code_tests {
             "python3 <<PY\nprint(42)\nPY",
             "python3 -I -c 'import json; print(\"雪\")'",
             "python -c \"print('snow')\"",
+            "cd /Users/me/twig/ui && python3 - <<'PY'\nprint(open('index.html').read())\nPY",
+            "cd '/tmp/a b'; python3 -c 'print(1)'",
         ] {
             let parsed = python_snippet(command).expect(command);
             assert_eq!(parsed.original.as_bytes(), command.as_bytes());
@@ -1032,6 +1072,10 @@ mod quiet_code_tests {
             "node -e 'console.log(1)'",
             "git add file\ngit commit",
             "python3 -m pip install x",
+            "cd $HOME && python3 -c 'print(1)'",
+            "cd a && b && python3 -c 'print(1)'",
+            "cd `pwd` && python3 -c 'print(1)'",
+            "cd x && python3 - <<'PY'\nprint(1)\nPY\ngit add .",
         ] {
             assert!(
                 python_snippet(command).is_none(),
